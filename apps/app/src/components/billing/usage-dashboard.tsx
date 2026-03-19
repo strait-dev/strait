@@ -124,10 +124,10 @@ export function UsageDashboard() {
           used={usage.usage.compute_credit.used}
         />
         <UsageGauge
-          label="AI Assistant"
-          limit={usage.usage.ai_assistant_messages_today.limit}
-          percent={usage.usage.ai_assistant_messages_today.percent}
-          used={usage.usage.ai_assistant_messages_today.used}
+          label="AI Model Calls"
+          limit={usage.usage.ai_model_calls_today.limit}
+          percent={usage.usage.ai_model_calls_today.percent}
+          used={usage.usage.ai_model_calls_today.used}
         />
       </div>
 

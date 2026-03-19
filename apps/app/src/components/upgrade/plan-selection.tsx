@@ -619,7 +619,7 @@ const COMPARISON_FEATURES = [
   },
   { name: "Regions", free: "1", starter: "6", pro: "All", enterprise: "All" },
   {
-    name: "AI assistant messages/day",
+    name: "AI model calls/day",
     free: "20",
     starter: "100",
     pro: "500",

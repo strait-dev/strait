@@ -22,7 +22,7 @@ type OrgPlanLimits struct {
 	MaxAlertRulesPerProj    int      // -1 = unlimited
 	MaxWebhookSubsPerProj   int      // -1 = unlimited
 	MaxLogDrainsPerOrg      int      // -1 = unlimited
-	MaxAIAssistantMsgDay    int      // -1 = unlimited
+	MaxAIModelCallsPerDay   int      // -1 = unlimited
 	AIAssistantBYOK         bool
 	HasRBAC                 bool
 	RBACLevel               string // "", "basic", "full"
@@ -54,7 +54,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxAlertRulesPerProj:    3,
 		MaxWebhookSubsPerProj:   2,
 		MaxLogDrainsPerOrg:      0,
-		MaxAIAssistantMsgDay:    20,
+		MaxAIModelCallsPerDay:   20,
 		AIAssistantBYOK:         false,
 		HasRBAC:                 false,
 		RBACLevel:               "",
@@ -83,7 +83,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxAlertRulesPerProj:    10,
 		MaxWebhookSubsPerProj:   10,
 		MaxLogDrainsPerOrg:      1,
-		MaxAIAssistantMsgDay:    100,
+		MaxAIModelCallsPerDay:   100,
 		AIAssistantBYOK:         false,
 		HasRBAC:                 true,
 		RBACLevel:               "basic",
@@ -112,7 +112,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxAlertRulesPerProj:    50,
 		MaxWebhookSubsPerProj:   50,
 		MaxLogDrainsPerOrg:      5,
-		MaxAIAssistantMsgDay:    500,
+		MaxAIModelCallsPerDay:   500,
 		AIAssistantBYOK:         true,
 		HasRBAC:                 true,
 		RBACLevel:               "full",
@@ -141,7 +141,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxAlertRulesPerProj:    -1,
 		MaxWebhookSubsPerProj:   -1,
 		MaxLogDrainsPerOrg:      -1,
-		MaxAIAssistantMsgDay:    -1,
+		MaxAIModelCallsPerDay:   -1,
 		AIAssistantBYOK:         true,
 		HasRBAC:                 true,
 		RBACLevel:               "full",

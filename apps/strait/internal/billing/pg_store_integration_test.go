@@ -323,20 +323,20 @@ func TestPgStore_AggregatesComputeAndAIUsage(t *testing.T) {
 	day2Start := time.Date(2026, 3, 11, 0, 0, 0, 0, time.UTC)
 	day3Start := time.Date(2026, 3, 12, 0, 0, 0, 0, time.UTC)
 
-	day1Count, err := pgStore.CountAIAssistantMessagesByOrg(ctx, orgID, day1Start, day2Start)
+	day1Count, err := pgStore.CountAIModelCallsByOrg(ctx, orgID, day1Start, day2Start)
 	if err != nil {
-		t.Fatalf("CountAIAssistantMessagesByOrg(day1) error = %v", err)
+		t.Fatalf("CountAIModelCallsByOrg(day1) error = %v", err)
 	}
 	if day1Count != 2 {
-		t.Fatalf("CountAIAssistantMessagesByOrg(day1) = %d, want 2", day1Count)
+		t.Fatalf("CountAIModelCallsByOrg(day1) = %d, want 2", day1Count)
 	}
 
-	day2Count, err := pgStore.CountAIAssistantMessagesByOrg(ctx, orgID, day2Start, day3Start)
+	day2Count, err := pgStore.CountAIModelCallsByOrg(ctx, orgID, day2Start, day3Start)
 	if err != nil {
-		t.Fatalf("CountAIAssistantMessagesByOrg(day2) error = %v", err)
+		t.Fatalf("CountAIModelCallsByOrg(day2) error = %v", err)
 	}
 	if day2Count != 1 {
-		t.Fatalf("CountAIAssistantMessagesByOrg(day2) = %d, want 1", day2Count)
+		t.Fatalf("CountAIModelCallsByOrg(day2) = %d, want 1", day2Count)
 	}
 }
 

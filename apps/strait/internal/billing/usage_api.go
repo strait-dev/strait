@@ -34,14 +34,15 @@ type UsageDimension struct {
 
 // UsageDimensions groups all quota dimensions.
 type UsageDimensions struct {
-	RunsToday        UsageDimension `json:"runs_today"`
-	ConcurrentRuns   UsageDimension `json:"concurrent_runs"`
-	ComputeCredit    UsageDimension `json:"compute_credit"`
-	Projects         UsageDimension `json:"projects"`
-	Members          UsageDimension `json:"members"`
-	AIMessages       UsageDimension `json:"ai_assistant_messages_today"`
-	RetentionDays    int            `json:"retention_days"`
-	RegionsAvailable int            `json:"regions_available"`
+	RunsToday           UsageDimension `json:"runs_today"`
+	ConcurrentRuns      UsageDimension `json:"concurrent_runs"`
+	ComputeCredit       UsageDimension `json:"compute_credit"`
+	Projects            UsageDimension `json:"projects"`
+	Members             UsageDimension `json:"members"`
+	AIModelCalls        UsageDimension `json:"ai_model_calls_today"`
+	AIAssistantMessages UsageDimension `json:"ai_assistant_messages_today"`
+	RetentionDays       int            `json:"retention_days"`
+	RegionsAvailable    int            `json:"regions_available"`
 }
 
 // UsageAlert represents a quota approaching/exceeded alert.
@@ -112,9 +113,9 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	now := time.Now().UTC()
 	dayStart := now.UTC().Truncate(24 * time.Hour)
 	dayEnd := dayStart.Add(24 * time.Hour)
-	aiMessagesToday, err := s.store.CountAIAssistantMessagesByOrg(ctx, orgID, dayStart, dayEnd)
+	aiModelCallsToday, err := s.store.CountAIModelCallsByOrg(ctx, orgID, dayStart, dayEnd)
 	if err != nil {
-		return nil, fmt.Errorf("counting org ai assistant messages: %w", err)
+		return nil, fmt.Errorf("counting org ai model calls: %w", err)
 	}
 
 	// Get subscription for period info.
@@ -145,6 +146,12 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	regionCount := len(limits.AllowedRegions)
 	if regionCount == 0 {
 		regionCount = 25 // all regions
+	}
+
+	aiModelCalls := UsageDimension{
+		Used:    aiModelCallsToday,
+		Limit:   int64(limits.MaxAIModelCallsPerDay),
+		Percent: safePercent(aiModelCallsToday, int64(limits.MaxAIModelCallsPerDay)),
 	}
 
 	resp := &CurrentUsageResponse{
@@ -181,13 +188,10 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 				Limit:   int64(limits.MaxMembersPerOrg),
 				Percent: safePercent(int64(memberCount), int64(limits.MaxMembersPerOrg)),
 			},
-			AIMessages: UsageDimension{
-				Used:    aiMessagesToday,
-				Limit:   int64(limits.MaxAIAssistantMsgDay),
-				Percent: safePercent(aiMessagesToday, int64(limits.MaxAIAssistantMsgDay)),
-			},
-			RetentionDays:    limits.RetentionDays,
-			RegionsAvailable: regionCount,
+			AIModelCalls:        aiModelCalls,
+			AIAssistantMessages: aiModelCalls,
+			RetentionDays:       limits.RetentionDays,
+			RegionsAvailable:    regionCount,
 		},
 	}
 

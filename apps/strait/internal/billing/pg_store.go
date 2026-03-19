@@ -221,9 +221,29 @@ func (s *PgStore) GetProjectOrgID(ctx context.Context, projectID string) (string
 	return *orgID, nil
 }
 
+func (s *PgStore) GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error) {
+	var orgID *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT org_id
+		FROM projects
+		WHERE id = $1
+		  AND deleted_at IS NULL
+	`, projectID).Scan(&orgID)
+	if err != nil {
+		return "", fmt.Errorf("getting active project org_id: %w", err)
+	}
+	if orgID == nil {
+		return "", nil
+	}
+	return *orgID, nil
+}
+
 func (s *PgStore) ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id FROM projects WHERE org_id = $1
+		SELECT id
+		FROM projects
+		WHERE org_id = $1
+		  AND deleted_at IS NULL
 	`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing projects by org: %w", err)
@@ -244,7 +264,10 @@ func (s *PgStore) ListProjectsByOrg(ctx context.Context, orgID string) ([]string
 func (s *PgStore) CountProjectsByOrg(ctx context.Context, orgID string) (int, error) {
 	var count int
 	err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM projects WHERE org_id = $1
+		SELECT COUNT(*)
+		FROM projects
+		WHERE org_id = $1
+		  AND deleted_at IS NULL
 	`, orgID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("counting projects by org: %w", err)
@@ -281,7 +304,7 @@ func (s *PgStore) CountExecutingRunsByOrg(ctx context.Context, orgID string) (in
 	return count, nil
 }
 
-func (s *PgStore) CountAIAssistantMessagesByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error) {
+func (s *PgStore) CountAIModelCallsByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error) {
 	var count int64
 	err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*)::bigint
@@ -293,7 +316,7 @@ func (s *PgStore) CountAIAssistantMessagesByOrg(ctx context.Context, orgID strin
 		  AND ru.created_at < $3
 	`, orgID, from, to).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("counting ai assistant messages by org: %w", err)
+		return 0, fmt.Errorf("counting ai model calls by org: %w", err)
 	}
 	return count, nil
 }

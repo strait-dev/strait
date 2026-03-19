@@ -17,7 +17,8 @@ import (
 )
 
 type mockBillingEnforcer struct {
-	projectOrgMap map[string]string
+	projectOrgMap       map[string]string
+	activeProjectOrgMap map[string]string
 }
 
 func (m *mockBillingEnforcer) CheckProjectLimit(_ context.Context, _ string) error {
@@ -25,6 +26,16 @@ func (m *mockBillingEnforcer) CheckProjectLimit(_ context.Context, _ string) err
 }
 
 func (m *mockBillingEnforcer) GetProjectOrgID(_ context.Context, projectID string) (string, error) {
+	if m.projectOrgMap != nil {
+		return m.projectOrgMap[projectID], nil
+	}
+	return "", nil
+}
+
+func (m *mockBillingEnforcer) GetActiveProjectOrgID(_ context.Context, projectID string) (string, error) {
+	if m.activeProjectOrgMap != nil {
+		return m.activeProjectOrgMap[projectID], nil
+	}
 	if m.projectOrgMap != nil {
 		return m.projectOrgMap[projectID], nil
 	}
@@ -699,6 +710,31 @@ func TestUsageEndpoint_OIDC_MissingProjectContextForbidden(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 without X-Project-Id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUsageEndpoint_OIDC_DeletedProjectContextForbidden(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		projectOrgMap: map[string]string{"proj-1": "org-A"},
+		activeProjectOrgMap: map[string]string{
+			"proj-1": "",
+		},
+	}
+	srv, token := newOIDCUsageTestServer(t, usageTestServerOpts{
+		enforcer: enforcer,
+		usageSvc: &mockUsageService{},
+	}, func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeProjectsRead}, nil
+	})
+
+	req := oidcRequest(http.MethodGet, "/v1/usage/current?org_id=org-A", "", token, "proj-1")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for deleted project context, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

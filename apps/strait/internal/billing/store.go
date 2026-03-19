@@ -52,11 +52,12 @@ type Store interface {
 
 	// Project-org mapping
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
+	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
 	CountProjectsByOrg(ctx context.Context, orgID string) (int, error)
 	CountMembersByOrg(ctx context.Context, orgID string) (int, error)
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
-	CountAIAssistantMessagesByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error)
+	CountAIModelCallsByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error)
 	SetProjectOrgID(ctx context.Context, projectID, orgID string) error
 
 	// Usage records

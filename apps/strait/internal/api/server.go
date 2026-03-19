@@ -391,6 +391,7 @@ type Encryptor interface {
 type BillingEnforcer interface {
 	CheckProjectLimit(ctx context.Context, orgID string) error
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
+	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 }
 
 // UsageService provides org usage data for the billing dashboard.

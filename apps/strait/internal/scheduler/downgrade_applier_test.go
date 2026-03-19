@@ -73,6 +73,9 @@ func (m *mockEnforcerStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]b
 func (m *mockEnforcerStore) GetProjectOrgID(_ context.Context, _ string) (string, error) {
 	return "", nil
 }
+func (m *mockEnforcerStore) GetActiveProjectOrgID(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
 func (m *mockEnforcerStore) ListProjectsByOrg(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
@@ -85,7 +88,7 @@ func (m *mockEnforcerStore) CountMembersByOrg(_ context.Context, _ string) (int,
 func (m *mockEnforcerStore) CountExecutingRunsByOrg(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
-func (m *mockEnforcerStore) CountAIAssistantMessagesByOrg(_ context.Context, _ string, _, _ time.Time) (int64, error) {
+func (m *mockEnforcerStore) CountAIModelCallsByOrg(_ context.Context, _ string, _, _ time.Time) (int64, error) {
 	return 0, nil
 }
 func (m *mockEnforcerStore) SetProjectOrgID(_ context.Context, _, _ string) error { return nil }

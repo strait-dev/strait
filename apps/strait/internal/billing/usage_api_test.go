@@ -50,7 +50,7 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 		executingRuns: map[string]int{
 			"org_test": 3,
 		},
-		aiMessageCounts: map[string]int64{
+		aiModelCallCounts: map[string]int64{
 			"org_test": 7,
 		},
 	}
@@ -76,10 +76,13 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 	if resp.Usage.ConcurrentRuns.Used != 3 {
 		t.Errorf("concurrent runs used = %d, want 3", resp.Usage.ConcurrentRuns.Used)
 	}
-	if resp.Usage.AIMessages.Used != 7 {
-		t.Errorf("ai assistant messages used = %d, want 7", resp.Usage.AIMessages.Used)
+	if resp.Usage.AIModelCalls.Used != 7 {
+		t.Errorf("ai model calls used = %d, want 7", resp.Usage.AIModelCalls.Used)
 	}
-	assertFloatApprox(t, resp.Usage.AIMessages.Percent, 35)
+	if resp.Usage.AIAssistantMessages != resp.Usage.AIModelCalls {
+		t.Errorf("deprecated ai assistant field = %+v, want %+v", resp.Usage.AIAssistantMessages, resp.Usage.AIModelCalls)
+	}
+	assertFloatApprox(t, resp.Usage.AIModelCalls.Percent, 35)
 	assertFloatApprox(t, resp.Usage.ConcurrentRuns.Percent, 60)
 	assertFloatApprox(t, resp.Usage.Members.Percent, 66.6666666667)
 	if resp.Usage.RetentionDays != 1 {
@@ -87,7 +90,7 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 	}
 }
 
-func TestUsageService_GetCurrentUsage_EnterpriseAIMessagesRemainUnlimited(t *testing.T) {
+func TestUsageService_GetCurrentUsage_EnterpriseAIModelCallsRemainUnlimited(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{
@@ -98,7 +101,7 @@ func TestUsageService_GetCurrentUsage_EnterpriseAIMessagesRemainUnlimited(t *tes
 				Status:   "active",
 			},
 		},
-		aiMessageCounts: map[string]int64{
+		aiModelCallCounts: map[string]int64{
 			"org_enterprise": 42,
 		},
 	}
@@ -112,14 +115,14 @@ func TestUsageService_GetCurrentUsage_EnterpriseAIMessagesRemainUnlimited(t *tes
 	if resp.Plan != "enterprise" {
 		t.Fatalf("plan = %q, want enterprise", resp.Plan)
 	}
-	if resp.Usage.AIMessages.Limit != -1 {
-		t.Fatalf("ai messages limit = %d, want -1", resp.Usage.AIMessages.Limit)
+	if resp.Usage.AIModelCalls.Limit != -1 {
+		t.Fatalf("ai model calls limit = %d, want -1", resp.Usage.AIModelCalls.Limit)
 	}
-	if resp.Usage.AIMessages.Used != 42 {
-		t.Fatalf("ai messages used = %d, want 42", resp.Usage.AIMessages.Used)
+	if resp.Usage.AIModelCalls.Used != 42 {
+		t.Fatalf("ai model calls used = %d, want 42", resp.Usage.AIModelCalls.Used)
 	}
-	if resp.Usage.AIMessages.Percent != 0 {
-		t.Fatalf("ai messages percent = %f, want 0", resp.Usage.AIMessages.Percent)
+	if resp.Usage.AIModelCalls.Percent != 0 {
+		t.Fatalf("ai model calls percent = %f, want 0", resp.Usage.AIModelCalls.Percent)
 	}
 }
 

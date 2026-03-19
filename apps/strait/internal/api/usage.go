@@ -23,9 +23,9 @@ func (s *Server) validateCallerOrgAccess(ctx context.Context, orgID string) erro
 	if projectID == "" || s.billingEnforcer == nil {
 		return fmt.Errorf("cannot determine caller organization from project context")
 	}
-	callerOrg, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	callerOrg, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("failed to resolve org: %w", err)
+		return fmt.Errorf("failed to resolve active project org: %w", err)
 	}
 	if callerOrg != orgID {
 		return fmt.Errorf("org_id does not match the caller's organization")

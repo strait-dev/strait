@@ -13,15 +13,17 @@ import (
 var ErrProjectNotFound = errors.New("project not found")
 
 // CreateProject upserts a project row. On conflict (same ID), it updates
-// name and updated_at, and preserves org_id when the incoming value is empty.
+// name and updated_at, clears any prior tombstone, and preserves org_id when
+// the incoming value is empty.
 func (q *Queries) CreateProject(ctx context.Context, project *domain.Project) error {
 	err := q.db.QueryRow(ctx, `
-		INSERT INTO projects (id, org_id, name, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
+		INSERT INTO projects (id, org_id, name, created_at, updated_at, deleted_at)
+		VALUES ($1, $2, $3, CURRENT_TIMESTAMP, NOW(), NULL)
 		ON CONFLICT (id) DO UPDATE SET
 			org_id     = COALESCE(NULLIF(EXCLUDED.org_id, ''), projects.org_id),
 			name       = EXCLUDED.name,
-			updated_at = NOW()
+			updated_at = NOW(),
+			deleted_at = NULL
 		RETURNING created_at, updated_at`,
 		project.ID, project.OrgID, project.Name,
 	).Scan(&project.CreatedAt, &project.UpdatedAt)
@@ -36,7 +38,9 @@ func (q *Queries) GetProject(ctx context.Context, id string) (*domain.Project, e
 	var p domain.Project
 	err := q.db.QueryRow(ctx, `
 		SELECT id, org_id, name, created_at, updated_at
-		FROM projects WHERE id = $1`, id,
+		FROM projects
+		WHERE id = $1
+		  AND deleted_at IS NULL`, id,
 	).Scan(&p.ID, &p.OrgID, &p.Name, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -51,7 +55,9 @@ func (q *Queries) GetProject(ctx context.Context, id string) (*domain.Project, e
 func (q *Queries) ListProjectsByOrg(ctx context.Context, orgID string) ([]domain.Project, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT id, org_id, name, created_at, updated_at
-		FROM projects WHERE org_id = $1
+		FROM projects
+		WHERE org_id = $1
+		  AND deleted_at IS NULL
 		ORDER BY created_at ASC`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list projects by org: %w", err)
@@ -69,8 +75,9 @@ func (q *Queries) ListProjectsByOrg(ctx context.Context, orgID string) ([]domain
 	return projects, rows.Err()
 }
 
-// DeleteProject removes a project and its associated child records within a transaction.
-// Jobs are soft-disabled (not deleted) to avoid FK violations from existing runs.
+// DeleteProject tombstones a project and cleans up active child records within
+// a transaction. Jobs are soft-disabled (not deleted) to avoid FK violations
+// from existing runs while preserving historical org mapping for billing.
 func (q *Queries) DeleteProject(ctx context.Context, id string) error {
 	beginner, ok := q.db.(TxBeginner)
 	if !ok {
@@ -93,9 +100,16 @@ func (q *Queries) DeleteProject(ctx context.Context, id string) error {
 }
 
 func (q *Queries) deleteProjectRows(ctx context.Context, id string) error {
-	// Verify project exists first.
+	// Verify the project is still active first.
 	var exists bool
-	err := q.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1)`, id).Scan(&exists)
+	err := q.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM projects
+			WHERE id = $1
+			  AND deleted_at IS NULL
+		)
+	`, id).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("check project exists: %w", err)
 	}
@@ -103,7 +117,7 @@ func (q *Queries) deleteProjectRows(ctx context.Context, id string) error {
 		return ErrProjectNotFound
 	}
 
-	// Clean up child records before deleting the project.
+	// Clean up active child records before tombstoning the project row.
 	cleanupQueries := []string{
 		`DELETE FROM project_member_roles WHERE project_id = $1`,
 		`DELETE FROM project_roles WHERE project_id = $1`,
@@ -111,7 +125,7 @@ func (q *Queries) deleteProjectRows(ctx context.Context, id string) error {
 		`DELETE FROM project_quotas WHERE project_id = $1`,
 		`DELETE FROM usage_records WHERE project_id = $1`,
 		`UPDATE jobs SET enabled = false WHERE project_id = $1`,
-		`DELETE FROM projects WHERE id = $1`,
+		`UPDATE projects SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,
 	}
 
 	for _, query := range cleanupQueries {
@@ -127,7 +141,7 @@ func (q *Queries) deleteProjectRows(ctx context.Context, id string) error {
 func (q *Queries) CountProjectsByOrg(ctx context.Context, orgID string) (int, error) {
 	var count int
 	err := q.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM projects WHERE org_id = $1`, orgID,
+		`SELECT COUNT(*) FROM projects WHERE org_id = $1 AND deleted_at IS NULL`, orgID,
 	).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count projects by org: %w", err)

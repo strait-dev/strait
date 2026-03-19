@@ -325,6 +325,11 @@ func (e *Enforcer) GetProjectOrgID(ctx context.Context, projectID string) (strin
 	return e.store.GetProjectOrgID(ctx, projectID)
 }
 
+// GetActiveProjectOrgID resolves the org ID for an active project via the billing store.
+func (e *Enforcer) GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error) {
+	return e.store.GetActiveProjectOrgID(ctx, projectID)
+}
+
 // ExecutingRunCounter provides ground-truth executing run counts from the database.
 type ExecutingRunCounter interface {
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)

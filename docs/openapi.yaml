@@ -157,7 +157,7 @@ paths:
       tags:
         - Usage
       summary: Get current billing usage
-      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed. The response exposes `ai_model_calls_today` as the primary daily AI usage metric and keeps `ai_assistant_messages_today` as a deprecated compatibility alias for one release.
       security:
         - bearerAuth: []
         - internalSecret: []
@@ -5124,11 +5124,49 @@ components:
             end:
               type: string
         usage:
-          type: object
+          $ref: '#/components/schemas/CurrentUsageDimensions'
         alerts:
           type: array
           items:
             type: object
+    CurrentUsageDimensions:
+      type: object
+      properties:
+        runs_today:
+          $ref: '#/components/schemas/UsageDimension'
+        concurrent_runs:
+          $ref: '#/components/schemas/UsageDimension'
+        compute_credit:
+          $ref: '#/components/schemas/UsageDimension'
+        projects:
+          $ref: '#/components/schemas/UsageDimension'
+        members:
+          $ref: '#/components/schemas/UsageDimension'
+        ai_model_calls_today:
+          allOf:
+            - $ref: '#/components/schemas/UsageDimension'
+          description: Daily AI model usage calls recorded through the SDK usage endpoint.
+        ai_assistant_messages_today:
+          allOf:
+            - $ref: '#/components/schemas/UsageDimension'
+          deprecated: true
+          description: Deprecated compatibility alias for `ai_model_calls_today`.
+        retention_days:
+          type: integer
+        regions_available:
+          type: integer
+    UsageDimension:
+      type: object
+      properties:
+        used:
+          type: integer
+        limit:
+          type: integer
+        percent:
+          type: number
+          format: float
+        display:
+          type: string
 
     EventTrigger:
       type: object

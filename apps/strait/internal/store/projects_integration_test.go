@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -169,6 +171,152 @@ func TestDeleteProject(t *testing.T) {
 	_, err := st.GetProject(ctx, p.ID)
 	if !errors.Is(err, store.ErrProjectNotFound) {
 		t.Fatalf("GetProject() after delete error = %v, want ErrProjectNotFound", err)
+	}
+
+	count, err := st.CountProjectsByOrg(ctx, p.OrgID)
+	if err != nil {
+		t.Fatalf("CountProjectsByOrg() after delete error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("count after delete = %d, want 0", count)
+	}
+
+	projects, err := st.ListProjectsByOrg(ctx, p.OrgID)
+	if err != nil {
+		t.Fatalf("ListProjectsByOrg() after delete error = %v", err)
+	}
+	if len(projects) != 0 {
+		t.Fatalf("ListProjectsByOrg() after delete len = %d, want 0", len(projects))
+	}
+}
+
+func TestDeleteProject_RecreateRevivesProject(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	projectID := newID()
+	initial := &domain.Project{ID: projectID, OrgID: "org-revive", Name: "Original"}
+	if err := st.CreateProject(ctx, initial); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	if err := st.DeleteProject(ctx, projectID); err != nil {
+		t.Fatalf("DeleteProject() error = %v", err)
+	}
+
+	recreated := &domain.Project{ID: projectID, OrgID: "org-revive", Name: "Recreated"}
+	if err := st.CreateProject(ctx, recreated); err != nil {
+		t.Fatalf("CreateProject() recreate error = %v", err)
+	}
+
+	got, err := st.GetProject(ctx, projectID)
+	if err != nil {
+		t.Fatalf("GetProject() after recreate error = %v", err)
+	}
+	if got.Name != "Recreated" {
+		t.Fatalf("Name after recreate = %q, want %q", got.Name, "Recreated")
+	}
+
+	count, err := st.CountProjectsByOrg(ctx, "org-revive")
+	if err != nil {
+		t.Fatalf("CountProjectsByOrg() after recreate error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("count after recreate = %d, want 1", count)
+	}
+}
+
+func TestDeleteProject_PreservesHistoricalBillingUsage(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	st := mustStore(t)
+	billingStore := billing.NewPgStore(testDB.Pool)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-history", Name: "History Project"}
+	if err := st.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	job := mustCreateJob(t, ctx, st, project.ID)
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := st.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	runCreatedAt := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $2 WHERE id = $1`, run.ID, runCreatedAt); err != nil {
+		t.Fatalf("set run created_at error = %v", err)
+	}
+
+	computeUsage := &domain.RunComputeUsage{
+		ID:            newID(),
+		RunID:         run.ID,
+		ProjectID:     project.ID,
+		JobID:         job.ID,
+		MachinePreset: "micro",
+		MachineID:     "machine-history",
+		DurationSecs:  10,
+		CostMicrousd:  2_000_000,
+	}
+	if err := st.CreateRunComputeUsage(ctx, computeUsage); err != nil {
+		t.Fatalf("CreateRunComputeUsage() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE run_compute_usage SET created_at = $2 WHERE id = $1`, computeUsage.ID, runCreatedAt); err != nil {
+		t.Fatalf("set compute usage created_at error = %v", err)
+	}
+
+	runUsage := &domain.RunUsage{
+		ID:               newID(),
+		RunID:            run.ID,
+		Provider:         "openai",
+		Model:            "gpt-5",
+		PromptTokens:     100,
+		CompletionTokens: 50,
+		TotalTokens:      150,
+		CostMicrousd:     500_000,
+	}
+	if err := st.CreateRunUsage(ctx, runUsage); err != nil {
+		t.Fatalf("CreateRunUsage() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE run_usage SET created_at = $2 WHERE id = $1`, runUsage.ID, runCreatedAt); err != nil {
+		t.Fatalf("set run usage created_at error = %v", err)
+	}
+
+	if err := st.DeleteProject(ctx, project.ID); err != nil {
+		t.Fatalf("DeleteProject() error = %v", err)
+	}
+
+	periodDate := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	orgUsage, err := billingStore.GetOrgUsageForPeriod(ctx, project.OrgID, periodDate, periodDate)
+	if err != nil {
+		t.Fatalf("GetOrgUsageForPeriod() error = %v", err)
+	}
+	if len(orgUsage) != 1 {
+		t.Fatalf("GetOrgUsageForPeriod() len = %d, want 1", len(orgUsage))
+	}
+	if orgUsage[0].ProjectID != project.ID {
+		t.Fatalf("usage project_id = %q, want %q", orgUsage[0].ProjectID, project.ID)
+	}
+	if orgUsage[0].ComputeCostMicro != 2_000_000 || orgUsage[0].AICostMicro != 500_000 {
+		t.Fatalf("usage aggregate = %+v, want compute=2000000 ai=500000", orgUsage[0])
+	}
+
+	spend, err := billingStore.SumOrgPeriodSpend(ctx, project.OrgID, periodDate)
+	if err != nil {
+		t.Fatalf("SumOrgPeriodSpend() error = %v", err)
+	}
+	if spend != 2_000_000 {
+		t.Fatalf("SumOrgPeriodSpend() = %d, want 2000000", spend)
+	}
+
+	executing, err := billingStore.CountExecutingRunsByOrg(ctx, project.OrgID)
+	if err != nil {
+		t.Fatalf("CountExecutingRunsByOrg() error = %v", err)
+	}
+	if executing != 1 {
+		t.Fatalf("CountExecutingRunsByOrg() = %d, want 1", executing)
 	}
 }
 

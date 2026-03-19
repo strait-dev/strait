@@ -31,7 +31,7 @@ type mockBillingStore struct {
 	projects            map[string][]string
 	memberCounts        map[string]int
 	executingRuns       map[string]int
-	aiMessageCounts     map[string]int64
+	aiModelCallCounts   map[string]int64
 	usageRecords        []UsageRecord
 	periodSpendByOrg    map[string]int64
 }
@@ -143,6 +143,10 @@ func (m *mockBillingStore) GetProjectOrgID(_ context.Context, _ string) (string,
 	return "", nil
 }
 
+func (m *mockBillingStore) GetActiveProjectOrgID(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+
 func (m *mockBillingStore) ListProjectsByOrg(_ context.Context, orgID string) ([]string, error) {
 	if m.projects != nil {
 		return m.projects[orgID], nil
@@ -171,9 +175,9 @@ func (m *mockBillingStore) CountExecutingRunsByOrg(_ context.Context, orgID stri
 	return 0, nil
 }
 
-func (m *mockBillingStore) CountAIAssistantMessagesByOrg(_ context.Context, orgID string, _, _ time.Time) (int64, error) {
-	if m.aiMessageCounts != nil {
-		return m.aiMessageCounts[orgID], nil
+func (m *mockBillingStore) CountAIModelCallsByOrg(_ context.Context, orgID string, _, _ time.Time) (int64, error) {
+	if m.aiModelCallCounts != nil {
+		return m.aiModelCallCounts[orgID], nil
 	}
 	return 0, nil
 }
