@@ -365,8 +365,8 @@ type NotificationStore interface {
 	UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
 	DeleteNotificationChannel(ctx context.Context, id, projectID string) error
 	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
-	ListPendingNotificationDeliveries(ctx context.Context, limit int) ([]domain.NotificationDelivery, error)
-	UpdateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
+	ClaimPendingNotificationDeliveries(ctx context.Context, limit int, leaseDuration time.Duration) ([]domain.NotificationDelivery, error)
+	UpdateClaimedNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) (bool, error)
 	ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }
 

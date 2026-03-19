@@ -258,7 +258,15 @@ func startWebhookWorker(g *pool.ContextPool, cfg *config.Config, eventNotifier *
 	})
 }
 
-func startNotificationWorker(g *pool.ContextPool, _ *config.Config, queries *store.Queries) {
+func notificationWorkerEnabled(mode string) bool {
+	return mode == "worker" || mode == "all"
+}
+
+func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries) {
+	if cfg == nil || !notificationWorkerEnabled(cfg.Mode) {
+		return
+	}
+
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	notifWorker := notification.NewWorker(queries, httpClient)
 

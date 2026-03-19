@@ -242,59 +242,127 @@ func (q *Queries) CreateNotificationDelivery(ctx context.Context, d *domain.Noti
 	return nil
 }
 
-func (q *Queries) ListPendingNotificationDeliveries(ctx context.Context, limit int) ([]domain.NotificationDelivery, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListPendingNotificationDeliveries")
+func scanNotificationDelivery(scanner scanTarget, includeClaimFields bool) (*domain.NotificationDelivery, error) {
+	var d domain.NotificationDelivery
+	var lastError *string
+
+	if includeClaimFields {
+		if err := scanner.Scan(
+			&d.ID, &d.ChannelID, &d.ProjectID, &d.EventType, &d.Payload,
+			&d.Status, &d.Attempts, &d.MaxAttempts,
+			&lastError, &d.NextRetryAt, &d.DeliveredAt, &d.ClaimToken, &d.LeaseExpiry, &d.CreatedAt, &d.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := scanner.Scan(
+			&d.ID, &d.ChannelID, &d.ProjectID, &d.EventType, &d.Payload,
+			&d.Status, &d.Attempts, &d.MaxAttempts,
+			&lastError, &d.NextRetryAt, &d.DeliveredAt, &d.CreatedAt, &d.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	if lastError != nil {
+		d.LastError = *lastError
+	}
+
+	return &d, nil
+}
+
+func (q *Queries) ClaimPendingNotificationDeliveries(ctx context.Context, limit int, leaseDuration time.Duration) ([]domain.NotificationDelivery, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimPendingNotificationDeliveries")
 	defer span.End()
 
-	query := `
-		SELECT id, channel_id, project_id, event_type, payload, status, attempts, max_attempts,
-		       last_error, next_retry_at, delivered_at, created_at, updated_at
-		FROM notification_deliveries
-		WHERE status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-		ORDER BY created_at ASC
-		LIMIT $1`
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return nil, fmt.Errorf("claim pending notification deliveries: db does not support transactions")
+	}
 
-	rows, err := q.db.Query(ctx, query, limit)
+	tx, err := beginner.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list pending notification deliveries: %w", err)
+		return nil, fmt.Errorf("claim pending notification deliveries: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	claimToken := uuid.Must(uuid.NewV7()).String()
+	leaseExpiry := time.Now().UTC().Add(leaseDuration)
+
+	query := `
+		WITH claimable AS (
+			SELECT id
+			FROM notification_deliveries
+			WHERE (
+				status = 'pending'
+				AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+			) OR (
+				status = 'processing'
+				AND lease_expires_at IS NOT NULL
+				AND lease_expires_at <= NOW()
+			)
+			ORDER BY created_at ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT $1
+		)
+		UPDATE notification_deliveries d
+		SET status = 'processing',
+		    claim_token = $2,
+		    lease_expires_at = $3,
+		    updated_at = NOW()
+		FROM claimable
+		WHERE d.id = claimable.id
+		RETURNING d.id, d.channel_id, d.project_id, d.event_type, d.payload, d.status, d.attempts, d.max_attempts,
+		          d.last_error, d.next_retry_at, d.delivered_at, d.claim_token, d.lease_expires_at, d.created_at, d.updated_at`
+
+	rows, err := tx.Query(ctx, query, limit, claimToken, leaseExpiry)
+	if err != nil {
+		return nil, fmt.Errorf("claim pending notification deliveries: %w", err)
 	}
 	defer rows.Close()
 
 	deliveries := make([]domain.NotificationDelivery, 0, limit)
 	for rows.Next() {
-		var d domain.NotificationDelivery
-		if err := rows.Scan(
-			&d.ID, &d.ChannelID, &d.ProjectID, &d.EventType, &d.Payload,
-			&d.Status, &d.Attempts, &d.MaxAttempts,
-			&d.LastError, &d.NextRetryAt, &d.DeliveredAt, &d.CreatedAt, &d.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("list pending notification deliveries scan: %w", err)
+		d, err := scanNotificationDelivery(rows, true)
+		if err != nil {
+			return nil, fmt.Errorf("claim pending notification deliveries scan: %w", err)
 		}
-		deliveries = append(deliveries, d)
+		deliveries = append(deliveries, *d)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list pending notification deliveries rows: %w", err)
+		return nil, fmt.Errorf("claim pending notification deliveries rows: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("claim pending notification deliveries: commit tx: %w", err)
 	}
 
 	return deliveries, nil
 }
 
-func (q *Queries) UpdateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateNotificationDelivery")
+func (q *Queries) UpdateClaimedNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateClaimedNotificationDelivery")
 	defer span.End()
 
 	query := `
 		UPDATE notification_deliveries
-		SET status = $2, attempts = $3, last_error = $4, next_retry_at = $5, delivered_at = $6, updated_at = NOW()
-		WHERE id = $1`
+		SET status = $3,
+		    attempts = $4,
+		    last_error = $5,
+		    next_retry_at = $6,
+		    delivered_at = $7,
+		    claim_token = NULL,
+		    lease_expires_at = NULL,
+		    updated_at = NOW()
+		WHERE id = $1 AND claim_token = $2`
 
-	_, err := q.db.Exec(ctx, query, d.ID, d.Status, d.Attempts, d.LastError, d.NextRetryAt, d.DeliveredAt)
+	tag, err := q.db.Exec(ctx, query, d.ID, d.ClaimToken, d.Status, d.Attempts, d.LastError, d.NextRetryAt, d.DeliveredAt)
 	if err != nil {
-		return fmt.Errorf("update notification delivery: %w", err)
+		return false, fmt.Errorf("update claimed notification delivery: %w", err)
 	}
 
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 func (q *Queries) ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error) {
@@ -332,15 +400,11 @@ func (q *Queries) ListNotificationDeliveries(ctx context.Context, projectID stri
 
 	deliveries := make([]domain.NotificationDelivery, 0, limit)
 	for rows.Next() {
-		var d domain.NotificationDelivery
-		if err := rows.Scan(
-			&d.ID, &d.ChannelID, &d.ProjectID, &d.EventType, &d.Payload,
-			&d.Status, &d.Attempts, &d.MaxAttempts,
-			&d.LastError, &d.NextRetryAt, &d.DeliveredAt, &d.CreatedAt, &d.UpdatedAt,
-		); err != nil {
+		d, err := scanNotificationDelivery(rows, false)
+		if err != nil {
 			return nil, fmt.Errorf("list notification deliveries scan: %w", err)
 		}
-		deliveries = append(deliveries, d)
+		deliveries = append(deliveries, *d)
 	}
 
 	if err := rows.Err(); err != nil {

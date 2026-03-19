@@ -4587,6 +4587,135 @@ func TestListExpiredWorkflowStepApprovals(t *testing.T) {
 	}
 }
 
+func TestNotificationDeliveryClaimLifecycle(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-notification-claims"
+	channel := &domain.NotificationChannel{
+		ID:          newID(),
+		ProjectID:   projectID,
+		ChannelType: domain.ChannelTypeWebhook,
+		Name:        "ops",
+		Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
+		Enabled:     true,
+	}
+	if err := q.CreateNotificationChannel(ctx, channel); err != nil {
+		t.Fatalf("CreateNotificationChannel() error = %v", err)
+	}
+
+	delivery := &domain.NotificationDelivery{
+		ID:          newID(),
+		ChannelID:   channel.ID,
+		ProjectID:   projectID,
+		EventType:   domain.NotificationEventApprovalRequested,
+		Payload:     json.RawMessage(`{"step_ref":"review"}`),
+		Status:      "pending",
+		MaxAttempts: 3,
+	}
+	if err := q.CreateNotificationDelivery(ctx, delivery); err != nil {
+		t.Fatalf("CreateNotificationDelivery() error = %v", err)
+	}
+
+	firstClaim, err := q.ClaimPendingNotificationDeliveries(ctx, 1, time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimPendingNotificationDeliveries(first) error = %v", err)
+	}
+	if len(firstClaim) != 1 {
+		t.Fatalf("first claim len = %d, want 1", len(firstClaim))
+	}
+	if firstClaim[0].Status != "processing" {
+		t.Fatalf("first claim status = %q, want processing", firstClaim[0].Status)
+	}
+	if firstClaim[0].ClaimToken == "" {
+		t.Fatal("first claim token = empty, want non-empty")
+	}
+	if firstClaim[0].LeaseExpiry == nil {
+		t.Fatal("first claim lease expiry = nil, want non-nil")
+	}
+
+	secondClaim, err := q.ClaimPendingNotificationDeliveries(ctx, 1, time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimPendingNotificationDeliveries(second) error = %v", err)
+	}
+	if len(secondClaim) != 0 {
+		t.Fatalf("second claim len = %d, want 0", len(secondClaim))
+	}
+
+	expiringDelivery := &domain.NotificationDelivery{
+		ID:          newID(),
+		ChannelID:   channel.ID,
+		ProjectID:   projectID,
+		EventType:   domain.NotificationEventApprovalReminder,
+		Payload:     json.RawMessage(`{"step_ref":"review"}`),
+		Status:      "pending",
+		MaxAttempts: 3,
+	}
+	if err := q.CreateNotificationDelivery(ctx, expiringDelivery); err != nil {
+		t.Fatalf("CreateNotificationDelivery(expiring) error = %v", err)
+	}
+
+	expiredClaim, err := q.ClaimPendingNotificationDeliveries(ctx, 1, -time.Second)
+	if err != nil {
+		t.Fatalf("ClaimPendingNotificationDeliveries(expired) error = %v", err)
+	}
+	if len(expiredClaim) != 1 {
+		t.Fatalf("expired claim len = %d, want 1", len(expiredClaim))
+	}
+
+	reclaimed, err := q.ClaimPendingNotificationDeliveries(ctx, 1, time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimPendingNotificationDeliveries(reclaimed) error = %v", err)
+	}
+	if len(reclaimed) != 1 {
+		t.Fatalf("reclaimed claim len = %d, want 1", len(reclaimed))
+	}
+	if reclaimed[0].ID != expiringDelivery.ID {
+		t.Fatalf("reclaimed delivery ID = %q, want %q", reclaimed[0].ID, expiringDelivery.ID)
+	}
+	if reclaimed[0].ClaimToken == expiredClaim[0].ClaimToken {
+		t.Fatal("reclaimed claim token was not rotated")
+	}
+
+	expiredClaim[0].Status = "failed"
+	updated, err := q.UpdateClaimedNotificationDelivery(ctx, &expiredClaim[0])
+	if err != nil {
+		t.Fatalf("UpdateClaimedNotificationDelivery(stale) error = %v", err)
+	}
+	if updated {
+		t.Fatal("UpdateClaimedNotificationDelivery(stale) = true, want false")
+	}
+
+	reclaimed[0].Status = "delivered"
+	now := time.Now().UTC()
+	reclaimed[0].DeliveredAt = &now
+	updated, err = q.UpdateClaimedNotificationDelivery(ctx, &reclaimed[0])
+	if err != nil {
+		t.Fatalf("UpdateClaimedNotificationDelivery(reclaimed) error = %v", err)
+	}
+	if !updated {
+		t.Fatal("UpdateClaimedNotificationDelivery(reclaimed) = false, want true")
+	}
+
+	deliveries, err := q.ListNotificationDeliveries(ctx, projectID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListNotificationDeliveries() error = %v", err)
+	}
+
+	byID := make(map[string]domain.NotificationDelivery, len(deliveries))
+	for _, got := range deliveries {
+		byID[got.ID] = got
+	}
+
+	if got := byID[delivery.ID]; got.Status != "processing" {
+		t.Fatalf("claimed delivery status = %q, want processing", got.Status)
+	}
+	if got := byID[expiringDelivery.ID]; got.Status != "delivered" {
+		t.Fatalf("reclaimed delivery status = %q, want delivered", got.Status)
+	}
+}
+
 func TestCountRunningWorkflowRuns(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

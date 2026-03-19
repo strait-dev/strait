@@ -20,6 +20,8 @@ type Worker struct {
 	done    chan struct{}
 }
 
+const deliveryLeaseDuration = 2 * time.Minute
+
 // NewWorker creates a notification delivery worker.
 func NewWorker(ns store.NotificationStore, client *http.Client) *Worker {
 	return &Worker{
@@ -64,9 +66,9 @@ func (w *Worker) run(ctx context.Context) {
 }
 
 func (w *Worker) process(ctx context.Context) {
-	deliveries, err := w.store.ListPendingNotificationDeliveries(ctx, 50)
+	deliveries, err := w.store.ClaimPendingNotificationDeliveries(ctx, 50, deliveryLeaseDuration)
 	if err != nil {
-		slog.Error("failed to list pending notification deliveries", "error", err)
+		slog.Error("failed to claim pending notification deliveries", "error", err)
 		return
 	}
 
@@ -84,7 +86,8 @@ func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) e
 		d.Attempts++
 		d.LastError = fmt.Sprintf("failed to get channel: %v", err)
 		d.Status = "failed"
-		return w.store.UpdateNotificationDelivery(ctx, d)
+		d.NextRetryAt = nil
+		return w.finishClaim(ctx, d)
 	}
 
 	sender, ok := w.senders[ch.ChannelType]
@@ -92,7 +95,8 @@ func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) e
 		d.Attempts++
 		d.LastError = fmt.Sprintf("unsupported channel type: %s", ch.ChannelType)
 		d.Status = "failed"
-		return w.store.UpdateNotificationDelivery(ctx, d)
+		d.NextRetryAt = nil
+		return w.finishClaim(ctx, d)
 	}
 
 	sendErr := sender.Send(ctx, ch, d)
@@ -102,7 +106,9 @@ func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) e
 		d.LastError = sendErr.Error()
 		if d.Attempts >= d.MaxAttempts {
 			d.Status = "failed"
+			d.NextRetryAt = nil
 		} else {
+			d.Status = "pending"
 			// Exponential backoff: 30s, 120s, 480s, ...
 			backoff := time.Duration(30*math.Pow(4, float64(d.Attempts-1))) * time.Second
 			next := time.Now().Add(backoff)
@@ -110,9 +116,22 @@ func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) e
 		}
 	} else {
 		d.Status = "delivered"
+		d.LastError = ""
+		d.NextRetryAt = nil
 		now := time.Now()
 		d.DeliveredAt = &now
 	}
 
-	return w.store.UpdateNotificationDelivery(ctx, d)
+	return w.finishClaim(ctx, d)
+}
+
+func (w *Worker) finishClaim(ctx context.Context, d *domain.NotificationDelivery) error {
+	updated, err := w.store.UpdateClaimedNotificationDelivery(ctx, d)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		slog.Warn("notification delivery lease lost before update", "delivery_id", d.ID, "channel_id", d.ChannelID)
+	}
+	return nil
 }

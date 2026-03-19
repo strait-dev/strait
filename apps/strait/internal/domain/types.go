@@ -87,6 +87,8 @@ type NotificationDelivery struct {
 	LastError   string          `json:"last_error,omitempty"`
 	NextRetryAt *time.Time      `json:"next_retry_at,omitempty"`
 	DeliveredAt *time.Time      `json:"delivered_at,omitempty"`
+	ClaimToken  string          `json:"-"`
+	LeaseExpiry *time.Time      `json:"-"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 }
