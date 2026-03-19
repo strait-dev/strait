@@ -13,6 +13,7 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -31,8 +32,7 @@ export const fetchRuns = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<PaginatedResponse<JobRun>>("/v1/runs", {
+    return await apiRequest<PaginatedResponse<JobRun>>("/v1/runs", {
       params: {
         limit: data.limit,
         cursor: data.cursor,
@@ -47,8 +47,7 @@ export const fetchRun = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<JobRun>(`/v1/runs/${data.id}`);
+    return await apiRequest<JobRun>(`/v1/runs/${data.id}`);
   });
 
 export const fetchRunEvents = createServerFn({ method: "GET" })
@@ -57,8 +56,7 @@ export const fetchRunEvents = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<PaginatedResponse<RunEvent>>(
+    return await apiRequest<PaginatedResponse<RunEvent>>(
       `/v1/runs/${data.runId}/events`,
       { params: { limit: data.limit, cursor: data.cursor } }
     );
@@ -68,8 +66,7 @@ export const replayRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<{ id: string }>(`/v1/runs/${data.runId}/replay`, {
+    return await apiRequest<{ id: string }>(`/v1/runs/${data.runId}/replay`, {
       method: "POST",
     });
   });
@@ -78,8 +75,7 @@ export const cancelRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<void>(`/v1/runs/${data.runId}`, { method: "DELETE" });
+    return await apiRequest<void>(`/v1/runs/${data.runId}`, { method: "DELETE" });
   });
 
 // ---------------------------------------------------------------------------

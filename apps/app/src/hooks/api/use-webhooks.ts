@@ -13,6 +13,7 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -23,8 +24,7 @@ export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<PaginatedResponse<WebhookSubscription>>(
+    return await apiRequest<PaginatedResponse<WebhookSubscription>>(
       "/v1/webhooks/subscriptions",
       { params: { limit: data.limit, cursor: data.cursor } }
     );
@@ -34,8 +34,7 @@ export const fetchWebhookDeliveries = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<PaginatedResponse<WebhookDelivery>>(
+    return await apiRequest<PaginatedResponse<WebhookDelivery>>(
       "/v1/webhooks/deliveries",
       { params: { limit: data.limit, cursor: data.cursor } }
     );
@@ -47,8 +46,7 @@ export const createWebhookFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<WebhookSubscription>("/v1/webhooks/subscriptions", {
+    return await apiRequest<WebhookSubscription>("/v1/webhooks/subscriptions", {
       method: "POST",
       body: data,
     });
@@ -58,8 +56,7 @@ export const deleteWebhookFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<void>(`/v1/webhooks/subscriptions/${data.id}`, {
+    return await apiRequest<void>(`/v1/webhooks/subscriptions/${data.id}`, {
       method: "DELETE",
     });
   });
@@ -68,8 +65,7 @@ export const testWebhookFn = createServerFn({ method: "POST" })
   .inputValidator((data: { webhook_url: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<WebhookDelivery>("/v1/webhooks/test", {
+    return await apiRequest<WebhookDelivery>("/v1/webhooks/test", {
       method: "POST",
       body: data,
     });

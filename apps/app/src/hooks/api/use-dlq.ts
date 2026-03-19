@@ -9,6 +9,7 @@ import type { JobRun, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { cancelRunFn } from "@/hooks/api/use-runs";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -19,8 +20,7 @@ export const fetchDlqRuns = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams & { search?: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<PaginatedResponse<JobRun>>("/v1/runs/dlq", {
+    return await apiRequest<PaginatedResponse<JobRun>>("/v1/runs/dlq", {
       params: { limit: data.limit, cursor: data.cursor, search: data.search },
     });
   });
@@ -29,8 +29,7 @@ export const replayDlqRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<{ id: string }>(`/v1/runs/${data.runId}/dlq-replay`, {
+    return await apiRequest<{ id: string }>(`/v1/runs/${data.runId}/dlq-replay`, {
       method: "POST",
     });
   });
@@ -39,8 +38,7 @@ export const bulkReplayDlqFn = createServerFn({ method: "POST" })
   .inputValidator((data: { run_ids: string[] }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<{ replayed: number }>("/v1/runs/bulk-dlq-replay", {
+    return await apiRequest<{ replayed: number }>("/v1/runs/bulk-dlq-replay", {
       method: "POST",
       body: { run_ids: data.run_ids },
     });

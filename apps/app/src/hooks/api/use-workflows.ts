@@ -13,6 +13,7 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -25,8 +26,7 @@ export const fetchWorkflows = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<PaginatedResponse<Workflow>>("/v1/workflows", {
+    return await apiRequest<PaginatedResponse<Workflow>>("/v1/workflows", {
       params: { limit: data.limit, cursor: data.cursor, search: data.search },
     });
   });
@@ -35,15 +35,13 @@ export const fetchWorkflow = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<Workflow>(`/v1/workflows/${data.id}`);
+    return await apiRequest<Workflow>(`/v1/workflows/${data.id}`);
   });
 
 export const fetchWorkflowSteps = createServerFn({ method: "GET" })
   .inputValidator((data: { workflowId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
     const resp = await apiRequest<PaginatedResponse<WorkflowStep>>(
       `/v1/workflows/${data.workflowId}/versions`,
       { params: { limit: 1 } }
@@ -64,8 +62,7 @@ export const fetchWorkflowRuns = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<PaginatedResponse<WorkflowRun>>(
+    return await apiRequest<PaginatedResponse<WorkflowRun>>(
       `/v1/workflows/${data.workflowId}/runs`,
       { params: { limit: data.limit, cursor: data.cursor } }
     );
@@ -81,8 +78,7 @@ export const triggerWorkflowFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<WorkflowRun>(`/v1/workflows/${data.workflowId}/trigger`, {
+    return await apiRequest<WorkflowRun>(`/v1/workflows/${data.workflowId}/trigger`, {
       method: "POST",
       body: { payload: data.payload, tags: data.tags },
     });
@@ -92,9 +88,8 @@ export const updateWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; enabled?: boolean }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
     const { id, ...body } = data;
-    return apiRequest<Workflow>(`/v1/workflows/${id}`, {
+    return await apiRequest<Workflow>(`/v1/workflows/${id}`, {
       method: "PATCH",
       body,
     });

@@ -4,6 +4,7 @@ import type {
   PerformanceAnalytics,
   QueueStatsResponse,
 } from "@/hooks/api/types";
+import { apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -13,16 +14,14 @@ import { authMiddleware } from "@/middlewares/auth";
 export const fetchStats = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<QueueStatsResponse>("/v1/stats");
+    return await apiRequest<QueueStatsResponse>("/v1/stats");
   });
 
 export const fetchAnalytics = createServerFn({ method: "GET" })
   .inputValidator((data: { periodHours?: number }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<PerformanceAnalytics>("/v1/analytics/performance", {
+    return await apiRequest<PerformanceAnalytics>("/v1/analytics/performance", {
       params: { period_hours: data.periodHours },
     });
   });
