@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 export type AnomalyAlert = {
@@ -21,14 +22,12 @@ const getAnomalyAlertsServerFn = createServerFn({ method: "GET" })
       return [] as AnomalyAlert[];
     }
 
-    try {
-      const { apiRequest } = await import("@/lib/api-client.server");
-      return await apiRequest<AnomalyAlert[]>("/v1/usage/anomalies", {
+    return await runWithFallback(
+      apiEffect<AnomalyAlert[]>("/v1/usage/anomalies", {
         params: { org_id: orgId },
-      });
-    } catch {
-      return [] as AnomalyAlert[];
-    }
+      }),
+      [] as AnomalyAlert[]
+    );
   });
 
 export function useAnomalyAlerts() {

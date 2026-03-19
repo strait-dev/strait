@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 export type SpendingLimitData = {
@@ -23,14 +24,12 @@ const getSpendingLimitServerFn = createServerFn({ method: "GET" })
       return null;
     }
 
-    try {
-      const { apiRequest } = await import("@/lib/api-client.server");
-      return await apiRequest<SpendingLimitData>("/v1/spending-limit", {
+    return await runWithFallback(
+      apiEffect<SpendingLimitData>("/v1/spending-limit", {
         params: { org_id: orgId },
-      });
-    } catch {
-      return null;
-    }
+      }),
+      null
+    );
   });
 
 export function useSpendingLimit() {

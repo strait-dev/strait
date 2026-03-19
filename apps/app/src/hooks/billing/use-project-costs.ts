@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 export type ProjectCostEntry = {
@@ -24,18 +25,16 @@ const getProjectCostsServerFn = createServerFn({ method: "GET" })
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    try {
-      const { apiRequest } = await import("@/lib/api-client.server");
-      return await apiRequest<ProjectCostEntry[]>("/v1/usage/projects", {
+    return await runWithFallback(
+      apiEffect<ProjectCostEntry[]>("/v1/usage/projects", {
         params: {
           org_id: orgId,
           from: from.toISOString().split("T")[0],
           to: now.toISOString().split("T")[0],
         },
-      });
-    } catch {
-      return [] as ProjectCostEntry[];
-    }
+      }),
+      [] as ProjectCostEntry[]
+    );
   });
 
 export function useProjectCosts() {

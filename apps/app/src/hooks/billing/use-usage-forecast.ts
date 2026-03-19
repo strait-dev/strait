@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 export type UsageForecastData = {
@@ -20,14 +21,12 @@ const getUsageForecastServerFn = createServerFn({ method: "GET" })
       return null;
     }
 
-    try {
-      const { apiRequest } = await import("@/lib/api-client.server");
-      return await apiRequest<UsageForecastData>("/v1/usage/forecast", {
+    return await runWithFallback(
+      apiEffect<UsageForecastData>("/v1/usage/forecast", {
         params: { org_id: orgId },
-      });
-    } catch {
-      return null;
-    }
+      }),
+      null
+    );
   });
 
 export function useUsageForecast() {

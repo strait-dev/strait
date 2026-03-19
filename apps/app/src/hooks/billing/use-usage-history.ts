@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 export type UsageHistoryEntry = {
@@ -24,18 +25,16 @@ const getUsageHistoryServerFn = createServerFn({ method: "GET" })
     const from = new Date(now.getFullYear(), now.getMonth(), 1);
     const to = now;
 
-    try {
-      const { apiRequest } = await import("@/lib/api-client.server");
-      return await apiRequest<UsageHistoryEntry[]>("/v1/usage/history", {
+    return await runWithFallback(
+      apiEffect<UsageHistoryEntry[]>("/v1/usage/history", {
         params: {
           org_id: orgId,
           from: from.toISOString().split("T")[0],
           to: to.toISOString().split("T")[0],
         },
-      });
-    } catch {
-      return [] as UsageHistoryEntry[];
-    }
+      }),
+      [] as UsageHistoryEntry[]
+    );
   });
 
 export function useUsageHistory() {
