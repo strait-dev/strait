@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
+/** Cost breakdown for a single project in the current billing period. */
 export type ProjectCostEntry = {
   project_id: string;
   name: string;
@@ -37,10 +39,10 @@ const getProjectCostsServerFn = createServerFn({ method: "GET" })
     );
   });
 
-export function useProjectCosts() {
-  return useQuery({
-    queryKey: ["project-costs"],
+/** Query options for per-project cost breakdown in the current billing period. Refetches every 5 minutes. */
+export const projectCostsQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.billing.projectCosts.queryKey,
     queryFn: () => getProjectCostsServerFn(),
     refetchInterval: 300_000,
   });
-}

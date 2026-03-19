@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -17,6 +18,7 @@ type UsageAlert = {
   message: string;
 };
 
+/** Organization usage data including quotas, resource limits, and alerts. */
 export type OrgUsageData = {
   org_id: string;
   plan: string;
@@ -37,6 +39,7 @@ export type OrgUsageData = {
   alerts: UsageAlert[];
 };
 
+/** Default empty usage data returned when no organization is active. */
 const EMPTY_ORG_USAGE: OrgUsageData = {
   org_id: "",
   plan: "free",
@@ -82,18 +85,19 @@ const getOrgUsageServerFn = createServerFn({ method: "GET" })
     );
   });
 
-export function useOrgUsage() {
-  return useQuery({
-    queryKey: ["org-usage"],
+/** Query options for the organization's current usage, quotas, and alerts. Refetches every 60s. */
+export const orgUsageQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.billing.orgUsage.queryKey,
     queryFn: () => getOrgUsageServerFn(),
     refetchInterval: 60_000,
   });
-}
 
-export function useApproachingLimits() {
-  const { data } = useOrgUsage();
+/** Returns alerts where the organization is approaching a usage limit. */
+export const useApproachingLimits = () => {
+  const { data } = useQuery(orgUsageQueryOptions());
   if (!data?.alerts) {
     return [];
   }
   return data.alerts.filter((a) => a.type === "approaching_limit");
-}
+};

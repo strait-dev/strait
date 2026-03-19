@@ -1,6 +1,6 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useOrgUsage } from "@/hooks/billing/use-org-usage";
+import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { FEATURE_FLAGS } from "@/hooks/posthog/flags";
 import {
   useCanAddMoreByPlan,
@@ -49,7 +49,7 @@ export const AddMoreGate = ({
 }: AddMoreGateProps) => {
   const { data } = useSuspenseQuery(subscriptionStateQueryOptions());
   const { plan, isTrialing, nextPlan } = data;
-  const { data: orgUsage } = useOrgUsage();
+  const { data: orgUsage } = useQuery(orgUsageQueryOptions());
 
   const flagKey = FEATURE_TO_FLAG_MAP[feature];
 

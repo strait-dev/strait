@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
+/** A single anomaly alert flagging unusual spending patterns. */
 export type AnomalyAlert = {
   org_id: string;
   today_spend: number;
@@ -30,10 +32,10 @@ const getAnomalyAlertsServerFn = createServerFn({ method: "GET" })
     );
   });
 
-export function useAnomalyAlerts() {
-  return useQuery({
-    queryKey: ["anomaly-alerts"],
+/** Query options for spending anomaly alerts. Refetches every 5 minutes. */
+export const anomalyAlertsQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.billing.anomalyAlerts.queryKey,
     queryFn: () => getAnomalyAlertsServerFn(),
     refetchInterval: 300_000,
   });
-}

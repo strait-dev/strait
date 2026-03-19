@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
+/** A single day's usage entry with run counts, compute costs, and AI token usage. */
 export type UsageHistoryEntry = {
   date: string;
   runs_count: number;
@@ -37,10 +39,10 @@ const getUsageHistoryServerFn = createServerFn({ method: "GET" })
     );
   });
 
-export function useUsageHistory() {
-  return useQuery({
-    queryKey: ["usage-history"],
+/** Query options for daily usage history in the current billing period. Refetches every 5 minutes. */
+export const usageHistoryQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.billing.usageHistory.queryKey,
     queryFn: () => getUsageHistoryServerFn(),
     refetchInterval: 300_000,
   });
-}

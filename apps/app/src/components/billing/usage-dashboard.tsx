@@ -7,8 +7,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useOrgUsage } from "@/hooks/billing/use-org-usage";
+import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 
 function UsageGauge({
@@ -50,7 +51,7 @@ function UsageGauge({
 }
 
 export function UsageDashboard() {
-  const { data: usage, isLoading } = useOrgUsage();
+  const { data: usage, isLoading } = useQuery(orgUsageQueryOptions());
   const navigate = useNavigate();
 
   const handleManageBilling = async () => {

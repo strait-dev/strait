@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
+/** Spending limit and current spend data for the organization. */
 export type SpendingLimitData = {
   org_id: string;
   plan_tier: string;
@@ -32,10 +34,10 @@ const getSpendingLimitServerFn = createServerFn({ method: "GET" })
     );
   });
 
-export function useSpendingLimit() {
-  return useQuery({
-    queryKey: ["spending-limit"],
+/** Query options for the organization's spending limit and current spend. Refetches every 60s. */
+export const spendingLimitQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.billing.spendingLimit.queryKey,
     queryFn: () => getSpendingLimitServerFn(),
     refetchInterval: 60_000,
   });
-}
