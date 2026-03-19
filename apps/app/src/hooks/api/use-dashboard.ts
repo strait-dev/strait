@@ -4,7 +4,7 @@ import type {
   PerformanceAnalytics,
   QueueStatsResponse,
 } from "@/hooks/api/types";
-import { apiRequest } from "@/lib/api-client.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -14,16 +14,20 @@ import { authMiddleware } from "@/middlewares/auth";
 export const fetchStats = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
-    return await apiRequest<QueueStatsResponse>("/v1/stats");
+    return await runWithSentryReport(
+      apiEffect<QueueStatsResponse>("/v1/stats")
+    );
   });
 
 export const fetchAnalytics = createServerFn({ method: "GET" })
   .inputValidator((data: { periodHours?: number }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<PerformanceAnalytics>("/v1/analytics/performance", {
-      params: { period_hours: data.periodHours },
-    });
+    return await runWithSentryReport(
+      apiEffect<PerformanceAnalytics>("/v1/analytics/performance", {
+        params: { period_hours: data.periodHours },
+      })
+    );
   });
 
 // ---------------------------------------------------------------------------

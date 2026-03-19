@@ -10,7 +10,7 @@ import type {
   Region,
 } from "@/hooks/api/types";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import { apiRequest } from "@/lib/api-client.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -20,15 +20,17 @@ import { authMiddleware } from "@/middlewares/auth";
 export const fetchRegions = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
-    return await apiRequest<PaginatedResponse<Region>>("/v1/regions");
+    return await runWithSentryReport(
+      apiEffect<PaginatedResponse<Region>>("/v1/regions")
+    );
   });
 
 export const fetchProjectSettings = createServerFn({ method: "GET" })
   .inputValidator((data: { projectId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<ProjectSettings>(
-      `/v1/projects/${data.projectId}/settings`
+    return await runWithSentryReport(
+      apiEffect<ProjectSettings>(`/v1/projects/${data.projectId}/settings`)
     );
   });
 
@@ -36,9 +38,11 @@ export const updateProjectSettingsFn = createServerFn({ method: "POST" })
   .inputValidator((data: { projectId: string; default_region: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<ProjectSettings>(
-      `/v1/projects/${data.projectId}/settings`,
-      { method: "PUT", body: { default_region: data.default_region } }
+    return await runWithSentryReport(
+      apiEffect<ProjectSettings>(`/v1/projects/${data.projectId}/settings`, {
+        method: "PUT",
+        body: { default_region: data.default_region },
+      })
     );
   });
 
