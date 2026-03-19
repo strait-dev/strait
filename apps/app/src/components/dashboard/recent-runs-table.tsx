@@ -16,6 +16,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { ActivityIcon } from "@/lib/icons";
+import { ChartEmptyState } from "./chart-empty-state";
 import { StatusBadge } from "./status-badge";
 
 function formatDuration(
@@ -34,8 +36,13 @@ function formatDuration(
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export function RecentRunsTable() {
-  const { data } = useQuery(runsQueryOptions({ limit: 6 }));
+export function RecentRunsTable({
+  hasProject = true,
+}: { hasProject?: boolean }) {
+  const { data } = useQuery({
+    ...runsQueryOptions({ limit: 6 }),
+    enabled: hasProject,
+  });
   const runs = data?.data ?? [];
 
   return (
@@ -86,11 +93,17 @@ export function RecentRunsTable() {
             ))}
             {runs.length === 0 && (
               <TableRow>
-                <TableCell
-                  className="py-6 text-center text-muted-foreground"
-                  colSpan={5}
-                >
-                  No recent runs
+                <TableCell colSpan={5}>
+                  <div className="py-8">
+                    <ChartEmptyState
+                      icon={ActivityIcon}
+                      message={
+                        hasProject
+                          ? "No recent runs yet. Trigger a job to see activity here."
+                          : "Create a project to start tracking runs."
+                      }
+                    />
+                  </div>
                 </TableCell>
               </TableRow>
             )}

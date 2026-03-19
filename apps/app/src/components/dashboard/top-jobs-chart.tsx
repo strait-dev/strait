@@ -4,7 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -15,15 +15,22 @@ import {
   YAxis,
 } from "recharts";
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
+import { TrendingUpIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
+import { ChartEmptyState } from "./chart-empty-state";
 import { ChartTooltip } from "./chart-tooltip";
 
 const LABEL_MAP = {
   runs: { label: "Executions", color: CHART_COLORS.active },
 };
 
-export function TopJobsChart() {
-  const { data: analytics } = useSuspenseQuery(analyticsQueryOptions(24));
+export function TopJobsChart({
+  hasProject = true,
+}: { hasProject?: boolean }) {
+  const { data: analytics } = useQuery({
+    ...analyticsQueryOptions(24),
+    enabled: hasProject,
+  });
 
   const chartData = (analytics?.slowest_jobs ?? [])
     .map((j) => ({
@@ -31,6 +38,8 @@ export function TopJobsChart() {
       runs: j.total_runs,
     }))
     .slice(0, 5);
+
+  const isEmpty = !hasProject || chartData.length === 0;
 
   return (
     <Card>
@@ -41,37 +50,51 @@ export function TopJobsChart() {
       </CardHeader>
       <CardContent>
         <div className="h-[240px]">
-          <ResponsiveContainer
-            height="100%"
-            minHeight={1}
-            minWidth={1}
-            width="100%"
-          >
-            <BarChart data={chartData} layout="vertical">
-              <CartesianGrid className="stroke-border" strokeDasharray="3 3" />
-              <XAxis
-                className="text-muted-foreground"
-                tick={{ fontSize: 14 }}
-                type="number"
-              />
-              <YAxis
-                className="text-muted-foreground"
-                dataKey="job"
-                tick={{ fontSize: 14 }}
-                type="category"
-                width={100}
-              />
-              <Tooltip
-                content={<ChartTooltip labelMap={LABEL_MAP} />}
-                cursor={{ fill: "var(--muted)" }}
-              />
-              <Bar
-                dataKey="runs"
-                fill={CHART_COLORS.active}
-                radius={[0, 4, 4, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
+          {isEmpty ? (
+            <ChartEmptyState
+              icon={TrendingUpIcon}
+              message={
+                hasProject
+                  ? "No job executions yet. Your top jobs will appear here."
+                  : "Create a project to see top jobs."
+              }
+            />
+          ) : (
+            <ResponsiveContainer
+              height="100%"
+              minHeight={1}
+              minWidth={1}
+              width="100%"
+            >
+              <BarChart data={chartData} layout="vertical">
+                <CartesianGrid
+                  className="stroke-border"
+                  strokeDasharray="3 3"
+                />
+                <XAxis
+                  className="text-muted-foreground"
+                  tick={{ fontSize: 14 }}
+                  type="number"
+                />
+                <YAxis
+                  className="text-muted-foreground"
+                  dataKey="job"
+                  tick={{ fontSize: 14 }}
+                  type="category"
+                  width={100}
+                />
+                <Tooltip
+                  content={<ChartTooltip labelMap={LABEL_MAP} />}
+                  cursor={{ fill: "var(--muted)" }}
+                />
+                <Bar
+                  dataKey="runs"
+                  fill={CHART_COLORS.active}
+                  radius={[0, 4, 4, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </CardContent>
     </Card>

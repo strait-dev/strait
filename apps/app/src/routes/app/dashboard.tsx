@@ -2,7 +2,6 @@ import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 
-import { NoProjectState } from "@/components/common/no-project-state";
 import { FailedRunsByJobChart } from "@/components/dashboard/failed-runs-by-job-chart";
 import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed";
 import { MetricsCard } from "@/components/dashboard/metrics-card";
@@ -41,27 +40,26 @@ export const Route = createFileRoute("/app/dashboard")({
         context.queryClient.ensureQueryData(runsQueryOptions({ limit: 20 })),
       ]);
     }
-    return { hasProject, session };
+    return { hasProject };
   },
   component: RouteComponent,
 });
 
 function RouteComponent() {
-  const { hasProject, session } = Route.useLoaderData();
-  if (!hasProject) {
-    return (
-      <Shell>
-        <NoProjectState user={session.user} />
-      </Shell>
-    );
-  }
+  const { hasProject } = Route.useLoaderData();
 
-  return <DashboardContent />;
+  return <DashboardContent hasProject={hasProject} />;
 }
 
-function DashboardContent() {
-  const { data: stats } = useQuery(statsQueryOptions);
-  const { data: analytics } = useQuery(analyticsQueryOptions);
+function DashboardContent({ hasProject }: { hasProject: boolean }) {
+  const { data: stats } = useQuery({
+    ...statsQueryOptions,
+    enabled: hasProject,
+  });
+  const { data: analytics } = useQuery({
+    ...analyticsQueryOptions,
+    enabled: hasProject,
+  });
 
   const queued = stats?.queued ?? 0;
   const executing = stats?.executing ?? 0;
@@ -116,30 +114,30 @@ function DashboardContent() {
       {/* Row 2: Run Activity + Status Distribution */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <RunsChart />
+          <RunsChart hasProject={hasProject} />
         </div>
-        <StatusDistributionChart />
+        <StatusDistributionChart hasProject={hasProject} />
       </div>
 
       {/* Row 3: Failed Runs by Job + Duration Trends */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <FailedRunsByJobChart />
-        <RunDurationTrendsChart />
+        <FailedRunsByJobChart hasProject={hasProject} />
+        <RunDurationTrendsChart hasProject={hasProject} />
       </div>
 
       {/* Row 4: Top Jobs + Throughput + Queue Health */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <TopJobsChart />
-        <ThroughputChart />
-        <QueueHealthChart />
+        <TopJobsChart hasProject={hasProject} />
+        <ThroughputChart hasProject={hasProject} />
+        <QueueHealthChart hasProject={hasProject} />
       </div>
 
       {/* Row 5: Recent Runs + Activity Feed */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <RecentRunsTable />
+          <RecentRunsTable hasProject={hasProject} />
         </div>
-        <LiveActivityFeed />
+        <LiveActivityFeed hasProject={hasProject} />
       </div>
     </Shell>
   );

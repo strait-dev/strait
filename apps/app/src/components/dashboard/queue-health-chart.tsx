@@ -4,7 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -18,7 +18,9 @@ import {
   analyticsQueryOptions,
   statsQueryOptions,
 } from "@/hooks/api/use-dashboard";
+import { ClockIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
+import { ChartEmptyState } from "./chart-empty-state";
 import { ChartTooltip } from "./chart-tooltip";
 
 const LABEL_MAP = {
@@ -29,9 +31,17 @@ const LABEL_MAP = {
   },
 };
 
-export function QueueHealthChart() {
-  const { data: stats } = useSuspenseQuery(statsQueryOptions());
-  const { data: analytics } = useSuspenseQuery(analyticsQueryOptions(24));
+export function QueueHealthChart({
+  hasProject = true,
+}: { hasProject?: boolean }) {
+  const { data: stats } = useQuery({
+    ...statsQueryOptions(),
+    enabled: hasProject,
+  });
+  const { data: analytics } = useQuery({
+    ...analyticsQueryOptions(24),
+    enabled: hasProject,
+  });
 
   const health = analytics?.health_summary;
   const chartData = [
@@ -42,6 +52,9 @@ export function QueueHealthChart() {
     { metric: "Total Jobs", count: health?.total_jobs ?? 0 },
   ];
 
+  const total = chartData.reduce((sum, d) => sum + d.count, 0);
+  const isEmpty = !hasProject || total === 0;
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -49,34 +62,48 @@ export function QueueHealthChart() {
       </CardHeader>
       <CardContent>
         <div className="h-[240px]">
-          <ResponsiveContainer
-            height="100%"
-            minHeight={1}
-            minWidth={1}
-            width="100%"
-          >
-            <BarChart data={chartData}>
-              <CartesianGrid className="stroke-border" strokeDasharray="3 3" />
-              <XAxis
-                className="text-muted-foreground"
-                dataKey="metric"
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis
-                className="text-muted-foreground"
-                tick={{ fontSize: 14 }}
-              />
-              <Tooltip
-                content={<ChartTooltip labelMap={LABEL_MAP} />}
-                cursor={{ fill: "var(--muted)" }}
-              />
-              <Bar
-                dataKey="count"
-                fill={CHART_COLORS.warning}
-                radius={[4, 4, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
+          {isEmpty ? (
+            <ChartEmptyState
+              icon={ClockIcon}
+              message={
+                hasProject
+                  ? "No queue activity yet. Jobs will appear here once created."
+                  : "Create a project to monitor queue health."
+              }
+            />
+          ) : (
+            <ResponsiveContainer
+              height="100%"
+              minHeight={1}
+              minWidth={1}
+              width="100%"
+            >
+              <BarChart data={chartData}>
+                <CartesianGrid
+                  className="stroke-border"
+                  strokeDasharray="3 3"
+                />
+                <XAxis
+                  className="text-muted-foreground"
+                  dataKey="metric"
+                  tick={{ fontSize: 12 }}
+                />
+                <YAxis
+                  className="text-muted-foreground"
+                  tick={{ fontSize: 14 }}
+                />
+                <Tooltip
+                  content={<ChartTooltip labelMap={LABEL_MAP} />}
+                  cursor={{ fill: "var(--muted)" }}
+                />
+                <Bar
+                  dataKey="count"
+                  fill={CHART_COLORS.warning}
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </CardContent>
     </Card>
