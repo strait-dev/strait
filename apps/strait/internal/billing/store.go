@@ -17,6 +17,7 @@ type OrgSubscription struct {
 	CurrentPeriodEnd      *time.Time
 	SpendingLimitMicrousd int64
 	LimitAction           string
+	PendingPlanTier       *string
 	CanceledAt            *time.Time
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
@@ -42,7 +43,10 @@ type Store interface {
 	GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error)
 	UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error
 	UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error
+	UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error
 	UpdateSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
+	SetPendingPlanTier(ctx context.Context, orgID, tier string) error
+	ApplyPendingDowngrade(ctx context.Context, orgID string) error
 
 	// Project-org mapping
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)

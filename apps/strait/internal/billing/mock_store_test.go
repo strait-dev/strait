@@ -11,12 +11,23 @@ type planUpdate struct {
 	status string
 }
 
+type fullUpdate struct {
+	orgID       string
+	tier        string
+	status      string
+	periodStart *time.Time
+	periodEnd   *time.Time
+}
+
 type mockBillingStore struct {
-	lastUpserted   *OrgSubscription
-	upsertCount    int
-	lastPlanUpdate *planUpdate
-	subscriptions  map[string]*OrgSubscription
-	projects       map[string][]string
+	lastUpserted        *OrgSubscription
+	upsertCount         int
+	lastPlanUpdate      *planUpdate
+	lastFullUpdate      *fullUpdate
+	lastPendingTier     string
+	pendingDowngradeOrg string
+	subscriptions       map[string]*OrgSubscription
+	projects            map[string][]string
 }
 
 func (m *mockBillingStore) GetOrgSubscription(_ context.Context, orgID string) (*OrgSubscription, error) {
@@ -34,6 +45,11 @@ func (m *mockBillingStore) UpsertOrgSubscription(_ context.Context, sub *OrgSubs
 	if m.subscriptions == nil {
 		m.subscriptions = make(map[string]*OrgSubscription)
 	}
+	// Simulate ON CONFLICT behavior: preserve spending_limit and limit_action.
+	if existing, ok := m.subscriptions[sub.OrgID]; ok {
+		sub.SpendingLimitMicrousd = existing.SpendingLimitMicrousd
+		sub.LimitAction = existing.LimitAction
+	}
 	m.subscriptions[sub.OrgID] = sub
 	return nil
 }
@@ -43,7 +59,45 @@ func (m *mockBillingStore) UpdateOrgSubscriptionPlan(_ context.Context, orgID, p
 	return nil
 }
 
+func (m *mockBillingStore) UpdateOrgSubscriptionFull(_ context.Context, orgID, tier, status string, periodStart, periodEnd *time.Time) error {
+	m.lastFullUpdate = &fullUpdate{orgID: orgID, tier: tier, status: status, periodStart: periodStart, periodEnd: periodEnd}
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok {
+			sub.PlanTier = tier
+			sub.Status = status
+			if periodStart != nil {
+				sub.CurrentPeriodStart = periodStart
+			}
+			if periodEnd != nil {
+				sub.CurrentPeriodEnd = periodEnd
+			}
+		}
+	}
+	return nil
+}
+
 func (m *mockBillingStore) UpdateSpendingLimit(_ context.Context, _ string, _ int64, _ string) error {
+	return nil
+}
+
+func (m *mockBillingStore) SetPendingPlanTier(_ context.Context, orgID, tier string) error {
+	m.lastPendingTier = tier
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok {
+			sub.PendingPlanTier = &tier
+		}
+	}
+	return nil
+}
+
+func (m *mockBillingStore) ApplyPendingDowngrade(_ context.Context, orgID string) error {
+	m.pendingDowngradeOrg = orgID
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok && sub.PendingPlanTier != nil {
+			sub.PlanTier = *sub.PendingPlanTier
+			sub.PendingPlanTier = nil
+		}
+	}
 	return nil
 }
 

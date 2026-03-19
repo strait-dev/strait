@@ -62,8 +62,8 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 			status = EXCLUDED.status,
 			current_period_start = EXCLUDED.current_period_start,
 			current_period_end = EXCLUDED.current_period_end,
-			spending_limit_microusd = EXCLUDED.spending_limit_microusd,
-			limit_action = EXCLUDED.limit_action,
+			spending_limit_microusd = organization_subscriptions.spending_limit_microusd,
+			limit_action = organization_subscriptions.limit_action,
 			canceled_at = EXCLUDED.canceled_at,
 			updated_at = NOW()
 	`, sub.ID, sub.OrgID, sub.PlanTier,
@@ -86,6 +86,56 @@ func (s *PgStore) UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier
 	`, orgID, planTier, status)
 	if err != nil {
 		return fmt.Errorf("updating org subscription plan: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSubscriptionNotFound
+	}
+	return nil
+}
+
+func (s *PgStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET plan_tier = $2, status = $3,
+			current_period_start = COALESCE($4, current_period_start),
+			current_period_end = COALESCE($5, current_period_end),
+			updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, planTier, status, periodStart, periodEnd)
+	if err != nil {
+		return fmt.Errorf("updating org subscription full: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSubscriptionNotFound
+	}
+	return nil
+}
+
+func (s *PgStore) SetPendingPlanTier(ctx context.Context, orgID, tier string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET pending_plan_tier = $2, updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, tier)
+	if err != nil {
+		return fmt.Errorf("setting pending plan tier: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSubscriptionNotFound
+	}
+	return nil
+}
+
+func (s *PgStore) ApplyPendingDowngrade(ctx context.Context, orgID string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET plan_tier = pending_plan_tier,
+			pending_plan_tier = NULL,
+			updated_at = NOW()
+		WHERE org_id = $1 AND pending_plan_tier IS NOT NULL
+	`, orgID)
+	if err != nil {
+		return fmt.Errorf("applying pending downgrade: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrSubscriptionNotFound

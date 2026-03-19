@@ -250,6 +250,217 @@ func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
 	}
 }
 
+func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_limit": {
+				OrgID:                 "org_limit",
+				PlanTier:              "starter",
+				Status:                "active",
+				SpendingLimitMicrousd: 50000000, // $50
+				LimitAction:           "notify",
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+
+	// Re-deliver the same subscription.created webhook.
+	payload := PolarWebhookPayload{
+		Type: "subscription.created",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_dup",
+			ProductID:  "starter-id",
+			CustomerID: "cust_dup",
+			Metadata:   map[string]string{"org_id": "org_limit"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// The spending limit should be preserved (not reset to -1).
+	sub := store.subscriptions["org_limit"]
+	if sub.SpendingLimitMicrousd != 50000000 {
+		t.Errorf("spending limit was overwritten: got %d, want 50000000", sub.SpendingLimitMicrousd)
+	}
+	if sub.LimitAction != "notify" {
+		t.Errorf("limit action was overwritten: got %q, want notify", sub.LimitAction)
+	}
+}
+
+func TestWebhook_UpdatedRefreshesPeriodDates(t *testing.T) {
+	t.Parallel()
+
+	oldStart := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	oldEnd := time.Date(2025, 1, 31, 0, 0, 0, 0, time.UTC)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_period": {
+				OrgID:              "org_period",
+				PlanTier:           "starter",
+				Status:             "active",
+				CurrentPeriodStart: &oldStart,
+				CurrentPeriodEnd:   &oldEnd,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+
+	newStart := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+	newEnd := time.Date(2025, 2, 28, 0, 0, 0, 0, time.UTC)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.updated",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:                 "sub_period",
+			ProductID:          "starter-id",
+			CustomerID:         "cust_period",
+			CurrentPeriodStart: &newStart,
+			CurrentPeriodEnd:   &newEnd,
+			Metadata:           map[string]string{"org_id": "org_period"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	if store.lastFullUpdate == nil {
+		t.Fatal("expected full update to be called")
+	}
+	if store.lastFullUpdate.periodStart == nil || !store.lastFullUpdate.periodStart.Equal(newStart) {
+		t.Errorf("period start not updated correctly")
+	}
+	if store.lastFullUpdate.periodEnd == nil || !store.lastFullUpdate.periodEnd.Equal(newEnd) {
+		t.Errorf("period end not updated correctly")
+	}
+}
+
+func TestWebhook_DowngradeDeferred(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_down": {
+				OrgID:    "org_down",
+				PlanTier: "pro",
+				Status:   "active",
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+
+	// Update from pro to starter (downgrade).
+	payload := PolarWebhookPayload{
+		Type: "subscription.updated",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_down",
+			ProductID:  "starter-id",
+			CustomerID: "cust_down",
+			Metadata:   map[string]string{"org_id": "org_down"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// Plan should still be "pro" (not immediately downgraded).
+	sub := store.subscriptions["org_down"]
+	if sub.PlanTier != "pro" {
+		t.Errorf("expected plan to remain pro during deferred downgrade, got %q", sub.PlanTier)
+	}
+	// Pending tier should be set.
+	if store.lastPendingTier != "starter" {
+		t.Errorf("expected pending tier to be starter, got %q", store.lastPendingTier)
+	}
+}
+
+func TestWebhook_UpgradeImmediate(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_up": {
+				OrgID:    "org_up",
+				PlanTier: "starter",
+				Status:   "active",
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+
+	// Update from starter to pro (upgrade).
+	payload := PolarWebhookPayload{
+		Type: "subscription.updated",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_up",
+			ProductID:  "pro-id",
+			CustomerID: "cust_up",
+			Metadata:   map[string]string{"org_id": "org_up"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// Plan should be immediately updated to "pro".
+	if store.lastFullUpdate == nil {
+		t.Fatal("expected full update to be called")
+	}
+	if store.lastFullUpdate.tier != "pro" {
+		t.Errorf("expected tier to be pro, got %q", store.lastFullUpdate.tier)
+	}
+	// No pending tier should be set.
+	if store.lastPendingTier != "" {
+		t.Errorf("expected no pending tier for upgrade, got %q", store.lastPendingTier)
+	}
+}
+
 func mustJSON(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(v)

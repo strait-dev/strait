@@ -256,7 +256,42 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		status = "active"
 	}
 
-	if err := h.store.UpdateOrgSubscriptionPlan(ctx, orgID, string(tier), status); err != nil {
+	// Check if this is a downgrade by comparing plan limits.
+	existing, existErr := h.store.GetOrgSubscription(ctx, orgID)
+	if existErr != nil && !errors.Is(existErr, ErrSubscriptionNotFound) {
+		return fmt.Errorf("getting existing subscription: %w", existErr)
+	}
+
+	isDowngrade := false
+	if existing != nil && existing.PlanTier != string(tier) {
+		currentLimits := GetPlanLimits(domain.PlanTier(existing.PlanTier))
+		newLimits := GetPlanLimits(tier)
+		isDowngrade = newLimits.MaxRunsPerDay < currentLimits.MaxRunsPerDay ||
+			newLimits.MaxProjectsPerOrg < currentLimits.MaxProjectsPerOrg ||
+			newLimits.ComputeCreditMicrousd < currentLimits.ComputeCreditMicrousd
+	}
+
+	if isDowngrade {
+		// Defer the downgrade: store the pending tier for end-of-period application.
+		if err := h.store.SetPendingPlanTier(ctx, orgID, string(tier)); err != nil {
+			return fmt.Errorf("setting pending plan tier: %w", err)
+		}
+		// Still update period dates and status.
+		if err := h.store.UpdateOrgSubscriptionFull(ctx, orgID, existing.PlanTier, status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd); err != nil {
+			if !errors.Is(err, ErrSubscriptionNotFound) {
+				return fmt.Errorf("updating subscription period: %w", err)
+			}
+		}
+		h.logger.Info("subscription downgrade deferred",
+			"org_id", orgID,
+			"current_tier", existing.PlanTier,
+			"pending_tier", tier,
+		)
+		return nil
+	}
+
+	// Upgrade or same-tier update: apply immediately with period dates.
+	if err := h.store.UpdateOrgSubscriptionFull(ctx, orgID, string(tier), status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd); err != nil {
 		if errors.Is(err, ErrSubscriptionNotFound) {
 			now := time.Now()
 			orgSub := &OrgSubscription{
