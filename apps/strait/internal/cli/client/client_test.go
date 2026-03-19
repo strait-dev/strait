@@ -1377,3 +1377,367 @@ func mustMarshal(t *testing.T, v any) json.RawMessage {
 	}
 	return b
 }
+
+// Phase 0: Deployment API tests.
+
+func TestCreateDeploymentVersion(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/deployments")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req CreateDeploymentVersionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.ProjectID != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", req.ProjectID)
+		}
+		if req.Environment != "production" {
+			t.Fatalf("expected environment=production, got %q", req.Environment)
+		}
+		if req.Checksum == "" {
+			t.Fatal("expected checksum to be set")
+		}
+
+		respondJSON(t, w, http.StatusOK, DeploymentVersion{
+			ID:          "dep-1",
+			ProjectID:   req.ProjectID,
+			Environment: req.Environment,
+			Status:      "pending",
+			Checksum:    req.Checksum,
+			CreatedAt:   now,
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.CreateDeploymentVersion(context.Background(), CreateDeploymentVersionRequest{
+		ProjectID:   "proj-1",
+		Environment: "production",
+		Runtime:     "node",
+		Checksum:    "sha256:abc123",
+	})
+	if err != nil {
+		t.Fatalf("CreateDeploymentVersion: %v", err)
+	}
+	if got.ID != "dep-1" {
+		t.Fatalf("expected dep-1, got %s", got.ID)
+	}
+}
+
+func TestCreateDeploymentVersion_MissingFields(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"project_id is required"}`))
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	_, err := c.CreateDeploymentVersion(context.Background(), CreateDeploymentVersionRequest{})
+	if err == nil {
+		t.Fatal("expected error for 400 response")
+	}
+	if !strings.Contains(err.Error(), "400") {
+		t.Fatalf("error should contain status code: %v", err)
+	}
+}
+
+func TestFinalizeDeployment(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/deployments/dep-1/finalize")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req FinalizeDeploymentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.ProjectID != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", req.ProjectID)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	err := c.FinalizeDeployment(context.Background(), "dep-1", FinalizeDeploymentRequest{ProjectID: "proj-1"})
+	if err != nil {
+		t.Fatalf("FinalizeDeployment: %v", err)
+	}
+}
+
+func TestPromoteDeployment(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/deployments/dep-1/promote")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req PromoteDeploymentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.ProjectID != "proj-1" || req.Environment != "production" {
+			t.Fatalf("unexpected request: %+v", req)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	err := c.PromoteDeployment(context.Background(), "dep-1", PromoteDeploymentRequest{ProjectID: "proj-1", Environment: "production"})
+	if err != nil {
+		t.Fatalf("PromoteDeployment: %v", err)
+	}
+}
+
+func TestRollbackDeployment(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/deployments/dep-1/rollback")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req RollbackDeploymentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.ProjectID != "proj-1" || req.Environment != "production" {
+			t.Fatalf("unexpected request: %+v", req)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	err := c.RollbackDeployment(context.Background(), "dep-1", RollbackDeploymentRequest{ProjectID: "proj-1", Environment: "production"})
+	if err != nil {
+		t.Fatalf("RollbackDeployment: %v", err)
+	}
+}
+
+func TestListDeployments(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/deployments")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("project_id") != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
+		}
+		respondPaginated(t, w, http.StatusOK, []DeploymentVersion{
+			{ID: "dep-1", ProjectID: "proj-1", Environment: "production", Status: "active", CreatedAt: now},
+			{ID: "dep-2", ProjectID: "proj-1", Environment: "staging", Status: "pending", CreatedAt: now},
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListDeployments(context.Background(), "proj-1", 0)
+	if err != nil {
+		t.Fatalf("ListDeployments: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 deployments, got %d", len(got))
+	}
+	if got[0].ID != "dep-1" {
+		t.Fatalf("expected dep-1, got %s", got[0].ID)
+	}
+}
+
+func TestListServerSecrets(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/secrets")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("project_id") != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
+		}
+		if r.URL.Query().Get("environment") != "production" {
+			t.Fatalf("expected environment=production, got %q", r.URL.Query().Get("environment"))
+		}
+		respondPaginated(t, w, http.StatusOK, []ServerSecret{
+			{ID: "sec-1", ProjectID: "proj-1", SecretKey: "DB_PASSWORD", Environment: "production", CreatedAt: now, UpdatedAt: now},
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListServerSecrets(context.Background(), "proj-1", "production")
+	if err != nil {
+		t.Fatalf("ListServerSecrets: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "sec-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestCreateServerSecret(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/secrets")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req CreateServerSecretRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.ProjectID != "proj-1" || req.SecretKey != "API_TOKEN" || req.SecretValue != "secret123" {
+			t.Fatalf("unexpected request: %+v", req)
+		}
+
+		respondJSON(t, w, http.StatusOK, ServerSecret{
+			ID:          "sec-1",
+			ProjectID:   req.ProjectID,
+			SecretKey:   req.SecretKey,
+			Environment: req.Environment,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.CreateServerSecret(context.Background(), CreateServerSecretRequest{
+		ProjectID:   "proj-1",
+		SecretKey:   "API_TOKEN",
+		SecretValue: "secret123",
+		Environment: "production",
+	})
+	if err != nil {
+		t.Fatalf("CreateServerSecret: %v", err)
+	}
+	if got.ID != "sec-1" {
+		t.Fatalf("expected sec-1, got %s", got.ID)
+	}
+}
+
+func TestDeleteServerSecret(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodDelete)
+		assertPath(t, r, "/v1/secrets/sec-1")
+		assertAuth(t, r, "test-key")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	if err := c.DeleteServerSecret(context.Background(), "sec-1"); err != nil {
+		t.Fatalf("DeleteServerSecret: %v", err)
+	}
+}
+
+func TestGetPerformanceAnalytics(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/analytics/performance")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("project_id") != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
+		}
+		respondPaginated(t, w, http.StatusOK, []PerformanceAnalytics{
+			{JobID: "job-1", JobSlug: "process-payment", TotalRuns: 100, SuccessRate: 0.95, AvgDuration: 1500},
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.GetPerformanceAnalytics(context.Background(), "proj-1", "")
+	if err != nil {
+		t.Fatalf("GetPerformanceAnalytics: %v", err)
+	}
+	if len(got) != 1 || got[0].JobID != "job-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestListMembers(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/members")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("project_id") != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
+		}
+		respondPaginated(t, w, http.StatusOK, []Member{
+			{ID: "mem-1", ProjectID: "proj-1", Email: "user@example.com", Role: "admin", CreatedAt: now},
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListMembers(context.Background(), "proj-1")
+	if err != nil {
+		t.Fatalf("ListMembers: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "mem-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestListAuditEvents(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/audit-events")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("project_id") != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
+		}
+		respondPaginated(t, w, http.StatusOK, []AuditEvent{
+			{ID: "ae-1", ProjectID: "proj-1", Actor: "user@example.com", Action: "job.created", Resource: "job-1", CreatedAt: now},
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListAuditEvents(context.Background(), "proj-1", "", "", 0)
+	if err != nil {
+		t.Fatalf("ListAuditEvents: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "ae-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}

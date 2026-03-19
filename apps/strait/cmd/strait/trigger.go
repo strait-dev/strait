@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -16,6 +17,7 @@ func newTriggerCommand(state *appState) *cobra.Command {
 	var payload string
 	var payloadFile string
 	var priority int
+	var wait bool
 
 	cmd := &cobra.Command{
 		Use:   "trigger <job-id-or-slug>",
@@ -41,6 +43,14 @@ func newTriggerCommand(state *appState) *cobra.Command {
 				req.Payload = json.RawMessage(raw)
 			} else if strings.TrimSpace(payload) != "" {
 				req.Payload = json.RawMessage(payload)
+			} else if stdinPiped() {
+				raw, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return fmt.Errorf("read stdin: %w", err)
+				}
+				if len(raw) > 0 {
+					req.Payload = json.RawMessage(raw)
+				}
 			}
 			if len(req.Payload) > 0 && !json.Valid(req.Payload) {
 				return fmt.Errorf("payload must be valid JSON")
@@ -51,15 +61,33 @@ func newTriggerCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			return printData(state, resp)
+			if err := printData(state, resp); err != nil {
+				return err
+			}
+
+			if !wait {
+				return nil
+			}
+
+			watchCmd := newRunsWatchCommand(state)
+			return watchCmd.RunE(watchCmd, []string{resp.ID})
 		},
 	}
 
 	cmd.Flags().StringVar(&payload, "payload", "", "inline JSON payload")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "path to payload JSON file")
 	cmd.Flags().IntVar(&priority, "priority", 0, "run priority")
+	cmd.Flags().BoolVar(&wait, "wait", false, "wait for triggered run to reach terminal state")
 
 	return cmd
+}
+
+func stdinPiped() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) == 0
 }
 
 func resolveJobIdentifier(ctx context.Context, cli *client.Client, state *appState, idOrSlug string) (string, error) {

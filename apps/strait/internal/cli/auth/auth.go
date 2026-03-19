@@ -41,6 +41,26 @@ func DeleteAPIKey(contextName string) error {
 	return err
 }
 
+// DashboardURL derives the dashboard URL from a server URL.
+func DashboardURL(serverURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(serverURL), "/")
+	if base == "" {
+		return ""
+	}
+	// Replace common API subdomains/ports with dashboard equivalents
+	base = strings.Replace(base, ":8080", ":5173", 1)
+	base = strings.Replace(base, "api.", "app.", 1)
+	return base
+}
+
+// MaskAPIKey masks an API key showing only the last 4 characters.
+func MaskAPIKey(key string) string {
+	if len(key) <= 4 {
+		return "***"
+	}
+	return "..." + key[len(key)-4:]
+}
+
 func ValidateAPIKey(ctx context.Context, serverURL, apiKey string, timeout time.Duration) error {
 	base := strings.TrimRight(strings.TrimSpace(serverURL), "/")
 	if base == "" {

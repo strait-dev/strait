@@ -154,3 +154,102 @@ type QueueStats struct {
 	Executing int `json:"executing"`
 	Delayed   int `json:"delayed"`
 }
+
+// Deployment types.
+
+type CreateDeploymentVersionRequest struct {
+	ProjectID   string `json:"project_id"`
+	Environment string `json:"environment"`
+	Runtime     string `json:"runtime,omitempty"`
+	Manifest    any    `json:"manifest,omitempty"`
+	Checksum    string `json:"checksum,omitempty"`
+	ArtifactURI string `json:"artifact_uri,omitempty"`
+}
+
+type DeploymentVersion struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Environment string    `json:"environment"`
+	Status      string    `json:"status"`
+	Checksum    string    `json:"checksum,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type FinalizeDeploymentRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+type PromoteDeploymentRequest struct {
+	ProjectID   string `json:"project_id"`
+	Environment string `json:"environment"`
+}
+
+type RollbackDeploymentRequest struct {
+	ProjectID   string `json:"project_id"`
+	Environment string `json:"environment"`
+}
+
+// Server-side secret types.
+
+type ServerSecret struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	SecretKey   string    `json:"secret_key"`
+	Environment string    `json:"environment"`
+	JobID       string    `json:"job_id,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type CreateServerSecretRequest struct {
+	ProjectID   string `json:"project_id"`
+	SecretKey   string `json:"secret_key"`
+	SecretValue string `json:"secret_value"`
+	Environment string `json:"environment"`
+	JobID       string `json:"job_id,omitempty"`
+}
+
+// Performance analytics types.
+
+type PerformanceAnalytics struct {
+	JobID       string  `json:"job_id"`
+	JobSlug     string  `json:"job_slug"`
+	TotalRuns   int     `json:"total_runs"`
+	SuccessRate float64 `json:"success_rate"`
+	AvgDuration float64 `json:"avg_duration_ms"`
+	P50Duration float64 `json:"p50_duration_ms"`
+	P95Duration float64 `json:"p95_duration_ms"`
+	P99Duration float64 `json:"p99_duration_ms"`
+}
+
+// Team/RBAC types.
+
+type Member struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	Email     string    `json:"email"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type AddMemberRequest struct {
+	ProjectID string `json:"project_id"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+}
+
+type Role struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type AuditEvent struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	Actor     string    `json:"actor"`
+	Action    string    `json:"action"`
+	Resource  string    `json:"resource"`
+	Detail    string    `json:"detail,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}

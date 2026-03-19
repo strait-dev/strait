@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/dag"
 	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
@@ -27,6 +28,7 @@ func newWorkflowsCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newWorkflowsDeleteCommand(state))
 	cmd.AddCommand(newWorkflowsRunsCommand(state))
 	cmd.AddCommand(newWorkflowsTriggerCommand(state))
+	cmd.AddCommand(newWorkflowsVisualizeCommand(state))
 
 	return cmd
 }
@@ -416,4 +418,61 @@ func resolveWorkflowIdentifier(ctx context.Context, cli *client.Client, state *a
 	}
 
 	return "", fmt.Errorf("workflow %q not found", idOrSlug)
+}
+
+func newWorkflowsVisualizeCommand(state *appState) *cobra.Command {
+	var workflowRunID string
+
+	cmd := &cobra.Command{
+		Use:     "visualize <workflow-id-or-slug>",
+		Short:   "Render workflow step DAG as a text diagram",
+		Long:    "Fetches the workflow definition and renders a topologically sorted DAG with box-drawing characters. Optionally colors nodes by step run status.",
+		Example: "  strait workflows visualize my-workflow\n  strait workflows visualize my-workflow --run wfr_123",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			workflowID, err := resolveWorkflowIdentifier(cmd.Context(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
+			wf, err := cli.GetWorkflow(cmd.Context(), workflowID)
+			if err != nil {
+				return err
+			}
+
+			steps := make([]dag.Step, 0, len(wf.Steps))
+			for _, s := range wf.Steps {
+				steps = append(steps, dag.Step{
+					StepRef:   s.StepRef,
+					DependsOn: s.DependsOn,
+				})
+			}
+
+			// Optionally fetch step run statuses for coloring
+			var statusMap map[string]string
+			if workflowRunID != "" {
+				stepRuns, listErr := cli.ListWorkflowStepRuns(cmd.Context(), workflowRunID)
+				if listErr != nil {
+					return fmt.Errorf("fetching step runs: %w", listErr)
+				}
+				statusMap = make(map[string]string, len(stepRuns))
+				for _, sr := range stepRuns {
+					statusMap[sr.StepRef] = string(sr.Status)
+				}
+			}
+
+			rendered := dag.RenderDAG(steps, statusMap)
+			fmt.Print(rendered)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&workflowRunID, "run", "", "workflow run ID to color nodes by step status")
+
+	return cmd
 }

@@ -379,3 +379,139 @@ func (c *Client) ListEnvironments(ctx context.Context, projectID string) ([]doma
 	}
 	return out, nil
 }
+
+// Deployment methods.
+
+func (c *Client) CreateDeploymentVersion(ctx context.Context, req CreateDeploymentVersionRequest) (*DeploymentVersion, error) {
+	var out DeploymentVersion
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/deployments", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) FinalizeDeployment(ctx context.Context, id string, req FinalizeDeploymentRequest) error {
+	return c.doJSON(ctx, http.MethodPost, path.Join("/v1/deployments", id, "finalize"), nil, req, nil)
+}
+
+func (c *Client) PromoteDeployment(ctx context.Context, id string, req PromoteDeploymentRequest) error {
+	return c.doJSON(ctx, http.MethodPost, path.Join("/v1/deployments", id, "promote"), nil, req, nil)
+}
+
+func (c *Client) RollbackDeployment(ctx context.Context, id string, req RollbackDeploymentRequest) error {
+	return c.doJSON(ctx, http.MethodPost, path.Join("/v1/deployments", id, "rollback"), nil, req, nil)
+}
+
+func (c *Client) ListDeployments(ctx context.Context, projectID string, limit int) ([]DeploymentVersion, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+
+	var out []DeploymentVersion
+	if err := c.doListJSON(ctx, "/v1/deployments", query, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Server-side secret methods.
+
+func (c *Client) ListServerSecrets(ctx context.Context, projectID, environment string) ([]ServerSecret, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+	if strings.TrimSpace(environment) != "" {
+		query.Set("environment", strings.TrimSpace(environment))
+	}
+
+	var out []ServerSecret
+	if err := c.doListJSON(ctx, "/v1/secrets", query, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) CreateServerSecret(ctx context.Context, req CreateServerSecretRequest) (*ServerSecret, error) {
+	var out ServerSecret
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/secrets", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) DeleteServerSecret(ctx context.Context, id string) error {
+	return c.doJSON(ctx, http.MethodDelete, path.Join("/v1/secrets", id), nil, nil, nil)
+}
+
+// Performance analytics methods.
+
+func (c *Client) GetPerformanceAnalytics(ctx context.Context, projectID string, period string) ([]PerformanceAnalytics, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+	if strings.TrimSpace(period) != "" {
+		query.Set("period", strings.TrimSpace(period))
+	}
+
+	var out []PerformanceAnalytics
+	if err := c.doListJSON(ctx, "/v1/analytics/performance", query, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Team/RBAC methods.
+
+func (c *Client) ListMembers(ctx context.Context, projectID string) ([]Member, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+
+	var out []Member
+	if err := c.doListJSON(ctx, "/v1/members", query, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) AddMember(ctx context.Context, req AddMemberRequest) (*Member, error) {
+	var out Member
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/members", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) RemoveMember(ctx context.Context, id string) error {
+	return c.doJSON(ctx, http.MethodDelete, path.Join("/v1/members", id), nil, nil, nil)
+}
+
+func (c *Client) ListRoles(ctx context.Context, projectID string) ([]Role, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+
+	var out []Role
+	if err := c.doListJSON(ctx, "/v1/roles", query, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) ListAuditEvents(ctx context.Context, projectID, actor, action string, limit int) ([]AuditEvent, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+	if strings.TrimSpace(actor) != "" {
+		query.Set("actor", strings.TrimSpace(actor))
+	}
+	if strings.TrimSpace(action) != "" {
+		query.Set("action", strings.TrimSpace(action))
+	}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+
+	var out []AuditEvent
+	if err := c.doListJSON(ctx, "/v1/audit-events", query, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
