@@ -160,9 +160,10 @@ func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
 
 	totalOps := ops.Load()
 	totalErrs := errs.Load()
+	totalAttempts := totalOps + totalErrs
 	var errorRate float64
-	if totalOps > 0 {
-		errorRate = float64(totalErrs) / float64(totalOps)
+	if totalAttempts > 0 {
+		errorRate = float64(totalErrs) / float64(totalAttempts)
 	}
 
 	var queueDepth int64

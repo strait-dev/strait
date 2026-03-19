@@ -68,7 +68,15 @@ func NewHarness(cfg HarnessConfig) *Harness {
 	return &Harness{
 		Config:     cfg,
 		ResultsDir: cfg.OutputDir,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 100,
+				IdleConnTimeout:     2 * time.Second,
+				DisableKeepAlives:   true,
+			},
+		},
 	}
 }
 
@@ -145,6 +153,9 @@ func (h *Harness) Teardown() error {
 	if h.Redis != nil {
 		setErr(h.Redis.Close())
 	}
+
+	// Close idle HTTP connections to allow clean shutdown
+	h.httpClient.CloseIdleConnections()
 
 	return firstErr
 }
@@ -285,7 +296,7 @@ func (qs *QueueStats) QueueDepth() int64 {
 // SetupLoadTestJobs creates the standard load test jobs and returns their IDs.
 // The test server must be started before calling this.
 func (h *Harness) SetupLoadTestJobs(ctx context.Context, projectID string) (map[string]string, error) {
-	testServerURL := fmt.Sprintf("http://localhost:%d", h.Config.TestServerPort)
+	testServerURL := fmt.Sprintf("http://%s", h.TestServer.Addr())
 	jobs := map[string]string{}
 
 	configs := []JobConfig{

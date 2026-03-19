@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -70,22 +71,26 @@ func NewTestServer(port int) *TestServer {
 }
 
 // Start begins serving requests in a background goroutine.
+// If the configured port is in use, it falls back to an OS-assigned port.
 func (ts *TestServer) Start() error {
-	errCh := make(chan error, 1)
-	go func() {
-		if err := ts.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
+	ln, err := net.Listen("tcp", ts.addr)
+	if err != nil {
+		// Port in use - try OS-assigned port
+		ln, err = net.Listen("tcp", ":0")
+		if err != nil {
+			return fmt.Errorf("test server failed to listen: %w", err)
 		}
-		close(errCh)
+	}
+
+	// Extract actual port
+	actualAddr := ln.Addr().String()
+	ts.addr = actualAddr
+
+	go func() {
+		ts.srv.Serve(ln)
 	}()
 
-	// Give the server a moment to start or fail
-	select {
-	case err := <-errCh:
-		return fmt.Errorf("test server failed to start: %w", err)
-	case <-time.After(100 * time.Millisecond):
-		return nil
-	}
+	return nil
 }
 
 // Close shuts down the test server.
@@ -100,7 +105,7 @@ func (ts *TestServer) Addr() string {
 
 // URL returns the full URL for the given endpoint path.
 func (ts *TestServer) URL(path string) string {
-	return fmt.Sprintf("http://localhost%s%s", ts.addr, path)
+	return fmt.Sprintf("http://%s%s", ts.addr, path)
 }
 
 // Snapshot returns a point-in-time copy of server stats.
