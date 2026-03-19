@@ -11,6 +11,7 @@ export type GeneratedOperationSchema = {
 };
 
 const componentSchemas: Record<string, Schema.Schema.AnyNoContext> = {};
+componentSchemas["CurrentUsageResponse"] = Schema.Struct({ "org_id": Schema.optional(Schema.String), "plan": Schema.optional(Schema.String), "period": Schema.optional(Schema.Struct({ "start": Schema.optional(Schema.String), "end": Schema.optional(Schema.String) })), "usage": Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })), "alerts": Schema.optional(Schema.Array(Schema.Record({ key: Schema.String, value: Schema.Unknown }))) });
 componentSchemas["EventTrigger"] = Schema.Struct({ "id": Schema.optional(Schema.String), "event_key": Schema.optional(Schema.String), "project_id": Schema.optional(Schema.String), "source_type": Schema.optional(Schema.Literal("workflow_step", "job_run")), "workflow_run_id": Schema.optional(Schema.NullOr(Schema.String)), "workflow_step_run_id": Schema.optional(Schema.NullOr(Schema.String)), "job_run_id": Schema.optional(Schema.NullOr(Schema.String)), "status": Schema.optional(Schema.Literal("waiting", "received", "timed_out", "canceled")), "request_payload": Schema.optional(Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.Unknown }))), "response_payload": Schema.optional(Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.Unknown }))), "timeout_secs": Schema.optional(Schema.Number.pipe(Schema.int())), "requested_at": Schema.optional(Schema.String), "received_at": Schema.optional(Schema.NullOr(Schema.String)), "expires_at": Schema.optional(Schema.String), "error": Schema.optional(Schema.NullOr(Schema.String)) });
 componentSchemas["SendEventRequest"] = Schema.Struct({ "payload": Schema.optional(Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.Unknown }))) });
 componentSchemas["SDKWaitForEventRequest"] = Schema.Struct({ "event_key": Schema.String, "timeout_secs": Schema.optional(Schema.Number.pipe(Schema.int())), "notify_url": Schema.optional(Schema.String) });
@@ -268,6 +269,7 @@ export const generatedOperationSchemas = {
   "getV1TagPolicies": { response: Schema.suspend(() => componentSchemas["ListTagPoliciesResponse"] ?? Schema.Unknown) },
   "postV1TagPolicies": { request: Schema.suspend(() => componentSchemas["CreateTagPolicyRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["TagPolicy"] ?? Schema.Unknown) },
   "deleteV1TagPoliciesByPolicyID": {},
+  "getV1UsageCurrent": { response: Schema.suspend(() => componentSchemas["CurrentUsageResponse"] ?? Schema.Unknown) },
   "getV1WebhookDeliveries": { response: Schema.Array(Schema.suspend(() => componentSchemas["WebhookDelivery"] ?? Schema.Unknown)) },
   "postV1WebhookDeliveriesByDeliveryIDRetry": { response: Schema.suspend(() => componentSchemas["WebhookDelivery"] ?? Schema.Unknown) },
   "getV1WebhooksDeliveries": { response: Schema.Array(Schema.suspend(() => componentSchemas["WebhookDelivery"] ?? Schema.Unknown)) },

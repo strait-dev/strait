@@ -117,18 +117,24 @@ func TestEnforcer_CheckConcurrentRunLimit(t *testing.T) {
 	t.Parallel()
 	enforcer, _, _ := setupEnforcer(t)
 
-	counter := &mockRunCounter{count: 5}
+	ctx := context.Background()
+	// Free plan: 5 concurrent runs max.
+	for range 5 {
+		if err := enforcer.CheckConcurrentRunLimit(ctx, "org_conc"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
 
-	// Free plan: 5 concurrent. At 5, should fail.
-	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org_test", counter)
+	// Run 6 should fail.
+	err := enforcer.CheckConcurrentRunLimit(ctx, "org_conc")
 	if err == nil {
 		t.Fatal("expected concurrent limit error")
 	}
 
-	// At 4, should pass
-	counter.count = 4
-	if err := enforcer.CheckConcurrentRunLimit(context.Background(), "org_test", counter); err != nil {
-		t.Fatalf("should pass at 4: %v", err)
+	// Decrement one, should allow another.
+	enforcer.DecrConcurrentRunCount(ctx, "org_conc")
+	if err := enforcer.CheckConcurrentRunLimit(ctx, "org_conc"); err != nil {
+		t.Fatalf("should pass after decrement: %v", err)
 	}
 }
 
@@ -188,14 +194,6 @@ func TestEnforcer_GetOrgPlanLimits_Cache(t *testing.T) {
 	if limits3.PlanTier != domain.PlanFree {
 		t.Errorf("expected free after invalidation, got %q", limits3.PlanTier)
 	}
-}
-
-type mockRunCounter struct {
-	count int
-}
-
-func (m *mockRunCounter) CountExecutingRunsByOrg(_ context.Context, _ string) (int, error) {
-	return m.count, nil
 }
 
 func isLimitError(err error, target **LimitError) bool {

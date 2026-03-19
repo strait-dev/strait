@@ -36,11 +36,6 @@ func (e *LimitError) Error() string {
 	return e.Message
 }
 
-// ExecutingRunCounter counts executing runs for an org across all projects.
-type ExecutingRunCounter interface {
-	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
-}
-
 // Enforcer checks org-level billing limits before allowing operations.
 type Enforcer struct {
 	store    Store
@@ -180,8 +175,9 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 }
 
 // CheckConcurrentRunLimit checks if the org has exceeded its concurrent run limit.
-func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string, counter ExecutingRunCounter) error {
-	if orgID == "" {
+// Uses Redis INCR for atomic counting. Call DecrConcurrentRunCount when the run finishes.
+func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) error {
+	if orgID == "" || e.rdb == nil {
 		return nil
 	}
 
@@ -195,17 +191,29 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string, co
 		return nil // unlimited
 	}
 
-	executing, err := counter.CountExecutingRunsByOrg(ctx, orgID)
+	key := fmt.Sprintf("strait:org_concurrent:%s", orgID)
+	count, err := e.rdb.Incr(ctx, key).Result()
 	if err != nil {
-		e.logger.Warn("failed to count executing runs by org", "org_id", orgID, "error", err)
+		e.logger.Warn("failed to increment concurrent run counter", "org_id", orgID, "error", err)
 		return nil // fail open
 	}
 
-	if executing >= limits.MaxConcurrentRuns {
+	// Set TTL for self-healing (in case decrements are missed).
+	if count == 1 {
+		if err := e.rdb.Expire(ctx, key, 24*time.Hour).Err(); err != nil {
+			e.logger.Warn("failed to set TTL on concurrent run counter", "org_id", orgID, "error", err)
+		}
+	}
+
+	if count > int64(limits.MaxConcurrentRuns) {
+		// Over limit: roll back the increment.
+		if err := e.rdb.Decr(ctx, key).Err(); err != nil {
+			e.logger.Warn("failed to rollback concurrent run counter", "org_id", orgID, "error", err)
+		}
 		return &LimitError{
 			Code:         "org_concurrent_run_limit_exceeded",
-			Message:      fmt.Sprintf("Your %s plan allows %d concurrent runs. Currently running: %d.", limits.DisplayName, limits.MaxConcurrentRuns, executing),
-			CurrentUsage: int64(executing),
+			Message:      fmt.Sprintf("Your %s plan allows %d concurrent runs. Currently running: %d.", limits.DisplayName, limits.MaxConcurrentRuns, count-1),
+			CurrentUsage: count - 1,
 			Limit:        int64(limits.MaxConcurrentRuns),
 			Plan:         string(limits.PlanTier),
 			UpgradeURL:   "/upgrade",
@@ -213,6 +221,17 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string, co
 	}
 
 	return nil
+}
+
+// DecrConcurrentRunCount decrements the concurrent run counter (call when a run finishes).
+func (e *Enforcer) DecrConcurrentRunCount(ctx context.Context, orgID string) {
+	if orgID == "" || e.rdb == nil {
+		return
+	}
+	key := fmt.Sprintf("strait:org_concurrent:%s", orgID)
+	if err := e.rdb.Decr(ctx, key).Err(); err != nil {
+		e.logger.Warn("failed to decrement concurrent run counter", "org_id", orgID, "error", err)
+	}
 }
 
 // CheckProjectLimit checks if org can create another project.

@@ -4,32 +4,56 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
+
+// signStandardWebhook creates Standard Webhooks headers for a test request.
+func signStandardWebhook(t *testing.T, secret string, body []byte) (msgID, timestamp, signature string) {
+	t.Helper()
+	msgID = "msg_test123"
+	ts := time.Now().Unix()
+	timestamp = fmt.Sprintf("%d", ts)
+
+	// Decode secret (strip whsec_ prefix, base64-decode).
+	key, err := base64.StdEncoding.DecodeString(secret)
+	if err != nil {
+		t.Fatalf("failed to decode secret: %v", err)
+	}
+
+	signedContent := fmt.Sprintf("%s.%s.%s", msgID, timestamp, string(body))
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(signedContent))
+	sig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	signature = "v1," + sig
+	return
+}
+
+// testSecret is a base64-encoded HMAC key with whsec_ prefix for tests.
+var testSecret = "whsec_" + base64.StdEncoding.EncodeToString([]byte("test-webhook-secret-key-1234567"))
 
 func TestWebhookHandler_VerifySignature(t *testing.T) {
 	t.Parallel()
 
-	secret := "test-secret"
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil)
 
 	body := []byte(`{"type":"subscription.created","data":{}}`)
 
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	validSig := hex.EncodeToString(mac.Sum(nil))
-
 	t.Run("valid_signature", func(t *testing.T) {
 		t.Parallel()
+		msgID, ts, sig := signStandardWebhook(t, base64.StdEncoding.EncodeToString([]byte("test-webhook-secret-key-1234567")), body)
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
-		req.Header.Set("X-Polar-Signature", validSig)
+		req.Header.Set("webhook-id", msgID)
+		req.Header.Set("webhook-timestamp", ts)
+		req.Header.Set("webhook-signature", sig)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		if rr.Code == http.StatusUnauthorized {
@@ -40,11 +64,43 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 	t.Run("invalid_signature", func(t *testing.T) {
 		t.Parallel()
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
-		req.Header.Set("X-Polar-Signature", "invalid")
+		req.Header.Set("webhook-id", "msg_test")
+		req.Header.Set("webhook-timestamp", fmt.Sprintf("%d", time.Now().Unix()))
+		req.Header.Set("webhook-signature", "v1,invalidsig")
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		if rr.Code != http.StatusUnauthorized {
 			t.Errorf("expected 401, got %d", rr.Code)
+		}
+	})
+
+	t.Run("missing_headers", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 with missing headers, got %d", rr.Code)
+		}
+	})
+
+	t.Run("expired_timestamp", func(t *testing.T) {
+		t.Parallel()
+		oldTS := fmt.Sprintf("%d", time.Now().Add(-10*time.Minute).Unix())
+		key, _ := base64.StdEncoding.DecodeString(base64.StdEncoding.EncodeToString([]byte("test-webhook-secret-key-1234567")))
+		signedContent := fmt.Sprintf("msg_old.%s.%s", oldTS, string(body))
+		mac := hmac.New(sha256.New, key)
+		mac.Write([]byte(signedContent))
+		sig := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+		req.Header.Set("webhook-id", "msg_old")
+		req.Header.Set("webhook-timestamp", oldTS)
+		req.Header.Set("webhook-signature", sig)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 for expired timestamp, got %d", rr.Code)
 		}
 	})
 }

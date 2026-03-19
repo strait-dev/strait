@@ -153,6 +153,7 @@ export type OperationPathParamsById = {
   "getV1TagPolicies": undefined;
   "postV1TagPolicies": undefined;
   "deleteV1TagPoliciesByPolicyID": { "policyID": string };
+  "getV1UsageCurrent": undefined;
   "getV1WebhookDeliveries": undefined;
   "postV1WebhookDeliveriesByDeliveryIDRetry": { "deliveryID": string };
   "getV1WebhooksDeliveries": undefined;
@@ -349,6 +350,7 @@ export type OperationQueryParamsById = {
   "getV1TagPolicies": { "project_id": string; "user_id"?: string; "resource_type"?: string; "limit"?: number; "cursor"?: string };
   "postV1TagPolicies": undefined;
   "deleteV1TagPoliciesByPolicyID": undefined;
+  "getV1UsageCurrent": { "org_id": string };
   "getV1WebhookDeliveries": { "project_id": string; "status"?: string; "limit"?: number };
   "postV1WebhookDeliveriesByDeliveryIDRetry": undefined;
   "getV1WebhooksDeliveries": { "project_id": string; "status"?: "pending" | "delivered" | "failed" | "dead"; "limit"?: number; "cursor"?: string };
@@ -545,6 +547,7 @@ export type OperationHeaderParamsById = {
   "getV1TagPolicies": undefined;
   "postV1TagPolicies": undefined;
   "deleteV1TagPoliciesByPolicyID": undefined;
+  "getV1UsageCurrent": undefined;
   "getV1WebhookDeliveries": undefined;
   "postV1WebhookDeliveriesByDeliveryIDRetry": undefined;
   "getV1WebhooksDeliveries": undefined;
@@ -763,6 +766,7 @@ export const generatedOperationMetadataById = {
   "getV1TagPolicies": { functionName: "listTagPolicies", domainName: "rbac", domainMethodName: "listTagPolicies", pathParamNames: [], summary: "List tag policies" },
   "postV1TagPolicies": { functionName: "createTagPolicy", domainName: "rbac", domainMethodName: "createTagPolicy", pathParamNames: [], summary: "Create tag policy" },
   "deleteV1TagPoliciesByPolicyID": { functionName: "deleteTagPolicy", domainName: "rbac", domainMethodName: "deleteTagPolicy", pathParamNames: ["policyID"], summary: "Delete tag policy" },
+  "getV1UsageCurrent": { functionName: "getCurrent", domainName: "usage", domainMethodName: "getCurrent", pathParamNames: [], summary: "Get current billing usage" },
   "getV1WebhookDeliveries": { functionName: "listWebhookDeliveries", domainName: "other", domainMethodName: "listWebhookDeliveries", pathParamNames: [], summary: "List webhook deliveries" },
   "postV1WebhookDeliveriesByDeliveryIDRetry": { functionName: "retryWebhookDelivery", domainName: "webhooks", domainMethodName: "retryDelivery", pathParamNames: ["deliveryID"], summary: "Retry a failed webhook delivery" },
   "getV1WebhooksDeliveries": { functionName: "listDeliveries", domainName: "webhooks", domainMethodName: "listDeliveries", pathParamNames: [], summary: "List webhook deliveries" },

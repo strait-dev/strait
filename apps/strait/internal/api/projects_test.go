@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -346,6 +347,131 @@ func TestProjectEndpoints_RequireAuth(t *testing.T) {
 				t.Fatalf("expected 401, got %d", w.Code)
 			}
 		})
+	}
+}
+
+func TestProjectEndpoints_APIKey_CreateForbidden(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        "key-1",
+				ProjectID: "proj-1",
+				Scopes:    []string{domain.ScopeProjectsManage, domain.ScopeProjectsRead},
+			}, nil
+		},
+		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"id":"proj-2","org_id":"org-1","name":"New Project"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/projects/", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer strait_testkey")
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestProjectEndpoints_APIKey_ListForbidden(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        "key-1",
+				ProjectID: "proj-1",
+				Scopes:    []string{domain.ScopeProjectsRead},
+			}, nil
+		},
+		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/projects/?org_id=org-1", nil)
+	req.Header.Set("Authorization", "Bearer strait_testkey")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestProjectEndpoints_APIKey_GetOwnProject(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(time.Second)
+	ms := &mockAPIStore{
+		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        "key-1",
+				ProjectID: "proj-1",
+				Scopes:    []string{domain.ScopeProjectsRead},
+			}, nil
+		},
+		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		getProjectFn: func(_ context.Context, id string) (*domain.Project, error) {
+			return &domain.Project{ID: id, OrgID: "org-1", Name: "Test", CreatedAt: now, UpdatedAt: now}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	// Own project: allowed
+	req := httptest.NewRequest(http.MethodGet, "/v1/projects/proj-1", nil)
+	req.Header.Set("Authorization", "Bearer strait_testkey")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for own project, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestProjectEndpoints_APIKey_GetCrossProjectForbidden(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        "key-1",
+				ProjectID: "proj-1",
+				Scopes:    []string{domain.ScopeProjectsRead},
+			}, nil
+		},
+		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	// Different project: forbidden
+	req := httptest.NewRequest(http.MethodGet, "/v1/projects/proj-OTHER", nil)
+	req.Header.Set("Authorization", "Bearer strait_testkey")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for cross-project access, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestProjectEndpoints_APIKey_DeleteCrossProjectForbidden(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        "key-1",
+				ProjectID: "proj-1",
+				Scopes:    []string{domain.ScopeProjectsManage},
+			}, nil
+		},
+		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/projects/proj-OTHER", nil)
+	req.Header.Set("Authorization", "Bearer strait_testkey")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for cross-project delete, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

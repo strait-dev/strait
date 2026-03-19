@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -375,12 +376,24 @@ type Server struct {
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
 	polarWebhook       http.Handler
+	billingEnforcer    BillingEnforcer
+	usageService       UsageService
 }
 
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
 type Encryptor interface {
 	Encrypt(plaintext []byte) ([]byte, error)
 	Decrypt(ciphertext []byte) ([]byte, error)
+}
+
+// BillingEnforcer checks org-level billing limits.
+type BillingEnforcer interface {
+	CheckProjectLimit(ctx context.Context, orgID string) error
+}
+
+// UsageService provides org usage data for the billing dashboard.
+type UsageService interface {
+	GetCurrentUsage(ctx context.Context, orgID string, projectCount, memberCount int) (*billing.CurrentUsageResponse, error)
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -402,6 +415,8 @@ type ServerDeps struct {
 	Encryptor        Encryptor                // Optional: enables event source signature encryption.
 	ContainerRuntime compute.ContainerRuntime // Optional: enables managed container stop on cancel.
 	PolarWebhook     http.Handler             // Optional: Polar billing webhook handler.
+	BillingEnforcer  BillingEnforcer          // Optional: enables billing limit checks on project create.
+	UsageService     UsageService             // Optional: enables usage endpoint.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -446,6 +461,8 @@ func NewServer(deps ServerDeps) *Server {
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
 		polarWebhook:       deps.PolarWebhook,
+		billingEnforcer:    deps.BillingEnforcer,
+		usageService:       deps.UsageService,
 	}
 
 	if deps.TxPool != nil {

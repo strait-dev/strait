@@ -152,6 +152,27 @@ paths:
                     items:
                       $ref: '#/components/schemas/Region'
 
+  /v1/usage/current:
+    get:
+      tags:
+        - Usage
+      summary: Get current billing usage
+      security:
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current usage data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUsageResponse'
+
   /v1/projects:
     post:
       tags:
@@ -4784,6 +4805,27 @@ components:
       description: JWT run token issued by the trigger response.
 
   schemas:
+    CurrentUsageResponse:
+      type: object
+      properties:
+        org_id:
+          type: string
+        plan:
+          type: string
+        period:
+          type: object
+          properties:
+            start:
+              type: string
+            end:
+              type: string
+        usage:
+          type: object
+        alerts:
+          type: array
+          items:
+            type: object
+
     EventTrigger:
       type: object
       properties:

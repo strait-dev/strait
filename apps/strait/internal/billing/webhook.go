@@ -4,13 +4,15 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -84,8 +86,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.secret != "" {
-		sig := r.Header.Get("X-Polar-Signature")
-		if !h.verifySignature(body, sig) {
+		if !h.verifySignature(body, r) {
 			h.logger.Warn("invalid polar webhook signature")
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
 			return
@@ -124,11 +125,53 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *WebhookHandler) verifySignature(body []byte, signature string) bool {
-	mac := hmac.New(sha256.New, []byte(h.secret))
-	mac.Write(body)
-	expected := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(signature))
+// verifySignature implements Standard Webhooks signature verification.
+// Polar uses the Standard Webhooks spec: base64-encoded secret (prefixed with "whsec_"),
+// signature header "webhook-signature" containing "v1,<base64-hmac>",
+// message = "${webhook-id}.${webhook-timestamp}.${body}".
+func (h *WebhookHandler) verifySignature(body []byte, r *http.Request) bool {
+	msgID := r.Header.Get("webhook-id")
+	timestamp := r.Header.Get("webhook-timestamp")
+	sigHeader := r.Header.Get("webhook-signature")
+
+	if msgID == "" || timestamp == "" || sigHeader == "" {
+		return false
+	}
+
+	// Validate timestamp within 5-minute tolerance.
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return false
+	}
+	diff := time.Since(time.Unix(ts, 0))
+	if diff < -5*time.Minute || diff > 5*time.Minute {
+		return false
+	}
+
+	// Decode secret: strip "whsec_" prefix and base64-decode.
+	secretStr := strings.TrimPrefix(h.secret, "whsec_")
+	key, err := base64.StdEncoding.DecodeString(secretStr)
+	if err != nil {
+		return false
+	}
+
+	// Construct signed content and compute HMAC.
+	signedContent := fmt.Sprintf("%s.%s.%s", msgID, timestamp, string(body))
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(signedContent))
+	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	// The header may contain multiple signatures separated by spaces.
+	for entry := range strings.SplitSeq(sigHeader, " ") {
+		parts := strings.SplitN(entry, ",", 2)
+		if len(parts) != 2 || parts[0] != "v1" {
+			continue
+		}
+		if hmac.Equal([]byte(expected), []byte(parts[1])) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data json.RawMessage) error {

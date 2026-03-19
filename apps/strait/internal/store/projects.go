@@ -69,15 +69,57 @@ func (q *Queries) ListProjectsByOrg(ctx context.Context, orgID string) ([]domain
 	return projects, rows.Err()
 }
 
-// DeleteProject removes a project and its associated API keys, quotas, roles, and member roles.
+// DeleteProject removes a project and its associated child records within a transaction.
+// Jobs are soft-disabled (not deleted) to avoid FK violations from existing runs.
 func (q *Queries) DeleteProject(ctx context.Context, id string) error {
-	tag, err := q.db.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
-	if err != nil {
-		return fmt.Errorf("delete project: %w", err)
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		// Fallback for non-transactional callers (e.g. within an existing tx).
+		return q.deleteProjectRows(ctx, id)
 	}
-	if tag.RowsAffected() == 0 {
+
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("delete project begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	tq := New(tx)
+	if err := tq.deleteProjectRows(ctx, id); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (q *Queries) deleteProjectRows(ctx context.Context, id string) error {
+	// Verify project exists first.
+	var exists bool
+	err := q.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1)`, id).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("check project exists: %w", err)
+	}
+	if !exists {
 		return ErrProjectNotFound
 	}
+
+	// Clean up child records before deleting the project.
+	cleanupQueries := []string{
+		`DELETE FROM project_member_roles WHERE project_id = $1`,
+		`DELETE FROM project_roles WHERE project_id = $1`,
+		`DELETE FROM api_keys WHERE project_id = $1`,
+		`DELETE FROM project_quotas WHERE project_id = $1`,
+		`DELETE FROM usage_records WHERE project_id = $1`,
+		`UPDATE jobs SET enabled = false WHERE project_id = $1`,
+		`DELETE FROM projects WHERE id = $1`,
+	}
+
+	for _, query := range cleanupQueries {
+		if _, err := q.db.Exec(ctx, query, id); err != nil {
+			return fmt.Errorf("delete project cleanup: %w", err)
+		}
+	}
+
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -19,6 +20,13 @@ type CreateProjectRequest struct {
 }
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
+	// Project creation is an org-level operation; API keys are project-scoped
+	// and have no org context, so restrict to internal-secret callers.
+	if scopesFromContext(r.Context()) != nil {
+		respondError(w, r, http.StatusForbidden, "project creation requires internal secret")
+		return
+	}
+
 	var req CreateProjectRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -26,6 +34,19 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.validateRequest(w, r, req) {
 		return
+	}
+
+	if s.billingEnforcer != nil {
+		if err := s.billingEnforcer.CheckProjectLimit(r.Context(), req.OrgID); err != nil {
+			var le *billing.LimitError
+			if errors.As(err, &le) {
+				respondError(w, r, http.StatusForbidden, le)
+				return
+			}
+			slog.Error("failed to check project limit", "error", err)
+			respondError(w, r, http.StatusInternalServerError, "failed to check project limit")
+			return
+		}
 	}
 
 	project := &domain.Project{
@@ -47,28 +68,13 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, project)
 }
 
-func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
-
-	project, err := s.store.GetProject(r.Context(), projectID)
-	if err != nil {
-		if errors.Is(err, store.ErrProjectNotFound) {
-			respondError(w, r, http.StatusNotFound, "project not found")
-			return
-		}
-		slog.Error("failed to get project", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to get project")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, project)
-}
-
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
+	// Project listing is an org-level operation; API keys are project-scoped.
+	if scopesFromContext(r.Context()) != nil {
+		respondError(w, r, http.StatusForbidden, "project listing requires internal secret")
+		return
+	}
+
 	orgID := r.URL.Query().Get("org_id")
 	if orgID == "" {
 		respondError(w, r, http.StatusBadRequest, APIError{
@@ -92,11 +98,48 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, projects)
 }
 
+func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	// API key callers can only read their own project.
+	if scopesFromContext(r.Context()) != nil {
+		if projectIDFromContext(r.Context()) != projectID {
+			respondError(w, r, http.StatusForbidden, "access denied")
+			return
+		}
+	}
+
+	project, err := s.store.GetProject(r.Context(), projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			respondError(w, r, http.StatusNotFound, "project not found")
+			return
+		}
+		slog.Error("failed to get project", "error", err)
+		respondError(w, r, http.StatusInternalServerError, "failed to get project")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, project)
+}
+
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
+	}
+
+	// API key callers can only delete their own project.
+	if scopesFromContext(r.Context()) != nil {
+		if projectIDFromContext(r.Context()) != projectID {
+			respondError(w, r, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	err := s.store.DeleteProject(r.Context(), projectID)

@@ -236,9 +236,12 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 func (s *PgStore) SumOrgPeriodSpend(ctx context.Context, orgID string, from time.Time) (int64, error) {
 	var total int64
 	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(compute_cost_microusd + ai_cost_microusd), 0)
-		FROM usage_records
-		WHERE org_id = $1 AND period_date >= $2
+		SELECT COALESCE(SUM(rcu.cost_microusd), 0)
+		FROM run_compute_usage rcu
+		JOIN projects p ON p.id = rcu.project_id
+		WHERE p.org_id = $1
+		  AND rcu.created_at >= $2
+		  AND rcu.status = 'committed'
 	`, orgID, from).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("summing org period spend: %w", err)

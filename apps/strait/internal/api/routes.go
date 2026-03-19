@@ -96,6 +96,8 @@ func (s *Server) routes() chi.Router {
 
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/regions", s.handleListRegions)
 
+		r.Get("/usage/current", s.handleGetCurrentUsage)
+
 		r.Route("/projects", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", s.handleCreateProject)
 			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleListProjects)

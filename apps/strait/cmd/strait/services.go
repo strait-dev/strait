@@ -303,6 +303,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	}
 
 	var polarWebhook http.Handler
+	var usageSvc *billing.UsageService
 	if cfg.PolarWebhookSecret != "" {
 		billingStore := billing.NewPgStore(dbPool)
 		polarMapping := billing.NewPolarMapping(
@@ -311,6 +312,10 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		)
 		polarWebhook = billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer)
 		slog.Info("polar webhook handler enabled")
+
+		if billingEnforcer != nil {
+			usageSvc = billing.NewUsageService(billingStore, billingEnforcer)
+		}
 	}
 
 	srv := api.NewServer(api.ServerDeps{
@@ -329,6 +334,8 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		Encryptor:        encryptor,
 		ContainerRuntime: apiContainerRuntime,
 		PolarWebhook:     polarWebhook,
+		BillingEnforcer:  billingEnforcer,
+		UsageService:     usageSvc,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
