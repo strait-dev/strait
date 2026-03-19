@@ -41,7 +41,7 @@ func wfSetup(t *testing.T) *api.Server {
 			TriggerRateLimitWindow:   time.Minute,
 			CORSAllowedOrigins:       []string{"*"},
 			CORSAllowCredentials:     false,
-			MaxBulkTriggerItems:     500,
+			MaxBulkTriggerItems:      500,
 		},
 		Store:            testStore,
 		Queue:            testQueue,
@@ -52,6 +52,11 @@ func wfSetup(t *testing.T) *api.Server {
 
 func wfDoReq(t *testing.T, srv *api.Server, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return wfDoReqWithActor(t, srv, method, path, body, "")
+}
+
+func wfDoReqWithActor(t *testing.T, srv *api.Server, method, path, body, actorID string) *httptest.ResponseRecorder {
+	t.Helper()
 
 	var req *http.Request
 	if body == "" {
@@ -60,8 +65,10 @@ func wfDoReq(t *testing.T, srv *api.Server, method, path, body string) *httptest
 		req = httptest.NewRequest(method, path, strings.NewReader(body))
 	}
 	req.Header.Set("X-Internal-Secret", "test-secret")
-	req.Header.Set("X-Actor-Id", "test:e2e-actor")
 	req.Header.Set("Content-Type", "application/json")
+	if actorID != "" {
+		req.Header.Set("X-Actor-Id", actorID)
+	}
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

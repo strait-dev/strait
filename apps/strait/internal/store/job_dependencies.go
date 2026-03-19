@@ -139,7 +139,7 @@ func (q *Queries) ListWaitingRunsByJobIDs(ctx context.Context, jobIDs []string, 
 	}
 
 	rows, err := q.db.Query(ctx, `
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at, next_retry_at,
 		       expires_at, parent_run_id, priority, idempotency_key, job_version, created_at,
 		       workflow_step_run_id, execution_trace,
@@ -217,7 +217,7 @@ func (q *Queries) AreJobDependenciesSatisfied(ctx context.Context, run *domain.J
 
 func (q *Queries) findLatestTerminalDependencyRun(ctx context.Context, jobID, idempotencyKey, dependencyKey string) (*domain.JobRun, error) {
 	baseQuery := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at, next_retry_at,
 		       expires_at, parent_run_id, priority, idempotency_key, job_version, created_at,
 		       workflow_step_run_id, execution_trace,

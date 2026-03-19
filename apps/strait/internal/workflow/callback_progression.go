@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"slices"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -399,7 +400,6 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 		return fmt.Errorf("approval for step %s is already %s", stepRef, approval.Status)
 	}
 
-	// Empty approvers list means any authenticated user can approve (e.g. cost gates).
 	if len(approval.Approvers) > 0 && !slices.Contains(approval.Approvers, approver) {
 		return fmt.Errorf("approver %s is not allowed for step %s", approver, stepRef)
 	}
@@ -420,23 +420,14 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	}
 
 	stepRun.Status = domain.StepCompleted
+	approval.Status = domain.ApprovalStatusApproved
+	approval.ApprovedBy = approver
+	approval.ApprovedAt = &now
 	wc, wcErr := s.loadWfCtx(ctx, workflowRunID)
 	if wcErr != nil {
 		return fmt.Errorf("load workflow context: %w", wcErr)
 	}
-
-	if s.engine != nil {
-		s.engine.enqueueApprovalNotification(ctx, wc.run.ProjectID,
-			domain.NotificationEventApprovalCompleted, map[string]any{
-				"approval_id":     approval.ID,
-				"workflow_run_id": wc.run.ID,
-				"workflow_id":     wc.run.WorkflowID,
-				"step_ref":        stepRun.StepRef,
-				"approved_by":     approver,
-				"approved_at":     now,
-			})
-	}
-
+	s.recordApprovalDecision(ctx, wc.run, stepRun, approval, "approved", approver, "", now)
 	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 		return fmt.Errorf("fan-in after approval for step %s: %w", stepRef, err)
 	}
@@ -456,36 +447,34 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 		return fmt.Errorf("cannot skip step in %s status", stepRun.Status)
 	}
 
-	wc, wcErr := s.loadWfCtx(ctx, workflowRunID)
-	if wcErr != nil {
-		return fmt.Errorf("load workflow context: %w", wcErr)
-	}
-
-	// Reject any pending approval before marking the step as skipped so
-	// both writes must succeed atomically — if the approval rejection
-	// fails the step stays in its current state and the caller can retry.
-	if approval, aprErr := s.store.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID); aprErr == nil && approval != nil && approval.Status == domain.ApprovalStatusPending {
-		if updErr := s.store.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusRejected, "", nil, reason); updErr != nil {
-			return fmt.Errorf("reject approval on skip: %w", updErr)
-		}
-		if s.engine != nil {
-			rejectedBy := actor
-			if rejectedBy == "" {
-				rejectedBy = "skip"
-			}
-			s.engine.enqueueApprovalNotification(ctx, wc.run.ProjectID,
-				domain.NotificationEventApprovalRejected, map[string]any{
-					"approval_id":     approval.ID,
-					"workflow_run_id": wc.run.ID,
-					"workflow_id":     wc.run.WorkflowID,
-					"step_ref":        stepRun.StepRef,
-					"rejected_by":     rejectedBy,
-					"reason":          reason,
-				})
-		}
-	}
-
 	now := time.Now()
+	approval, err := s.store.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
+	if err != nil {
+		return fmt.Errorf("get workflow step approval: %w", err)
+	}
+	if approval != nil && approval.Status == domain.ApprovalStatusPending {
+		rejectedBy := decisionActorID(actor)
+		if err := s.store.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusRejected, rejectedBy, &now, reason); err != nil {
+			return fmt.Errorf("reject approval: %w", err)
+		}
+		approval.Status = domain.ApprovalStatusRejected
+		approval.ApprovedBy = rejectedBy
+		approval.ApprovedAt = &now
+		approval.Error = reason
+	}
+
+	if trigger, getErr := s.store.GetEventTriggerByStepRunID(ctx, stepRun.ID); getErr == nil && trigger != nil && trigger.Status == domain.EventTriggerStatusWaiting {
+		triggerErr := reason
+		if triggerErr == "" {
+			triggerErr = "step skipped"
+		}
+		if syncErr := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusCanceled, nil, nil, triggerErr); syncErr != nil {
+			s.logger.Warn("failed to cancel event trigger for skipped step (non-fatal)", "step_run_id", stepRun.ID, "error", syncErr)
+		}
+	} else if getErr != nil {
+		s.logger.Warn("failed to load event trigger for skipped step (non-fatal)", "step_run_id", stepRun.ID, "error", getErr)
+	}
+
 	fields := map[string]any{"finished_at": now}
 	if reason != "" {
 		fields["error"] = reason
@@ -494,11 +483,172 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 		return fmt.Errorf("skip step: %w", err)
 	}
 	stepRun.Status = domain.StepSkipped
+	wc, wcErr := s.loadWfCtx(ctx, workflowRunID)
+	if wcErr != nil {
+		return fmt.Errorf("load workflow context: %w", wcErr)
+	}
+	if approval != nil && approval.Status == domain.ApprovalStatusRejected {
+		s.recordApprovalDecision(ctx, wc.run, stepRun, approval, "rejected", actor, reason, now)
+	}
 
 	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 		return fmt.Errorf("fan-in after skip: %w", err)
 	}
 	return s.checkWorkflowCompletion(ctx, workflowRunID, wc)
+}
+
+func decisionActorID(actor string) string {
+	if actor != "" {
+		return actor
+	}
+	return "system"
+}
+
+func approvalNotificationActor(actor string) string {
+	if actor != "" {
+		return actor
+	}
+	return "skip"
+}
+
+func approvalAuditActor(actor string) (string, string) {
+	if actor == "" {
+		return "system", "system"
+	}
+	switch {
+	case strings.HasPrefix(actor, "apikey:"):
+		return actor, "api_key"
+	case actor == "system" || strings.HasPrefix(actor, "system:"):
+		return actor, "system"
+	default:
+		return actor, "user"
+	}
+}
+
+func (s *StepCallback) recordApprovalDecision(
+	ctx context.Context,
+	wfRun *domain.WorkflowRun,
+	stepRun *domain.WorkflowStepRun,
+	approval *domain.WorkflowStepApproval,
+	decision string,
+	actor string,
+	reason string,
+	decidedAt time.Time,
+) {
+	if wfRun == nil || stepRun == nil || approval == nil {
+		return
+	}
+
+	s.emitApprovalAuditEvent(ctx, wfRun, stepRun, approval, decision, actor, reason)
+	s.enqueueApprovalCompletedNotifications(ctx, wfRun, stepRun, approval, decision, actor, reason, decidedAt)
+}
+
+func (s *StepCallback) emitApprovalAuditEvent(
+	ctx context.Context,
+	wfRun *domain.WorkflowRun,
+	stepRun *domain.WorkflowStepRun,
+	approval *domain.WorkflowStepApproval,
+	decision string,
+	actor string,
+	reason string,
+) {
+	action := "workflow.step.approved"
+	if decision == "rejected" {
+		action = "workflow.step.rejected"
+	}
+
+	detailsMap := map[string]any{
+		"workflow_run_id": approval.WorkflowRunID,
+		"workflow_id":     wfRun.WorkflowID,
+		"step_ref":        stepRun.StepRef,
+		"step_run_id":     stepRun.ID,
+		"decision":        decision,
+	}
+	if reason != "" {
+		detailsMap["reason"] = reason
+	}
+
+	details, err := json.Marshal(detailsMap)
+	if err != nil {
+		s.logger.Warn("failed to marshal approval audit details", "approval_id", approval.ID, "error", err)
+		return
+	}
+
+	actorID, actorType := approvalAuditActor(actor)
+	if err := s.store.CreateAuditEvent(ctx, &domain.AuditEvent{
+		ProjectID:    wfRun.ProjectID,
+		ActorID:      actorID,
+		ActorType:    actorType,
+		Action:       action,
+		ResourceType: "workflow_step_approval",
+		ResourceID:   approval.ID,
+		Details:      details,
+	}); err != nil {
+		s.logger.Warn("failed to create approval audit event (non-fatal)", "approval_id", approval.ID, "action", action, "error", err)
+	}
+}
+
+func (s *StepCallback) enqueueApprovalCompletedNotifications(
+	ctx context.Context,
+	wfRun *domain.WorkflowRun,
+	stepRun *domain.WorkflowStepRun,
+	approval *domain.WorkflowStepApproval,
+	decision string,
+	actor string,
+	reason string,
+	decidedAt time.Time,
+) {
+	notificationStore, ok := s.store.(callbackNotificationStore)
+	if !ok {
+		return
+	}
+
+	channels, err := notificationStore.ListNotificationChannels(ctx, wfRun.ProjectID)
+	if err != nil {
+		s.logger.Warn("failed to list notification channels for approval decision (non-fatal)", "workflow_run_id", wfRun.ID, "error", err)
+		return
+	}
+
+	payloadMap := map[string]any{
+		"approval_id":     approval.ID,
+		"workflow_run_id": approval.WorkflowRunID,
+		"workflow_id":     wfRun.WorkflowID,
+		"step_ref":        stepRun.StepRef,
+		"step_run_id":     stepRun.ID,
+		"decision":        decision,
+	}
+	if decision == "approved" {
+		payloadMap["approved_by"] = actor
+		payloadMap["approved_at"] = decidedAt
+	} else {
+		payloadMap["rejected_by"] = approvalNotificationActor(actor)
+		payloadMap["rejected_at"] = decidedAt
+		if reason != "" {
+			payloadMap["reason"] = reason
+		}
+	}
+
+	payload, err := json.Marshal(payloadMap)
+	if err != nil {
+		s.logger.Warn("failed to marshal approval completion notification payload", "approval_id", approval.ID, "error", err)
+		return
+	}
+
+	for _, ch := range channels {
+		if !ch.Enabled {
+			continue
+		}
+		if err := notificationStore.CreateNotificationDelivery(ctx, &domain.NotificationDelivery{
+			ChannelID:   ch.ID,
+			ProjectID:   wfRun.ProjectID,
+			EventType:   domain.NotificationEventApprovalCompleted,
+			Payload:     payload,
+			Status:      "pending",
+			MaxAttempts: 3,
+		}); err != nil {
+			s.logger.Warn("failed to enqueue approval completion notification (non-fatal)", "approval_id", approval.ID, "channel_id", ch.ID, "error", err)
+		}
+	}
 }
 
 func (s *StepCallback) ForceCompleteStep(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error {

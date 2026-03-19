@@ -159,7 +159,6 @@ func TestScanRun_AllFields(t *testing.T) {
 	now := time.Now().Truncate(time.Microsecond)
 	started := now.Add(-time.Minute)
 	errMsg := "partial failure"
-	errorClass := "timeout"
 	parentRunID := "parent-001"
 	idempotencyKey := "idem-abc"
 	workflowStepRunID := "step-run-001"
@@ -181,7 +180,6 @@ func TestScanRun_AllFields(t *testing.T) {
 			[]byte(`{"output":"ok"}`),     // Result
 			metadata,
 			&errMsg,            // Error
-			&errorClass,        // ErrorClass
 			"cron",             // TriggeredBy
 			&started,           // ScheduledAt
 			&started,           // StartedAt
@@ -235,9 +233,6 @@ func TestScanRun_AllFields(t *testing.T) {
 	}
 	if run.Error != "partial failure" {
 		t.Errorf("Error = %q, want %q", run.Error, "partial failure")
-	}
-	if run.ErrorClass != "timeout" {
-		t.Errorf("ErrorClass = %q, want %q", run.ErrorClass, "timeout")
 	}
 	if run.Metadata["env"] != "prod" || run.Metadata["region"] != "eu" {
 		t.Errorf("Metadata = %+v, want env=prod region=eu", run.Metadata)
@@ -313,7 +308,6 @@ func TestScanRun_NilOptionals(t *testing.T) {
 			nil,                        // Result (nil bytes)
 			nil,
 			(*string)(nil),    // Error
-			(*string)(nil),    // ErrorClass
 			"manual",          // TriggeredBy
 			(*time.Time)(nil), // ScheduledAt
 			(*time.Time)(nil), // StartedAt
@@ -352,9 +346,6 @@ func TestScanRun_NilOptionals(t *testing.T) {
 	}
 	if run.Error != "" {
 		t.Errorf("Error = %q, want empty", run.Error)
-	}
-	if run.ErrorClass != "" {
-		t.Errorf("ErrorClass = %q, want empty", run.ErrorClass)
 	}
 	if run.ParentRunID != "" {
 		t.Errorf("ParentRunID = %q, want empty", run.ParentRunID)

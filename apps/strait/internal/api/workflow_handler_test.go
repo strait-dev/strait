@@ -23,7 +23,7 @@ type mockWorkflowTrigger struct {
 	triggerWorkflowFn   func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
 	retryWorkflowRunFn  func(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
 	approveStepFn       func(ctx context.Context, workflowRunID, stepRef, approver string) error
-	skipStepFn          func(ctx context.Context, workflowRunID, stepRef, reason string) error
+	skipStepFn          func(ctx context.Context, workflowRunID, stepRef, reason, actor string) error
 	forceCompleteStepFn func(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
 	resumeWorkflowFn    func(ctx context.Context, workflowRunID string) error
 	onJobRunTerminal    func(ctx context.Context, run *domain.JobRun) error
@@ -47,7 +47,7 @@ func (m *mockWorkflowTrigger) ApproveStep(ctx context.Context, workflowRunID, st
 
 func (m *mockWorkflowTrigger) SkipStep(ctx context.Context, workflowRunID, stepRef, reason, actor string) error {
 	if m.skipStepFn != nil {
-		return m.skipStepFn(ctx, workflowRunID, stepRef, reason)
+		return m.skipStepFn(ctx, workflowRunID, stepRef, reason, actor)
 	}
 	return nil
 }
@@ -1061,7 +1061,7 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 
 		cb := &mockWorkflowTrigger{
 			approveStepFn: func(_ context.Context, workflowRunID, stepRef, approver string) error {
-				if workflowRunID != "wr-1" || stepRef != "review" || approver != "user:alice" {
+				if workflowRunID != "wr-1" || stepRef != "review" || approver != "user-alice" {
 					t.Fatalf("unexpected approve args: %s %s %s", workflowRunID, stepRef, approver)
 				}
 				approved = true
@@ -1087,7 +1087,7 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 				if stepRunID != "sr-1" {
 					t.Fatalf("unexpected stepRunID %q", stepRunID)
 				}
-				return &domain.WorkflowStepApproval{ID: "ap-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "approved", ApprovedBy: "user:alice"}, nil
+				return &domain.WorkflowStepApproval{ID: "ap-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "approved", ApprovedBy: "alice"}, nil
 			},
 		}
 
@@ -1098,8 +1098,8 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 
 		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, pub, cb, nil)
 		w := httptest.NewRecorder()
-		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`)
-		req.Header.Set("X-Actor-Id", "user:alice")
+		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{}`)
+		req.Header.Set("X-Actor-Id", "user-alice")
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
@@ -1126,9 +1126,9 @@ func TestHandleSkipWorkflowStep(t *testing.T) {
 		getWorkflowRunCalls := 0
 
 		cb := &mockWorkflowTrigger{
-			skipStepFn: func(_ context.Context, workflowRunID, stepRef, reason string) error {
-				if workflowRunID != "wr-1" || stepRef != "review" || reason != "manual skip" {
-					t.Fatalf("unexpected skip args: %s %s %s", workflowRunID, stepRef, reason)
+			skipStepFn: func(_ context.Context, workflowRunID, stepRef, reason, actor string) error {
+				if workflowRunID != "wr-1" || stepRef != "review" || reason != "manual skip" || actor != "user-skipper" {
+					t.Fatalf("unexpected skip args: %s %s %s %s", workflowRunID, stepRef, reason, actor)
 				}
 				skipped = true
 				return nil
@@ -1158,7 +1158,9 @@ func TestHandleSkipWorkflowStep(t *testing.T) {
 
 		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, pub, cb, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/skip", `{"reason":"manual skip"}`))
+		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/skip", `{"reason":"manual skip"}`)
+		req.Header.Set("X-Actor-Id", "user-skipper")
+		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -1188,7 +1190,7 @@ func TestHandleSkipWorkflowStep(t *testing.T) {
 	t.Run("callback error", func(t *testing.T) {
 		t.Parallel()
 		cb := &mockWorkflowTrigger{
-			skipStepFn: func(_ context.Context, _, _, _ string) error {
+			skipStepFn: func(_ context.Context, _, _, _, _ string) error {
 				return errors.New("cannot skip")
 			},
 		}
@@ -1200,7 +1202,9 @@ func TestHandleSkipWorkflowStep(t *testing.T) {
 
 		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/skip", `{}`))
+		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/skip", `{}`)
+		req.Header.Set("X-Actor-Id", "user-skipper")
+		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d", w.Code)
@@ -2777,9 +2781,7 @@ func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
 		t.Parallel()
 		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`)
-		req.Header.Set("X-Actor-Id", "user:alice")
-		srv.ServeHTTP(w, req)
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{}`))
 
 		if w.Code != http.StatusServiceUnavailable {
 			t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
@@ -2800,8 +2802,8 @@ func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
 		}
 		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
 		w := httptest.NewRecorder()
-		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`)
-		req.Header.Set("X-Actor-Id", "user:alice")
+		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{}`)
+		req.Header.Set("X-Actor-Id", "user-alice")
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusBadRequest {

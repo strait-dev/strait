@@ -3303,66 +3303,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ComputeCostAnalytics'
 
-  /v1/analytics/approvals:
-    get:
-      tags:
-        - Analytics
-      summary: Approval analytics
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: from
-          in: query
-          required: true
-          schema:
-            type: string
-            format: date-time
-          description: Start of time range (RFC3339)
-        - name: to
-          in: query
-          required: true
-          schema:
-            type: string
-            format: date-time
-          description: End of time range (RFC3339, max 90 days from `from`)
-      responses:
-        '200':
-          description: Approval statistics
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApprovalStats'
-
-  /v1/analytics/cost-insights:
-    get:
-      tags:
-        - Analytics
-      summary: Cost optimization insights
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: from
-          in: query
-          required: true
-          schema:
-            type: string
-            format: date-time
-        - name: to
-          in: query
-          required: true
-          schema:
-            type: string
-            format: date-time
-        - name: threshold
-          in: query
-          required: false
-          schema:
-            type: number
-            default: 2.0
-      responses:
-        '200':
-          description: Cost outlier insights
-
   /v1/webhook-deliveries:
     get:
       tags:
@@ -5120,6 +5060,12 @@ paths:
       summary: List notification channels
       security:
         - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           description: List of notification channels
@@ -6860,20 +6806,6 @@ components:
               duration_secs:
                 type: number
 
-    ApprovalStats:
-      type: object
-      properties:
-        total_requested:
-          type: integer
-        total_approved:
-          type: integer
-        total_timed_out:
-          type: integer
-        total_pending:
-          type: integer
-        avg_approval_time_secs:
-          type: number
-
     ErrorResponse:
       type: object
       required:
@@ -7806,7 +7738,7 @@ components:
           type: string
         channel_type:
           type: string
-          enum: [slack, discord, webhook]
+          enum: [slack, discord, webhook, email]
         name:
           type: string
         enabled:
@@ -7821,13 +7753,16 @@ components:
     CreateNotificationChannelRequest:
       type: object
       required:
+        - project_id
         - channel_type
         - name
         - config
       properties:
+        project_id:
+          type: string
         channel_type:
           type: string
-          enum: [slack, discord, webhook]
+          enum: [slack, discord, webhook, email]
         name:
           type: string
         config:
@@ -7842,7 +7777,7 @@ components:
           type: string
         channel_type:
           type: string
-          enum: [slack, discord, webhook]
+          enum: [slack, discord, webhook, email]
         config:
           type: object
         enabled:

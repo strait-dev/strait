@@ -1,20 +1,13 @@
 package api
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/csv"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"hash"
-	"io"
 	"net/http"
 	"time"
 
 	"strait/internal/domain"
-
-	"golang.org/x/crypto/hkdf"
 )
 
 const maxExportWindow = 90 * 24 * time.Hour
@@ -66,22 +59,6 @@ func (s *Server) handleExportAuditEvents(w http.ResponseWriter, r *http.Request)
 	actorID := query.Get("actor_id")
 	resourceType := query.Get("resource_type")
 
-	// Derive HMAC signing key if configured.
-	var mac hash.Hash
-	signingEnabled := s.config.SecretEncryptionKey != ""
-	if signingEnabled {
-		signingKey, keyErr := deriveAuditSigningKey([]byte(s.config.SecretEncryptionKey))
-		if keyErr != nil {
-			respondError(w, r, http.StatusInternalServerError, "internal error")
-			return
-		}
-		mac = hmac.New(sha256.New, signingKey)
-	}
-
-	if signingEnabled {
-		w.Header().Set("Trailer", "X-Audit-Signature")
-	}
-
 	switch format {
 	case "csv":
 		w.Header().Set("Content-Type", "text/csv")
@@ -94,36 +71,24 @@ func (s *Server) handleExportAuditEvents(w http.ResponseWriter, r *http.Request)
 		w.Header().Set("Content-Disposition", "attachment; filename=audit-events.json")
 	}
 
-	// Wrap writer to tee into HMAC hash.
-	var out io.Writer = w
-	if mac != nil {
-		out = io.MultiWriter(w, mac)
-	}
-
 	flusher, canFlush := w.(http.Flusher)
 
 	switch format {
 	case "csv":
-		err = s.streamAuditCSV(out, r, flusher, canFlush, projectID, actorID, resourceType, from, to)
+		err = s.streamAuditCSV(w, r, flusher, canFlush, projectID, actorID, resourceType, from, to)
 	case "ndjson":
-		err = s.streamAuditNDJSON(out, r, flusher, canFlush, projectID, actorID, resourceType, from, to)
+		err = s.streamAuditNDJSON(w, r, flusher, canFlush, projectID, actorID, resourceType, from, to)
 	default:
-		err = s.streamAuditJSON(out, r, flusher, canFlush, projectID, actorID, resourceType, from, to)
+		err = s.streamAuditJSON(w, r, flusher, canFlush, projectID, actorID, resourceType, from, to)
 	}
 
 	if err != nil {
 		// Headers already sent; best-effort logging only.
 		_ = err
 	}
-
-	// Set HMAC signature trailer after streaming.
-	if mac != nil {
-		sig := hex.EncodeToString(mac.Sum(nil))
-		w.Header().Set("X-Audit-Signature", fmt.Sprintf("sha256=%s", sig))
-	}
 }
 
-func (s *Server) streamAuditCSV(w io.Writer, r *http.Request, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
+func (s *Server) streamAuditCSV(w http.ResponseWriter, r *http.Request, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
 	cw := csv.NewWriter(w)
 	header := []string{"id", "project_id", "actor_id", "actor_type", "action", "resource_type", "resource_id", "details", "created_at"}
 	if err := cw.Write(header); err != nil {
@@ -158,7 +123,7 @@ func (s *Server) streamAuditCSV(w io.Writer, r *http.Request, flusher http.Flush
 	return cw.Error()
 }
 
-func (s *Server) streamAuditNDJSON(w io.Writer, r *http.Request, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
+func (s *Server) streamAuditNDJSON(w http.ResponseWriter, r *http.Request, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
 	enc := json.NewEncoder(w)
 
 	return s.store.StreamAuditEvents(r.Context(), projectID, actorID, resourceType, from, to, func(ev *domain.AuditEvent) error {
@@ -172,7 +137,7 @@ func (s *Server) streamAuditNDJSON(w io.Writer, r *http.Request, flusher http.Fl
 	})
 }
 
-func (s *Server) streamAuditJSON(w io.Writer, r *http.Request, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
+func (s *Server) streamAuditJSON(w http.ResponseWriter, r *http.Request, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
 	if _, err := w.Write([]byte("[")); err != nil {
 		return fmt.Errorf("write json open bracket: %w", err)
 	}
@@ -209,15 +174,4 @@ func (s *Server) streamAuditJSON(w io.Writer, r *http.Request, flusher http.Flus
 		flusher.Flush()
 	}
 	return nil
-}
-
-// deriveAuditSigningKey derives a 32-byte signing key from the master key
-// using HKDF-SHA256 with the salt "audit-export-signing".
-func deriveAuditSigningKey(masterKey []byte) ([]byte, error) {
-	hkdfReader := hkdf.New(sha256.New, masterKey, []byte("audit-export-signing"), nil)
-	derived := make([]byte, 32)
-	if _, err := io.ReadFull(hkdfReader, derived); err != nil {
-		return nil, fmt.Errorf("hkdf derive: %w", err)
-	}
-	return derived, nil
 }

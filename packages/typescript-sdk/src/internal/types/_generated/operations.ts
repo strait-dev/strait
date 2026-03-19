@@ -37,9 +37,7 @@ export type OperationPathParamsById = {
   "postSdkV1RunsByRunIDToolCall": { "runID": string };
   "postSdkV1RunsByRunIDUsage": { "runID": string };
   "postSdkV1RunsByRunIDWaitForEvent": { "runID": string };
-  "getV1AnalyticsApprovals": undefined;
   "getV1AnalyticsCompute": undefined;
-  "getV1AnalyticsCostInsights": undefined;
   "getV1AnalyticsCosts": undefined;
   "getV1AnalyticsCostsTop": undefined;
   "getV1AnalyticsCostsTrends": undefined;
@@ -249,9 +247,7 @@ export type OperationQueryParamsById = {
   "postSdkV1RunsByRunIDToolCall": undefined;
   "postSdkV1RunsByRunIDUsage": undefined;
   "postSdkV1RunsByRunIDWaitForEvent": undefined;
-  "getV1AnalyticsApprovals": { "from": string; "to": string };
   "getV1AnalyticsCompute": { "from": string; "to": string };
-  "getV1AnalyticsCostInsights": { "from": string; "to": string; "threshold"?: number };
   "getV1AnalyticsCosts": { "from": string; "to": string };
   "getV1AnalyticsCostsTop": { "from": string; "to": string; "limit"?: number };
   "getV1AnalyticsCostsTrends": { "from": string; "to": string };
@@ -327,7 +323,7 @@ export type OperationQueryParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": undefined;
   "postV1MembersBulk": undefined;
-  "getV1NotificationChannels": undefined;
+  "getV1NotificationChannels": { "project_id": string };
   "postV1NotificationChannels": undefined;
   "deleteV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationChannelsByChannelID": undefined;
@@ -461,9 +457,7 @@ export type OperationHeaderParamsById = {
   "postSdkV1RunsByRunIDToolCall": undefined;
   "postSdkV1RunsByRunIDUsage": undefined;
   "postSdkV1RunsByRunIDWaitForEvent": undefined;
-  "getV1AnalyticsApprovals": undefined;
   "getV1AnalyticsCompute": undefined;
-  "getV1AnalyticsCostInsights": undefined;
   "getV1AnalyticsCosts": undefined;
   "getV1AnalyticsCostsTop": undefined;
   "getV1AnalyticsCostsTrends": undefined;
@@ -695,9 +689,7 @@ export const generatedOperationMetadataById = {
   "postSdkV1RunsByRunIDToolCall": { functionName: "toolCallRun", domainName: "sdk", domainMethodName: "toolCallRun", pathParamNames: ["runID"], summary: "Record a tool call" },
   "postSdkV1RunsByRunIDUsage": { functionName: "usageRun", domainName: "sdk", domainMethodName: "usageRun", pathParamNames: ["runID"], summary: "Report AI model usage" },
   "postSdkV1RunsByRunIDWaitForEvent": { functionName: "waitForEventRun", domainName: "sdk", domainMethodName: "waitForEventRun", pathParamNames: ["runID"], summary: "Pause a run to wait for an external event" },
-  "getV1AnalyticsApprovals": { functionName: "listApprovals", domainName: "analytics", domainMethodName: "listApprovals", pathParamNames: [], summary: "Approval analytics" },
   "getV1AnalyticsCompute": { functionName: "getCompute", domainName: "analytics", domainMethodName: "getCompute", pathParamNames: [], summary: "Compute cost analytics" },
-  "getV1AnalyticsCostInsights": { functionName: "listCostInsights", domainName: "analytics", domainMethodName: "listCostInsights", pathParamNames: [], summary: "Cost optimization insights" },
   "getV1AnalyticsCosts": { functionName: "listCosts", domainName: "analytics", domainMethodName: "listCosts", pathParamNames: [], summary: "Cost analytics" },
   "getV1AnalyticsCostsTop": { functionName: "getTop", domainName: "analytics", domainMethodName: "getTop", pathParamNames: [], summary: "Top cost items" },
   "getV1AnalyticsCostsTrends": { functionName: "listTrends", domainName: "analytics", domainMethodName: "listTrends", pathParamNames: [], summary: "Cost trends over time" },

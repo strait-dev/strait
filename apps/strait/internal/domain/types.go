@@ -50,7 +50,7 @@ const (
 	ChannelTypeSlack   = "slack"
 	ChannelTypeDiscord = "discord"
 	ChannelTypeWebhook = "webhook"
-	ChannelTypeEmail   = "email" // not yet supported (no email sender implemented)
+	ChannelTypeEmail   = "email"
 )
 
 const (
@@ -58,8 +58,6 @@ const (
 	NotificationEventApprovalReminder  = "approval.reminder"
 	NotificationEventApprovalExpired   = "approval.expired"
 	NotificationEventApprovalCompleted = "approval.completed"
-	NotificationEventApprovalRejected  = "approval.rejected"
-	NotificationEventBudgetThreshold   = "budget.threshold_reached"
 )
 
 // NotificationChannel represents a configured notification destination for a project.
@@ -395,7 +393,6 @@ type JobRun struct {
 	Result                json.RawMessage   `json:"result,omitempty"`
 	Metadata              map[string]string `json:"metadata,omitempty"`
 	Error                 string            `json:"error,omitempty"`
-	ErrorClass            string            `json:"error_class,omitempty"`
 	TriggeredBy           string            `json:"triggered_by"`
 	ScheduledAt           *time.Time        `json:"scheduled_at,omitempty"`
 	StartedAt             *time.Time        `json:"started_at,omitempty"`
@@ -581,13 +578,12 @@ type ExecutionTrace struct {
 
 // DebugBundle aggregates all debug data for a run.
 type DebugBundle struct {
-	Run               *JobRun               `json:"run"`
-	Events            []RunEvent            `json:"events"`
-	Checkpoints       []RunCheckpoint       `json:"checkpoints"`
-	Usage             []RunUsage            `json:"usage"`
-	ToolCalls         []RunToolCall         `json:"tool_calls"`
-	Outputs           []RunOutput           `json:"outputs"`
-	ResourceSnapshots []RunResourceSnapshot `json:"resource_snapshots"`
+	Run         *JobRun         `json:"run"`
+	Events      []RunEvent      `json:"events"`
+	Checkpoints []RunCheckpoint `json:"checkpoints"`
+	Usage       []RunUsage      `json:"usage"`
+	ToolCalls   []RunToolCall   `json:"tool_calls"`
+	Outputs     []RunOutput     `json:"outputs"`
 }
 
 type CircuitState string

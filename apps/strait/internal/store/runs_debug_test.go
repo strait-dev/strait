@@ -59,7 +59,7 @@ func TestGetDebugBundle(t *testing.T) {
 			t.Fatalf("unexpected queryRow SQL: %s", sql)
 		}
 		return &mockRow{scanFn: func(dest ...any) error {
-			if len(dest) != 34 {
+			if len(dest) != 33 {
 				t.Fatalf("unexpected scan dest count: %d", len(dest))
 			}
 			*dest[0].(*string) = "run-1"
@@ -70,12 +70,12 @@ func TestGetDebugBundle(t *testing.T) {
 			*dest[5].(*[]byte) = json.RawMessage(`{"input":true}`)
 			*dest[6].(*[]byte) = json.RawMessage(`{"ok":true}`)
 			*dest[7].(*[]byte) = json.RawMessage(`{"m":"v"}`)
-			*dest[10].(*string) = domain.TriggerManual
-			*dest[18].(*int) = 5
-			*dest[20].(*int) = 2
-			*dest[21].(*time.Time) = now
-			*dest[24].(*bool) = true
-			*dest[26].(*int) = 0
+			*dest[9].(*string) = domain.TriggerManual
+			*dest[17].(*int) = 5
+			*dest[19].(*int) = 2
+			*dest[20].(*time.Time) = now
+			*dest[23].(*bool) = true
+			*dest[25].(*int) = 0
 			// dest[26] = tags, dest[27] = job_version_id, dest[28] = created_by, dest[29] = batch_id, dest[30] = concurrency_key, dest[31] = execution_mode
 			return nil
 		}}
@@ -151,8 +151,6 @@ func TestGetDebugBundle(t *testing.T) {
 					return nil
 				},
 			}}, nil
-		case strings.Contains(sql, "FROM run_resource_snapshots"):
-			return &mockRows{scanFns: nil}, nil
 		default:
 			t.Fatalf("unexpected query SQL: %s", sql)
 			return nil, nil

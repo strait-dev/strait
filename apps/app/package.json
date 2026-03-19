@@ -87,6 +87,7 @@
     "tsx": "^4.21.0",
     "vite": "^8.0.0",
     "vite-plugin-ngrok": "^2.0.1",
+    "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.0"
   }
 }

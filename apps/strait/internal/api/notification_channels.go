@@ -14,7 +14,7 @@ import (
 )
 
 type CreateNotificationChannelRequest struct {
-	ChannelType string          `json:"channel_type" validate:"required,oneof=slack discord webhook"`
+	ChannelType string          `json:"channel_type" validate:"required,oneof=slack discord webhook email"`
 	Name        string          `json:"name" validate:"required"`
 	Config      json.RawMessage `json:"config" validate:"required"`
 	Enabled     *bool           `json:"enabled,omitempty"`
@@ -87,13 +87,7 @@ func (s *Server) handleGetNotificationChannel(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
-
-	ch, err := s.store.GetNotificationChannel(r.Context(), channelID, projectID)
+	ch, err := s.store.GetNotificationChannel(r.Context(), channelID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotificationChannelNotFound) {
 			respondError(w, r, http.StatusNotFound, "notification channel not found")
@@ -113,19 +107,13 @@ func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.
 		return
 	}
 
-	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
-
 	var req UpdateNotificationChannelRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	ch, err := s.store.GetNotificationChannel(r.Context(), channelID, projectID)
+	ch, err := s.store.GetNotificationChannel(r.Context(), channelID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotificationChannelNotFound) {
 			respondError(w, r, http.StatusNotFound, "notification channel not found")
@@ -167,13 +155,7 @@ func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.
 		return
 	}
 
-	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
-
-	err := s.store.DeleteNotificationChannel(r.Context(), channelID, projectID)
+	err := s.store.DeleteNotificationChannel(r.Context(), channelID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotificationChannelNotFound) {
 			respondError(w, r, http.StatusNotFound, "notification channel not found")

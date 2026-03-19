@@ -52,8 +52,6 @@ type EngineStore interface {
 	GetOrCreateWorkflowSnapshot(ctx context.Context, wf *domain.Workflow, steps []domain.WorkflowStep) (*domain.WorkflowSnapshot, error)
 	CopyRunState(ctx context.Context, fromRunID, toRunID string) error
 	GetJobCostEstimate(ctx context.Context, jobID string) (*domain.JobCostEstimate, error)
-	ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
-	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 }
 
 type EngineQueue interface {

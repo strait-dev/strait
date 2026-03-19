@@ -60,17 +60,17 @@ func (q *Queries) CreateNotificationChannel(ctx context.Context, ch *domain.Noti
 	return nil
 }
 
-func (q *Queries) GetNotificationChannel(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error) {
+func (q *Queries) GetNotificationChannel(ctx context.Context, id string) (*domain.NotificationChannel, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetNotificationChannel")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, channel_type, name, config, enabled, created_at, updated_at
 		FROM notification_channels
-		WHERE id = $1 AND project_id = $2`
+		WHERE id = $1`
 
 	var ch domain.NotificationChannel
-	err := q.db.QueryRow(ctx, query, id, projectID).Scan(
+	err := q.db.QueryRow(ctx, query, id).Scan(
 		&ch.ID, &ch.ProjectID, &ch.ChannelType, &ch.Name,
 		&ch.Config, &ch.Enabled, &ch.CreatedAt, &ch.UpdatedAt,
 	)
@@ -122,42 +122,6 @@ func (q *Queries) ListNotificationChannels(ctx context.Context, projectID string
 	return channels, nil
 }
 
-func (q *Queries) ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEnabledNotificationChannels")
-	defer span.End()
-
-	query := `
-		SELECT id, project_id, channel_type, name, config, enabled, created_at, updated_at
-		FROM notification_channels
-		WHERE project_id = $1 AND enabled = true
-		ORDER BY created_at DESC`
-
-	rows, err := q.db.Query(ctx, query, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("list enabled notification channels: %w", err)
-	}
-	defer rows.Close()
-
-	channels := make([]domain.NotificationChannel, 0, 16)
-	for rows.Next() {
-		var ch domain.NotificationChannel
-		if err := rows.Scan(
-			&ch.ID, &ch.ProjectID, &ch.ChannelType, &ch.Name,
-			&ch.Config, &ch.Enabled, &ch.CreatedAt, &ch.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("list enabled notification channels scan: %w", err)
-		}
-		ch.Config = q.decryptNotificationConfig(ch.ID, ch.Config)
-		channels = append(channels, ch)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list enabled notification channels rows: %w", err)
-	}
-
-	return channels, nil
-}
-
 func (q *Queries) UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateNotificationChannel")
 	defer span.End()
@@ -180,10 +144,10 @@ func (q *Queries) UpdateNotificationChannel(ctx context.Context, ch *domain.Noti
 	query := `
 		UPDATE notification_channels
 		SET name = $2, channel_type = $3, config = $4, enabled = $5, updated_at = NOW()
-		WHERE id = $1 AND project_id = $6
+		WHERE id = $1
 		RETURNING updated_at`
 
-	err := q.db.QueryRow(ctx, query, ch.ID, ch.Name, ch.ChannelType, configBytes, ch.Enabled, ch.ProjectID).Scan(&ch.UpdatedAt)
+	err := q.db.QueryRow(ctx, query, ch.ID, ch.Name, ch.ChannelType, configBytes, ch.Enabled).Scan(&ch.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotificationChannelNotFound
@@ -194,12 +158,12 @@ func (q *Queries) UpdateNotificationChannel(ctx context.Context, ch *domain.Noti
 	return nil
 }
 
-func (q *Queries) DeleteNotificationChannel(ctx context.Context, id, projectID string) error {
+func (q *Queries) DeleteNotificationChannel(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteNotificationChannel")
 	defer span.End()
 
-	query := `DELETE FROM notification_channels WHERE id = $1 AND project_id = $2`
-	tag, err := q.db.Exec(ctx, query, id, projectID)
+	query := `DELETE FROM notification_channels WHERE id = $1`
+	tag, err := q.db.Exec(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("delete notification channel: %w", err)
 	}

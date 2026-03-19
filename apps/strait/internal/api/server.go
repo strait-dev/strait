@@ -155,8 +155,6 @@ type RunStore interface {
 	GetCostTrends(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error)
 	GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
 	GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
-	GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
-	GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
 	AggregateCostStatsHourly(ctx context.Context, hour time.Time) error
 	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
 	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
@@ -318,10 +316,10 @@ type RBACStore interface {
 // NotificationChannelStore handles notification channel and delivery operations.
 type NotificationChannelStore interface {
 	CreateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
-	GetNotificationChannel(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error)
+	GetNotificationChannel(ctx context.Context, id string) (*domain.NotificationChannel, error)
 	ListNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
 	UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
-	DeleteNotificationChannel(ctx context.Context, id, projectID string) error
+	DeleteNotificationChannel(ctx context.Context, id string) error
 	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 	ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }
