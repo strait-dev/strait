@@ -66,14 +66,21 @@ func (w *Worker) run(ctx context.Context) {
 }
 
 func (w *Worker) process(ctx context.Context) {
-	deliveries, err := w.store.ClaimPendingNotificationDeliveries(ctx, 50, deliveryLeaseDuration)
-	if err != nil {
-		slog.Error("failed to claim pending notification deliveries", "error", err)
-		return
-	}
+	for {
+		// Claim and dispatch one delivery at a time so each send gets the full
+		// lease window. The lease duration must comfortably exceed a single
+		// delivery attempt, and batch claiming is intentionally avoided here to
+		// prevent later items in a slow batch from expiring before dispatch.
+		deliveries, err := w.store.ClaimPendingNotificationDeliveries(ctx, 1, deliveryLeaseDuration)
+		if err != nil {
+			slog.Error("failed to claim pending notification deliveries", "error", err)
+			return
+		}
+		if len(deliveries) == 0 {
+			return
+		}
 
-	for i := range deliveries {
-		d := &deliveries[i]
+		d := &deliveries[0]
 		if err := w.dispatch(ctx, d); err != nil {
 			slog.Warn("notification delivery failed", "delivery_id", d.ID, "channel_id", d.ChannelID, "error", err)
 		}

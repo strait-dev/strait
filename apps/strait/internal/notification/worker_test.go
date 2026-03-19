@@ -3,8 +3,8 @@ package notification
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,9 +12,13 @@ import (
 )
 
 type fakeNotificationStore struct {
-	mu         sync.Mutex
-	channel    *domain.NotificationChannel
-	deliveries map[string]*domain.NotificationDelivery
+	mu                    sync.Mutex
+	channel               *domain.NotificationChannel
+	deliveries            map[string]*domain.NotificationDelivery
+	order                 []string
+	claimLimits           []int
+	claimTokenSequence    int
+	leaseDurationOverride *time.Duration
 }
 
 func newFakeNotificationStore(channel *domain.NotificationChannel, deliveries ...*domain.NotificationDelivery) *fakeNotificationStore {
@@ -25,6 +29,7 @@ func newFakeNotificationStore(channel *domain.NotificationChannel, deliveries ..
 	for _, delivery := range deliveries {
 		copyDelivery := *delivery
 		store.deliveries[delivery.ID] = &copyDelivery
+		store.order = append(store.order, delivery.ID)
 	}
 	return store
 }
@@ -67,9 +72,16 @@ func (f *fakeNotificationStore) ClaimPendingNotificationDeliveries(_ context.Con
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.claimLimits = append(f.claimLimits, limit)
+
+	if f.leaseDurationOverride != nil {
+		leaseDuration = *f.leaseDurationOverride
+	}
+
 	now := time.Now().UTC()
 	deliveries := make([]domain.NotificationDelivery, 0, limit)
-	for _, delivery := range f.deliveries {
+	for _, id := range f.order {
+		delivery := f.deliveries[id]
 		if len(deliveries) >= limit {
 			break
 		}
@@ -81,7 +93,8 @@ func (f *fakeNotificationStore) ClaimPendingNotificationDeliveries(_ context.Con
 			continue
 		}
 
-		token := delivery.ID + "-claim"
+		f.claimTokenSequence++
+		token := fmt.Sprintf("%s-claim-%d", delivery.ID, f.claimTokenSequence)
 		leaseExpiry := now.Add(leaseDuration)
 		delivery.Status = "processing"
 		delivery.ClaimToken = token
@@ -115,12 +128,45 @@ func (f *fakeNotificationStore) ListNotificationDeliveries(_ context.Context, _ 
 }
 
 type fakeChannelSender struct {
-	calls atomic.Int64
+	mu    sync.Mutex
+	delay time.Duration
+	total int
+	byID  map[string]int
 }
 
-func (f *fakeChannelSender) Send(_ context.Context, _ *domain.NotificationChannel, _ *domain.NotificationDelivery) error {
-	f.calls.Add(1)
+func newFakeChannelSender(delay time.Duration) *fakeChannelSender {
+	return &fakeChannelSender{
+		delay: delay,
+		byID:  make(map[string]int),
+	}
+}
+
+func (f *fakeChannelSender) Send(ctx context.Context, _ *domain.NotificationChannel, d *domain.NotificationDelivery) error {
+	if f.delay > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(f.delay):
+		}
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.total++
+	f.byID[d.ID]++
 	return nil
+}
+
+func (f *fakeChannelSender) TotalCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.total
+}
+
+func (f *fakeChannelSender) CallsFor(id string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.byID[id]
 }
 
 func TestWorkerProcessClaimsEachDeliveryOnce(t *testing.T) {
@@ -141,7 +187,7 @@ func TestWorkerProcessClaimsEachDeliveryOnce(t *testing.T) {
 	}
 
 	store := newFakeNotificationStore(channel, delivery)
-	sender := &fakeChannelSender{}
+	sender := newFakeChannelSender(0)
 
 	workerOne := NewWorker(store, nil)
 	workerOne.senders = map[string]ChannelSender{domain.ChannelTypeWebhook: sender}
@@ -149,18 +195,15 @@ func TestWorkerProcessClaimsEachDeliveryOnce(t *testing.T) {
 	workerTwo.senders = map[string]ChannelSender{domain.ChannelTypeWebhook: sender}
 
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		workerOne.process(context.Background())
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		workerTwo.process(context.Background())
-	}()
+	})
 	wg.Wait()
 
-	if got := sender.calls.Load(); got != 1 {
+	if got := sender.TotalCalls(); got != 1 {
 		t.Fatalf("sender calls = %d, want 1", got)
 	}
 
@@ -179,5 +222,89 @@ func TestWorkerProcessClaimsEachDeliveryOnce(t *testing.T) {
 	}
 	if updated.LeaseExpiry != nil {
 		t.Fatalf("delivery lease expiry = %v, want nil", updated.LeaseExpiry)
+	}
+}
+
+func TestWorkerProcessClaimsOneDeliveryPerIteration(t *testing.T) {
+	t.Parallel()
+
+	channel := &domain.NotificationChannel{
+		ID:          "ch-1",
+		ProjectID:   "proj-1",
+		ChannelType: domain.ChannelTypeWebhook,
+	}
+	store := newFakeNotificationStore(
+		channel,
+		&domain.NotificationDelivery{ID: "del-1", ChannelID: channel.ID, ProjectID: channel.ProjectID, EventType: domain.NotificationEventApprovalRequested, Status: "pending", MaxAttempts: 3},
+		&domain.NotificationDelivery{ID: "del-2", ChannelID: channel.ID, ProjectID: channel.ProjectID, EventType: domain.NotificationEventApprovalRequested, Status: "pending", MaxAttempts: 3},
+		&domain.NotificationDelivery{ID: "del-3", ChannelID: channel.ID, ProjectID: channel.ProjectID, EventType: domain.NotificationEventApprovalRequested, Status: "pending", MaxAttempts: 3},
+	)
+	sender := newFakeChannelSender(0)
+
+	worker := NewWorker(store, nil)
+	worker.senders = map[string]ChannelSender{domain.ChannelTypeWebhook: sender}
+	worker.process(context.Background())
+
+	if got := sender.TotalCalls(); got != 3 {
+		t.Fatalf("sender calls = %d, want 3", got)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	if len(store.claimLimits) != 4 {
+		t.Fatalf("claim call count = %d, want 4", len(store.claimLimits))
+	}
+	for i, limit := range store.claimLimits {
+		if limit != 1 {
+			t.Fatalf("claim limit at call %d = %d, want 1", i, limit)
+		}
+	}
+}
+
+func TestWorkerProcessDoesNotDuplicateSlowMultiDeliveryBatches(t *testing.T) {
+	t.Parallel()
+
+	channel := &domain.NotificationChannel{
+		ID:          "ch-1",
+		ProjectID:   "proj-1",
+		ChannelType: domain.ChannelTypeWebhook,
+	}
+	store := newFakeNotificationStore(
+		channel,
+		&domain.NotificationDelivery{ID: "del-1", ChannelID: channel.ID, ProjectID: channel.ProjectID, EventType: domain.NotificationEventApprovalRequested, Status: "pending", MaxAttempts: 3},
+		&domain.NotificationDelivery{ID: "del-2", ChannelID: channel.ID, ProjectID: channel.ProjectID, EventType: domain.NotificationEventApprovalRequested, Status: "pending", MaxAttempts: 3},
+		&domain.NotificationDelivery{ID: "del-3", ChannelID: channel.ID, ProjectID: channel.ProjectID, EventType: domain.NotificationEventApprovalRequested, Status: "pending", MaxAttempts: 3},
+		&domain.NotificationDelivery{ID: "del-4", ChannelID: channel.ID, ProjectID: channel.ProjectID, EventType: domain.NotificationEventApprovalRequested, Status: "pending", MaxAttempts: 3},
+	)
+	leaseDuration := 20 * time.Millisecond
+	store.leaseDurationOverride = &leaseDuration
+	sender := newFakeChannelSender(15 * time.Millisecond)
+
+	workerOne := NewWorker(store, nil)
+	workerOne.senders = map[string]ChannelSender{domain.ChannelTypeWebhook: sender}
+	workerTwo := NewWorker(store, nil)
+	workerTwo.senders = map[string]ChannelSender{domain.ChannelTypeWebhook: sender}
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		workerOne.process(context.Background())
+	})
+
+	time.Sleep(25 * time.Millisecond)
+
+	wg.Go(func() {
+		workerTwo.process(context.Background())
+	})
+	wg.Wait()
+
+	if got := sender.TotalCalls(); got != 4 {
+		t.Fatalf("sender calls = %d, want 4", got)
+	}
+
+	for _, deliveryID := range []string{"del-1", "del-2", "del-3", "del-4"} {
+		if got := sender.CallsFor(deliveryID); got != 1 {
+			t.Fatalf("sender calls for %s = %d, want 1", deliveryID, got)
+		}
 	}
 }
