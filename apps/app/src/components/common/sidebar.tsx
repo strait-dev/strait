@@ -78,17 +78,17 @@ const environments: { value: Environment; label: string; dotClass: string }[] =
     {
       value: "production",
       label: "Production",
-      dotClass: "bg-chart-1", // green
+      dotClass: "bg-green-500",
     },
     {
       value: "staging",
       label: "Staging",
-      dotClass: "bg-chart-3", // yellow
+      dotClass: "bg-blue-500",
     },
     {
       value: "development",
       label: "Development",
-      dotClass: "bg-chart-2", // blue
+      dotClass: "bg-yellow-500",
     },
   ];
 
