@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
 
-/* ── Shared animation hook ────────────────────────────── */
+/* -- Shared animation hook -- */
 function useLoopCounter(intervalMs: number, paused = false) {
   const [count, setCount] = useState(0);
   useEffect(() => {
@@ -17,14 +17,14 @@ function useLoopCounter(intervalMs: number, paused = false) {
   return count;
 }
 
-/* ── 1. PostgreSQL Queue ──────────────────────────────── */
+/* -- 1. Job Orchestration (adapted from QueueAnimation) -- */
 const QueueAnimation = () => {
   const tick = useLoopCounter(1800);
   const rows = [
-    { id: "run_a3f", status: "claimed", age: "2s" },
-    { id: "run_b71", status: "queued", age: "0s" },
-    { id: "run_c92", status: "queued", age: "0s" },
-    { id: "run_d18", status: "claimed", age: "1s" },
+    { id: "run_a3f", status: "executing", state: "3/13" },
+    { id: "run_b71", status: "queued", state: "1/13" },
+    { id: "run_c92", status: "retrying", state: "5/13" },
+    { id: "run_d18", status: "completed", state: "13/13" },
   ];
   const activeIdx = tick % rows.length;
 
@@ -33,20 +33,22 @@ const QueueAnimation = () => {
       <div className="mb-1 flex gap-12 text-muted-foreground/50">
         <span>run_id</span>
         <span>status</span>
+        <span>lifecycle</span>
       </div>
       {rows.map((row, i) => {
-        const isClaimed = i === activeIdx;
+        const isActive = i === activeIdx;
         return (
           <div
             className={`flex gap-8 rounded px-2 py-1 transition-colors duration-500 ${
-              isClaimed
+              isActive
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground/60"
             }`}
             key={row.id}
           >
             <span className="w-16">{row.id}</span>
-            <span>{isClaimed ? "claimed" : row.status}</span>
+            <span className="w-20">{isActive ? "claimed" : row.status}</span>
+            <span>{row.state}</span>
           </div>
         );
       })}
@@ -54,7 +56,7 @@ const QueueAnimation = () => {
   );
 };
 
-/* ── 2. DAG Workflows ─────────────────────────────────── */
+/* -- 2. DAG Workflows -- */
 const DagAnimation = () => {
   const nodes = [
     { x: 20, y: 30, label: "A" },
@@ -129,45 +131,37 @@ const DagAnimation = () => {
   );
 };
 
-/* ── 3. Retries & DLQ ─────────────────────────────────── */
-const RetryAnimation = () => {
+/* -- 3. Managed Execution -- */
+const ExecutionAnimation = () => {
   const tick = useLoopCounter(2000);
-  const attempts = [
-    { delay: "0ms", result: "fail" },
-    { delay: "200ms", result: "fail" },
-    { delay: "800ms", result: "fail" },
-    { delay: "3.2s", result: "success" },
+  const regions = [
+    { label: "iad", status: "warm" },
+    { label: "lhr", status: "warm" },
+    { label: "nrt", status: "cold" },
   ];
-  const currentAttempt = tick % (attempts.length + 1);
+  const activeIdx = tick % regions.length;
 
   return (
-    <div className="flex items-center gap-2">
-      {attempts.map((a, i) => {
-        const isReached = i < currentAttempt;
-        const isSuccess = a.result === "success";
-        let colorClass = "bg-muted/50 text-muted-foreground/30";
-        if (isReached) {
-          colorClass = isSuccess
-            ? "bg-success/20 text-success"
-            : "bg-destructive/20 text-destructive";
-        }
-        let symbol = "·";
-        if (isReached) {
-          symbol = isSuccess ? "✓" : "✕";
-        }
+    <div className="flex flex-col gap-2 font-mono text-xs">
+      <div className="mb-1 text-muted-foreground/50">Fly Machines</div>
+      {regions.map((region, i) => {
+        const isActive = i === activeIdx;
         return (
-          <div className="flex flex-col items-center gap-1" key={a.delay}>
+          <div
+            className={`flex items-center gap-3 rounded px-2 py-1 transition-colors duration-500 ${
+              isActive
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground/60"
+            }`}
+            key={region.label}
+          >
             <div
-              className={`flex size-6 items-center justify-center rounded-full text-xs transition-all duration-400 ${colorClass}`}
-            >
-              {symbol}
-            </div>
-            <span className="text-[9px] text-muted-foreground/40">
-              {a.delay}
-            </span>
-            {i < attempts.length - 1 && (
-              <div className="absolute top-3 -right-1 h-px w-2 bg-border/60" />
-            )}
+              className={`size-1.5 rounded-full ${
+                isActive ? "bg-success" : "bg-muted-foreground/30"
+              }`}
+            />
+            <span className="w-8">{region.label}</span>
+            <span>{isActive ? "executing" : region.status}</span>
           </div>
         );
       })}
@@ -175,34 +169,7 @@ const RetryAnimation = () => {
   );
 };
 
-/* ── 4. Approval Gates ────────────────────────────────── */
-const ApprovalAnimation = () => {
-  const tick = useLoopCounter(3000);
-  const isApproved = tick % 2 === 1;
-
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <div
-        className={`flex size-14 items-center justify-center rounded-full border-2 transition-all duration-700 ${
-          isApproved
-            ? "border-success/40 bg-success/10"
-            : "animate-pulse border-warning/40 bg-warning/10"
-        }`}
-      >
-        <span
-          className={`text-lg ${isApproved ? "text-success" : "text-warning"}`}
-        >
-          {isApproved ? "✓" : "⏸"}
-        </span>
-      </div>
-      <span className="text-muted-foreground/60 text-xs">
-        {isApproved ? "Approved" : "Awaiting..."}
-      </span>
-    </div>
-  );
-};
-
-/* ── 5. Cost Budgets ──────────────────────────────────── */
+/* -- 4. AI Agent Platform -- */
 const CostAnimation = () => {
   const [progress, setProgress] = useState(0);
   useEffect(() => {
@@ -268,35 +235,40 @@ const CostAnimation = () => {
   );
 };
 
-/* ── 6. Real-time CDC ─────────────────────────────────── */
-const CdcAnimation = () => {
-  const tick = useLoopCounter(1500);
-  const events = [
-    "run_a3f → executing",
-    "run_b71 → completed",
-    "run_c92 → failed",
-    "run_d18 → retrying",
-    "run_e44 → queued",
-    "run_f90 → executing",
-  ];
-  const visibleCount = Math.min(tick + 1, events.length);
+/* -- 5. SDK Languages -- */
+const SdkAnimation = () => {
+  const code = `await strait.runs.create({
+  jobId: "process-order",
+  workflowId: "checkout-flow",
+  payload: orderData,
+})`;
+  const [chars, setChars] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
+
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      setChars((c) => {
+        if (c >= code.length) {
+          clearInterval(intervalRef.current);
+          return c;
+        }
+        return c + 1;
+      });
+    }, 25);
+    return () => clearInterval(intervalRef.current);
+  }, []);
 
   return (
-    <div className="flex flex-col gap-1.5 overflow-hidden">
-      {events.slice(0, visibleCount).map((event, i) => (
-        <div
-          className="animate-fade-in-up rounded border border-border/40 bg-muted/30 px-3 py-1.5 font-mono text-muted-foreground text-xs"
-          key={`cdc-${String(i)}`}
-          style={{ animationDuration: "300ms" }}
-        >
-          {event}
-        </div>
-      ))}
-    </div>
+    <pre className="animate-gradient-shimmer overflow-hidden rounded-lg bg-[linear-gradient(90deg,_transparent,_var(--primary)/0.03,_transparent)] font-mono text-primary/80 text-xs leading-relaxed">
+      <code>{code.slice(0, chars)}</code>
+      {chars < code.length && (
+        <span className="inline-block h-4 w-0.5 animate-pulse bg-primary/60" />
+      )}
+    </pre>
   );
 };
 
-/* ── 7. Health Scoring ────────────────────────────────── */
+/* -- 6. Built-in Observability -- */
 const HealthAnimation = () => {
   const [score, setScore] = useState(0);
   useEffect(() => {
@@ -337,40 +309,7 @@ const HealthAnimation = () => {
   );
 };
 
-/* ── 8. SDK & API ─────────────────────────────────────── */
-const SdkAnimation = () => {
-  const code = `await strait.runs.create({
-  jobId: "process-order",
-  workflowId: "checkout-flow",
-  payload: orderData,
-})`;
-  const [chars, setChars] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
-
-  useEffect(() => {
-    intervalRef.current = setInterval(() => {
-      setChars((c) => {
-        if (c >= code.length) {
-          clearInterval(intervalRef.current);
-          return c;
-        }
-        return c + 1;
-      });
-    }, 25);
-    return () => clearInterval(intervalRef.current);
-  }, []);
-
-  return (
-    <pre className="animate-gradient-shimmer overflow-hidden rounded-lg bg-[linear-gradient(90deg,_transparent,_var(--primary)/0.03,_transparent)] font-mono text-primary/80 text-xs leading-relaxed">
-      <code>{code.slice(0, chars)}</code>
-      {chars < code.length && (
-        <span className="inline-block h-4 w-0.5 animate-pulse bg-primary/60" />
-      )}
-    </pre>
-  );
-};
-
-/* ── Feature card data ────────────────────────────────── */
+/* -- Feature card data -- */
 type FeatureCard = {
   id: string;
   title: string;
@@ -382,89 +321,69 @@ type FeatureCard = {
 
 const FEATURES: FeatureCard[] = [
   {
-    id: "postgresql-queue",
-    title: "PostgreSQL Queue",
-    subtitle: "Queue without a broker",
+    id: "job-orchestration",
+    title: "Job Orchestration",
+    subtitle: "Define, trigger, retry, schedule",
     description:
-      "Your existing Postgres becomes a high-throughput job queue. No Redis, no RabbitMQ, no extra infrastructure.",
+      "Define, trigger, retry, schedule. 13-state run lifecycle with exponential backoff, dead-letter routing, and automatic cleanup.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: QueueAnimation,
   },
   {
     id: "workflow-dags",
-    title: "DAG Workflows",
+    title: "Workflow DAGs",
     subtitle: "Wire any dependency graph",
     description:
-      "Fan-in, fan-out, conditions, and template variables. Model complex pipelines as directed acyclic graphs.",
+      "Visual pipelines with conditions, approval gates, fan-out/fan-in. Model complex pipelines as directed acyclic graphs.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: DagAnimation,
   },
   {
-    id: "retries-dlq",
-    title: "Retries & DLQ",
-    subtitle: "Failures are a feature",
+    id: "managed-execution",
+    title: "Managed Execution",
+    subtitle: "Containers on Fly Machines",
     description:
-      "Exponential backoff with jitter, configurable max attempts, and automatic dead-letter routing for exhausted runs.",
-    span: "sm:col-span-2 lg:col-span-8",
-    Animation: RetryAnimation,
+      "Your code runs in containers on Fly Machines. Warm pools, multi-region deployment, and automatic scaling.",
+    span: "sm:col-span-1 lg:col-span-6",
+    Animation: ExecutionAnimation,
   },
   {
-    id: "approval-gates",
-    title: "Approval Gates",
-    subtitle: "Human-in-the-loop",
+    id: "ai-agent-platform",
+    title: "AI Agent Platform",
+    subtitle: "Cost tracking and guardrails",
     description:
-      "Pause workflows for manual approval, then resume automatically when authorized.",
-    span: "sm:col-span-1 lg:col-span-4",
-    Animation: ApprovalAnimation,
-  },
-  {
-    id: "cost-budgets",
-    title: "Cost Budgets",
-    subtitle: "Spend limits per run",
-    description:
-      "Set per-run and daily cost limits. Track AI model token usage in real time.",
-    span: "sm:col-span-1 lg:col-span-4",
+      "Cost tracking, guardrails, persistent memory, MCP server. Set per-run budgets and track AI model token usage in real time.",
+    span: "sm:col-span-1 lg:col-span-6",
     Animation: CostAnimation,
   },
   {
-    id: "real-time-cdc",
-    title: "Real-time Streaming",
-    subtitle: "Stream every state change",
+    id: "language-sdks",
+    title: "5 Language SDKs",
+    subtitle: "TypeScript, Python, Go, Ruby, Rust",
     description:
-      "Real-time event streaming delivers run state changes to your webhooks with secure signed payloads.",
-    span: "sm:col-span-2 lg:col-span-8",
-    Animation: CdcAnimation,
-  },
-  {
-    id: "health-scoring",
-    title: "Health Scoring",
-    subtitle: "System health at a glance",
-    description:
-      "Composite health scores from queue depth, worker throughput, and latency percentiles.",
-    span: "sm:col-span-1 lg:col-span-6",
-    Animation: HealthAnimation,
-  },
-  {
-    id: "sdk-api",
-    title: "TypeScript, Go & Python SDKs",
-    subtitle: "First-class multi-language SDKs",
-    description:
-      "Logging, heartbeats, checkpoints, and continuation — all through clean, idiomatic clients for TypeScript, Go, and Python.",
+      "TypeScript, Python, Go, Ruby, Rust. 186 operations each. Logging, heartbeats, checkpoints, and continuation.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: SdkAnimation,
   },
+  {
+    id: "observability",
+    title: "Built-in Observability",
+    subtitle: "OpenTelemetry and health scores",
+    description:
+      "OpenTelemetry, health scores, cost analytics, structured logs. Composite health scores from queue depth, throughput, and latency.",
+    span: "sm:col-span-1 lg:col-span-6",
+    Animation: HealthAnimation,
+  },
 ];
 
-/* ── Main component ───────────────────────────────────── */
+/* -- Main component -- */
 const FeatureBentoGrid = () => (
   <section className="py-20 sm:py-28" id="features">
     <Shell variant="wide">
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
-          <span className="text-foreground">One runtime. Every feature.</span>{" "}
-          <span className="text-muted-foreground">
-            Queues, DAGs, retries, approvals, cost budgets, and a dashboard —
-            not a framework you wire together yourself.
+          <span className="text-foreground">
+            Everything you need to ship reliable background execution.
           </span>
         </h2>
       </div>

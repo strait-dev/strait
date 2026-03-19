@@ -41,31 +41,62 @@ const CTA = () => {
               className="max-w-3xl text-balance text-2xl text-primary-foreground leading-[1.1] sm:text-3xl lg:text-4xl"
               id={headingId}
             >
-              Ship your first workflow in 10 minutes.
+              Get started in 5 minutes
             </h2>
           </Reveal>
 
           <Reveal delay={0.1}>
-            <p className="mt-6 max-w-2xl text-pretty text-base text-primary-foreground/70 leading-relaxed sm:text-lg">
-              Connect your Postgres, define a workflow, and trigger your first
-              run. No broker, no config files, no vendor lock-in.
-            </p>
+            <div className="mt-8 overflow-hidden rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-6 py-3">
+              <pre className="font-mono text-primary-foreground/90 text-sm">
+                <code>
+                  npm install @strait/ts{" "}
+                  <span className="text-primary-foreground/40">
+                    # or pip, go get, gem, cargo
+                  </span>
+                </code>
+              </pre>
+            </div>
           </Reveal>
 
           <Reveal delay={0.2} spring>
-            <div className="mt-10 flex flex-col items-center gap-4">
+            <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row">
               <Button
                 className="transition-all duration-300 hover:animate-gradient-shimmer"
                 render={<Link href={dashboardHref("/login")} />}
                 variant="outline"
               >
-                Start building free
+                Get Started Free
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
-              <p className="text-primary-foreground/50 text-sm">
-                No credit card required. Runs on your Postgres.
-              </p>
+              <Button
+                render={<Link href="/docs/quickstart" />}
+                variant="outline"
+              >
+                Read the Docs
+                <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
+              </Button>
+              <Button
+                render={
+                  // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
+                  <a
+                    aria-label="Join Discord"
+                    href="https://discord.gg/strait"
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  />
+                }
+                variant="outline"
+              >
+                Join Discord
+                <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
+              </Button>
             </div>
+          </Reveal>
+
+          <Reveal delay={0.3}>
+            <p className="mt-6 text-primary-foreground/50 text-sm">
+              No credit card required. Self-host or cloud.
+            </p>
           </Reveal>
         </div>
       </Shell>

@@ -3,7 +3,6 @@ import {
   CheckmarkCircle02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { PLANS as BILLING_PLANS, formatPrice } from "@strait/billing/products";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 
@@ -15,18 +14,63 @@ import {
 import Shell from "@/components/layout/shell.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
-const TEASER_PLANS = [
+// TODO: sync with @strait/billing when updated to 4 tiers
+const PRICING_TIERS = [
   {
-    key: "personal" as const,
-    ...BILLING_PLANS.personal,
-    cta: { label: `Start ${BILLING_PLANS.personal.name}`, href: "/login" },
+    name: "Free",
+    price: "$0",
+    period: "",
+    description: "For side projects and experimentation.",
+    features: [
+      "5,000 runs/day",
+      "All features included",
+      "Community support",
+      "1 project",
+    ],
+    cta: { label: "Get Started Free", href: "/login" },
     highlighted: false,
   },
   {
-    key: "pro" as const,
-    ...BILLING_PLANS.pro,
-    cta: { label: `Go ${BILLING_PLANS.pro.name}`, href: "/login" },
+    name: "Starter",
+    price: "$19",
+    period: "/mo",
+    description: "For individuals shipping to production.",
+    features: [
+      "50,000 runs/day",
+      "Priority queue",
+      "Email support",
+      "5 projects",
+    ],
+    cta: { label: "Start Starter", href: "/login" },
+    highlighted: false,
+  },
+  {
+    name: "Pro",
+    price: "$49",
+    period: "/mo",
+    description: "For teams with advanced workflow needs.",
+    features: [
+      "Unlimited runs",
+      "Managed execution",
+      "Priority support",
+      "Unlimited projects",
+    ],
+    cta: { label: "Go Pro", href: "/login" },
     highlighted: true,
+  },
+  {
+    name: "Enterprise",
+    price: "Custom",
+    period: "",
+    description: "For organizations with compliance requirements.",
+    features: [
+      "Dedicated infrastructure",
+      "SLA guarantee",
+      "SSO / SAML",
+      "Dedicated support",
+    ],
+    cta: { label: "Contact Sales", href: "/contact" },
+    highlighted: false,
   },
 ];
 
@@ -49,7 +93,7 @@ const PricingTeaser = () => (
       <StaggerGroup className="mb-8 flex flex-wrap items-center justify-center gap-2.5 md:justify-start">
         <StaggerItem>
           <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-            No credit card to start
+            No credit card required for Free
           </span>
         </StaggerItem>
         <StaggerItem>
@@ -59,14 +103,14 @@ const PricingTeaser = () => (
         </StaggerItem>
         <StaggerItem>
           <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-            Runs on your Postgres
+            Self-host available
           </span>
         </StaggerItem>
       </StaggerGroup>
 
-      <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2 lg:gap-8">
-        {TEASER_PLANS.map((plan, idx) => (
-          <Reveal delay={idx * 0.1} key={plan.name} spring variant="scale">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
+        {PRICING_TIERS.map((plan, idx) => (
+          <Reveal delay={idx * 0.08} key={plan.name} spring variant="scale">
             <div
               className={`relative flex h-full flex-col overflow-hidden rounded-2xl border ${
                 plan.highlighted
@@ -110,11 +154,13 @@ const PricingTeaser = () => (
               <div className="flex flex-1 flex-col px-6 pb-8 sm:px-8">
                 <div className="mt-8 mb-8">
                   <span className="text-5xl text-foreground tabular-nums">
-                    {formatPrice(plan.prices.yearly)}
+                    {plan.price}
                   </span>
-                  <span className="ml-1 text-muted-foreground text-sm">
-                    /mo billed yearly
-                  </span>
+                  {plan.period ? (
+                    <span className="ml-1 text-muted-foreground text-sm">
+                      {plan.period}
+                    </span>
+                  ) : null}
                 </div>
 
                 <ul className="mb-10 flex-1 space-y-3.5">
@@ -152,7 +198,7 @@ const PricingTeaser = () => (
           className="font-medium text-muted-foreground text-sm transition-colors hover:text-foreground"
           href="/pricing"
         >
-          Compare all plans in detail →
+          See Full Pricing →
         </Link>
       </div>
     </Shell>
