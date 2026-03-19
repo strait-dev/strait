@@ -169,7 +169,10 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 		ctx := r.Context()
 
 		// Optionally carry explicit project context for internal calls (e.g. RBAC management).
+		// Check X-Project-Id header first, fall back to query param for backward compat.
 		if projectID := strings.TrimSpace(r.Header.Get("X-Project-Id")); projectID != "" {
+			ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
+		} else if projectID := r.URL.Query().Get("project_id"); projectID != "" {
 			ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
 		}
 

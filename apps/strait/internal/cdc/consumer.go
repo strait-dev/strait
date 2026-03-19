@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/pubsub"
 
+	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel"
 )
 
@@ -197,6 +198,12 @@ func (c *Consumer) poll(ctx context.Context) error {
 	// so they are retried instead of being silently lost.
 	if len(batch) > 0 && c.publisher != nil {
 		if err := c.publisher.PublishBatch(ctx, batch); err != nil {
+			sentry.WithScope(func(scope *sentry.Scope) {
+				scope.SetTag("batch_count", fmt.Sprintf("%d", len(batch)))
+				scope.SetLevel(sentry.LevelError)
+				scope.SetFingerprint([]string{"cdc_batch_publish_failed"})
+				sentry.CaptureException(err)
+			})
 			c.logger.Error("batch publish failed, nacking messages", "count", len(batch), "error", err)
 			nackIDs = append(nackIDs, batchAckIDs...)
 		} else {

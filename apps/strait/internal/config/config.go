@@ -154,6 +154,10 @@ type Config struct {
 	// OTel metrics push
 	OTLPMetricEndpoint string `mapstructure:"OTLP_METRIC_ENDPOINT"`
 	OTLPMetricEnabled  bool   `mapstructure:"OTLP_METRIC_ENABLED"`
+
+	// Sentry error tracking
+	SentryDSN         string `mapstructure:"SENTRY_DSN"`
+	SentryEnvironment string `mapstructure:"SENTRY_ENVIRONMENT"`
 }
 
 func setDefaults() {
@@ -244,6 +248,8 @@ func setDefaults() {
 	viper.SetDefault("CLICKHOUSE_FLUSH_INTERVAL", 5*time.Second)
 	viper.SetDefault("CLICKHOUSE_EXPORT_ENABLED", false)
 	viper.SetDefault("OTLP_METRIC_ENABLED", false)
+	viper.SetDefault("SENTRY_DSN", "")
+	viper.SetDefault("SENTRY_ENVIRONMENT", "development")
 }
 
 func BindEnv() error {
@@ -283,6 +289,7 @@ func BindEnv() error {
 		"CLICKHOUSE_ENABLED", "CLICKHOUSE_URL", "CLICKHOUSE_DATABASE",
 		"CLICKHOUSE_BATCH_SIZE", "CLICKHOUSE_FLUSH_INTERVAL", "CLICKHOUSE_EXPORT_ENABLED",
 		"OTLP_METRIC_ENDPOINT", "OTLP_METRIC_ENABLED",
+		"SENTRY_DSN", "SENTRY_ENVIRONMENT",
 	}
 
 	for _, key := range keys {
@@ -383,6 +390,8 @@ func Load() (*Config, error) {
 	cfg.ClickHouseExportEnabled = viper.GetBool("CLICKHOUSE_EXPORT_ENABLED")
 	cfg.OTLPMetricEndpoint = viper.GetString("OTLP_METRIC_ENDPOINT")
 	cfg.OTLPMetricEnabled = viper.GetBool("OTLP_METRIC_ENABLED")
+	cfg.SentryDSN = viper.GetString("SENTRY_DSN")
+	cfg.SentryEnvironment = viper.GetString("SENTRY_ENVIRONMENT")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")

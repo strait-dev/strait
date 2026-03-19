@@ -20,6 +20,7 @@ import (
 	"strait/internal/webhook"
 	"strait/internal/workflow"
 
+	"github.com/getsentry/sentry-go"
 	concpool "github.com/sourcegraph/conc/pool"
 	otelattr "go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -65,6 +66,65 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 
 	setupLogging(cfg.LogLevel)
+
+	if cfg.SentryDSN != "" {
+		if err := sentry.Init(sentry.ClientOptions{
+			Dsn:              cfg.SentryDSN,
+			Environment:      cfg.SentryEnvironment,
+			Release:          version,
+			AttachStacktrace: true,
+			SampleRate:       1.0,
+			TracesSampleRate: 0.1,
+			IgnoreErrors: []string{
+				"context canceled",
+				"context deadline exceeded",
+				"connection refused",
+				"connection reset by peer",
+				"broken pipe",
+				"use of closed network connection",
+			},
+			BeforeSend: func(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
+				if event.Request != nil {
+					event.Request.Headers = nil
+					event.Request.Cookies = ""
+					event.Request.Data = ""
+					if event.Request.QueryString != "" {
+						event.Request.QueryString = telemetry.SanitizeQueryString(event.Request.QueryString)
+					}
+				}
+				for i := range event.Exception {
+					event.Exception[i].Value = telemetry.ScrubSecrets(event.Exception[i].Value)
+				}
+				event.Message = telemetry.ScrubSecrets(event.Message)
+				for i := range event.Breadcrumbs {
+					if event.Breadcrumbs[i].Data != nil {
+						for _, key := range []string{
+							"request_body", "response_body", "headers",
+							"authorization", "token", "secret",
+						} {
+							delete(event.Breadcrumbs[i].Data, key)
+						}
+					}
+				}
+				for k, v := range event.Extra {
+					if s, ok := v.(string); ok {
+						event.Extra[k] = telemetry.SanitizeValue(k, s)
+					}
+				}
+				return event
+			},
+		}); err != nil {
+			return fmt.Errorf("init sentry: %w", err)
+		}
+		defer sentry.Flush(2 * time.Second)
+
+		// Re-wrap the slog handler to pipe Error-level logs to Sentry.
+		currentHandler := slog.Default().Handler()
+		sentryLogger := slog.New(telemetry.NewSentryHandler(currentHandler))
+		slog.SetDefault(sentryLogger)
+
+		slog.Info("sentry initialized", "environment", cfg.SentryEnvironment)
+	}
 
 	slog.Info("starting strait",
 		"version", version,

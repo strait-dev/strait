@@ -6,6 +6,7 @@ import (
 
 	"strait/internal/domain"
 
+	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -29,6 +30,11 @@ func (s *Server) routes() chi.Router {
 	r.Use(chimw.RealIP)
 	r.Use(otelchi.Middleware("strait", otelchi.WithChiRoutes(r)))
 	r.Use(s.requestLogger)
+	sentryHandler := sentryhttp.New(sentryhttp.Options{
+		Repanic:         true,
+		WaitForDelivery: false,
+	})
+	r.Use(sentryHandler.Handle)
 	r.Use(chimw.Recoverer)
 	r.Use(apiVersionHeader)
 	if s.poolStatter != nil {
