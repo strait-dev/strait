@@ -1,9 +1,10 @@
-import { formatPriceWithCents, PLANS } from "@strait/billing/products";
+import { formatPlanPrice, PLANS } from "@strait/billing/products";
 import { Suspense } from "react";
 
 import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
 import { StaticPricingTable } from "@/app/(landing)/components/pricing/static-pricing-table.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import PricingComparison from "@/components/pricing/pricing-comparison.tsx";
 import PricingFaq, {
   PRICING_FAQ_ITEMS,
 } from "@/components/pricing/pricing-faq.tsx";
@@ -19,7 +20,7 @@ import {
 export const metadata = generatePageMetadata({
   title: "Pricing",
   description:
-    "Simple, transparent pricing for production-grade job orchestration. Two plans, no hidden fees, cancel anytime.",
+    "Four plans from free to enterprise. All core features included. Pay only for scale.",
   path: "/pricing",
   keywords: [
     "Strait pricing",
@@ -31,8 +32,8 @@ export const metadata = generatePageMetadata({
 });
 
 export default function PricingPage() {
-  const personalYearly = formatPriceWithCents(PLANS.personal.prices.yearly);
-  const proYearly = formatPriceWithCents(PLANS.pro.prices.yearly);
+  const starterMonthly = formatPlanPrice(PLANS.starter, "yearly");
+  const proMonthly = formatPlanPrice(PLANS.pro, "yearly");
 
   const softwareAppSchema = getSoftwareApplicationSchema();
   const pricingProductsSchema = getPricingProductsSchema();
@@ -57,23 +58,29 @@ export default function PricingPage() {
                 Simple pricing, built for reliable orchestration.
               </span>{" "}
               <span className="text-muted-foreground">
-                Two plans. Pick the one that fits.
+                Start free with all core features. Scale when you are ready.
               </span>
             </h1>
             <p className="mt-6 text-pretty text-base text-muted-foreground/70 leading-relaxed sm:text-lg">
-              No hidden fees. Cancel anytime. Everything you need to run jobs,
-              workflows, and operational controls in one platform.
+              No hidden fees. Cancel anytime. Self-host or let us run it for
+              you.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5">
               <span className="rounded-full border border-border/60 bg-card px-4 py-1.5 text-muted-foreground text-xs sm:text-sm">
-                Personal from {personalYearly}/mo
+                Free $0
               </span>
               <span className="rounded-full border border-border/60 bg-card px-4 py-1.5 text-muted-foreground text-xs sm:text-sm">
-                Pro from {proYearly}/mo
+                Starter from {starterMonthly}/mo
+              </span>
+              <span className="rounded-full border border-border/60 bg-card px-4 py-1.5 text-muted-foreground text-xs sm:text-sm">
+                Pro from {proMonthly}/mo
+              </span>
+              <span className="rounded-full border border-border/60 bg-card px-4 py-1.5 text-muted-foreground text-xs sm:text-sm">
+                Enterprise Custom
               </span>
               <span className="rounded-full border border-foreground/10 bg-muted/60 px-4 py-1.5 font-medium text-foreground text-xs sm:text-sm">
-                Save 20% yearly
+                Save ~17% annually
               </span>
             </div>
           </div>
@@ -85,10 +92,10 @@ export default function PricingPage() {
           <div className="mx-auto max-w-3xl">
             <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
               <span className="text-foreground">
-                Pick the plan that matches your workload.
+                Every plan includes all core features.
               </span>{" "}
               <span className="text-muted-foreground">
-                Both plans include the core job runtime.
+                Pay only for scale and governance.
               </span>
             </h2>
           </div>
@@ -96,6 +103,8 @@ export default function PricingPage() {
           <StaticPricingTable />
         </Shell>
       </section>
+
+      <PricingComparison />
 
       <Suspense fallback={null}>
         <PricingFaq />

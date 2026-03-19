@@ -5,7 +5,8 @@ import {
   CheckmarkCircle02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { formatPrice, PLANS } from "@strait/billing/products";
+import { formatPlanPrice, PLAN_KEYS, PLANS } from "@strait/billing/products";
+import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import { cn } from "@strait/ui/utils";
 import Link from "next/link";
@@ -13,45 +14,12 @@ import { useMemo, useState } from "react";
 
 import { dashboardHref } from "@/lib/urls.ts";
 
-interface PricingPlan {
-  cta: string;
-  description: string;
-  features: string[];
-  id: string;
-  monthlyPrice: number;
-  name: string;
-  popular?: boolean;
-  yearlyPrice: number;
-}
-
-const staticPlans: PricingPlan[] = [
-  {
-    id: "personal",
-    name: PLANS.personal.name,
-    monthlyPrice: PLANS.personal.prices.monthly,
-    yearlyPrice: PLANS.personal.prices.yearly,
-    description: PLANS.personal.description,
-    features: [...PLANS.personal.features],
-    cta: "Start Personal",
-  },
-  {
-    id: "pro",
-    name: PLANS.pro.name,
-    monthlyPrice: PLANS.pro.prices.monthly,
-    yearlyPrice: PLANS.pro.prices.yearly,
-    description: PLANS.pro.description,
-    features: [...PLANS.pro.features],
-    cta: "Start Pro",
-    popular: true,
-  },
-];
-
 export function StaticPricingTable() {
   const [interval, setInterval] = useState<"monthly" | "yearly">("yearly");
 
   const savingsPercent = useMemo(() => {
-    const monthly = PLANS.personal.prices.monthly;
-    const yearly = PLANS.personal.prices.yearly;
+    const monthly = PLANS.starter.prices.monthly * 12;
+    const yearly = PLANS.starter.prices.yearly;
     return Math.round(((monthly - yearly) / monthly) * 100);
   }, []);
 
@@ -84,27 +52,32 @@ export function StaticPricingTable() {
             Yearly
           </button>
           <span className="mr-2 ml-1 rounded-full bg-muted px-3 py-1 font-medium text-foreground text-xs">
-            Save {savingsPercent}%
+            Save ~{savingsPercent}%
           </span>
         </div>
       </div>
 
-      <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2 lg:gap-8 xl:gap-10">
-        {staticPlans.map((plan) => {
-          const price =
-            interval === "monthly" ? plan.monthlyPrice : plan.yearlyPrice;
+      <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8 xl:gap-10">
+        {PLAN_KEYS.map((key) => {
+          const plan = PLANS[key];
+          const isEnterprise = key === "enterprise";
+          const isFree = key === "free";
+          const priceDisplay = formatPlanPrice(plan, interval);
+          const href = isEnterprise
+            ? plan.cta.href
+            : dashboardHref(plan.cta.href);
 
           return (
             <div
               className={cn(
                 "relative flex h-full flex-col overflow-hidden rounded-2xl border transition-shadow duration-300",
-                plan.popular
+                plan.highlighted
                   ? "border-primary/40"
                   : "border-border/60 bg-card hover:border-border hover:shadow-md"
               )}
-              key={plan.id}
+              key={key}
             >
-              {plan.popular ? (
+              {plan.highlighted ? (
                 <div className="relative bg-primary px-6 py-8 sm:px-8">
                   <div className="showcase-dots pointer-events-none absolute inset-0" />
                   <div
@@ -128,9 +101,14 @@ export function StaticPricingTable() {
                 </div>
               ) : (
                 <div className="px-6 pt-8 sm:px-8">
-                  <h3 className="text-2xl text-foreground tracking-tight">
-                    {plan.name}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-2xl text-foreground tracking-tight">
+                      {plan.name}
+                    </h3>
+                    {plan.badge && plan.badge !== "Most popular" && (
+                      <Badge variant="outline">{plan.badge}</Badge>
+                    )}
+                  </div>
                   <p className="mt-2 max-w-sm text-pretty text-muted-foreground text-sm leading-relaxed">
                     {plan.description}
                   </p>
@@ -140,14 +118,28 @@ export function StaticPricingTable() {
               <div className="flex flex-1 flex-col px-6 pb-8 sm:px-8">
                 <div className="mt-8 mb-8 flex items-baseline gap-1">
                   <span className="text-5xl text-foreground tabular-nums tracking-tight">
-                    {formatPrice(price)}
+                    {priceDisplay}
                   </span>
-                  <span className="text-muted-foreground text-sm">
-                    /{interval === "monthly" ? "mo" : "mo billed yearly"}
-                  </span>
+                  {!(isEnterprise || isFree) && (
+                    <span className="text-muted-foreground text-sm">
+                      /{interval === "monthly" ? "mo" : "mo billed yearly"}
+                    </span>
+                  )}
                 </div>
 
+                {plan.trial && (
+                  <p className="mb-4 text-muted-foreground text-xs">
+                    14-day free trial included
+                  </p>
+                )}
+
                 <div className="mb-8 border-border/40 border-t" />
+
+                {plan.computeCredit !== "$0 included" && (
+                  <p className="mb-4 font-medium text-foreground text-sm">
+                    {plan.computeCredit} compute credit
+                  </p>
+                )}
 
                 <ul className="mb-10 flex-1 space-y-3.5">
                   {plan.features.map((feature) => (
@@ -168,10 +160,10 @@ export function StaticPricingTable() {
 
                 <Button
                   className={cn("w-full", "transition-all duration-300")}
-                  render={<Link href={dashboardHref("/login")} />}
-                  variant={plan.popular ? "default" : "outline"}
+                  render={<Link href={href} />}
+                  variant={plan.highlighted ? "default" : "outline"}
                 >
-                  {plan.cta}
+                  {plan.cta.label}
                   <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
                 </Button>
               </div>

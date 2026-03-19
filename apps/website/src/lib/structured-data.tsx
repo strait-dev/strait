@@ -1,4 +1,4 @@
-import { PLANS } from "@strait/billing/products";
+import { PLAN_KEYS, PLANS } from "@strait/billing/products";
 import { siteConfig } from "@/config/site.ts";
 
 const BASE_URL = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
@@ -199,32 +199,23 @@ export function getCollectionPageSchema(options: {
 }
 
 export function getSoftwareApplicationSchema() {
-  const offers = [
-    {
-      "@type": "Offer" as const,
-      name: "Personal",
-      price: (PLANS.personal.prices.monthly / 100).toFixed(2),
-      priceCurrency: "USD",
-      priceValidUntil: new Date(
-        Date.now() + 365 * 24 * 60 * 60 * 1000
-      ).toISOString(),
-      availability: "https://schema.org/InStock",
-      url: `${BASE_URL}/pricing`,
-      description: PLANS.personal.description,
-    },
-    {
-      "@type": "Offer" as const,
-      name: "Pro",
-      price: (PLANS.pro.prices.monthly / 100).toFixed(2),
-      priceCurrency: "USD",
-      priceValidUntil: new Date(
-        Date.now() + 365 * 24 * 60 * 60 * 1000
-      ).toISOString(),
-      availability: "https://schema.org/InStock",
-      url: `${BASE_URL}/pricing`,
-      description: PLANS.pro.description,
-    },
-  ];
+  const offers = PLAN_KEYS.filter((key) => PLANS[key].prices.monthly >= 0).map(
+    (key) => {
+      const plan = PLANS[key];
+      return {
+        "@type": "Offer" as const,
+        name: plan.name,
+        price: (plan.prices.monthly / 100).toFixed(2),
+        priceCurrency: "USD",
+        priceValidUntil: new Date(
+          Date.now() + 365 * 24 * 60 * 60 * 1000
+        ).toISOString(),
+        availability: "https://schema.org/InStock",
+        url: `${BASE_URL}/pricing`,
+        description: plan.description,
+      };
+    }
+  );
 
   return {
     "@context": "https://schema.org",
@@ -248,7 +239,7 @@ export function getSoftwareApplicationSchema() {
     featureList: [
       "Job orchestration with 13-state lifecycle",
       "Workflow DAG engine with approval gates",
-      "Managed container execution on Fly Machines",
+      "Managed container execution with warm pools",
       "AI agent platform with cost tracking",
       "5 language SDKs (TypeScript, Python, Go, Ruby, Rust)",
       "Built-in observability with OpenTelemetry",
@@ -272,12 +263,10 @@ type FAQItem = {
 };
 
 export function getFAQPageSchema(items: FAQItem[]) {
-  // Filter out items with null or empty answers
   const validItems = items.filter(
     (item) => item.answer && item.answer.trim().length > 0
   );
 
-  // Return null if fewer than 3 valid Q&A pairs (Google requirement)
   if (validItems.length < 3) {
     return null;
   }
@@ -300,7 +289,7 @@ export function getFAQPageSchema(items: FAQItem[]) {
 type ProductSchemaInput = {
   name: string;
   description: string;
-  price: number; // in cents
+  price: number;
   slug: string;
 };
 
@@ -375,22 +364,17 @@ export function getHowToSchema(steps: HowToStep[]) {
 }
 
 export function getPricingProductsSchema() {
-  const plans: ProductSchemaInput[] = [
-    {
-      name: "Personal",
-      description: PLANS.personal.description,
-      price: PLANS.personal.prices.monthly,
-      slug: "personal",
-    },
-    {
-      name: "Pro",
-      description: PLANS.pro.description,
-      price: PLANS.pro.prices.monthly,
-      slug: "pro",
-    },
-  ];
-
-  return plans.map((plan) => getProductSchema(plan));
+  return PLAN_KEYS.filter((key) => PLANS[key].prices.monthly >= 0).map(
+    (key) => {
+      const plan = PLANS[key];
+      return getProductSchema({
+        name: plan.name,
+        description: plan.description,
+        price: plan.prices.monthly,
+        slug: key,
+      });
+    }
+  );
 }
 
 export function JsonLd({

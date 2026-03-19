@@ -2,18 +2,24 @@
 
 import { MinusSignIcon, Tick01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { formatPrice } from "@strait/billing/products";
+import { formatPlanPrice, PLANS } from "@strait/billing/products";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@strait/ui/components/tabs";
 import { cn } from "@strait/ui/utils";
 import Link from "next/link";
 import { Fragment, useId, useState } from "react";
 
-import { dashboardHref } from "@/lib/urls.ts";
+import type {
+  PlanSummary,
+  PricingComparisonClientProps,
+} from "./pricing-comparison.types.ts";
 
-import type { PricingComparisonClientProps } from "./pricing-comparison.types.ts";
-
-// Diagonal stripe pattern for decorative elements
 const patternClasses =
   "relative before:absolute before:inset-0 before:bg-[image:repeating-linear-gradient(315deg,_var(--color-primary)_0,_var(--color-primary)_1px,_transparent_0,_transparent_50%)] before:bg-[size:10px_10px] before:opacity-30";
 
@@ -25,7 +31,7 @@ const renderTableCellContent = (
     if (value) {
       return <span>{value as string}</span>;
     }
-    return <span className="text-muted-foreground/40">—</span>;
+    return <span className="text-muted-foreground/40">&mdash;</span>;
   }
   if (value) {
     return (
@@ -43,6 +49,136 @@ const renderTableCellContent = (
   );
 };
 
+function PlanPrice({
+  plan,
+  interval,
+}: {
+  plan: PlanSummary;
+  interval: "monthly" | "yearly";
+}) {
+  const planData = PLANS[plan.key];
+  const display = formatPlanPrice(planData, interval);
+  const isCustom = plan.prices.monthly < 0;
+  const isFree = plan.prices.monthly === 0;
+
+  return (
+    <p className="flex items-baseline gap-x-1 text-foreground">
+      <span className="font-semibold text-3xl tracking-tight">{display}</span>
+      {!(isCustom || isFree) && (
+        <span className="font-light text-muted-foreground text-sm">/mo</span>
+      )}
+    </p>
+  );
+}
+
+function AnnualNote({
+  plan,
+  interval,
+}: {
+  plan: PlanSummary;
+  interval: "monthly" | "yearly";
+}) {
+  if (interval !== "yearly" || plan.prices.yearly <= 0) {
+    return null;
+  }
+  const yearly = plan.prices.yearly / 100;
+  return (
+    <p className="mt-1 text-muted-foreground/60 text-xs">
+      billed ${yearly.toLocaleString("en-US")}/yr
+    </p>
+  );
+}
+
+function MobilePlanCard({
+  plan,
+  interval,
+  sections,
+}: {
+  plan: PlanSummary;
+  interval: "monthly" | "yearly";
+  sections: PricingComparisonClientProps["sections"];
+}) {
+  return (
+    <article className="flex flex-col">
+      <div className="flex items-stretch border-border/50 border-b">
+        <div
+          className={cn(
+            "flex aspect-square w-14 shrink-0 items-center justify-center border-border/50 border-r",
+            patternClasses
+          )}
+        >
+          {plan.highlight ? (
+            <HugeiconsIcon
+              className="relative z-10 size-5 text-foreground"
+              icon={Tick01Icon}
+            />
+          ) : (
+            <span className="relative z-10 font-semibold text-foreground text-sm">
+              {plan.name.charAt(0)}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-1 items-center justify-between px-4 py-3">
+          <div>
+            <h3 className="font-semibold text-base text-foreground">
+              {plan.name}
+            </h3>
+            {plan.badge && (
+              <Badge className="mt-1" variant="success-light">
+                {plan.badge}
+              </Badge>
+            )}
+          </div>
+          <div className="text-right">
+            <PlanPrice interval={interval} plan={plan} />
+            <AnnualNote interval={interval} plan={plan} />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col p-6">
+        <Button
+          className="w-full"
+          render={<Link href={plan.cta.href} />}
+          variant={plan.highlight ? "default" : "outline"}
+        >
+          {plan.cta.label}
+        </Button>
+
+        <ul className="mt-6 space-y-3 text-foreground text-sm">
+          {sections.map((section) => (
+            <li key={`${plan.key}-${section.name}`}>
+              <ul className="space-y-3">
+                {section.rows.map((row) => {
+                  const value = row.values[plan.key];
+                  if (!value) {
+                    return null;
+                  }
+
+                  return (
+                    <li
+                      className="flex gap-x-3"
+                      key={`${plan.key}-${row.label}`}
+                    >
+                      <HugeiconsIcon
+                        className="mt-0.5 size-4 shrink-0 text-success"
+                        icon={Tick01Icon}
+                      />
+                      <span className="text-muted-foreground">
+                        {row.type === "text" ? value : row.label}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </article>
+  );
+}
+
 const PricingComparisonClient = ({
   header,
   plans,
@@ -52,8 +188,6 @@ const PricingComparisonClient = ({
   const headingId = `${sectionId}-title`;
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
 
-  const priceSuffix = interval === "monthly" ? "month" : "year";
-
   return (
     <section
       aria-labelledby={headingId}
@@ -61,7 +195,6 @@ const PricingComparisonClient = ({
       id={sectionId}
     >
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
-        {/* Section Header - kicker pattern */}
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">
           <span className="kicker">{header.badge}</span>
           <h2
@@ -75,7 +208,6 @@ const PricingComparisonClient = ({
           </p>
         </div>
 
-        {/* Billing interval toggle */}
         <div className="mt-10 flex justify-center">
           <div className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-card p-1 shadow-sm">
             {[
@@ -83,7 +215,7 @@ const PricingComparisonClient = ({
               {
                 label: "Yearly",
                 value: "yearly" as const,
-                helper: "Save 20%",
+                helper: "Save ~17%",
               },
             ].map((option) => (
               <button
@@ -108,128 +240,31 @@ const PricingComparisonClient = ({
           </div>
         </div>
 
-        {/* Mobile layout - border framework */}
+        {/* Mobile layout - tabbed plan switcher */}
         <div className="mx-auto mt-12 max-w-md sm:mt-16 lg:hidden">
-          <div className="border-border/50 border-y">
-            <div className="border-border/50 border-x">
-              {plans.map((plan, index) => {
-                const price =
-                  interval === "monthly"
-                    ? plan.prices.monthly
-                    : plan.prices.yearly;
-                const href = dashboardHref(
-                  `/get-started?plan=${plan.key}&interval=${interval}`
-                );
-                const isLast = index === plans.length - 1;
-
-                return (
-                  <article
-                    className={cn(
-                      "hover-lift flex flex-col bg-card transition-colors hover:bg-muted/30",
-                      !isLast && "border-border/50 border-b"
-                    )}
-                    key={plan.key}
-                  >
-                    {/* Card Header with pattern box */}
-                    <div className="flex items-stretch border-border/50 border-b">
-                      <div
-                        className={cn(
-                          "flex aspect-square w-14 shrink-0 items-center justify-center border-border/50 border-r",
-                          patternClasses
-                        )}
-                      >
-                        {plan.highlight ? (
-                          <HugeiconsIcon
-                            className="relative z-10 size-5 text-foreground"
-                            icon={Tick01Icon}
-                          />
-                        ) : (
-                          <span className="relative z-10 font-semibold text-foreground text-sm">
-                            {index + 1}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-1 items-center justify-between px-4 py-3">
-                        <div>
-                          <h3
-                            className="font-semibold text-base text-foreground"
-                            id={plan.key}
-                          >
-                            {plan.name}
-                          </h3>
-                          {plan.highlight && (
-                            <Badge className="mt-1" variant="success-light">
-                              Most Popular
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="flex items-baseline gap-x-1 text-foreground">
-                          <span className="font-semibold text-2xl tracking-tight">
-                            {formatPrice(price)}
-                          </span>
-                          <span className="font-light text-muted-foreground text-xs">
-                            /{priceSuffix}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Card Content */}
-                    <div className="flex flex-1 flex-col p-6">
-                      <Button
-                        className="w-full"
-                        render={
-                          <Link aria-describedby={plan.key} href={href} />
-                        }
-                        variant={plan.highlight ? "default" : "outline"}
-                      >
-                        Get started
-                      </Button>
-
-                      <ul className="mt-6 space-y-3 text-foreground text-sm">
-                        {sections.map((section) => (
-                          <li key={`${plan.key}-${section.name}`}>
-                            <ul className="space-y-3">
-                              {section.rows.map((row) => {
-                                const value = row.values[plan.key];
-                                if (!value) {
-                                  return null;
-                                }
-
-                                return (
-                                  <li
-                                    className="flex gap-x-3"
-                                    key={`${plan.key}-${row.label}`}
-                                  >
-                                    {row.type === "boolean" ? (
-                                      <HugeiconsIcon
-                                        className="mt-0.5 size-4 shrink-0 text-success"
-                                        icon={Tick01Icon}
-                                      />
-                                    ) : (
-                                      <HugeiconsIcon
-                                        className="mt-0.5 size-4 shrink-0 text-success"
-                                        icon={Tick01Icon}
-                                      />
-                                    )}
-                                    <span className="text-muted-foreground">
-                                      {row.type === "text" ? value : row.label}
-                                    </span>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
+          <Tabs defaultValue="pro">
+            <TabsList className="w-full" variant="line">
+              {plans.map((plan) => (
+                <TabsTrigger key={plan.key} value={plan.key}>
+                  {plan.name}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {plans.map((plan) => (
+              <TabsContent key={plan.key} value={plan.key}>
+                <div className="mt-4 border border-border/50">
+                  <MobilePlanCard
+                    interval={interval}
+                    plan={plan}
+                    sections={sections}
+                  />
+                </div>
+              </TabsContent>
+            ))}
+          </Tabs>
         </div>
 
+        {/* Desktop table */}
         <div className="mt-16 hidden lg:block">
           <div className="border-border/50 border-y">
             <div className="mx-auto max-w-6xl border-border/50 border-x">
@@ -238,19 +273,12 @@ const PricingComparisonClient = ({
                   Pricing plan comparison table
                 </caption>
                 <thead>
-                  {/* Plan Headers Row */}
                   <tr className="border-border/50 border-b">
-                    {/* Empty label column */}
                     <th className="border-border/50 border-r p-6" scope="col">
                       <span className="sr-only">Feature</span>
                     </th>
 
-                    {/* Plan columns */}
                     {plans.map((plan, index) => {
-                      const price =
-                        interval === "monthly"
-                          ? plan.prices.monthly
-                          : plan.prices.yearly;
                       const isLast = index === plans.length - 1;
 
                       return (
@@ -267,31 +295,27 @@ const PricingComparisonClient = ({
                           <div className="flex flex-col">
                             <div className="flex items-center gap-2">
                               <span className="kicker">{plan.name}</span>
-                              {plan.highlight && (
-                                <Badge variant="success-light">Popular</Badge>
+                              {plan.badge && (
+                                <Badge variant="success-light">
+                                  {plan.badge}
+                                </Badge>
                               )}
                             </div>
-                            <p className="mt-2 flex items-baseline gap-x-1 text-foreground">
-                              <span className="font-semibold text-3xl tracking-tight">
-                                {formatPrice(price)}
-                              </span>
-                              <span className="font-light text-muted-foreground text-sm">
-                                /{priceSuffix}
-                              </span>
-                            </p>
+                            <div className="mt-2">
+                              <PlanPrice interval={interval} plan={plan} />
+                              <AnnualNote interval={interval} plan={plan} />
+                            </div>
                             <Button
                               className="mt-6 w-full"
                               render={
                                 <Link
                                   aria-describedby={`desktop-${plan.key}`}
-                                  href={dashboardHref(
-                                    `/get-started?plan=${plan.key}&interval=${interval}`
-                                  )}
+                                  href={plan.cta.href}
                                 />
                               }
                               variant={plan.highlight ? "default" : "outline"}
                             >
-                              Get started
+                              {plan.cta.label}
                             </Button>
                           </div>
                         </th>
@@ -300,10 +324,8 @@ const PricingComparisonClient = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Feature Sections */}
                   {sections.map((section, sectionIdx) => (
                     <Fragment key={section.name}>
-                      {/* Section Header */}
                       <tr className="border-border/50 border-b bg-muted/30">
                         <th
                           className="px-6 py-4 text-left"
@@ -316,7 +338,6 @@ const PricingComparisonClient = ({
                         </th>
                       </tr>
 
-                      {/* Feature Rows */}
                       {section.rows.map((row, rowIdx) => {
                         const isLastRow = rowIdx === section.rows.length - 1;
                         const isLastSection =
@@ -330,7 +351,6 @@ const PricingComparisonClient = ({
                             )}
                             key={row.label}
                           >
-                            {/* Label Column */}
                             <th
                               className="border-border/50 border-r px-6 py-4 text-left font-normal"
                               scope="row"
@@ -340,7 +360,6 @@ const PricingComparisonClient = ({
                               </span>
                             </th>
 
-                            {/* Plan Value Columns */}
                             {plans.map((plan, index) => {
                               const value = row.values[plan.key];
                               const isLast = index === plans.length - 1;
