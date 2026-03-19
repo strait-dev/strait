@@ -3,6 +3,7 @@ package ci
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"text/template"
 )
 
@@ -14,6 +15,10 @@ type GenerateConfig struct {
 
 // Generate creates a CI workflow file for the given provider.
 func Generate(provider string, cfg GenerateConfig) (string, error) {
+	if containsUnsafeChars(cfg.ProjectID) || containsUnsafeChars(cfg.Environment) {
+		return "", fmt.Errorf("unsafe characters in project ID or environment")
+	}
+
 	tplStr, ok := templates[provider]
 	if !ok {
 		return "", fmt.Errorf("unsupported CI provider: %s", provider)
@@ -30,6 +35,15 @@ func Generate(provider string, cfg GenerateConfig) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+func containsUnsafeChars(s string) bool {
+	for _, ch := range []string{"${", "`", "{{", "}}", "$(", ";", "|", "&"} {
+		if strings.Contains(s, ch) {
+			return true
+		}
+	}
+	return false
 }
 
 var templates = map[string]string{

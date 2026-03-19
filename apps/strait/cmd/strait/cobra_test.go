@@ -374,3 +374,21 @@ func assertSubcommands(t *testing.T, parent interface{ Commands() []*cobra.Comma
 		}
 	}
 }
+
+func TestRunsDiffCommand_Flags(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	runs := findSubcommand(t, cmd, "runs")
+	diff := findSubcommand(t, runs, "diff")
+
+	for _, name := range []string{"show-payload", "show-events", "event-limit"} {
+		if diff.Flags().Lookup(name) == nil {
+			t.Errorf("runs diff missing --%s flag", name)
+		}
+	}
+
+	if diff.Flags().Lookup("json") != nil {
+		t.Error("runs diff should not have --json flag (removed)")
+	}
+}

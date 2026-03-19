@@ -74,3 +74,17 @@ func TestDetectProvider_Priority(t *testing.T) {
 		t.Fatalf("expected github (priority), got %q", got)
 	}
 }
+
+func TestDetectProvider_DirWithTrailingSlash(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".github"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	got := DetectProvider(dir + "/")
+	if got != "github" {
+		t.Fatalf("expected github with trailing slash, got %q", got)
+	}
+}

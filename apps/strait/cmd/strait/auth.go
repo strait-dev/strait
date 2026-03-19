@@ -71,6 +71,9 @@ func newLoginCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if cfg.Contexts == nil {
+				cfg.Contexts = make(map[string]cliconfig.Context)
+			}
 			ctx := cfg.Contexts[targetContext]
 			if targetServer != "" {
 				ctx.Server = targetServer

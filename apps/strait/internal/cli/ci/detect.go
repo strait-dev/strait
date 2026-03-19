@@ -1,6 +1,9 @@
 package ci
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 // DetectProvider inspects the directory for CI provider configuration files.
 func DetectProvider(dir string) string {
@@ -9,11 +12,11 @@ func DetectProvider(dir string) string {
 		isDir    bool
 		provider string
 	}{
-		{path: dir + "/.github", isDir: true, provider: "github"},
-		{path: dir + "/.gitlab-ci.yml", isDir: false, provider: "gitlab"},
-		{path: dir + "/.circleci", isDir: true, provider: "circleci"},
-		{path: dir + "/bitbucket-pipelines.yml", isDir: false, provider: "bitbucket"},
-		{path: dir + "/Jenkinsfile", isDir: false, provider: "jenkins"},
+		{path: filepath.Join(dir, ".github"), isDir: true, provider: "github"},
+		{path: filepath.Join(dir, ".gitlab-ci.yml"), isDir: false, provider: "gitlab"},
+		{path: filepath.Join(dir, ".circleci"), isDir: true, provider: "circleci"},
+		{path: filepath.Join(dir, "bitbucket-pipelines.yml"), isDir: false, provider: "bitbucket"},
+		{path: filepath.Join(dir, "Jenkinsfile"), isDir: false, provider: "jenkins"},
 	}
 
 	for _, c := range checks {

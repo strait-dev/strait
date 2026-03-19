@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"strait/internal/cli/client"
 	"strait/internal/cli/deploy"
@@ -88,12 +89,12 @@ func newDeployCommand(state *appState) *cobra.Command {
 						CacheEnabled: cacheEnabled,
 					}
 
-					fmt.Printf("deploying %s...\n", jobCfg.Slug)
+					fmt.Fprintf(os.Stderr, "deploying %s...\n", jobCfg.Slug)
 					if deployErr := deploy.DeployJob(cmd.Context(), cli, opts); deployErr != nil {
 						return fmt.Errorf("deploy %s: %w", jobCfg.Slug, deployErr)
 					}
 					if !dryRun {
-						fmt.Printf("deployed %s successfully\n", jobCfg.Slug)
+						fmt.Fprintf(os.Stderr, "deployed %s successfully\n", jobCfg.Slug)
 					}
 				}
 				return nil
@@ -123,7 +124,7 @@ func newDeployCommand(state *appState) *cobra.Command {
 			}
 
 			if !dryRun {
-				fmt.Printf("deployed %s successfully\n", jobSlug)
+				fmt.Fprintf(os.Stderr, "deployed %s successfully\n", jobSlug)
 			}
 			return nil
 		},
@@ -260,14 +261,14 @@ func newDeployPromoteCommand(state *appState) *cobra.Command {
 		Short: "Promote a deployment to an environment",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if dryRun {
-				fmt.Printf("[dry-run] would promote deployment %s to %s\n", args[0], env)
-				return nil
-			}
-
 			resolvedProject, err := requireProjectID(state, projectID)
 			if err != nil {
 				return err
+			}
+
+			if dryRun {
+				fmt.Fprintf(os.Stderr, "[dry-run] would promote deployment %s to %s\n", args[0], env)
+				return nil
 			}
 
 			cli, err := newAPIClient(state)
@@ -311,14 +312,14 @@ func newDeployRollbackCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("--to is required (deployment ID to rollback to)")
 			}
 
-			if dryRun {
-				fmt.Printf("[dry-run] would rollback to deployment %s in %s\n", toID, env)
-				return nil
-			}
-
 			resolvedProject, err := requireProjectID(state, projectID)
 			if err != nil {
 				return err
+			}
+
+			if dryRun {
+				fmt.Fprintf(os.Stderr, "[dry-run] would rollback to deployment %s in %s\n", toID, env)
+				return nil
 			}
 
 			cli, err := newAPIClient(state)

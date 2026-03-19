@@ -60,6 +60,15 @@ func RenderDAG(steps []Step, statusMap map[string]string) string {
 		}
 	}
 
+	// Validate all DependsOn references exist.
+	for _, s := range steps {
+		for _, dep := range s.DependsOn {
+			if !refs[dep] {
+				return fmt.Sprintf("(unknown step %q referenced by %q)", dep, s.StepRef)
+			}
+		}
+	}
+
 	// Kahn's algorithm
 	queue := make([]string, 0)
 	for ref := range refs {

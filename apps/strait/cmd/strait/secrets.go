@@ -224,6 +224,9 @@ func newSecretsLocalCreateCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if cfg.Secrets == nil {
+				cfg.Secrets = make(map[string][]string)
+			}
 			cfg.Secrets[projectID] = addUnique(cfg.Secrets[projectID], name)
 			if err := cliconfig.Save(path, cfg); err != nil {
 				return err
@@ -303,6 +306,9 @@ func newSecretsLocalDeleteCommand(state *appState) *cobra.Command {
 			cfg, path, err := loadConfigForWrite(state)
 			if err != nil {
 				return err
+			}
+			if cfg.Secrets == nil {
+				cfg.Secrets = make(map[string][]string)
 			}
 			cfg.Secrets[projectID] = removeValue(cfg.Secrets[projectID], name)
 			if err := cliconfig.Save(path, cfg); err != nil {

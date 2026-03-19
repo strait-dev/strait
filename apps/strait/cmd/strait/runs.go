@@ -429,7 +429,6 @@ func buildDashboardURL(state *appState, urlPath string) string {
 func newRunsDiffCommand(state *appState) *cobra.Command {
 	var showPayload bool
 	var showEvents bool
-	var asJSON bool
 	var eventLimit int
 
 	cmd := &cobra.Command{
@@ -561,14 +560,12 @@ func newRunsDiffCommand(state *appState) *cobra.Command {
 				}
 			}
 
-			_ = asJSON // output is always via printData
 			return printData(state, result)
 		},
 	}
 
 	cmd.Flags().BoolVar(&showPayload, "show-payload", false, "include payload diff")
 	cmd.Flags().BoolVar(&showEvents, "show-events", false, "include events diff")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON")
 	cmd.Flags().IntVar(&eventLimit, "event-limit", 50, "max events per run to compare")
 
 	return cmd
