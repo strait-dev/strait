@@ -54,11 +54,7 @@ func (s *Server) handleCreateWebhookSubscription(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleListWebhookSubscriptions(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	subs, err := s.store.ListWebhookSubscriptions(r.Context(), projectID)
 	if err != nil {

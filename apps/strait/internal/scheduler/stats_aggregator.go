@@ -9,6 +9,7 @@ import (
 // StatsAggregatorStore is the subset of store operations needed by StatsAggregator.
 type StatsAggregatorStore interface {
 	AggregateHourlyStats(ctx context.Context, hour time.Time) error
+	AggregateCostStatsHourly(ctx context.Context, hour time.Time) error
 }
 
 // StatsAggregator periodically materializes hourly run statistics.
@@ -62,6 +63,12 @@ func (a *StatsAggregator) Run(ctx context.Context) {
 			return
 		}
 		a.logger.Info("aggregated hourly stats", "hour", previousHour)
+
+		if err := a.store.AggregateCostStatsHourly(loopCtx, previousHour); err != nil {
+			a.logger.Error("failed to aggregate cost stats hourly", "hour", previousHour, "error", err)
+			return
+		}
+		a.logger.Info("aggregated cost stats hourly", "hour", previousHour)
 	})
 	loop.Run(ctx)
 }

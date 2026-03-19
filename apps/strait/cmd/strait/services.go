@@ -16,6 +16,7 @@ import (
 	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/health"
+	"strait/internal/notification"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/scheduler"
@@ -254,6 +255,28 @@ func startWebhookWorker(g *pool.ContextPool, cfg *config.Config, eventNotifier *
 			return err
 		}
 		slog.Info("webhook delivery worker drained")
+		return nil
+	})
+}
+
+func notificationWorkerEnabled(mode string) bool {
+	return mode == "worker" || mode == "all"
+}
+
+func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries) {
+	if cfg == nil || !notificationWorkerEnabled(cfg.Mode) {
+		return
+	}
+
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	notifWorker := notification.NewWorker(queries, httpClient)
+
+	g.Go(func(ctx context.Context) error {
+		notifWorker.Start(ctx)
+		<-ctx.Done()
+		slog.Info("stopping notification worker")
+		notifWorker.Stop()
+		slog.Info("notification worker stopped")
 		return nil
 	})
 }

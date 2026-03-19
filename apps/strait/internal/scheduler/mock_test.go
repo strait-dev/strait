@@ -304,6 +304,7 @@ type mockWorkflowCallback struct {
 	onStepCompletedFn  func(ctx context.Context, workflowRunID string, stepRunID string)
 	onStepFailedFn     func(ctx context.Context, workflowRunID string, stepRunID string)
 	resumeWorkflowFn   func(ctx context.Context, workflowRunID string) error
+	approveStepFn      func(ctx context.Context, workflowRunID, stepRef, approver string) error
 }
 
 func (m *mockWorkflowCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
@@ -335,6 +336,13 @@ func (m *mockWorkflowCallback) OnStepFailed(ctx context.Context, workflowRunID s
 func (m *mockWorkflowCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID string) error {
 	if m.resumeWorkflowFn != nil {
 		return m.resumeWorkflowFn(ctx, workflowRunID)
+	}
+	return nil
+}
+
+func (m *mockWorkflowCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {
+	if m.approveStepFn != nil {
+		return m.approveStepFn(ctx, workflowRunID, stepRef, approver)
 	}
 	return nil
 }

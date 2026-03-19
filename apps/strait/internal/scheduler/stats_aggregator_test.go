@@ -18,6 +18,10 @@ func (m *mockStatsStore) AggregateHourlyStats(ctx context.Context, hour time.Tim
 	return nil
 }
 
+func (m *mockStatsStore) AggregateCostStatsHourly(_ context.Context, _ time.Time) error {
+	return nil
+}
+
 func TestStatsAggregator_New(t *testing.T) {
 	t.Parallel()
 	a := NewStatsAggregator(&mockStatsStore{})

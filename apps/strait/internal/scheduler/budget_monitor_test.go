@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/domain"
 	"strait/internal/store"
 )
 
@@ -405,5 +406,120 @@ func TestBudgetMonitor_ConcurrentCheck_NoDuplicateAlert(t *testing.T) {
 
 	if len(enqueuer.calls) != 1 {
 		t.Fatalf("expected exactly 1 alert with concurrent checks, got %d", len(enqueuer.calls))
+	}
+}
+
+// mockNotifierBudgetStore composes mockBudgetStore with ApprovalNotifierStore.
+type mockNotifierBudgetStore struct {
+	mockBudgetStore
+	listEnabledNotificationChannelsFn func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	createNotificationDeliveryFn      func(ctx context.Context, d *domain.NotificationDelivery) error
+	getWorkflowRunFn                  func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+}
+
+func (m *mockNotifierBudgetStore) ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
+	if m.listEnabledNotificationChannelsFn != nil {
+		return m.listEnabledNotificationChannelsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockNotifierBudgetStore) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
+	if m.createNotificationDeliveryFn != nil {
+		return m.createNotificationDeliveryFn(ctx, d)
+	}
+	return nil
+}
+
+func (m *mockNotifierBudgetStore) GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error) {
+	if m.getWorkflowRunFn != nil {
+		return m.getWorkflowRunFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func TestBudgetMonitor_AboveThreshold_SendsNotification(t *testing.T) {
+	t.Parallel()
+	var deliveries []*domain.NotificationDelivery
+	enqueuer := &mockEnqueuer{}
+	ms := &mockNotifierBudgetStore{
+		mockBudgetStore: mockBudgetStore{
+			listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
+				return []store.ProjectComputeQuota{
+					{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
+				}, nil
+			},
+			sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
+				return 85_000, nil
+			},
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	bm := NewBudgetMonitor(ms, enqueuer, time.Minute)
+	bm.check(context.Background())
+
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 notification delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].EventType != domain.NotificationEventBudgetThreshold {
+		t.Errorf("expected event type %s, got %s", domain.NotificationEventBudgetThreshold, deliveries[0].EventType)
+	}
+}
+
+func TestBudgetMonitor_AboveThreshold_NoNotificationWithoutInterface(t *testing.T) {
+	t.Parallel()
+	enqueuer := &mockEnqueuer{}
+	ms := &mockBudgetStore{
+		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
+			return []store.ProjectComputeQuota{
+				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
+			}, nil
+		},
+		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
+			return 85_000, nil
+		},
+	}
+
+	bm := NewBudgetMonitor(ms, enqueuer, time.Minute)
+	bm.check(context.Background())
+
+	// Webhook alert should still fire even without notification interface.
+	if len(enqueuer.calls) != 1 {
+		t.Fatalf("expected 1 webhook alert, got %d", len(enqueuer.calls))
+	}
+}
+
+func TestBudgetMonitor_BelowThreshold_NoNotification(t *testing.T) {
+	t.Parallel()
+	deliveryCalled := false
+	ms := &mockNotifierBudgetStore{
+		mockBudgetStore: mockBudgetStore{
+			listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
+				return []store.ProjectComputeQuota{
+					{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
+				}, nil
+			},
+			sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
+				return 50_000, nil
+			},
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCalled = true
+			return nil
+		},
+	}
+
+	bm := NewBudgetMonitor(ms, &mockEnqueuer{}, time.Minute)
+	bm.check(context.Background())
+
+	if deliveryCalled {
+		t.Fatal("expected no notification when below threshold")
 	}
 }

@@ -10,11 +10,7 @@ import (
 )
 
 func (s *Server) handleListBatchOperations(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
@@ -35,11 +31,7 @@ func (s *Server) handleListBatchOperations(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleGetBatchOperation(w http.ResponseWriter, r *http.Request) {
 	batchID := chi.URLParam(r, "batchID")
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	op, err := s.store.GetBatchOperation(r.Context(), batchID, projectID)
 	if err != nil {

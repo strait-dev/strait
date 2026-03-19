@@ -141,7 +141,46 @@ func (bm *BudgetMonitor) check(ctx context.Context) {
 				continue
 			}
 		}
+
+		bm.sendBudgetNotification(ctx, pq.ProjectID, dailyCost, pq.ComputeDailyCostLimitMicrousd)
 		// Alert succeeded — keep alertKey set (optimistic lock confirmed).
+	}
+}
+
+// sendBudgetNotification sends budget threshold alerts via notification channels.
+func (bm *BudgetMonitor) sendBudgetNotification(ctx context.Context, projectID string, dailyCost, limitMicrousd int64) {
+	ns, ok := bm.store.(ApprovalNotifierStore)
+	if !ok {
+		return
+	}
+
+	channels, err := ns.ListEnabledNotificationChannels(ctx, projectID)
+	if err != nil {
+		bm.logger.Warn("budget monitor: failed to list notification channels", "project_id", projectID, "error", err)
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"project_id":          projectID,
+		"daily_cost_microusd": dailyCost,
+		"limit_microusd":      limitMicrousd,
+		"threshold_pct":       domain.ComputeBudgetAlertThresholdPct,
+		"timestamp":           time.Now().UTC(),
+	})
+
+	for _, ch := range channels {
+		d := &domain.NotificationDelivery{
+			ChannelID:   ch.ID,
+			ProjectID:   projectID,
+			EventType:   domain.NotificationEventBudgetThreshold,
+			Payload:     payload,
+			Status:      "pending",
+			MaxAttempts: 3,
+		}
+		if err := ns.CreateNotificationDelivery(ctx, d); err != nil {
+			bm.logger.Warn("budget monitor: failed to create notification delivery",
+				"channel_id", ch.ID, "project_id", projectID, "error", err)
+		}
 	}
 }
 

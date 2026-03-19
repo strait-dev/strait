@@ -7,38 +7,30 @@ import (
 	"strait/internal/domain"
 )
 
-const dequeueQueryTemplate = `
+func BenchmarkBuildDequeueQuery(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_ = fmt.Sprintf(`
+		WITH %s
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
 		WHERE id = (
 			SELECT jr.id
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
+			%s
 			WHERE jr.status = '%s'
+			  AND j.enabled = true
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND (
-				j.max_concurrency IS NULL OR (
-					SELECT COUNT(*)
-					FROM job_runs active
-					WHERE active.job_id = jr.job_id
-					  AND active.status IN ('dequeued', 'executing')
-				) < j.max_concurrency
-			  )
+			  %s
 			ORDER BY jr.priority DESC, jr.created_at ASC
 			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT 1
 		)
-		RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
-		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by`
-
-func BenchmarkBuildDequeueQuery(b *testing.B) {
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		_ = fmt.Sprintf(dequeueQueryTemplate, domain.StatusDequeued, domain.StatusQueued)
+		RETURNING %s`, concurrencyCTEs, domain.StatusDequeued, concurrencyJoins, domain.StatusQueued, concurrencyWhere, dequeueColumns)
 	}
 }
 

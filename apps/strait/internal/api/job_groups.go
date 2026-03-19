@@ -66,11 +66,7 @@ func (s *Server) handleGetJobGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListJobGroups(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {

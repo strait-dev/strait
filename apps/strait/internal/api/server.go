@@ -28,6 +28,8 @@ import (
 	"strait/internal/telemetry"
 	"strait/internal/worker"
 
+	"sync/atomic"
+
 	"github.com/alitto/pond/v2"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -39,6 +41,11 @@ import (
 
 //go:embed openapi.yaml
 var openapiSpec []byte
+
+// globalAllowPrivateEndpoints is an atomic flag set by NewServer when
+// ALLOW_PRIVATE_ENDPOINTS is true. Used by the package-level validateURL
+// to skip private/loopback network checks in development.
+var globalAllowPrivateEndpoints atomic.Bool
 
 // APIStore is the subset of store operations needed by the API handlers.
 // Composed of smaller, focused interfaces for each domain.
@@ -59,6 +66,7 @@ type APIStore interface {
 	LogDrainStore
 	EventSourceStore
 	ProjectStore
+	NotificationChannelStore
 }
 
 // ProjectStore handles project CRUD operations.
@@ -115,7 +123,7 @@ type RunStore interface {
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
@@ -153,6 +161,13 @@ type RunStore interface {
 	DeleteWebhookSubscription(ctx context.Context, id string) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
+	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
+	GetCostTrends(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error)
+	GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
+	GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
+	GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
+	GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
+	AggregateCostStatsHourly(ctx context.Context, hour time.Time) error
 	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
 	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
@@ -173,6 +188,18 @@ type RunStore interface {
 	GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error)
 	ListRunState(ctx context.Context, runID string) ([]domain.RunState, error)
 	DeleteRunState(ctx context.Context, runID, key string) error
+	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
+	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
+	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
+	CountRunToolCalls(ctx context.Context, runID string) (int, error)
+	CountRunIterations(ctx context.Context, runID string) (int, error)
+	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
+	UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error
+	UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error
+	GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error)
+	ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error)
+	DeleteJobMemory(ctx context.Context, jobID, key string) error
+	SumJobMemorySizeBytes(ctx context.Context, jobID string) (int, error)
 }
 
 type LogDrainStore interface {
@@ -296,6 +323,18 @@ type RBACStore interface {
 	GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
+	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
+}
+
+// NotificationChannelStore handles notification channel and delivery operations.
+type NotificationChannelStore interface {
+	CreateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
+	GetNotificationChannel(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error)
+	ListNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
+	DeleteNotificationChannel(ctx context.Context, id, projectID string) error
+	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
+	ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }
 
 // ActorSyncer lazily persists actor profile information from request headers.
@@ -315,7 +354,7 @@ type WorkflowCallback interface {
 	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
 	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
 	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
-	SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error
+	SkipStep(ctx context.Context, workflowRunID, stepRef, reason, actor string) error
 	ForceCompleteStep(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
 }
 
@@ -484,6 +523,8 @@ func NewServer(deps ServerDeps) *Server {
 		usageService:       deps.UsageService,
 		referralService:    deps.ReferralService,
 	}
+
+	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
 
 	if deps.TxPool != nil {
 		srv.runInTx = func(ctx context.Context, fn func(s APIStore) error) error {
@@ -664,6 +705,15 @@ func validateURL(rawURL string) error {
 			msg = "u" + msg[1:]
 		}
 		return errors.New(msg)
+	}
+
+	// ALLOW_PRIVATE_ENDPOINTS is checked at startup via config; the flag is
+	// stored on the Server struct. For the package-level validateURL (called
+	// from handlers that have no server reference), we skip the network
+	// checks only when the global was set by the last NewServer call.
+	// This is safe because in production there is exactly one Server instance.
+	if globalAllowPrivateEndpoints.Load() {
+		return nil
 	}
 
 	u, err := url.Parse(rawURL)

@@ -31,7 +31,7 @@ func TestLoadWebhook_SubscriptionCRUD(t *testing.T) {
 	t.Logf("Created %d subscriptions in %v (%.0f/sec)", volume, createElapsed, float64(volume)/createElapsed.Seconds())
 
 	start = time.Now()
-	listResp := doRequest(t, "GET", "/v1/webhooks/subscriptions/?project_id="+projectID, "")
+	listResp := doRequest(t, "GET", "/v1/webhooks/subscriptions/", "", projectID)
 	if listResp.Code != 200 {
 		t.Fatalf("list subscriptions: %d", listResp.Code)
 	}
@@ -64,7 +64,7 @@ func TestLoadWebhook_DeliveryListing(t *testing.T) {
 	const iterations = 100
 	start := time.Now()
 	for range iterations {
-		resp := doRequest(t, "GET", "/v1/webhooks/deliveries/?project_id="+projectID, "")
+		resp := doRequest(t, "GET", "/v1/webhooks/deliveries/", "", projectID)
 		if resp.Code != 200 {
 			t.Fatalf("list deliveries: %d", resp.Code)
 		}

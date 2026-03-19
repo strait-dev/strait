@@ -46,9 +46,83 @@ const (
 	WebhookEventSLOBudgetWarning     = "slo.budget_warning"
 )
 
+const (
+	ChannelTypeSlack   = "slack"
+	ChannelTypeDiscord = "discord"
+	ChannelTypeWebhook = "webhook"
+	ChannelTypeEmail   = "email" // not yet supported (no email sender implemented)
+)
+
+const (
+	NotificationEventApprovalRequested = "approval.requested"
+	NotificationEventApprovalReminder  = "approval.reminder"
+	NotificationEventApprovalExpired   = "approval.expired"
+	NotificationEventApprovalCompleted = "approval.completed"
+	NotificationEventBudgetThreshold   = "budget.threshold_reached"
+)
+
+// NotificationChannel represents a configured notification destination for a project.
+type NotificationChannel struct {
+	ID          string          `json:"id"`
+	ProjectID   string          `json:"project_id"`
+	ChannelType string          `json:"channel_type"`
+	Name        string          `json:"name"`
+	Config      json.RawMessage `json:"config"`
+	Enabled     bool            `json:"enabled"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+// NotificationDelivery tracks a single notification delivery attempt.
+type NotificationDelivery struct {
+	ID          string          `json:"id"`
+	ChannelID   string          `json:"channel_id"`
+	ProjectID   string          `json:"project_id"`
+	EventType   string          `json:"event_type"`
+	Payload     json.RawMessage `json:"payload"`
+	Status      string          `json:"status"`
+	Attempts    int             `json:"attempts"`
+	MaxAttempts int             `json:"max_attempts"`
+	LastError   string          `json:"last_error,omitempty"`
+	NextRetryAt *time.Time      `json:"next_retry_at,omitempty"`
+	DeliveredAt *time.Time      `json:"delivered_at,omitempty"`
+	ClaimToken  string          `json:"-"`
+	LeaseExpiry *time.Time      `json:"-"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
 // ComputeBudgetAlertThresholdPct is the percentage of daily compute budget
 // that triggers a warning alert.
 const ComputeBudgetAlertThresholdPct = 80
+
+// Error class constants for run error categorization.
+const (
+	ErrorClassRateLimited = "rate_limited"
+	ErrorClassAuth        = "auth"
+	ErrorClassClient      = "client"
+	ErrorClassServer      = "server"
+	ErrorClassTransient   = "transient"
+	ErrorClassTimeout     = "timeout"
+	ErrorClassOOM         = "oom"
+	ErrorClassConnection  = "connection"
+	ErrorClassBudget      = "budget"
+	ErrorClassUnknown     = "unknown"
+)
+
+// ValidErrorClasses is the set of recognized error class values for API filtering.
+var ValidErrorClasses = map[string]bool{
+	ErrorClassRateLimited: true,
+	ErrorClassAuth:        true,
+	ErrorClassClient:      true,
+	ErrorClassServer:      true,
+	ErrorClassTransient:   true,
+	ErrorClassTimeout:     true,
+	ErrorClassOOM:         true,
+	ErrorClassConnection:  true,
+	ErrorClassBudget:      true,
+	ErrorClassUnknown:     true,
+}
 
 type EventType string
 
@@ -208,6 +282,11 @@ type Job struct {
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
 	OnCompletePayloadMapping  json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
+	MaxTokensPerRun           int64             `json:"max_tokens_per_run,omitempty"`
+	MaxToolCallsPerRun        int               `json:"max_tool_calls_per_run,omitempty"`
+	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`
+	AllowedTools              []string          `json:"allowed_tools,omitempty"`
+	BlockedTools              []string          `json:"blocked_tools,omitempty"`
 	CreatedBy                 string            `json:"created_by,omitempty"`
 	UpdatedBy                 string            `json:"updated_by,omitempty"`
 	CreatedAt                 time.Time         `json:"created_at"`
@@ -251,6 +330,19 @@ type RunState struct {
 	StateKey  string          `json:"state_key"`
 	Value     json.RawMessage `json:"value"`
 	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// JobMemory represents a persistent key-value entry scoped to a job.
+type JobMemory struct {
+	ID           string          `json:"id"`
+	JobID        string          `json:"job_id"`
+	ProjectID    string          `json:"project_id"`
+	MemoryKey    string          `json:"memory_key"`
+	Value        json.RawMessage `json:"value"`
+	SizeBytes    int             `json:"size_bytes"`
+	TTLExpiresAt *time.Time      `json:"ttl_expires_at,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
 type JobGroup struct {
@@ -316,6 +408,7 @@ type JobRun struct {
 	Result                json.RawMessage   `json:"result,omitempty"`
 	Metadata              map[string]string `json:"metadata,omitempty"`
 	Error                 string            `json:"error,omitempty"`
+	ErrorClass            string            `json:"error_class,omitempty"`
 	TriggeredBy           string            `json:"triggered_by"`
 	ScheduledAt           *time.Time        `json:"scheduled_at,omitempty"`
 	StartedAt             *time.Time        `json:"started_at,omitempty"`
@@ -443,6 +536,15 @@ type RunToolCall struct {
 	CreatedAt  time.Time       `json:"created_at"`
 }
 
+// RunIteration represents a single iteration of an agent run.
+type RunIteration struct {
+	ID          string    `json:"id"`
+	RunID       string    `json:"run_id"`
+	Iteration   int       `json:"iteration"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type RunOutput struct {
 	ID        string          `json:"id"`
 	RunID     string          `json:"run_id"`
@@ -467,6 +569,18 @@ type RunComputeUsage struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
+// RunResourceSnapshot records a point-in-time resource utilization sample for a run.
+type RunResourceSnapshot struct {
+	ID             string    `json:"id"`
+	RunID          string    `json:"run_id"`
+	CPUPercent     float64   `json:"cpu_percent"`
+	MemoryMB       float64   `json:"memory_mb"`
+	MemoryLimitMB  float64   `json:"memory_limit_mb"`
+	NetworkRxBytes int64     `json:"network_rx_bytes"`
+	NetworkTxBytes int64     `json:"network_tx_bytes"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 // ExecutionTrace captures timing breakdown for a job run execution.
 type ExecutionTrace struct {
 	QueueWaitMs int64 `json:"queue_wait_ms"` // time from created_at to dequeue
@@ -480,12 +594,13 @@ type ExecutionTrace struct {
 
 // DebugBundle aggregates all debug data for a run.
 type DebugBundle struct {
-	Run         *JobRun         `json:"run"`
-	Events      []RunEvent      `json:"events"`
-	Checkpoints []RunCheckpoint `json:"checkpoints"`
-	Usage       []RunUsage      `json:"usage"`
-	ToolCalls   []RunToolCall   `json:"tool_calls"`
-	Outputs     []RunOutput     `json:"outputs"`
+	Run               *JobRun               `json:"run"`
+	Events            []RunEvent            `json:"events"`
+	Checkpoints       []RunCheckpoint       `json:"checkpoints"`
+	Usage             []RunUsage            `json:"usage"`
+	ToolCalls         []RunToolCall         `json:"tool_calls"`
+	Outputs           []RunOutput           `json:"outputs"`
+	ResourceSnapshots []RunResourceSnapshot `json:"resource_snapshots"`
 }
 
 type CircuitState string
@@ -959,33 +1074,44 @@ type Workflow struct {
 
 // WorkflowStep represents a step (node) within a workflow DAG.
 type WorkflowStep struct {
-	ID                    string             `json:"id"`
-	WorkflowID            string             `json:"workflow_id"`
-	JobID                 string             `json:"job_id,omitempty"`
-	StepRef               string             `json:"step_ref"`
-	DependsOn             []string           `json:"depends_on"`
-	Condition             json.RawMessage    `json:"condition,omitempty"`
-	OnFailure             FailurePolicy      `json:"on_failure"`
-	Payload               json.RawMessage    `json:"payload,omitempty"`
-	StepType              WorkflowStepType   `json:"step_type,omitempty"`
-	ApprovalTimeoutSecs   int                `json:"approval_timeout_secs,omitempty"`
-	ApprovalApprovers     []string           `json:"approval_approvers,omitempty"`
-	RetryMaxAttempts      int                `json:"retry_max_attempts,omitempty"`
-	RetryBackoff          RetryBackoffPolicy `json:"retry_backoff,omitempty"`
-	RetryInitialDelaySecs int                `json:"retry_initial_delay_secs,omitempty"`
-	RetryMaxDelaySecs     int                `json:"retry_max_delay_secs,omitempty"`
-	TimeoutSecsOverride   int                `json:"timeout_secs_override,omitempty"`
-	OutputTransform       string             `json:"output_transform,omitempty"`
-	SubWorkflowID         string             `json:"sub_workflow_id,omitempty"`
-	MaxNestingDepth       int                `json:"max_nesting_depth,omitempty"`
-	EventKey              string             `json:"event_key,omitempty"`
-	EventTimeoutSecs      int                `json:"event_timeout_secs,omitempty"`
-	EventNotifyURL        string             `json:"event_notify_url,omitempty"`
-	SleepDurationSecs     int                `json:"sleep_duration_secs,omitempty"`
-	EventEmitKey          string             `json:"event_emit_key,omitempty"` // auto-send event on step completion
-	ConcurrencyKey        string             `json:"concurrency_key,omitempty"`
-	ResourceClass         string             `json:"resource_class,omitempty"`
-	CreatedAt             time.Time          `json:"created_at"`
+	ID                        string             `json:"id"`
+	WorkflowID                string             `json:"workflow_id"`
+	JobID                     string             `json:"job_id,omitempty"`
+	StepRef                   string             `json:"step_ref"`
+	DependsOn                 []string           `json:"depends_on"`
+	Condition                 json.RawMessage    `json:"condition,omitempty"`
+	OnFailure                 FailurePolicy      `json:"on_failure"`
+	Payload                   json.RawMessage    `json:"payload,omitempty"`
+	StepType                  WorkflowStepType   `json:"step_type,omitempty"`
+	ApprovalTimeoutSecs       int                `json:"approval_timeout_secs,omitempty"`
+	ApprovalApprovers         []string           `json:"approval_approvers,omitempty"`
+	RetryMaxAttempts          int                `json:"retry_max_attempts,omitempty"`
+	RetryBackoff              RetryBackoffPolicy `json:"retry_backoff,omitempty"`
+	RetryInitialDelaySecs     int                `json:"retry_initial_delay_secs,omitempty"`
+	RetryMaxDelaySecs         int                `json:"retry_max_delay_secs,omitempty"`
+	TimeoutSecsOverride       int                `json:"timeout_secs_override,omitempty"`
+	OutputTransform           string             `json:"output_transform,omitempty"`
+	SubWorkflowID             string             `json:"sub_workflow_id,omitempty"`
+	MaxNestingDepth           int                `json:"max_nesting_depth,omitempty"`
+	EventKey                  string             `json:"event_key,omitempty"`
+	EventTimeoutSecs          int                `json:"event_timeout_secs,omitempty"`
+	EventNotifyURL            string             `json:"event_notify_url,omitempty"`
+	SleepDurationSecs         int                `json:"sleep_duration_secs,omitempty"`
+	EventEmitKey              string             `json:"event_emit_key,omitempty"` // auto-send event on step completion
+	ConcurrencyKey            string             `json:"concurrency_key,omitempty"`
+	ResourceClass             string             `json:"resource_class,omitempty"`
+	CostGateThresholdMicrousd int64              `json:"cost_gate_threshold_microusd,omitempty"`
+	CostGateTimeoutSecs       int                `json:"cost_gate_timeout_secs,omitempty"`
+	CostGateDefaultAction     string             `json:"cost_gate_default_action,omitempty"`
+	CreatedAt                 time.Time          `json:"created_at"`
+}
+
+// JobCostEstimate holds the cached average cost for a job based on recent runs.
+type JobCostEstimate struct {
+	JobID           string    `json:"job_id"`
+	AvgCostMicrousd int64     `json:"avg_cost_microusd"`
+	SampleCount     int       `json:"sample_count"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // WorkflowSnapshot captures an immutable point-in-time workflow definition

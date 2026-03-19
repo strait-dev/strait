@@ -122,7 +122,7 @@ func TestListDeploymentVersions(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/deployments?project_id=proj-1&environment=production", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/deployments?environment=production", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
