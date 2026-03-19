@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,26 @@ import (
 	"strait/internal/domain"
 )
 
+// validateCallerOrgAccess checks that the caller's API key belongs to the given
+// org. Returns nil for internal-secret callers (no scopes in context).
+func (s *Server) validateCallerOrgAccess(ctx context.Context, orgID string) error {
+	if scopesFromContext(ctx) == nil {
+		return nil // internal-secret caller, trusted
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" || s.billingEnforcer == nil {
+		return fmt.Errorf("cannot determine org for this API key")
+	}
+	callerOrg, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve org: %w", err)
+	}
+	if callerOrg != orgID {
+		return fmt.Errorf("org_id does not match the API key's organization")
+	}
+	return nil
+}
+
 // resolveUsageOrgID extracts org_id from the request query, enforcing tenant
 // isolation for API key callers. Returns the org_id or writes an error response.
 func (s *Server) resolveUsageOrgID(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -20,22 +41,13 @@ func (s *Server) resolveUsageOrgID(w http.ResponseWriter, r *http.Request) (stri
 		return "", false
 	}
 
-	if scopesFromContext(r.Context()) != nil {
-		projectID := projectIDFromContext(r.Context())
-		if projectID == "" || s.billingEnforcer == nil {
-			respondError(w, r, http.StatusForbidden, "cannot determine org for this API key")
-			return "", false
+	if err := s.validateCallerOrgAccess(r.Context(), orgID); err != nil {
+		if scopesFromContext(r.Context()) != nil {
+			projectID := projectIDFromContext(r.Context())
+			slog.Error("org access validation failed", "project_id", projectID, "error", err)
 		}
-		callerOrg, err := s.billingEnforcer.GetProjectOrgID(r.Context(), projectID)
-		if err != nil {
-			slog.Error("failed to resolve org for project", "project_id", projectID, "error", err)
-			respondError(w, r, http.StatusInternalServerError, "failed to resolve org")
-			return "", false
-		}
-		if callerOrg != orgID {
-			respondError(w, r, http.StatusForbidden, "org_id does not match the API key's organization")
-			return "", false
-		}
+		respondError(w, r, http.StatusForbidden, err.Error())
+		return "", false
 	}
 
 	return orgID, true
@@ -165,6 +177,10 @@ func (s *Server) handleGetCostEstimate(w http.ResponseWriter, r *http.Request) {
 	if s.usageService != nil {
 		orgID := r.URL.Query().Get("org_id")
 		if orgID != "" {
+			if err := s.validateCallerOrgAccess(r.Context(), orgID); err != nil {
+				respondError(w, r, http.StatusForbidden, err.Error())
+				return
+			}
 			limit, limitErr := s.usageService.GetSpendingLimit(r.Context(), orgID)
 			if limitErr == nil {
 				creditRemaining = int64((limit.IncludedCreditUsd - limit.CurrentSpendUsd) * 1000000)
@@ -338,6 +354,11 @@ func (s *Server) handleCreateReferralCode(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if err := s.validateCallerOrgAccess(r.Context(), req.OrgID); err != nil {
+		respondError(w, r, http.StatusForbidden, err.Error())
+		return
+	}
+
 	referral, err := s.referralService.GenerateCode(r.Context(), req.OrgID)
 	if err != nil {
 		slog.Error("failed to create referral code", "error", err)
@@ -367,6 +388,11 @@ func (s *Server) handleActivateReferral(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if err := s.validateCallerOrgAccess(r.Context(), req.ReferredOrgID); err != nil {
+		respondError(w, r, http.StatusForbidden, err.Error())
+		return
+	}
+
 	referral, err := s.referralService.ActivateReferral(r.Context(), req.Code, req.ReferredOrgID)
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
@@ -382,9 +408,8 @@ func (s *Server) handleListReferrals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgID := r.URL.Query().Get("org_id")
-	if orgID == "" {
-		respondError(w, r, http.StatusBadRequest, "org_id query parameter is required")
+	orgID, ok := s.resolveUsageOrgID(w, r)
+	if !ok {
 		return
 	}
 
