@@ -601,8 +601,8 @@ func (q *Queries) CountExecutingRunsByOrg(ctx context.Context, orgID string) (in
 	query := `
 		SELECT COUNT(*)
 		FROM job_runs jr
-		JOIN projects p ON jr.project_id = p.id
-		WHERE p.org_id = $1 AND jr.status = 'executing'`
+		WHERE jr.project_id IN (SELECT id FROM projects WHERE org_id = $1)
+		  AND jr.status = 'executing'`
 
 	var count int
 	if err := q.db.QueryRow(ctx, query, orgID).Scan(&count); err != nil {
