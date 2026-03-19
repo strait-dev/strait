@@ -30,7 +30,9 @@ const LABEL_MAP = {
 
 export function ThroughputChart({
   hasProject = true,
-}: { hasProject?: boolean }) {
+}: {
+  hasProject?: boolean;
+}) {
   const { data: analytics } = useQuery({
     ...analyticsQueryOptions(24),
     enabled: hasProject,

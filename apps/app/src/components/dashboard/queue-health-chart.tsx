@@ -33,7 +33,9 @@ const LABEL_MAP = {
 
 export function QueueHealthChart({
   hasProject = true,
-}: { hasProject?: boolean }) {
+}: {
+  hasProject?: boolean;
+}) {
   const { data: stats } = useQuery({
     ...statsQueryOptions(),
     enabled: hasProject,

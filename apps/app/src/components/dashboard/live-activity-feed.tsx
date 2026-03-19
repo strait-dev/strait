@@ -50,7 +50,9 @@ function runToMessage(run: JobRun): string {
 
 export function LiveActivityFeed({
   hasProject = true,
-}: { hasProject?: boolean }) {
+}: {
+  hasProject?: boolean;
+}) {
   const { data } = useQuery({
     ...runsQueryOptions({ limit: 20 }),
     enabled: hasProject,

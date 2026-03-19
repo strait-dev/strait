@@ -36,9 +36,9 @@ import { Route as AppDlqIndexRouteImport } from './routes/app/dlq/index'
 import { Route as AppWorkflowsIdRouteImport } from './routes/app/workflows/$id'
 import { Route as AppSchedulesIdRouteImport } from './routes/app/schedules/$id'
 import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
+import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/compare'
 import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
-import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/compare'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const AppLayoutRoute = AppLayoutRouteImport.update({
@@ -69,11 +69,6 @@ const InvitationIdRoute = InvitationIdRouteImport.update({
 const AppUpgradeRoute = AppUpgradeRouteImport.update({
   id: '/upgrade',
   path: '/upgrade',
-  getParentRoute: () => AppLayoutRoute,
-} as any)
-const AppPricingCompareRoute = AppPricingCompareRouteImport.update({
-  id: '/pricing/compare',
-  path: '/pricing/compare',
   getParentRoute: () => AppLayoutRoute,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
@@ -181,6 +176,11 @@ const AppRunsIdRoute = AppRunsIdRouteImport.update({
   path: '/runs/$id',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppPricingCompareRoute = AppPricingCompareRouteImport.update({
+  id: '/pricing/compare',
+  path: '/pricing/compare',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppOrgIdRoute = AppOrgIdRouteImport.update({
   id: '/org/$id',
   path: '/org/$id',
@@ -210,13 +210,13 @@ export interface FileRoutesByFullPath {
   '/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
-  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
+  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
@@ -242,13 +242,13 @@ export interface FileRoutesByTo {
   '/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
-  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app': typeof AppIndexRoute
   '/onboarding': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
+  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
@@ -276,13 +276,13 @@ export interface FileRoutesById {
   '/(auth)/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
-  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
+  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
@@ -317,6 +317,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/app/jobs/$id'
     | '/app/org/$id'
+    | '/app/pricing/compare'
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
@@ -348,6 +349,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/app/jobs/$id'
     | '/app/org/$id'
+    | '/app/pricing/compare'
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
@@ -380,6 +382,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/app/jobs/$id'
     | '/app/org/$id'
+    | '/app/pricing/compare'
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
@@ -459,13 +462,6 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/app/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
-      parentRoute: typeof AppLayoutRoute
-    }
-    '/app/pricing/compare': {
-      id: '/app/pricing/compare'
-      path: '/pricing/compare'
-      fullPath: '/app/pricing/compare'
-      preLoaderRoute: typeof AppPricingCompareRouteImport
       parentRoute: typeof AppLayoutRoute
     }
     '/(auth)/verify-email': {
@@ -608,6 +604,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRunsIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/pricing/compare': {
+      id: '/app/pricing/compare'
+      path: '/pricing/compare'
+      fullPath: '/app/pricing/compare'
+      preLoaderRoute: typeof AppPricingCompareRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/org/$id': {
       id: '/app/org/$id'
       path: '/org/$id'
@@ -635,10 +638,10 @@ declare module '@tanstack/react-router' {
 interface AppLayoutRouteChildren {
   AppDashboardRoute: typeof AppDashboardRoute
   AppUpgradeRoute: typeof AppUpgradeRoute
-  AppPricingCompareRoute: typeof AppPricingCompareRoute
   AppIndexRoute: typeof AppIndexRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
   AppOrgIdRoute: typeof AppOrgIdRoute
+  AppPricingCompareRoute: typeof AppPricingCompareRoute
   AppRunsIdRoute: typeof AppRunsIdRoute
   AppSchedulesIdRoute: typeof AppSchedulesIdRoute
   AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
@@ -656,10 +659,10 @@ interface AppLayoutRouteChildren {
 const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppDashboardRoute: AppDashboardRoute,
   AppUpgradeRoute: AppUpgradeRoute,
-  AppPricingCompareRoute: AppPricingCompareRoute,
   AppIndexRoute: AppIndexRoute,
   AppJobsIdRoute: AppJobsIdRoute,
   AppOrgIdRoute: AppOrgIdRoute,
+  AppPricingCompareRoute: AppPricingCompareRoute,
   AppRunsIdRoute: AppRunsIdRoute,
   AppSchedulesIdRoute: AppSchedulesIdRoute,
   AppWorkflowsIdRoute: AppWorkflowsIdRoute,

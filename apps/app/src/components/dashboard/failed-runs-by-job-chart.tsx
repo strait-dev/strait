@@ -26,7 +26,9 @@ const LABEL_MAP = {
 
 export function FailedRunsByJobChart({
   hasProject = true,
-}: { hasProject?: boolean }) {
+}: {
+  hasProject?: boolean;
+}) {
   const { data: analytics } = useQuery({
     ...analyticsQueryOptions(24),
     enabled: hasProject,

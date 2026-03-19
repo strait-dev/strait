@@ -38,7 +38,9 @@ function formatDuration(
 
 export function RecentRunsTable({
   hasProject = true,
-}: { hasProject?: boolean }) {
+}: {
+  hasProject?: boolean;
+}) {
   const { data } = useQuery({
     ...runsQueryOptions({ limit: 6 }),
     enabled: hasProject,

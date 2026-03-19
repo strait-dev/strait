@@ -24,9 +24,7 @@ const LABEL_MAP = {
   runs: { label: "Executions", color: CHART_COLORS.active },
 };
 
-export function TopJobsChart({
-  hasProject = true,
-}: { hasProject?: boolean }) {
+export function TopJobsChart({ hasProject = true }: { hasProject?: boolean }) {
   const { data: analytics } = useQuery({
     ...analyticsQueryOptions(24),
     enabled: hasProject,

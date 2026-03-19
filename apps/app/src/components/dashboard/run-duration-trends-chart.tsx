@@ -42,7 +42,9 @@ const LEGEND_ITEMS = [
 
 export function RunDurationTrendsChart({
   hasProject = true,
-}: { hasProject?: boolean }) {
+}: {
+  hasProject?: boolean;
+}) {
   const { data: analytics } = useQuery({
     ...analyticsQueryOptions(24),
     enabled: hasProject,

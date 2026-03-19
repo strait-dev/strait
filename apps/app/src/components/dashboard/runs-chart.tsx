@@ -53,8 +53,7 @@ export function RunsChart({ hasProject = true }: { hasProject?: boolean }) {
       ]
     : [];
 
-  const isEmpty =
-    !hasProject || chartData.length === 0 || !throughput;
+  const isEmpty = !hasProject || chartData.length === 0 || !throughput;
 
   return (
     <Card>
