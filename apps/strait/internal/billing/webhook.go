@@ -363,6 +363,13 @@ func (h *WebhookHandler) handleSubscriptionCanceled(ctx context.Context, data js
 		return fmt.Errorf("updating canceled subscription: %w", err)
 	}
 
+	// Queue a downgrade to free at period end so paid quotas don't persist indefinitely.
+	if err := h.store.SetPendingPlanTier(ctx, orgID, string(domain.PlanFree)); err != nil {
+		if !errors.Is(err, ErrSubscriptionNotFound) {
+			return fmt.Errorf("setting pending free tier on cancellation: %w", err)
+		}
+	}
+
 	if h.enforcer != nil {
 		h.enforcer.InvalidateOrgCache(orgID)
 	}

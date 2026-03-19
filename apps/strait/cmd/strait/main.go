@@ -196,7 +196,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	startCDCConsumer(g, cfg, pub)
 	startWebhookWorker(g, cfg, eventNotifier)
 	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer)
-	startWorker(g, cfg, queries, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer)
+	startWorker(g, cfg, queries, dbPool, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)

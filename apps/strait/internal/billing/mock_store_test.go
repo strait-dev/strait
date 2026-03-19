@@ -101,6 +101,16 @@ func (m *mockBillingStore) ApplyPendingDowngrade(_ context.Context, orgID string
 	return nil
 }
 
+func (m *mockBillingStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]OrgSubscription, error) {
+	var subs []OrgSubscription
+	for _, sub := range m.subscriptions {
+		if sub.PendingPlanTier != nil && sub.CurrentPeriodEnd != nil && sub.CurrentPeriodEnd.Before(time.Now()) {
+			subs = append(subs, *sub)
+		}
+	}
+	return subs, nil
+}
+
 func (m *mockBillingStore) GetProjectOrgID(_ context.Context, _ string) (string, error) {
 	return "", nil
 }

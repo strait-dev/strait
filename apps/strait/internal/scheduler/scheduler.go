@@ -37,6 +37,7 @@ type Scheduler struct {
 	statsAggregator      *StatsAggregator
 	budgetMonitor        *BudgetMonitor
 	concurrentReconciler *ConcurrentReconciler
+	downgradeApplier     *DowngradeApplier
 	wg                   conc.WaitGroup
 }
 
@@ -87,6 +88,13 @@ func WithConcurrentReconciler(reconciler *ConcurrentReconciler) SchedulerOption 
 	}
 }
 
+// WithDowngradeApplier enables periodic application of pending plan downgrades.
+func WithDowngradeApplier(applier *DowngradeApplier) SchedulerOption {
+	return func(s *Scheduler) {
+		s.downgradeApplier = applier
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
@@ -102,6 +110,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.wg.Go(func() { s.budgetMonitor.Run(ctx) })
 	if s.concurrentReconciler != nil {
 		s.wg.Go(func() { s.concurrentReconciler.Run(ctx) })
+	}
+	if s.downgradeApplier != nil {
+		s.wg.Go(func() { s.downgradeApplier.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

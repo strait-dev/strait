@@ -369,7 +369,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -552,6 +552,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			reconciler := scheduler.NewConcurrentReconciler(billingEnforcer, queries, 5*time.Minute)
 			schedOpts = append(schedOpts, scheduler.WithConcurrentReconciler(reconciler))
 			slog.Info("concurrent run reconciler enabled")
+
+			billingStore := billing.NewPgStore(dbPool)
+			downgradeApplier := scheduler.NewDowngradeApplier(billingStore, billingEnforcer, 5*time.Minute)
+			schedOpts = append(schedOpts, scheduler.WithDowngradeApplier(downgradeApplier))
+			slog.Info("downgrade applier enabled")
 		}
 		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
 			schedOpts...,

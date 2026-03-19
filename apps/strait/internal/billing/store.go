@@ -47,6 +47,7 @@ type Store interface {
 	UpdateSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
 	SetPendingPlanTier(ctx context.Context, orgID, tier string) error
 	ApplyPendingDowngrade(ctx context.Context, orgID string) error
+	ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscription, error)
 
 	// Project-org mapping
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)

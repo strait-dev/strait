@@ -461,6 +461,97 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 	}
 }
 
+func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_cancel": {
+				OrgID:    "org_cancel",
+				PlanTier: "pro",
+				Status:   "active",
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+
+	now := time.Now()
+	payload := PolarWebhookPayload{
+		Type: "subscription.canceled",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_cancel",
+			ProductID:  "pro-id",
+			CustomerID: "cust_cancel",
+			CanceledAt: &now,
+			Metadata:   map[string]string{"org_id": "org_cancel"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// Verify pending tier was set to "free".
+	if store.lastPendingTier != "free" {
+		t.Errorf("expected pending tier free, got %q", store.lastPendingTier)
+	}
+
+	// Plan should still be "pro" (not immediately changed).
+	sub := store.subscriptions["org_cancel"]
+	if sub.PlanTier != "pro" {
+		t.Errorf("expected plan to remain pro until period end, got %q", sub.PlanTier)
+	}
+	if sub.Status != "canceled" {
+		t.Errorf("expected status canceled, got %q", sub.Status)
+	}
+}
+
+func TestWebhook_CanceledWithNoPriorSubscription(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.canceled",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_noexist",
+			ProductID:  "pro-id",
+			CustomerID: "cust_noexist",
+			Metadata:   map[string]string{"org_id": "org_noexist"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// No pending tier should be set since no subscription existed.
+	if store.lastPendingTier != "" {
+		t.Errorf("expected no pending tier, got %q", store.lastPendingTier)
+	}
+}
+
 func mustJSON(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(v)
