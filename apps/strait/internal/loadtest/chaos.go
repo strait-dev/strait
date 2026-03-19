@@ -253,7 +253,9 @@ func (ce *ChaosEngine) chaosDatabaseFailover(ctx context.Context) error {
 	unpause := exec.CommandContext(ctx, "docker", "unpause", "strait-postgres-1")
 	if err := unpause.Run(); err != nil {
 		unpause = exec.CommandContext(ctx, "docker", "unpause", "cayenne-postgres-1")
-		unpause.Run()
+		if err := unpause.Run(); err != nil {
+			return fmt.Errorf("failed to unpause postgres: %w", err)
+		}
 	}
 
 	// Wait for connections to recover

@@ -29,11 +29,7 @@ func main() {
 		*outputDir = *inputDir
 	}
 
-	// Suppress unused variable warnings - these are used by the generator
-	_ = *htmlFile
-	_ = *jsonFile
-
-	gen := loadtest.NewReportGenerator(*inputDir, *outputDir)
+	gen := loadtest.NewReportGenerator(*inputDir, *outputDir, *htmlFile, *jsonFile)
 	if err := gen.Generate(); err != nil {
 		log.Fatalf("report generation failed: %v", err)
 	}

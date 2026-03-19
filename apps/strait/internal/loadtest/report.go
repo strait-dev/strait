@@ -59,15 +59,25 @@ type ErrorScenarioResult struct {
 
 // ReportGenerator builds reports from load test results.
 type ReportGenerator struct {
-	InputDir  string
-	OutputDir string
+	InputDir     string
+	OutputDir    string
+	HTMLFilename string
+	JSONFilename string
 }
 
 // NewReportGenerator creates a report generator.
-func NewReportGenerator(inputDir, outputDir string) *ReportGenerator {
+func NewReportGenerator(inputDir, outputDir, htmlFile, jsonFile string) *ReportGenerator {
+	if htmlFile == "" {
+		htmlFile = "report.html"
+	}
+	if jsonFile == "" {
+		jsonFile = "report.json"
+	}
 	return &ReportGenerator{
-		InputDir:  inputDir,
-		OutputDir: outputDir,
+		InputDir:     inputDir,
+		OutputDir:    outputDir,
+		HTMLFilename: htmlFile,
+		JSONFilename: jsonFile,
 	}
 }
 
@@ -92,12 +102,12 @@ func (rg *ReportGenerator) Generate() error {
 	report.Summary = rg.buildSummary(report)
 
 	// Write JSON report
-	if err := rg.writeJSON("report.json", report); err != nil {
+	if err := rg.writeJSON(rg.JSONFilename, report); err != nil {
 		return fmt.Errorf("writing JSON report: %w", err)
 	}
 
 	// Write HTML report
-	if err := rg.writeHTML("report.html", report); err != nil {
+	if err := rg.writeHTML(rg.HTMLFilename, report); err != nil {
 		return fmt.Errorf("writing HTML report: %w", err)
 	}
 
