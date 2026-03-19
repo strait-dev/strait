@@ -13,6 +13,7 @@ function getInternalSecret(): string {
   return secret;
 }
 
+/** Options for `apiRequest` calls to the Strait Go API. */
 export type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
