@@ -271,11 +271,23 @@ func (s *PgStore) UpsertUsageRecord(ctx context.Context, rec *UsageRecord) error
 
 func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, to time.Time) ([]UsageRecord, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, project_id, period_date,
-			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
-			created_at, updated_at
-		FROM usage_records
-		WHERE org_id = $1 AND period_date >= $2 AND period_date <= $3
+		SELECT '' AS id,
+			p.org_id,
+			rcu.project_id,
+			DATE(rcu.created_at) AS period_date,
+			COUNT(*) AS runs_count,
+			COALESCE(SUM(rcu.cost_microusd), 0) AS compute_cost_microusd,
+			0::bigint AS ai_tokens_total,
+			0::bigint AS ai_cost_microusd,
+			MIN(rcu.created_at) AS created_at,
+			MAX(rcu.created_at) AS updated_at
+		FROM run_compute_usage rcu
+		JOIN projects p ON p.id = rcu.project_id
+		WHERE p.org_id = $1
+		  AND rcu.created_at >= $2
+		  AND rcu.created_at < $3 + INTERVAL '1 day'
+		  AND rcu.status = 'committed'
+		GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
 		ORDER BY period_date ASC
 	`, orgID, from, to)
 	if err != nil {
@@ -287,11 +299,23 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 
 func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string, from, to time.Time) ([]UsageRecord, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, project_id, period_date,
-			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
-			created_at, updated_at
-		FROM usage_records
-		WHERE project_id = $1 AND period_date >= $2 AND period_date <= $3
+		SELECT '' AS id,
+			p.org_id,
+			rcu.project_id,
+			DATE(rcu.created_at) AS period_date,
+			COUNT(*) AS runs_count,
+			COALESCE(SUM(rcu.cost_microusd), 0) AS compute_cost_microusd,
+			0::bigint AS ai_tokens_total,
+			0::bigint AS ai_cost_microusd,
+			MIN(rcu.created_at) AS created_at,
+			MAX(rcu.created_at) AS updated_at
+		FROM run_compute_usage rcu
+		JOIN projects p ON p.id = rcu.project_id
+		WHERE rcu.project_id = $1
+		  AND rcu.created_at >= $2
+		  AND rcu.created_at < $3 + INTERVAL '1 day'
+		  AND rcu.status = 'committed'
+		GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
 		ORDER BY period_date ASC
 	`, projectID, from, to)
 	if err != nil {
@@ -303,11 +327,22 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 
 func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.Time) ([]UsageRecord, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, project_id, period_date,
-			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
-			created_at, updated_at
-		FROM usage_records
-		WHERE org_id = $1 AND period_date = $2
+		SELECT '' AS id,
+			p.org_id,
+			rcu.project_id,
+			DATE(rcu.created_at) AS period_date,
+			COUNT(*) AS runs_count,
+			COALESCE(SUM(rcu.cost_microusd), 0) AS compute_cost_microusd,
+			0::bigint AS ai_tokens_total,
+			0::bigint AS ai_cost_microusd,
+			MIN(rcu.created_at) AS created_at,
+			MAX(rcu.created_at) AS updated_at
+		FROM run_compute_usage rcu
+		JOIN projects p ON p.id = rcu.project_id
+		WHERE p.org_id = $1
+		  AND DATE(rcu.created_at) = $2
+		  AND rcu.status = 'committed'
+		GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
 	`, orgID, date)
 	if err != nil {
 		return nil, fmt.Errorf("getting org daily usage: %w", err)
