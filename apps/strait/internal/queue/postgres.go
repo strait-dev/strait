@@ -275,6 +275,40 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 	return n, nil
 }
 
+// dequeueColumns is the shared column list for all dequeue RETURNING/SELECT clauses.
+const dequeueColumns = `id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
+		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id`
+
+// concurrencyCTEs pre-computes active run counts per job and per concurrency key,
+// replacing correlated COUNT(*) subqueries that re-execute per candidate row.
+const concurrencyCTEs = `
+active_by_job AS (
+    SELECT job_id, COUNT(*) as cnt
+    FROM job_runs
+    WHERE status IN ('dequeued', 'executing')
+    GROUP BY job_id
+),
+active_by_key AS (
+    SELECT project_id, concurrency_key, COUNT(*) as cnt
+    FROM job_runs
+    WHERE status IN ('dequeued', 'executing')
+    AND concurrency_key IS NOT NULL AND concurrency_key != ''
+    GROUP BY project_id, concurrency_key
+)`
+
+const concurrencyJoins = `
+    LEFT JOIN active_by_job abj ON abj.job_id = jr.job_id
+    LEFT JOIN active_by_key abk ON abk.project_id = jr.project_id
+        AND abk.concurrency_key = jr.concurrency_key`
+
+const concurrencyWhere = `
+    AND (j.max_concurrency IS NULL OR COALESCE(abj.cnt, 0) < j.max_concurrency)
+    AND (j.max_concurrency_per_key IS NULL
+         OR jr.concurrency_key IS NULL
+         OR jr.concurrency_key = ''
+         OR COALESCE(abk.cnt, 0) < j.max_concurrency_per_key)`
+
 func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Dequeue")
 	defer span.End()
@@ -282,43 +316,24 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	q.setStatementTimeout(ctx)
 
 	query := fmt.Sprintf(`
+		WITH %s
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
 		WHERE id = (
 			SELECT jr.id
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
+			%s
 			WHERE jr.status = '%s'
 			  AND j.enabled = true
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND (
-				j.max_concurrency IS NULL OR (
-					SELECT COUNT(*)
-					FROM job_runs active
-					WHERE active.job_id = jr.job_id
-					  AND active.status IN ('dequeued', 'executing')
-				) < j.max_concurrency
-			  )
-			  AND (
-				j.max_concurrency_per_key IS NULL
-				OR jr.concurrency_key IS NULL
-				OR jr.concurrency_key = ''
-				OR (
-					SELECT COUNT(*)
-					FROM job_runs active
-					WHERE active.project_id = jr.project_id
-					  AND active.concurrency_key = jr.concurrency_key
-					  AND active.status IN ('dequeued', 'executing')
-				) < j.max_concurrency_per_key
-			  )
+			  %s
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT 1
 		)
-		RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id`, domain.StatusDequeued, domain.StatusQueued, q.dequeueOrderByClause())
+		RETURNING %s`, concurrencyCTEs, domain.StatusDequeued, concurrencyJoins, domain.StatusQueued, concurrencyWhere, q.dequeueOrderByClause(), dequeueColumns)
 
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query))
 	if err != nil {
@@ -340,34 +355,17 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	orderBy := q.dequeueOrderByClause()
 
 	query := fmt.Sprintf(`
-		WITH claimed AS (
+		WITH %s,
+		claimed AS (
 			SELECT jr.id
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
+			%s
 			WHERE jr.status = '%s'
 			  AND j.enabled = true
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND (
-				j.max_concurrency IS NULL OR (
-					SELECT COUNT(*)
-					FROM job_runs active
-					WHERE active.job_id = jr.job_id
-					  AND active.status IN ('dequeued', 'executing')
-				) < j.max_concurrency
-			  )
-			  AND (
-				j.max_concurrency_per_key IS NULL
-				OR jr.concurrency_key IS NULL
-				OR jr.concurrency_key = ''
-				OR (
-					SELECT COUNT(*)
-					FROM job_runs active
-					WHERE active.project_id = jr.project_id
-					  AND active.concurrency_key = jr.concurrency_key
-					  AND active.status IN ('dequeued', 'executing')
-				) < j.max_concurrency_per_key
-			  )
+			  %s
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT $1
@@ -375,15 +373,11 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 			UPDATE job_runs
 			SET status = '%s', started_at = NOW()
 			WHERE id IN (SELECT id FROM claimed)
-			RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+			RETURNING %s
 		)
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		SELECT %s
 		FROM updated
-		ORDER BY created_at ASC`, domain.StatusQueued, orderBy, domain.StatusDequeued)
+		ORDER BY created_at ASC`, concurrencyCTEs, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy, domain.StatusDequeued, dequeueColumns, dequeueColumns)
 
 	rows, err := q.db.Query(ctx, query, n)
 	if err != nil {
@@ -420,34 +414,17 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 	orderBy := q.dequeueOrderByClause()
 
 	query := fmt.Sprintf(`
-		WITH candidates AS (
+		WITH %s,
+		candidates AS (
 			SELECT DISTINCT ON (jr.job_id) jr.id
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
+			%s
 			WHERE jr.status = '%s'
 			  AND j.enabled = true
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND (
-				j.max_concurrency IS NULL OR (
-					SELECT COUNT(*)
-					FROM job_runs active
-					WHERE active.job_id = jr.job_id
-					  AND active.status IN ('dequeued', 'executing')
-				) < j.max_concurrency
-			  )
-			  AND (
-				j.max_concurrency_per_key IS NULL
-				OR jr.concurrency_key IS NULL
-				OR jr.concurrency_key = ''
-				OR (
-					SELECT COUNT(*)
-					FROM job_runs active
-					WHERE active.project_id = jr.project_id
-					  AND active.concurrency_key = jr.concurrency_key
-					  AND active.status IN ('dequeued', 'executing')
-				) < j.max_concurrency_per_key
-			  )
+			  %s
 			ORDER BY jr.job_id, %s
 		), claimed AS (
 			SELECT c.id
@@ -460,15 +437,11 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 			UPDATE job_runs
 			SET status = '%s', started_at = NOW()
 			WHERE id IN (SELECT id FROM claimed)
-			RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+			RETURNING %s
 		)
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		SELECT %s
 		FROM updated
-		ORDER BY created_at ASC`, domain.StatusQueued, orderBy, orderBy, domain.StatusDequeued)
+		ORDER BY created_at ASC`, concurrencyCTEs, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy, orderBy, domain.StatusDequeued, dequeueColumns, dequeueColumns)
 
 	rows, err := q.db.Query(ctx, query, n)
 	if err != nil {
@@ -501,35 +474,18 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 	orderBy := q.dequeueOrderByClause()
 
 	query := fmt.Sprintf(`
-		WITH claimed AS (
+		WITH %s,
+		claimed AS (
 			SELECT jr.id
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
+			%s
 			WHERE jr.status = '%s'
 			  AND j.enabled = true
 			  AND jr.project_id = $2
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND (
-				j.max_concurrency IS NULL OR (
-					SELECT COUNT(*)
-					FROM job_runs active
-					WHERE active.job_id = jr.job_id
-					  AND active.status IN ('dequeued', 'executing')
-				) < j.max_concurrency
-			  )
-			  AND (
-				j.max_concurrency_per_key IS NULL
-				OR jr.concurrency_key IS NULL
-				OR jr.concurrency_key = ''
-				OR (
-					SELECT COUNT(*)
-					FROM job_runs active
-					WHERE active.project_id = jr.project_id
-					  AND active.concurrency_key = jr.concurrency_key
-					  AND active.status IN ('dequeued', 'executing')
-				) < j.max_concurrency_per_key
-			  )
+			  %s
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT $1
@@ -537,15 +493,11 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			UPDATE job_runs
 			SET status = '%s', started_at = NOW()
 			WHERE id IN (SELECT id FROM claimed)
-			RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+			RETURNING %s
 		)
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		SELECT %s
 		FROM updated
-		ORDER BY created_at ASC`, domain.StatusQueued, orderBy, domain.StatusDequeued)
+		ORDER BY created_at ASC`, concurrencyCTEs, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy, domain.StatusDequeued, dequeueColumns, dequeueColumns)
 
 	rows, err := q.db.Query(ctx, query, n, projectID)
 	if err != nil {
