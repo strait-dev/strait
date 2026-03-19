@@ -13,7 +13,7 @@ function getInternalSecret(): string {
   return secret;
 }
 
-type RequestOptions = {
+export type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   params?: Record<string, string | number | boolean | undefined>;
