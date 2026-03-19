@@ -504,3 +504,53 @@ func TestTestServerEndpoints(t *testing.T) {
 	}
 	t.Logf("server stats: total=%d", snap.Total)
 }
+
+// TestChaosWorkerKill tests worker SIGKILL recovery during load.
+// Use: go test -tags=loadtest -run TestChaosWorkerKill -timeout 30m ./internal/loadtest/...
+func TestChaosWorkerKill(t *testing.T) {
+	h := setupHarness(t)
+	ce := loadtest.NewChaosEngine(h, 100, "loadtest-project", "loadtest-fast-echo")
+
+	scenarios := loadtest.AllChaosScenarios()
+	result := ce.RunScenario(context.Background(), scenarios[0]) // worker_sigkill
+
+	t.Logf("CHAOS: %s", result.Scenario)
+	t.Logf("Load: ~%d runs/sec | In-flight: %d", result.LoadRate, result.InFlight)
+	t.Logf("Lost: %d | Recovered: %d | Recovery: %s", result.Lost, result.Recovered, result.RecoveryTime)
+	t.Logf("Queue peak: %d | Drain: %s | VERDICT: %s", result.QueuePeak, result.DrainTime, result.Verdict)
+
+	if result.Verdict != "PASS" {
+		t.Errorf("chaos test failed: %s", result.Error)
+	}
+}
+
+// TestChaosAll runs all 8 chaos scenarios sequentially with background load.
+// Use: go test -tags=loadtest -run TestChaosAll -timeout 4h ./internal/loadtest/...
+func TestChaosAll(t *testing.T) {
+	h := setupHarness(t)
+	ce := loadtest.NewChaosEngine(h, 100, "loadtest-project", "loadtest-fast-echo")
+
+	results, err := ce.RunAll(context.Background())
+	if err != nil {
+		t.Fatalf("chaos engine failed: %v", err)
+	}
+
+	passed := 0
+	failed := 0
+	for _, r := range results {
+		t.Logf("CHAOS: %-25s | Lost: %d | Recovery: %s | Verdict: %s",
+			r.Scenario, r.Lost, r.RecoveryTime, r.Verdict)
+		if r.Verdict == "PASS" {
+			passed++
+		} else {
+			failed++
+			t.Errorf("  FAILED: %s", r.Error)
+		}
+	}
+
+	t.Logf("=== CHAOS SUMMARY: %d/%d passed ===", passed, len(results))
+
+	if err := h.WriteResult("chaos_all.json", results); err != nil {
+		t.Errorf("writing results: %v", err)
+	}
+}
