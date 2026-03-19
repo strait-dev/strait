@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import z from "zod/v4";
 import type { Project } from "@/hooks/api/types";
-import { apiRequest } from "@/lib/api-client.server";
+import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { auth, authPool } from "@/lib/auth.server";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -68,18 +68,17 @@ export const createProjectServerFn = createServerFn({ method: "POST" })
     const project = result.rows[0];
 
     // Sync to Go service (best-effort).
-    try {
-      await apiRequest("/v1/projects", {
+    await runWithFallback(
+      apiEffect("/v1/projects", {
         method: "POST",
         body: {
           id: project.id,
           org_id: data.organizationId,
           name: data.name,
         },
-      });
-    } catch (err) {
-      console.error("Failed to sync project to service:", err);
-    }
+      }),
+      undefined
+    );
 
     return project;
   });
@@ -142,11 +141,10 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
     }
 
     // Sync deletion to Go service (best-effort).
-    try {
-      await apiRequest(`/v1/projects/${data.id}`, { method: "DELETE" });
-    } catch (err) {
-      console.error("Failed to sync project deletion to service:", err);
-    }
+    await runWithFallback(
+      apiEffect(`/v1/projects/${data.id}`, { method: "DELETE" }),
+      undefined
+    );
 
     return { success: true };
   });
