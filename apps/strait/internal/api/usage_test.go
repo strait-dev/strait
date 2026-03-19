@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"strait/internal/billing"
 	"strait/internal/config"
@@ -29,11 +30,40 @@ func (m *mockBillingEnforcer) GetProjectOrgID(_ context.Context, projectID strin
 
 type mockUsageService struct{}
 
-func (m *mockUsageService) GetCurrentUsage(_ context.Context, orgID string, projectCount, memberCount int) (*billing.CurrentUsageResponse, error) {
-	return &billing.CurrentUsageResponse{
-		OrgID: orgID,
-		Plan:  "starter",
-	}, nil
+func (m *mockUsageService) GetCurrentUsage(_ context.Context, orgID string, _, _ int) (*billing.CurrentUsageResponse, error) {
+	return &billing.CurrentUsageResponse{OrgID: orgID, Plan: "starter"}, nil
+}
+
+func (m *mockUsageService) GetUsageHistory(_ context.Context, _ string, _, _ time.Time) ([]billing.UsageHistoryEntry, error) {
+	return []billing.UsageHistoryEntry{}, nil
+}
+
+func (m *mockUsageService) GetUsageForecast(_ context.Context, _ string) (*billing.UsageForecastResponse, error) {
+	return &billing.UsageForecastResponse{}, nil
+}
+
+func (m *mockUsageService) GetProjectCosts(_ context.Context, _ string, _, _ time.Time) ([]billing.ProjectCostEntry, error) {
+	return []billing.ProjectCostEntry{}, nil
+}
+
+func (m *mockUsageService) ExportUsageCSV(_ context.Context, _ string, _, _ time.Time) ([]byte, error) {
+	return []byte("date,project,runs\n"), nil
+}
+
+func (m *mockUsageService) GetSpendingLimit(_ context.Context, orgID string) (*billing.SpendingLimitResponse, error) {
+	return &billing.SpendingLimitResponse{OrgID: orgID, PlanTier: "starter"}, nil
+}
+
+func (m *mockUsageService) SetSpendingLimit(_ context.Context, _ string, _ int64, _ string) error {
+	return nil
+}
+
+func (m *mockUsageService) PreviewDowngrade(_ context.Context, _ string, targetTier domain.PlanTier) (*billing.DowngradeImpact, error) {
+	return &billing.DowngradeImpact{TargetTier: string(targetTier)}, nil
+}
+
+func (m *mockUsageService) DetectAnomalies(_ context.Context, _ string) ([]billing.AnomalyAlert, error) {
+	return []billing.AnomalyAlert{}, nil
 }
 
 func newUsageTestServer(t *testing.T, enforcer BillingEnforcer, usageSvc UsageService) *Server {
@@ -161,5 +191,164 @@ func TestUsageEndpoint_MissingOrgID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 when org_id is missing, got %d", w.Code)
+	}
+}
+
+func TestGetUsageHistory_Success(t *testing.T) {
+	t.Parallel()
+
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodGet, "/v1/usage/history?org_id=org-1&from=2025-01-01&to=2025-01-31", "")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetUsageHistory_MissingParams(t *testing.T) {
+	t.Parallel()
+
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"missing_from", "/v1/usage/history?org_id=org-1&to=2025-01-31"},
+		{"missing_to", "/v1/usage/history?org_id=org-1&from=2025-01-01"},
+		{"missing_org_id", "/v1/usage/history?from=2025-01-01&to=2025-01-31"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedRequest(http.MethodGet, tc.url, ""))
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for %s, got %d", tc.name, w.Code)
+			}
+		})
+	}
+}
+
+func TestGetUsageForecast_Success(t *testing.T) {
+	t.Parallel()
+
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodGet, "/v1/usage/forecast?org_id=org-1", "")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetProjectCosts_Success(t *testing.T) {
+	t.Parallel()
+
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodGet, "/v1/usage/projects?org_id=org-1&from=2025-01-01&to=2025-01-31", "")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetCostEstimate_InvalidPreset_400(t *testing.T) {
+	t.Parallel()
+
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodGet, "/v1/cost-estimate?preset=nonexistent&timeout_secs=60", "")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid preset, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetDowngradePreview_InvalidTier_400(t *testing.T) {
+	t.Parallel()
+
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodGet, "/v1/downgrade-preview?org_id=org-1&target_tier=nonexistent", "")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid target tier, got %d", w.Code)
+	}
+}
+
+func TestExportCSV_ReturnsValidCSV(t *testing.T) {
+	t.Parallel()
+
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2025-01-01&to=2025-01-31", "")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/csv" {
+		t.Errorf("expected Content-Type text/csv, got %q", ct)
+	}
+	if cd := w.Header().Get("Content-Disposition"); cd == "" {
+		t.Error("expected Content-Disposition header")
+	}
+}
+
+func TestAnomalyAlerts_NoHistoryReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodGet, "/v1/usage/anomalies?org_id=org-1", "")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var alerts []billing.AnomalyAlert
+	if err := json.Unmarshal(w.Body.Bytes(), &alerts); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(alerts) != 0 {
+		t.Errorf("expected empty alerts, got %d", len(alerts))
+	}
+}
+
+func TestGetUsageHistory_APIKey_CrossTenantForbidden(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		projectOrgMap: map[string]string{"proj-1": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage/history?org_id=org-B&from=2025-01-01&to=2025-01-31", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	ctx := context.WithValue(req.Context(), ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for cross-tenant usage history, got %d", w.Code)
 	}
 }

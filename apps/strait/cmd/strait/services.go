@@ -319,6 +319,8 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		usageSvc = billing.NewUsageService(billingStore, billingEnforcer)
 	}
 
+	referralSvc := billing.NewReferralService(billingStore)
+
 	srv := api.NewServer(api.ServerDeps{
 		Config:           cfg,
 		Store:            queries,
@@ -337,6 +339,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		PolarWebhook:     polarWebhook,
 		BillingEnforcer:  billingEnforcer,
 		UsageService:     usageSvc,
+		ReferralService:  referralSvc,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

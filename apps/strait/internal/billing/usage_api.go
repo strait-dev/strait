@@ -266,6 +266,82 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	}, nil
 }
 
+// GetProjectCosts delegates to the project_costs module.
+func (s *UsageService) GetProjectCosts(ctx context.Context, orgID string, from, to time.Time) ([]ProjectCostEntry, error) {
+	return GetProjectCosts(ctx, s.store, orgID, from, to)
+}
+
+// ExportUsageCSV delegates to the export module.
+func (s *UsageService) ExportUsageCSV(ctx context.Context, orgID string, from, to time.Time) ([]byte, error) {
+	return ExportCSV(ctx, s.store, orgID, ExportPeriod{From: from, To: to})
+}
+
+// GetSpendingLimit returns the current spending limit and overage info for an org.
+func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*SpendingLimitResponse, error) {
+	sub, err := s.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("getting org subscription: %w", err)
+	}
+
+	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
+	includedCredit := limits.ComputeCreditMicrousd
+
+	periodStart := sub.CurrentPeriodStart
+	if periodStart == nil {
+		now := time.Now()
+		periodStart = &now
+	}
+
+	periodSpend, _ := s.store.SumOrgPeriodSpend(ctx, orgID, *periodStart)
+	overageSpend := max(periodSpend-includedCredit, 0)
+
+	return &SpendingLimitResponse{
+		OrgID:             orgID,
+		PlanTier:          sub.PlanTier,
+		SpendingLimitUsd:  float64(sub.SpendingLimitMicrousd) / 1000000,
+		LimitAction:       sub.LimitAction,
+		CurrentSpendUsd:   float64(periodSpend) / 1000000,
+		IncludedCreditUsd: float64(includedCredit) / 1000000,
+		OverageSpendUsd:   float64(overageSpend) / 1000000,
+		IsHardCapped:      sub.SpendingLimitMicrousd == 0,
+	}, nil
+}
+
+// SetSpendingLimit validates and updates the spending limit for an org.
+func (s *UsageService) SetSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error {
+	sub, err := s.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("getting org subscription: %w", err)
+	}
+
+	tier := domain.PlanTier(sub.PlanTier)
+	if tier == domain.PlanFree {
+		return fmt.Errorf("spending limits are not available on the Free plan")
+	}
+
+	maxLimit := MaxSpendingLimit(tier)
+	if maxLimit >= 0 && limitMicrousd > maxLimit {
+		return fmt.Errorf("spending limit exceeds maximum of $%.2f for %s plan", float64(maxLimit)/1000000, tier)
+	}
+
+	if action != "reject" && action != "notify" {
+		return fmt.Errorf("limit_action must be 'reject' or 'notify'")
+	}
+
+	return s.store.UpdateSpendingLimit(ctx, orgID, limitMicrousd, action)
+}
+
+// PreviewDowngrade delegates to the downgrade module.
+func (s *UsageService) PreviewDowngrade(ctx context.Context, orgID string, targetTier domain.PlanTier) (*DowngradeImpact, error) {
+	return PreviewDowngrade(ctx, s.store, orgID, targetTier)
+}
+
+// DetectAnomalies runs anomaly detection for a single org.
+func (s *UsageService) DetectAnomalies(ctx context.Context, orgID string) ([]AnomalyAlert, error) {
+	detector := NewAnomalyDetector(s.store)
+	return detector.DetectAnomalies(ctx, []string{orgID})
+}
+
 func (s *UsageService) buildAlerts(usage UsageDimensions) []UsageAlert {
 	var alerts []UsageAlert
 

@@ -173,6 +173,327 @@ paths:
               schema:
                 $ref: '#/components/schemas/CurrentUsageResponse'
 
+  /v1/usage/history:
+    get:
+      tags:
+        - Usage
+      summary: Get usage history
+      security:
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Usage history entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/usage/forecast:
+    get:
+      tags:
+        - Usage
+      summary: Get usage forecast
+      security:
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Usage forecast
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/usage/projects:
+    get:
+      tags:
+        - Usage
+      summary: Get per-project cost allocation
+      security:
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Project cost entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/usage/anomalies:
+    get:
+      tags:
+        - Usage
+      summary: Get anomaly alerts
+      security:
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Anomaly alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/usage/export:
+    get:
+      tags:
+        - Usage
+      summary: Export usage as CSV
+      security:
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+
+  /v1/spending-limit:
+    get:
+      tags:
+        - Usage
+      summary: Get spending limit
+      security:
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Spending limit info
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      tags:
+        - Usage
+      summary: Update spending limit
+      security:
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit_microusd:
+                  type: integer
+                action:
+                  type: string
+      responses:
+        '200':
+          description: Spending limit updated
+
+  /v1/cost-estimate:
+    get:
+      tags:
+        - Usage
+      summary: Get compute cost estimate
+      security:
+        - internalSecret: []
+      parameters:
+        - name: preset
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: timeout_secs
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: org_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cost estimate
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/downgrade-preview:
+    get:
+      tags:
+        - Usage
+      summary: Preview downgrade impact
+      security:
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: target_tier
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Downgrade impact preview
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/referrals:
+    post:
+      tags:
+        - Referrals
+      summary: Create referral code
+      security:
+        - internalSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                org_id:
+                  type: string
+      responses:
+        '201':
+          description: Referral created
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Referrals
+      summary: List referrals
+      security:
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Referral list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/referrals/activate:
+    post:
+      tags:
+        - Referrals
+      summary: Activate referral code
+      security:
+        - internalSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                referred_org_id:
+                  type: string
+      responses:
+        '200':
+          description: Referral activated
+          content:
+            application/json:
+              schema:
+                type: object
+
   /v1/projects:
     post:
       tags:

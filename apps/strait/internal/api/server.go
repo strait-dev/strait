@@ -378,6 +378,7 @@ type Server struct {
 	polarWebhook       http.Handler
 	billingEnforcer    BillingEnforcer
 	usageService       UsageService
+	referralService    ReferralService
 }
 
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
@@ -395,6 +396,21 @@ type BillingEnforcer interface {
 // UsageService provides org usage data for the billing dashboard.
 type UsageService interface {
 	GetCurrentUsage(ctx context.Context, orgID string, projectCount, memberCount int) (*billing.CurrentUsageResponse, error)
+	GetUsageHistory(ctx context.Context, orgID string, from, to time.Time) ([]billing.UsageHistoryEntry, error)
+	GetUsageForecast(ctx context.Context, orgID string) (*billing.UsageForecastResponse, error)
+	GetProjectCosts(ctx context.Context, orgID string, from, to time.Time) ([]billing.ProjectCostEntry, error)
+	ExportUsageCSV(ctx context.Context, orgID string, from, to time.Time) ([]byte, error)
+	GetSpendingLimit(ctx context.Context, orgID string) (*billing.SpendingLimitResponse, error)
+	SetSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
+	PreviewDowngrade(ctx context.Context, orgID string, targetTier domain.PlanTier) (*billing.DowngradeImpact, error)
+	DetectAnomalies(ctx context.Context, orgID string) ([]billing.AnomalyAlert, error)
+}
+
+// ReferralService handles referral code management.
+type ReferralService interface {
+	GenerateCode(ctx context.Context, orgID string) (*billing.Referral, error)
+	ActivateReferral(ctx context.Context, code string, referredOrgID string) (*billing.Referral, error)
+	ListReferrals(ctx context.Context, orgID string) ([]billing.Referral, error)
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -418,6 +434,7 @@ type ServerDeps struct {
 	PolarWebhook     http.Handler             // Optional: Polar billing webhook handler.
 	BillingEnforcer  BillingEnforcer          // Optional: enables billing limit checks on project create.
 	UsageService     UsageService             // Optional: enables usage endpoint.
+	ReferralService  ReferralService          // Optional: enables referral endpoints.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -464,6 +481,7 @@ func NewServer(deps ServerDeps) *Server {
 		polarWebhook:       deps.PolarWebhook,
 		billingEnforcer:    deps.BillingEnforcer,
 		usageService:       deps.UsageService,
+		referralService:    deps.ReferralService,
 	}
 
 	if deps.TxPool != nil {

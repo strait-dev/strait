@@ -299,6 +299,95 @@ func (s *PgStore) SumOrgPeriodSpend(ctx context.Context, orgID string, from time
 	return total, nil
 }
 
+// ReferralStore implementation on PgStore.
+
+func (s *PgStore) CreateReferral(ctx context.Context, referral *Referral) error {
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO referrals (referrer_org_id, referral_code, status, credit_microusd)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, created_at
+	`, referral.ReferrerOrgID, referral.ReferralCode, referral.Status, referral.CreditMicrousd,
+	).Scan(&referral.ID, &referral.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("creating referral: %w", err)
+	}
+	return nil
+}
+
+func (s *PgStore) GetReferralByCode(ctx context.Context, code string) (*Referral, error) {
+	var r Referral
+	var referredOrgID, referredEmail *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, referrer_org_id, referral_code, referred_email, referred_org_id,
+			status, credit_microusd, activated_at, created_at
+		FROM referrals
+		WHERE referral_code = $1
+	`, code).Scan(
+		&r.ID, &r.ReferrerOrgID, &r.ReferralCode, &referredEmail, &referredOrgID,
+		&r.Status, &r.CreditMicrousd, &r.ActivatedAt, &r.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("getting referral by code: %w", err)
+	}
+	if referredOrgID != nil {
+		r.ReferredOrgID = *referredOrgID
+	}
+	if referredEmail != nil {
+		r.ReferredEmail = *referredEmail
+	}
+	return &r, nil
+}
+
+func (s *PgStore) ListReferralsByOrg(ctx context.Context, orgID string) ([]Referral, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, referrer_org_id, referral_code, referred_email, referred_org_id,
+			status, credit_microusd, activated_at, created_at
+		FROM referrals
+		WHERE referrer_org_id = $1
+		ORDER BY created_at DESC
+	`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing referrals by org: %w", err)
+	}
+	defer rows.Close()
+
+	var referrals []Referral
+	for rows.Next() {
+		var r Referral
+		var referredOrgID, referredEmail *string
+		if err := rows.Scan(
+			&r.ID, &r.ReferrerOrgID, &r.ReferralCode, &referredEmail, &referredOrgID,
+			&r.Status, &r.CreditMicrousd, &r.ActivatedAt, &r.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning referral: %w", err)
+		}
+		if referredOrgID != nil {
+			r.ReferredOrgID = *referredOrgID
+		}
+		if referredEmail != nil {
+			r.ReferredEmail = *referredEmail
+		}
+		referrals = append(referrals, r)
+	}
+	return referrals, rows.Err()
+}
+
+func (s *PgStore) ActivateReferral(ctx context.Context, code string, referredOrgID string) error {
+	now := time.Now()
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE referrals
+		SET status = 'activated', referred_org_id = $2, activated_at = $3
+		WHERE referral_code = $1 AND status = 'pending'
+	`, code, referredOrgID, now)
+	if err != nil {
+		return fmt.Errorf("activating referral: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("referral not found or already activated")
+	}
+	return nil
+}
+
 func scanUsageRecords(rows pgx.Rows) ([]UsageRecord, error) {
 	var records []UsageRecord
 	for rows.Next() {
