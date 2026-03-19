@@ -48,9 +48,11 @@ func (c *Client) StreamRunEvents(ctx context.Context, runID string, handle func(
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
 	done := make(chan struct{})
-	defer close(done)
+	defer func() {
+		close(done)
+		_ = resp.Body.Close()
+	}()
 
 	go func() {
 		select {

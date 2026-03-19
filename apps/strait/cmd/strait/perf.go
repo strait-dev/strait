@@ -93,7 +93,7 @@ func parsePerfPeriodHours(raw string) (int, error) {
 	case "30d":
 		return 24 * 30, nil
 	case "90d":
-		return 24 * 30, nil
+		return 24 * 90, nil
 	default:
 		return 0, fmt.Errorf("invalid --period %q: use one of 24h, 72h, 7d, 30d, 90d", raw)
 	}

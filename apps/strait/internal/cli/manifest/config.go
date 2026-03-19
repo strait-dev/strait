@@ -56,6 +56,7 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 	default:
 		// Try JSON first, then YAML.
 		if err := json.Unmarshal(data, &cfg); err != nil {
+			cfg = ProjectConfig{} // Reset to avoid partial state from failed JSON parse.
 			if yamlErr := yaml.Unmarshal(data, &cfg); yamlErr != nil {
 				return nil, fmt.Errorf("parse config %s: unable to parse as JSON or YAML", path)
 			}

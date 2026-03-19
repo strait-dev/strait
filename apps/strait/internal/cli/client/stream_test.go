@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +118,101 @@ func TestStreamRunEvents_ContextCancellation(t *testing.T) {
 	err := <-errCh
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestStreamRunEvents_ServerCloses(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"event\",\"message\":\"one\",\"timestamp\":\"2026-03-19T10:00:00Z\"}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"event\",\"message\":\"two\",\"timestamp\":\"2026-03-19T10:00:01Z\"}\n\n")
+		flusher.Flush()
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	var count int
+	err := c.StreamRunEvents(context.Background(), "run-1", func(msg RunStreamMessage) error {
+		count++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 events, got %d", count)
+	}
+}
+
+func TestStreamRunEvents_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, "data: {not-json\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	err := c.StreamRunEvents(context.Background(), "run-1", func(RunStreamMessage) error {
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "decode run stream event") {
+		t.Fatalf("expected decode error, got: %v", err)
+	}
+}
+
+func TestStreamRunEvents_ErrorEvent(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, "event: error\ndata: {\"error\":\"server broke\",\"timestamp\":\"2026-03-19T10:00:00Z\"}\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	err := c.StreamRunEvents(context.Background(), "run-1", func(RunStreamMessage) error {
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "run stream error: server broke") {
+		t.Fatalf("expected error event, got: %v", err)
+	}
+}
+
+func TestStreamRunEvents_MultiLineData(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"event\",\"message\":\"hello\",\n")
+		_, _ = fmt.Fprint(w, "data: \"timestamp\":\"2026-03-19T10:00:00Z\"}\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	var messages []RunStreamMessage
+	err := c.StreamRunEvents(context.Background(), "run-1", func(msg RunStreamMessage) error {
+		messages = append(messages, msg)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+	if messages[0].Message != "hello" {
+		t.Fatalf("expected message 'hello', got %q", messages[0].Message)
 	}
 }

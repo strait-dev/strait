@@ -348,6 +348,20 @@ func findSubcommand(t *testing.T, parent interface{ Commands() []*cobra.Command 
 	return nil
 }
 
+func TestWorkflowsTriggerCommand_HasProjectFlag(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	wf := findSubcommand(t, cmd, "workflows")
+	trigger := findSubcommand(t, wf, "trigger")
+
+	for _, name := range []string{"project", "payload", "payload-file"} {
+		if trigger.Flags().Lookup(name) == nil {
+			t.Errorf("workflows trigger missing --%s flag", name)
+		}
+	}
+}
+
 func assertSubcommands(t *testing.T, parent interface{ Commands() []*cobra.Command }, expected []string) {
 	t.Helper()
 	subs := make(map[string]bool)

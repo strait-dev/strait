@@ -352,6 +352,7 @@ func newWorkflowsRunsCommand(state *appState) *cobra.Command {
 func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 	var payload string
 	var payloadFile string
+	var projectID string
 
 	cmd := &cobra.Command{
 		Use:   "trigger <workflow-id-or-slug>",
@@ -368,7 +369,12 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			req := client.TriggerWorkflowRequest{ProjectID: state.opts.projectID}
+			projectID, err = requireProjectID(state, projectID)
+			if err != nil {
+				return err
+			}
+
+			req := client.TriggerWorkflowRequest{ProjectID: projectID}
 			if payloadFile != "" {
 				raw, err := os.ReadFile(payloadFile) //nolint:gosec // payloadFile is from --payload-file CLI flag
 				if err != nil {
@@ -392,6 +398,7 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 
 	cmd.Flags().StringVar(&payload, "payload", "", "inline JSON payload")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "path to payload JSON file")
+	cmd.Flags().StringVar(&projectID, "project", "", "project ID")
 
 	return cmd
 }

@@ -55,5 +55,9 @@ func openBrowser(url string) error {
 	default:
 		return fmt.Errorf("unsupported platform for browser open; visit: %s", url)
 	}
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait() //nolint:errcheck // detached browser process
+	return nil
 }

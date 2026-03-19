@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"strait/internal/cli/client"
 
@@ -69,8 +70,7 @@ func newTriggerCommand(state *appState) *cobra.Command {
 				return nil
 			}
 
-			watchCmd := newRunsWatchCommand(state)
-			return watchCmd.RunE(watchCmd, []string{resp.ID})
+			return watchRunUntilDone(cmd.Context(), state, resp.ID, 2*time.Second, 5*time.Minute)
 		},
 	}
 

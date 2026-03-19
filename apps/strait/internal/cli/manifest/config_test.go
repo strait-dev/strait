@@ -3,6 +3,7 @@ package manifest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -197,5 +198,100 @@ func TestLoadProjectConfig_EmptyFile(t *testing.T) {
 	_, err := LoadProjectConfig(path)
 	if err == nil {
 		t.Fatal("expected error for empty file")
+	}
+}
+
+func TestLoadProjectConfig_FallbackResetsBetweenParsers(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	// Write a file with unknown extension containing valid YAML.
+	// Prepend partial JSON-like bytes that would partially populate cfg.
+	content := "project:\n  id: from-yaml\n"
+	path := filepath.Join(dir, "config.conf")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadProjectConfig(path)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig: %v", err)
+	}
+	if cfg.Project.ID != "from-yaml" {
+		t.Fatalf("expected project.id=from-yaml, got %q", cfg.Project.ID)
+	}
+}
+
+func TestLoadProjectConfig_FallbackJSON(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	content := `{"project":{"id":"from-json"}}`
+	path := filepath.Join(dir, "config.conf")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadProjectConfig(path)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig: %v", err)
+	}
+	if cfg.Project.ID != "from-json" {
+		t.Fatalf("expected project.id=from-json, got %q", cfg.Project.ID)
+	}
+}
+
+func TestLoadProjectConfig_FallbackBothFail(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.conf")
+	if err := os.WriteFile(path, []byte("!@#$garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadProjectConfig(path)
+	if err == nil {
+		t.Fatal("expected error for unparseable content")
+	}
+	if !strings.Contains(err.Error(), "unable to parse as JSON or YAML") {
+		t.Fatalf("expected 'unable to parse' error, got: %v", err)
+	}
+}
+
+func TestLoadProjectConfig_FileNotFound(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadProjectConfig("/tmp/no-such-file-abc123.json")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestFindConfigFile_StraitYaml(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".strait.yaml"), []byte("project:\n  id: p1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := FindConfigFile(dir)
+	if filepath.Base(got) != ".strait.yaml" {
+		t.Fatalf("expected .strait.yaml, got %q", got)
+	}
+}
+
+func TestFindConfigFile_StraitYml(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".strait.yml"), []byte("project:\n  id: p1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := FindConfigFile(dir)
+	if filepath.Base(got) != ".strait.yml" {
+		t.Fatalf("expected .strait.yml, got %q", got)
 	}
 }

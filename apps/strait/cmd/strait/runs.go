@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -284,6 +285,48 @@ func newRunsWatchCommand(state *appState) *cobra.Command {
 	return cmd
 }
 
+// watchRunUntilDone polls a run until it reaches a terminal state. It is used by
+// trigger --wait and replay --wait to avoid synthesizing a cobra command context.
+func watchRunUntilDone(ctx context.Context, state *appState, runID string, interval, timeout time.Duration) error {
+	cli, err := newAPIClient(state)
+	if err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(timeout)
+	for {
+		run, err := cli.GetRun(ctx, runID)
+		if err != nil {
+			return err
+		}
+
+		if err := printData(state, map[string]any{
+			"id":      run.ID,
+			"status":  run.Status,
+			"attempt": run.Attempt,
+		}); err != nil {
+			return err
+		}
+
+		if run.Status.IsTerminal() {
+			if run.Status == domain.StatusCompleted {
+				return nil
+			}
+			return fmt.Errorf("run reached terminal status %q", run.Status)
+		}
+
+		if timeout > 0 && time.Now().After(deadline) {
+			return fmt.Errorf("watch timeout reached")
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(interval):
+		}
+	}
+}
+
 func newRunsReplayCommand(state *appState) *cobra.Command {
 	var wait bool
 
@@ -315,8 +358,7 @@ func newRunsReplayCommand(state *appState) *cobra.Command {
 				return nil
 			}
 
-			watchCmd := newRunsWatchCommand(state)
-			return watchCmd.RunE(watchCmd, []string{triggered.ID})
+			return watchRunUntilDone(cmd.Context(), state, triggered.ID, 2*time.Second, 5*time.Minute)
 		},
 	}
 
