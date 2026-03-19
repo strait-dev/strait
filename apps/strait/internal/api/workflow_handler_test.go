@@ -45,7 +45,7 @@ func (m *mockWorkflowTrigger) ApproveStep(ctx context.Context, workflowRunID, st
 	return nil
 }
 
-func (m *mockWorkflowTrigger) SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error {
+func (m *mockWorkflowTrigger) SkipStep(ctx context.Context, workflowRunID, stepRef, reason, actor string) error {
 	if m.skipStepFn != nil {
 		return m.skipStepFn(ctx, workflowRunID, stepRef, reason)
 	}

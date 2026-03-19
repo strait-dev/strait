@@ -2615,7 +2615,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual"); err != nil {
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if !updated {
@@ -2650,7 +2650,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", ""); err != nil {
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -2663,7 +2663,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		err := cb.SkipStep(context.Background(), "wr-1", "s1", "")
+		err := cb.SkipStep(context.Background(), "wr-1", "s1", "", "")
 		if err == nil || !strings.Contains(err.Error(), "cannot skip step in running status") {
 			t.Fatalf("expected running-status error, got %v", err)
 		}
@@ -2677,7 +2677,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		err := cb.SkipStep(context.Background(), "wr-1", "s1", "")
+		err := cb.SkipStep(context.Background(), "wr-1", "s1", "", "")
 		if err == nil || !strings.Contains(err.Error(), "cannot skip step in completed status") {
 			t.Fatalf("expected completed-status error, got %v", err)
 		}
@@ -2719,7 +2719,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "rejected by admin"); err != nil {
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "rejected by admin", "user_admin"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if approvalUpdateArgs.id != "apr-1" {
@@ -2768,7 +2768,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", ""); err != nil {
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if !updateCalled {
@@ -2776,8 +2776,9 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 	})
 
-	t.Run("skip step with pending approval — approval update fails gracefully", func(t *testing.T) {
+	t.Run("skip step with pending approval — approval update fails returns error", func(t *testing.T) {
 		t.Parallel()
+		stepUpdated := false
 		ms := &mockCallbackStore{
 			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
 				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
@@ -2789,6 +2790,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepPending}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				stepUpdated = true
 				return nil
 			},
 			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
@@ -2797,17 +2799,15 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
 				return errors.New("db down")
 			},
-			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
-				return nil, nil
-			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return nil, nil
-			},
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "reason"); err != nil {
-			t.Fatalf("expected skip to succeed despite approval update failure, got %v", err)
+		err := cb.SkipStep(context.Background(), "wr-1", "s1", "reason", "")
+		if err == nil || !strings.Contains(err.Error(), "reject approval on skip") {
+			t.Fatalf("expected reject-approval error, got %v", err)
+		}
+		if stepUpdated {
+			t.Fatal("step should not be updated when approval rejection fails")
 		}
 	})
 
@@ -2843,7 +2843,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "reason"); err != nil {
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "reason", ""); err != nil {
 			t.Fatalf("expected skip to succeed despite approval lookup failure, got %v", err)
 		}
 		if updateCalled {
@@ -2883,7 +2883,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual"); err != nil {
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if updateCalled {
@@ -2923,7 +2923,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual"); err != nil {
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if updateCalled {
@@ -2963,7 +2963,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual"); err != nil {
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if updateCalled {
@@ -3011,7 +3011,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(engineStore, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "rejected by admin"); err != nil {
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "rejected by admin", "user_admin"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(deliveries) != 1 {
@@ -3019,6 +3019,16 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 		if deliveries[0].EventType != domain.NotificationEventApprovalRejected {
 			t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalRejected, deliveries[0].EventType)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
+			t.Fatalf("unmarshal payload: %v", err)
+		}
+		if payload["rejected_by"] != "user_admin" {
+			t.Errorf("expected rejected_by=user_admin, got %v", payload["rejected_by"])
+		}
+		if payload["reason"] != "rejected by admin" {
+			t.Errorf("expected reason='rejected by admin', got %v", payload["reason"])
 		}
 	})
 }

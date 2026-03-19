@@ -343,7 +343,7 @@ type WorkflowCallback interface {
 	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
 	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
 	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
-	SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error
+	SkipStep(ctx context.Context, workflowRunID, stepRef, reason, actor string) error
 	ForceCompleteStep(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
 }
 

@@ -444,7 +444,7 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	return s.checkWorkflowCompletion(ctx, workflowRunID, wc)
 }
 
-func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error {
+func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, reason, actor string) error {
 	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, workflowRunID, stepRef)
 	if err != nil {
 		return fmt.Errorf("get step run: %w", err)
@@ -456,6 +456,35 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 		return fmt.Errorf("cannot skip step in %s status", stepRun.Status)
 	}
 
+	wc, wcErr := s.loadWfCtx(ctx, workflowRunID)
+	if wcErr != nil {
+		return fmt.Errorf("load workflow context: %w", wcErr)
+	}
+
+	// Reject any pending approval before marking the step as skipped so
+	// both writes must succeed atomically — if the approval rejection
+	// fails the step stays in its current state and the caller can retry.
+	if approval, aprErr := s.store.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID); aprErr == nil && approval != nil && approval.Status == domain.ApprovalStatusPending {
+		if updErr := s.store.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusRejected, "", nil, reason); updErr != nil {
+			return fmt.Errorf("reject approval on skip: %w", updErr)
+		}
+		if s.engine != nil {
+			rejectedBy := actor
+			if rejectedBy == "" {
+				rejectedBy = "skip"
+			}
+			s.engine.enqueueApprovalNotification(ctx, wc.run.ProjectID,
+				domain.NotificationEventApprovalRejected, map[string]any{
+					"approval_id":     approval.ID,
+					"workflow_run_id": wc.run.ID,
+					"workflow_id":     wc.run.WorkflowID,
+					"step_ref":        stepRun.StepRef,
+					"rejected_by":     rejectedBy,
+					"reason":          reason,
+				})
+		}
+	}
+
 	now := time.Now()
 	fields := map[string]any{"finished_at": now}
 	if reason != "" {
@@ -465,28 +494,6 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 		return fmt.Errorf("skip step: %w", err)
 	}
 	stepRun.Status = domain.StepSkipped
-	wc, wcErr := s.loadWfCtx(ctx, workflowRunID)
-	if wcErr != nil {
-		return fmt.Errorf("load workflow context: %w", wcErr)
-	}
-
-	// Transition any pending approval to rejected so the reaper does not
-	// pick it up later as timed_out.
-	if approval, aprErr := s.store.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID); aprErr == nil && approval != nil && approval.Status == domain.ApprovalStatusPending {
-		if updErr := s.store.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusRejected, "", nil, reason); updErr != nil {
-			s.logger.Warn("failed to reject approval on skip (non-fatal)", "approval_id", approval.ID, "error", updErr)
-		} else if s.engine != nil {
-			s.engine.enqueueApprovalNotification(ctx, wc.run.ProjectID,
-				domain.NotificationEventApprovalRejected, map[string]any{
-					"approval_id":     approval.ID,
-					"workflow_run_id": wc.run.ID,
-					"workflow_id":     wc.run.WorkflowID,
-					"step_ref":        stepRun.StepRef,
-					"rejected_by":     "skip",
-					"reason":          reason,
-				})
-		}
-	}
 
 	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 		return fmt.Errorf("fan-in after skip: %w", err)

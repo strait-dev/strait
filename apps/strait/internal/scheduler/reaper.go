@@ -497,10 +497,10 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 		return
 	}
 
-	// Clean stale entries from reminderSent (older than 1 hour).
+	// Clean stale entries from reminderSent once the approval has expired.
 	now := time.Now()
-	for id, sentAt := range r.reminderSent {
-		if now.Sub(sentAt) > time.Hour {
+	for id, expiresAt := range r.reminderSent {
+		if now.After(expiresAt) {
 			delete(r.reminderSent, id)
 		}
 	}
@@ -558,7 +558,11 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 			}
 		}
 
-		r.reminderSent[approval.ID] = now
+		if approval.ExpiresAt != nil {
+			r.reminderSent[approval.ID] = *approval.ExpiresAt
+		} else {
+			r.reminderSent[approval.ID] = now.Add(time.Hour)
+		}
 	}
 }
 

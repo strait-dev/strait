@@ -383,7 +383,7 @@ func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.workflowCallback.SkipStep(r.Context(), workflowRunID, stepRef, req.Reason); err != nil {
+	if err := s.workflowCallback.SkipStep(r.Context(), workflowRunID, stepRef, req.Reason, actorFromContext(r.Context())); err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
