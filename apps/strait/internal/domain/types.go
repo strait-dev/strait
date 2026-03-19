@@ -58,7 +58,6 @@ const (
 	NotificationEventApprovalReminder  = "approval.reminder"
 	NotificationEventApprovalExpired   = "approval.expired"
 	NotificationEventApprovalCompleted = "approval.completed"
-	NotificationEventApprovalRejected  = "approval.rejected"
 	NotificationEventBudgetThreshold   = "budget.threshold_reached"
 )
 

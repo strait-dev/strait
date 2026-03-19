@@ -431,6 +431,7 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 		s.engine.enqueueApprovalNotification(ctx, wc.run.ProjectID,
 			domain.NotificationEventApprovalCompleted, map[string]any{
 				"approval_id":     approval.ID,
+				"decision":        "approved",
 				"workflow_run_id": wc.run.ID,
 				"workflow_id":     wc.run.WorkflowID,
 				"step_ref":        stepRun.StepRef,
@@ -483,12 +484,14 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 		s.emitApprovalAuditEvent(ctx, wc.run, stepRun, approval, actor, "workflow.step.rejected", "rejected", reason)
 		if s.engine != nil {
 			s.engine.enqueueApprovalNotification(ctx, wc.run.ProjectID,
-				domain.NotificationEventApprovalRejected, map[string]any{
+				domain.NotificationEventApprovalCompleted, map[string]any{
 					"approval_id":     approval.ID,
+					"decision":        "rejected",
 					"workflow_run_id": wc.run.ID,
 					"workflow_id":     wc.run.WorkflowID,
 					"step_ref":        stepRun.StepRef,
 					"rejected_by":     rejectedBy,
+					"rejected_at":     now,
 					"reason":          reason,
 				})
 		}

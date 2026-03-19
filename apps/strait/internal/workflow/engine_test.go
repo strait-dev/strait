@@ -2702,6 +2702,72 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 			t.Fatalf("expected system cost gate actor, got %s/%s", capturedAudit.ActorID, capturedAudit.ActorType)
 		}
 	})
+
+	t.Run("success emits approval completed notification with approved decision", func(t *testing.T) {
+		t.Parallel()
+		var deliveries []*domain.NotificationDelivery
+		ms := &mockCallbackStore{
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepWaiting}, nil
+			},
+			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+				return &domain.WorkflowStepApproval{ID: "apr-1", Status: "pending", Approvers: []string{"alice"}}, nil
+			},
+			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{{ID: "sr-1", StepRef: "s1", Status: domain.StepCompleted}}, nil
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1"}}, nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+		}
+		engineStore := &mockEngineStore{
+			listEnabledNotificationChannelsFn: func(_ string) ([]domain.NotificationChannel, error) {
+				return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+			},
+			createNotificationDeliveryFn: func(d *domain.NotificationDelivery) error {
+				deliveries = append(deliveries, d)
+				return nil
+			},
+		}
+		cb := NewStepCallback(ms, NewWorkflowEngine(engineStore, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.ApproveStep(context.Background(), "wr-1", "s1", "alice"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(deliveries) != 1 {
+			t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+		}
+		if deliveries[0].EventType != domain.NotificationEventApprovalCompleted {
+			t.Fatalf("expected event type %s, got %s", domain.NotificationEventApprovalCompleted, deliveries[0].EventType)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
+			t.Fatalf("unmarshal payload: %v", err)
+		}
+		if payload["decision"] != "approved" {
+			t.Fatalf("expected decision approved, got %v", payload["decision"])
+		}
+		if payload["approved_by"] != "alice" {
+			t.Fatalf("expected approved_by alice, got %v", payload["approved_by"])
+		}
+		if _, ok := payload["approved_at"]; !ok {
+			t.Fatal("expected approved_at in payload")
+		}
+	})
 }
 
 func TestStepCallback_SkipStep(t *testing.T) {
@@ -3161,15 +3227,21 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		if len(deliveries) != 1 {
 			t.Fatalf("expected 1 delivery, got %d", len(deliveries))
 		}
-		if deliveries[0].EventType != domain.NotificationEventApprovalRejected {
-			t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalRejected, deliveries[0].EventType)
+		if deliveries[0].EventType != domain.NotificationEventApprovalCompleted {
+			t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalCompleted, deliveries[0].EventType)
 		}
 		var payload map[string]any
 		if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
 			t.Fatalf("unmarshal payload: %v", err)
 		}
+		if payload["decision"] != "rejected" {
+			t.Fatalf("expected decision rejected, got %v", payload["decision"])
+		}
 		if payload["rejected_by"] != "user_admin" {
 			t.Errorf("expected rejected_by=user_admin, got %v", payload["rejected_by"])
+		}
+		if _, ok := payload["rejected_at"]; !ok {
+			t.Fatal("expected rejected_at in payload")
 		}
 		if payload["reason"] != "rejected by admin" {
 			t.Errorf("expected reason='rejected by admin', got %v", payload["reason"])
