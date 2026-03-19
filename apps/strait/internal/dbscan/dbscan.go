@@ -21,6 +21,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var executionTrace []byte
 	var tagsJSON []byte
 	var runError *string
+	var errorClass *string
 	var parentRunID *string
 	var idempotencyKey *string
 	var workflowStepRunID *string
@@ -42,6 +43,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&result,
 		&metadata,
 		&runError,
+		&errorClass,
 		&run.TriggeredBy,
 		&run.ScheduledAt,
 		&run.StartedAt,
@@ -91,6 +93,9 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if runError != nil {
 		run.Error = *runError
+	}
+	if errorClass != nil {
+		run.ErrorClass = *errorClass
 	}
 	if parentRunID != nil {
 		run.ParentRunID = *parentRunID

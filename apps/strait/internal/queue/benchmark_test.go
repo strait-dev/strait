@@ -29,7 +29,7 @@ const dequeueQueryTemplate = `
 			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT 1
 		)
-		RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
+		RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by`
 

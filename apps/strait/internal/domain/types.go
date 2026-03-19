@@ -393,6 +393,7 @@ type JobRun struct {
 	Result                json.RawMessage   `json:"result,omitempty"`
 	Metadata              map[string]string `json:"metadata,omitempty"`
 	Error                 string            `json:"error,omitempty"`
+	ErrorClass            string            `json:"error_class,omitempty"`
 	TriggeredBy           string            `json:"triggered_by"`
 	ScheduledAt           *time.Time        `json:"scheduled_at,omitempty"`
 	StartedAt             *time.Time        `json:"started_at,omitempty"`
