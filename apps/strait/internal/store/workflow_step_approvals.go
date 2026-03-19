@@ -2,11 +2,13 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"strait/internal/domain"
 
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -51,7 +53,14 @@ func (q *Queries) GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRu
 		FROM workflow_step_approvals
 		WHERE workflow_step_run_id = $1`
 
-	return scanWorkflowStepApproval(q.db.QueryRow(ctx, query, stepRunID))
+	approval, err := scanWorkflowStepApproval(q.db.QueryRow(ctx, query, stepRunID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return approval, nil
 }
 
 func (q *Queries) UpdateWorkflowStepApproval(

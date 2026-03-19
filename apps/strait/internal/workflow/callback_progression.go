@@ -464,7 +464,11 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 	// Reject any pending approval before marking the step as skipped so
 	// both writes must succeed atomically — if the approval rejection
 	// fails the step stays in its current state and the caller can retry.
-	if approval, aprErr := s.store.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID); aprErr == nil && approval != nil && approval.Status == domain.ApprovalStatusPending {
+	approval, aprErr := s.store.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
+	if aprErr != nil {
+		return fmt.Errorf("get workflow step approval: %w", aprErr)
+	}
+	if approval != nil && approval.Status == domain.ApprovalStatusPending {
 		if updErr := s.store.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusRejected, "", nil, reason); updErr != nil {
 			return fmt.Errorf("reject approval on skip: %w", updErr)
 		}

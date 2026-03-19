@@ -4519,6 +4519,14 @@ func TestWorkflowStepApproval_CRUD(t *testing.T) {
 	if err := q.UpdateWorkflowStepApproval(ctx, newID(), "approved", "bob", &approvedAt, ""); err == nil {
 		t.Fatal("UpdateWorkflowStepApproval(unknown) error = nil, want error")
 	}
+
+	missing, err := q.GetWorkflowStepApprovalByStepRunID(ctx, newID())
+	if err != nil {
+		t.Fatalf("GetWorkflowStepApprovalByStepRunID(missing) error = %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("GetWorkflowStepApprovalByStepRunID(missing) = %#v, want nil", missing)
+	}
 }
 
 func TestListExpiredWorkflowStepApprovals(t *testing.T) {

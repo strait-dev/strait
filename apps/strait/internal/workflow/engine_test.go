@@ -2811,9 +2811,10 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 	})
 
-	t.Run("skip step with pending approval — approval lookup fails gracefully", func(t *testing.T) {
+	t.Run("skip step with pending approval — approval lookup failure aborts skip", func(t *testing.T) {
 		t.Parallel()
 		updateCalled := false
+		stepUpdated := false
 		ms := &mockCallbackStore{
 			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
 				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
@@ -2825,6 +2826,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepPending}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				stepUpdated = true
 				return nil
 			},
 			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
@@ -2843,11 +2845,15 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "reason", ""); err != nil {
-			t.Fatalf("expected skip to succeed despite approval lookup failure, got %v", err)
+		err := cb.SkipStep(context.Background(), "wr-1", "s1", "reason", "")
+		if err == nil || !strings.Contains(err.Error(), "get workflow step approval") {
+			t.Fatalf("expected approval lookup error, got %v", err)
 		}
 		if updateCalled {
 			t.Fatal("approval update should not be called when lookup fails")
+		}
+		if stepUpdated {
+			t.Fatal("step should not be updated when approval lookup fails")
 		}
 	})
 
