@@ -11,19 +11,19 @@ export const PRICING_FAQ_ITEMS: FaqItem[] = [
     _id: "faq-1",
     question: "Is there really a free tier?",
     answer:
-      "Yes. The Free plan gives you 1 organization, 3 projects, and 100 runs per day with no credit card required. It is designed for side projects and experimentation.",
+      "Yes. The Free plan gives you 1 organization, 2 projects, 3 members, and 5,000 runs per day with no credit card required. You also get 100 managed runs per month on the micro preset (10s timeout). It is designed for side projects and experimentation.",
   },
   {
     _id: "faq-2",
     question: "What are compute credits?",
     answer:
-      "Compute credits cover the infrastructure cost of running your jobs. Each plan includes a monthly credit allowance. Starter includes $5, Pro includes $20, and Enterprise gets a custom allocation.",
+      "Compute credits cover the infrastructure cost of managed execution. On paid plans, your monthly credit equals your subscription price: Starter gets $19.99/mo and Pro gets $49.99/mo. The Free plan includes 100 managed runs per month on the micro preset (10s timeout) instead of a dollar credit. Enterprise plans get a custom allocation.",
   },
   {
     _id: "faq-3",
     question: "What happens when I use all my compute credits?",
     answer:
-      "On Starter and Pro plans, additional runs are billed at a per-1,000-run overage rate. On Starter the overage rate is $2.00 per 1,000 runs. On Pro it is $1.50 per 1,000 runs. Enterprise plans have custom overage terms.",
+      "On Starter and Pro plans, additional runs are billed at $0.20 per 1,000 runs. You can configure spending limits to control overage. Enterprise plans have custom overage terms.",
   },
   {
     _id: "faq-4",
@@ -41,7 +41,7 @@ export const PRICING_FAQ_ITEMS: FaqItem[] = [
     _id: "faq-6",
     question: "What is the difference between runs/day and compute credits?",
     answer:
-      "Runs/day is a rate limit that controls how many jobs you can execute in a 24-hour period. Compute credits are a spending allowance that covers the infrastructure cost of those runs. You need both available capacity and credit to run jobs.",
+      "Runs/day is a rate limit that controls how many jobs you can execute in a 24-hour period (5,000 on Free, 25,000 on Starter, 100,000 on Pro). Compute credits are a separate spending allowance that covers the infrastructure cost of managed execution. You need both available capacity and credit to run managed jobs.",
   },
   {
     _id: "faq-7",
@@ -53,13 +53,13 @@ export const PRICING_FAQ_ITEMS: FaqItem[] = [
     _id: "faq-8",
     question: "What does Enterprise include?",
     answer:
-      "Enterprise includes unlimited everything, SSO/SAML, full RBAC, audit logs, all regions, custom retention, dedicated support, AI BYOK, and custom overage and spending terms. Contact sales to discuss your requirements.",
+      "Enterprise includes unlimited organizations, projects, members, runs, and concurrent runs. You also get 90-day retention, all regions, SSO/SAML, full RBAC, audit logs, dedicated support, AI BYOK, and custom compute and spending terms. Contact sales to discuss your requirements.",
   },
   {
     _id: "faq-9",
     question: "What regions are available?",
     answer:
-      "Free plans run in a single region (iad). Starter plans can deploy across 3 regions. Pro plans have access to 6 regions. Enterprise plans can deploy to all available regions.",
+      "Free plans run in a single region (iad). Starter plans can deploy across 6 regions. Pro and Enterprise plans have access to all available regions.",
   },
   {
     _id: "faq-10",

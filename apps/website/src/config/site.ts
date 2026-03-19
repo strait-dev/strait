@@ -5,9 +5,9 @@ const websiteUrl =
 
 export const siteConfig: SiteConfig = {
   name: "Strait",
-  title: "Strait - Postgres-Native Job Orchestration",
+  title: "Strait - Open Source Job Orchestration",
   description:
-    "Strait is a production-grade job orchestration platform for engineering teams and AI agents. Queue runs in PostgreSQL, orchestrate workflow DAGs, and ship reliable background execution without managing a broker.",
+    "Strait is an open-source job orchestration platform for background jobs, workflows, and AI agents. Queue, orchestrate, and observe every async workload from one platform.",
   url: websiteUrl,
   ogImage: "/og.png",
   logo: {
@@ -38,22 +38,22 @@ export const siteConfig: SiteConfig = {
     author: "Leonardo Maldonado",
     themeColor: "#2563EB",
     locale: "en_US",
-    siteName: "Strait — Postgres-Native Job Orchestration",
+    siteName: "Strait — Open Source Job Orchestration",
   },
   openGraph: {
     type: "website",
     locale: "en_US",
     url: websiteUrl,
-    title: "Strait — Postgres-Native Job Orchestration",
+    title: "Strait — Open Source Job Orchestration",
     description:
-      "Queue, orchestrate, and monitor jobs in one Go platform. Use PostgreSQL as your queue, run workflow DAGs with approvals and retries, and ship reliable background execution at production scale.",
+      "One platform to queue, orchestrate, and observe background jobs, workflows, and AI agents. Open-source, self-hostable, with SDKs for TypeScript, Python, Go, Ruby, and Rust.",
     siteName: "Strait",
     images: [
       {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "Strait — Postgres-Native Job Orchestration",
+        alt: "Strait — Open Source Job Orchestration",
       },
     ],
   },

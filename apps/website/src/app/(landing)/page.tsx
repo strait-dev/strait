@@ -20,8 +20,8 @@ const CodeExampleSection = dynamic(
 const ComparisonSection = dynamic(
   () => import("./components/comparison/comparison-section.tsx")
 );
-const SocialProofSection = dynamic(
-  () => import("./components/testimonials/social-proof-section.tsx")
+const ProblemSection = dynamic(
+  () => import("./components/common/hero/problem-section.tsx")
 );
 const CTA = dynamic(() => import("./components/common/cta/cta.tsx"));
 
@@ -37,7 +37,7 @@ export const metadata = generatePageMetadata({
     "workflow approvals",
     "AI agent orchestration",
     "managed execution",
-    "Fly Machines",
+    "open source job queue",
     "Strait",
   ],
 });
@@ -56,7 +56,7 @@ const HOW_TO_STEPS = [
   {
     title: "Monitor, observe, and scale",
     description:
-      "Track run state, costs, and health scores in real time. Scale with managed container execution on Fly Machines.",
+      "Track run state, costs, and health scores in real time. Scale with managed container execution across regions.",
   },
 ];
 
@@ -74,11 +74,11 @@ const LandingPage = () => {
       {howToSchema ? <JsonLd data={howToSchema} /> : null}
       <Hero />
       <LogoWall />
+      <ProblemSection />
       <FeatureBentoGrid />
       <CodeExampleSection />
       <ComparisonSection />
       <PricingTeaser />
-      <SocialProofSection />
       <CTA />
     </>
   );

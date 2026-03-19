@@ -29,7 +29,7 @@ export function StaticPricingTable() {
         <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-card p-1">
           <button
             className={cn(
-              "min-h-11 rounded-full px-5 py-2.5 font-medium text-sm transition-all",
+              "min-h-11 rounded-full px-5 py-2.5 font-medium text-sm transition-colors",
               interval === "monthly"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -41,7 +41,7 @@ export function StaticPricingTable() {
           </button>
           <button
             className={cn(
-              "min-h-11 rounded-full px-5 py-2.5 font-medium text-sm transition-all",
+              "min-h-11 rounded-full px-5 py-2.5 font-medium text-sm transition-colors",
               interval === "yearly"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -117,7 +117,7 @@ export function StaticPricingTable() {
 
               <div className="flex flex-1 flex-col px-6 pb-8 sm:px-8">
                 <div className="mt-8 mb-8 flex items-baseline gap-1">
-                  <span className="text-5xl text-foreground tabular-nums tracking-tight">
+                  <span className="text-4xl text-foreground tabular-nums tracking-tight sm:text-5xl">
                     {priceDisplay}
                   </span>
                   {!(isEnterprise || isFree) && (
@@ -135,7 +135,7 @@ export function StaticPricingTable() {
 
                 <div className="mb-8 border-border/40 border-t" />
 
-                {plan.computeCredit !== "$0 included" && (
+                {plan.computeCredit !== "100 runs/mo (micro, 10s)" && (
                   <p className="mb-4 font-medium text-foreground text-sm">
                     {plan.computeCredit} compute credit
                   </p>
@@ -159,7 +159,7 @@ export function StaticPricingTable() {
                 </ul>
 
                 <Button
-                  className={cn("w-full", "transition-all duration-300")}
+                  className="w-full transition-shadow duration-300"
                   render={<Link href={href} />}
                   variant={plan.highlighted ? "default" : "outline"}
                 >

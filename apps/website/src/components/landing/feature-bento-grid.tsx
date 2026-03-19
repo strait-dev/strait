@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import HeroDag from "@/components/landing/hero-dag.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
 
@@ -56,81 +57,6 @@ const QueueAnimation = () => {
   );
 };
 
-/* -- 2. DAG Workflows -- */
-const DagAnimation = () => {
-  const nodes = [
-    { x: 20, y: 30, label: "A" },
-    { x: 80, y: 15, label: "B" },
-    { x: 80, y: 45, label: "C" },
-    { x: 140, y: 30, label: "D" },
-    { x: 200, y: 30, label: "E" },
-  ];
-  const edges: [number, number][] = [
-    [0, 1],
-    [0, 2],
-    [1, 3],
-    [2, 3],
-    [3, 4],
-  ];
-  const [hoveredNode, setHoveredNode] = useState<number | null>(null);
-
-  return (
-    <svg className="h-full w-full" viewBox="0 0 240 60">
-      {edges.map(([from, to]) => {
-        const f = nodes[from];
-        const t = nodes[to];
-        if (!(f && t)) {
-          return null;
-        }
-        return (
-          <line
-            key={`${String(from)}-${String(to)}`}
-            opacity={0.3}
-            stroke="var(--primary)"
-            strokeWidth={1}
-            x1={f.x}
-            x2={t.x}
-            y1={f.y}
-            y2={t.y}
-          />
-        );
-      })}
-      {nodes.map((node, i) => (
-        <g
-          key={node.label}
-          onPointerEnter={() => setHoveredNode(i)}
-          onPointerLeave={() => setHoveredNode(null)}
-        >
-          <circle
-            cx={node.x}
-            cy={node.y}
-            fill={
-              hoveredNode === i
-                ? "color-mix(in oklch, var(--primary) 20%, transparent)"
-                : "color-mix(in oklch, var(--primary) 8%, transparent)"
-            }
-            r={hoveredNode === i ? 12 : 10}
-            stroke="var(--primary)"
-            strokeWidth={hoveredNode === i ? 1.5 : 1}
-            style={{ transition: "all 0.3s ease" }}
-          />
-          <text
-            dominantBaseline="central"
-            fill="var(--primary)"
-            fontSize={9}
-            fontWeight={600}
-            textAnchor="middle"
-            x={node.x}
-            y={node.y}
-          >
-            {node.label}
-          </text>
-        </g>
-      ))}
-    </svg>
-  );
-};
-
 /* -- 3. Managed Execution -- */
 const ExecutionAnimation = () => {
   const tick = useLoopCounter(2000);
@@ -143,7 +69,7 @@ const ExecutionAnimation = () => {
 
   return (
     <div className="flex flex-col gap-2 font-mono text-xs">
-      <div className="mb-1 text-muted-foreground/50">Fly Machines</div>
+      <div className="mb-1 text-muted-foreground/50">Regions</div>
       {regions.map((region, i) => {
         const isActive = i === activeIdx;
         return (
@@ -323,54 +249,54 @@ const FEATURES: FeatureCard[] = [
   {
     id: "job-orchestration",
     title: "Job Orchestration",
-    subtitle: "Define, trigger, retry, schedule",
+    subtitle: "Never lose a job again",
     description:
-      "Define, trigger, retry, schedule. 13-state run lifecycle with exponential backoff, dead-letter routing, and automatic cleanup.",
+      "Every run tracks through 13 states from queued to completed. Failed jobs retry with exponential backoff, dead runs route to DLQ for review, and stale jobs clean up on their own.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: QueueAnimation,
   },
   {
     id: "workflow-dags",
     title: "Workflow DAGs",
-    subtitle: "Wire any dependency graph",
+    subtitle: "Complex pipelines, simple code",
     description:
-      "Visual pipelines with conditions, approval gates, fan-out/fan-in. Model complex pipelines as directed acyclic graphs.",
-    span: "sm:col-span-1 lg:col-span-6",
-    Animation: DagAnimation,
+      "Wire steps into dependency graphs with conditions, approval gates, and fan-out/fan-in. Stop coordinating jobs with shell scripts and cron hacks.",
+    span: "sm:col-span-1 lg:col-span-8",
+    Animation: HeroDag,
   },
   {
     id: "managed-execution",
     title: "Managed Execution",
-    subtitle: "Containers on Fly Machines",
+    subtitle: "Zero infrastructure to manage",
     description:
-      "Your code runs in containers on Fly Machines. Warm pools, multi-region deployment, and automatic scaling.",
-    span: "sm:col-span-1 lg:col-span-6",
+      "Your code runs in containers with warm pools, multi-region deployment, and automatic scaling. Ship without provisioning servers.",
+    span: "sm:col-span-1 lg:col-span-4",
     Animation: ExecutionAnimation,
   },
   {
     id: "ai-agent-platform",
     title: "AI Agent Platform",
-    subtitle: "Cost tracking and guardrails",
+    subtitle: "Run agents without runaway costs",
     description:
-      "Cost tracking, guardrails, persistent memory, MCP server. Set per-run budgets and track AI model token usage in real time.",
+      "Set per-run cost budgets, require human approval before expensive operations, and track token usage across every model call. Stay in control as agents scale.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: CostAnimation,
   },
   {
     id: "language-sdks",
     title: "5 Language SDKs",
-    subtitle: "TypeScript, Python, Go, Ruby, Rust",
+    subtitle: "Use the language you already know",
     description:
-      "TypeScript, Python, Go, Ruby, Rust. 186 operations each. Logging, heartbeats, checkpoints, and continuation.",
+      "TypeScript, Python, Go, Ruby, and Rust. Full coverage with logging, heartbeats, checkpoints, and continuation built into every SDK.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: SdkAnimation,
   },
   {
     id: "observability",
     title: "Built-in Observability",
-    subtitle: "OpenTelemetry and health scores",
+    subtitle: "Debug in seconds, not hours",
     description:
-      "OpenTelemetry, health scores, cost analytics, structured logs. Composite health scores from queue depth, throughput, and latency.",
+      "When a job fails, see exactly why. Health scores combine queue depth, throughput, and latency into a single number. OpenTelemetry and structured logs included.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: HealthAnimation,
   },
@@ -382,16 +308,18 @@ const FeatureBentoGrid = () => (
     <Shell variant="wide">
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
-          <span className="text-foreground">
-            Everything you need to ship reliable background execution.
-          </span>
+          Write code as if failures don&apos;t exist.
         </h2>
+        <p className="mt-4 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+          Strait handles retries, state, scaling, and observability so you can
+          focus on your product.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
         {FEATURES.map((feature, idx) => (
           <Reveal
-            className={`group overflow-hidden rounded-2xl border border-border/40 bg-card/50 shadow-sm transition-shadow duration-300 hover:shadow-md ${feature.span}`}
+            className={`group overflow-hidden rounded-2xl border border-border/40 bg-card/50 shadow-sm transition-[border-color,box-shadow] duration-300 hover:border-border/60 hover:shadow-lg ${feature.span}`}
             delay={idx * 0.06}
             key={feature.id}
             spring

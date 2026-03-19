@@ -41,7 +41,7 @@ const CTA = () => {
               className="max-w-3xl text-balance text-2xl text-primary-foreground leading-[1.1] sm:text-3xl lg:text-4xl"
               id={headingId}
             >
-              Get started in 5 minutes
+              Run your first job in 5 minutes
             </h2>
           </Reveal>
 
@@ -61,11 +61,10 @@ const CTA = () => {
           <Reveal delay={0.2} spring>
             <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row">
               <Button
-                className="transition-all duration-300 hover:animate-gradient-shimmer"
+                className="bg-primary-foreground text-primary transition-all duration-300 hover:bg-primary-foreground/90"
                 render={<Link href={dashboardHref("/login")} />}
-                variant="outline"
               >
-                Get Started Free
+                Start Building Free
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
               <Button
@@ -95,7 +94,7 @@ const CTA = () => {
 
           <Reveal delay={0.3}>
             <p className="mt-6 text-primary-foreground/50 text-sm">
-              No credit card required. Self-host or cloud.
+              Free tier included. No credit card required.
             </p>
           </Reveal>
         </div>

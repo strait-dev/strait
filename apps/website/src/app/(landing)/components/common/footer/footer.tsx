@@ -55,8 +55,8 @@ const Footer = () => {
                 />
               </Link>
               <p className="max-w-xs text-pretty text-muted-foreground text-sm leading-relaxed">
-                Production-grade job orchestration for teams building reliable
-                asynchronous systems.
+                Open-source job orchestration for background jobs, workflows,
+                and AI agents.
               </p>
             </div>
 

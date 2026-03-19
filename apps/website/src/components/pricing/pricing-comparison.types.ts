@@ -13,6 +13,7 @@ export type PricingSectionRow = {
   label: string;
   type: "text" | "boolean";
   values: Record<PlanKey, string | boolean | null>;
+  tooltip?: string;
   hidden?: boolean;
 };
 

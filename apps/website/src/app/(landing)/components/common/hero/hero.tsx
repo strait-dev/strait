@@ -3,8 +3,9 @@
 import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
+import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
   StaggerGroup,
@@ -12,6 +13,7 @@ import {
 } from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
 import { siteConfig } from "@/config/site.ts";
+import { SPRING_SNAPPY } from "@/lib/motion.ts";
 import { dashboardHref } from "@/lib/urls.ts";
 
 const CODE_TABS = [
@@ -89,6 +91,56 @@ const CODE_TABS = [
 
 type CodeToken = { text: string; kind: string };
 
+const CopyButton = ({ text }: { text: string }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [text]);
+
+  return (
+    <button
+      aria-label="Copy code to clipboard"
+      className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-foreground/5 hover:text-muted-foreground"
+      onClick={handleCopy}
+      type="button"
+    >
+      {copied ? (
+        <svg
+          className="size-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M20 6L9 17l-5-5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : (
+        <svg
+          className="size-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          viewBox="0 0 24 24"
+        >
+          <rect height="13" rx="2" width="13" x="9" y="9" />
+          <path
+            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+    </button>
+  );
+};
+
 const CodeSnippet = ({ tokens }: { tokens: readonly CodeToken[] }) => (
   <pre className="overflow-x-auto font-mono text-sm leading-relaxed">
     <code>
@@ -114,8 +166,39 @@ const CodeSnippet = ({ tokens }: { tokens: readonly CodeToken[] }) => (
   </pre>
 );
 
+function getPlainText(tokens: readonly CodeToken[]): string {
+  return tokens.map((t) => t.text).join("");
+}
+
 const Hero = () => {
   const [activeTab, setActiveTab] = useState(0);
+
+  const handleTabKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      let next = activeTab;
+      if (e.key === "ArrowRight") {
+        next = (activeTab + 1) % CODE_TABS.length;
+      } else if (e.key === "ArrowLeft") {
+        next = (activeTab - 1 + CODE_TABS.length) % CODE_TABS.length;
+      } else if (e.key === "Home") {
+        next = 0;
+      } else if (e.key === "End") {
+        next = CODE_TABS.length - 1;
+      } else {
+        return;
+      }
+      e.preventDefault();
+      setActiveTab(next);
+      const btn =
+        e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[
+          next
+        ];
+      btn?.focus();
+    },
+    [activeTab]
+  );
+
+  const currentTokens = CODE_TABS[activeTab]?.code ?? CODE_TABS[0].code;
 
   return (
     <section className="relative isolate overflow-hidden pt-32 pb-16 sm:pt-40 sm:pb-24">
@@ -127,21 +210,19 @@ const Hero = () => {
       <Shell variant="wide">
         <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
           <Reveal delay={0}>
-            <span className="kicker">OPEN SOURCE JOB ORCHESTRATION</span>
+            <span className="kicker">
+              SHIP PRODUCTS, NOT JOB INFRASTRUCTURE
+            </span>
           </Reveal>
 
           <Reveal delay={0.1} variant="blur">
-            <h1 className="mt-6 text-balance text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
-              <span className="text-foreground">
-                The infrastructure for background jobs, workflows, and AI
-                agents.
-              </span>{" "}
-              <span className="text-muted-foreground">
-                Open-source job orchestration with managed container execution,
-                workflow DAGs, and built-in AI cost tracking. 5 SDKs. Self-host
-                or cloud.
-              </span>
+            <h1 className="mt-6 text-balance text-4xl leading-[1.12] sm:text-5xl lg:text-6xl">
+              Background jobs, workflows, and AI agents that never lose state.
             </h1>
+            <p className="mt-6 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+              One platform to queue, orchestrate, and observe every async
+              workload. Open-source and self-hostable.
+            </p>
           </Reveal>
 
           <Reveal delay={0.2} spring>
@@ -151,7 +232,7 @@ const Hero = () => {
                 render={<Link href={dashboardHref("/login")} />}
                 variant="gradient"
               >
-                Get Started Free
+                Run Your First Job
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
               <Button
@@ -188,7 +269,7 @@ const Hero = () => {
             </StaggerItem>
             <StaggerItem>
               <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-                5 SDKs
+                Written in Go
               </span>
             </StaggerItem>
           </StaggerGroup>
@@ -204,26 +285,54 @@ const Hero = () => {
                 <div className="size-3 rounded-full bg-foreground/10" />
                 <div className="size-3 rounded-full bg-foreground/10" />
               </div>
-              {CODE_TABS.map((tab, i) => (
-                <button
-                  className={`rounded-md px-3 py-1 font-medium text-xs transition-colors ${
-                    activeTab === i
-                      ? "bg-foreground/10 text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  key={tab.label}
-                  onClick={() => setActiveTab(i)}
-                  type="button"
-                >
-                  {tab.label}
-                </button>
-              ))}
+              <div
+                aria-label="Code language"
+                className="flex items-center gap-1.5"
+                onKeyDown={handleTabKeyDown}
+                role="tablist"
+              >
+                {CODE_TABS.map((tab, i) => (
+                  <button
+                    aria-controls={`hero-tabpanel-${String(i)}`}
+                    aria-selected={activeTab === i}
+                    className={`rounded-md px-3 py-1 font-medium text-xs transition-colors ${
+                      activeTab === i
+                        ? "bg-foreground/10 text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    id={`hero-tab-${String(i)}`}
+                    key={tab.label}
+                    onClick={() => setActiveTab(i)}
+                    role="tab"
+                    tabIndex={activeTab === i ? 0 : -1}
+                    type="button"
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              <div className="ml-auto">
+                <CopyButton text={getPlainText(currentTokens)} />
+              </div>
             </div>
             {/* Code content */}
-            <div className="p-5 sm:p-6">
-              <CodeSnippet
-                tokens={CODE_TABS[activeTab]?.code ?? CODE_TABS[0].code}
-              />
+            <div
+              aria-labelledby={`hero-tab-${String(activeTab)}`}
+              className="p-5 sm:p-6"
+              id={`hero-tabpanel-${String(activeTab)}`}
+              role="tabpanel"
+            >
+              <AnimatePresence mode="wait">
+                <motion.div
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  initial={{ opacity: 0, y: 8 }}
+                  key={activeTab}
+                  transition={SPRING_SNAPPY}
+                >
+                  <CodeSnippet tokens={currentTokens} />
+                </motion.div>
+              </AnimatePresence>
             </div>
           </div>
         </Reveal>

@@ -7,24 +7,38 @@ const COMPETITORS = ["Strait", "Trigger.dev", "Inngest", "Temporal"] as const;
 
 const ROWS = [
   {
-    feature: "SDKs",
-    values: ["5", "1", "1", "4"],
+    feature: "Language SDKs",
+    values: [
+      "5 (TS, Py, Go, Rb, Rust)",
+      "1 (TypeScript)",
+      "1 (TypeScript)",
+      "4 (Go, Java, Py, TS)",
+    ],
   },
   {
     feature: "Self-hosting",
-    values: ["Simple (Postgres + Redis)", "Limited", "No", "Complex"],
+    values: ["Simple", "Limited", "Not available", "Complex"],
   },
   {
     feature: "AI cost tracking",
-    values: ["Built-in", "No", "Limited", "No"],
+    values: ["Built-in per-run budgets", "No", "Limited", "No"],
   },
   {
     feature: "License",
     values: ["Apache 2.0", "Apache 2.0", "SSPL", "MIT"],
   },
   {
-    feature: "Managed execution",
-    values: ["Containers with warm pools", "Serverless", "Serverless", "BYO"],
+    feature: "Execution model",
+    values: [
+      "Containers with warm pools",
+      "Serverless",
+      "Serverless",
+      "Bring your own",
+    ],
+  },
+  {
+    feature: "Workflow approvals",
+    values: ["Built-in gates", "No", "No", "Manual setup"],
   },
 ] as const;
 
@@ -34,11 +48,12 @@ const ComparisonSection = () => (
       <Reveal variant="blur">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
-            <span className="text-foreground">Why Strait?</span>{" "}
-            <span className="text-muted-foreground">
-              See how Strait compares to other orchestration platforms.
-            </span>
+            How Strait compares.
           </h2>
+          <p className="mt-4 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+            More SDKs, simpler self-hosting, and AI cost tracking that
+            competitors don&apos;t offer.
+          </p>
         </div>
       </Reveal>
 
@@ -48,7 +63,10 @@ const ComparisonSection = () => (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-border/40 border-b bg-muted/30">
-                <th className="px-6 py-4 text-left font-medium text-muted-foreground">
+                <th
+                  className="px-6 py-4 text-left font-medium text-muted-foreground"
+                  scope="col"
+                >
                   Feature
                 </th>
                 {COMPETITORS.map((name, i) => (
@@ -57,6 +75,7 @@ const ComparisonSection = () => (
                       i === 0 ? "bg-primary/5 text-primary" : "text-foreground"
                     }`}
                     key={name}
+                    scope="col"
                   >
                     {name}
                   </th>
@@ -66,12 +85,15 @@ const ComparisonSection = () => (
             <tbody>
               {ROWS.map((row) => (
                 <tr
-                  className="border-border/40 border-b last:border-b-0"
+                  className="border-border/40 border-b transition-colors last:border-b-0 hover:bg-muted/20"
                   key={row.feature}
                 >
-                  <td className="px-6 py-4 font-medium text-foreground">
+                  <th
+                    className="px-6 py-4 text-left font-medium text-foreground"
+                    scope="row"
+                  >
                     {row.feature}
-                  </td>
+                  </th>
                   {row.values.map((value, i) => (
                     <td
                       className={`px-6 py-4 ${
@@ -112,17 +134,17 @@ const ComparisonSection = () => (
                   const competitorIdx = COMPETITORS.indexOf(competitor);
                   return (
                     <div
-                      className="flex items-start justify-between gap-4 text-sm"
+                      className="flex min-w-0 items-start justify-between gap-4 text-sm"
                       key={`${competitor}-${row.feature}`}
                     >
-                      <span className="text-muted-foreground">
+                      <span className="shrink-0 text-muted-foreground">
                         {row.feature}
                       </span>
-                      <div className="text-right">
-                        <div className="font-medium text-primary">
+                      <div className="min-w-0 text-right">
+                        <div className="truncate font-medium text-primary">
                           {row.values[0]}
                         </div>
-                        <div className="text-muted-foreground/60 text-xs">
+                        <div className="truncate text-muted-foreground/60 text-xs">
                           vs. {row.values[competitorIdx]}
                         </div>
                       </div>

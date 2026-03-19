@@ -79,14 +79,12 @@ const ProblemSection = () => (
       <Reveal variant="blur">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
-            <span className="text-foreground">
-              Your job infra is the bottleneck.
-            </span>{" "}
-            <span className="text-muted-foreground">
-              Teams bolt on queues, cron hacks, and retry wrappers until the
-              glue code is harder to maintain than the product itself.
-            </span>
+            Sound familiar?
           </h2>
+          <p className="mt-4 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+            Teams bolt on queues, cron hacks, and retry wrappers until the glue
+            code is harder to maintain than the product itself.
+          </p>
         </div>
       </Reveal>
 
@@ -102,7 +100,7 @@ const ProblemSection = () => (
             </StaggerItem>
           ))}
           <svg
-            className="pointer-events-none absolute inset-0 hidden h-full w-full opacity-20 lg:block"
+            className="pointer-events-none absolute inset-0 hidden size-full opacity-20 lg:block"
             viewBox="0 0 400 300"
           >
             <path

@@ -11,6 +11,12 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@strait/ui/components/tooltip";
 import { cn } from "@strait/ui/utils";
 import Link from "next/link";
 import { Fragment, useId, useState } from "react";
@@ -155,6 +161,24 @@ function MobilePlanCard({
                     return null;
                   }
 
+                  let label: React.ReactNode;
+                  if (row.type === "text") {
+                    label = value;
+                  } else if (row.tooltip) {
+                    label = (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger className="cursor-help underline decoration-muted-foreground/40 decoration-dashed underline-offset-4">
+                            {row.label}
+                          </TooltipTrigger>
+                          <TooltipContent>{row.tooltip}</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    );
+                  } else {
+                    label = row.label;
+                  }
+
                   return (
                     <li
                       className="flex gap-x-3"
@@ -164,9 +188,7 @@ function MobilePlanCard({
                         className="mt-0.5 size-4 shrink-0 text-success"
                         icon={Tick01Icon}
                       />
-                      <span className="text-muted-foreground">
-                        {row.type === "text" ? value : row.label}
-                      </span>
+                      <span className="text-muted-foreground">{label}</span>
                     </li>
                   );
                 })}
@@ -203,7 +225,7 @@ const PricingComparisonClient = ({
           >
             {header.title}
           </h2>
-          <p className="max-w-2xl text-balance text-lg text-muted-foreground leading-relaxed">
+          <p className="max-w-2xl text-pretty text-lg text-muted-foreground leading-relaxed">
             {header.description}
           </p>
         </div>
@@ -220,7 +242,7 @@ const PricingComparisonClient = ({
             ].map((option) => (
               <button
                 className={cn(
-                  "relative flex items-center gap-2 rounded-full px-4 py-2 font-medium text-sm transition-all",
+                  "relative flex items-center gap-2 rounded-full px-4 py-2 font-medium text-sm transition-colors",
                   interval === option.value
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
@@ -355,9 +377,22 @@ const PricingComparisonClient = ({
                               className="border-border/50 border-r px-6 py-4 text-left font-normal"
                               scope="row"
                             >
-                              <span className="text-foreground text-sm">
-                                {row.label}
-                              </span>
+                              {row.tooltip ? (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger className="cursor-help text-foreground text-sm underline decoration-muted-foreground/40 decoration-dashed underline-offset-4">
+                                      {row.label}
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {row.tooltip}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              ) : (
+                                <span className="text-foreground text-sm">
+                                  {row.label}
+                                </span>
+                              )}
                             </th>
 
                             {plans.map((plan, index) => {
