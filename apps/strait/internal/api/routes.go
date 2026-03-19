@@ -238,6 +238,7 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/top", s.handleGetTopCosts)
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/compute", s.handleGetComputeCostAnalytics)
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/approvals", s.handleGetApprovalStats)
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/cost-insights", s.handleGetCostInsights)
 		})
 
 		r.Route("/roles", func(r chi.Router) {

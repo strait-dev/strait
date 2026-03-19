@@ -3316,6 +3316,36 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApprovalStats'
 
+  /v1/analytics/cost-insights:
+    get:
+      tags:
+        - Analytics
+      summary: Cost optimization insights
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: threshold
+          in: query
+          required: false
+          schema:
+            type: number
+            default: 2.0
+      responses:
+        '200':
+          description: Cost outlier insights
+
   /v1/webhook-deliveries:
     get:
       tags:

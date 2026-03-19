@@ -39,6 +39,7 @@ export type OperationPathParamsById = {
   "postSdkV1RunsByRunIDWaitForEvent": { "runID": string };
   "getV1AnalyticsApprovals": undefined;
   "getV1AnalyticsCompute": undefined;
+  "getV1AnalyticsCostInsights": undefined;
   "getV1AnalyticsCosts": undefined;
   "getV1AnalyticsCostsTop": undefined;
   "getV1AnalyticsCostsTrends": undefined;
@@ -250,6 +251,7 @@ export type OperationQueryParamsById = {
   "postSdkV1RunsByRunIDWaitForEvent": undefined;
   "getV1AnalyticsApprovals": { "from": string; "to": string };
   "getV1AnalyticsCompute": { "from": string; "to": string };
+  "getV1AnalyticsCostInsights": { "from": string; "to": string; "threshold"?: number };
   "getV1AnalyticsCosts": { "from": string; "to": string };
   "getV1AnalyticsCostsTop": { "from": string; "to": string; "limit"?: number };
   "getV1AnalyticsCostsTrends": { "from": string; "to": string };
@@ -461,6 +463,7 @@ export type OperationHeaderParamsById = {
   "postSdkV1RunsByRunIDWaitForEvent": undefined;
   "getV1AnalyticsApprovals": undefined;
   "getV1AnalyticsCompute": undefined;
+  "getV1AnalyticsCostInsights": undefined;
   "getV1AnalyticsCosts": undefined;
   "getV1AnalyticsCostsTop": undefined;
   "getV1AnalyticsCostsTrends": undefined;
@@ -694,6 +697,7 @@ export const generatedOperationMetadataById = {
   "postSdkV1RunsByRunIDWaitForEvent": { functionName: "waitForEventRun", domainName: "sdk", domainMethodName: "waitForEventRun", pathParamNames: ["runID"], summary: "Pause a run to wait for an external event" },
   "getV1AnalyticsApprovals": { functionName: "listApprovals", domainName: "analytics", domainMethodName: "listApprovals", pathParamNames: [], summary: "Approval analytics" },
   "getV1AnalyticsCompute": { functionName: "getCompute", domainName: "analytics", domainMethodName: "getCompute", pathParamNames: [], summary: "Compute cost analytics" },
+  "getV1AnalyticsCostInsights": { functionName: "listCostInsights", domainName: "analytics", domainMethodName: "listCostInsights", pathParamNames: [], summary: "Cost optimization insights" },
   "getV1AnalyticsCosts": { functionName: "listCosts", domainName: "analytics", domainMethodName: "listCosts", pathParamNames: [], summary: "Cost analytics" },
   "getV1AnalyticsCostsTop": { functionName: "getTop", domainName: "analytics", domainMethodName: "getTop", pathParamNames: [], summary: "Top cost items" },
   "getV1AnalyticsCostsTrends": { functionName: "listTrends", domainName: "analytics", domainMethodName: "listTrends", pathParamNames: [], summary: "Cost trends over time" },

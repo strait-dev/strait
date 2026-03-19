@@ -156,6 +156,7 @@ type RunStore interface {
 	GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
 	GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
 	GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
+	GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
 	AggregateCostStatsHourly(ctx context.Context, hour time.Time) error
 	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
 	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)

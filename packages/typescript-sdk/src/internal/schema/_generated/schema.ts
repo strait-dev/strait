@@ -162,6 +162,7 @@ export const generatedOperationSchemas = {
   "postSdkV1RunsByRunIDWaitForEvent": { request: Schema.suspend(() => componentSchemas["SDKWaitForEventRequest"] ?? Schema.Unknown), response: Schema.Struct({ "status": Schema.optional(Schema.String), "event_key": Schema.optional(Schema.String), "expires_at": Schema.optional(Schema.String), "trigger_id": Schema.optional(Schema.String) }) },
   "getV1AnalyticsApprovals": { response: Schema.suspend(() => componentSchemas["ApprovalStats"] ?? Schema.Unknown) },
   "getV1AnalyticsCompute": { response: Schema.suspend(() => componentSchemas["ComputeCostAnalytics"] ?? Schema.Unknown) },
+  "getV1AnalyticsCostInsights": {},
   "getV1AnalyticsCosts": { response: Schema.suspend(() => componentSchemas["CostAnalytics"] ?? Schema.Unknown) },
   "getV1AnalyticsCostsTop": { response: Schema.Array(Schema.suspend(() => componentSchemas["TopCostItem"] ?? Schema.Unknown)) },
   "getV1AnalyticsCostsTrends": { response: Schema.Array(Schema.suspend(() => componentSchemas["CostTrendPoint"] ?? Schema.Unknown)) },
