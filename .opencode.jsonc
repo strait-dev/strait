@@ -31,6 +31,9 @@
     "linear": {
       "type": "remote",
       "url": "https://mcp.linear.app/sse",
+      "headers": {
+        "Authorization": "Bearer {env:LINEAR_API_KEY}"
+      },
       "enabled": true
     }
   }
