@@ -18,6 +18,7 @@ import (
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
+	"github.com/getsentry/sentry-go"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -286,6 +287,8 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 	// and a pool goroutine emits after eventCh is closed.
 	defer func() {
 		if r := recover(); r != nil {
+			sentry.CurrentHub().Recover(r)
+			sentry.Flush(2 * time.Second)
 			e.logger.Warn("event channel closed, dropping event",
 				"type", event.Type,
 				"run_id", event.Run.ID,

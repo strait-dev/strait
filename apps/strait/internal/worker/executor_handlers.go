@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 
+	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -293,6 +295,23 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	targetStatus := domain.StatusDeadLetter
 	run.Status = targetStatus
 
+	sentry.WithScope(func(scope *sentry.Scope) {
+		scope.SetTag("run_id", run.ID)
+		scope.SetTag("job_id", run.JobID)
+		scope.SetTag("project_id", run.ProjectID)
+		scope.SetTag("error_class", errClass)
+		scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
+		scope.SetLevel(sentry.LevelWarning)
+		scope.SetContext("failure", map[string]any{
+			"error_message": errMsg,
+			"error_class":   errClass,
+			"max_attempts":  policy.maxAttempts,
+			"final_status":  string(targetStatus),
+		})
+		scope.SetFingerprint([]string{"run_dead_lettered", run.JobID})
+		sentry.CaptureMessage(fmt.Sprintf("run dead-lettered: %s", errMsg))
+	})
+
 	updateErr := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, targetStatus, fields)
 	if updateErr != nil {
 		e.logger.Error(
@@ -375,6 +394,21 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		fields["execution_trace"] = execTrace
 	}
 	run.Status = domain.StatusTimedOut
+
+	sentry.WithScope(func(scope *sentry.Scope) {
+		scope.SetTag("run_id", run.ID)
+		scope.SetTag("job_id", run.JobID)
+		scope.SetTag("project_id", run.ProjectID)
+		scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
+		scope.SetLevel(sentry.LevelWarning)
+		scope.SetContext("timeout", map[string]any{
+			"timeout_secs": policy.timeoutSecs,
+			"max_attempts": policy.maxAttempts,
+		})
+		scope.SetFingerprint([]string{"run_timed_out", run.JobID})
+		sentry.CaptureMessage("run timed out after all retries")
+	})
+
 	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, domain.StatusTimedOut, fields)
 	if err != nil {
 		e.logger.Error(
@@ -412,6 +446,24 @@ func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRu
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSystemFailure")
 	defer span.End()
+
+	sentry.WithScope(func(scope *sentry.Scope) {
+		scope.SetTag("run_id", run.ID)
+		scope.SetTag("job_id", run.JobID)
+		scope.SetTag("project_id", run.ProjectID)
+		scope.SetTag("error_class", "server")
+		scope.SetLevel(sentry.LevelError)
+		scope.SetContext("run", map[string]any{
+			"run_id":         run.ID,
+			"job_id":         run.JobID,
+			"project_id":     run.ProjectID,
+			"attempt":        run.Attempt,
+			"from_status":    string(run.Status),
+			"execution_mode": string(run.ExecutionMode),
+		})
+		scope.SetFingerprint([]string{"system_failure", reason})
+		sentry.CaptureMessage(fmt.Sprintf("system failure: %s", reason))
+	})
 
 	fromStatus := run.Status
 	now := time.Now()
