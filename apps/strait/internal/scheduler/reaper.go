@@ -99,6 +99,13 @@ type CostGateDefaultActionStore interface {
 	GetCostGateDefaultAction(ctx context.Context, stepRunID string) (string, error)
 }
 
+// ApprovalNotifierStore is an optional interface for sending approval lifecycle notifications.
+type ApprovalNotifierStore interface {
+	ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
+	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
+}
+
 // AdvisoryLocker attempts to acquire a PostgreSQL advisory lock.
 // Returns true if the lock was acquired (caller should run reaper),
 // false if another instance holds it.
@@ -114,6 +121,11 @@ const reaperAdvisoryLockID int64 = 0x5374726169745265 // "StraitRe" as int64
 type MachineDestroyer interface {
 	Stop(ctx context.Context, machineID string) error
 	Destroy(ctx context.Context, machineID string) error
+}
+
+// ApprovalReminderStore is an optional interface for querying approvals nearing expiry.
+type ApprovalReminderStore interface {
+	ListApprovalsNearingExpiry(ctx context.Context, window time.Duration) ([]domain.WorkflowStepApproval, error)
 }
 
 type Reaper struct {
@@ -135,6 +147,7 @@ type Reaper struct {
 	stalledAction         string
 	dlqAlertCooldown      map[string]time.Time
 	queueAlertCooldown    map[string]time.Time
+	reminderSent          map[string]time.Time
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -178,6 +191,7 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		stalledAction:         "log_only",
 		dlqAlertCooldown:      make(map[string]time.Time),
 		queueAlertCooldown:    make(map[string]time.Time),
+		reminderSent:          make(map[string]time.Time),
 	}
 }
 
@@ -263,6 +277,7 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapExpired(ctx)
 	r.reapTimedOutWorkflows(ctx)
 	r.reapExpiredApprovals(ctx)
+	r.reapApprovalReminders(ctx)
 	r.reapExpiredEventTriggers(ctx)
 	r.reapInconsistentEventTriggers(ctx)
 	r.reapStalledWorkflows(ctx)
@@ -300,6 +315,7 @@ func (r *Reaper) Run(ctx context.Context) {
 		r.reapExpired(loopCtx)
 		r.reapTimedOutWorkflows(loopCtx)
 		r.reapExpiredApprovals(loopCtx)
+		r.reapApprovalReminders(loopCtx)
 		r.reapExpiredEventTriggers(loopCtx)
 		r.reapInconsistentEventTriggers(loopCtx)
 		r.reapStalledWorkflows(loopCtx)
@@ -443,6 +459,13 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 			slog.Error("failed to mark approval step failed", "approval_id", approval.ID, "error", err)
 		}
 
+		r.sendApprovalNotification(ctx, approval.WorkflowRunID, domain.NotificationEventApprovalExpired, map[string]any{
+			"approval_id":     approval.ID,
+			"workflow_run_id": approval.WorkflowRunID,
+			"step_run_id":     approval.WorkflowStepRunID,
+			"expired_at":      now,
+		})
+
 		// Delegate to the workflow callback, which respects on_failure policy
 		// (continue, skip_dependents, fail_workflow). Falls back to directly
 		// failing the workflow run when the callback is nil.
@@ -460,6 +483,126 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 					slog.Error("failed to fail workflow on approval timeout", "approval_id", approval.ID, "error", errPaused)
 				}
 			}
+		}
+	}
+}
+
+const approvalReminderWindow = 15 * time.Minute
+
+func (r *Reaper) reapApprovalReminders(ctx context.Context) {
+	rs, ok := r.store.(ApprovalReminderStore)
+	if !ok {
+		return
+	}
+	ns, hasNotifier := r.store.(ApprovalNotifierStore)
+	if !hasNotifier {
+		return
+	}
+
+	// Clean stale entries from reminderSent (older than 1 hour).
+	now := time.Now()
+	for id, sentAt := range r.reminderSent {
+		if now.Sub(sentAt) > time.Hour {
+			delete(r.reminderSent, id)
+		}
+	}
+
+	approvals, err := rs.ListApprovalsNearingExpiry(ctx, approvalReminderWindow)
+	if err != nil {
+		slog.Warn("failed to list approvals nearing expiry", "error", err)
+		return
+	}
+
+	for _, approval := range approvals {
+		if _, sent := r.reminderSent[approval.ID]; sent {
+			continue
+		}
+
+		wfRun, wfErr := ns.GetWorkflowRun(ctx, approval.WorkflowRunID)
+		if wfErr != nil || wfRun == nil {
+			slog.Warn("failed to get workflow run for approval reminder", "workflow_run_id", approval.WorkflowRunID, "error", wfErr)
+			continue
+		}
+
+		var timeRemainingSecs float64
+		if approval.ExpiresAt != nil {
+			timeRemainingSecs = time.Until(*approval.ExpiresAt).Seconds()
+		}
+
+		channels, chErr := ns.ListEnabledNotificationChannels(ctx, wfRun.ProjectID)
+		if chErr != nil {
+			slog.Warn("failed to list notification channels for approval reminder", "error", chErr)
+			continue
+		}
+
+		payload, marshalErr := json.Marshal(map[string]any{
+			"approval_id":         approval.ID,
+			"workflow_run_id":     approval.WorkflowRunID,
+			"workflow_id":         wfRun.WorkflowID,
+			"step_run_id":         approval.WorkflowStepRunID,
+			"time_remaining_secs": timeRemainingSecs,
+		})
+		if marshalErr != nil {
+			continue
+		}
+
+		for _, ch := range channels {
+			d := &domain.NotificationDelivery{
+				ChannelID:   ch.ID,
+				ProjectID:   wfRun.ProjectID,
+				EventType:   domain.NotificationEventApprovalReminder,
+				Payload:     payload,
+				Status:      "pending",
+				MaxAttempts: 3,
+			}
+			if err := ns.CreateNotificationDelivery(ctx, d); err != nil {
+				slog.Warn("failed to create approval reminder delivery", "channel_id", ch.ID, "error", err)
+			}
+		}
+
+		r.reminderSent[approval.ID] = now
+	}
+}
+
+// sendApprovalNotification sends an approval lifecycle notification through configured channels.
+// It type-asserts the store to ApprovalNotifierStore; if the store does not implement it, this is a no-op.
+func (r *Reaper) sendApprovalNotification(ctx context.Context, workflowRunID, eventType string, payload map[string]any) {
+	ns, ok := r.store.(ApprovalNotifierStore)
+	if !ok {
+		return
+	}
+
+	wfRun, err := ns.GetWorkflowRun(ctx, workflowRunID)
+	if err != nil || wfRun == nil {
+		slog.Warn("failed to get workflow run for approval notification", "workflow_run_id", workflowRunID, "error", err)
+		return
+	}
+
+	channels, err := ns.ListEnabledNotificationChannels(ctx, wfRun.ProjectID)
+	if err != nil {
+		slog.Warn("failed to list notification channels for approval notification", "project_id", wfRun.ProjectID, "error", err)
+		return
+	}
+
+	payload["workflow_id"] = wfRun.WorkflowID
+	payloadBytes, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		slog.Warn("failed to marshal approval notification payload", "error", marshalErr)
+		return
+	}
+
+	for _, ch := range channels {
+		d := &domain.NotificationDelivery{
+			ChannelID:   ch.ID,
+			ProjectID:   wfRun.ProjectID,
+			EventType:   eventType,
+			Payload:     payloadBytes,
+			Status:      "pending",
+			MaxAttempts: 3,
+		}
+		if err := ns.CreateNotificationDelivery(ctx, d); err != nil {
+			slog.Warn("failed to create approval notification delivery",
+				"channel_id", ch.ID, "event_type", eventType, "error", err)
 		}
 	}
 }

@@ -126,6 +126,41 @@ func (q *Queries) ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domai
 	return approvals, nil
 }
 
+func (q *Queries) ListApprovalsNearingExpiry(ctx context.Context, window time.Duration) ([]domain.WorkflowStepApproval, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListApprovalsNearingExpiry")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_run_id, workflow_step_run_id, approvers, status,
+		       approved_by, requested_at, approved_at, expires_at, error
+		FROM workflow_step_approvals
+		WHERE status = 'pending' AND expires_at IS NOT NULL
+		  AND expires_at > NOW() AND expires_at <= NOW() + $1::interval
+		ORDER BY expires_at ASC
+		LIMIT 1000`
+
+	rows, err := q.db.Query(ctx, query, window)
+	if err != nil {
+		return nil, fmt.Errorf("list approvals nearing expiry: %w", err)
+	}
+	defer rows.Close()
+
+	approvals := make([]domain.WorkflowStepApproval, 0, 8)
+	for rows.Next() {
+		approval, scanErr := scanWorkflowStepApproval(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan approval nearing expiry: %w", scanErr)
+		}
+		approvals = append(approvals, *approval)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list approvals nearing expiry rows: %w", err)
+	}
+
+	return approvals, nil
+}
+
 func (q *Queries) GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetStepRunByWorkflowRunAndRef")
 	defer span.End()

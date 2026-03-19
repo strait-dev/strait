@@ -16,20 +16,22 @@ import (
 )
 
 type mockEngineStore struct {
-	getWorkflowFn                func(ctx context.Context, id string) (*domain.Workflow, error)
-	listStepsByWorkflowVerFn     func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
-	countRunningWorkflowRunsFn   func(ctx context.Context, workflowID string) (int, error)
-	createWorkflowRunFn          func(ctx context.Context, run *domain.WorkflowRun) error
-	createWorkflowRunBootstrapFn func(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
-	createWorkflowStepRunFn      func(ctx context.Context, sr *domain.WorkflowStepRun) error
-	createWorkflowStepApprovalFn func(ctx context.Context, approval *domain.WorkflowStepApproval) error
-	createEventTriggerFn         func(ctx context.Context, trigger *domain.EventTrigger) error
-	updateWorkflowRunStatusFn    func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
-	updateStepRunStatusFn        func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
-	getStepOutputsFn             func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
-	getWorkflowRunFn             func(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	listStepRunsByWorkflowRunFn  func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
-	getWorkflowRunsByParentFn    func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
+	getWorkflowFn                     func(ctx context.Context, id string) (*domain.Workflow, error)
+	listStepsByWorkflowVerFn          func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	countRunningWorkflowRunsFn        func(ctx context.Context, workflowID string) (int, error)
+	createWorkflowRunFn               func(ctx context.Context, run *domain.WorkflowRun) error
+	createWorkflowRunBootstrapFn      func(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	createWorkflowStepRunFn           func(ctx context.Context, sr *domain.WorkflowStepRun) error
+	createWorkflowStepApprovalFn      func(ctx context.Context, approval *domain.WorkflowStepApproval) error
+	createEventTriggerFn              func(ctx context.Context, trigger *domain.EventTrigger) error
+	updateWorkflowRunStatusFn         func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	updateStepRunStatusFn             func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	getStepOutputsFn                  func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
+	getWorkflowRunFn                  func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	listStepRunsByWorkflowRunFn       func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	getWorkflowRunsByParentFn         func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
+	listEnabledNotificationChannelsFn func(projectID string) ([]domain.NotificationChannel, error)
+	createNotificationDeliveryFn      func(d *domain.NotificationDelivery) error
 }
 
 func (m *mockEngineStore) GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error) {
@@ -153,11 +155,17 @@ func (m *mockEngineStore) GetJobCostEstimate(_ context.Context, _ string) (*doma
 	return nil, nil
 }
 
-func (m *mockEngineStore) ListEnabledNotificationChannels(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+func (m *mockEngineStore) ListEnabledNotificationChannels(_ context.Context, projectID string) ([]domain.NotificationChannel, error) {
+	if m.listEnabledNotificationChannelsFn != nil {
+		return m.listEnabledNotificationChannelsFn(projectID)
+	}
 	return nil, nil
 }
 
-func (m *mockEngineStore) CreateNotificationDelivery(_ context.Context, _ *domain.NotificationDelivery) error {
+func (m *mockEngineStore) CreateNotificationDelivery(_ context.Context, d *domain.NotificationDelivery) error {
+	if m.createNotificationDeliveryFn != nil {
+		return m.createNotificationDeliveryFn(d)
+	}
 	return nil
 }
 
@@ -5740,5 +5748,81 @@ func TestScheduleRunnableSteps_MaxParallelSteps(t *testing.T) {
 	}
 	if runningCount > 1 {
 		t.Fatalf("expected at most 1 running step with max_parallel_steps=1, got %d", runningCount)
+	}
+}
+
+func TestEnqueueApprovalNotification_CreatesDeliveries(t *testing.T) {
+	t.Parallel()
+	var deliveries []*domain.NotificationDelivery
+	ms := &mockEngineStore{
+		listEnabledNotificationChannelsFn: func(_ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{
+				{ID: "ch-1", ProjectID: "proj-1"},
+				{ID: "ch-2", ProjectID: "proj-1"},
+			}, nil
+		},
+		createNotificationDeliveryFn: func(d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+	engine.enqueueApprovalNotification(context.Background(), "proj-1", domain.NotificationEventApprovalCompleted, map[string]any{
+		"approval_id": "appr-1",
+	})
+
+	if len(deliveries) != 2 {
+		t.Fatalf("expected 2 deliveries, got %d", len(deliveries))
+	}
+	for _, d := range deliveries {
+		if d.EventType != domain.NotificationEventApprovalCompleted {
+			t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalCompleted, d.EventType)
+		}
+		if d.ProjectID != "proj-1" {
+			t.Errorf("expected project_id proj-1, got %s", d.ProjectID)
+		}
+	}
+}
+
+func TestEnqueueApprovalNotification_NoChannels(t *testing.T) {
+	t.Parallel()
+	deliveryCalled := false
+	ms := &mockEngineStore{
+		listEnabledNotificationChannelsFn: func(_ string) ([]domain.NotificationChannel, error) {
+			return nil, nil
+		},
+		createNotificationDeliveryFn: func(_ *domain.NotificationDelivery) error {
+			deliveryCalled = true
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+	engine.enqueueApprovalNotification(context.Background(), "proj-1", domain.NotificationEventApprovalExpired, map[string]any{})
+
+	if deliveryCalled {
+		t.Fatal("expected no deliveries when no channels")
+	}
+}
+
+func TestEnqueueApprovalNotification_StoreError(t *testing.T) {
+	t.Parallel()
+	deliveryCalled := false
+	ms := &mockEngineStore{
+		listEnabledNotificationChannelsFn: func(_ string) ([]domain.NotificationChannel, error) {
+			return nil, errors.New("db down")
+		},
+		createNotificationDeliveryFn: func(_ *domain.NotificationDelivery) error {
+			deliveryCalled = true
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+	engine.enqueueApprovalNotification(context.Background(), "proj-1", domain.NotificationEventApprovalExpired, map[string]any{})
+
+	if deliveryCalled {
+		t.Fatal("expected no deliveries on store error")
 	}
 }

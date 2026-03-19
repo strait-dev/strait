@@ -424,6 +424,19 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	if wcErr != nil {
 		return fmt.Errorf("load workflow context: %w", wcErr)
 	}
+
+	if s.engine != nil {
+		s.engine.enqueueApprovalNotification(ctx, wc.run.ProjectID,
+			domain.NotificationEventApprovalCompleted, map[string]any{
+				"approval_id":     approval.ID,
+				"workflow_run_id": wc.run.ID,
+				"workflow_id":     wc.run.WorkflowID,
+				"step_ref":        stepRun.StepRef,
+				"approved_by":     approver,
+				"approved_at":     now,
+			})
+	}
+
 	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 		return fmt.Errorf("fan-in after approval for step %s: %w", stepRef, err)
 	}
