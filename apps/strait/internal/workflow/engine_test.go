@@ -2682,6 +2682,345 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			t.Fatalf("expected completed-status error, got %v", err)
 		}
 	})
+
+	t.Run("skip step with pending approval rejects the approval", func(t *testing.T) {
+		t.Parallel()
+		var approvalUpdateArgs struct {
+			id, status, errMsg string
+		}
+		ms := &mockCallbackStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1"}}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepPending}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+				return &domain.WorkflowStepApproval{ID: "apr-1", Status: domain.ApprovalStatusPending}, nil
+			},
+			updateWorkflowStepApprovalFn: func(_ context.Context, id string, status string, _ string, _ *time.Time, errMsg string) error {
+				approvalUpdateArgs.id = id
+				approvalUpdateArgs.status = status
+				approvalUpdateArgs.errMsg = errMsg
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+				return nil, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "rejected by admin"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if approvalUpdateArgs.id != "apr-1" {
+			t.Fatalf("expected approval apr-1 to be updated, got %s", approvalUpdateArgs.id)
+		}
+		if approvalUpdateArgs.status != domain.ApprovalStatusRejected {
+			t.Fatalf("expected status rejected, got %s", approvalUpdateArgs.status)
+		}
+		if approvalUpdateArgs.errMsg != "rejected by admin" {
+			t.Fatalf("expected errMsg 'rejected by admin', got %s", approvalUpdateArgs.errMsg)
+		}
+	})
+
+	t.Run("skip step with pending approval and empty reason", func(t *testing.T) {
+		t.Parallel()
+		updateCalled := false
+		ms := &mockCallbackStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1"}}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepPending}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+				return &domain.WorkflowStepApproval{ID: "apr-1", Status: domain.ApprovalStatusPending}, nil
+			},
+			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, errMsg string) error {
+				updateCalled = true
+				if errMsg != "" {
+					t.Fatalf("expected empty errMsg, got %s", errMsg)
+				}
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+				return nil, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", ""); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !updateCalled {
+			t.Fatal("expected approval update to be called")
+		}
+	})
+
+	t.Run("skip step with pending approval — approval update fails gracefully", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockCallbackStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1"}}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepPending}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+				return &domain.WorkflowStepApproval{ID: "apr-1", Status: domain.ApprovalStatusPending}, nil
+			},
+			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+				return errors.New("db down")
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+				return nil, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "reason"); err != nil {
+			t.Fatalf("expected skip to succeed despite approval update failure, got %v", err)
+		}
+	})
+
+	t.Run("skip step with pending approval — approval lookup fails gracefully", func(t *testing.T) {
+		t.Parallel()
+		updateCalled := false
+		ms := &mockCallbackStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1"}}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepPending}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+				return nil, errors.New("db error")
+			},
+			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+				updateCalled = true
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+				return nil, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "reason"); err != nil {
+			t.Fatalf("expected skip to succeed despite approval lookup failure, got %v", err)
+		}
+		if updateCalled {
+			t.Fatal("approval update should not be called when lookup fails")
+		}
+	})
+
+	t.Run("skip step without approval skips normally", func(t *testing.T) {
+		t.Parallel()
+		updateCalled := false
+		ms := &mockCallbackStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1"}}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepPending}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+				return nil, nil
+			},
+			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+				updateCalled = true
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+				return nil, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if updateCalled {
+			t.Fatal("approval update should not be called when no approval exists")
+		}
+	})
+
+	t.Run("skip step with already-approved approval does not re-reject", func(t *testing.T) {
+		t.Parallel()
+		updateCalled := false
+		ms := &mockCallbackStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1"}}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepPending}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+				return &domain.WorkflowStepApproval{ID: "apr-1", Status: domain.ApprovalStatusApproved}, nil
+			},
+			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+				updateCalled = true
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+				return nil, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if updateCalled {
+			t.Fatal("should not update already-approved approval")
+		}
+	})
+
+	t.Run("skip step with already-rejected approval does not double-reject", func(t *testing.T) {
+		t.Parallel()
+		updateCalled := false
+		ms := &mockCallbackStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1"}}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepPending}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+				return &domain.WorkflowStepApproval{ID: "apr-1", Status: domain.ApprovalStatusRejected}, nil
+			},
+			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+				updateCalled = true
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+				return nil, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if updateCalled {
+			t.Fatal("should not update already-rejected approval")
+		}
+	})
+
+	t.Run("skip step with pending approval emits rejection notification", func(t *testing.T) {
+		t.Parallel()
+		var deliveries []*domain.NotificationDelivery
+		ms := &mockCallbackStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1"}}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepPending}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+				return &domain.WorkflowStepApproval{ID: "apr-1", Status: domain.ApprovalStatusPending}, nil
+			},
+			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+				return nil, nil
+			},
+		}
+
+		engineStore := &mockEngineStore{
+			listEnabledNotificationChannelsFn: func(_ string) ([]domain.NotificationChannel, error) {
+				return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+			},
+			createNotificationDeliveryFn: func(d *domain.NotificationDelivery) error {
+				deliveries = append(deliveries, d)
+				return nil
+			},
+		}
+		cb := NewStepCallback(ms, NewWorkflowEngine(engineStore, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "rejected by admin"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(deliveries) != 1 {
+			t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+		}
+		if deliveries[0].EventType != domain.NotificationEventApprovalRejected {
+			t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalRejected, deliveries[0].EventType)
+		}
+	})
 }
 
 func TestStepCallback_ForceCompleteStep(t *testing.T) {
