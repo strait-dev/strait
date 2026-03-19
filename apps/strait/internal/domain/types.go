@@ -579,12 +579,13 @@ type ExecutionTrace struct {
 
 // DebugBundle aggregates all debug data for a run.
 type DebugBundle struct {
-	Run         *JobRun         `json:"run"`
-	Events      []RunEvent      `json:"events"`
-	Checkpoints []RunCheckpoint `json:"checkpoints"`
-	Usage       []RunUsage      `json:"usage"`
-	ToolCalls   []RunToolCall   `json:"tool_calls"`
-	Outputs     []RunOutput     `json:"outputs"`
+	Run               *JobRun               `json:"run"`
+	Events            []RunEvent            `json:"events"`
+	Checkpoints       []RunCheckpoint       `json:"checkpoints"`
+	Usage             []RunUsage            `json:"usage"`
+	ToolCalls         []RunToolCall         `json:"tool_calls"`
+	Outputs           []RunOutput           `json:"outputs"`
+	ResourceSnapshots []RunResourceSnapshot `json:"resource_snapshots"`
 }
 
 type CircuitState string

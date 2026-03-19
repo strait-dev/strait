@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"strait/internal/domain"
@@ -36,6 +38,21 @@ func (s *Server) handleSDKResourceSnapshot(w http.ResponseWriter, r *http.Reques
 	if err := s.store.CreateRunResourceSnapshot(r.Context(), snapshot); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to create resource snapshot")
 		return
+	}
+
+	if req.MemoryLimitMB > 0 && req.MemoryMB > req.MemoryLimitMB*0.9 {
+		data, _ := json.Marshal(map[string]any{
+			"memory_mb":       req.MemoryMB,
+			"memory_limit_mb": req.MemoryLimitMB,
+			"usage_percent":   req.MemoryMB / req.MemoryLimitMB * 100,
+		})
+		_ = s.store.InsertEvent(r.Context(), &domain.RunEvent{
+			RunID:   runID,
+			Type:    domain.EventType("resource.oom_risk"),
+			Level:   "warn",
+			Message: fmt.Sprintf("memory usage %.0fMB exceeds 90%% of limit %.0fMB", req.MemoryMB, req.MemoryLimitMB),
+			Data:    json.RawMessage(data),
+		})
 	}
 
 	respondJSON(w, http.StatusCreated, snapshot)

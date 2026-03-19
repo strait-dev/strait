@@ -66,6 +66,8 @@ type mockAPIStore struct {
 	resetRunIdempotencyKeyFn             func(ctx context.Context, runID string) error
 	listChildRunsFn                      func(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	insertEventFn                        func(ctx context.Context, event *domain.RunEvent) error
+	createRunResourceSnapshotFn          func(ctx context.Context, s *domain.RunResourceSnapshot) error
+	listRunResourceSnapshotsFn           func(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
 	listEventsByRunFilteredFn            func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	listWebhookDeliveriesFn              func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	createWebhookSubscriptionFn          func(ctx context.Context, sub *domain.WebhookSubscription) error
@@ -494,11 +496,17 @@ func (m *mockAPIStore) ListRunOutputs(ctx context.Context, runID string, limit i
 	return nil, nil
 }
 
-func (m *mockAPIStore) CreateRunResourceSnapshot(_ context.Context, _ *domain.RunResourceSnapshot) error {
+func (m *mockAPIStore) CreateRunResourceSnapshot(ctx context.Context, s *domain.RunResourceSnapshot) error {
+	if m.createRunResourceSnapshotFn != nil {
+		return m.createRunResourceSnapshotFn(ctx, s)
+	}
 	return nil
 }
 
-func (m *mockAPIStore) ListRunResourceSnapshots(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+func (m *mockAPIStore) ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error) {
+	if m.listRunResourceSnapshotsFn != nil {
+		return m.listRunResourceSnapshotsFn(ctx, runID, from, to, limit)
+	}
 	return nil, nil
 }
 

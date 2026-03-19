@@ -1481,13 +1481,19 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 		return nil, fmt.Errorf("get debug bundle outputs: %w", err)
 	}
 
+	resourceSnapshots, err := q.ListRunResourceSnapshots(ctx, runID, nil, nil, 1000)
+	if err != nil {
+		return nil, fmt.Errorf("get debug bundle resource snapshots: %w", err)
+	}
+
 	return &domain.DebugBundle{
-		Run:         run,
-		Events:      events,
-		Checkpoints: checkpoints,
-		Usage:       usage,
-		ToolCalls:   toolCalls,
-		Outputs:     outputs,
+		Run:               run,
+		Events:            events,
+		Checkpoints:       checkpoints,
+		Usage:             usage,
+		ToolCalls:         toolCalls,
+		Outputs:           outputs,
+		ResourceSnapshots: resourceSnapshots,
 	}, nil
 }
 

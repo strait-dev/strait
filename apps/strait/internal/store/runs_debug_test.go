@@ -151,6 +151,8 @@ func TestGetDebugBundle(t *testing.T) {
 					return nil
 				},
 			}}, nil
+		case strings.Contains(sql, "FROM run_resource_snapshots"):
+			return &mockRows{scanFns: nil}, nil
 		default:
 			t.Fatalf("unexpected query SQL: %s", sql)
 			return nil, nil
