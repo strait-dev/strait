@@ -8,8 +8,8 @@ import { auth } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import {
   deriveSubscriptionState,
-  normalizePlanSlug,
   type NormalizedSubscription,
+  normalizePlanSlug,
   type PlanSlug,
   type SubscriptionData,
   type SubscriptionStateData,
@@ -89,7 +89,13 @@ const getSubscriptionByEmail = async (
       const status = asString(toRecord(item)?.status);
       let rank = 2;
 
-      if (status === "active" || status === "trialing" || status === "past_due" || status === "incomplete" || status === "unpaid") {
+      if (
+        status === "active" ||
+        status === "trialing" ||
+        status === "past_due" ||
+        status === "incomplete" ||
+        status === "unpaid"
+      ) {
         rank = 0;
       } else if (status === "canceled" || status === "cancelled") {
         rank = 1;

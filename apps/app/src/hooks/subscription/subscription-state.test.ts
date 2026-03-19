@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveSubscriptionState,
-  normalizePlanSlug,
   type NormalizedSubscription,
+  normalizePlanSlug,
 } from "./subscription-state";
 
 const baseSubscription: NormalizedSubscription = {

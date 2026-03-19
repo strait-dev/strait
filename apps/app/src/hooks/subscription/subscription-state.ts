@@ -51,7 +51,9 @@ const ACTIVE_STATUSES = new Set([
 const ATTENTION_STATUSES = new Set(["past_due", "incomplete", "unpaid"]);
 const CANCELED_STATUSES = new Set(["canceled", "cancelled"]);
 
-export const normalizePlanSlug = (value: string | null | undefined): PlanSlug | null => {
+export const normalizePlanSlug = (
+  value: string | null | undefined
+): PlanSlug | null => {
   switch (value) {
     case "free":
     case "starter":
@@ -95,10 +97,7 @@ export const deriveSubscriptionState = ({
   const isCanceled = CANCELED_STATUSES.has(normalizedStatus);
   const trialEnd = subscription?.trialEnd ?? null;
   const trialDaysLeft = trialEnd
-    ? Math.max(
-        Math.ceil((trialEnd.getTime() - now) / (1000 * 60 * 60 * 24)),
-        0
-      )
+    ? Math.max(Math.ceil((trialEnd.getTime() - now) / (1000 * 60 * 60 * 24)), 0)
     : null;
 
   return {
