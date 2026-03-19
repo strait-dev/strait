@@ -309,24 +309,8 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		return
 	}
 
-	// 2. Semaphore: limit concurrent managed machines.
-	if e.managedSemaphore != nil {
-		if err := e.managedSemaphore.Acquire(ctx, 1); err != nil {
-			// Context cancelled during acquire → backpressure snooze.
-			retryAt := NextRetryAt(run.Attempt)
-			e.snoozeRun(ctx, run, "managed semaphore full", &retryAt)
-			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
-			return
-		}
-		defer e.managedSemaphore.Release(1) // immediately after Acquire to prevent leak on panic
-	}
-
-	if e.metrics != nil {
-		e.metrics.ManagedMachinesActive.Add(ctx, 1)
-		defer e.metrics.ManagedMachinesActive.Add(ctx, -1)
-	}
-
-	// 3a. Org-level billing enforcement (cloud only, gated by BillingEnforcer).
+	// 2. Org-level billing enforcement (cloud only, gated by BillingEnforcer).
+	// Runs before the semaphore to avoid holding a machine slot during rejection.
 	if e.billingEnforcer != nil {
 		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 		if orgErr != nil {
@@ -344,6 +328,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID, e.store); err != nil {
 				e.logger.Warn("org concurrent run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
 				e.handleSystemFailure(ctx, run, err.Error())
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
@@ -351,6 +336,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			if err := e.billingEnforcer.CheckSpendingLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org spending limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
 				e.handleSystemFailure(ctx, run, err.Error())
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
@@ -358,7 +344,24 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		}
 	}
 
-	// 3b. Budget check.
+	// 3. Semaphore: limit concurrent managed machines.
+	if e.managedSemaphore != nil {
+		if err := e.managedSemaphore.Acquire(ctx, 1); err != nil {
+			// Context cancelled during acquire → backpressure snooze.
+			retryAt := NextRetryAt(run.Attempt)
+			e.snoozeRun(ctx, run, "managed semaphore full", &retryAt)
+			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
+			return
+		}
+		defer e.managedSemaphore.Release(1) // immediately after Acquire to prevent leak on panic
+	}
+
+	if e.metrics != nil {
+		e.metrics.ManagedMachinesActive.Add(ctx, 1)
+		defer e.metrics.ManagedMachinesActive.Add(ctx, -1)
+	}
+
+	// 4. Budget check.
 	quota, quotaErr := e.store.GetProjectQuota(ctx, job.ProjectID)
 	if quotaErr != nil {
 		e.logger.Warn("failed to load project quota for budget check", "run_id", run.ID, "error", quotaErr)
@@ -396,7 +399,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		}
 	}
 
-	// 4. Transition: dequeued → executing.
+	// 5. Transition: dequeued → executing.
 	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
 		"started_at": time.Now(),
 	})
@@ -407,11 +410,11 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	run.Status = domain.StatusExecuting
 	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
 
-	// 5. Register heartbeat.
+	// 6. Register heartbeat.
 	e.heartbeat.Register(run.ID)
 	defer e.heartbeat.Deregister(run.ID)
 
-	// 6. Build environment variables.
+	// 7. Build environment variables.
 	env := map[string]string{
 		"STRAIT_RUN_ID":   run.ID,
 		"STRAIT_JOB_SLUG": job.Slug,
@@ -476,7 +479,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		env["STRAIT_MEMORY_LIMIT_MB"] = strconv.Itoa(presetInfo.MemoryMB)
 	}
 
-	// 7. Resolve region: job config > project default > run metadata hint > executor default.
+	// 8. Resolve region: job config > project default > run metadata hint > executor default.
 	region := job.Region
 	if region == "" && quota != nil && quota.DefaultRegion != "" && compute.IsValidRegion(quota.DefaultRegion) {
 		region = quota.DefaultRegion
@@ -492,7 +495,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		region = e.defaultFlyRegion
 	}
 
-	// 8. Create the container (non-blocking).
+	// 9. Create the container (non-blocking).
 	preset := string(job.MachinePreset)
 	if override, ok := run.Metadata["_preset_override"]; ok && override != "" {
 		if domain.MachinePreset(override).IsValid() {
@@ -640,7 +643,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		}
 	}
 
-	// 8. Wait for container exit.
+	// 10. Wait for container exit.
 	result, runErr := e.containerRuntime.Wait(ctx, machineID, job.TimeoutSecs)
 
 	if runErr != nil {
@@ -672,10 +675,10 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		return
 	}
 
-	// 9. Record compute usage.
+	// 11. Record compute usage.
 	e.recordComputeUsage(ctx, run, job, result)
 
-	// 10. Re-read run status from DB (SDK race check).
+	// 12. Re-read run status from DB (SDK race check).
 	currentRun, readErr := e.store.GetRun(ctx, run.ID)
 	if readErr != nil {
 		e.logger.Error("failed to re-read run after container exit", "run_id", run.ID, "error", readErr)
@@ -694,7 +697,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		return
 	}
 
-	// 11. Container exited: interpret exit code.
+	// 13. Container exited: interpret exit code.
 	if result.ExitCode == 0 {
 		// Exit 0 but SDK didn't report complete → system failure.
 		e.handleSystemFailure(ctx, run, "container exited 0 but SDK did not report completion")

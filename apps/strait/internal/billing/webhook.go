@@ -230,7 +230,18 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 				CreatedAt:             now,
 				UpdatedAt:             now,
 			}
-			return h.store.UpsertOrgSubscription(ctx, orgSub)
+			if upsertErr := h.store.UpsertOrgSubscription(ctx, orgSub); upsertErr != nil {
+				return upsertErr
+			}
+			if h.enforcer != nil {
+				h.enforcer.InvalidateOrgCache(orgID)
+			}
+			h.logger.Info("subscription updated (created via fallback)",
+				"org_id", orgID,
+				"plan_tier", tier,
+				"status", status,
+			)
+			return nil
 		}
 		return fmt.Errorf("updating org subscription: %w", err)
 	}

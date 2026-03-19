@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"strait/internal/api"
+	"strait/internal/billing"
 	"strait/internal/config"
 	"strait/internal/crypto"
 	"strait/internal/domain"
@@ -184,10 +185,18 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 	}
 
+	// Create a shared billing enforcer (used by both API webhook handler and worker executor).
+	// Only created when billing enforcement is enabled or Polar webhook secret is set.
+	var billingEnforcer *billing.Enforcer
+	if rdb != nil && (cfg.BillingEnforcementEnabled || cfg.PolarWebhookSecret != "") {
+		billingStore := billing.NewPgStore(dbPool)
+		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default())
+	}
+
 	startCDCConsumer(g, cfg, pub)
 	startWebhookWorker(g, cfg, eventNotifier)
-	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor)
-	startWorker(g, cfg, queries, dbPool, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, rdb)
+	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer)
+	startWorker(g, cfg, queries, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)
