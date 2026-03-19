@@ -149,7 +149,17 @@ func TestWebhookHandler_SubscriptionCreated(t *testing.T) {
 func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 	t.Parallel()
 
-	store := &mockBillingStore{}
+	pendingTier := "starter"
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_revoke": {
+				OrgID:           "org_revoke",
+				PlanTier:        "pro",
+				Status:          "active",
+				PendingPlanTier: &pendingTier,
+			},
+		},
+	}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
 
@@ -184,6 +194,12 @@ func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 	}
 	if store.lastPlanUpdate.status != "revoked" {
 		t.Errorf("status = %q, want revoked", store.lastPlanUpdate.status)
+	}
+	if store.lastClearedPending != "org_revoke" {
+		t.Errorf("cleared pending org = %q, want org_revoke", store.lastClearedPending)
+	}
+	if store.subscriptions["org_revoke"].PendingPlanTier != nil {
+		t.Fatal("expected pending plan tier to be cleared on revoke")
 	}
 }
 
@@ -253,6 +269,7 @@ func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
 func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 	t.Parallel()
 
+	pendingTier := "free"
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
 			"org_limit": {
@@ -261,6 +278,7 @@ func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 				Status:                "active",
 				SpendingLimitMicrousd: 50000000, // $50
 				LimitAction:           "notify",
+				PendingPlanTier:       &pendingTier,
 			},
 		},
 	}
@@ -298,6 +316,9 @@ func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 	}
 	if sub.LimitAction != "notify" {
 		t.Errorf("limit action was overwritten: got %q, want notify", sub.LimitAction)
+	}
+	if sub.PendingPlanTier != nil {
+		t.Fatal("expected duplicate create to clear stale pending downgrade")
 	}
 }
 
@@ -412,12 +433,14 @@ func TestWebhook_DowngradeDeferred(t *testing.T) {
 func TestWebhook_UpgradeImmediate(t *testing.T) {
 	t.Parallel()
 
+	pendingTier := "free"
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
 			"org_up": {
-				OrgID:    "org_up",
-				PlanTier: "starter",
-				Status:   "active",
+				OrgID:           "org_up",
+				PlanTier:        "starter",
+				Status:          "active",
+				PendingPlanTier: &pendingTier,
 			},
 		},
 	}
@@ -458,6 +481,60 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 	// No pending tier should be set.
 	if store.lastPendingTier != "" {
 		t.Errorf("expected no pending tier for upgrade, got %q", store.lastPendingTier)
+	}
+	if store.lastClearedPending != "org_up" {
+		t.Errorf("expected pending tier to be cleared for org_up, got %q", store.lastClearedPending)
+	}
+	if store.subscriptions["org_up"].PendingPlanTier != nil {
+		t.Fatal("expected pending tier to be cleared on immediate upgrade")
+	}
+}
+
+func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
+	t.Parallel()
+
+	pendingTier := "free"
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_reactivate": {
+				OrgID:           "org_reactivate",
+				PlanTier:        "starter",
+				Status:          "canceled",
+				PendingPlanTier: &pendingTier,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.updated",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_reactivate",
+			ProductID:  "pro-id",
+			CustomerID: "cust_reactivate",
+			Status:     "active",
+			Metadata:   map[string]string{"org_id": "org_reactivate"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if store.subscriptions["org_reactivate"].PendingPlanTier != nil {
+		t.Fatal("expected stale pending free tier to be cleared")
+	}
+	if store.subscriptions["org_reactivate"].PlanTier != "pro" {
+		t.Fatalf("plan tier = %q, want pro", store.subscriptions["org_reactivate"].PlanTier)
 	}
 }
 

@@ -65,6 +65,7 @@ func (m *mockEnforcerStore) UpdateSpendingLimit(_ context.Context, _ string, _ i
 	return nil
 }
 func (m *mockEnforcerStore) SetPendingPlanTier(_ context.Context, _, _ string) error { return nil }
+func (m *mockEnforcerStore) ClearPendingPlanTier(_ context.Context, _ string) error  { return nil }
 func (m *mockEnforcerStore) ApplyPendingDowngrade(_ context.Context, _ string) error { return nil }
 func (m *mockEnforcerStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]billing.OrgSubscription, error) {
 	return nil, nil
@@ -76,6 +77,12 @@ func (m *mockEnforcerStore) ListProjectsByOrg(_ context.Context, _ string) ([]st
 	return nil, nil
 }
 func (m *mockEnforcerStore) CountProjectsByOrg(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+func (m *mockEnforcerStore) CountMembersByOrg(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+func (m *mockEnforcerStore) CountExecutingRunsByOrg(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
 func (m *mockEnforcerStore) SetProjectOrgID(_ context.Context, _, _ string) error { return nil }

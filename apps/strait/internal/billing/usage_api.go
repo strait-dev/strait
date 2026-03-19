@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -81,7 +82,7 @@ func NewUsageService(store Store, enforcer *Enforcer) *UsageService {
 }
 
 // GetCurrentUsage returns the current billing period usage for an org.
-func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string, projectCount, memberCount int) (*CurrentUsageResponse, error) {
+func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*CurrentUsageResponse, error) {
 	limits, err := s.enforcer.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("getting org plan limits: %w", err)
@@ -93,8 +94,26 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string, projec
 		runsToday = 0
 	}
 
-	// Get subscription for period info
-	sub, _ := s.store.GetOrgSubscription(ctx, orgID)
+	projectCount, err := s.store.CountProjectsByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("counting org projects: %w", err)
+	}
+
+	memberCount, err := s.store.CountMembersByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("counting org members: %w", err)
+	}
+
+	concurrentRuns, err := s.store.CountExecutingRunsByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("counting org concurrent runs: %w", err)
+	}
+
+	// Get subscription for period info.
+	sub, err := s.store.GetOrgSubscription(ctx, orgID)
+	if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+		return nil, fmt.Errorf("getting org subscription: %w", err)
+	}
 
 	// Build period info
 	now := time.Now()
@@ -107,8 +126,10 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string, projec
 		periodEnd = *sub.CurrentPeriodEnd
 	}
 
-	// Sum compute spend for the period
-	periodSpend, _ := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
+	periodSpend, err := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
+	if err != nil {
+		return nil, fmt.Errorf("summing org period spend: %w", err)
+	}
 
 	computeUsed := periodSpend
 	computeLimit := limits.ComputeCreditMicrousd
@@ -133,9 +154,9 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string, projec
 				Percent: safePercent(runsToday, limits.MaxRunsPerDay),
 			},
 			ConcurrentRuns: UsageDimension{
-				Used:    0,
+				Used:    int64(concurrentRuns),
 				Limit:   int64(limits.MaxConcurrentRuns),
-				Percent: 0,
+				Percent: safePercent(int64(concurrentRuns), int64(limits.MaxConcurrentRuns)),
 			},
 			ComputeCredit: UsageDimension{
 				Used:    computeUsed,
@@ -280,7 +301,27 @@ func (s *UsageService) ExportUsageCSV(ctx context.Context, orgID string, from, t
 func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*SpendingLimitResponse, error) {
 	sub, err := s.store.GetOrgSubscription(ctx, orgID)
 	if err != nil {
-		return nil, fmt.Errorf("getting org subscription: %w", err)
+		if !errors.Is(err, ErrSubscriptionNotFound) {
+			return nil, fmt.Errorf("getting org subscription: %w", err)
+		}
+
+		limits := GetPlanLimits(domain.PlanFree)
+		periodStart := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
+		periodSpend, spendErr := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
+		if spendErr != nil {
+			return nil, fmt.Errorf("summing free-tier spend: %w", spendErr)
+		}
+
+		return &SpendingLimitResponse{
+			OrgID:             orgID,
+			PlanTier:          string(domain.PlanFree),
+			SpendingLimitUsd:  0,
+			LimitAction:       "reject",
+			CurrentSpendUsd:   float64(periodSpend) / 1000000,
+			IncludedCreditUsd: float64(limits.ComputeCreditMicrousd) / 1000000,
+			OverageSpendUsd:   float64(periodSpend) / 1000000,
+			IsHardCapped:      true,
+		}, nil
 	}
 
 	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
@@ -311,6 +352,9 @@ func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*Spe
 func (s *UsageService) SetSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error {
 	sub, err := s.store.GetOrgSubscription(ctx, orgID)
 	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return fmt.Errorf("spending limits are not available on the Free plan")
+		}
 		return fmt.Errorf("getting org subscription: %w", err)
 	}
 

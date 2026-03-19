@@ -108,6 +108,41 @@ func TestAnomalyDetector_DetectAnomalies_NoSpike(t *testing.T) {
 	}
 }
 
+func TestAnomalyDetector_DetectAnomalies_AISpendSpike(t *testing.T) {
+	today := time.Now().UTC()
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+
+	var records []UsageRecord
+	for i := 1; i <= 7; i++ {
+		records = append(records, UsageRecord{
+			OrgID:       "org-ai",
+			ProjectID:   "proj-a",
+			PeriodDate:  today.AddDate(0, 0, -i),
+			AICostMicro: 1_000,
+		})
+	}
+	records = append(records, UsageRecord{
+		OrgID:       "org-ai",
+		ProjectID:   "proj-a",
+		PeriodDate:  today,
+		AICostMicro: 6_000,
+	})
+
+	store := &mockAnomalyStore{usageRecords: records}
+	detector := NewAnomalyDetector(store)
+
+	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-ai"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	}
+	if alerts[0].OrgID != "org-ai" {
+		t.Fatalf("org_id = %q, want org-ai", alerts[0].OrgID)
+	}
+}
+
 func TestClassifySeverity(t *testing.T) {
 	tests := []struct {
 		ratio    float64

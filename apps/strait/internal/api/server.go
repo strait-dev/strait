@@ -395,7 +395,7 @@ type BillingEnforcer interface {
 
 // UsageService provides org usage data for the billing dashboard.
 type UsageService interface {
-	GetCurrentUsage(ctx context.Context, orgID string, projectCount, memberCount int) (*billing.CurrentUsageResponse, error)
+	GetCurrentUsage(ctx context.Context, orgID string) (*billing.CurrentUsageResponse, error)
 	GetUsageHistory(ctx context.Context, orgID string, from, to time.Time) ([]billing.UsageHistoryEntry, error)
 	GetUsageForecast(ctx context.Context, orgID string) (*billing.UsageForecastResponse, error)
 	GetProjectCosts(ctx context.Context, orgID string, from, to time.Time) ([]billing.ProjectCostEntry, error)

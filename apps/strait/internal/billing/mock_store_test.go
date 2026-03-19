@@ -25,9 +25,14 @@ type mockBillingStore struct {
 	lastPlanUpdate      *planUpdate
 	lastFullUpdate      *fullUpdate
 	lastPendingTier     string
+	lastClearedPending  string
 	pendingDowngradeOrg string
 	subscriptions       map[string]*OrgSubscription
 	projects            map[string][]string
+	memberCounts        map[string]int
+	executingRuns       map[string]int
+	usageRecords        []UsageRecord
+	periodSpendByOrg    map[string]int64
 }
 
 func (m *mockBillingStore) GetOrgSubscription(_ context.Context, orgID string) (*OrgSubscription, error) {
@@ -49,6 +54,7 @@ func (m *mockBillingStore) UpsertOrgSubscription(_ context.Context, sub *OrgSubs
 	if existing, ok := m.subscriptions[sub.OrgID]; ok {
 		sub.SpendingLimitMicrousd = existing.SpendingLimitMicrousd
 		sub.LimitAction = existing.LimitAction
+		sub.PendingPlanTier = nil
 	}
 	m.subscriptions[sub.OrgID] = sub
 	return nil
@@ -56,7 +62,14 @@ func (m *mockBillingStore) UpsertOrgSubscription(_ context.Context, sub *OrgSubs
 
 func (m *mockBillingStore) UpdateOrgSubscriptionPlan(_ context.Context, orgID, planTier, status string) error {
 	m.lastPlanUpdate = &planUpdate{orgID: orgID, tier: planTier, status: status}
-	return nil
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok {
+			sub.PlanTier = planTier
+			sub.Status = status
+			return nil
+		}
+	}
+	return ErrSubscriptionNotFound
 }
 
 func (m *mockBillingStore) UpdateOrgSubscriptionFull(_ context.Context, orgID, tier, status string, periodStart, periodEnd *time.Time) error {
@@ -71,9 +84,10 @@ func (m *mockBillingStore) UpdateOrgSubscriptionFull(_ context.Context, orgID, t
 			if periodEnd != nil {
 				sub.CurrentPeriodEnd = periodEnd
 			}
+			return nil
 		}
 	}
-	return nil
+	return ErrSubscriptionNotFound
 }
 
 func (m *mockBillingStore) UpdateSpendingLimit(_ context.Context, _ string, _ int64, _ string) error {
@@ -85,9 +99,21 @@ func (m *mockBillingStore) SetPendingPlanTier(_ context.Context, orgID, tier str
 	if m.subscriptions != nil {
 		if sub, ok := m.subscriptions[orgID]; ok {
 			sub.PendingPlanTier = &tier
+			return nil
 		}
 	}
-	return nil
+	return ErrSubscriptionNotFound
+}
+
+func (m *mockBillingStore) ClearPendingPlanTier(_ context.Context, orgID string) error {
+	m.lastClearedPending = orgID
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok {
+			sub.PendingPlanTier = nil
+			return nil
+		}
+	}
+	return ErrSubscriptionNotFound
 }
 
 func (m *mockBillingStore) ApplyPendingDowngrade(_ context.Context, orgID string) error {
@@ -96,9 +122,10 @@ func (m *mockBillingStore) ApplyPendingDowngrade(_ context.Context, orgID string
 		if sub, ok := m.subscriptions[orgID]; ok && sub.PendingPlanTier != nil {
 			sub.PlanTier = *sub.PendingPlanTier
 			sub.PendingPlanTier = nil
+			return nil
 		}
 	}
-	return nil
+	return ErrSubscriptionNotFound
 }
 
 func (m *mockBillingStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]OrgSubscription, error) {
@@ -129,6 +156,20 @@ func (m *mockBillingStore) CountProjectsByOrg(_ context.Context, orgID string) (
 	return 0, nil
 }
 
+func (m *mockBillingStore) CountMembersByOrg(_ context.Context, orgID string) (int, error) {
+	if m.memberCounts != nil {
+		return m.memberCounts[orgID], nil
+	}
+	return 0, nil
+}
+
+func (m *mockBillingStore) CountExecutingRunsByOrg(_ context.Context, orgID string) (int, error) {
+	if m.executingRuns != nil {
+		return m.executingRuns[orgID], nil
+	}
+	return 0, nil
+}
+
 func (m *mockBillingStore) SetProjectOrgID(_ context.Context, _, _ string) error {
 	return nil
 }
@@ -138,17 +179,20 @@ func (m *mockBillingStore) UpsertUsageRecord(_ context.Context, _ *UsageRecord) 
 }
 
 func (m *mockBillingStore) GetOrgUsageForPeriod(_ context.Context, _ string, _, _ time.Time) ([]UsageRecord, error) {
-	return nil, nil
+	return m.usageRecords, nil
 }
 
 func (m *mockBillingStore) GetProjectUsageForPeriod(_ context.Context, _ string, _, _ time.Time) ([]UsageRecord, error) {
-	return nil, nil
+	return m.usageRecords, nil
 }
 
 func (m *mockBillingStore) GetOrgDailyUsage(_ context.Context, _ string, _ time.Time) ([]UsageRecord, error) {
-	return nil, nil
+	return m.usageRecords, nil
 }
 
-func (m *mockBillingStore) SumOrgPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
+func (m *mockBillingStore) SumOrgPeriodSpend(_ context.Context, orgID string, _ time.Time) (int64, error) {
+	if m.periodSpendByOrg != nil {
+		return m.periodSpendByOrg[orgID], nil
+	}
 	return 0, nil
 }

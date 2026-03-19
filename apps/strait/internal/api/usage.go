@@ -12,28 +12,30 @@ import (
 	"strait/internal/domain"
 )
 
-// validateCallerOrgAccess checks that the caller's API key belongs to the given
-// org. Returns nil for internal-secret callers (no scopes in context).
+// validateCallerOrgAccess checks that a non-internal project-scoped caller
+// belongs to the given org. Returns nil for internal-secret callers (no scopes
+// in context).
 func (s *Server) validateCallerOrgAccess(ctx context.Context, orgID string) error {
 	if scopesFromContext(ctx) == nil {
 		return nil // internal-secret caller, trusted
 	}
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" || s.billingEnforcer == nil {
-		return fmt.Errorf("cannot determine org for this API key")
+		return fmt.Errorf("cannot determine caller organization from project context")
 	}
 	callerOrg, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("failed to resolve org: %w", err)
 	}
 	if callerOrg != orgID {
-		return fmt.Errorf("org_id does not match the API key's organization")
+		return fmt.Errorf("org_id does not match the caller's organization")
 	}
 	return nil
 }
 
 // resolveUsageOrgID extracts org_id from the request query, enforcing tenant
-// isolation for API key callers. Returns the org_id or writes an error response.
+// isolation for non-internal project-scoped callers. Returns the org_id or
+// writes an error response.
 func (s *Server) resolveUsageOrgID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	orgID := r.URL.Query().Get("org_id")
 	if orgID == "" {
@@ -64,14 +66,7 @@ func (s *Server) handleGetCurrentUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projects, err := s.store.ListProjectsByOrg(r.Context(), orgID)
-	if err != nil {
-		slog.Error("failed to list projects for usage", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to get usage data")
-		return
-	}
-
-	usage, err := s.usageService.GetCurrentUsage(r.Context(), orgID, len(projects), 0)
+	usage, err := s.usageService.GetCurrentUsage(r.Context(), orgID)
 	if err != nil {
 		slog.Error("failed to get current usage", "error", err)
 		respondError(w, r, http.StatusInternalServerError, "failed to get usage data")

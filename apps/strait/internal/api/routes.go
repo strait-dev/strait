@@ -96,20 +96,20 @@ func (s *Server) routes() chi.Router {
 
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/regions", s.handleListRegions)
 
-		r.Get("/usage/current", s.handleGetCurrentUsage)
-		r.Get("/usage/history", s.handleGetUsageHistory)
-		r.Get("/usage/forecast", s.handleGetUsageForecast)
-		r.Get("/usage/projects", s.handleGetProjectCosts)
-		r.Get("/usage/anomalies", s.handleGetAnomalyAlerts)
-		r.Get("/usage/export", s.handleExportUsage)
-		r.Get("/spending-limit", s.handleGetSpendingLimit)
-		r.Put("/spending-limit", s.handleUpdateSpendingLimit)
-		r.Get("/cost-estimate", s.handleGetCostEstimate)
-		r.Get("/downgrade-preview", s.handleGetDowngradePreview)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/current", s.handleGetCurrentUsage)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/history", s.handleGetUsageHistory)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/forecast", s.handleGetUsageForecast)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/projects", s.handleGetProjectCosts)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/anomalies", s.handleGetAnomalyAlerts)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/export", s.handleExportUsage)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/spending-limit", s.handleGetSpendingLimit)
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/spending-limit", s.handleUpdateSpendingLimit)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/cost-estimate", s.handleGetCostEstimate)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/downgrade-preview", s.handleGetDowngradePreview)
 		r.Route("/referrals", func(r chi.Router) {
-			r.Post("/", s.handleCreateReferralCode)
-			r.Post("/activate", s.handleActivateReferral)
-			r.Get("/", s.handleListReferrals)
+			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", s.handleCreateReferralCode)
+			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/activate", s.handleActivateReferral)
+			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleListReferrals)
 		})
 
 		r.Route("/projects", func(r chi.Router) {

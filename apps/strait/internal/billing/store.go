@@ -46,6 +46,7 @@ type Store interface {
 	UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error
 	UpdateSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
 	SetPendingPlanTier(ctx context.Context, orgID, tier string) error
+	ClearPendingPlanTier(ctx context.Context, orgID string) error
 	ApplyPendingDowngrade(ctx context.Context, orgID string) error
 	ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscription, error)
 
@@ -53,6 +54,8 @@ type Store interface {
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
 	CountProjectsByOrg(ctx context.Context, orgID string) (int, error)
+	CountMembersByOrg(ctx context.Context, orgID string) (int, error)
+	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
 	SetProjectOrgID(ctx context.Context, projectID, orgID string) error
 
 	// Usage records

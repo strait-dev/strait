@@ -64,6 +64,7 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 			current_period_end = EXCLUDED.current_period_end,
 			spending_limit_microusd = organization_subscriptions.spending_limit_microusd,
 			limit_action = organization_subscriptions.limit_action,
+			pending_plan_tier = NULL,
 			canceled_at = EXCLUDED.canceled_at,
 			updated_at = NOW()
 	`, sub.ID, sub.OrgID, sub.PlanTier,
@@ -119,6 +120,21 @@ func (s *PgStore) SetPendingPlanTier(ctx context.Context, orgID, tier string) er
 	`, orgID, tier)
 	if err != nil {
 		return fmt.Errorf("setting pending plan tier: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSubscriptionNotFound
+	}
+	return nil
+}
+
+func (s *PgStore) ClearPendingPlanTier(ctx context.Context, orgID string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET pending_plan_tier = NULL, updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID)
+	if err != nil {
+		return fmt.Errorf("clearing pending plan tier: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrSubscriptionNotFound
@@ -236,6 +252,35 @@ func (s *PgStore) CountProjectsByOrg(ctx context.Context, orgID string) (int, er
 	return count, nil
 }
 
+func (s *PgStore) CountMembersByOrg(ctx context.Context, orgID string) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT pmr.user_id)
+		FROM project_member_roles pmr
+		JOIN projects p ON p.id = pmr.project_id
+		WHERE p.org_id = $1
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting members by org: %w", err)
+	}
+	return count, nil
+}
+
+func (s *PgStore) CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_runs jr
+		JOIN projects p ON p.id = jr.project_id
+		WHERE p.org_id = $1
+		  AND jr.status = 'executing'
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting executing runs by org: %w", err)
+	}
+	return count, nil
+}
+
 func (s *PgStore) SetProjectOrgID(ctx context.Context, projectID, orgID string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE projects SET org_id = $2 WHERE id = $1
@@ -270,26 +315,80 @@ func (s *PgStore) UpsertUsageRecord(ctx context.Context, rec *UsageRecord) error
 }
 
 func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, to time.Time) ([]UsageRecord, error) {
+	endExclusive := to.AddDate(0, 0, 1)
+
 	rows, err := s.pool.Query(ctx, `
+		WITH run_counts AS (
+			SELECT p.org_id,
+				jr.project_id,
+				DATE(jr.created_at) AS period_date,
+				COUNT(*)::bigint AS runs_count,
+				0::bigint AS compute_cost_microusd,
+				0::bigint AS ai_tokens_total,
+				0::bigint AS ai_cost_microusd,
+				MIN(jr.created_at) AS created_at,
+				MAX(jr.created_at) AS updated_at
+			FROM job_runs jr
+			JOIN projects p ON p.id = jr.project_id
+			WHERE p.org_id = $1
+			  AND jr.created_at >= $2
+			  AND jr.created_at < $3
+			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
+		), compute_usage AS (
+			SELECT p.org_id,
+				rcu.project_id,
+				DATE(rcu.created_at) AS period_date,
+				0::bigint AS runs_count,
+				COALESCE(SUM(rcu.cost_microusd), 0)::bigint AS compute_cost_microusd,
+				0::bigint AS ai_tokens_total,
+				0::bigint AS ai_cost_microusd,
+				MIN(rcu.created_at) AS created_at,
+				MAX(rcu.created_at) AS updated_at
+			FROM run_compute_usage rcu
+			JOIN projects p ON p.id = rcu.project_id
+			WHERE p.org_id = $1
+			  AND rcu.created_at >= $2
+			  AND rcu.created_at < $3
+			  AND rcu.status = 'committed'
+			GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
+		), ai_usage AS (
+			SELECT p.org_id,
+				jr.project_id,
+				DATE(ru.created_at) AS period_date,
+				0::bigint AS runs_count,
+				0::bigint AS compute_cost_microusd,
+				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
+				COALESCE(SUM(ru.cost_microusd), 0)::bigint AS ai_cost_microusd,
+				MIN(ru.created_at) AS created_at,
+				MAX(ru.created_at) AS updated_at
+			FROM run_usage ru
+			JOIN job_runs jr ON jr.id = ru.run_id
+			JOIN projects p ON p.id = jr.project_id
+			WHERE p.org_id = $1
+			  AND ru.created_at >= $2
+			  AND ru.created_at < $3
+			GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
+		)
 		SELECT '' AS id,
-			p.org_id,
-			rcu.project_id,
-			DATE(rcu.created_at) AS period_date,
-			COUNT(*) AS runs_count,
-			COALESCE(SUM(rcu.cost_microusd), 0) AS compute_cost_microusd,
-			0::bigint AS ai_tokens_total,
-			0::bigint AS ai_cost_microusd,
-			MIN(rcu.created_at) AS created_at,
-			MAX(rcu.created_at) AS updated_at
-		FROM run_compute_usage rcu
-		JOIN projects p ON p.id = rcu.project_id
-		WHERE p.org_id = $1
-		  AND rcu.created_at >= $2
-		  AND rcu.created_at < $3 + INTERVAL '1 day'
-		  AND rcu.status = 'committed'
-		GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
+			org_id,
+			project_id,
+			period_date,
+			SUM(runs_count) AS runs_count,
+			SUM(compute_cost_microusd) AS compute_cost_microusd,
+			SUM(ai_tokens_total) AS ai_tokens_total,
+			SUM(ai_cost_microusd) AS ai_cost_microusd,
+			MIN(created_at) AS created_at,
+			MAX(updated_at) AS updated_at
+		FROM (
+			SELECT * FROM run_counts
+			UNION ALL
+			SELECT * FROM compute_usage
+			UNION ALL
+			SELECT * FROM ai_usage
+		) usage
+		GROUP BY org_id, project_id, period_date
 		ORDER BY period_date ASC
-	`, orgID, from, to)
+	`, orgID, from, endExclusive)
 	if err != nil {
 		return nil, fmt.Errorf("getting org usage for period: %w", err)
 	}
@@ -298,26 +397,80 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 }
 
 func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string, from, to time.Time) ([]UsageRecord, error) {
+	endExclusive := to.AddDate(0, 0, 1)
+
 	rows, err := s.pool.Query(ctx, `
+		WITH run_counts AS (
+			SELECT p.org_id,
+				jr.project_id,
+				DATE(jr.created_at) AS period_date,
+				COUNT(*)::bigint AS runs_count,
+				0::bigint AS compute_cost_microusd,
+				0::bigint AS ai_tokens_total,
+				0::bigint AS ai_cost_microusd,
+				MIN(jr.created_at) AS created_at,
+				MAX(jr.created_at) AS updated_at
+			FROM job_runs jr
+			JOIN projects p ON p.id = jr.project_id
+			WHERE jr.project_id = $1
+			  AND jr.created_at >= $2
+			  AND jr.created_at < $3
+			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
+		), compute_usage AS (
+			SELECT p.org_id,
+				rcu.project_id,
+				DATE(rcu.created_at) AS period_date,
+				0::bigint AS runs_count,
+				COALESCE(SUM(rcu.cost_microusd), 0)::bigint AS compute_cost_microusd,
+				0::bigint AS ai_tokens_total,
+				0::bigint AS ai_cost_microusd,
+				MIN(rcu.created_at) AS created_at,
+				MAX(rcu.created_at) AS updated_at
+			FROM run_compute_usage rcu
+			JOIN projects p ON p.id = rcu.project_id
+			WHERE rcu.project_id = $1
+			  AND rcu.created_at >= $2
+			  AND rcu.created_at < $3
+			  AND rcu.status = 'committed'
+			GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
+		), ai_usage AS (
+			SELECT p.org_id,
+				jr.project_id,
+				DATE(ru.created_at) AS period_date,
+				0::bigint AS runs_count,
+				0::bigint AS compute_cost_microusd,
+				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
+				COALESCE(SUM(ru.cost_microusd), 0)::bigint AS ai_cost_microusd,
+				MIN(ru.created_at) AS created_at,
+				MAX(ru.created_at) AS updated_at
+			FROM run_usage ru
+			JOIN job_runs jr ON jr.id = ru.run_id
+			JOIN projects p ON p.id = jr.project_id
+			WHERE jr.project_id = $1
+			  AND ru.created_at >= $2
+			  AND ru.created_at < $3
+			GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
+		)
 		SELECT '' AS id,
-			p.org_id,
-			rcu.project_id,
-			DATE(rcu.created_at) AS period_date,
-			COUNT(*) AS runs_count,
-			COALESCE(SUM(rcu.cost_microusd), 0) AS compute_cost_microusd,
-			0::bigint AS ai_tokens_total,
-			0::bigint AS ai_cost_microusd,
-			MIN(rcu.created_at) AS created_at,
-			MAX(rcu.created_at) AS updated_at
-		FROM run_compute_usage rcu
-		JOIN projects p ON p.id = rcu.project_id
-		WHERE rcu.project_id = $1
-		  AND rcu.created_at >= $2
-		  AND rcu.created_at < $3 + INTERVAL '1 day'
-		  AND rcu.status = 'committed'
-		GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
+			org_id,
+			project_id,
+			period_date,
+			SUM(runs_count) AS runs_count,
+			SUM(compute_cost_microusd) AS compute_cost_microusd,
+			SUM(ai_tokens_total) AS ai_tokens_total,
+			SUM(ai_cost_microusd) AS ai_cost_microusd,
+			MIN(created_at) AS created_at,
+			MAX(updated_at) AS updated_at
+		FROM (
+			SELECT * FROM run_counts
+			UNION ALL
+			SELECT * FROM compute_usage
+			UNION ALL
+			SELECT * FROM ai_usage
+		) usage
+		GROUP BY org_id, project_id, period_date
 		ORDER BY period_date ASC
-	`, projectID, from, to)
+	`, projectID, from, endExclusive)
 	if err != nil {
 		return nil, fmt.Errorf("getting project usage for period: %w", err)
 	}
@@ -327,22 +480,72 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 
 func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.Time) ([]UsageRecord, error) {
 	rows, err := s.pool.Query(ctx, `
+		WITH run_counts AS (
+			SELECT p.org_id,
+				jr.project_id,
+				DATE(jr.created_at) AS period_date,
+				COUNT(*)::bigint AS runs_count,
+				0::bigint AS compute_cost_microusd,
+				0::bigint AS ai_tokens_total,
+				0::bigint AS ai_cost_microusd,
+				MIN(jr.created_at) AS created_at,
+				MAX(jr.created_at) AS updated_at
+			FROM job_runs jr
+			JOIN projects p ON p.id = jr.project_id
+			WHERE p.org_id = $1
+			  AND DATE(jr.created_at) = $2
+			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
+		), compute_usage AS (
+			SELECT p.org_id,
+				rcu.project_id,
+				DATE(rcu.created_at) AS period_date,
+				0::bigint AS runs_count,
+				COALESCE(SUM(rcu.cost_microusd), 0)::bigint AS compute_cost_microusd,
+				0::bigint AS ai_tokens_total,
+				0::bigint AS ai_cost_microusd,
+				MIN(rcu.created_at) AS created_at,
+				MAX(rcu.created_at) AS updated_at
+			FROM run_compute_usage rcu
+			JOIN projects p ON p.id = rcu.project_id
+			WHERE p.org_id = $1
+			  AND DATE(rcu.created_at) = $2
+			  AND rcu.status = 'committed'
+			GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
+		), ai_usage AS (
+			SELECT p.org_id,
+				jr.project_id,
+				DATE(ru.created_at) AS period_date,
+				0::bigint AS runs_count,
+				0::bigint AS compute_cost_microusd,
+				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
+				COALESCE(SUM(ru.cost_microusd), 0)::bigint AS ai_cost_microusd,
+				MIN(ru.created_at) AS created_at,
+				MAX(ru.created_at) AS updated_at
+			FROM run_usage ru
+			JOIN job_runs jr ON jr.id = ru.run_id
+			JOIN projects p ON p.id = jr.project_id
+			WHERE p.org_id = $1
+			  AND DATE(ru.created_at) = $2
+			GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
+		)
 		SELECT '' AS id,
-			p.org_id,
-			rcu.project_id,
-			DATE(rcu.created_at) AS period_date,
-			COUNT(*) AS runs_count,
-			COALESCE(SUM(rcu.cost_microusd), 0) AS compute_cost_microusd,
-			0::bigint AS ai_tokens_total,
-			0::bigint AS ai_cost_microusd,
-			MIN(rcu.created_at) AS created_at,
-			MAX(rcu.created_at) AS updated_at
-		FROM run_compute_usage rcu
-		JOIN projects p ON p.id = rcu.project_id
-		WHERE p.org_id = $1
-		  AND DATE(rcu.created_at) = $2
-		  AND rcu.status = 'committed'
-		GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
+			org_id,
+			project_id,
+			period_date,
+			SUM(runs_count) AS runs_count,
+			SUM(compute_cost_microusd) AS compute_cost_microusd,
+			SUM(ai_tokens_total) AS ai_tokens_total,
+			SUM(ai_cost_microusd) AS ai_cost_microusd,
+			MIN(created_at) AS created_at,
+			MAX(updated_at) AS updated_at
+		FROM (
+			SELECT * FROM run_counts
+			UNION ALL
+			SELECT * FROM compute_usage
+			UNION ALL
+			SELECT * FROM ai_usage
+		) usage
+		GROUP BY org_id, project_id, period_date
 	`, orgID, date)
 	if err != nil {
 		return nil, fmt.Errorf("getting org daily usage: %w", err)

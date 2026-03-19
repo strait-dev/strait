@@ -106,6 +106,15 @@ func TestExportCSV_WithRecords(t *testing.T) {
 	if records[1][3] != "5.000000" {
 		t.Errorf("expected compute_cost_usd 5.000000, got %s", records[1][3])
 	}
+	if records[1][4] != "1000" {
+		t.Errorf("expected ai_tokens 1000, got %s", records[1][4])
+	}
+	if records[1][5] != "2.000000" {
+		t.Errorf("expected ai_cost_usd 2.000000, got %s", records[1][5])
+	}
+	if records[1][6] != "7.000000" {
+		t.Errorf("expected total_usd 7.000000, got %s", records[1][6])
+	}
 }
 
 func TestMicroToUSDString(t *testing.T) {

@@ -291,6 +291,10 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 	}
 
 	// Upgrade or same-tier update: apply immediately with period dates.
+	if err := h.store.ClearPendingPlanTier(ctx, orgID); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+		return fmt.Errorf("clearing pending plan tier: %w", err)
+	}
+
 	if err := h.store.UpdateOrgSubscriptionFull(ctx, orgID, string(tier), status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd); err != nil {
 		if errors.Is(err, ErrSubscriptionNotFound) {
 			now := time.Now()
@@ -397,6 +401,9 @@ func (h *WebhookHandler) handleSubscriptionRevoked(ctx context.Context, data jso
 			return nil
 		}
 		return fmt.Errorf("revoking subscription: %w", err)
+	}
+	if err := h.store.ClearPendingPlanTier(ctx, orgID); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+		return fmt.Errorf("clearing pending downgrade on revoke: %w", err)
 	}
 
 	if h.enforcer != nil {

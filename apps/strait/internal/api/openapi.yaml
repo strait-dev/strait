@@ -157,7 +157,9 @@ paths:
       tags:
         - Usage
       summary: Get current billing usage
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: org_id
@@ -178,7 +180,9 @@ paths:
       tags:
         - Usage
       summary: Get usage history
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: org_id
@@ -213,7 +217,9 @@ paths:
       tags:
         - Usage
       summary: Get usage forecast
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: org_id
@@ -234,7 +240,9 @@ paths:
       tags:
         - Usage
       summary: Get per-project cost allocation
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: org_id
@@ -269,7 +277,9 @@ paths:
       tags:
         - Usage
       summary: Get anomaly alerts
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: org_id
@@ -292,7 +302,9 @@ paths:
       tags:
         - Usage
       summary: Export usage as CSV
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: org_id
@@ -325,7 +337,9 @@ paths:
       tags:
         - Usage
       summary: Get spending limit
+      description: Returns the current spending limit. Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed. Free-tier orgs without a subscription row receive a read-only hard-capped free-tier response.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: org_id
@@ -344,7 +358,9 @@ paths:
       tags:
         - Usage
       summary: Update spending limit
+      description: Bearer and API key callers must have `projects:manage` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: org_id
@@ -372,7 +388,9 @@ paths:
       tags:
         - Usage
       summary: Get compute cost estimate
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context when requesting org-scoped credit context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: preset
@@ -402,7 +420,9 @@ paths:
       tags:
         - Usage
       summary: Preview downgrade impact
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: org_id
@@ -428,7 +448,9 @@ paths:
       tags:
         - Referrals
       summary: Create referral code
+      description: Bearer and API key callers must have `projects:manage` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       requestBody:
         required: true
@@ -450,7 +472,9 @@ paths:
       tags:
         - Referrals
       summary: List referrals
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       parameters:
         - name: org_id
@@ -473,7 +497,9 @@ paths:
       tags:
         - Referrals
       summary: Activate referral code
+      description: Bearer and API key callers must have `projects:manage` on the project identified by their request context. Internal secret callers remain allowed.
       security:
+        - bearerAuth: []
         - internalSecret: []
       requestBody:
         required: true
@@ -5117,9 +5143,18 @@ paths:
 
 components:
   securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Bearer API key passed as Authorization: Bearer strait_...
     bearerAuth:
       type: http
       scheme: bearer
+    internalSecret:
+      type: apiKey
+      in: header
+      name: X-Internal-Secret
     runToken:
       type: http
       scheme: bearer
