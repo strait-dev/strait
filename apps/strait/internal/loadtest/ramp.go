@@ -101,11 +101,9 @@ func (re *RampEngine) Run(ctx context.Context) (*RampResult, error) {
 			break
 		}
 
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			result.Bottleneck = "cancelled"
 			break
-		default:
 		}
 
 		stepResult := re.runStep(ctx, currentRate)
@@ -143,7 +141,6 @@ func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
 	var (
 		ops    atomic.Int64
 		errs   atomic.Int64
-		wg     sync.WaitGroup
 	)
 
 	// Track latencies
@@ -151,12 +148,15 @@ func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
 
 	switch re.config.Mode {
 	case RampThroughput:
-		re.runThroughputStep(stepCtx, rate, &ops, &errs, latencies, &wg)
+		go re.runThroughputStep(stepCtx, rate, &ops, &errs, latencies)
 	case RampConcurrency:
-		re.runConcurrencyStep(stepCtx, rate, &ops, &errs, latencies, &wg)
+		go re.runConcurrencyStep(stepCtx, rate, &ops, &errs, latencies)
 	}
 
-	wg.Wait()
+	// Wait for step duration to complete
+	<-stepCtx.Done()
+	// Give in-flight operations a brief window to complete
+	time.Sleep(500 * time.Millisecond)
 
 	totalOps := ops.Load()
 	totalErrs := errs.Load()
@@ -188,9 +188,9 @@ func (re *RampEngine) runThroughputStep(
 	rate int,
 	ops, errs *atomic.Int64,
 	latencies *latencyTracker,
-	wg *sync.WaitGroup,
 ) {
-	// Send 'rate' operations per second for the step duration
+	// Send 'rate' operations per second for the step duration.
+	// Goroutines are fire-and-forget; they update atomic counters.
 	ticker := time.NewTicker(time.Second / time.Duration(max(rate, 1)))
 	defer ticker.Stop()
 
@@ -199,15 +199,14 @@ func (re *RampEngine) runThroughputStep(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			wg.Add(1)
 			go func() {
-				defer wg.Done()
 				start := time.Now()
 				if err := re.operation(ctx); err != nil {
 					errs.Add(1)
+				} else {
+					ops.Add(1)
 				}
 				latencies.record(time.Since(start))
-				ops.Add(1)
 			}()
 		}
 	}
@@ -218,13 +217,10 @@ func (re *RampEngine) runConcurrencyStep(
 	concurrent int,
 	ops, errs *atomic.Int64,
 	latencies *latencyTracker,
-	wg *sync.WaitGroup,
 ) {
 	// Run 'concurrent' workers in parallel for the step duration
 	for range concurrent {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			for {
 				select {
 				case <-ctx.Done():
@@ -233,9 +229,10 @@ func (re *RampEngine) runConcurrencyStep(
 					start := time.Now()
 					if err := re.operation(ctx); err != nil {
 						errs.Add(1)
+					} else {
+						ops.Add(1)
 					}
 					latencies.record(time.Since(start))
-					ops.Add(1)
 				}
 			}
 		}()

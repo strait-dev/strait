@@ -257,6 +257,7 @@ func (h *Harness) WriteResult(filename string, result any) error {
 
 // JobConfig defines a job for load testing.
 type JobConfig struct {
+	ProjectID     string `json:"project_id"`
 	Name          string `json:"name"`
 	Slug          string `json:"slug"`
 	EndpointURL   string `json:"endpoint_url,omitempty"`
@@ -279,4 +280,101 @@ type QueueStats struct {
 // QueueDepth returns the total number of items waiting in the queue.
 func (qs *QueueStats) QueueDepth() int64 {
 	return qs.Queued + qs.Delayed
+}
+
+// SetupLoadTestJobs creates the standard load test jobs and returns their IDs.
+// The test server must be started before calling this.
+func (h *Harness) SetupLoadTestJobs(ctx context.Context, projectID string) (map[string]string, error) {
+	testServerURL := fmt.Sprintf("http://localhost:%d", h.Config.TestServerPort)
+	jobs := map[string]string{}
+
+	configs := []JobConfig{
+		{
+			ProjectID:     projectID,
+			Name:          "Load Test Fast Echo",
+			Slug:          "loadtest-fast-echo",
+			EndpointURL:   testServerURL + "/fast-echo",
+			ExecutionMode: "http",
+			MaxAttempts:   1,
+			TimeoutSecs:   30,
+		},
+		{
+			ProjectID:     projectID,
+			Name:          "Load Test Slow Process",
+			Slug:          "loadtest-slow-process",
+			EndpointURL:   testServerURL + "/slow-process",
+			ExecutionMode: "http",
+			MaxAttempts:   1,
+			TimeoutSecs:   60,
+		},
+		{
+			ProjectID:     projectID,
+			Name:          "Load Test Variable Load",
+			Slug:          "loadtest-variable-load",
+			EndpointURL:   testServerURL + "/variable-load",
+			ExecutionMode: "http",
+			MaxAttempts:   1,
+			TimeoutSecs:   30,
+		},
+		{
+			ProjectID:     projectID,
+			Name:          "Load Test Flaky",
+			Slug:          "loadtest-flaky",
+			EndpointURL:   testServerURL + "/flaky",
+			ExecutionMode: "http",
+			MaxAttempts:   3,
+			TimeoutSecs:   30,
+		},
+	}
+
+	for _, cfg := range configs {
+		id, err := h.CreateJob(ctx, projectID, cfg)
+		if err != nil {
+			// Job might already exist - try to find it by listing jobs
+			existingID, findErr := h.FindJobBySlug(ctx, projectID, cfg.Slug)
+			if findErr != nil {
+				return nil, fmt.Errorf("creating job %s: %w (and failed to find existing: %v)", cfg.Slug, err, findErr)
+			}
+			jobs[cfg.Slug] = existingID
+			continue
+		}
+		jobs[cfg.Slug] = id
+	}
+
+	return jobs, nil
+}
+
+// FindJobBySlug finds a job by slug and returns its UUID.
+func (h *Harness) FindJobBySlug(ctx context.Context, projectID, slug string) (string, error) {
+	url := fmt.Sprintf("%s/v1/jobs?slug=%s", h.Config.StraitURL, slug)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("X-Internal-Secret", h.Config.InternalSecret)
+	req.Header.Set("X-Project-Id", projectID)
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	for _, j := range result.Data {
+		if j.Slug == slug {
+			return j.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("job with slug %q not found", slug)
 }

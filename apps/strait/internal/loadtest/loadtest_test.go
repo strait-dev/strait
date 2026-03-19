@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,15 @@ func envOrDefault(key, def string) string {
 	}
 	return def
 }
+
+const loadtestProjectID = "loadtest-project"
+
+// jobIDs maps slug -> UUID for jobs created during setup.
+var (
+	jobIDs     map[string]string
+	jobIDsOnce sync.Once
+	jobIDsErr  error
+)
 
 func setupHarness(t *testing.T) *loadtest.Harness {
 	t.Helper()
@@ -44,7 +54,26 @@ func setupHarness(t *testing.T) *loadtest.Harness {
 		}
 	})
 
+	// Create load test jobs once across all test functions
+	jobIDsOnce.Do(func() {
+		jobIDs, jobIDsErr = h.SetupLoadTestJobs(ctx, loadtestProjectID)
+	})
+	if jobIDsErr != nil {
+		t.Logf("warning: could not create load test jobs: %v", jobIDsErr)
+		t.Log("tests that trigger jobs against the Strait API will use slug-based IDs")
+	}
+
 	return h
+}
+
+// resolveJobID returns the UUID for a job slug, or the slug itself if not found.
+func resolveJobID(slug string) string {
+	if jobIDs != nil {
+		if id, ok := jobIDs[slug]; ok {
+			return id
+		}
+	}
+	return slug
 }
 
 // TestQuickValidation runs a reduced-scale throughput check in ~15 minutes.
@@ -61,7 +90,7 @@ func TestQuickValidation(t *testing.T) {
 	t.Logf("description: %s", scenario.Description)
 
 	engine := loadtest.NewRampEngine(*scenario.RampConfig, func(ctx context.Context) error {
-		return h.TriggerJob(ctx, "loadtest-project", "loadtest-fast-echo", map[string]any{
+		return h.TriggerJob(ctx, loadtestProjectID, resolveJobID("loadtest-fast-echo"), map[string]any{
 			"timestamp": time.Now().UnixMilli(),
 		})
 	})
@@ -97,14 +126,14 @@ func TestThroughputCeiling(t *testing.T) {
 	t.Logf("running scenario: %s", scenario.Name)
 
 	engine := loadtest.NewRampEngine(*scenario.RampConfig, func(ctx context.Context) error {
-		return h.TriggerJob(ctx, "loadtest-project", "loadtest-fast-echo", map[string]any{
+		return h.TriggerJob(ctx, loadtestProjectID, resolveJobID("loadtest-fast-echo"), map[string]any{
 			"timestamp": time.Now().UnixMilli(),
 		})
 	})
 
 	// Set queue depth monitoring
 	engine.SetQueueDepthFn(func() int64 {
-		stats, err := h.GetQueueStats(context.Background(), "loadtest-project")
+		stats, err := h.GetQueueStats(context.Background(), loadtestProjectID)
 		if err != nil {
 			return 0
 		}
@@ -146,7 +175,7 @@ func TestConcurrencyCeiling(t *testing.T) {
 		t.Logf("running: HTTP concurrency ceiling")
 
 		engine := loadtest.NewRampEngine(*scenario.RampConfig, func(ctx context.Context) error {
-			return h.TriggerJob(ctx, "loadtest-project", "loadtest-fast-echo", map[string]any{
+			return h.TriggerJob(ctx, loadtestProjectID, resolveJobID("loadtest-fast-echo"), map[string]any{
 				"timestamp": time.Now().UnixMilli(),
 			})
 		})
@@ -187,7 +216,7 @@ func TestConcurrencyCeiling(t *testing.T) {
 				MaxDuration:  1 * time.Hour,
 			},
 		}, func(ctx context.Context) error {
-			return h.TriggerJob(ctx, "loadtest-project", "loadtest-managed", map[string]any{
+			return h.TriggerJob(ctx, loadtestProjectID, resolveJobID("loadtest-managed"), map[string]any{
 				"timestamp": time.Now().UnixMilli(),
 			})
 		})
@@ -238,7 +267,7 @@ func TestProductionSimulation(t *testing.T) {
 			case "workflow":
 				jobSlug = "loadtest-workflow"
 			}
-			return h.TriggerJob(ctx, tenant.ID, jobSlug, map[string]any{
+			return h.TriggerJob(ctx, tenant.ID, resolveJobID(jobSlug), map[string]any{
 				"tenant":    tenant.ID,
 				"job_type":  jobType,
 				"timestamp": time.Now().UnixMilli(),
@@ -249,7 +278,7 @@ func TestProductionSimulation(t *testing.T) {
 	// Inject error scenarios during simulation (50/min as per STR-197)
 	errorCtx, errorCancel := context.WithCancel(context.Background())
 	defer errorCancel()
-	errorInjector := loadtest.NewErrorInjector(h, "loadtest-project", 50)
+	errorInjector := loadtest.NewErrorInjector(h, loadtestProjectID, 50)
 	go errorInjector.Run(errorCtx)
 
 	result, err := sim.Run(context.Background())
@@ -485,7 +514,7 @@ func TestErrorScenarios(t *testing.T) {
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
 			// Trigger the error scenario job
-			err := h.TriggerJob(context.Background(), "loadtest-project", "loadtest-errors", map[string]any{
+			err := h.TriggerJob(context.Background(), loadtestProjectID, resolveJobID("loadtest-errors"), map[string]any{
 				"scenario": sc.envVar,
 			})
 
@@ -574,7 +603,7 @@ func TestTestServerEndpoints(t *testing.T) {
 // Use: go test -tags=loadtest -run TestChaosWorkerKill -timeout 30m ./internal/loadtest/...
 func TestChaosWorkerKill(t *testing.T) {
 	h := setupHarness(t)
-	ce := loadtest.NewChaosEngine(h, 100, "loadtest-project", "loadtest-fast-echo")
+	ce := loadtest.NewChaosEngine(h, 100, loadtestProjectID, resolveJobID("loadtest-fast-echo"))
 
 	scenarios := loadtest.AllChaosScenarios()
 	result := ce.RunScenario(context.Background(), scenarios[0]) // worker_sigkill
@@ -593,7 +622,7 @@ func TestChaosWorkerKill(t *testing.T) {
 // Use: go test -tags=loadtest -run TestChaosAll -timeout 4h ./internal/loadtest/...
 func TestChaosAll(t *testing.T) {
 	h := setupHarness(t)
-	ce := loadtest.NewChaosEngine(h, 100, "loadtest-project", "loadtest-fast-echo")
+	ce := loadtest.NewChaosEngine(h, 100, loadtestProjectID, resolveJobID("loadtest-fast-echo"))
 
 	results, err := ce.RunAll(context.Background())
 	if err != nil {
