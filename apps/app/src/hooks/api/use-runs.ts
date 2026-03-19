@@ -13,7 +13,7 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import { apiRequest } from "@/lib/api-client.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -32,22 +32,26 @@ export const fetchRuns = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<PaginatedResponse<JobRun>>("/v1/runs", {
-      params: {
-        limit: data.limit,
-        cursor: data.cursor,
-        status: data.status,
-        job_id: data.job_id,
-        search: data.search,
-      },
-    });
+    return await runWithSentryReport(
+      apiEffect<PaginatedResponse<JobRun>>("/v1/runs", {
+        params: {
+          limit: data.limit,
+          cursor: data.cursor,
+          status: data.status,
+          job_id: data.job_id,
+          search: data.search,
+        },
+      })
+    );
   });
 
 export const fetchRun = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<JobRun>(`/v1/runs/${data.id}`);
+    return await runWithSentryReport(
+      apiEffect<JobRun>(`/v1/runs/${data.id}`)
+    );
   });
 
 export const fetchRunEvents = createServerFn({ method: "GET" })
@@ -56,9 +60,11 @@ export const fetchRunEvents = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<PaginatedResponse<RunEvent>>(
-      `/v1/runs/${data.runId}/events`,
-      { params: { limit: data.limit, cursor: data.cursor } }
+    return await runWithSentryReport(
+      apiEffect<PaginatedResponse<RunEvent>>(
+        `/v1/runs/${data.runId}/events`,
+        { params: { limit: data.limit, cursor: data.cursor } }
+      )
     );
   });
 
@@ -66,16 +72,20 @@ export const replayRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<{ id: string }>(`/v1/runs/${data.runId}/replay`, {
-      method: "POST",
-    });
+    return await runWithSentryReport(
+      apiEffect<{ id: string }>(`/v1/runs/${data.runId}/replay`, {
+        method: "POST",
+      })
+    );
   });
 
 export const cancelRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<void>(`/v1/runs/${data.runId}`, { method: "DELETE" });
+    return await runWithSentryReport(
+      apiEffect<void>(`/v1/runs/${data.runId}`, { method: "DELETE" })
+    );
   });
 
 // ---------------------------------------------------------------------------

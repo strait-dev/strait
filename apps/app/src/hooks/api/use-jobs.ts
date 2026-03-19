@@ -8,7 +8,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { Job, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import { apiRequest } from "@/lib/api-client.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -21,21 +21,25 @@ export const fetchJobs = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<PaginatedResponse<Job>>("/v1/jobs", {
-      params: {
-        limit: data.limit,
-        cursor: data.cursor,
-        status: data.status,
-        search: data.search,
-      },
-    });
+    return await runWithSentryReport(
+      apiEffect<PaginatedResponse<Job>>("/v1/jobs", {
+        params: {
+          limit: data.limit,
+          cursor: data.cursor,
+          status: data.status,
+          search: data.search,
+        },
+      })
+    );
   });
 
 export const fetchJob = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<Job>(`/v1/jobs/${data.id}`);
+    return await runWithSentryReport(
+      apiEffect<Job>(`/v1/jobs/${data.id}`)
+    );
   });
 
 export const triggerJobFn = createServerFn({ method: "POST" })
@@ -44,10 +48,12 @@ export const triggerJobFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<{ id: string }>(`/v1/jobs/${data.id}/trigger`, {
-      method: "POST",
-      body: { payload: data.payload, priority: data.priority },
-    });
+    return await runWithSentryReport(
+      apiEffect<{ id: string }>(`/v1/jobs/${data.id}/trigger`, {
+        method: "POST",
+        body: { payload: data.payload, priority: data.priority },
+      })
+    );
   });
 
 export const updateJobFn = createServerFn({ method: "POST" })
@@ -55,14 +61,18 @@ export const updateJobFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     const { id, ...body } = data;
-    return await apiRequest<Job>(`/v1/jobs/${id}`, { method: "PATCH", body });
+    return await runWithSentryReport(
+      apiEffect<Job>(`/v1/jobs/${id}`, { method: "PATCH", body })
+    );
   });
 
 export const deleteJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<void>(`/v1/jobs/${data.id}`, { method: "DELETE" });
+    return await runWithSentryReport(
+      apiEffect<void>(`/v1/jobs/${data.id}`, { method: "DELETE" })
+    );
   });
 
 // ---------------------------------------------------------------------------
