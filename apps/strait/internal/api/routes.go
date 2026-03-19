@@ -96,9 +96,19 @@ func (s *Server) routes() chi.Router {
 
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/regions", s.handleListRegions)
 
-		r.Route("/projects/{projectID}/settings", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetProjectSettings)
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/", s.handleUpdateProjectSettings)
+		r.Route("/projects", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", s.handleCreateProject)
+			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleListProjects)
+
+			r.Route("/{projectID}", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleGetProject)
+				r.With(s.requirePermission(domain.ScopeProjectsManage)).Delete("/", s.handleDeleteProject)
+
+				r.Route("/settings", func(r chi.Router) {
+					r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetProjectSettings)
+					r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/", s.handleUpdateProjectSettings)
+				})
+			})
 		})
 
 		r.Route("/jobs", func(r chi.Router) {

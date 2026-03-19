@@ -152,6 +152,96 @@ paths:
                     items:
                       $ref: '#/components/schemas/Region'
 
+  /v1/projects:
+    post:
+      tags:
+        - Projects
+      summary: Create a project
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+                - org_id
+                - name
+              properties:
+                id:
+                  type: string
+                org_id:
+                  type: string
+                name:
+                  type: string
+                  minLength: 2
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+    get:
+      tags:
+        - Projects
+      summary: List projects by organization
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: org_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+
+  /v1/projects/{projectID}:
+    get:
+      tags:
+        - Projects
+      summary: Get a project
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: projectID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+    delete:
+      tags:
+        - Projects
+      summary: Delete a project
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: projectID
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Project deleted
+
   /v1/projects/{projectID}/settings:
     get:
       tags:
@@ -7147,6 +7237,22 @@ components:
           type: string
         continent:
           type: string
+
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+        org_id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     ProjectSettings:
       type: object

@@ -3,6 +3,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import z from "zod/v4";
 import type { Project } from "@/hooks/api/types";
 import { auth, authPool } from "@/lib/auth.server";
+import { apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 /**
@@ -64,7 +65,23 @@ export const createProjectServerFn = createServerFn({ method: "POST" })
       ]
     );
 
-    return result.rows[0];
+    const project = result.rows[0];
+
+    // Sync to Go service (best-effort).
+    try {
+      await apiRequest("/v1/projects", {
+        method: "POST",
+        body: {
+          id: project.id,
+          org_id: data.organizationId,
+          name: data.name,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to sync project to service:", err);
+    }
+
+    return project;
   });
 
 /** List projects for an organization. */
@@ -122,6 +139,13 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
 
     if (result.rowCount === 0) {
       throw new Error("Project not found or permission denied");
+    }
+
+    // Sync deletion to Go service (best-effort).
+    try {
+      await apiRequest(`/v1/projects/${data.id}`, { method: "DELETE" });
+    } catch (err) {
+      console.error("Failed to sync project deletion to service:", err);
     }
 
     return { success: true };

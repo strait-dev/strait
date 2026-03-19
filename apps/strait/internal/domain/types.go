@@ -59,6 +59,15 @@ const (
 	EventProgress    EventType = "progress"
 )
 
+// Project represents a project in the Go service database.
+type Project struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // ProjectRole defines a named set of permissions within a project.
 type ProjectRole struct {
 	ID           string    `json:"id"`
@@ -114,14 +123,17 @@ var SystemRolePermissions = map[string][]string{
 		ScopeRunsRead, ScopeRunsWrite,
 		ScopeWorkflowsRead, ScopeWorkflowsWrite, ScopeWorkflowsTrigger,
 		ScopeSecretsRead, ScopeStatsRead, ScopeRBACManage,
+		ScopeProjectsRead, ScopeProjectsWrite,
 	},
 	"viewer": {
 		ScopeJobsRead, ScopeRunsRead, ScopeWorkflowsRead, ScopeStatsRead,
+		ScopeProjectsRead,
 	},
 	"triggerer": {
 		ScopeJobsRead, ScopeJobsTrigger,
 		ScopeRunsRead,
 		ScopeWorkflowsRead, ScopeWorkflowsTrigger,
+		ScopeProjectsRead,
 	},
 }
 

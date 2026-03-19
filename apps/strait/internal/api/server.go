@@ -57,6 +57,15 @@ type APIStore interface {
 	RBACStore
 	LogDrainStore
 	EventSourceStore
+	ProjectStore
+}
+
+// ProjectStore handles project CRUD operations.
+type ProjectStore interface {
+	CreateProject(ctx context.Context, project *domain.Project) error
+	GetProject(ctx context.Context, id string) (*domain.Project, error)
+	ListProjectsByOrg(ctx context.Context, orgID string) ([]domain.Project, error)
+	DeleteProject(ctx context.Context, id string) error
 }
 
 // JobStore handles job CRUD, groups, environments, secrets, and dependencies.

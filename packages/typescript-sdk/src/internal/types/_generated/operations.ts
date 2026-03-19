@@ -102,6 +102,10 @@ export type OperationPathParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": { "userID": string };
   "postV1MembersBulk": undefined;
+  "getV1Projects": undefined;
+  "postV1Projects": undefined;
+  "deleteV1ProjectsByProjectID": { "projectID": string };
+  "getV1ProjectsByProjectID": { "projectID": string };
   "getV1ProjectsByProjectIDSettings": { "projectID": string };
   "putV1ProjectsByProjectIDSettings": { "projectID": string };
   "getV1Regions": undefined;
@@ -294,6 +298,10 @@ export type OperationQueryParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": undefined;
   "postV1MembersBulk": undefined;
+  "getV1Projects": { "org_id": string };
+  "postV1Projects": undefined;
+  "deleteV1ProjectsByProjectID": undefined;
+  "getV1ProjectsByProjectID": undefined;
   "getV1ProjectsByProjectIDSettings": undefined;
   "putV1ProjectsByProjectIDSettings": undefined;
   "getV1Regions": undefined;
@@ -486,6 +494,10 @@ export type OperationHeaderParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": undefined;
   "postV1MembersBulk": undefined;
+  "getV1Projects": undefined;
+  "postV1Projects": undefined;
+  "deleteV1ProjectsByProjectID": undefined;
+  "getV1ProjectsByProjectID": undefined;
   "getV1ProjectsByProjectIDSettings": undefined;
   "putV1ProjectsByProjectIDSettings": undefined;
   "getV1Regions": undefined;
@@ -700,6 +712,10 @@ export const generatedOperationMetadataById = {
   "postV1Members": { functionName: "createMember", domainName: "rbac", domainMethodName: "createMember", pathParamNames: [], summary: "Assign member role" },
   "deleteV1MembersByUserID": { functionName: "deleteMember", domainName: "rbac", domainMethodName: "deleteMember", pathParamNames: ["userID"], summary: "Remove project member" },
   "postV1MembersBulk": { functionName: "bulkMember", domainName: "rbac", domainMethodName: "bulkMember", pathParamNames: [], summary: "Bulk assign members" },
+  "getV1Projects": { functionName: "listProjects", domainName: "projects", domainMethodName: "list", pathParamNames: [], summary: "List projects by organization" },
+  "postV1Projects": { functionName: "createProject", domainName: "projects", domainMethodName: "create", pathParamNames: [], summary: "Create a project" },
+  "deleteV1ProjectsByProjectID": { functionName: "deleteProject", domainName: "projects", domainMethodName: "delete", pathParamNames: ["projectID"], summary: "Delete a project" },
+  "getV1ProjectsByProjectID": { functionName: "getProject", domainName: "projects", domainMethodName: "get", pathParamNames: ["projectID"], summary: "Get a project" },
   "getV1ProjectsByProjectIDSettings": { functionName: "listSettings", domainName: "projects", domainMethodName: "listSettings", pathParamNames: ["projectID"], summary: "Get project settings" },
   "putV1ProjectsByProjectIDSettings": { functionName: "upsertSetting", domainName: "projects", domainMethodName: "upsertSetting", pathParamNames: ["projectID"], summary: "Update project settings" },
   "getV1Regions": { functionName: "listRegions", domainName: "regions", domainMethodName: "list", pathParamNames: [], summary: "List available regions" },

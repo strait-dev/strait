@@ -1,0 +1,219 @@
+//go:build integration
+
+package store_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"strait/internal/domain"
+	"strait/internal/store"
+)
+
+func TestCreateProject(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	p := &domain.Project{
+		ID:    newID(),
+		OrgID: "org-proj-create",
+		Name:  "Test Project",
+	}
+
+	if err := st.CreateProject(ctx, p); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	got, err := st.GetProject(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetProject() error = %v", err)
+	}
+	if got.ID != p.ID {
+		t.Fatalf("ID = %q, want %q", got.ID, p.ID)
+	}
+	if got.OrgID != p.OrgID {
+		t.Fatalf("OrgID = %q, want %q", got.OrgID, p.OrgID)
+	}
+	if got.Name != p.Name {
+		t.Fatalf("Name = %q, want %q", got.Name, p.Name)
+	}
+	if got.CreatedAt.IsZero() {
+		t.Fatal("CreatedAt should not be zero")
+	}
+	if got.UpdatedAt.IsZero() {
+		t.Fatal("UpdatedAt should not be zero")
+	}
+}
+
+func TestCreateProject_Upsert(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	id := newID()
+	p := &domain.Project{ID: id, OrgID: "org-upsert", Name: "Original"}
+	if err := st.CreateProject(ctx, p); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	p2 := &domain.Project{ID: id, OrgID: "org-upsert", Name: "Updated"}
+	if err := st.CreateProject(ctx, p2); err != nil {
+		t.Fatalf("CreateProject() upsert error = %v", err)
+	}
+
+	got, err := st.GetProject(ctx, id)
+	if err != nil {
+		t.Fatalf("GetProject() error = %v", err)
+	}
+	if got.Name != "Updated" {
+		t.Fatalf("Name = %q, want %q", got.Name, "Updated")
+	}
+}
+
+func TestCreateProject_UpsertPreservesOrgID(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	id := newID()
+	p := &domain.Project{ID: id, OrgID: "org-preserve", Name: "First"}
+	if err := st.CreateProject(ctx, p); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	// Upsert with empty org_id should preserve existing.
+	p2 := &domain.Project{ID: id, OrgID: "", Name: "Second"}
+	if err := st.CreateProject(ctx, p2); err != nil {
+		t.Fatalf("CreateProject() upsert error = %v", err)
+	}
+
+	got, err := st.GetProject(ctx, id)
+	if err != nil {
+		t.Fatalf("GetProject() error = %v", err)
+	}
+	if got.OrgID != "org-preserve" {
+		t.Fatalf("OrgID = %q, want %q (should be preserved)", got.OrgID, "org-preserve")
+	}
+}
+
+func TestGetProject_NotFound(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	_, err := st.GetProject(ctx, "nonexistent-project")
+	if !errors.Is(err, store.ErrProjectNotFound) {
+		t.Fatalf("GetProject() error = %v, want ErrProjectNotFound", err)
+	}
+}
+
+func TestListProjectsByOrg(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	orgA := "org-list-a"
+	orgB := "org-list-b"
+
+	for i, org := range []string{orgA, orgA, orgB} {
+		p := &domain.Project{ID: newID(), OrgID: org, Name: "Project " + string(rune('A'+i))}
+		if err := st.CreateProject(ctx, p); err != nil {
+			t.Fatalf("CreateProject(%d) error = %v", i, err)
+		}
+	}
+
+	got, err := st.ListProjectsByOrg(ctx, orgA)
+	if err != nil {
+		t.Fatalf("ListProjectsByOrg() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	for _, p := range got {
+		if p.OrgID != orgA {
+			t.Fatalf("OrgID = %q, want %q", p.OrgID, orgA)
+		}
+	}
+}
+
+func TestListProjectsByOrg_Empty(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	got, err := st.ListProjectsByOrg(ctx, "org-empty")
+	if err != nil {
+		t.Fatalf("ListProjectsByOrg() error = %v", err)
+	}
+	if got != nil && len(got) != 0 {
+		t.Fatalf("expected empty slice, got %d items", len(got))
+	}
+}
+
+func TestDeleteProject(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	p := &domain.Project{ID: newID(), OrgID: "org-delete", Name: "Delete Me"}
+	if err := st.CreateProject(ctx, p); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	if err := st.DeleteProject(ctx, p.ID); err != nil {
+		t.Fatalf("DeleteProject() error = %v", err)
+	}
+
+	_, err := st.GetProject(ctx, p.ID)
+	if !errors.Is(err, store.ErrProjectNotFound) {
+		t.Fatalf("GetProject() after delete error = %v, want ErrProjectNotFound", err)
+	}
+}
+
+func TestDeleteProject_NonExistent(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	err := st.DeleteProject(ctx, "nonexistent-project")
+	if !errors.Is(err, store.ErrProjectNotFound) {
+		t.Fatalf("DeleteProject(nonexistent) error = %v, want ErrProjectNotFound", err)
+	}
+}
+
+func TestCountProjectsByOrg(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	org := "org-count"
+	for i := 0; i < 3; i++ {
+		p := &domain.Project{ID: newID(), OrgID: org, Name: "P"}
+		if err := st.CreateProject(ctx, p); err != nil {
+			t.Fatalf("CreateProject(%d) error = %v", i, err)
+		}
+	}
+	// Different org
+	p := &domain.Project{ID: newID(), OrgID: "org-other", Name: "P"}
+	if err := st.CreateProject(ctx, p); err != nil {
+		t.Fatalf("CreateProject(other) error = %v", err)
+	}
+
+	count, err := st.CountProjectsByOrg(ctx, org)
+	if err != nil {
+		t.Fatalf("CountProjectsByOrg() error = %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("count = %d, want 3", count)
+	}
+
+	count2, err := st.CountProjectsByOrg(ctx, "org-other")
+	if err != nil {
+		t.Fatalf("CountProjectsByOrg(other) error = %v", err)
+	}
+	if count2 != 1 {
+		t.Fatalf("count = %d, want 1", count2)
+	}
+}

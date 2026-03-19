@@ -195,6 +195,10 @@ type mockAPIStore struct {
 	markJobRunsPausedByWorkflowRunFn     func(ctx context.Context, workflowRunID string) (int64, error)
 	requeuePausedJobRunsFn               func(ctx context.Context, workflowRunID string) (int64, error)
 	updateProjectDefaultRegionFn         func(ctx context.Context, projectID, defaultRegion string) error
+	createProjectFn                      func(ctx context.Context, project *domain.Project) error
+	getProjectFn                         func(ctx context.Context, id string) (*domain.Project, error)
+	listProjectsByOrgFn                  func(ctx context.Context, orgID string) ([]domain.Project, error)
+	deleteProjectFn                      func(ctx context.Context, id string) error
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -1619,6 +1623,34 @@ func (m *mockAPIStore) RequeuePausedJobRuns(ctx context.Context, workflowRunID s
 func (m *mockAPIStore) UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error {
 	if m.updateProjectDefaultRegionFn != nil {
 		return m.updateProjectDefaultRegionFn(ctx, projectID, defaultRegion)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) CreateProject(ctx context.Context, project *domain.Project) error {
+	if m.createProjectFn != nil {
+		return m.createProjectFn(ctx, project)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetProject(ctx context.Context, id string) (*domain.Project, error) {
+	if m.getProjectFn != nil {
+		return m.getProjectFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListProjectsByOrg(ctx context.Context, orgID string) ([]domain.Project, error) {
+	if m.listProjectsByOrgFn != nil {
+		return m.listProjectsByOrgFn(ctx, orgID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteProject(ctx context.Context, id string) error {
+	if m.deleteProjectFn != nil {
+		return m.deleteProjectFn(ctx, id)
 	}
 	return nil
 }
