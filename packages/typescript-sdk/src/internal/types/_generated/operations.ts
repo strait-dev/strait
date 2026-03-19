@@ -37,6 +37,7 @@ export type OperationPathParamsById = {
   "postSdkV1RunsByRunIDToolCall": { "runID": string };
   "postSdkV1RunsByRunIDUsage": { "runID": string };
   "postSdkV1RunsByRunIDWaitForEvent": { "runID": string };
+  "getV1AnalyticsApprovals": undefined;
   "getV1AnalyticsCompute": undefined;
   "getV1AnalyticsCosts": undefined;
   "getV1AnalyticsCostsTop": undefined;
@@ -247,6 +248,7 @@ export type OperationQueryParamsById = {
   "postSdkV1RunsByRunIDToolCall": undefined;
   "postSdkV1RunsByRunIDUsage": undefined;
   "postSdkV1RunsByRunIDWaitForEvent": undefined;
+  "getV1AnalyticsApprovals": { "from": string; "to": string };
   "getV1AnalyticsCompute": { "from": string; "to": string };
   "getV1AnalyticsCosts": { "from": string; "to": string };
   "getV1AnalyticsCostsTop": { "from": string; "to": string; "limit"?: number };
@@ -457,6 +459,7 @@ export type OperationHeaderParamsById = {
   "postSdkV1RunsByRunIDToolCall": undefined;
   "postSdkV1RunsByRunIDUsage": undefined;
   "postSdkV1RunsByRunIDWaitForEvent": undefined;
+  "getV1AnalyticsApprovals": undefined;
   "getV1AnalyticsCompute": undefined;
   "getV1AnalyticsCosts": undefined;
   "getV1AnalyticsCostsTop": undefined;
@@ -689,6 +692,7 @@ export const generatedOperationMetadataById = {
   "postSdkV1RunsByRunIDToolCall": { functionName: "toolCallRun", domainName: "sdk", domainMethodName: "toolCallRun", pathParamNames: ["runID"], summary: "Record a tool call" },
   "postSdkV1RunsByRunIDUsage": { functionName: "usageRun", domainName: "sdk", domainMethodName: "usageRun", pathParamNames: ["runID"], summary: "Report AI model usage" },
   "postSdkV1RunsByRunIDWaitForEvent": { functionName: "waitForEventRun", domainName: "sdk", domainMethodName: "waitForEventRun", pathParamNames: ["runID"], summary: "Pause a run to wait for an external event" },
+  "getV1AnalyticsApprovals": { functionName: "listApprovals", domainName: "analytics", domainMethodName: "listApprovals", pathParamNames: [], summary: "Approval analytics" },
   "getV1AnalyticsCompute": { functionName: "getCompute", domainName: "analytics", domainMethodName: "getCompute", pathParamNames: [], summary: "Compute cost analytics" },
   "getV1AnalyticsCosts": { functionName: "listCosts", domainName: "analytics", domainMethodName: "listCosts", pathParamNames: [], summary: "Cost analytics" },
   "getV1AnalyticsCostsTop": { functionName: "getTop", domainName: "analytics", domainMethodName: "getTop", pathParamNames: [], summary: "Top cost items" },

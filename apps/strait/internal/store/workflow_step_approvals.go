@@ -204,6 +204,48 @@ func scanWorkflowStepApproval(scanner scanTarget) (*domain.WorkflowStepApproval,
 	return &approval, nil
 }
 
+// ApprovalStats contains aggregate statistics for workflow step approvals.
+type ApprovalStats struct {
+	TotalRequested      int     `json:"total_requested"`
+	TotalApproved       int     `json:"total_approved"`
+	TotalTimedOut       int     `json:"total_timed_out"`
+	TotalPending        int     `json:"total_pending"`
+	AvgApprovalTimeSecs float64 `json:"avg_approval_time_secs"`
+}
+
+func (q *Queries) GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*ApprovalStats, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetApprovalStats")
+	defer span.End()
+
+	query := `
+		SELECT
+			COUNT(*) AS total_requested,
+			COUNT(*) FILTER (WHERE a.status = 'approved') AS total_approved,
+			COUNT(*) FILTER (WHERE a.status = 'timed_out') AS total_timed_out,
+			COUNT(*) FILTER (WHERE a.status = 'pending') AS total_pending,
+			COALESCE(AVG(EXTRACT(EPOCH FROM (a.approved_at - a.requested_at)))
+				FILTER (WHERE a.status = 'approved' AND a.approved_at IS NOT NULL), 0) AS avg_approval_time_secs
+		FROM workflow_step_approvals a
+		JOIN workflow_runs wr ON a.workflow_run_id = wr.id
+		WHERE wr.project_id = $1
+		  AND a.requested_at >= $2
+		  AND a.requested_at < $3`
+
+	var stats ApprovalStats
+	err := q.db.QueryRow(ctx, query, projectID, from, to).Scan(
+		&stats.TotalRequested,
+		&stats.TotalApproved,
+		&stats.TotalTimedOut,
+		&stats.TotalPending,
+		&stats.AvgApprovalTimeSecs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get approval stats: %w", err)
+	}
+
+	return &stats, nil
+}
+
 func nilIfEmptyString(v string) any {
 	if v == "" {
 		return nil

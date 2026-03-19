@@ -3303,6 +3303,36 @@ paths:
               schema:
                 $ref: '#/components/schemas/ComputeCostAnalytics'
 
+  /v1/analytics/approvals:
+    get:
+      tags:
+        - Analytics
+      summary: Approval analytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Start of time range (RFC3339)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: End of time range (RFC3339, max 90 days from `from`)
+      responses:
+        '200':
+          description: Approval statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalStats'
+
   /v1/webhook-deliveries:
     get:
       tags:
@@ -6799,6 +6829,20 @@ components:
                 type: integer
               duration_secs:
                 type: number
+
+    ApprovalStats:
+      type: object
+      properties:
+        total_requested:
+          type: integer
+        total_approved:
+          type: integer
+        total_timed_out:
+          type: integer
+        total_pending:
+          type: integer
+        avg_approval_time_secs:
+          type: number
 
     ErrorResponse:
       type: object

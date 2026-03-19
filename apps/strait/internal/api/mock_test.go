@@ -68,6 +68,7 @@ type mockAPIStore struct {
 	insertEventFn                        func(ctx context.Context, event *domain.RunEvent) error
 	createRunResourceSnapshotFn          func(ctx context.Context, s *domain.RunResourceSnapshot) error
 	listRunResourceSnapshotsFn           func(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
+	getApprovalStatsFn                   func(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
 	listEventsByRunFilteredFn            func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	listWebhookDeliveriesFn              func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	createWebhookSubscriptionFn          func(ctx context.Context, sub *domain.WebhookSubscription) error
@@ -770,6 +771,13 @@ func (m *mockAPIStore) GetComputeCostAnalytics(ctx context.Context, projectID st
 		return m.getComputeCostAnalyticsFn(ctx, projectID, from, to)
 	}
 	return &store.ComputeCostAnalytics{}, nil
+}
+
+func (m *mockAPIStore) GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error) {
+	if m.getApprovalStatsFn != nil {
+		return m.getApprovalStatsFn(ctx, projectID, from, to)
+	}
+	return &store.ApprovalStats{}, nil
 }
 
 func (m *mockAPIStore) AggregateCostStatsHourly(ctx context.Context, hour time.Time) error {
