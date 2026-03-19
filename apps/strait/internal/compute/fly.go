@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 )
 
 const maxRedactLen = 200
@@ -165,7 +167,23 @@ func (f *FlyRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 		return "", NewFatalError(422, fmt.Sprintf("fly config error: %s", redactBody(respBody)), nil)
 	}
 	if resp.StatusCode >= 500 {
-		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("fly server error: %s", redactBody(respBody)), nil)
+		retryErr := NewRetryableError(resp.StatusCode, fmt.Sprintf("fly server error: %s", redactBody(respBody)), nil)
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("operation", "create_machine")
+			scope.SetTag("status_code", fmt.Sprintf("%d", resp.StatusCode))
+			scope.SetTag("region", req.Region)
+			scope.SetLevel(sentry.LevelError)
+			scope.SetContext("fly_request", map[string]any{
+				"app_name":    f.appName,
+				"region":      req.Region,
+				"preset":      req.MachinePreset,
+				"image":       req.ImageURI,
+				"status_code": resp.StatusCode,
+			})
+			scope.SetFingerprint([]string{"fly_api_error", "create", fmt.Sprintf("%d", resp.StatusCode)})
+			sentry.CaptureException(retryErr)
+		})
+		return "", retryErr
 	}
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
 		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("unexpected status: %s", redactBody(respBody)), nil)
@@ -365,6 +383,22 @@ func (f *FlyRuntime) Start(ctx context.Context, machineID string, env map[string
 	if startResp.StatusCode == http.StatusNotFound {
 		return ErrMachineGone
 	}
+	if startResp.StatusCode >= 500 {
+		retryErr := NewRetryableError(startResp.StatusCode, fmt.Sprintf("start POST machine: status %d", startResp.StatusCode), nil)
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("operation", "start_machine")
+			scope.SetTag("status_code", fmt.Sprintf("%d", startResp.StatusCode))
+			scope.SetLevel(sentry.LevelError)
+			scope.SetContext("fly_request", map[string]any{
+				"app_name":    f.appName,
+				"machine_id":  machineID,
+				"status_code": startResp.StatusCode,
+			})
+			scope.SetFingerprint([]string{"fly_api_error", "start", fmt.Sprintf("%d", startResp.StatusCode)})
+			sentry.CaptureException(retryErr)
+		})
+		return retryErr
+	}
 	if startResp.StatusCode >= 400 {
 		return NewRetryableError(startResp.StatusCode, fmt.Sprintf("start POST machine: status %d", startResp.StatusCode), nil)
 	}
@@ -393,6 +427,23 @@ func (f *FlyRuntime) Stop(ctx context.Context, machineID string) error {
 	if resp.StatusCode == http.StatusNotFound {
 		return ErrMachineGone
 	}
+	if resp.StatusCode >= 500 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		retryErr := NewRetryableError(resp.StatusCode, fmt.Sprintf("stop machine: %s", redactBody(body)), nil)
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("operation", "stop_machine")
+			scope.SetTag("status_code", fmt.Sprintf("%d", resp.StatusCode))
+			scope.SetLevel(sentry.LevelError)
+			scope.SetContext("fly_request", map[string]any{
+				"app_name":    f.appName,
+				"machine_id":  machineID,
+				"status_code": resp.StatusCode,
+			})
+			scope.SetFingerprint([]string{"fly_api_error", "stop", fmt.Sprintf("%d", resp.StatusCode)})
+			sentry.CaptureException(retryErr)
+		})
+		return retryErr
+	}
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return NewRetryableError(resp.StatusCode, fmt.Sprintf("stop machine: %s", redactBody(body)), nil)
@@ -420,6 +471,23 @@ func (f *FlyRuntime) Destroy(ctx context.Context, machineID string) error {
 
 	if resp.StatusCode == http.StatusNotFound {
 		return ErrMachineGone
+	}
+	if resp.StatusCode >= 500 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		retryErr := NewRetryableError(resp.StatusCode, fmt.Sprintf("destroy machine: %s", redactBody(body)), nil)
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("operation", "destroy_machine")
+			scope.SetTag("status_code", fmt.Sprintf("%d", resp.StatusCode))
+			scope.SetLevel(sentry.LevelError)
+			scope.SetContext("fly_request", map[string]any{
+				"app_name":    f.appName,
+				"machine_id":  machineID,
+				"status_code": resp.StatusCode,
+			})
+			scope.SetFingerprint([]string{"fly_api_error", "destroy", fmt.Sprintf("%d", resp.StatusCode)})
+			sentry.CaptureException(retryErr)
+		})
+		return retryErr
 	}
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
