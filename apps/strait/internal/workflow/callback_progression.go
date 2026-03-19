@@ -425,6 +425,8 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 		return fmt.Errorf("load workflow context: %w", wcErr)
 	}
 
+	s.emitApprovalAuditEvent(ctx, wc.run, stepRun, approval, approver, "workflow.step.approved", "approved", "")
+
 	if s.engine != nil {
 		s.engine.enqueueApprovalNotification(ctx, wc.run.ProjectID,
 			domain.NotificationEventApprovalCompleted, map[string]any{
@@ -461,6 +463,8 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 		return fmt.Errorf("load workflow context: %w", wcErr)
 	}
 
+	now := time.Now()
+
 	// Reject any pending approval before marking the step as skipped so
 	// both writes must succeed atomically — if the approval rejection
 	// fails the step stays in its current state and the caller can retry.
@@ -469,14 +473,15 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 		return fmt.Errorf("get workflow step approval: %w", aprErr)
 	}
 	if approval != nil && approval.Status == domain.ApprovalStatusPending {
-		if updErr := s.store.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusRejected, "", nil, reason); updErr != nil {
+		rejectedBy := actor
+		if rejectedBy == "" {
+			rejectedBy = "skip"
+		}
+		if updErr := s.store.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusRejected, rejectedBy, &now, reason); updErr != nil {
 			return fmt.Errorf("reject approval on skip: %w", updErr)
 		}
+		s.emitApprovalAuditEvent(ctx, wc.run, stepRun, approval, actor, "workflow.step.rejected", "rejected", reason)
 		if s.engine != nil {
-			rejectedBy := actor
-			if rejectedBy == "" {
-				rejectedBy = "skip"
-			}
 			s.engine.enqueueApprovalNotification(ctx, wc.run.ProjectID,
 				domain.NotificationEventApprovalRejected, map[string]any{
 					"approval_id":     approval.ID,
@@ -489,7 +494,6 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 		}
 	}
 
-	now := time.Now()
 	fields := map[string]any{"finished_at": now}
 	if reason != "" {
 		fields["error"] = reason
