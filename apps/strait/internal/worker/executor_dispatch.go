@@ -326,7 +326,39 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		defer e.metrics.ManagedMachinesActive.Add(ctx, -1)
 	}
 
-	// 3. Budget check.
+	// 3a. Org-level billing enforcement (cloud only, gated by BillingEnforcer).
+	if e.billingEnforcer != nil {
+		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+		if orgErr != nil {
+			e.logger.Warn("failed to resolve org for billing check",
+				"run_id", run.ID, "error", orgErr)
+		}
+		if orgID != "" {
+			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org daily run limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.handleSystemFailure(ctx, run, err.Error())
+				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
+				return
+			}
+			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID, e.store); err != nil {
+				e.logger.Warn("org concurrent run limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.handleSystemFailure(ctx, run, err.Error())
+				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
+				return
+			}
+			if err := e.billingEnforcer.CheckSpendingLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org spending limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.handleSystemFailure(ctx, run, err.Error())
+				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
+				return
+			}
+		}
+	}
+
+	// 3b. Budget check.
 	quota, quotaErr := e.store.GetProjectQuota(ctx, job.ProjectID)
 	if quotaErr != nil {
 		e.logger.Warn("failed to load project quota for budget check", "run_id", run.ID, "error", quotaErr)

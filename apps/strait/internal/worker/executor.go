@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
@@ -55,6 +56,7 @@ type ExecutorStore interface {
 		weightSuccess, weightTimeout, weightLatency float64,
 		lastLatencyMs float64,
 	) (*domain.EndpointHealthScore, error)
+	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
 }
 
 type executionPolicy struct {
@@ -116,6 +118,7 @@ type Executor struct {
 	machinePool              *compute.MachinePool
 	externalAPIURL           string
 	defaultFlyRegion         string
+	billingEnforcer          *billing.Enforcer
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -163,6 +166,7 @@ type ExecutorConfig struct {
 	WarmPoolMaxPerJob          int
 	WorkflowLookup             WorkflowLookup
 	WorkflowTriggerer          WorkflowTriggerer
+	BillingEnforcer            *billing.Enforcer // Optional: org-level billing enforcement (cloud only).
 }
 
 const (
@@ -251,6 +255,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		machinePool:              machinePool,
 		externalAPIURL:           cfg.ExternalAPIURL,
 		defaultFlyRegion:         cfg.DefaultFlyRegion,
+		billingEnforcer:          cfg.BillingEnforcer,
 		healthScorer:             NewHealthScorer(cfg.Store),
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, slog.Default()),
 		stop:                     make(chan struct{}),

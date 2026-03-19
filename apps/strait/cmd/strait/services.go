@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"strait/internal/api"
+	"strait/internal/billing"
 	"strait/internal/cdc"
 	"strait/internal/compute"
 	"strait/internal/config"
@@ -258,7 +259,7 @@ func startWebhookWorker(g *pool.ContextPool, cfg *config.Config, eventNotifier *
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -301,6 +302,21 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		apiContainerRuntime = compute.NewDockerRuntime()
 	}
 
+	var polarWebhook http.Handler
+	if cfg.PolarWebhookSecret != "" {
+		billingStore := billing.NewPgStore(dbPool)
+		polarMapping := billing.NewPolarMapping(
+			cfg.PolarStarterMonthlyID, cfg.PolarStarterYearlyID,
+			cfg.PolarProMonthlyID, cfg.PolarProYearlyID,
+		)
+		var webhookEnforcer *billing.Enforcer
+		if rdb != nil {
+			webhookEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default())
+		}
+		polarWebhook = billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), webhookEnforcer)
+		slog.Info("polar webhook handler enabled")
+	}
+
 	srv := api.NewServer(api.ServerDeps{
 		Config:           cfg,
 		Store:            queries,
@@ -316,6 +332,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		RedisClient:      rdb,
 		Encryptor:        encryptor,
 		ContainerRuntime: apiContainerRuntime,
+		PolarWebhook:     polarWebhook,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -345,7 +362,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -392,6 +409,13 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		// No container runtime ("none" or empty).
 	}
 
+	var billingEnforcer *billing.Enforcer
+	if cfg.BillingEnforcementEnabled && rdb != nil {
+		billingStore := billing.NewPgStore(dbPool)
+		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default())
+		slog.Info("billing enforcement enabled")
+	}
+
 	exec := worker.NewExecutor(worker.ExecutorConfig{
 		Pool:                    p,
 		Queue:                   q,
@@ -416,6 +440,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		ExternalAPIURL:          cfg.ExternalAPIURL,
 		MaxConcurrentMachines:   cfg.MaxConcurrentMachines,
 		DefaultFlyRegion:        cfg.FlyRegion,
+		BillingEnforcer:         billingEnforcer,
 	})
 
 	exec.Use(worker.TracingMiddleware())

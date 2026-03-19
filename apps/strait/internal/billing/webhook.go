@@ -27,15 +27,18 @@ type WebhookHandler struct {
 	polarMapping *PolarMapping
 	secret       string
 	logger       *slog.Logger
+	enforcer     *Enforcer
 }
 
 // NewWebhookHandler creates a new Polar webhook handler.
-func NewWebhookHandler(store Store, mapping *PolarMapping, secret string, logger *slog.Logger) *WebhookHandler {
+// The enforcer is optional; when non-nil, org caches are invalidated on plan changes.
+func NewWebhookHandler(store Store, mapping *PolarMapping, secret string, logger *slog.Logger, enforcer *Enforcer) *WebhookHandler {
 	return &WebhookHandler{
 		store:        store,
 		polarMapping: mapping,
 		secret:       secret,
 		logger:       logger,
+		enforcer:     enforcer,
 	}
 }
 
@@ -171,6 +174,10 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		return fmt.Errorf("upserting org subscription: %w", err)
 	}
 
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(orgID)
+	}
+
 	h.logger.Info("subscription created",
 		"org_id", orgID,
 		"plan_tier", tier,
@@ -228,6 +235,10 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		return fmt.Errorf("updating org subscription: %w", err)
 	}
 
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(orgID)
+	}
+
 	h.logger.Info("subscription updated",
 		"org_id", orgID,
 		"plan_tier", tier,
@@ -263,6 +274,10 @@ func (h *WebhookHandler) handleSubscriptionCanceled(ctx context.Context, data js
 		return fmt.Errorf("updating canceled subscription: %w", err)
 	}
 
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(orgID)
+	}
+
 	h.logger.Info("subscription canceled",
 		"org_id", orgID,
 		"plan_tier", existing.PlanTier,
@@ -286,6 +301,10 @@ func (h *WebhookHandler) handleSubscriptionRevoked(ctx context.Context, data jso
 			return nil
 		}
 		return fmt.Errorf("revoking subscription: %w", err)
+	}
+
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(orgID)
 	}
 
 	h.logger.Info("subscription revoked, downgraded to free",

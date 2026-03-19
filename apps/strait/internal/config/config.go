@@ -156,13 +156,14 @@ type Config struct {
 	OTLPMetricEnabled  bool   `mapstructure:"OTLP_METRIC_ENABLED"`
 
 	// Polar billing integration
-	PolarAccessToken      string `mapstructure:"POLAR_ACCESS_TOKEN"`
-	PolarWebhookSecret    string `mapstructure:"POLAR_WEBHOOK_SECRET"`
-	PolarServer           string `mapstructure:"POLAR_SERVER"`
-	PolarStarterMonthlyID string `mapstructure:"POLAR_STARTER_MONTHLY_ID"`
-	PolarStarterYearlyID  string `mapstructure:"POLAR_STARTER_YEARLY_ID"`
-	PolarProMonthlyID     string `mapstructure:"POLAR_PRO_MONTHLY_ID"`
-	PolarProYearlyID      string `mapstructure:"POLAR_PRO_YEARLY_ID"`
+	PolarAccessToken          string `mapstructure:"POLAR_ACCESS_TOKEN"`
+	PolarWebhookSecret        string `mapstructure:"POLAR_WEBHOOK_SECRET"`
+	PolarServer               string `mapstructure:"POLAR_SERVER"`
+	PolarStarterMonthlyID     string `mapstructure:"POLAR_STARTER_MONTHLY_ID"`
+	PolarStarterYearlyID      string `mapstructure:"POLAR_STARTER_YEARLY_ID"`
+	PolarProMonthlyID         string `mapstructure:"POLAR_PRO_MONTHLY_ID"`
+	PolarProYearlyID          string `mapstructure:"POLAR_PRO_YEARLY_ID"`
+	BillingEnforcementEnabled bool   `mapstructure:"BILLING_ENFORCEMENT_ENABLED"`
 }
 
 func setDefaults() {
@@ -253,6 +254,7 @@ func setDefaults() {
 	viper.SetDefault("CLICKHOUSE_FLUSH_INTERVAL", 5*time.Second)
 	viper.SetDefault("CLICKHOUSE_EXPORT_ENABLED", false)
 	viper.SetDefault("OTLP_METRIC_ENABLED", false)
+	viper.SetDefault("BILLING_ENFORCEMENT_ENABLED", false)
 }
 
 func BindEnv() error {
@@ -292,6 +294,7 @@ func BindEnv() error {
 		"CLICKHOUSE_ENABLED", "CLICKHOUSE_URL", "CLICKHOUSE_DATABASE",
 		"CLICKHOUSE_BATCH_SIZE", "CLICKHOUSE_FLUSH_INTERVAL", "CLICKHOUSE_EXPORT_ENABLED",
 		"OTLP_METRIC_ENDPOINT", "OTLP_METRIC_ENABLED",
+		"BILLING_ENFORCEMENT_ENABLED",
 	}
 
 	for _, key := range keys {

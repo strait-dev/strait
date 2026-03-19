@@ -392,6 +392,7 @@ type ServerDeps struct {
 	RedisClient      *redis.Client            // Optional: enables per-project/key rate limiting.
 	Encryptor        Encryptor                // Optional: enables event source signature encryption.
 	ContainerRuntime compute.ContainerRuntime // Optional: enables managed container stop on cancel.
+	PolarWebhook     http.Handler             // Optional: Polar billing webhook handler.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -435,6 +436,7 @@ func NewServer(deps ServerDeps) *Server {
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
+		polarWebhook:       deps.PolarWebhook,
 	}
 
 	if deps.TxPool != nil {

@@ -18,7 +18,7 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 	secret := "test-secret"
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, secret, slog.Default())
+	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil)
 
 	body := []byte(`{"type":"subscription.created","data":{}}`)
 
@@ -54,7 +54,7 @@ func TestWebhookHandler_SubscriptionCreated(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default())
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
 
 	payload := PolarWebhookPayload{
 		Type: "subscription.created",
@@ -95,7 +95,7 @@ func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default())
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
 
 	payload := PolarWebhookPayload{
 		Type: "subscription.revoked",
@@ -136,7 +136,7 @@ func TestWebhookHandler_UnknownEventType(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("", "", "", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default())
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
 
 	payload := PolarWebhookPayload{
 		Type: "some.unknown.event",
@@ -162,7 +162,7 @@ func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("starter-id", "", "", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default())
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
 
 	payload := PolarWebhookPayload{
 		Type: "subscription.created",

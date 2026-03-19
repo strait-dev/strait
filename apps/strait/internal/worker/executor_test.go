@@ -266,6 +266,10 @@ func (m *mockExecutorStore) AtomicRecordHealthResult(
 	}, nil
 }
 
+func (m *mockExecutorStore) CountExecutingRunsByOrg(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

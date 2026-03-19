@@ -300,6 +300,11 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	return nil
 }
 
+// GetProjectOrgID resolves the org ID for a project via the billing store.
+func (e *Enforcer) GetProjectOrgID(ctx context.Context, projectID string) (string, error) {
+	return e.store.GetProjectOrgID(ctx, projectID)
+}
+
 // GetDailyRunCount returns the current daily run count for an org.
 func (e *Enforcer) GetDailyRunCount(ctx context.Context, orgID string) (int64, error) {
 	if orgID == "" || e.rdb == nil {
