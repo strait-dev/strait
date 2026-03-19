@@ -282,11 +282,11 @@ func newSecretsLocalDeleteCommand(state *appState) *cobra.Command {
 		Short: "Delete a local secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			if err := requireConfirmation(state, "Delete this secret?", yes); err != nil {
-				return err
-			}
 			projectID, err := requireProjectID(state, projectID)
 			if err != nil {
+				return err
+			}
+			if err := requireConfirmation(state, "Delete this secret?", yes); err != nil {
 				return err
 			}
 

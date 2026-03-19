@@ -297,7 +297,6 @@ func newDeployListCommand(state *appState) *cobra.Command {
 
 func newDeployPreviewCommand(state *appState) *cobra.Command {
 	var projectID string
-	var ttl string
 	var configPath string
 
 	cmd := &cobra.Command{
@@ -308,8 +307,7 @@ func newDeployPreviewCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("--config is required for preview deployments")
 			}
 
-			_, err := requireProjectID(state, projectID)
-			if err != nil {
+			if _, err := requireProjectID(state, projectID); err != nil {
 				return err
 			}
 
@@ -318,8 +316,7 @@ func newDeployPreviewCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			branch := "preview"
-			previewEnv := fmt.Sprintf("preview-%s", branch)
+			previewEnv := "preview"
 
 			return deploy.DeployManifest(cmd.Context(), cli, deploy.ManifestDeployOptions{
 				ConfigPath:  configPath,
@@ -329,7 +326,6 @@ func newDeployPreviewCommand(state *appState) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&projectID, "project", "", "project ID")
-	cmd.Flags().StringVar(&ttl, "ttl", "24h", "time-to-live for preview (default: 24h)")
 	cmd.Flags().StringVar(&configPath, "config", "", "path to config file")
 
 	return cmd

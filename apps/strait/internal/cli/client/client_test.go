@@ -1741,3 +1741,90 @@ func TestListAuditEvents(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", got)
 	}
 }
+
+func TestAddMember(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/members")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req AddMemberRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.ProjectID != "proj-1" || req.Email != "user@example.com" || req.Role != "admin" {
+			t.Fatalf("unexpected request: %+v", req)
+		}
+
+		respondJSON(t, w, http.StatusOK, Member{
+			ID:        "mem-1",
+			ProjectID: req.ProjectID,
+			Email:     req.Email,
+			Role:      req.Role,
+			CreatedAt: now,
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.AddMember(context.Background(), AddMemberRequest{
+		ProjectID: "proj-1",
+		Email:     "user@example.com",
+		Role:      "admin",
+	})
+	if err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if got.ID != "mem-1" || got.Email != "user@example.com" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestRemoveMember(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodDelete)
+		assertPath(t, r, "/v1/members/mem-1")
+		assertAuth(t, r, "test-key")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	if err := c.RemoveMember(context.Background(), "mem-1"); err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+}
+
+func TestListRoles(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/roles")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("project_id") != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
+		}
+		respondPaginated(t, w, http.StatusOK, []Role{
+			{ID: "role-1", Name: "admin", Description: "Full access"},
+			{ID: "role-2", Name: "viewer", Description: "Read-only access"},
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListRoles(context.Background(), "proj-1")
+	if err != nil {
+		t.Fatalf("ListRoles: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != "role-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}

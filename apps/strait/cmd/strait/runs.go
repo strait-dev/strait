@@ -466,10 +466,14 @@ func newRunsDiffCommand(state *appState) *cobra.Command {
 			if showPayload {
 				var p1, p2 any
 				if len(run1.Payload) > 0 {
-					_ = json.Unmarshal(run1.Payload, &p1)
+					if err := json.Unmarshal(run1.Payload, &p1); err != nil {
+						p1 = string(run1.Payload) // Fall back to raw string.
+					}
 				}
 				if len(run2.Payload) > 0 {
-					_ = json.Unmarshal(run2.Payload, &p2)
+					if err := json.Unmarshal(run2.Payload, &p2); err != nil {
+						p2 = string(run2.Payload) // Fall back to raw string.
+					}
 				}
 				diff := cmp.Diff(p1, p2)
 				if diff == "" {

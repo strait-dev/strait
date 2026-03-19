@@ -224,7 +224,8 @@ authentication, and environment variables to diagnose common issues.`,
 					return
 				}
 				target := net.JoinHostPort(host, port)
-				conn, dialErr := net.DialTimeout("tcp", target, 2*time.Second)
+				dialer := net.Dialer{Timeout: 2 * time.Second}
+				conn, dialErr := dialer.DialContext(cmd.Context(), "tcp", target)
 				if dialErr != nil {
 					addCheck(doctorCheck{
 						Check:   "tcp_connectivity",

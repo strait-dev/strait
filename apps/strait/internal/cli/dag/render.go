@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Step represents a single step in a workflow DAG.
@@ -169,7 +170,7 @@ func renderNode(buf *strings.Builder, ref string, statusMap map[string]string, d
 	}
 
 	// Box drawing
-	width := len(label) + 2
+	width := utf8.RuneCountInString(label) + 2
 	top := strings.Repeat("\u2500", width)
 	buf.WriteString("\u250c" + top + "\u2510")
 

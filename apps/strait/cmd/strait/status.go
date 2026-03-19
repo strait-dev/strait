@@ -26,7 +26,10 @@ func newStatusCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			recentFailed, _ := cli.ListRuns(cmd.Context(), projectID, "failed", 5, nil)
+			recentFailed, failedErr := cli.ListRuns(cmd.Context(), projectID, "failed", 5, nil)
+			if failedErr != nil {
+				recentFailed = nil // Degrade gracefully: show queue stats without failures.
+			}
 
 			failedRows := make([]map[string]any, 0, len(recentFailed))
 			for _, r := range recentFailed {

@@ -59,7 +59,7 @@ func newDebugBundleCommand(state *appState) *cobra.Command {
 				"os_arch":     fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 				"cli_version": version,
 				"server_url":  state.opts.serverURL,
-				"api_key":     maskKey(state.opts.apiKey),
+				"api_key":     maskBundleKey(state.opts.apiKey),
 				"project_id":  state.opts.projectID,
 			}
 
@@ -71,19 +71,41 @@ func newDebugBundleCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("create zip: %w", err)
 			}
-			defer f.Close()
 
 			w := zip.NewWriter(f)
-			defer w.Close()
 
-			writeJSON(w, "run.json", run)
-			if job != nil {
-				writeJSON(w, "job.json", job)
+			var writeErr error
+			if err := writeJSON(w, "run.json", run); err != nil {
+				writeErr = fmt.Errorf("write run.json: %w", err)
 			}
-			if events != nil {
-				writeJSON(w, "events.json", events)
+			if writeErr == nil && job != nil {
+				if err := writeJSON(w, "job.json", job); err != nil {
+					writeErr = fmt.Errorf("write job.json: %w", err)
+				}
 			}
-			writeJSON(w, "env.json", env)
+			if writeErr == nil && events != nil {
+				if err := writeJSON(w, "events.json", events); err != nil {
+					writeErr = fmt.Errorf("write events.json: %w", err)
+				}
+			}
+			if writeErr == nil {
+				if err := writeJSON(w, "env.json", env); err != nil {
+					writeErr = fmt.Errorf("write env.json: %w", err)
+				}
+			}
+
+			// Close zip writer before file to ensure data is flushed.
+			if closeErr := w.Close(); closeErr != nil && writeErr == nil {
+				writeErr = fmt.Errorf("finalize zip: %w", closeErr)
+			}
+			if closeErr := f.Close(); closeErr != nil && writeErr == nil {
+				writeErr = fmt.Errorf("close file: %w", closeErr)
+			}
+
+			if writeErr != nil {
+				_ = os.Remove(outputPath) // Clean up partial file.
+				return writeErr
+			}
 
 			absPath, _ := filepath.Abs(outputPath)
 			return printData(state, map[string]any{
@@ -99,17 +121,17 @@ func newDebugBundleCommand(state *appState) *cobra.Command {
 	return cmd
 }
 
-func writeJSON(w *zip.Writer, name string, data any) {
+func writeJSON(w *zip.Writer, name string, data any) error {
 	f, err := w.Create(name)
 	if err != nil {
-		return
+		return err
 	}
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(data)
+	return enc.Encode(data)
 }
 
-func maskKey(key string) string {
+func maskBundleKey(key string) string {
 	if len(key) <= 4 {
 		return "***"
 	}

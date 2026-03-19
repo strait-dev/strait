@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"time"
 )
 
 var tunnelURLPattern = regexp.MustCompile(`https://[a-zA-Z0-9-]+\.trycloudflare\.com`)
@@ -29,6 +30,7 @@ func (t *Tunnel) Close() error {
 }
 
 // StartTunnel starts a cloudflared tunnel pointing to localhost on the given port.
+// It waits up to 30 seconds for the tunnel URL to appear in cloudflared's output.
 func StartTunnel(ctx context.Context, localPort int) (*Tunnel, error) {
 	cloudflaredPath, err := exec.LookPath("cloudflared")
 	if err != nil {
@@ -51,23 +53,49 @@ func StartTunnel(ctx context.Context, localPort int) (*Tunnel, error) {
 
 	tunnel := &Tunnel{cmd: cmd, cancel: cancel}
 
-	// Parse tunnel URL from cloudflared output
+	// Parse tunnel URL from cloudflared output with a timeout to prevent
+	// hanging indefinitely if cloudflared never outputs the URL.
 	urlChan := make(chan string, 1)
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
+			select {
+			case <-tunnelCtx.Done():
+				return
+			default:
+			}
 			line := scanner.Text()
 			if match := tunnelURLPattern.FindString(line); match != "" {
-				urlChan <- match
+				select {
+				case urlChan <- match:
+				case <-tunnelCtx.Done():
+				}
 				return
 			}
 		}
+		// If scanner exits without finding URL (e.g., cloudflared crashes),
+		// signal failure so the select below doesn't hang.
+		select {
+		case urlChan <- "":
+		case <-tunnelCtx.Done():
+		}
 	}()
+
+	const startupTimeout = 30 * time.Second
+	timer := time.NewTimer(startupTimeout)
+	defer timer.Stop()
 
 	select {
 	case url := <-urlChan:
+		if url == "" {
+			_ = tunnel.Close()
+			return nil, fmt.Errorf("cloudflared exited without providing a tunnel URL")
+		}
 		tunnel.URL = url
 		return tunnel, nil
+	case <-timer.C:
+		_ = tunnel.Close()
+		return nil, fmt.Errorf("timed out waiting for tunnel URL after %s", startupTimeout)
 	case <-tunnelCtx.Done():
 		_ = tunnel.Close()
 		return nil, fmt.Errorf("tunnel startup cancelled")

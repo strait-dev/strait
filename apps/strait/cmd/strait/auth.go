@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"syscall"
 
@@ -48,7 +47,7 @@ func newLoginCommand(state *appState) *cobra.Command {
 				if dashURL != "" {
 					keysURL := dashURL + "/settings/api-keys"
 					fmt.Fprintf(os.Stderr, "Opening %s in your browser...\n", keysURL)
-					if err := exec.Command("open", keysURL).Start(); err != nil { //nolint:gosec // keysURL is derived from server flag
+					if err := openBrowser(keysURL); err != nil {
 						fmt.Fprintf(os.Stderr, "Could not open browser. Visit %s manually.\n", keysURL)
 					}
 					fmt.Fprintln(os.Stderr, "Create an API key, then paste it below.")

@@ -73,6 +73,7 @@ func newLogsCommand(state *appState) *cobra.Command {
 			}
 
 			seen := map[string]struct{}{}
+			const maxSeenEntries = 50000 // Prevent unbounded memory growth in follow mode.
 			for {
 				runsToRead := []string{}
 				runJobMap := map[string]string{} // runID -> jobSlug for grouping
@@ -136,8 +137,11 @@ func newLogsCommand(state *appState) *cobra.Command {
 				}
 
 				sort.Slice(rows, func(i, j int) bool {
-					ti, _ := rows[i]["timestamp"].(time.Time)
-					tj, _ := rows[j]["timestamp"].(time.Time)
+					ti, ok1 := rows[i]["timestamp"].(time.Time)
+					tj, ok2 := rows[j]["timestamp"].(time.Time)
+					if !ok1 || !ok2 {
+						return false
+					}
 					return ti.Before(tj)
 				})
 
@@ -168,6 +172,14 @@ func newLogsCommand(state *appState) *cobra.Command {
 				if !follow {
 					return nil
 				}
+
+				// Prevent unbounded memory growth: if the seen set is too large,
+				// keep only the most recent half to bound memory while still
+				// deduplicating recent events.
+				if len(seen) > maxSeenEntries {
+					seen = make(map[string]struct{})
+				}
+
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
