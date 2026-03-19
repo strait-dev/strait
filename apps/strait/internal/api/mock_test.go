@@ -69,6 +69,8 @@ type mockAPIStore struct {
 	createRunResourceSnapshotFn          func(ctx context.Context, s *domain.RunResourceSnapshot) error
 	listRunResourceSnapshotsFn           func(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
 	getApprovalStatsFn                   func(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
+	getCostOutliersFn                    func(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
+	streamAuditEventsFn                  func(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	listEventsByRunFilteredFn            func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	listWebhookDeliveriesFn              func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	createWebhookSubscriptionFn          func(ctx context.Context, sub *domain.WebhookSubscription) error
@@ -780,6 +782,13 @@ func (m *mockAPIStore) GetApprovalStats(ctx context.Context, projectID string, f
 	return &store.ApprovalStats{}, nil
 }
 
+func (m *mockAPIStore) GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error) {
+	if m.getCostOutliersFn != nil {
+		return m.getCostOutliersFn(ctx, projectID, from, to, threshold)
+	}
+	return nil, nil
+}
+
 func (m *mockAPIStore) AggregateCostStatsHourly(ctx context.Context, hour time.Time) error {
 	if m.aggregateCostStatsHourlyFn != nil {
 		return m.aggregateCostStatsHourlyFn(ctx, hour)
@@ -1291,7 +1300,10 @@ func (m *mockAPIStore) ListAuditEvents(_ context.Context, _, _, _, _ string, _ i
 	return nil, nil
 }
 
-func (m *mockAPIStore) StreamAuditEvents(_ context.Context, _, _, _ string, _, _ time.Time, _ func(*domain.AuditEvent) error) error {
+func (m *mockAPIStore) StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error {
+	if m.streamAuditEventsFn != nil {
+		return m.streamAuditEventsFn(ctx, projectID, actorID, resourceType, from, to, fn)
+	}
 	return nil
 }
 
