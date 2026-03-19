@@ -91,10 +91,7 @@ describe("runWithFallback", () => {
     const cause = new Error("server error");
     mockApiRequest.mockRejectedValue(cause);
 
-    await runWithFallback(
-      apiEffect("/v1/jobs", { method: "POST" }),
-      undefined
-    );
+    await runWithFallback(apiEffect("/v1/jobs", { method: "POST" }), undefined);
 
     expect(mockCaptureException).toHaveBeenCalledWith(cause, {
       tags: {
@@ -120,9 +117,9 @@ describe("runWithSentryReport", () => {
     const cause = new Error("not found");
     mockApiRequest.mockRejectedValue(cause);
 
-    await expect(
-      runWithSentryReport(apiEffect("/v1/jobs"))
-    ).rejects.toThrow("not found");
+    await expect(runWithSentryReport(apiEffect("/v1/jobs"))).rejects.toThrow(
+      "not found"
+    );
   });
 
   it("calls captureException on failure with correct tags", async () => {

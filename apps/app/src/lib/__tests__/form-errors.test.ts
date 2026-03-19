@@ -15,9 +15,9 @@ describe("formatFieldErrors", () => {
   });
 
   it("handles mixed array of strings, message objects, and unknown types", () => {
-    expect(
-      formatFieldErrors(["bad input", { message: "required" }, 42])
-    ).toBe("bad input, required, 42");
+    expect(formatFieldErrors(["bad input", { message: "required" }, 42])).toBe(
+      "bad input, required, 42"
+    );
   });
 
   it("returns empty string for empty array", () => {

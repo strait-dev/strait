@@ -2,8 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import z from "zod/v4";
 import type { Project } from "@/hooks/api/types";
-import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { auth, authPool } from "@/lib/auth.server";
+import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 /**

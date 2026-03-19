@@ -37,9 +37,7 @@ export const fetchJob = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await runWithSentryReport(
-      apiEffect<Job>(`/v1/jobs/${data.id}`)
-    );
+    return await runWithSentryReport(apiEffect<Job>(`/v1/jobs/${data.id}`));
   });
 
 export const triggerJobFn = createServerFn({ method: "POST" })

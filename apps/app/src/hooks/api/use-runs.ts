@@ -49,9 +49,7 @@ export const fetchRun = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await runWithSentryReport(
-      apiEffect<JobRun>(`/v1/runs/${data.id}`)
-    );
+    return await runWithSentryReport(apiEffect<JobRun>(`/v1/runs/${data.id}`));
   });
 
 export const fetchRunEvents = createServerFn({ method: "GET" })
@@ -61,10 +59,9 @@ export const fetchRunEvents = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     return await runWithSentryReport(
-      apiEffect<PaginatedResponse<RunEvent>>(
-        `/v1/runs/${data.runId}/events`,
-        { params: { limit: data.limit, cursor: data.cursor } }
-      )
+      apiEffect<PaginatedResponse<RunEvent>>(`/v1/runs/${data.runId}/events`, {
+        params: { limit: data.limit, cursor: data.cursor },
+      })
     );
   });
 

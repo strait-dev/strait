@@ -37,10 +37,9 @@ export const fetchWebhookDeliveries = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     return await runWithSentryReport(
-      apiEffect<PaginatedResponse<WebhookDelivery>>(
-        "/v1/webhooks/deliveries",
-        { params: { limit: data.limit, cursor: data.cursor } }
-      )
+      apiEffect<PaginatedResponse<WebhookDelivery>>("/v1/webhooks/deliveries", {
+        params: { limit: data.limit, cursor: data.cursor },
+      })
     );
   });
 
