@@ -85,6 +85,9 @@ func (m *mockEnforcerStore) CountMembersByOrg(_ context.Context, _ string) (int,
 func (m *mockEnforcerStore) CountExecutingRunsByOrg(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
+func (m *mockEnforcerStore) CountAIAssistantMessagesByOrg(_ context.Context, _ string, _, _ time.Time) (int64, error) {
+	return 0, nil
+}
 func (m *mockEnforcerStore) SetProjectOrgID(_ context.Context, _, _ string) error { return nil }
 func (m *mockEnforcerStore) UpsertUsageRecord(_ context.Context, _ *billing.UsageRecord) error {
 	return nil

@@ -152,6 +152,7 @@ func TestPgStore_AggregatesComputeAndAIUsage(t *testing.T) {
 
 	jobA := createJob(t, ctx, q, projectA.ID)
 	jobB := createJob(t, ctx, q, projectB.ID)
+	jobOther := createJob(t, ctx, q, createProject(t, ctx, q, "org-other", "Project Other With Usage").ID)
 
 	day1 := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	day2 := time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC)
@@ -159,6 +160,7 @@ func TestPgStore_AggregatesComputeAndAIUsage(t *testing.T) {
 	runA1 := createRun(t, ctx, q, jobA, domain.StatusCompleted)
 	runB1 := createRun(t, ctx, q, jobB, domain.StatusCompleted)
 	runA2 := createRun(t, ctx, q, jobA, domain.StatusCompleted)
+	runOther := createRun(t, ctx, q, jobOther, domain.StatusCompleted)
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $2 WHERE id = $1`, runA1.ID, day1); err != nil {
 		t.Fatalf("set runA1 created_at error = %v", err)
 	}
@@ -167,6 +169,9 @@ func TestPgStore_AggregatesComputeAndAIUsage(t *testing.T) {
 	}
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $2 WHERE id = $1`, runA2.ID, day2); err != nil {
 		t.Fatalf("set runA2 created_at error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $2 WHERE id = $1`, runOther.ID, day1); err != nil {
+		t.Fatalf("set runOther created_at error = %v", err)
 	}
 
 	computeA1 := &domain.RunComputeUsage{
@@ -254,6 +259,23 @@ func TestPgStore_AggregatesComputeAndAIUsage(t *testing.T) {
 		t.Fatalf("set aiA2 created_at error = %v", err)
 	}
 
+	aiOther := &domain.RunUsage{
+		ID:               newID(),
+		RunID:            runOther.ID,
+		Provider:         "openai",
+		Model:            "gpt-5.4-mini",
+		PromptTokens:     50,
+		CompletionTokens: 50,
+		TotalTokens:      100,
+		CostMicrousd:     75_000,
+	}
+	if err := q.CreateRunUsage(ctx, aiOther); err != nil {
+		t.Fatalf("CreateRunUsage(projectOther/day1) error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE run_usage SET created_at = $2 WHERE id = $1`, aiOther.ID, day1); err != nil {
+		t.Fatalf("set aiOther created_at error = %v", err)
+	}
+
 	orgRecords, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, day1.Add(-time.Hour), day2.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("GetOrgUsageForPeriod() error = %v", err)
@@ -295,6 +317,26 @@ func TestPgStore_AggregatesComputeAndAIUsage(t *testing.T) {
 	}
 	if len(day1Records) != 2 {
 		t.Fatalf("GetOrgDailyUsage() len = %d, want 2", len(day1Records))
+	}
+
+	day1Start := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	day2Start := time.Date(2026, 3, 11, 0, 0, 0, 0, time.UTC)
+	day3Start := time.Date(2026, 3, 12, 0, 0, 0, 0, time.UTC)
+
+	day1Count, err := pgStore.CountAIAssistantMessagesByOrg(ctx, orgID, day1Start, day2Start)
+	if err != nil {
+		t.Fatalf("CountAIAssistantMessagesByOrg(day1) error = %v", err)
+	}
+	if day1Count != 2 {
+		t.Fatalf("CountAIAssistantMessagesByOrg(day1) = %d, want 2", day1Count)
+	}
+
+	day2Count, err := pgStore.CountAIAssistantMessagesByOrg(ctx, orgID, day2Start, day3Start)
+	if err != nil {
+		t.Fatalf("CountAIAssistantMessagesByOrg(day2) error = %v", err)
+	}
+	if day2Count != 1 {
+		t.Fatalf("CountAIAssistantMessagesByOrg(day2) = %d, want 1", day2Count)
 	}
 }
 

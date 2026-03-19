@@ -281,6 +281,23 @@ func (s *PgStore) CountExecutingRunsByOrg(ctx context.Context, orgID string) (in
 	return count, nil
 }
 
+func (s *PgStore) CountAIAssistantMessagesByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error) {
+	var count int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*)::bigint
+		FROM run_usage ru
+		JOIN job_runs jr ON jr.id = ru.run_id
+		JOIN projects p ON p.id = jr.project_id
+		WHERE p.org_id = $1
+		  AND ru.created_at >= $2
+		  AND ru.created_at < $3
+	`, orgID, from, to).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting ai assistant messages by org: %w", err)
+	}
+	return count, nil
+}
+
 func (s *PgStore) SetProjectOrgID(ctx context.Context, projectID, orgID string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE projects SET org_id = $2 WHERE id = $1

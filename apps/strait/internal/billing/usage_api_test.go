@@ -50,6 +50,9 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 		executingRuns: map[string]int{
 			"org_test": 3,
 		},
+		aiMessageCounts: map[string]int64{
+			"org_test": 7,
+		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
 
@@ -73,10 +76,50 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 	if resp.Usage.ConcurrentRuns.Used != 3 {
 		t.Errorf("concurrent runs used = %d, want 3", resp.Usage.ConcurrentRuns.Used)
 	}
+	if resp.Usage.AIMessages.Used != 7 {
+		t.Errorf("ai assistant messages used = %d, want 7", resp.Usage.AIMessages.Used)
+	}
+	assertFloatApprox(t, resp.Usage.AIMessages.Percent, 35)
 	assertFloatApprox(t, resp.Usage.ConcurrentRuns.Percent, 60)
 	assertFloatApprox(t, resp.Usage.Members.Percent, 66.6666666667)
 	if resp.Usage.RetentionDays != 1 {
 		t.Errorf("retention = %d, want 1", resp.Usage.RetentionDays)
+	}
+}
+
+func TestUsageService_GetCurrentUsage_EnterpriseAIMessagesRemainUnlimited(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_enterprise": {
+				OrgID:    "org_enterprise",
+				PlanTier: "enterprise",
+				Status:   "active",
+			},
+		},
+		aiMessageCounts: map[string]int64{
+			"org_enterprise": 42,
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	resp, err := svc.GetCurrentUsage(context.Background(), "org_enterprise")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resp.Plan != "enterprise" {
+		t.Fatalf("plan = %q, want enterprise", resp.Plan)
+	}
+	if resp.Usage.AIMessages.Limit != -1 {
+		t.Fatalf("ai messages limit = %d, want -1", resp.Usage.AIMessages.Limit)
+	}
+	if resp.Usage.AIMessages.Used != 42 {
+		t.Fatalf("ai messages used = %d, want 42", resp.Usage.AIMessages.Used)
+	}
+	if resp.Usage.AIMessages.Percent != 0 {
+		t.Fatalf("ai messages percent = %f, want 0", resp.Usage.AIMessages.Percent)
 	}
 }
 

@@ -56,6 +56,7 @@ type Store interface {
 	CountProjectsByOrg(ctx context.Context, orgID string) (int, error)
 	CountMembersByOrg(ctx context.Context, orgID string) (int, error)
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
+	CountAIAssistantMessagesByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error)
 	SetProjectOrgID(ctx context.Context, projectID, orgID string) error
 
 	// Usage records

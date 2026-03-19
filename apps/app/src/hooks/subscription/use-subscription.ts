@@ -6,39 +6,14 @@ import { Effect } from "effect";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { auth } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
-
-type SubscriptionData = {
-  id: string;
-  status: string;
-  productId: string;
-  priceId: string;
-  currentPeriodEnd: Date | null;
-  cancelAtPeriodEnd: boolean;
-};
-
-type SubscriptionStateData = {
-  planSlug: string | null;
-  isTrialing: boolean;
-  trialInfo: { trialEnd: Date | null } | null;
-  hasActiveSubscription: boolean;
-  status: string;
-  subscription:
-    | (SubscriptionData & { recurringInterval: string | null })
-    | null;
-  isActive: boolean;
-  needsAttention: boolean;
-  isCanceled: boolean;
-  plan: string;
-  nextPlan: { plan: string; name: string } | null;
-  trialDaysLeft: number | null;
-  shouldShowUpgrade: boolean;
-  hasPendingPayment: boolean;
-};
-
-type NormalizedSubscription = SubscriptionData & {
-  recurringInterval: string | null;
-  trialEnd: Date | null;
-};
+import {
+  deriveSubscriptionState,
+  normalizePlanSlug,
+  type NormalizedSubscription,
+  type PlanSlug,
+  type SubscriptionData,
+  type SubscriptionStateData,
+} from "./subscription-state";
 
 const polarAccessToken = process.env.POLAR_ACCESS_TOKEN;
 
@@ -49,16 +24,6 @@ const polarClient = polarAccessToken
         (process.env.POLAR_SERVER as "sandbox" | "production") ?? "production",
     })
   : null;
-
-const ACTIVE_STATUSES = new Set([
-  "active",
-  "trialing",
-  "past_due",
-  "incomplete",
-  "unpaid",
-]);
-const ATTENTION_STATUSES = new Set(["past_due", "incomplete", "unpaid"]);
-const CANCELED_STATUSES = new Set(["canceled", "cancelled"]);
 
 const PRODUCT_PLAN_MAP: Record<string, string> = {
   [process.env.POLAR_STARTER_MONTHLY_ID ?? ""]: "starter",
@@ -90,9 +55,6 @@ const asString = (value: unknown): string =>
 
 const asBoolean = (value: unknown): boolean =>
   typeof value === "boolean" ? value : false;
-
-const toTitleCase = (value: string) =>
-  value.charAt(0).toUpperCase() + value.slice(1);
 
 const getSubscriptionByEmail = async (
   email: string
@@ -127,9 +89,9 @@ const getSubscriptionByEmail = async (
       const status = asString(toRecord(item)?.status);
       let rank = 2;
 
-      if (ACTIVE_STATUSES.has(status)) {
+      if (status === "active" || status === "trialing" || status === "past_due" || status === "incomplete" || status === "unpaid") {
         rank = 0;
-      } else if (CANCELED_STATUSES.has(status)) {
+      } else if (status === "canceled" || status === "cancelled") {
         rank = 1;
       }
 
@@ -206,7 +168,7 @@ const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
 /** Fetch the plan tier from the backend usage API as a fallback. */
 const getBackendPlanTier = async (
   session: { session: { activeOrganizationId?: string | null } } | null
-): Promise<string | null> => {
+): Promise<PlanSlug | null> => {
   const orgId = session?.session?.activeOrganizationId;
   if (!orgId) {
     return null;
@@ -214,7 +176,7 @@ const getBackendPlanTier = async (
   return await runWithFallback(
     apiEffect<{ plan: string }>("/v1/usage/current", {
       params: { org_id: orgId },
-    }).pipe(Effect.map((data) => data?.plan ?? null)),
+    }).pipe(Effect.map((data) => normalizePlanSlug(data?.plan ?? null))),
     null
   );
 };
@@ -226,83 +188,24 @@ const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
     const email = session?.user?.email;
 
     if (!email) {
-      return {
-        planSlug: null,
-        isTrialing: false,
-        trialInfo: null,
-        hasActiveSubscription: false,
-        status: "none",
+      return deriveSubscriptionState({
         subscription: null,
-        isActive: false,
-        needsAttention: false,
-        isCanceled: false,
-        plan: "starter",
-        nextPlan: null,
-        trialDaysLeft: null,
-        shouldShowUpgrade: true,
-        hasPendingPayment: false,
-      };
+        planFromProduct: null,
+        backendPlan: null,
+      });
     }
 
     const subscription = await getSubscriptionByEmail(email);
-    const status = subscription?.status ?? "none";
-    const normalizedStatus = status === "cancelled" ? "canceled" : status;
-    let planSlug = subscription?.productId
-      ? (PRODUCT_PLAN_MAP[subscription.productId] ?? null)
-      : null;
+    const backendPlan = await getBackendPlanTier(session);
+    const planFromProduct = normalizePlanSlug(
+      subscription?.productId ? PRODUCT_PLAN_MAP[subscription.productId] : null
+    );
 
-    // Fallback: if Polar lookup returned no plan, try the backend usage API.
-    if (!planSlug) {
-      const backendPlan = await getBackendPlanTier(session);
-      if (backendPlan && backendPlan !== "free") {
-        planSlug = backendPlan;
-      }
-    }
-    const isTrialing = normalizedStatus === "trialing";
-    const hasActiveSubscription = ACTIVE_STATUSES.has(normalizedStatus);
-    const needsAttention = ATTENTION_STATUSES.has(normalizedStatus);
-    const isCanceled = CANCELED_STATUSES.has(normalizedStatus);
-    const trialEnd = subscription?.trialEnd ?? null;
-    const trialDaysLeft = trialEnd
-      ? Math.max(
-          Math.ceil((trialEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
-          0
-        )
-      : null;
-    const shouldShowUpgrade =
-      !hasActiveSubscription || isTrialing || needsAttention || isCanceled;
-
-    return {
-      planSlug,
-      isTrialing,
-      trialInfo: isTrialing ? { trialEnd } : null,
-      hasActiveSubscription,
-      status: normalizedStatus,
-      subscription: subscription
-        ? {
-            id: subscription.id,
-            status: normalizedStatus,
-            productId: subscription.productId,
-            priceId: subscription.priceId,
-            currentPeriodEnd: subscription.currentPeriodEnd,
-            cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-            recurringInterval: subscription.recurringInterval,
-          }
-        : null,
-      isActive: hasActiveSubscription && !isCanceled,
-      needsAttention,
-      isCanceled,
-      plan: planSlug ?? "starter",
-      nextPlan: planSlug
-        ? {
-            plan: planSlug,
-            name: toTitleCase(planSlug),
-          }
-        : null,
-      trialDaysLeft,
-      shouldShowUpgrade,
-      hasPendingPayment: needsAttention,
-    };
+    return deriveSubscriptionState({
+      subscription,
+      planFromProduct,
+      backendPlan,
+    });
   }
 );
 

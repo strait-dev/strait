@@ -109,6 +109,14 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		return nil, fmt.Errorf("counting org concurrent runs: %w", err)
 	}
 
+	now := time.Now().UTC()
+	dayStart := now.UTC().Truncate(24 * time.Hour)
+	dayEnd := dayStart.Add(24 * time.Hour)
+	aiMessagesToday, err := s.store.CountAIAssistantMessagesByOrg(ctx, orgID, dayStart, dayEnd)
+	if err != nil {
+		return nil, fmt.Errorf("counting org ai assistant messages: %w", err)
+	}
+
 	// Get subscription for period info.
 	sub, err := s.store.GetOrgSubscription(ctx, orgID)
 	if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
@@ -116,7 +124,6 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	}
 
 	// Build period info
-	now := time.Now()
 	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	periodEnd := periodStart.AddDate(0, 1, -1)
 	if sub != nil && sub.CurrentPeriodStart != nil {
@@ -175,9 +182,9 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 				Percent: safePercent(int64(memberCount), int64(limits.MaxMembersPerOrg)),
 			},
 			AIMessages: UsageDimension{
-				Used:    0,
+				Used:    aiMessagesToday,
 				Limit:   int64(limits.MaxAIAssistantMsgDay),
-				Percent: 0,
+				Percent: safePercent(aiMessagesToday, int64(limits.MaxAIAssistantMsgDay)),
 			},
 			RetentionDays:    limits.RetentionDays,
 			RegionsAvailable: regionCount,
