@@ -44,7 +44,10 @@ func newDebugBundleCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("fetch run: %w", err)
 			}
 
-			job, _ := cli.GetJob(cmd.Context(), run.JobID)
+			job, jobErr := cli.GetJob(cmd.Context(), run.JobID)
+			if jobErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not fetch job %s: %v\n", run.JobID, jobErr)
+			}
 
 			var events any
 			if !noEvents {

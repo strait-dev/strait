@@ -145,19 +145,21 @@ authentication, and environment variables to diagnose common issues.`,
 				})
 			})
 
+			// Shared API client for connectivity and auth checks
+			sharedCli, sharedCliErr := newAPIClient(state)
+
 			// 6. Connectivity: health endpoint
 			p.Go(func() {
-				cli, err := newAPIClient(state)
-				if err != nil {
+				if sharedCliErr != nil {
 					addCheck(doctorCheck{
 						Check:   "connectivity_health",
 						Status:  "fail",
-						Message: err.Error(),
+						Message: sharedCliErr.Error(),
 						Fix:     "check --server URL and network connectivity",
 					})
 					return
 				}
-				health, hErr := cli.Health(cmd.Context())
+				health, hErr := sharedCli.Health(cmd.Context())
 				addCheck(doctorCheck{
 					Check:   "connectivity_health",
 					Status:  statusFromErr(hErr),
@@ -168,17 +170,16 @@ authentication, and environment variables to diagnose common issues.`,
 
 			// 7. Connectivity: ready endpoint
 			p.Go(func() {
-				cli, err := newAPIClient(state)
-				if err != nil {
+				if sharedCliErr != nil {
 					addCheck(doctorCheck{
 						Check:   "connectivity_ready",
 						Status:  "fail",
-						Message: err.Error(),
+						Message: sharedCliErr.Error(),
 						Fix:     "check --server URL and network connectivity",
 					})
 					return
 				}
-				ready, rErr := cli.HealthReady(cmd.Context())
+				ready, rErr := sharedCli.HealthReady(cmd.Context())
 				addCheck(doctorCheck{
 					Check:   "connectivity_ready",
 					Status:  statusFromErr(rErr),
@@ -189,17 +190,16 @@ authentication, and environment variables to diagnose common issues.`,
 
 			// 8. Auth: stats endpoint
 			p.Go(func() {
-				cli, err := newAPIClient(state)
-				if err != nil {
+				if sharedCliErr != nil {
 					addCheck(doctorCheck{
 						Check:   "auth_stats",
 						Status:  "fail",
-						Message: err.Error(),
+						Message: sharedCliErr.Error(),
 						Fix:     "check API client configuration",
 					})
 					return
 				}
-				stats, sErr := cli.Stats(cmd.Context())
+				stats, sErr := sharedCli.Stats(cmd.Context())
 				addCheck(doctorCheck{
 					Check:   "auth_stats",
 					Status:  statusFromErr(sErr),

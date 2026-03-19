@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"strait/internal/cli/client"
 	"strait/internal/domain"
 
+	"github.com/sourcegraph/conc/pool"
 	"github.com/spf13/cobra"
 )
 
@@ -109,21 +111,47 @@ func newLogsCommand(state *appState) *cobra.Command {
 				if listErr != nil {
 					return listErr
 				}
-				for _, run := range runs {
-					if matchedJobIDs != nil {
-						if _, ok := matchedJobIDs[run.JobID]; !ok {
-							continue
+				filteredRuns := runs
+				if matchedJobIDs != nil {
+					filteredRuns = make([]domain.JobRun, 0, len(runs))
+					for _, run := range runs {
+						if _, ok := matchedJobIDs[run.JobID]; ok {
+							filteredRuns = append(filteredRuns, run)
 						}
 					}
+				}
 
-					events, eventsErr := cli.ListRunEvents(ctx, run.ID, level, eventType)
-					if eventsErr != nil {
-						continue
-					}
-					for _, event := range events {
-						row := runEventRow(run.ID, event)
+				type runEvents struct {
+					runID  string
+					jobID  string
+					events []domain.RunEvent
+				}
+				var mu sync.Mutex
+				var allRunEvents []runEvents
+
+				p := pool.New().WithMaxGoroutines(5).WithContext(ctx)
+				for _, run := range filteredRuns {
+					p.Go(func(ctx context.Context) error {
+						events, err := cli.ListRunEvents(ctx, run.ID, level, eventType)
+						if err != nil {
+							fmt.Fprintf(os.Stderr, "warning: failed to fetch events for run %s: %v\n", run.ID, err)
+							return nil
+						}
+						mu.Lock()
+						allRunEvents = append(allRunEvents, runEvents{runID: run.ID, jobID: run.JobID, events: events})
+						mu.Unlock()
+						return nil
+					})
+				}
+				if err := p.Wait(); err != nil {
+					return err
+				}
+
+				for _, re := range allRunEvents {
+					for _, event := range re.events {
+						row := runEventRow(re.runID, event)
 						if matchedJobIDs != nil {
-							row["job_slug"] = matchedJobIDs[run.JobID]
+							row["job_slug"] = matchedJobIDs[re.jobID]
 						}
 						if !matchesLogRow(row, level, eventType, search, sinceTime) {
 							continue
