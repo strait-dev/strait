@@ -63,34 +63,6 @@ func (s *Server) handleSDKSetMemory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if sizeBytes > maxPerKey {
-		respondError(w, r, http.StatusBadRequest, "value exceeds per-key memory limit")
-		return
-	}
-
-	// Check per-job quota.
-	currentTotal, err := s.store.SumJobMemorySizeBytes(r.Context(), run.JobID)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to sum job memory size")
-		return
-	}
-
-	// Subtract existing key size if updating.
-	existing, err := s.store.GetJobMemory(r.Context(), run.JobID, key)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to check existing memory key")
-		return
-	}
-	existingSize := 0
-	if existing != nil {
-		existingSize = existing.SizeBytes
-	}
-
-	if currentTotal-existingSize+sizeBytes > maxPerJob {
-		respondError(w, r, http.StatusBadRequest, "value exceeds per-job memory limit")
-		return
-	}
-
 	var ttlExpiresAt *time.Time
 	if req.TTLSecs != nil && *req.TTLSecs > 0 {
 		t := time.Now().Add(time.Duration(*req.TTLSecs) * time.Second)
@@ -106,8 +78,15 @@ func (s *Server) handleSDKSetMemory(w http.ResponseWriter, r *http.Request) {
 		TTLExpiresAt: ttlExpiresAt,
 	}
 
-	if err := s.store.UpsertJobMemory(r.Context(), mem); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to upsert job memory")
+	if err := s.store.UpsertJobMemoryWithQuota(r.Context(), mem, maxPerKey, maxPerJob); err != nil {
+		switch {
+		case errors.Is(err, store.ErrJobMemoryPerKeyLimitExceeded):
+			respondError(w, r, http.StatusBadRequest, "value exceeds per-key memory limit")
+		case errors.Is(err, store.ErrJobMemoryPerJobLimitExceeded):
+			respondError(w, r, http.StatusBadRequest, "value exceeds per-job memory limit")
+		default:
+			respondError(w, r, http.StatusInternalServerError, "failed to upsert job memory")
+		}
 		return
 	}
 
@@ -126,6 +105,10 @@ func (s *Server) handleSDKGetMemory(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respondError(w, r, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+	if run == nil {
+		respondError(w, r, http.StatusNotFound, "run not found")
 		return
 	}
 

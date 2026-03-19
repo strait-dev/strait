@@ -11,6 +11,38 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+const (
+	jobMemoryQuotaKindPerKey = "per_key"
+	jobMemoryQuotaKindPerJob = "per_job"
+)
+
+type JobMemoryQuotaError struct {
+	Kind string
+	Max  int
+}
+
+func (e *JobMemoryQuotaError) Error() string {
+	switch e.Kind {
+	case jobMemoryQuotaKindPerKey:
+		return fmt.Sprintf("%s: %d", ErrJobMemoryPerKeyLimitExceeded, e.Max)
+	case jobMemoryQuotaKindPerJob:
+		return fmt.Sprintf("%s: %d", ErrJobMemoryPerJobLimitExceeded, e.Max)
+	default:
+		return "job memory quota exceeded"
+	}
+}
+
+func (e *JobMemoryQuotaError) Is(target error) bool {
+	switch target {
+	case ErrJobMemoryPerKeyLimitExceeded:
+		return e.Kind == jobMemoryQuotaKindPerKey
+	case ErrJobMemoryPerJobLimitExceeded:
+		return e.Kind == jobMemoryQuotaKindPerJob
+	default:
+		return false
+	}
+}
+
 func (q *Queries) UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertJobMemory")
 	defer span.End()
@@ -29,6 +61,49 @@ func (q *Queries) UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) er
 		return fmt.Errorf("upsert job memory: %w", err)
 	}
 	return nil
+}
+
+func (q *Queries) UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertJobMemoryWithQuota")
+	defer span.End()
+
+	if maxPerKey > 0 && mem.SizeBytes > maxPerKey {
+		return &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerKey, Max: maxPerKey}
+	}
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("upsert job memory with quota: db does not support transactions")
+	}
+
+	return WithTx(ctx, beginner, func(txQ *Queries) error {
+		if err := txQ.AdvisoryXactLock(ctx, hashString(mem.JobID)); err != nil {
+			return fmt.Errorf("advisory lock: %w", err)
+		}
+
+		existing, err := txQ.GetJobMemory(ctx, mem.JobID, mem.MemoryKey)
+		if err != nil {
+			return fmt.Errorf("get existing job memory: %w", err)
+		}
+
+		currentTotal, err := txQ.SumJobMemorySizeBytes(ctx, mem.JobID)
+		if err != nil {
+			return fmt.Errorf("sum job memory size: %w", err)
+		}
+
+		existingSize := 0
+		if existing != nil {
+			existingSize = existing.SizeBytes
+		}
+		if maxPerJob > 0 && currentTotal-existingSize+mem.SizeBytes > maxPerJob {
+			return &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerJob, Max: maxPerJob}
+		}
+
+		if err := txQ.UpsertJobMemory(ctx, mem); err != nil {
+			return fmt.Errorf("upsert job memory: %w", err)
+		}
+		return nil
+	})
 }
 
 func (q *Queries) GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error) {

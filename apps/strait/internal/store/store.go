@@ -15,22 +15,24 @@ import (
 )
 
 var (
-	ErrJobSlugConflict             = errors.New("job slug conflict")
-	ErrJobNotFound                 = errors.New("job not found")
-	ErrJobGroupNotFound            = errors.New("job group not found")
-	ErrWebhookSubscriptionNotFound = errors.New("webhook subscription not found")
-	ErrEnvironmentNotFound         = errors.New("environment not found")
-	ErrJobSecretNotFound           = errors.New("job secret not found")
-	ErrRunNotFound                 = errors.New("run not found")
-	ErrRunConflict                 = errors.New("run status update conflict")
-	ErrWorkflowNotFound            = errors.New("workflow not found")
-	ErrWorkflowStepNotFound        = errors.New("workflow step not found")
-	ErrWorkflowRunNotFound         = errors.New("workflow run not found")
-	ErrWorkflowStepRunNotFound     = errors.New("workflow step run not found")
-	ErrEventKeyConflict            = errors.New("event key conflict")
-	ErrWorkflowVersionNotFound     = errors.New("workflow version not found")
-	ErrDeploymentVersionNotFound   = errors.New("deployment version not found")
-	ErrNotificationChannelNotFound = errors.New("notification channel not found")
+	ErrJobSlugConflict              = errors.New("job slug conflict")
+	ErrJobNotFound                  = errors.New("job not found")
+	ErrJobGroupNotFound             = errors.New("job group not found")
+	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
+	ErrEnvironmentNotFound          = errors.New("environment not found")
+	ErrJobSecretNotFound            = errors.New("job secret not found")
+	ErrRunNotFound                  = errors.New("run not found")
+	ErrRunConflict                  = errors.New("run status update conflict")
+	ErrWorkflowNotFound             = errors.New("workflow not found")
+	ErrWorkflowStepNotFound         = errors.New("workflow step not found")
+	ErrWorkflowRunNotFound          = errors.New("workflow run not found")
+	ErrWorkflowStepRunNotFound      = errors.New("workflow step run not found")
+	ErrEventKeyConflict             = errors.New("event key conflict")
+	ErrWorkflowVersionNotFound      = errors.New("workflow version not found")
+	ErrDeploymentVersionNotFound    = errors.New("deployment version not found")
+	ErrNotificationChannelNotFound  = errors.New("notification channel not found")
+	ErrJobMemoryPerKeyLimitExceeded = errors.New("job memory per-key limit exceeded")
+	ErrJobMemoryPerJobLimitExceeded = errors.New("job memory per-job limit exceeded")
 )
 
 type DBTX interface {
@@ -342,6 +344,7 @@ type EventSourceStore interface {
 // JobMemoryStore defines operations for job-level persistent memory.
 type JobMemoryStore interface {
 	UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error
+	UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error
 	GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error)
 	ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error)
 	DeleteJobMemory(ctx context.Context, jobID, key string) error

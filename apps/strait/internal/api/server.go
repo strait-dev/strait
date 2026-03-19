@@ -185,6 +185,7 @@ type RunStore interface {
 	CountRunIterations(ctx context.Context, runID string) (int, error)
 	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
 	UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error
+	UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error
 	GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error)
 	ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error)
 	DeleteJobMemory(ctx context.Context, jobID, key string) error

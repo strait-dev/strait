@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,6 +83,131 @@ func TestWithTx_RollsBackOnError(t *testing.T) {
 	_, err = q.GetJob(ctx, jobID)
 	if !errors.Is(err, store.ErrJobNotFound) {
 		t.Fatalf("GetJob() error = %v, want ErrJobNotFound", err)
+	}
+}
+
+func TestUpsertJobMemoryWithQuota_ConcurrentPerJobLimit(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "project-job-memory-quota-concurrent")
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	keys := []string{"alpha", "beta"}
+
+	var wg sync.WaitGroup
+	for _, key := range keys {
+		key := key
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			mem := &domain.JobMemory{
+				JobID:     job.ID,
+				ProjectID: job.ProjectID,
+				MemoryKey: key,
+				Value:     json.RawMessage(`"12345678"`),
+				SizeBytes: 8,
+			}
+			errs <- store.New(testDB.Pool).UpsertJobMemoryWithQuota(ctx, mem, 1024, 10)
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	successes := 0
+	quotaErrors := 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, store.ErrJobMemoryPerJobLimitExceeded):
+			quotaErrors++
+		default:
+			t.Fatalf("UpsertJobMemoryWithQuota() error = %v", err)
+		}
+	}
+
+	if successes != 1 {
+		t.Fatalf("successes = %d, want 1", successes)
+	}
+	if quotaErrors != 1 {
+		t.Fatalf("quotaErrors = %d, want 1", quotaErrors)
+	}
+
+	total, err := q.SumJobMemorySizeBytes(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("SumJobMemorySizeBytes() error = %v", err)
+	}
+	if total != 8 {
+		t.Fatalf("total size = %d, want 8", total)
+	}
+
+	items, err := q.ListJobMemory(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("ListJobMemory() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("ListJobMemory() len = %d, want 1", len(items))
+	}
+}
+
+func TestUpsertJobMemoryWithQuota_ReplacingExistingKeyUsesNetDelta(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "project-job-memory-quota-replace")
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	initial := &domain.JobMemory{
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		MemoryKey: "profile",
+		Value:     json.RawMessage(`"123456789"`),
+		SizeBytes: 9,
+	}
+	if err := q.UpsertJobMemoryWithQuota(ctx, initial, 1024, 10); err != nil {
+		t.Fatalf("UpsertJobMemoryWithQuota(initial) error = %v", err)
+	}
+
+	replacement := &domain.JobMemory{
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		MemoryKey: "profile",
+		Value:     json.RawMessage(`"1234567890"`),
+		SizeBytes: 10,
+	}
+	if err := q.UpsertJobMemoryWithQuota(ctx, replacement, 1024, 10); err != nil {
+		t.Fatalf("UpsertJobMemoryWithQuota(replacement) error = %v", err)
+	}
+
+	got, err := q.GetJobMemory(ctx, job.ID, "profile")
+	if err != nil {
+		t.Fatalf("GetJobMemory() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected memory row")
+	}
+	if got.SizeBytes != 10 {
+		t.Fatalf("SizeBytes = %d, want 10", got.SizeBytes)
+	}
+
+	total, err := q.SumJobMemorySizeBytes(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("SumJobMemorySizeBytes() error = %v", err)
+	}
+	if total != 10 {
+		t.Fatalf("total size = %d, want 10", total)
 	}
 }
 

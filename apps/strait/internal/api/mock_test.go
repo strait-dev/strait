@@ -200,6 +200,7 @@ type mockAPIStore struct {
 	listRunStateFn                       func(ctx context.Context, runID string) ([]domain.RunState, error)
 	deleteRunStateFn                     func(ctx context.Context, runID, key string) error
 	upsertJobMemoryFn                    func(ctx context.Context, mem *domain.JobMemory) error
+	upsertJobMemoryWithQuotaFn           func(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error
 	getJobMemoryFn                       func(ctx context.Context, jobID, key string) (*domain.JobMemory, error)
 	listJobMemoryFn                      func(ctx context.Context, jobID string) ([]domain.JobMemory, error)
 	deleteJobMemoryFn                    func(ctx context.Context, jobID, key string) error
@@ -1734,6 +1735,13 @@ func (m *mockAPIStore) UpdateProjectDefaultRegion(ctx context.Context, projectID
 func (m *mockAPIStore) UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error {
 	if m.upsertJobMemoryFn != nil {
 		return m.upsertJobMemoryFn(ctx, mem)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error {
+	if m.upsertJobMemoryWithQuotaFn != nil {
+		return m.upsertJobMemoryWithQuotaFn(ctx, mem, maxPerKey, maxPerJob)
 	}
 	return nil
 }
