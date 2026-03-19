@@ -23,7 +23,8 @@ func newAuditCommand(state *appState) *cobra.Command {
 		Short: "View audit log events",
 		Long:  "Lists recent audit events for a project with optional filters.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}

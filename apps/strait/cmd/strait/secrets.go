@@ -44,7 +44,8 @@ func newSecretsListCommand(state *appState) *cobra.Command {
 		Use:   "list",
 		Short: "List server-side secrets for a project",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
@@ -93,7 +94,8 @@ func newSecretsCreateCommand(state *appState) *cobra.Command {
 		Use:   "create",
 		Short: "Create a server-side secret",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
@@ -201,7 +203,8 @@ func newSecretsLocalCreateCommand(state *appState) *cobra.Command {
 		Short: "Create or update a local secret value",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
@@ -250,7 +253,8 @@ func newSecretsLocalListCommand(state *appState) *cobra.Command {
 		Use:   "list",
 		Short: "List local secret names for a project",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
@@ -285,7 +289,8 @@ func newSecretsLocalDeleteCommand(state *appState) *cobra.Command {
 		Short: "Delete a local secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}

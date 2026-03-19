@@ -27,7 +27,8 @@ Deduplicates by run ID so each run appears only once (or when status changes).`,
   strait listen --project proj_1 --status executing
   strait listen --interval 3s`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}

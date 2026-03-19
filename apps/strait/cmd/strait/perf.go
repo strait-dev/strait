@@ -19,7 +19,8 @@ func newPerfCommand(state *appState) *cobra.Command {
 health summary, and the slowest jobs over a fixed analysis window.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}

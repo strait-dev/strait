@@ -38,7 +38,8 @@ func newExportCommand(state *appState) *cobra.Command {
 		Args:      cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resource := strings.ToLower(strings.TrimSpace(args[0]))
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}

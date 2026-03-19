@@ -40,7 +40,8 @@ func newCreateJobCommand(state *appState) *cobra.Command {
 		Short: "Create a new job",
 		Long:  "Create a new job via flags or JSON input.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
@@ -127,7 +128,8 @@ func newCreateWorkflowCommand(state *appState) *cobra.Command {
 		Short: "Create a new workflow",
 		Long:  "Create a new workflow via flags or JSON input.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}

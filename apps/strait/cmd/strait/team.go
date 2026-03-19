@@ -29,7 +29,8 @@ func newTeamListCommand(state *appState) *cobra.Command {
 		Use:   "list",
 		Short: "List project members",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
@@ -136,7 +137,8 @@ func newTeamRolesCommand(state *appState) *cobra.Command {
 		Use:   "roles",
 		Short: "List available roles",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
