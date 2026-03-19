@@ -123,9 +123,9 @@ type MachineDestroyer interface {
 	Destroy(ctx context.Context, machineID string) error
 }
 
-// ApprovalReminderStore is an optional interface for querying approvals nearing expiry.
+// ApprovalReminderStore is an optional interface for querying approvals past their reminder point.
 type ApprovalReminderStore interface {
-	ListApprovalsNearingExpiry(ctx context.Context, window time.Duration) ([]domain.WorkflowStepApproval, error)
+	ListApprovalsPastReminderPoint(ctx context.Context) ([]domain.WorkflowStepApproval, error)
 }
 
 type Reaper struct {
@@ -487,8 +487,6 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 	}
 }
 
-const approvalReminderWindow = 15 * time.Minute
-
 func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 	rs, ok := r.store.(ApprovalReminderStore)
 	if !ok {
@@ -507,9 +505,9 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 		}
 	}
 
-	approvals, err := rs.ListApprovalsNearingExpiry(ctx, approvalReminderWindow)
+	approvals, err := rs.ListApprovalsPastReminderPoint(ctx)
 	if err != nil {
-		slog.Warn("failed to list approvals nearing expiry", "error", err)
+		slog.Warn("failed to list approvals past reminder point", "error", err)
 		return
 	}
 

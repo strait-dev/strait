@@ -126,22 +126,24 @@ func (q *Queries) ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domai
 	return approvals, nil
 }
 
-func (q *Queries) ListApprovalsNearingExpiry(ctx context.Context, window time.Duration) ([]domain.WorkflowStepApproval, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListApprovalsNearingExpiry")
+func (q *Queries) ListApprovalsPastReminderPoint(ctx context.Context) ([]domain.WorkflowStepApproval, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListApprovalsPastReminderPoint")
 	defer span.End()
 
 	query := `
 		SELECT id, workflow_run_id, workflow_step_run_id, approvers, status,
 		       approved_by, requested_at, approved_at, expires_at, error
 		FROM workflow_step_approvals
-		WHERE status = 'pending' AND expires_at IS NOT NULL
-		  AND expires_at > NOW() AND expires_at <= NOW() + $1::interval
+		WHERE status = 'pending'
+		  AND expires_at IS NOT NULL
+		  AND expires_at > NOW()
+		  AND NOW() >= requested_at + (expires_at - requested_at) * 0.5
 		ORDER BY expires_at ASC
 		LIMIT 1000`
 
-	rows, err := q.db.Query(ctx, query, window)
+	rows, err := q.db.Query(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("list approvals nearing expiry: %w", err)
+		return nil, fmt.Errorf("list approvals past reminder point: %w", err)
 	}
 	defer rows.Close()
 
@@ -149,13 +151,13 @@ func (q *Queries) ListApprovalsNearingExpiry(ctx context.Context, window time.Du
 	for rows.Next() {
 		approval, scanErr := scanWorkflowStepApproval(rows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("scan approval nearing expiry: %w", scanErr)
+			return nil, fmt.Errorf("scan approval past reminder point: %w", scanErr)
 		}
 		approvals = append(approvals, *approval)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list approvals nearing expiry rows: %w", err)
+		return nil, fmt.Errorf("list approvals past reminder point rows: %w", err)
 	}
 
 	return approvals, nil
