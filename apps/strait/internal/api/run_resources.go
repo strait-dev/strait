@@ -1,9 +1,12 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
+
+	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -40,6 +43,24 @@ func (s *Server) handleListRunResources(w http.ResponseWriter, r *http.Request) 
 			n = 1000
 		}
 		limit = n
+	}
+
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, r, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+	if run == nil {
+		respondError(w, r, http.StatusNotFound, "run not found")
+		return
+	}
+	if projectID := projectIDFromContext(r.Context()); projectID != "" && run.ProjectID != projectID {
+		respondError(w, r, http.StatusNotFound, "run not found")
+		return
 	}
 
 	snapshots, err := s.store.ListRunResourceSnapshots(r.Context(), runID, from, to, limit)
