@@ -14,6 +14,26 @@ import (
 func (s *Server) handleListRunResources(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
+	projectID := projectIDFromContext(r.Context())
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, r, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+	if run.ProjectID != projectID {
+		respondError(w, r, http.StatusNotFound, "run not found")
+		return
+	}
+
 	var from, to *time.Time
 	if v := r.URL.Query().Get("from"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
@@ -43,24 +63,6 @@ func (s *Server) handleListRunResources(w http.ResponseWriter, r *http.Request) 
 			n = 1000
 		}
 		limit = n
-	}
-
-	run, err := s.store.GetRun(r.Context(), runID)
-	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
-		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
-	}
-	if run == nil {
-		respondError(w, r, http.StatusNotFound, "run not found")
-		return
-	}
-	if projectID := projectIDFromContext(r.Context()); projectID != "" && run.ProjectID != projectID {
-		respondError(w, r, http.StatusNotFound, "run not found")
-		return
 	}
 
 	snapshots, err := s.store.ListRunResourceSnapshots(r.Context(), runID, from, to, limit)

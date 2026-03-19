@@ -57,7 +57,7 @@ type mockAPIStore struct {
 	getProjectQuotaFn                    func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	countProjectQueuedRunsFn             func(ctx context.Context, projectID string) (int, error)
 	countProjectActiveRunsFn             func(ctx context.Context, projectID string) (int, error)
-	listRunsByProjectFn                  func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	listRunsByProjectFn                  func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	listDeadLetterRunsFn                 func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	bulkReplayDeadLetterRunsFn           func(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	updateRunStatusFn                    func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
@@ -560,7 +560,7 @@ func (m *mockAPIStore) CountProjectActiveRuns(ctx context.Context, projectID str
 
 func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listRunsByProjectFn != nil {
-		return m.listRunsByProjectFn(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, limit, cursor)
+		return m.listRunsByProjectFn(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit, cursor)
 	}
 	return nil, nil
 }

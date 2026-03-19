@@ -120,6 +120,8 @@ func (s *Server) handleGetComputeCostAnalytics(w http.ResponseWriter, r *http.Re
 	respondJSON(w, http.StatusOK, analytics)
 }
 
+const maxCostWindow = 90 * 24 * time.Hour
+
 // parseCostTimeRange extracts and validates from/to query parameters.
 // Returns false if validation failed (error already written to response).
 func parseCostTimeRange(w http.ResponseWriter, r *http.Request) (time.Time, time.Time, bool) {
@@ -145,6 +147,11 @@ func parseCostTimeRange(w http.ResponseWriter, r *http.Request) (time.Time, time
 
 	if !to.After(from) {
 		respondError(w, r, http.StatusBadRequest, "to must be after from")
+		return time.Time{}, time.Time{}, false
+	}
+
+	if to.Sub(from) > maxCostWindow {
+		respondError(w, r, http.StatusBadRequest, "time range must not exceed 90 days")
 		return time.Time{}, time.Time{}, false
 	}
 

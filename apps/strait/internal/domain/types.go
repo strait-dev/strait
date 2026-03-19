@@ -63,14 +63,14 @@ const (
 
 // NotificationChannel represents a configured notification destination for a project.
 type NotificationChannel struct {
-	ID          string    `json:"id"`
-	ProjectID   string    `json:"project_id"`
-	ChannelType string    `json:"channel_type"`
-	Name        string    `json:"name"`
-	Config      []byte    `json:"-"`
-	Enabled     bool      `json:"enabled"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string          `json:"id"`
+	ProjectID   string          `json:"project_id"`
+	ChannelType string          `json:"channel_type"`
+	Name        string          `json:"name"`
+	Config      json.RawMessage `json:"config"`
+	Enabled     bool            `json:"enabled"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 // NotificationDelivery tracks a single notification delivery attempt.

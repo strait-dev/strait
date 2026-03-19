@@ -5143,11 +5143,6 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - name: project_id
-          in: query
-          required: true
-          schema:
-            type: string
         - name: limit
           in: query
           schema:

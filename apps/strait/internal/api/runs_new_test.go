@@ -162,7 +162,7 @@ func TestHandleListRuns_TriggeredByFilter(t *testing.T) {
 
 	var capturedTriggeredBy *string
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, triggeredBy, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, triggeredBy, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedTriggeredBy = triggeredBy
 			return []domain.JobRun{}, nil
 		},
@@ -186,7 +186,7 @@ func TestHandleListRuns_ExecutionModeFilter_Managed(t *testing.T) {
 
 	var capturedMode *domain.ExecutionMode
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedMode = em
 			return []domain.JobRun{
 				{ID: "run-managed", ExecutionMode: domain.ExecutionModeManaged, CreatedAt: time.Now()},
@@ -212,7 +212,7 @@ func TestHandleListRuns_ExecutionModeFilter_HTTP(t *testing.T) {
 
 	var capturedMode *domain.ExecutionMode
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedMode = em
 			return []domain.JobRun{}, nil
 		},
@@ -245,7 +245,7 @@ func TestHandleListRuns_ExecutionModeFilter_NoFilter(t *testing.T) {
 
 	var capturedMode *domain.ExecutionMode
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedMode = em
 			return []domain.JobRun{}, nil
 		},
@@ -267,7 +267,7 @@ func TestHandleListRuns_ExecutionModeFilter_CombinedWithStatus(t *testing.T) {
 	var capturedStatus *domain.RunStatus
 	var capturedMode *domain.ExecutionMode
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, status *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, _ string, status *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedStatus = status
 			capturedMode = em
 			return []domain.JobRun{}, nil
@@ -1140,5 +1140,55 @@ func TestHandleRestartRun_ExecutingState_StopsCalled(t *testing.T) {
 	}
 	if !stopCalled.Load() {
 		t.Error("Stop should be called for executing runs on restart")
+	}
+}
+
+func TestHandleListRuns_ErrorClassFilter(t *testing.T) {
+	t.Parallel()
+	var capturedErrorClass *string
+	ms := &mockAPIStore{
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, errorClass *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			capturedErrorClass = errorClass
+			return []domain.JobRun{}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?error_class=timeout", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedErrorClass == nil || *capturedErrorClass != "timeout" {
+		t.Fatalf("expected errorClass=timeout, got %v", capturedErrorClass)
+	}
+}
+
+func TestHandleListRuns_ErrorClassFilterEmpty(t *testing.T) {
+	t.Parallel()
+	var capturedErrorClass *string
+	ms := &mockAPIStore{
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, errorClass *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			capturedErrorClass = errorClass
+			return []domain.JobRun{}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedErrorClass != nil {
+		t.Fatalf("expected errorClass=nil, got %v", *capturedErrorClass)
+	}
+}
+
+func TestHandleListRuns_ErrorClassFilterInvalid(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?error_class=invalid_class", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }

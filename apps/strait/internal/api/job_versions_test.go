@@ -418,7 +418,7 @@ func TestGetRun_IncludesJobVersion(t *testing.T) {
 func TestListRuns_IncludesJobVersion(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return []domain.JobRun{
 				{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusQueued, Attempt: 1, TriggeredBy: domain.TriggerManual, JobVersion: 2},
 				{ID: "run-2", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusQueued, Attempt: 1, TriggeredBy: domain.TriggerManual, JobVersion: 4},

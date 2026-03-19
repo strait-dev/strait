@@ -213,7 +213,7 @@ func TestHandleListRuns_PayloadContainsFilter(t *testing.T) {
 	var capturedPayload json.RawMessage
 
 	srv := newTestServer(t, &mockAPIStore{
-		listRunsByProjectFn: func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			capturedPayload = payloadContains
 			return []domain.JobRun{}, nil
 		},

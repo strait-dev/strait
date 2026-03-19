@@ -475,9 +475,7 @@ func NewServer(deps ServerDeps) *Server {
 		containerRuntime:   deps.ContainerRuntime,
 	}
 
-	if deps.Config != nil && deps.Config.AllowPrivateEndpoints {
-		globalAllowPrivateEndpoints.Store(true)
-	}
+	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
 
 	if deps.TxPool != nil {
 		srv.runInTx = func(ctx context.Context, fn func(s APIStore) error) error {

@@ -401,6 +401,9 @@ func (q *Queries) GetComputeCostAnalytics(ctx context.Context, projectID string,
 }
 
 // AggregateCostStatsHourly materializes cost data for a given hour into cost_stats_hourly.
+// The LATERAL subquery correlates on c.project_id = jr.project_id, so each
+// project gets its own compute cost sum. The GROUP BY jr.project_id, cu.compute_cost
+// deduplicates correctly because cu.compute_cost is deterministic per project per hour.
 func (q *Queries) AggregateCostStatsHourly(ctx context.Context, hour time.Time) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.AggregateCostStatsHourly")
 	defer span.End()
@@ -488,7 +491,8 @@ func (q *Queries) GetCostOutliers(ctx context.Context, projectID string, from, t
 		FROM run_costs rc
 		JOIN job_stats js ON js.job_id = rc.job_id
 		WHERE rc.cost_microusd > js.avg_cost + ($4 * js.stddev_cost)
-		ORDER BY deviations_above DESC`
+		ORDER BY deviations_above DESC
+		LIMIT 100`
 
 	rows, err := q.db.Query(ctx, query, projectID, from, to, threshold)
 	if err != nil {

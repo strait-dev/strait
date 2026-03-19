@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -12,6 +13,36 @@ import (
 
 	"github.com/go-chi/chi/v5"
 )
+
+// validateNotificationChannelConfig extracts the webhook URL from the channel
+// config based on channel type and validates it against SSRF.
+func validateNotificationChannelConfig(channelType string, config json.RawMessage) error {
+	var parsed map[string]any
+	if err := json.Unmarshal(config, &parsed); err != nil {
+		return fmt.Errorf("invalid config JSON: %w", err)
+	}
+
+	var urlField string
+	switch channelType {
+	case domain.ChannelTypeSlack, domain.ChannelTypeDiscord:
+		urlField = "webhook_url"
+	case domain.ChannelTypeWebhook:
+		urlField = "url"
+	default:
+		return fmt.Errorf("unsupported channel type: %s", channelType)
+	}
+
+	rawURL, ok := parsed[urlField]
+	if !ok {
+		return fmt.Errorf("%s is required in config", urlField)
+	}
+	urlStr, ok := rawURL.(string)
+	if !ok || urlStr == "" {
+		return fmt.Errorf("%s must be a non-empty string", urlField)
+	}
+
+	return validateURL(urlStr)
+}
 
 type CreateNotificationChannelRequest struct {
 	ChannelType string          `json:"channel_type" validate:"required,oneof=slack discord webhook"`
@@ -45,6 +76,11 @@ func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.
 	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	if err := validateNotificationChannelConfig(req.ChannelType, req.Config); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -146,6 +182,13 @@ func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.
 	}
 	if req.Enabled != nil {
 		ch.Enabled = *req.Enabled
+	}
+
+	if req.Config != nil || req.ChannelType != nil {
+		if err := validateNotificationChannelConfig(ch.ChannelType, ch.Config); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	if err := s.store.UpdateNotificationChannel(r.Context(), ch); err != nil {

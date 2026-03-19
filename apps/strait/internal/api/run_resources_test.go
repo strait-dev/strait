@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,169 +10,171 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
-
-	"github.com/go-chi/chi/v5"
 )
 
-func TestHandleListRunResources_SameProject(t *testing.T) {
+func TestHandleListRunResources_Success(t *testing.T) {
 	t.Parallel()
-
-	wantFrom := time.Date(2026, 3, 19, 10, 0, 0, 0, time.UTC)
-	wantTo := wantFrom.Add(15 * time.Minute)
-	wantSnapshots := []domain.RunResourceSnapshot{
-		{
-			ID:         "snap-1",
-			RunID:      "run-1",
-			CPUPercent: 42.5,
-			CreatedAt:  wantFrom.Add(5 * time.Minute),
-		},
-	}
-
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-			if id != "run-1" {
-				t.Fatalf("unexpected run id %q", id)
-			}
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
-		listRunResourceSnapshotsFn: func(_ context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error) {
-			if runID != "run-1" {
-				t.Fatalf("unexpected run id %q", runID)
-			}
-			if from == nil || !from.Equal(wantFrom) {
-				t.Fatalf("unexpected from %v", from)
-			}
-			if to == nil || !to.Equal(wantTo) {
-				t.Fatalf("unexpected to %v", to)
-			}
-			if limit != 250 {
-				t.Fatalf("unexpected limit %d", limit)
-			}
-			return wantSnapshots, nil
+		listRunResourceSnapshotsFn: func(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+			return []domain.RunResourceSnapshot{
+				{ID: "snap-1", RunID: "run-1", CPUPercent: 50.0, MemoryMB: 256},
+			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, nil, nil)
-
-	req := httptest.NewRequest(
-		http.MethodGet,
-		"/v1/runs/run-1/resources?from="+wantFrom.Format(time.RFC3339)+"&to="+wantTo.Format(time.RFC3339)+"&limit=250",
-		nil,
-	)
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("runID", "run-1")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-	req = req.WithContext(context.WithValue(req.Context(), ctxProjectIDKey, "proj-1"))
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-
-	srv.handleListRunResources(w, req)
-
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", "proj-1"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+}
 
-	var got []domain.RunResourceSnapshot
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
+func TestHandleListRunResources_CrossProjectBlocked(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-A"}, nil
+		},
 	}
-	if len(got) != 1 || got[0].ID != "snap-1" {
-		t.Fatalf("unexpected snapshots: %+v", got)
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", "proj-B"))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
 func TestHandleListRunResources_RunNotFound(t *testing.T) {
 	t.Parallel()
-
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
-		listRunResourceSnapshotsFn: func(context.Context, string, *time.Time, *time.Time, int) ([]domain.RunResourceSnapshot, error) {
-			t.Fatal("ListRunResourceSnapshots should not be called when run is missing")
-			return nil, nil
-		},
 	}
-	srv := newTestServer(t, ms, nil, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/v1/runs/run-1/resources", nil)
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("runID", "run-1")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-
-	srv.handleListRunResources(w, req)
-
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-missing/resources", "", "proj-1"))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestHandleListRunResources_CrossProjectReturnsNotFound(t *testing.T) {
+func TestHandleListRunResources_EmptySnapshots(t *testing.T) {
 	t.Parallel()
-
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, ProjectID: "proj-2"}, nil
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
-		listRunResourceSnapshotsFn: func(context.Context, string, *time.Time, *time.Time, int) ([]domain.RunResourceSnapshot, error) {
-			t.Fatal("ListRunResourceSnapshots should not be called for a different project")
-			return nil, nil
+		listRunResourceSnapshotsFn: func(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+			return []domain.RunResourceSnapshot{}, nil
 		},
 	}
-	srv := newTestServer(t, ms, nil, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/v1/runs/run-1/resources", nil)
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("runID", "run-1")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-	req = req.WithContext(context.WithValue(req.Context(), ctxProjectIDKey, "proj-1"))
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-
-	srv.handleListRunResources(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestHandleListRunResources_InvalidParams(t *testing.T) {
+func TestHandleListRunResources_MissingProjectID(t *testing.T) {
 	t.Parallel()
-
-	cases := []struct {
-		name  string
-		query string
-	}{
-		{name: "invalid from", query: "?from=not-a-time"},
-		{name: "invalid to", query: "?to=not-a-time"},
-		{name: "invalid limit", query: "?limit=0"},
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", ""))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
+}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+func TestHandleListRunResources_InvalidFromParam(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources?from=not-a-date", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
 
-			ms := &mockAPIStore{
-				getRunFn: func(context.Context, string) (*domain.JobRun, error) {
-					t.Fatal("GetRun should not be called for invalid query params")
-					return nil, nil
-				},
-				listRunResourceSnapshotsFn: func(context.Context, string, *time.Time, *time.Time, int) ([]domain.RunResourceSnapshot, error) {
-					t.Fatal("ListRunResourceSnapshots should not be called for invalid query params")
-					return nil, nil
-				},
-			}
-			srv := newTestServer(t, ms, nil, nil)
+func TestHandleListRunResources_InvalidToParam(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources?to=not-a-date", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
 
-			req := httptest.NewRequest(http.MethodGet, "/v1/runs/run-1/resources"+tc.query, nil)
-			rctx := chi.NewRouteContext()
-			rctx.URLParams.Add("runID", "run-1")
-			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-			w := httptest.NewRecorder()
+func TestHandleListRunResources_InvalidLimit(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	for _, limit := range []string{"0", "-1"} {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources?limit="+limit, "", "proj-1"))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for limit=%s, got %d: %s", limit, w.Code, w.Body.String())
+		}
+	}
+}
 
-			srv.handleListRunResources(w, req)
+func TestHandleListRunResources_LimitCapped(t *testing.T) {
+	t.Parallel()
+	var capturedLimit int
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
+		listRunResourceSnapshotsFn: func(_ context.Context, _ string, _, _ *time.Time, limit int) ([]domain.RunResourceSnapshot, error) {
+			capturedLimit = limit
+			return []domain.RunResourceSnapshot{}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources?limit=5000", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedLimit != 1000 {
+		t.Fatalf("expected limit capped to 1000, got %d", capturedLimit)
+	}
+}
 
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-			}
-		})
+func TestHandleListRunResources_StoreError(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
+		listRunResourceSnapshotsFn: func(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", "proj-1"))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"sync"
 	"time"
 
 	"strait/internal/domain"
@@ -14,10 +15,11 @@ import (
 
 // Worker polls for pending notification deliveries and dispatches them.
 type Worker struct {
-	store   store.NotificationStore
-	senders map[string]ChannelSender
-	ticker  *time.Ticker
-	done    chan struct{}
+	store    store.NotificationStore
+	senders  map[string]ChannelSender
+	ticker   *time.Ticker
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 const deliveryLeaseDuration = 2 * time.Minute
@@ -41,12 +43,14 @@ func (w *Worker) Start(ctx context.Context) {
 	go w.run(ctx)
 }
 
-// Stop halts the background polling loop.
+// Stop halts the background polling loop. It is safe to call multiple times.
 func (w *Worker) Stop() {
-	if w.ticker != nil {
-		w.ticker.Stop()
-	}
-	close(w.done)
+	w.stopOnce.Do(func() {
+		if w.ticker != nil {
+			w.ticker.Stop()
+		}
+		close(w.done)
+	})
 }
 
 func (w *Worker) run(ctx context.Context) {
