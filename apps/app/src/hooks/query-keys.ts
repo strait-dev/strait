@@ -62,6 +62,15 @@ export const queryKeys = createQueryKeyStore({
     state: null,
   },
 
+  billing: {
+    orgUsage: null,
+    spendingLimit: null,
+    anomalyAlerts: null,
+    projectCosts: null,
+    usageForecast: null,
+    usageHistory: null,
+  },
+
   projects: {
     list: (organizationId: string) => [organizationId],
     detail: (id: string) => [id],
