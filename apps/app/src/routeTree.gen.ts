@@ -38,6 +38,7 @@ import { Route as AppSchedulesIdRouteImport } from './routes/app/schedules/$id'
 import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
 import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
+import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/compare'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const AppLayoutRoute = AppLayoutRouteImport.update({
@@ -68,6 +69,11 @@ const InvitationIdRoute = InvitationIdRouteImport.update({
 const AppUpgradeRoute = AppUpgradeRouteImport.update({
   id: '/upgrade',
   path: '/upgrade',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppPricingCompareRoute = AppPricingCompareRouteImport.update({
+  id: '/pricing/compare',
+  path: '/pricing/compare',
   getParentRoute: () => AppLayoutRoute,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
@@ -204,6 +210,7 @@ export interface FileRoutesByFullPath {
   '/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
+  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
@@ -235,6 +242,7 @@ export interface FileRoutesByTo {
   '/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
+  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app': typeof AppIndexRoute
   '/onboarding': typeof OnboardingIndexRoute
@@ -268,6 +276,7 @@ export interface FileRoutesById {
   '/(auth)/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
+  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
@@ -452,6 +461,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/pricing/compare': {
+      id: '/app/pricing/compare'
+      path: '/pricing/compare'
+      fullPath: '/app/pricing/compare'
+      preLoaderRoute: typeof AppPricingCompareRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/(auth)/verify-email': {
       id: '/(auth)/verify-email'
       path: '/verify-email'
@@ -619,6 +635,7 @@ declare module '@tanstack/react-router' {
 interface AppLayoutRouteChildren {
   AppDashboardRoute: typeof AppDashboardRoute
   AppUpgradeRoute: typeof AppUpgradeRoute
+  AppPricingCompareRoute: typeof AppPricingCompareRoute
   AppIndexRoute: typeof AppIndexRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
   AppOrgIdRoute: typeof AppOrgIdRoute
@@ -639,6 +656,7 @@ interface AppLayoutRouteChildren {
 const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppDashboardRoute: AppDashboardRoute,
   AppUpgradeRoute: AppUpgradeRoute,
+  AppPricingCompareRoute: AppPricingCompareRoute,
   AppIndexRoute: AppIndexRoute,
   AppJobsIdRoute: AppJobsIdRoute,
   AppOrgIdRoute: AppOrgIdRoute,

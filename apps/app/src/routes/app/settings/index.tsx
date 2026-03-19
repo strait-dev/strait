@@ -7,11 +7,13 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { createFileRoute } from "@tanstack/react-router";
+import { Suspense } from "react";
 import Account from "@/components/(settings)/account";
+import { UsageDashboard } from "@/components/billing/usage-dashboard";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 
-import { UserIcon } from "@/lib/icons";
+import { UserIcon, CreditCardIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/settings/")({
@@ -38,10 +40,20 @@ function RouteComponent() {
               <HugeiconsIcon className="size-4" icon={UserIcon} />
               Account
             </TabsTrigger>
+            <TabsTrigger className="flex items-center gap-2" value="billing">
+              <HugeiconsIcon className="size-4" icon={CreditCardIcon} />
+              Usage & Billing
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent className="mt-6 space-y-6" value="account">
             <Account user={session.user} />
+          </TabsContent>
+
+          <TabsContent className="mt-6 space-y-6" value="billing">
+            <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-muted" />}>
+              <UsageDashboard />
+            </Suspense>
           </TabsContent>
         </Tabs>
       </div>

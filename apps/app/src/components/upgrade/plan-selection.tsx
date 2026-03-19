@@ -540,6 +540,16 @@ export const PlanSelection = ({
           hard-capped.
         </p>
       </div>
+
+      {/* Compare link */}
+      <div className="text-center">
+        <a
+          href="/app/pricing/compare"
+          className="text-muted-foreground text-sm underline underline-offset-4 transition-colors hover:text-foreground"
+        >
+          Compare with competitors
+        </a>
+      </div>
     </div>
   );
 };
