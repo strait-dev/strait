@@ -15,8 +15,10 @@ import (
 
 	"strait/internal/compute"
 	"strait/internal/domain"
+	"strait/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -172,7 +174,32 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			}
 		}
 	}
-	allowed, retryAt, circuitErr := e.store.CanDispatchEndpoint(ctx, job.EndpointURL, time.Now().UTC())
+	// Run circuit breaker, health check, and adaptive timeout queries in parallel.
+	// All three depend on job.EndpointURL (which env var resolution may have overridden above).
+	var (
+		circuitAllowed bool
+		circuitRetryAt *time.Time
+		circuitErr     error
+		healthScore    *domain.EndpointHealthScore
+		healthAllowed  bool
+		healthErr      error
+		adaptiveStats  *store.JobHealthStats
+	)
+
+	var prefetchWG conc.WaitGroup
+	prefetchWG.Go(func() {
+		circuitAllowed, circuitRetryAt, circuitErr = e.store.CanDispatchEndpoint(ctx, job.EndpointURL, time.Now().UTC())
+	})
+	prefetchWG.Go(func() {
+		healthScore, healthAllowed, healthErr = e.healthScorer.CheckHealth(ctx, job.EndpointURL)
+	})
+	if policy.timeoutSecs > 0 {
+		prefetchWG.Go(func() {
+			adaptiveStats, _ = e.store.GetJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
+		})
+	}
+	prefetchWG.Wait()
+
 	if circuitErr != nil {
 		e.logger.Error(
 			"circuit breaker check failed",
@@ -185,13 +212,12 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		return
 	}
 
-	if !allowed {
-		e.snoozeRun(ctx, run, "endpoint circuit breaker open", retryAt)
+	if !circuitAllowed {
+		e.snoozeRun(ctx, run, "endpoint circuit breaker open", circuitRetryAt)
 		return
 	}
 
 	// Health score check: block unhealthy endpoints, throttle degraded ones.
-	healthScore, healthAllowed, healthErr := e.healthScorer.CheckHealth(ctx, job.EndpointURL)
 	if healthErr != nil {
 		e.logger.Warn(
 			"health score check failed, proceeding with dispatch",
@@ -244,14 +270,11 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	defer e.heartbeat.Deregister(run.ID)
 
 	timeout := time.Duration(policy.timeoutSecs) * time.Second
-	if policy.timeoutSecs > 0 {
-		stats, err := e.store.GetJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
-		if err == nil && stats != nil && stats.P95DurationSecs > 0 {
-			adaptiveTimeout := time.Duration(stats.P95DurationSecs * 1.5 * float64(time.Second))
-			if adaptiveTimeout > timeout {
-				timeout = adaptiveTimeout
-				e.logger.Debug("using adaptive timeout", "job_id", job.ID, "p95_secs", stats.P95DurationSecs, "timeout", timeout)
-			}
+	if adaptiveStats != nil && adaptiveStats.P95DurationSecs > 0 {
+		adaptiveTimeout := time.Duration(adaptiveStats.P95DurationSecs * 1.5 * float64(time.Second))
+		if adaptiveTimeout > timeout {
+			timeout = adaptiveTimeout
+			e.logger.Debug("using adaptive timeout", "job_id", job.ID, "p95_secs", adaptiveStats.P95DurationSecs, "timeout", timeout)
 		}
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -933,11 +956,29 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 
 	tracedCtx := httptrace.WithClientTrace(ctx, trace)
 
-	extraHeaders := make(map[string]string)
-	secrets, err := e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
+	// Fetch secrets and checkpoint in parallel.
+	var (
+		secrets    []domain.JobSecret
+		secretsErr error
+		cp         *domain.RunCheckpoint
+	)
+
+	var dispatchWG conc.WaitGroup
+	dispatchWG.Go(func() {
+		secrets, secretsErr = e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
+	})
+	if run.Attempt > 1 {
+		dispatchWG.Go(func() {
+			cp, _ = e.store.GetLatestCheckpoint(tracedCtx, run.ID)
+		})
 	}
+	dispatchWG.Wait()
+
+	if secretsErr != nil {
+		return nil, nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, secretsErr)
+	}
+
+	extraHeaders := make(map[string]string)
 	for _, secret := range secrets {
 		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
 	}
@@ -960,8 +1001,7 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	}
 
 	if run.Attempt > 1 {
-		cp, cpErr := e.store.GetLatestCheckpoint(tracedCtx, run.ID)
-		if cpErr == nil && cp != nil {
+		if cp != nil {
 			data, _ := json.Marshal(cp.State)
 			if len(data) <= 65536 {
 				extraHeaders["X-Last-Checkpoint"] = string(data)
