@@ -465,6 +465,10 @@ func NewServer(deps ServerDeps) *Server {
 		containerRuntime:   deps.ContainerRuntime,
 	}
 
+	if deps.Config != nil {
+		allowPrivateEndpoints = deps.Config.AllowPrivateEndpoints
+	}
+
 	if deps.TxPool != nil {
 		srv.runInTx = func(ctx context.Context, fn func(s APIStore) error) error {
 			return store.WithTx(ctx, deps.TxPool, func(q *store.Queries) error {
@@ -637,6 +641,10 @@ func (s *Server) decodeJSON(r *http.Request, v any) error {
 	return dec.Decode(v)
 }
 
+// allowPrivateEndpoints disables private/loopback endpoint URL validation.
+// Set via ALLOW_PRIVATE_ENDPOINTS=true for local development and testing.
+var allowPrivateEndpoints bool
+
 func validateURL(rawURL string) error {
 	if err := worker.ValidateEndpointURL(rawURL); err != nil {
 		msg := err.Error()
@@ -644,6 +652,10 @@ func validateURL(rawURL string) error {
 			msg = "u" + msg[1:]
 		}
 		return errors.New(msg)
+	}
+
+	if allowPrivateEndpoints {
+		return nil
 	}
 
 	u, err := url.Parse(rawURL)

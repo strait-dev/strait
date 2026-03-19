@@ -127,6 +127,7 @@ type Config struct {
 	DebouncePollerInterval     time.Duration `mapstructure:"DEBOUNCE_POLLER_INTERVAL"`
 	BatchFlushInterval         time.Duration `mapstructure:"BATCH_FLUSH_INTERVAL"`
 	WebhookRequireTLS          bool          `mapstructure:"WEBHOOK_REQUIRE_TLS"`
+	AllowPrivateEndpoints      bool          `mapstructure:"ALLOW_PRIVATE_ENDPOINTS"`
 	DequeueStrategy            string        `mapstructure:"DEQUEUE_STRATEGY"`
 
 	// Managed execution (container runtime)
@@ -367,6 +368,7 @@ func Load() (*Config, error) {
 	cfg.DebouncePollerInterval = viper.GetDuration("DEBOUNCE_POLLER_INTERVAL")
 	cfg.BatchFlushInterval = viper.GetDuration("BATCH_FLUSH_INTERVAL")
 	cfg.WebhookRequireTLS = viper.GetBool("WEBHOOK_REQUIRE_TLS")
+	cfg.AllowPrivateEndpoints = viper.GetBool("ALLOW_PRIVATE_ENDPOINTS")
 	cfg.DequeueStrategy = viper.GetString("DEQUEUE_STRATEGY")
 	cfg.EnforceRegionGating = viper.GetBool("ENFORCE_REGION_GATING")
 	cfg.ComputeRuntime = viper.GetString("COMPUTE_RUNTIME")
