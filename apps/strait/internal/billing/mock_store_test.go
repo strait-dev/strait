@@ -58,6 +58,13 @@ func (m *mockBillingStore) ListProjectsByOrg(_ context.Context, orgID string) ([
 	return nil, nil
 }
 
+func (m *mockBillingStore) CountProjectsByOrg(_ context.Context, orgID string) (int, error) {
+	if m.projects != nil {
+		return len(m.projects[orgID]), nil
+	}
+	return 0, nil
+}
+
 func (m *mockBillingStore) SetProjectOrgID(_ context.Context, _, _ string) error {
 	return nil
 }

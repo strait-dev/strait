@@ -1,23 +1,28 @@
 package billing
 
-import "testing"
+import (
+	"testing"
+
+	"strait/internal/domain"
+)
 
 func TestMaxSpendingLimit(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		tier string
+		name string
+		tier domain.PlanTier
 		want int64
 	}{
-		{"free", 0},
-		{"starter", 500000000},
-		{"pro", 2000000000},
-		{"enterprise", -1},
-		{"unknown", 0},
+		{"free", domain.PlanFree, 0},
+		{"starter", domain.PlanStarter, 500000000},
+		{"pro", domain.PlanPro, 2000000000},
+		{"enterprise", domain.PlanEnterprise, -1},
+		{"unknown", domain.PlanTier("unknown"), 0},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.tier, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := MaxSpendingLimit(tt.tier)
 			if got != tt.want {

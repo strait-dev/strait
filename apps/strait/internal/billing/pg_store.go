@@ -142,6 +142,17 @@ func (s *PgStore) ListProjectsByOrg(ctx context.Context, orgID string) ([]string
 	return ids, rows.Err()
 }
 
+func (s *PgStore) CountProjectsByOrg(ctx context.Context, orgID string) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM projects WHERE org_id = $1
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting projects by org: %w", err)
+	}
+	return count, nil
+}
+
 func (s *PgStore) SetProjectOrgID(ctx context.Context, projectID, orgID string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE projects SET org_id = $2 WHERE id = $1

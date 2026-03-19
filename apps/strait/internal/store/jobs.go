@@ -593,6 +593,25 @@ func (q *Queries) CountProjectActiveRuns(ctx context.Context, projectID string) 
 	return count, nil
 }
 
+// CountExecutingRunsByOrg counts runs in executing status across all projects in an org.
+func (q *Queries) CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountExecutingRunsByOrg")
+	defer span.End()
+
+	query := `
+		SELECT COUNT(*)
+		FROM job_runs jr
+		JOIN projects p ON jr.project_id = p.id
+		WHERE p.org_id = $1 AND jr.status = 'executing'`
+
+	var count int
+	if err := q.db.QueryRow(ctx, query, orgID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count executing runs by org: %w", err)
+	}
+
+	return count, nil
+}
+
 // UpdateProjectDefaultRegion sets the default_region for a project's quota row.
 // It upserts the row if it does not exist.
 func (q *Queries) UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error {

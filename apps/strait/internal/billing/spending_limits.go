@@ -1,5 +1,7 @@
 package billing
 
+import "strait/internal/domain"
+
 // SpendingLimitPresets defines the available preset spending limit options in micro-USD.
 var SpendingLimitPresets = []int64{
 	0,          // $0 - hard cap, no overage
@@ -12,13 +14,13 @@ var SpendingLimitPresets = []int64{
 }
 
 // MaxSpendingLimit returns the maximum allowed spending limit for a plan tier.
-func MaxSpendingLimit(tier string) int64 {
+func MaxSpendingLimit(tier domain.PlanTier) int64 {
 	switch tier {
-	case "starter":
+	case domain.PlanStarter:
 		return 500000000 // $500
-	case "pro":
+	case domain.PlanPro:
 		return 2000000000 // $2,000
-	case "enterprise":
+	case domain.PlanEnterprise:
 		return -1 // custom
 	default:
 		return 0 // free: no spending limit

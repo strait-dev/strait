@@ -47,6 +47,7 @@ type Store interface {
 	// Project-org mapping
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
+	CountProjectsByOrg(ctx context.Context, orgID string) (int, error)
 	SetProjectOrgID(ctx context.Context, projectID, orgID string) error
 
 	// Usage records

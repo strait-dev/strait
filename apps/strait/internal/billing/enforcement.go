@@ -71,6 +71,19 @@ func (e *Enforcer) InvalidateOrgCache(orgID string) {
 	e.orgCache.Delete(orgID)
 }
 
+// PurgeExpiredCache removes expired entries from the org cache.
+// Should be called periodically (e.g., every 10 minutes) from the scheduler.
+func (e *Enforcer) PurgeExpiredCache() {
+	now := time.Now()
+	e.orgCache.Range(func(key, value any) bool {
+		cached := value.(*cachedOrgLimits)
+		if now.After(cached.expiresAt) {
+			e.orgCache.Delete(key)
+		}
+		return true
+	})
+}
+
 // GetOrgPlanLimits returns plan limits for an org, with caching.
 func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (OrgPlanLimits, error) {
 	if orgID == "" {
@@ -133,11 +146,15 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	}
 
 	if count == 1 {
-		e.rdb.Expire(ctx, key, 48*time.Hour)
+		if err := e.rdb.Expire(ctx, key, 48*time.Hour).Err(); err != nil {
+			e.logger.Warn("failed to set TTL on org run counter", "org_id", orgID, "error", err)
+		}
 	}
 
 	if count > limits.MaxRunsPerDay {
-		e.rdb.Decr(ctx, key) // rollback
+		if err := e.rdb.Decr(ctx, key).Err(); err != nil {
+			e.logger.Warn("failed to rollback org run counter", "org_id", orgID, "error", err)
+		}
 		return &LimitError{
 			Code:         "org_daily_run_limit_exceeded",
 			Message:      fmt.Sprintf("Your %s plan allows %d runs per day. You've used %d.", limits.DisplayName, limits.MaxRunsPerDay, count-1),
@@ -157,7 +174,9 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 		return
 	}
 	key := fmt.Sprintf("strait:org_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01-02"))
-	e.rdb.Decr(ctx, key)
+	if err := e.rdb.Decr(ctx, key).Err(); err != nil {
+		e.logger.Warn("failed to decrement org run counter", "org_id", orgID, "error", err)
+	}
 }
 
 // CheckConcurrentRunLimit checks if the org has exceeded its concurrent run limit.
@@ -212,17 +231,17 @@ func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 		return nil
 	}
 
-	projects, err := e.store.ListProjectsByOrg(ctx, orgID)
+	count, err := e.store.CountProjectsByOrg(ctx, orgID)
 	if err != nil {
-		e.logger.Warn("failed to list projects by org", "org_id", orgID, "error", err)
+		e.logger.Warn("failed to count projects by org", "org_id", orgID, "error", err)
 		return nil
 	}
 
-	if len(projects) >= limits.MaxProjectsPerOrg {
+	if count >= limits.MaxProjectsPerOrg {
 		return &LimitError{
 			Code:         "project_limit_reached",
 			Message:      fmt.Sprintf("Your %s plan allows %d projects per organization. Upgrade to add more.", limits.DisplayName, limits.MaxProjectsPerOrg),
-			CurrentUsage: int64(len(projects)),
+			CurrentUsage: int64(count),
 			Limit:        int64(limits.MaxProjectsPerOrg),
 			Plan:         string(limits.PlanTier),
 			UpgradeURL:   "/upgrade",
