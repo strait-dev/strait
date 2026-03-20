@@ -37,7 +37,7 @@ const SmoothCursor = ({ containerRef }: SmoothCursorProps) => {
     const handleMouseEnter = () => setIsHovering(true);
     const handleMouseLeave = () => setIsHovering(false);
 
-    el.addEventListener("mousemove", handleMouseMove);
+    el.addEventListener("mousemove", handleMouseMove, { passive: true });
     el.addEventListener("mouseenter", handleMouseEnter);
     el.addEventListener("mouseleave", handleMouseLeave);
 

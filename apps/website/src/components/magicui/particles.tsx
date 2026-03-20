@@ -43,7 +43,8 @@ const Particles = ({
   const circles = useRef<Circle[]>([]);
   const mouse = useRef({ x: 0, y: 0 });
   const canvasSize = useRef({ w: 0, h: 0 });
-  const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio;
+  const dprRef = useRef(1);
+  const isVisibleRef = useRef(true);
   const [rgb, setRgb] = useState({ r: 255, g: 255, b: 255 });
   const rafRef = useRef(0);
 
@@ -67,7 +68,10 @@ const Particles = ({
     if (!(canvasRef.current && canvasContainerRef.current)) {
       return;
     }
+    dprRef.current = window.devicePixelRatio || 1;
     context.current = canvasRef.current.getContext("2d");
+
+    const dpr = dprRef.current;
 
     const createCircle = (): Circle => ({
       x: Math.random() * canvasSize.current.w,
@@ -144,7 +148,8 @@ const Particles = ({
     };
 
     const animate = () => {
-      if (!context.current) {
+      rafRef.current = requestAnimationFrame(animate);
+      if (!(isVisibleRef.current && context.current)) {
         return;
       }
       context.current.clearRect(
@@ -158,8 +163,6 @@ const Particles = ({
         updateCircle(circle);
         drawCircle(circle);
       }
-
-      rafRef.current = requestAnimationFrame(animate);
     };
 
     initCanvas();
@@ -170,11 +173,20 @@ const Particles = ({
     });
     resizeObserver.observe(canvasContainerRef.current);
 
+    const intersectionObserver = new IntersectionObserver(
+      ([entry]) => {
+        isVisibleRef.current = entry?.isIntersecting ?? false;
+      },
+      { threshold: 0 }
+    );
+    intersectionObserver.observe(canvasContainerRef.current);
+
     return () => {
       cancelAnimationFrame(rafRef.current);
       resizeObserver.disconnect();
+      intersectionObserver.disconnect();
     };
-  }, [rgb, dpr, ease, quantity, size, staticity, vx, vy]);
+  }, [rgb, ease, quantity, size, staticity, vx, vy]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -187,7 +199,7 @@ const Particles = ({
         y: e.clientY - rect.top,
       };
     };
-    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mousemove", handleMouseMove, { passive: true });
     return () => window.removeEventListener("mousemove", handleMouseMove);
   }, []);
 

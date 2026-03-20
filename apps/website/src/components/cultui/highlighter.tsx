@@ -2,7 +2,6 @@
 
 import { cn } from "@strait/ui/utils";
 import { useEffect, useRef, useState } from "react";
-import { annotate } from "rough-notation";
 import type { RoughAnnotation } from "rough-notation/lib/model.js";
 
 type HighlighterProps = {
@@ -34,33 +33,43 @@ const Highlighter = ({
       return;
     }
 
-    annotationRef.current = annotate(el, {
-      type,
-      color,
-      strokeWidth,
-      animationDuration,
-      multiline: true,
+    let cancelled = false;
+    let observer: IntersectionObserver | null = null;
+
+    import("rough-notation").then(({ annotate }) => {
+      if (cancelled) {
+        return;
+      }
+
+      annotationRef.current = annotate(el, {
+        type,
+        color,
+        strokeWidth,
+        animationDuration,
+        multiline: true,
+      });
+
+      if (!isView) {
+        annotationRef.current.show();
+        return;
+      }
+
+      observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry?.isIntersecting && !hasShown) {
+            setHasShown(true);
+            annotationRef.current?.show();
+            observer?.disconnect();
+          }
+        },
+        { threshold: 0.5 }
+      );
+      observer.observe(el);
     });
 
-    if (!isView) {
-      annotationRef.current.show();
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting && !hasShown) {
-          setHasShown(true);
-          annotationRef.current?.show();
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.5 }
-    );
-    observer.observe(el);
-
     return () => {
-      observer.disconnect();
+      cancelled = true;
+      observer?.disconnect();
       annotationRef.current?.remove();
     };
   }, [type, color, strokeWidth, isView, animationDuration, hasShown]);

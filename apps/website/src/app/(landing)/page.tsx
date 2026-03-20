@@ -81,16 +81,28 @@ const LandingPage = () => {
       {howToSchema ? <JsonLd data={howToSchema} /> : null}
       <Hero />
       <LogoWall />
-      <ProblemSection />
-      <FeatureBentoGrid />
-      <CodeExampleSection />
-      <ComparisonSection />
+      <Suspense fallback={null}>
+        <ProblemSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <FeatureBentoGrid />
+      </Suspense>
+      <Suspense fallback={null}>
+        <CodeExampleSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ComparisonSection />
+      </Suspense>
       <PricingTeaser />
-      <PricingComparison />
+      <Suspense fallback={null}>
+        <PricingComparison />
+      </Suspense>
       <Suspense fallback={null}>
         <PricingFaq />
       </Suspense>
-      <CTA />
+      <Suspense fallback={null}>
+        <CTA />
+      </Suspense>
     </>
   );
 };

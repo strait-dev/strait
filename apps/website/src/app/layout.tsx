@@ -1,11 +1,11 @@
 import { GoogleTagManager } from "@next/third-parties/google";
 import { GeistSans } from "geist/font/sans";
 import type { Metadata, Viewport } from "next";
-import { Toaster } from "sonner";
 
 import "@strait/ui/globals.css";
 
 import { cn } from "@strait/ui/utils";
+import LazyToaster from "@/components/providers/lazy-toaster.tsx";
 import NextThemeProvider from "@/components/providers/NextThemeProvider/next-theme-provider.tsx";
 import { siteConfig } from "@/config/site.ts";
 
@@ -57,7 +57,7 @@ const Layout = ({ children }: Props) => {
     >
       <body className="selection:bg-primary selection:text-primary-foreground">
         <NextThemeProvider>{children}</NextThemeProvider>
-        <Toaster />
+        <LazyToaster />
         <GoogleTagManager
           gtmId={process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID as string}
         />
