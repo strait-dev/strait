@@ -23,11 +23,11 @@
       "type": "gauge",
       "title": "Queue Depth",
       "gridPos": { "h": 6, "w": 8, "x": 0, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "strait_queue_depth",
-          "legendFormat": "{{instance}}",
+          "expr": "sum(strait_queue_depth_ratio)",
+          "legendFormat": "queue depth",
           "refId": "A"
         }
       ],
@@ -53,11 +53,11 @@
       "type": "gauge",
       "title": "Active Workers",
       "gridPos": { "h": 6, "w": 8, "x": 8, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "strait_pool_running_workers",
-          "legendFormat": "{{instance}}",
+          "expr": "strait_pool_running_workers_ratio",
+          "legendFormat": "workers",
           "refId": "A"
         }
       ],
@@ -83,11 +83,11 @@
       "type": "gauge",
       "title": "DB Connections",
       "gridPos": { "h": 6, "w": 8, "x": 16, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "strait_db_pool_total_conns",
-          "legendFormat": "{{instance}}",
+          "expr": "strait_db_pool_total_ratio",
+          "legendFormat": "total",
           "refId": "A"
         }
       ],
@@ -118,95 +118,18 @@
     },
     {
       "type": "timeseries",
-      "title": "Dequeue Rate",
+      "title": "Task Rate (submitted / completed / sec)",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "expr": "rate(strait_pool_completed_tasks_total[1m])",
           "legendFormat": "completed/sec",
           "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10
-          }
-        }
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Dispatch Duration P99",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.99, rate(strait_dispatch_duration_seconds_bucket[1m]))",
-          "legendFormat": "p99",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10
-          }
-        }
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Error Rate",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "targets": [
-        {
-          "expr": "rate(strait_dispatch_errors_total[1m])",
-          "legendFormat": "errors/sec",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10
-          },
-          "color": { "mode": "fixed", "fixedColor": "red" }
-        }
-      }
-    },
-    {
-      "type": "row",
-      "title": "Worker Pool",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
-      "collapsed": false,
-      "panels": []
-    },
-    {
-      "type": "timeseries",
-      "title": "Pool Submitted vs Completed",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "targets": [
+        },
         {
           "expr": "rate(strait_pool_submitted_tasks_total[1m])",
           "legendFormat": "submitted/sec",
-          "refId": "A"
-        },
-        {
-          "expr": "rate(strait_pool_completed_tasks_total[1m])",
-          "legendFormat": "completed/sec",
           "refId": "B"
         }
       ],
@@ -223,79 +146,9 @@
     },
     {
       "type": "timeseries",
-      "title": "Pool Failed + Dropped",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "targets": [
-        {
-          "expr": "rate(strait_pool_failed_tasks_total[1m])",
-          "legendFormat": "failed/sec",
-          "refId": "A"
-        },
-        {
-          "expr": "rate(strait_pool_dropped_tasks_total[1m])",
-          "legendFormat": "dropped/sec",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10
-          },
-          "color": { "mode": "fixed", "fixedColor": "red" }
-        }
-      }
-    },
-    {
-      "type": "row",
-      "title": "Database",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
-      "collapsed": false,
-      "panels": []
-    },
-    {
-      "type": "timeseries",
-      "title": "DB Pool Breakdown",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "targets": [
-        {
-          "expr": "strait_db_pool_acquired_conns",
-          "legendFormat": "acquired",
-          "refId": "A"
-        },
-        {
-          "expr": "strait_db_pool_idle_conns",
-          "legendFormat": "idle",
-          "refId": "B"
-        },
-        {
-          "expr": "strait_db_pool_total_conns",
-          "legendFormat": "total",
-          "refId": "C"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 30,
-            "stacking": { "mode": "normal" }
-          }
-        }
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Dequeue Duration",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "title": "Dequeue Duration (P50 / P95 / P99)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "expr": "histogram_quantile(0.5, rate(strait_dequeue_duration_seconds_bucket[1m]))",
@@ -325,21 +178,50 @@
       }
     },
     {
+      "type": "timeseries",
+      "title": "Error Rate",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(strait_pool_failed_tasks_total[1m])",
+          "legendFormat": "failed/sec",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(strait_pool_dropped_tasks_total[1m])",
+          "legendFormat": "dropped/sec",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "color": { "mode": "fixed", "fixedColor": "red" }
+        }
+      }
+    },
+    {
       "type": "row",
-      "title": "Webhooks",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "title": "Worker Pool",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
       "collapsed": false,
       "panels": []
     },
     {
       "type": "timeseries",
-      "title": "Webhook Delivery Rate",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 35 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "title": "Run Transitions",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "rate(strait_webhook_deliveries_total[1m])",
-          "legendFormat": "deliveries/sec",
+          "expr": "rate(strait_run_transitions_total[1m])",
+          "legendFormat": "{{from}}-{{to}}",
           "refId": "A"
         }
       ],
@@ -356,39 +238,104 @@
     },
     {
       "type": "timeseries",
-      "title": "Webhook Duration P99",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 35 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "title": "Queue Depth Over Time",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, rate(strait_webhook_delivery_duration_seconds_bucket[1m]))",
-          "legendFormat": "p99",
+          "expr": "strait_queue_depth_ratio",
+          "legendFormat": "{{status}}",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
+          "unit": "short",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 10
+            "fillOpacity": 20,
+            "stacking": { "mode": "normal" }
           }
         }
       }
     },
     {
       "type": "row",
+      "title": "Database",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "DB Pool Breakdown",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "strait_db_pool_acquired_ratio",
+          "legendFormat": "acquired",
+          "refId": "A"
+        },
+        {
+          "expr": "strait_db_pool_idle_ratio",
+          "legendFormat": "idle",
+          "refId": "B"
+        },
+        {
+          "expr": "strait_db_pool_total_ratio",
+          "legendFormat": "total",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 30
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "DB Pool Wait Count",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(strait_db_pool_wait_count_ratio[1m])",
+          "legendFormat": "waits/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "color": { "mode": "fixed", "fixedColor": "orange" }
+        }
+      }
+    },
+    {
+      "type": "row",
       "title": "Go Runtime",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
       "collapsed": false,
       "panels": []
     },
     {
       "type": "timeseries",
       "title": "Goroutines",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 44 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "expr": "go_goroutines",
@@ -410,13 +357,18 @@
     {
       "type": "timeseries",
       "title": "Heap Memory",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 44 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "expr": "go_memstats_heap_alloc_bytes",
           "legendFormat": "heap alloc",
           "refId": "A"
+        },
+        {
+          "expr": "go_memstats_heap_inuse_bytes",
+          "legendFormat": "heap inuse",
+          "refId": "B"
         }
       ],
       "fieldConfig": {
@@ -433,8 +385,8 @@
     {
       "type": "timeseries",
       "title": "GC Pause Duration",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 44 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "expr": "rate(go_gc_duration_seconds_sum[1m])",

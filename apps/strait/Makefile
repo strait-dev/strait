@@ -1,7 +1,7 @@
 .PHONY: build test lint vet dev preflight deploy deploy-staging
 .PHONY: loadtest-up loadtest-down loadtest-server loadtest-quick loadtest-throughput
 .PHONY: loadtest-concurrency loadtest-endurance loadtest-chaos loadtest-errors
-.PHONY: loadtest-all loadtest-report loadtest-unit
+.PHONY: loadtest-all loadtest-report loadtest-unit loadtest-flush
 
 build:
 	go build ./...
@@ -89,6 +89,11 @@ loadtest-errors:
 	$(LOADTEST_RUN) go test -tags=loadtest -run TestErrorScenarios -timeout 1h -v ./internal/loadtest/...
 
 loadtest-all: loadtest-quick loadtest-throughput loadtest-concurrency
+
+loadtest-flush:
+	@echo "Flushing queued and running load test runs..."
+	@docker exec $$(docker ps -q --filter "ancestor=postgres:18-alpine" | head -1) psql -U strait -d strait -c "DELETE FROM job_runs WHERE status IN ('queued', 'running') AND project_id = 'loadtest-project';"
+	@echo "Done. Queue is clear."
 
 loadtest-report:
 	go run -tags=loadtest ./internal/loadtest/cmd/report -input internal/loadtest/loadtest-results/ -html loadtest-results/report.html -json loadtest-results/report.json

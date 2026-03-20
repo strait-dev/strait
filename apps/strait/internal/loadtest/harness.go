@@ -133,7 +133,7 @@ func (h *Harness) Setup(ctx context.Context) error {
 	return nil
 }
 
-// Teardown cleans up all infrastructure.
+// Teardown cleans up all infrastructure and flushes queued runs.
 func (h *Harness) Teardown() error {
 	var firstErr error
 	setErr := func(err error) {
@@ -148,6 +148,15 @@ func (h *Harness) Teardown() error {
 	if h.TestServer != nil {
 		setErr(h.TestServer.Close())
 	}
+
+	// Flush queued/running runs left over from load tests
+	if h.Pool != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_, err := h.Pool.Exec(ctx, "DELETE FROM job_runs WHERE status IN ('queued', 'running') AND project_id = 'loadtest-project'")
+		cancel()
+		setErr(err)
+	}
+
 	if h.Pool != nil {
 		h.Pool.Close()
 	}
