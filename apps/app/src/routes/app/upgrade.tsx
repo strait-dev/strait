@@ -16,6 +16,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as z from "zod";
+import { DowngradePreviewDialog } from "@/components/billing/downgrade-preview-dialog";
 import type {
   BillingInterval,
   PlanType,
@@ -24,6 +25,7 @@ import { PlanSelection } from "@/components/upgrade/plan-selection";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
+import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -100,6 +102,7 @@ function RouteComponent() {
   const [billingInterval, setBillingInterval] =
     useState<BillingInterval>("monthly");
   const [isPortalLoading, setIsPortalLoading] = useState(false);
+  const [downgradeTarget, setDowngradeTarget] = useState<string | null>(null);
   const { trackSubscription } = useAnalytics();
   const hasTrackedPageView = useRef(false);
 
@@ -137,7 +140,28 @@ function RouteComponent() {
     },
   });
 
+  const isDowngrade = checkIsDowngrade(currentPlan, selectedPlan);
+
   const handleStartCheckout = useCallback(() => {
+    if (isDowngrade) {
+      setDowngradeTarget(selectedPlan);
+      return;
+    }
+    trackSubscription("CHECKOUT_STARTED", {
+      plan: selectedPlan,
+      billing_interval: billingInterval,
+    });
+    startCheckout.mutate();
+  }, [
+    startCheckout,
+    trackSubscription,
+    selectedPlan,
+    billingInterval,
+    isDowngrade,
+  ]);
+
+  const handleConfirmDowngrade = useCallback(() => {
+    setDowngradeTarget(null);
     trackSubscription("CHECKOUT_STARTED", {
       plan: selectedPlan,
       billing_interval: billingInterval,
@@ -226,6 +250,18 @@ function RouteComponent() {
           selectedPlan={selectedPlan}
         />
       </div>
+
+      <DowngradePreviewDialog
+        isLoading={startCheckout.isPending}
+        onConfirm={handleConfirmDowngrade}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDowngradeTarget(null);
+          }
+        }}
+        open={!!downgradeTarget}
+        targetTier={downgradeTarget ?? ""}
+      />
     </Shell>
   );
 }

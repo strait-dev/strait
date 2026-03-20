@@ -10,14 +10,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { AlertsForecastTab } from "@/components/billing/alerts-forecast-tab";
 import { ProjectCostsTab } from "@/components/billing/project-costs-tab";
+import { ReferralProgram } from "@/components/billing/referral-program";
 import { SpendingLimitsTab } from "@/components/billing/spending-limits-tab";
 import { UsageDashboard } from "@/components/billing/usage-dashboard";
 import { UsageHistoryTab } from "@/components/billing/usage-history-tab";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 import { anomalyAlertsQueryOptions } from "@/hooks/billing/use-anomaly-alerts";
+import { anomalyConfigQueryOptions } from "@/hooks/billing/use-anomaly-config";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
+import { referralsQueryOptions } from "@/hooks/billing/use-referrals";
 import { spendingLimitQueryOptions } from "@/hooks/billing/use-spending-limit";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
@@ -27,6 +30,7 @@ import {
   BriefcaseIcon,
   CreditCardIcon,
   TrendingUpIcon,
+  UsersIcon,
 } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -44,6 +48,8 @@ export const Route = createFileRoute("/app/billing/")({
       ctx.queryClient.ensureQueryData(spendingLimitQueryOptions()),
       ctx.queryClient.ensureQueryData(anomalyAlertsQueryOptions()),
       ctx.queryClient.ensureQueryData(usageForecastQueryOptions()),
+      ctx.queryClient.ensureQueryData(referralsQueryOptions()),
+      ctx.queryClient.ensureQueryData(anomalyConfigQueryOptions()),
     ]);
   },
   errorComponent: DefaultCatchBoundary,
@@ -86,6 +92,10 @@ function RouteComponent() {
               <HugeiconsIcon className="size-4" icon={AlertIcon} />
               Alerts
             </TabsTrigger>
+            <TabsTrigger className="flex items-center gap-2" value="referrals">
+              <HugeiconsIcon className="size-4" icon={UsersIcon} />
+              Referrals
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent className="mt-6 space-y-6" value="overview">
@@ -115,6 +125,12 @@ function RouteComponent() {
           <TabsContent className="mt-6 space-y-6" value="alerts">
             <Suspense fallback={<TabSkeleton />}>
               <AlertsForecastTab />
+            </Suspense>
+          </TabsContent>
+
+          <TabsContent className="mt-6 space-y-6" value="referrals">
+            <Suspense fallback={<TabSkeleton />}>
+              <ReferralProgram />
             </Suspense>
           </TabsContent>
         </Tabs>

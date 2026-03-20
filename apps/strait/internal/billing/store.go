@@ -7,20 +7,22 @@ import (
 
 // OrgSubscription represents an organization's subscription state.
 type OrgSubscription struct {
-	ID                    string
-	OrgID                 string
-	PlanTier              string
-	PolarSubscriptionID   *string
-	PolarCustomerID       *string
-	Status                string
-	CurrentPeriodStart    *time.Time
-	CurrentPeriodEnd      *time.Time
-	SpendingLimitMicrousd int64
-	LimitAction           string
-	PendingPlanTier       *string
-	CanceledAt            *time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ID                       string
+	OrgID                    string
+	PlanTier                 string
+	PolarSubscriptionID      *string
+	PolarCustomerID          *string
+	Status                   string
+	CurrentPeriodStart       *time.Time
+	CurrentPeriodEnd         *time.Time
+	SpendingLimitMicrousd    int64
+	LimitAction              string
+	PendingPlanTier          *string
+	CanceledAt               *time.Time
+	AnomalyThresholdWarning  float64
+	AnomalyThresholdCritical float64
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 // UsageRecord represents a daily usage aggregate per org and project.
@@ -66,4 +68,12 @@ type Store interface {
 	GetProjectUsageForPeriod(ctx context.Context, projectID string, from, to time.Time) ([]UsageRecord, error)
 	GetOrgDailyUsage(ctx context.Context, orgID string, date time.Time) ([]UsageRecord, error)
 	SumOrgPeriodSpend(ctx context.Context, orgID string, from time.Time) (int64, error)
+
+	// Project budget
+	GetProjectBudget(ctx context.Context, projectID string) (int64, string, error)
+	SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error
+	GetProjectPeriodSpend(ctx context.Context, projectID string, from time.Time) (int64, error)
+
+	// Anomaly thresholds
+	UpdateAnomalyThresholds(ctx context.Context, orgID string, warning, critical float64) error
 }

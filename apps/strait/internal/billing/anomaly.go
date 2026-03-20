@@ -18,11 +18,38 @@ const (
 	// before anomaly detection activates.
 	anomalyBaselineDays = 7
 
-	// Spike ratio thresholds.
+	// Default spike ratio thresholds.
 	spikeWarning  = 3.0
 	spikeHigh     = 5.0
 	spikeCritical = 10.0
 )
+
+// AnomalyConfig holds configurable thresholds for anomaly detection.
+// When HighThreshold is zero, it is auto-computed as the midpoint of
+// WarningThreshold and CriticalThreshold.
+type AnomalyConfig struct {
+	WarningThreshold  float64
+	HighThreshold     float64
+	CriticalThreshold float64
+}
+
+// DefaultAnomalyConfig returns the default anomaly detection thresholds.
+func DefaultAnomalyConfig() AnomalyConfig {
+	return AnomalyConfig{
+		WarningThreshold:  spikeWarning,
+		HighThreshold:     spikeHigh,
+		CriticalThreshold: spikeCritical,
+	}
+}
+
+// highThreshold returns the effective high threshold. If HighThreshold is set,
+// it is used directly; otherwise it is auto-computed as the midpoint.
+func (c AnomalyConfig) highThreshold() float64 {
+	if c.HighThreshold > 0 {
+		return c.HighThreshold
+	}
+	return (c.WarningThreshold + c.CriticalThreshold) / 2
+}
 
 // AnomalyAlert describes a detected spending anomaly for an organization.
 type AnomalyAlert struct {
@@ -36,17 +63,29 @@ type AnomalyAlert struct {
 
 // AnomalyDetector checks for spending spikes across organizations.
 type AnomalyDetector struct {
-	store Store
+	store  Store
+	config AnomalyConfig
 }
 
-// NewAnomalyDetector creates a new anomaly detector.
+// NewAnomalyDetector creates a new anomaly detector with default thresholds.
 func NewAnomalyDetector(store Store) *AnomalyDetector {
-	return &AnomalyDetector{store: store}
+	return &AnomalyDetector{store: store, config: DefaultAnomalyConfig()}
+}
+
+// NewAnomalyDetectorWithConfig creates an anomaly detector with custom thresholds.
+func NewAnomalyDetectorWithConfig(store Store, cfg AnomalyConfig) *AnomalyDetector {
+	if cfg.WarningThreshold <= 0 {
+		cfg.WarningThreshold = spikeWarning
+	}
+	if cfg.CriticalThreshold <= 0 {
+		cfg.CriticalThreshold = spikeCritical
+	}
+	return &AnomalyDetector{store: store, config: cfg}
 }
 
 // DetectAnomalies checks all provided org IDs for spending spikes. It compares
 // today's spend against the rolling 7-day average and returns alerts for orgs
-// whose spending is 3x or more above their average.
+// whose spending is at or above the warning threshold.
 func (d *AnomalyDetector) DetectAnomalies(ctx context.Context, orgIDs []string) ([]AnomalyAlert, error) {
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
@@ -110,11 +149,11 @@ func (d *AnomalyDetector) detectForOrg(ctx context.Context, orgID string, today 
 	}
 
 	spikeRatio := float64(todaySpend) / float64(avg7d)
-	if spikeRatio < spikeWarning {
+	if spikeRatio < d.config.WarningThreshold {
 		return zero, false, nil
 	}
 
-	severity := classifySeverity(spikeRatio)
+	severity := d.classifySeverity(spikeRatio)
 
 	return AnomalyAlert{
 		OrgID:          orgID,
@@ -126,6 +165,19 @@ func (d *AnomalyDetector) detectForOrg(ctx context.Context, orgID string, today 
 	}, true, nil
 }
 
+func (d *AnomalyDetector) classifySeverity(ratio float64) AnomalySeverity {
+	switch {
+	case ratio >= d.config.CriticalThreshold:
+		return AnomalySeverityCritical
+	case ratio >= d.config.highThreshold():
+		return AnomalySeverityHigh
+	default:
+		return AnomalySeverityWarning
+	}
+}
+
+// classifySeverity is kept as a package-level function for backwards compatibility
+// with existing tests, using default thresholds.
 func classifySeverity(ratio float64) AnomalySeverity {
 	switch {
 	case ratio >= spikeCritical:

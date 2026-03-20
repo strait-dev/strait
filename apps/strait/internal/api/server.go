@@ -444,6 +444,10 @@ type UsageService interface {
 	SetSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
 	PreviewDowngrade(ctx context.Context, orgID string, targetTier domain.PlanTier) (*billing.DowngradeImpact, error)
 	DetectAnomalies(ctx context.Context, orgID string) ([]billing.AnomalyAlert, error)
+	GetProjectBudget(ctx context.Context, projectID string) (*billing.ProjectBudgetResponse, error)
+	SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error
+	GetAnomalyConfig(ctx context.Context, orgID string) (*billing.AnomalyConfigResponse, error)
+	SetAnomalyConfig(ctx context.Context, orgID string, warning, critical float64) error
 }
 
 // ReferralService handles referral code management.

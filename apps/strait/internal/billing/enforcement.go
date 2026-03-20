@@ -21,6 +21,7 @@ var (
 	ErrMemberLimitReached            = errors.New("member limit reached")
 	ErrOrgLimitReached               = errors.New("org limit reached")
 	ErrSpendingLimitReached          = errors.New("spending limit reached")
+	ErrProjectBudgetReached          = errors.New("project budget reached")
 )
 
 // LimitError provides structured information about a limit rejection.
@@ -315,6 +316,51 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 			Plan:         sub.PlanTier,
 			UpgradeURL:   "/settings/billing",
 		}
+	}
+
+	return nil
+}
+
+// CheckProjectBudgetLimit checks if a project has exceeded its monthly budget.
+// Returns ErrProjectBudgetReached if the budget is exceeded and action is "reject".
+// Fails open on any store errors.
+func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string) error {
+	if projectID == "" {
+		return nil
+	}
+
+	budget, action, err := e.store.GetProjectBudget(ctx, projectID)
+	if err != nil {
+		e.logger.Warn("failed to get project budget", "project_id", projectID, "error", err)
+		return nil // fail open
+	}
+
+	if budget < 0 {
+		return nil // no budget set
+	}
+
+	periodStart := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
+	spend, err := e.store.GetProjectPeriodSpend(ctx, projectID, periodStart)
+	if err != nil {
+		e.logger.Warn("failed to get project period spend", "project_id", projectID, "error", err)
+		return nil // fail open
+	}
+
+	if budget == 0 || spend >= budget {
+		if action == "reject" {
+			return &LimitError{
+				Code:         "project_budget_reached",
+				Message:      fmt.Sprintf("This project's monthly budget of $%.2f has been reached.", float64(budget)/1000000),
+				CurrentUsage: spend,
+				Limit:        budget,
+				UpgradeURL:   "/settings/billing",
+			}
+		}
+		e.logger.Warn("project budget reached (notify mode)",
+			"project_id", projectID,
+			"spend_microusd", spend,
+			"budget_microusd", budget,
+		)
 	}
 
 	return nil

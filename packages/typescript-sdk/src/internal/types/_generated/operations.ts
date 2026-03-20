@@ -44,6 +44,8 @@ export type OperationPathParamsById = {
   "getV1AnalyticsCostsTop": undefined;
   "getV1AnalyticsCostsTrends": undefined;
   "getV1AnalyticsPerformance": undefined;
+  "getV1AnomalyConfig": undefined;
+  "putV1AnomalyConfig": undefined;
   "getV1ApiKeys": undefined;
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": { "keyID": string };
@@ -123,6 +125,8 @@ export type OperationPathParamsById = {
   "getV1NotificationChannelsByChannelID": { "channelID": string };
   "patchV1NotificationChannelsByChannelID": { "channelID": string };
   "getV1NotificationDeliveries": undefined;
+  "getV1ProjectBudget": undefined;
+  "putV1ProjectBudget": undefined;
   "getV1Projects": undefined;
   "postV1Projects": undefined;
   "deleteV1ProjectsByProjectID": { "projectID": string };
@@ -273,6 +277,8 @@ export type OperationQueryParamsById = {
   "getV1AnalyticsCostsTop": { "from": string; "to": string; "limit"?: number };
   "getV1AnalyticsCostsTrends": { "from": string; "to": string };
   "getV1AnalyticsPerformance": { "period_hours"?: number };
+  "getV1AnomalyConfig": { "org_id": string };
+  "putV1AnomalyConfig": { "org_id": string };
   "getV1ApiKeys": { "project_id": string };
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": undefined;
@@ -352,6 +358,8 @@ export type OperationQueryParamsById = {
   "getV1NotificationChannelsByChannelID": undefined;
   "patchV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationDeliveries": { "limit"?: number; "cursor"?: string };
+  "getV1ProjectBudget": { "project_id": string };
+  "putV1ProjectBudget": undefined;
   "getV1Projects": { "org_id": string };
   "postV1Projects": undefined;
   "deleteV1ProjectsByProjectID": undefined;
@@ -502,6 +510,8 @@ export type OperationHeaderParamsById = {
   "getV1AnalyticsCostsTop": undefined;
   "getV1AnalyticsCostsTrends": undefined;
   "getV1AnalyticsPerformance": undefined;
+  "getV1AnomalyConfig": undefined;
+  "putV1AnomalyConfig": undefined;
   "getV1ApiKeys": undefined;
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": undefined;
@@ -581,6 +591,8 @@ export type OperationHeaderParamsById = {
   "getV1NotificationChannelsByChannelID": undefined;
   "patchV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationDeliveries": undefined;
+  "getV1ProjectBudget": undefined;
+  "putV1ProjectBudget": undefined;
   "getV1Projects": undefined;
   "postV1Projects": undefined;
   "deleteV1ProjectsByProjectID": undefined;
@@ -753,6 +765,8 @@ export const generatedOperationMetadataById = {
   "getV1AnalyticsCostsTop": { functionName: "getTop", domainName: "analytics", domainMethodName: "getTop", pathParamNames: [], summary: "Top cost items" },
   "getV1AnalyticsCostsTrends": { functionName: "listTrends", domainName: "analytics", domainMethodName: "listTrends", pathParamNames: [], summary: "Cost trends over time" },
   "getV1AnalyticsPerformance": { functionName: "getPerformance", domainName: "analytics", domainMethodName: "getPerformance", pathParamNames: [], summary: "Performance analytics" },
+  "getV1AnomalyConfig": { functionName: "listAnomalyConfig", domainName: "usage", domainMethodName: "listAnomalyConfig", pathParamNames: [], summary: "Get anomaly detection thresholds" },
+  "putV1AnomalyConfig": { functionName: "upsertAnomalyConfig", domainName: "usage", domainMethodName: "upsertAnomalyConfig", pathParamNames: [], summary: "Update anomaly detection thresholds" },
   "getV1ApiKeys": { functionName: "listApiKeys", domainName: "apiKeys", domainMethodName: "list", pathParamNames: [], summary: "List API keys" },
   "postV1ApiKeys": { functionName: "createApiKey", domainName: "apiKeys", domainMethodName: "create", pathParamNames: [], summary: "Create an API key" },
   "deleteV1ApiKeysByKeyID": { functionName: "deleteApiKey", domainName: "apiKeys", domainMethodName: "delete", pathParamNames: ["keyID"], summary: "Revoke an API key" },
@@ -832,6 +846,8 @@ export const generatedOperationMetadataById = {
   "getV1NotificationChannelsByChannelID": { functionName: "getNotificationChannel", domainName: "notificationChannels", domainMethodName: "get", pathParamNames: ["channelID"], summary: "Get a notification channel" },
   "patchV1NotificationChannelsByChannelID": { functionName: "updateNotificationChannel", domainName: "notificationChannels", domainMethodName: "update", pathParamNames: ["channelID"], summary: "Update a notification channel" },
   "getV1NotificationDeliveries": { functionName: "listNotificationDeliveries", domainName: "notificationChannels", domainMethodName: "listNotificationDeliveries", pathParamNames: [], summary: "List notification deliveries" },
+  "getV1ProjectBudget": { functionName: "listProjectBudget", domainName: "usage", domainMethodName: "listProjectBudget", pathParamNames: [], summary: "Get project budget" },
+  "putV1ProjectBudget": { functionName: "upsertProjectBudget", domainName: "usage", domainMethodName: "upsertProjectBudget", pathParamNames: [], summary: "Set project budget" },
   "getV1Projects": { functionName: "listProjects", domainName: "projects", domainMethodName: "list", pathParamNames: [], summary: "List projects by organization" },
   "postV1Projects": { functionName: "createProject", domainName: "projects", domainMethodName: "create", pathParamNames: [], summary: "Create a project" },
   "deleteV1ProjectsByProjectID": { functionName: "deleteProject", domainName: "projects", domainMethodName: "delete", pathParamNames: ["projectID"], summary: "Delete a project" },

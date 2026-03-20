@@ -391,10 +391,113 @@ func (s *UsageService) PreviewDowngrade(ctx context.Context, orgID string, targe
 	return PreviewDowngrade(ctx, s.store, orgID, targetTier)
 }
 
-// DetectAnomalies runs anomaly detection for a single org.
+// DetectAnomalies runs anomaly detection for a single org, using org-specific thresholds if configured.
 func (s *UsageService) DetectAnomalies(ctx context.Context, orgID string) ([]AnomalyAlert, error) {
-	detector := NewAnomalyDetector(s.store)
+	cfg := DefaultAnomalyConfig()
+	sub, err := s.store.GetOrgSubscription(ctx, orgID)
+	if err == nil && sub != nil {
+		if sub.AnomalyThresholdWarning > 0 {
+			cfg.WarningThreshold = sub.AnomalyThresholdWarning
+		}
+		if sub.AnomalyThresholdCritical > 0 {
+			cfg.CriticalThreshold = sub.AnomalyThresholdCritical
+		}
+	}
+	detector := NewAnomalyDetectorWithConfig(s.store, cfg)
 	return detector.DetectAnomalies(ctx, []string{orgID})
+}
+
+// ProjectBudgetResponse is the API response for project budget queries.
+type ProjectBudgetResponse struct {
+	ProjectID          string  `json:"project_id"`
+	MonthlyBudgetMicro int64   `json:"monthly_budget_microusd"`
+	BudgetAction       string  `json:"budget_action"`
+	CurrentSpendMicro  int64   `json:"current_spend_microusd"`
+	PercentUsed        float64 `json:"percent_used"`
+}
+
+// GetProjectBudget returns the budget and current spend for a project.
+func (s *UsageService) GetProjectBudget(ctx context.Context, projectID string) (*ProjectBudgetResponse, error) {
+	budget, action, err := s.store.GetProjectBudget(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("getting project budget: %w", err)
+	}
+
+	periodStart := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
+	spend, err := s.store.GetProjectPeriodSpend(ctx, projectID, periodStart)
+	if err != nil {
+		return nil, fmt.Errorf("getting project period spend: %w", err)
+	}
+
+	var pct float64
+	if budget > 0 {
+		pct = float64(spend) / float64(budget) * 100
+	}
+
+	return &ProjectBudgetResponse{
+		ProjectID:          projectID,
+		MonthlyBudgetMicro: budget,
+		BudgetAction:       action,
+		CurrentSpendMicro:  spend,
+		PercentUsed:        pct,
+	}, nil
+}
+
+// SetProjectBudget validates and stores a project budget.
+func (s *UsageService) SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error {
+	if action != "reject" && action != "notify" {
+		return fmt.Errorf("budget_action must be 'reject' or 'notify'")
+	}
+	if budgetMicro < 0 {
+		budgetMicro = -1 // normalize to "no budget"
+	}
+	return s.store.SetProjectBudget(ctx, projectID, budgetMicro, action)
+}
+
+// AnomalyConfigResponse is the API response for anomaly threshold queries.
+type AnomalyConfigResponse struct {
+	WarningThreshold  float64 `json:"warning_threshold"`
+	CriticalThreshold float64 `json:"critical_threshold"`
+}
+
+// GetAnomalyConfig returns the current anomaly detection thresholds for an org.
+func (s *UsageService) GetAnomalyConfig(ctx context.Context, orgID string) (*AnomalyConfigResponse, error) {
+	sub, err := s.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			defaults := DefaultAnomalyConfig()
+			return &AnomalyConfigResponse{
+				WarningThreshold:  defaults.WarningThreshold,
+				CriticalThreshold: defaults.CriticalThreshold,
+			}, nil
+		}
+		return nil, fmt.Errorf("getting org subscription: %w", err)
+	}
+
+	warning := sub.AnomalyThresholdWarning
+	critical := sub.AnomalyThresholdCritical
+	if warning <= 0 {
+		warning = spikeWarning
+	}
+	if critical <= 0 {
+		critical = spikeCritical
+	}
+
+	return &AnomalyConfigResponse{
+		WarningThreshold:  warning,
+		CriticalThreshold: critical,
+	}, nil
+}
+
+// SetAnomalyConfig validates and updates the anomaly detection thresholds for an org.
+func (s *UsageService) SetAnomalyConfig(ctx context.Context, orgID string, warning, critical float64) error {
+	if warning <= 1.0 {
+		return fmt.Errorf("warning_threshold must be greater than 1.0")
+	}
+	if critical <= warning {
+		return fmt.Errorf("critical_threshold must be greater than warning_threshold")
+	}
+	return s.store.UpdateAnomalyThresholds(ctx, orgID, warning, critical)
 }
 
 func (s *UsageService) buildAlerts(usage UsageDimensions) []UsageAlert {

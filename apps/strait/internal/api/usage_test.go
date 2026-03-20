@@ -125,6 +125,22 @@ func (m *mockUsageService) DetectAnomalies(_ context.Context, _ string) ([]billi
 	return []billing.AnomalyAlert{}, nil
 }
 
+func (m *mockUsageService) GetProjectBudget(_ context.Context, projectID string) (*billing.ProjectBudgetResponse, error) {
+	return &billing.ProjectBudgetResponse{ProjectID: projectID, MonthlyBudgetMicro: -1, BudgetAction: "notify"}, nil
+}
+
+func (m *mockUsageService) SetProjectBudget(_ context.Context, _ string, _ int64, _ string) error {
+	return nil
+}
+
+func (m *mockUsageService) GetAnomalyConfig(_ context.Context, _ string) (*billing.AnomalyConfigResponse, error) {
+	return &billing.AnomalyConfigResponse{WarningThreshold: 3.0, CriticalThreshold: 10.0}, nil
+}
+
+func (m *mockUsageService) SetAnomalyConfig(_ context.Context, _ string, _, _ float64) error {
+	return nil
+}
+
 type mockReferralService struct{}
 
 func (m *mockReferralService) GenerateCode(_ context.Context, orgID string) (*billing.Referral, error) {

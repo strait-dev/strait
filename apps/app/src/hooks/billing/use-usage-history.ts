@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { getOrgIdFromSession } from "./session";
 
 /** A single day's usage entry with run counts, compute costs, and AI token usage. */
 export type UsageHistoryEntry = {
@@ -16,10 +17,11 @@ export type UsageHistoryEntry = {
 const getUsageHistoryServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
-    const orgId = (ctx.context.session as Record<string, unknown>)
-      .activeOrganizationId;
+    const orgId = getOrgIdFromSession(
+      ctx.context.session as Record<string, unknown>
+    );
 
-    if (!orgId || typeof orgId !== "string") {
+    if (!orgId) {
       return [] as UsageHistoryEntry[];
     }
 

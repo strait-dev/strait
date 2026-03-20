@@ -112,6 +112,10 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/spending-limit", s.handleUpdateSpendingLimit)
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/cost-estimate", s.handleGetCostEstimate)
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/downgrade-preview", s.handleGetDowngradePreview)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/project-budget", s.handleGetProjectBudget)
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/project-budget", s.handleUpdateProjectBudget)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/anomaly-config", s.handleGetAnomalyConfig)
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/anomaly-config", s.handleUpdateAnomalyConfig)
 		r.Route("/referrals", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", s.handleCreateReferralCode)
 			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/activate", s.handleActivateReferral)

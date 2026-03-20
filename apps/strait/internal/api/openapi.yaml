@@ -443,6 +443,112 @@ paths:
               schema:
                 type: object
 
+  /v1/project-budget:
+    get:
+      tags:
+        - Usage
+      summary: Get project budget
+      description: Returns the monthly budget and current spend for a project.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Project budget info
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      tags:
+        - Usage
+      summary: Set project budget
+      description: Sets or updates a per-project monthly budget cap.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id:
+                  type: string
+                budget_microusd:
+                  type: integer
+                action:
+                  type: string
+      responses:
+        '200':
+          description: Project budget updated
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/anomaly-config:
+    get:
+      tags:
+        - Usage
+      summary: Get anomaly detection thresholds
+      description: Returns the current anomaly detection thresholds for the organization.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Anomaly detection thresholds
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      tags:
+        - Usage
+      summary: Update anomaly detection thresholds
+      description: Sets custom anomaly detection thresholds for the organization.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                warning_threshold:
+                  type: number
+                critical_threshold:
+                  type: number
+      responses:
+        '200':
+          description: Anomaly thresholds updated
+          content:
+            application/json:
+              schema:
+                type: object
+
   /v1/referrals:
     post:
       tags:

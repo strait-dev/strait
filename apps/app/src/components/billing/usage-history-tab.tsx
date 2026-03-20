@@ -1,3 +1,4 @@
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
@@ -12,7 +13,9 @@ import {
   TableHeader,
   TableRow,
 } from "@strait/ui/components/table";
+import { toast } from "@strait/ui/components/toast/index";
 import { useQuery } from "@tanstack/react-query";
+import { useCallback, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -22,6 +25,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { fetchUsageExportCsv } from "@/hooks/billing/use-usage-export";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
 import { formatMicroUsd } from "@/lib/format";
 import { ActivityIcon } from "@/lib/icons";
@@ -44,32 +48,64 @@ const LABEL_MAP = {
 
 export function UsageHistoryTab() {
   const { data: history } = useQuery(usageHistoryQueryOptions());
+  const [isExporting, setIsExporting] = useState(false);
 
   const isEmpty = !history || history.length === 0;
+
+  const handleExportCsv = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      const now = new Date();
+      const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const csv = await fetchUsageExportCsv(period);
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `usage-${period}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("CSV exported successfully");
+    } catch {
+      toast.error("Failed to export usage data");
+    } finally {
+      setIsExporting(false);
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="font-medium text-sm">Daily Usage</CardTitle>
-          {!isEmpty && (
-            <div className="flex items-center gap-1">
-              <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground">
-                <span
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: CHART_COLORS.active }}
-                />
-                <span>Compute</span>
+          <div className="flex items-center gap-2">
+            {!isEmpty && (
+              <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground">
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: CHART_COLORS.active }}
+                  />
+                  <span>Compute</span>
+                </div>
+                <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground">
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: CHART_COLORS.warning }}
+                  />
+                  <span>AI Cost</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground">
-                <span
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: CHART_COLORS.warning }}
-                />
-                <span>AI Cost</span>
-              </div>
-            </div>
-          )}
+            )}
+            <Button
+              disabled={isEmpty || isExporting}
+              onClick={handleExportCsv}
+              size="sm"
+              variant="outline"
+            >
+              {isExporting ? "Exporting..." : "Download CSV"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="h-[280px]">

@@ -107,6 +107,18 @@ func (m *mockEnforcerStore) GetOrgDailyUsage(_ context.Context, _ string, _ time
 func (m *mockEnforcerStore) SumOrgPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
 	return 0, nil
 }
+func (m *mockEnforcerStore) GetProjectBudget(_ context.Context, _ string) (int64, string, error) {
+	return 0, "", nil
+}
+func (m *mockEnforcerStore) SetProjectBudget(_ context.Context, _ string, _ int64, _ string) error {
+	return nil
+}
+func (m *mockEnforcerStore) GetProjectPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *mockEnforcerStore) UpdateAnomalyThresholds(_ context.Context, _ string, _, _ float64) error {
+	return nil
+}
 
 func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 	t.Parallel()

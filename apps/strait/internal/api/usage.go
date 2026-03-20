@@ -329,6 +329,105 @@ func (s *Server) handleGetAnomalyAlerts(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, http.StatusOK, alerts)
 }
 
+func (s *Server) handleGetProjectBudget(w http.ResponseWriter, r *http.Request) {
+	if s.usageService == nil {
+		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
+		return
+	}
+
+	projectID := r.URL.Query().Get("project_id")
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project_id query parameter is required")
+		return
+	}
+
+	budget, err := s.usageService.GetProjectBudget(r.Context(), projectID)
+	if err != nil {
+		slog.Error("failed to get project budget", "error", err)
+		respondError(w, r, http.StatusInternalServerError, "failed to get project budget")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, budget)
+}
+
+func (s *Server) handleUpdateProjectBudget(w http.ResponseWriter, r *http.Request) {
+	if s.usageService == nil {
+		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
+		return
+	}
+
+	var req struct {
+		ProjectID   string `json:"project_id"`
+		BudgetMicro int64  `json:"budget_microusd"`
+		Action      string `json:"action"`
+	}
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.ProjectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	if err := s.usageService.SetProjectBudget(r.Context(), req.ProjectID, req.BudgetMicro, req.Action); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *Server) handleGetAnomalyConfig(w http.ResponseWriter, r *http.Request) {
+	if s.usageService == nil {
+		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
+		return
+	}
+
+	orgID, ok := s.resolveUsageOrgID(w, r)
+	if !ok {
+		return
+	}
+
+	cfg, err := s.usageService.GetAnomalyConfig(r.Context(), orgID)
+	if err != nil {
+		slog.Error("failed to get anomaly config", "error", err)
+		respondError(w, r, http.StatusInternalServerError, "failed to get anomaly config")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, cfg)
+}
+
+func (s *Server) handleUpdateAnomalyConfig(w http.ResponseWriter, r *http.Request) {
+	if s.usageService == nil {
+		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
+		return
+	}
+
+	orgID, ok := s.resolveUsageOrgID(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Warning  float64 `json:"warning_threshold"`
+		Critical float64 `json:"critical_threshold"`
+	}
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := s.usageService.SetAnomalyConfig(r.Context(), orgID, req.Warning, req.Critical); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
 // Referral handlers.
 
 func (s *Server) handleCreateReferralCode(w http.ResponseWriter, r *http.Request) {

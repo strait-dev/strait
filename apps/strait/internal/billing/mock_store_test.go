@@ -208,3 +208,19 @@ func (m *mockBillingStore) SumOrgPeriodSpend(_ context.Context, orgID string, _ 
 	}
 	return 0, nil
 }
+
+func (m *mockBillingStore) GetProjectBudget(_ context.Context, _ string) (int64, string, error) {
+	return -1, "notify", nil
+}
+
+func (m *mockBillingStore) SetProjectBudget(_ context.Context, _ string, _ int64, _ string) error {
+	return nil
+}
+
+func (m *mockBillingStore) GetProjectPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockBillingStore) UpdateAnomalyThresholds(_ context.Context, _ string, _, _ float64) error {
+	return nil
+}

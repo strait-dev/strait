@@ -28,6 +28,8 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
+			COALESCE(anomaly_threshold_warning, 3.0),
+			COALESCE(anomaly_threshold_critical, 10.0),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE org_id = $1
@@ -36,6 +38,7 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 		&sub.PolarSubscriptionID, &sub.PolarCustomerID,
 		&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 		&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
+		&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -164,6 +167,8 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
+			COALESCE(anomaly_threshold_warning, 3.0),
+			COALESCE(anomaly_threshold_critical, 10.0),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE pending_plan_tier IS NOT NULL
@@ -183,6 +188,7 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			&sub.PolarSubscriptionID, &sub.PolarCustomerID,
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
+			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pending downgrade: %w", err)
@@ -695,6 +701,65 @@ func (s *PgStore) ActivateReferral(ctx context.Context, code string, referredOrg
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("referral not found or already activated")
+	}
+	return nil
+}
+
+func (s *PgStore) GetProjectBudget(ctx context.Context, projectID string) (int64, string, error) {
+	var budget int64
+	var action string
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(monthly_budget_microusd, -1), COALESCE(budget_action, 'notify')
+		FROM project_quotas
+		WHERE project_id = $1
+	`, projectID).Scan(&budget, &action)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return -1, "notify", nil
+	}
+	if err != nil {
+		return -1, "notify", fmt.Errorf("getting project budget: %w", err)
+	}
+	return budget, action, nil
+}
+
+func (s *PgStore) SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE project_quotas
+		SET monthly_budget_microusd = $2, budget_action = $3
+		WHERE project_id = $1
+	`, projectID, budgetMicro, action)
+	if err != nil {
+		return fmt.Errorf("setting project budget: %w", err)
+	}
+	return nil
+}
+
+func (s *PgStore) GetProjectPeriodSpend(ctx context.Context, projectID string, from time.Time) (int64, error) {
+	var total int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(rcu.cost_microusd), 0)
+		FROM run_compute_usage rcu
+		WHERE rcu.project_id = $1
+		  AND rcu.created_at >= $2
+		  AND rcu.status = 'committed'
+	`, projectID, from).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("summing project period spend: %w", err)
+	}
+	return total, nil
+}
+
+func (s *PgStore) UpdateAnomalyThresholds(ctx context.Context, orgID string, warning, critical float64) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET anomaly_threshold_warning = $2, anomaly_threshold_critical = $3, updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, warning, critical)
+	if err != nil {
+		return fmt.Errorf("updating anomaly thresholds: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSubscriptionNotFound
 	}
 	return nil
 }

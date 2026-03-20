@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { getOrgIdFromSession } from "./session";
 
 /** A single anomaly alert flagging unusual spending patterns. */
 export type AnomalyAlert = {
@@ -17,10 +18,11 @@ export type AnomalyAlert = {
 const getAnomalyAlertsServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
-    const orgId = (ctx.context.session as Record<string, unknown>)
-      .activeOrganizationId;
+    const orgId = getOrgIdFromSession(
+      ctx.context.session as Record<string, unknown>
+    );
 
-    if (!orgId || typeof orgId !== "string") {
+    if (!orgId) {
       return [] as AnomalyAlert[];
     }
 

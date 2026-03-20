@@ -38,6 +38,7 @@ type Scheduler struct {
 	batchFlusher          *BatchFlusher
 	statsAggregator       *StatsAggregator
 	budgetMonitor         *BudgetMonitor
+	anomalyMonitor        *AnomalyMonitor
 	concurrentReconciler  *ConcurrentReconciler
 	downgradeApplier      *DowngradeApplier
 	costEstimateRefresher *CostEstimateRefresher
@@ -101,6 +102,13 @@ func WithDowngradeApplier(applier *DowngradeApplier) SchedulerOption {
 	}
 }
 
+// WithAnomalyMonitor sets an anomaly monitor for periodic cost anomaly detection.
+func WithAnomalyMonitor(monitor *AnomalyMonitor) SchedulerOption {
+	return func(s *Scheduler) {
+		s.anomalyMonitor = monitor
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
@@ -121,6 +129,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.downgradeApplier != nil {
 		s.wg.Go(func() { s.downgradeApplier.Run(ctx) })
+	}
+	if s.anomalyMonitor != nil {
+		s.wg.Go(func() { s.anomalyMonitor.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")
