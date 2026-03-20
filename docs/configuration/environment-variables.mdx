@@ -26,7 +26,11 @@ This page documents all environment variables available for configuring Strait.
 | `LOG_LEVEL` | String | `info` | Logging verbosity: `debug`, `info`, `warn`, `error`. |
 | `SECRET_ENCRYPTION_KEY` | String | - | Key used to encrypt job secrets. Required when using secret injection. |
 | `ENCRYPTION_KEY` | String | - | Key used for data encryption at rest. Should be unique per environment. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | String | - | OpenTelemetry collector endpoint. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | String | - | OpenTelemetry collector endpoint for traces and logs. Also used by the slog-to-OTLP bridge. |
+| `OTLP_METRIC_ENDPOINT` | String | - | Separate OTLP endpoint for metrics push (if different from trace endpoint). |
+| `OTLP_METRIC_ENABLED` | Boolean | `false` | Enable OTLP metric push export. |
+| `SENTRY_DSN` | String | - | Sentry DSN for error tracking. |
+| `SENTRY_ENVIRONMENT` | String | - | Environment tag for Sentry and OTel resources (`dev`, `stg`, `prd`). Sets `deployment.environment` on all OTel metrics, traces, and logs. |
 | `UPSTASH_REDIS_REST_URL` | String | - | Upstash Redis REST API URL. |
 | `UPSTASH_REDIS_REST_TOKEN` | String | - | Upstash Redis REST API token. |
 
@@ -207,4 +211,15 @@ This page documents all environment variables available for configuring Strait.
 | :--- | :--- | :--- | :--- |
 | `ADAPTIVE_CONCURRENCY_MIN` | Integer | `5` | Minimum concurrency level for adaptive scaling. |
 | `ADAPTIVE_CONCURRENCY_MAX` | Integer | `100` | Maximum concurrency level for adaptive scaling. |
+
+## ClickHouse (Optional Analytics)
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `CLICKHOUSE_ENABLED` | Boolean | `false` | Enable the ClickHouse client and create analytics tables on startup. |
+| `CLICKHOUSE_URL` | String | - | ClickHouse native protocol URL (e.g., `clickhouse://localhost:9000`). Required when enabled. |
+| `CLICKHOUSE_DATABASE` | String | `strait` | Target ClickHouse database name. |
+| `CLICKHOUSE_BATCH_SIZE` | Integer | `1000` | Maximum records per batch insert. |
+| `CLICKHOUSE_FLUSH_INTERVAL` | Duration | `5s` | Maximum time between exporter flushes. |
+| `CLICKHOUSE_EXPORT_ENABLED` | Boolean | `false` | Enable the async exporter that sends run analytics to ClickHouse on run completion. |
 
