@@ -1879,3 +1879,86 @@ func TestListRoles(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", got)
 	}
 }
+
+func TestDoListAllJSON_MultiplePages(t *testing.T) {
+	t.Parallel()
+
+	var callCount atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/runs/run-1/events")
+		assertAuth(t, r, "test-key")
+
+		n := callCount.Add(1)
+		cursor := r.URL.Query().Get("cursor")
+
+		if n == 1 && cursor == "" {
+			nextCursor := "page2"
+			respondJSON(t, w, http.StatusOK, paginatedResponse{
+				Data:       mustMarshal(t, []domain.RunEvent{{ID: "evt-1"}, {ID: "evt-2"}}),
+				HasMore:    true,
+				NextCursor: &nextCursor,
+			})
+		} else if cursor == "page2" {
+			respondJSON(t, w, http.StatusOK, paginatedResponse{
+				Data:    mustMarshal(t, []domain.RunEvent{{ID: "evt-3"}}),
+				HasMore: false,
+			})
+		} else {
+			t.Fatalf("unexpected call: n=%d cursor=%q", n, cursor)
+		}
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListRunEvents(context.Background(), "run-1", "", "")
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(got))
+	}
+	if got[0].ID != "evt-1" || got[1].ID != "evt-2" || got[2].ID != "evt-3" {
+		t.Fatalf("unexpected events: %+v", got)
+	}
+}
+
+func TestDoListAllJSON_SinglePage(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertAuth(t, r, "test-key")
+		respondPaginated(t, w, http.StatusOK, []domain.RunEvent{{ID: "evt-1"}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListRunEvents(context.Background(), "run-1", "", "")
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "evt-1" {
+		t.Fatalf("unexpected events: %+v", got)
+	}
+}
+
+func TestDoListAllJSON_EmptyResult(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertAuth(t, r, "test-key")
+		respondPaginated(t, w, http.StatusOK, []domain.RunEvent{})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListRunEvents(context.Background(), "run-1", "", "")
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected 0 events, got %d", len(got))
+	}
+}

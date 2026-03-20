@@ -148,7 +148,7 @@ func (c *Client) ListRunEvents(ctx context.Context, runID, level, eventType stri
 	}
 
 	var out []domain.RunEvent
-	if err := c.doListJSON(ctx, path.Join("/v1/runs", runID, "events"), query, &out); err != nil {
+	if err := c.doListAllJSON(ctx, path.Join("/v1/runs", runID, "events"), query, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
