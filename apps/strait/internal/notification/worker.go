@@ -1,0 +1,148 @@
+package notification
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"math"
+	"net/http"
+	"sync"
+	"time"
+
+	"strait/internal/domain"
+	"strait/internal/store"
+)
+
+// Worker polls for pending notification deliveries and dispatches them.
+type Worker struct {
+	store    store.NotificationStore
+	senders  map[string]ChannelSender
+	ticker   *time.Ticker
+	done     chan struct{}
+	stopOnce sync.Once
+}
+
+const deliveryLeaseDuration = 2 * time.Minute
+
+// NewWorker creates a notification delivery worker.
+func NewWorker(ns store.NotificationStore, client *http.Client) *Worker {
+	return &Worker{
+		store: ns,
+		senders: map[string]ChannelSender{
+			domain.ChannelTypeSlack:   NewSlackSender(client),
+			domain.ChannelTypeDiscord: NewDiscordSender(client),
+			domain.ChannelTypeWebhook: NewWebhookSender(client),
+		},
+		done: make(chan struct{}),
+	}
+}
+
+// Start begins the background polling loop.
+func (w *Worker) Start(ctx context.Context) {
+	w.ticker = time.NewTicker(30 * time.Second)
+	go w.run(ctx)
+}
+
+// Stop halts the background polling loop. It is safe to call multiple times.
+func (w *Worker) Stop() {
+	w.stopOnce.Do(func() {
+		if w.ticker != nil {
+			w.ticker.Stop()
+		}
+		close(w.done)
+	})
+}
+
+func (w *Worker) run(ctx context.Context) {
+	// Process once immediately on start.
+	w.process(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.done:
+			return
+		case <-w.ticker.C:
+			w.process(ctx)
+		}
+	}
+}
+
+func (w *Worker) process(ctx context.Context) {
+	for {
+		// Claim and dispatch one delivery at a time so each send gets the full
+		// lease window. The lease duration must comfortably exceed a single
+		// delivery attempt, and batch claiming is intentionally avoided here to
+		// prevent later items in a slow batch from expiring before dispatch.
+		deliveries, err := w.store.ClaimPendingNotificationDeliveries(ctx, 1, deliveryLeaseDuration)
+		if err != nil {
+			slog.Error("failed to claim pending notification deliveries", "error", err)
+			return
+		}
+		if len(deliveries) == 0 {
+			return
+		}
+
+		d := &deliveries[0]
+		if err := w.dispatch(ctx, d); err != nil {
+			slog.Warn("notification delivery failed", "delivery_id", d.ID, "channel_id", d.ChannelID, "error", err)
+		}
+	}
+}
+
+func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) error {
+	ch, err := w.store.GetNotificationChannel(ctx, d.ChannelID, d.ProjectID)
+	if err != nil {
+		d.Attempts++
+		d.LastError = fmt.Sprintf("failed to get channel: %v", err)
+		d.Status = "failed"
+		d.NextRetryAt = nil
+		return w.finishClaim(ctx, d)
+	}
+
+	sender, ok := w.senders[ch.ChannelType]
+	if !ok {
+		d.Attempts++
+		d.LastError = fmt.Sprintf("unsupported channel type: %s", ch.ChannelType)
+		d.Status = "failed"
+		d.NextRetryAt = nil
+		return w.finishClaim(ctx, d)
+	}
+
+	sendErr := sender.Send(ctx, ch, d)
+	d.Attempts++
+
+	if sendErr != nil {
+		d.LastError = sendErr.Error()
+		if d.Attempts >= d.MaxAttempts {
+			d.Status = "failed"
+			d.NextRetryAt = nil
+		} else {
+			d.Status = "pending"
+			// Exponential backoff: 30s, 120s, 480s, ...
+			backoff := time.Duration(30*math.Pow(4, float64(d.Attempts-1))) * time.Second
+			next := time.Now().Add(backoff)
+			d.NextRetryAt = &next
+		}
+	} else {
+		d.Status = "delivered"
+		d.LastError = ""
+		d.NextRetryAt = nil
+		now := time.Now()
+		d.DeliveredAt = &now
+	}
+
+	return w.finishClaim(ctx, d)
+}
+
+func (w *Worker) finishClaim(ctx context.Context, d *domain.NotificationDelivery) error {
+	updated, err := w.store.UpdateClaimedNotificationDelivery(ctx, d)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		slog.Warn("notification delivery lease lost before update", "delivery_id", d.ID, "channel_id", d.ChannelID)
+	}
+	return nil
+}

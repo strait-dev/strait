@@ -133,6 +133,15 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		executionMode = &parsed
 	}
 
+	var errorClass *string
+	if ec := query.Get("error_class"); ec != "" {
+		if !domain.ValidErrorClasses[ec] {
+			respondError(w, r, http.StatusBadRequest, "error_class is invalid")
+			return
+		}
+		errorClass = &ec
+	}
+
 	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
@@ -143,7 +152,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	if tagKey != "" {
 		runs, err = s.store.ListRunsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
 	} else {
-		runs, err = s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, limit+1, cursor)
+		runs, err = s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
 	}
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list runs")

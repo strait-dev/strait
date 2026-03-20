@@ -153,8 +153,12 @@ func (m *mockSchedulerStore) DrainBatchBuffer(_ context.Context, _, _ string, _ 
 	return nil, nil
 }
 
-// StatsAggregatorStore method (no-op for tests).
+// StatsAggregatorStore methods (no-op for tests).
 func (m *mockSchedulerStore) AggregateHourlyStats(_ context.Context, _ time.Time) error {
+	return nil
+}
+
+func (m *mockSchedulerStore) AggregateCostStatsHourly(_ context.Context, _ time.Time) error {
 	return nil
 }
 
@@ -182,6 +186,15 @@ func (m *mockSchedulerStore) CommitReservation(_ context.Context, _ string, _ in
 }
 func (m *mockSchedulerStore) ReleaseReservation(_ context.Context, _ string) error { return nil }
 func (m *mockSchedulerStore) CleanupStaleReservations(_ context.Context, _ time.Duration) (int64, error) {
+	return 0, nil
+}
+
+// CostEstimateRefresherStore methods (no-op for tests).
+func (m *mockSchedulerStore) ListActiveJobIDs(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+func (m *mockSchedulerStore) UpsertJobCostEstimate(_ context.Context, _ string) error { return nil }
+func (m *mockSchedulerStore) DeleteExpiredJobMemory(_ context.Context) (int64, error) {
 	return 0, nil
 }
 

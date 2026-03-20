@@ -38,7 +38,7 @@ func TestHandleGetBatchOperation_Success(t *testing.T) {
 	}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodGet, "/v1/batch-operations/batch-1?project_id=proj-1", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/batch-operations/batch-1", "", "proj-1")
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -64,25 +64,11 @@ func TestHandleGetBatchOperation_NotFound(t *testing.T) {
 	}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodGet, "/v1/batch-operations/batch-999?project_id=proj-1", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/batch-operations/batch-999", "", "proj-1")
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestHandleGetBatchOperation_MissingProjectID(t *testing.T) {
-	t.Parallel()
-
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodGet, "/v1/batch-operations/batch-1", "")
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -107,7 +93,7 @@ func TestHandleListBatchOperations_Success(t *testing.T) {
 	}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodGet, "/v1/batch-operations?project_id=proj-1", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/batch-operations", "", "proj-1")
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -118,20 +104,6 @@ func TestHandleListBatchOperations_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &got)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 batch ops, got %d", len(got))
-	}
-}
-
-func TestHandleListBatchOperations_MissingProjectID(t *testing.T) {
-	t.Parallel()
-
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodGet, "/v1/batch-operations", "")
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -150,7 +122,7 @@ func TestHandleBulkCancelAll_Success(t *testing.T) {
 	}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodPost, "/v1/runs/bulk-cancel-all?project_id=proj-1", `{"job_id":"job-1"}`)
+	req := authedProjectRequest(http.MethodPost, "/v1/runs/bulk-cancel-all", `{"job_id":"job-1"}`, "proj-1")
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -167,27 +139,13 @@ func TestHandleBulkCancelAll_Success(t *testing.T) {
 	}
 }
 
-func TestHandleBulkCancelAll_MissingProjectID(t *testing.T) {
-	t.Parallel()
-
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodPost, "/v1/runs/bulk-cancel-all", `{"job_id":"job-1"}`)
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestHandleBulkCancelAll_NoFilters(t *testing.T) {
 	t.Parallel()
 
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodPost, "/v1/runs/bulk-cancel-all?project_id=proj-1", `{}`)
+	req := authedProjectRequest(http.MethodPost, "/v1/runs/bulk-cancel-all", `{}`, "proj-1")
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -216,7 +174,7 @@ func TestHandleBulkCancelWorkflowRuns_Success(t *testing.T) {
 	}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodPost, "/v1/workflow-runs/bulk-cancel?project_id=proj-1", `{"workflow_run_ids":["wr-1","wr-2"]}`)
+	req := authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-cancel", `{"workflow_run_ids":["wr-1","wr-2"]}`, "proj-1")
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -239,7 +197,7 @@ func TestHandleBulkCancelWorkflowRuns_EmptyIDs(t *testing.T) {
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodPost, "/v1/workflow-runs/bulk-cancel?project_id=proj-1", `{"workflow_run_ids":[]}`)
+	req := authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-cancel", `{"workflow_run_ids":[]}`, "proj-1")
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -255,7 +213,7 @@ func TestHandleListRuns_PayloadContainsFilter(t *testing.T) {
 	var capturedPayload json.RawMessage
 
 	srv := newTestServer(t, &mockAPIStore{
-		listRunsByProjectFn: func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			capturedPayload = payloadContains
 			return []domain.JobRun{}, nil
 		},

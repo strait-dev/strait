@@ -246,6 +246,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	startCDCConsumer(g, cfg, pub)
 	startWebhookWorker(g, cfg, eventNotifier)
+	startNotificationWorker(g, cfg, queries)
 	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor)
 	startWorker(g, cfg, queries, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg)
 

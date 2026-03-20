@@ -45,7 +45,7 @@ func (m *mockWorkflowTrigger) ApproveStep(ctx context.Context, workflowRunID, st
 	return nil
 }
 
-func (m *mockWorkflowTrigger) SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error {
+func (m *mockWorkflowTrigger) SkipStep(ctx context.Context, workflowRunID, stepRef, reason, actor string) error {
 	if m.skipStepFn != nil {
 		return m.skipStepFn(ctx, workflowRunID, stepRef, reason)
 	}
@@ -1061,7 +1061,7 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 
 		cb := &mockWorkflowTrigger{
 			approveStepFn: func(_ context.Context, workflowRunID, stepRef, approver string) error {
-				if workflowRunID != "wr-1" || stepRef != "review" || approver != "alice" {
+				if workflowRunID != "wr-1" || stepRef != "review" || approver != "user:alice" {
 					t.Fatalf("unexpected approve args: %s %s %s", workflowRunID, stepRef, approver)
 				}
 				approved = true
@@ -1087,7 +1087,7 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 				if stepRunID != "sr-1" {
 					t.Fatalf("unexpected stepRunID %q", stepRunID)
 				}
-				return &domain.WorkflowStepApproval{ID: "ap-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "approved", ApprovedBy: "alice"}, nil
+				return &domain.WorkflowStepApproval{ID: "ap-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "approved", ApprovedBy: "user:alice"}, nil
 			},
 		}
 
@@ -1098,7 +1098,9 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 
 		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, pub, cb, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`)
+		req.Header.Set("X-Actor-Id", "user:alice")
+		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -1111,6 +1113,46 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 		}
 		if published["workflow:wf-1:runs"] != 1 {
 			t.Fatalf("expected workflow stream publish once, got %d", published["workflow:wf-1:runs"])
+		}
+	})
+
+	t.Run("success with same project context", func(t *testing.T) {
+		t.Parallel()
+		approved := false
+
+		cb := &mockWorkflowTrigger{
+			approveStepFn: func(_ context.Context, workflowRunID, stepRef, approver string) error {
+				if workflowRunID != "wr-1" || stepRef != "review" || approver != "user:alice" {
+					t.Fatalf("unexpected approve args: %s %s %s", workflowRunID, stepRef, approver)
+				}
+				approved = true
+				return nil
+			},
+		}
+
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: workflowRunID, StepRef: stepRef, Status: domain.StepCompleted}, nil
+			},
+			getStepApprovalByStepRunFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+				return &domain.WorkflowStepApproval{ID: "ap-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "approved", ApprovedBy: "user:alice"}, nil
+			},
+		}
+
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		req := authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`, "proj-1")
+		req.Header.Set("X-Actor-Id", "user:alice")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		if !approved {
+			t.Fatal("expected approve callback to be called")
 		}
 	})
 }
@@ -1202,6 +1244,41 @@ func TestHandleSkipWorkflowStep(t *testing.T) {
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("success with same project context", func(t *testing.T) {
+		t.Parallel()
+		skipped := false
+
+		cb := &mockWorkflowTrigger{
+			skipStepFn: func(_ context.Context, workflowRunID, stepRef, reason string) error {
+				if workflowRunID != "wr-1" || stepRef != "review" || reason != "manual skip" {
+					t.Fatalf("unexpected skip args: %s %s %s", workflowRunID, stepRef, reason)
+				}
+				skipped = true
+				return nil
+			},
+		}
+
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: workflowRunID, StepRef: stepRef, Status: domain.StepSkipped}, nil
+			},
+		}
+
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/skip", `{"reason":"manual skip"}`, "proj-1"))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		if !skipped {
+			t.Fatal("expected skip callback to be called")
 		}
 	})
 }
@@ -1851,6 +1928,63 @@ func TestHandleDryRunWorkflow_ErrorPaths(t *testing.T) {
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+}
+
+func TestHandleSkipWorkflowStep_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cross_project_returns_not_found_without_callback", func(t *testing.T) {
+		t.Parallel()
+		callbackCalled := false
+		cb := &mockWorkflowTrigger{
+			skipStepFn: func(_ context.Context, _, _, _ string) error {
+				callbackCalled = true
+				return nil
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-other", Status: domain.WfStatusRunning}, nil
+			},
+		}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/skip", `{"reason":"manual skip"}`, "proj-1"))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+		if callbackCalled {
+			t.Fatal("skip callback should not be called on project mismatch")
+		}
+	})
+
+	t.Run("workflow_run_not_found_returns_not_found_without_callback", func(t *testing.T) {
+		t.Parallel()
+		callbackCalled := false
+		cb := &mockWorkflowTrigger{
+			skipStepFn: func(_ context.Context, _, _, _ string) error {
+				callbackCalled = true
+				return nil
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, store.ErrWorkflowRunNotFound
+			},
+		}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/skip", `{"reason":"manual skip"}`, "proj-1"))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+		if callbackCalled {
+			t.Fatal("skip callback should not be called when workflow run is missing")
 		}
 	})
 }
@@ -2775,7 +2909,9 @@ func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
 		t.Parallel()
 		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`)
+		req.Header.Set("X-Actor-Id", "user:alice")
+		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusServiceUnavailable {
 			t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
@@ -2796,10 +2932,68 @@ func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
 		}
 		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`)
+		req.Header.Set("X-Actor-Id", "user:alice")
+		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("cross_project_returns_not_found_without_callback", func(t *testing.T) {
+		t.Parallel()
+		callbackCalled := false
+		cb := &mockWorkflowTrigger{
+			approveStepFn: func(_ context.Context, _, _, _ string) error {
+				callbackCalled = true
+				return nil
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-other", Status: domain.WfStatusRunning}, nil
+			},
+		}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		req := authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`, "proj-1")
+		req.Header.Set("X-Actor-Id", "user:alice")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+		if callbackCalled {
+			t.Fatal("approve callback should not be called on project mismatch")
+		}
+	})
+
+	t.Run("workflow_run_not_found_returns_not_found_without_callback", func(t *testing.T) {
+		t.Parallel()
+		callbackCalled := false
+		cb := &mockWorkflowTrigger{
+			approveStepFn: func(_ context.Context, _, _, _ string) error {
+				callbackCalled = true
+				return nil
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, store.ErrWorkflowRunNotFound
+			},
+		}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		req := authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`, "proj-1")
+		req.Header.Set("X-Actor-Id", "user:alice")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+		if callbackCalled {
+			t.Fatal("approve callback should not be called when workflow run is missing")
 		}
 	})
 }

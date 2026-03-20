@@ -109,3 +109,53 @@ func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resou
 
 	return events, rows.Err()
 }
+
+func (q *Queries) StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.StreamAuditEvents")
+	defer span.End()
+
+	query := `
+		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, created_at
+		FROM audit_events
+		WHERE project_id = $1`
+	args := []any{projectID}
+	param := 2
+
+	if actorID != "" {
+		query += fmt.Sprintf(" AND actor_id = $%d", param)
+		args = append(args, actorID)
+		param++
+	}
+	if resourceType != "" {
+		query += fmt.Sprintf(" AND resource_type = $%d", param)
+		args = append(args, resourceType)
+		param++
+	}
+
+	query += fmt.Sprintf(" AND created_at >= $%d", param)
+	args = append(args, from)
+	param++
+
+	query += fmt.Sprintf(" AND created_at <= $%d", param)
+	args = append(args, to)
+
+	query += " ORDER BY created_at ASC"
+
+	rows, err := q.db.Query(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("stream audit events: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var ev domain.AuditEvent
+		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.CreatedAt); err != nil {
+			return fmt.Errorf("scan audit event: %w", err)
+		}
+		if err := fn(&ev); err != nil {
+			return err
+		}
+	}
+
+	return rows.Err()
+}

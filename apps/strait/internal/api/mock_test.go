@@ -57,7 +57,7 @@ type mockAPIStore struct {
 	getProjectQuotaFn                    func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	countProjectQueuedRunsFn             func(ctx context.Context, projectID string) (int, error)
 	countProjectActiveRunsFn             func(ctx context.Context, projectID string) (int, error)
-	listRunsByProjectFn                  func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	listRunsByProjectFn                  func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	listDeadLetterRunsFn                 func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	bulkReplayDeadLetterRunsFn           func(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	updateRunStatusFn                    func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
@@ -66,6 +66,11 @@ type mockAPIStore struct {
 	resetRunIdempotencyKeyFn             func(ctx context.Context, runID string) error
 	listChildRunsFn                      func(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	insertEventFn                        func(ctx context.Context, event *domain.RunEvent) error
+	createRunResourceSnapshotFn          func(ctx context.Context, s *domain.RunResourceSnapshot) error
+	listRunResourceSnapshotsFn           func(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
+	getApprovalStatsFn                   func(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
+	getCostOutliersFn                    func(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
+	streamAuditEventsFn                  func(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	listEventsByRunFilteredFn            func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	listWebhookDeliveriesFn              func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	createWebhookSubscriptionFn          func(ctx context.Context, sub *domain.WebhookSubscription) error
@@ -83,6 +88,11 @@ type mockAPIStore struct {
 	batchUpdateHeartbeatFn               func(ctx context.Context, ids []string) error
 	queueStatsFn                         func(ctx context.Context) (*store.QueueStats, error)
 	getPerformanceAnalyticsFn            func(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
+	getCostAnalyticsFn                   func(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
+	getCostTrendsFn                      func(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error)
+	getTopCostsFn                        func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
+	getComputeCostAnalyticsFn            func(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
+	aggregateCostStatsHourlyFn           func(ctx context.Context, hour time.Time) error
 	createWorkflowFn                     func(ctx context.Context, w *domain.Workflow) error
 	getWorkflowFn                        func(ctx context.Context, id string) (*domain.Workflow, error)
 	getWorkflowBySlugFn                  func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
@@ -189,12 +199,25 @@ type mockAPIStore struct {
 	getRunStateFn                        func(ctx context.Context, runID, key string) (*domain.RunState, error)
 	listRunStateFn                       func(ctx context.Context, runID string) ([]domain.RunState, error)
 	deleteRunStateFn                     func(ctx context.Context, runID, key string) error
+	upsertJobMemoryFn                    func(ctx context.Context, mem *domain.JobMemory) error
+	upsertJobMemoryWithQuotaFn           func(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error
+	getJobMemoryFn                       func(ctx context.Context, jobID, key string) (*domain.JobMemory, error)
+	listJobMemoryFn                      func(ctx context.Context, jobID string) ([]domain.JobMemory, error)
+	deleteJobMemoryFn                    func(ctx context.Context, jobID, key string) error
+	sumJobMemorySizeBytesFn              func(ctx context.Context, jobID string) (int, error)
 	replayWebhookDeliveryFn              func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	createWebhookDeliveryFn              func(ctx context.Context, d *domain.WebhookDelivery) error
 	listManagedMachineIDsByWorkflowRunFn func(ctx context.Context, workflowRunID string) ([]string, error)
 	markJobRunsPausedByWorkflowRunFn     func(ctx context.Context, workflowRunID string) (int64, error)
 	requeuePausedJobRunsFn               func(ctx context.Context, workflowRunID string) (int64, error)
 	updateProjectDefaultRegionFn         func(ctx context.Context, projectID, defaultRegion string) error
+	createNotificationChannelFn          func(ctx context.Context, ch *domain.NotificationChannel) error
+	getNotificationChannelFn             func(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error)
+	listNotificationChannelsFn           func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	updateNotificationChannelFn          func(ctx context.Context, ch *domain.NotificationChannel) error
+	deleteNotificationChannelFn          func(ctx context.Context, id, projectID string) error
+	createNotificationDeliveryFn         func(ctx context.Context, d *domain.NotificationDelivery) error
+	listNotificationDeliveriesFn         func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -477,6 +500,36 @@ func (m *mockAPIStore) ListRunOutputs(ctx context.Context, runID string, limit i
 	return nil, nil
 }
 
+func (m *mockAPIStore) CreateRunResourceSnapshot(ctx context.Context, s *domain.RunResourceSnapshot) error {
+	if m.createRunResourceSnapshotFn != nil {
+		return m.createRunResourceSnapshotFn(ctx, s)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error) {
+	if m.listRunResourceSnapshotsFn != nil {
+		return m.listRunResourceSnapshotsFn(ctx, runID, from, to, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) SumRunTotalTokens(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAPIStore) CountRunToolCalls(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAPIStore) CountRunIterations(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAPIStore) CreateRunIteration(_ context.Context, _ *domain.RunIteration) error {
+	return nil
+}
+
 func (m *mockAPIStore) AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error) {
 	if m.areAllDescendantsTerminalFn != nil {
 		return m.areAllDescendantsTerminalFn(ctx, parentRunID)
@@ -505,9 +558,9 @@ func (m *mockAPIStore) CountProjectActiveRuns(ctx context.Context, projectID str
 	return 0, nil
 }
 
-func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listRunsByProjectFn != nil {
-		return m.listRunsByProjectFn(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, limit, cursor)
+		return m.listRunsByProjectFn(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit, cursor)
 	}
 	return nil, nil
 }
@@ -693,6 +746,55 @@ func (m *mockAPIStore) GetPerformanceAnalytics(ctx context.Context, projectID st
 		return m.getPerformanceAnalyticsFn(ctx, projectID, periodHours)
 	}
 	return &store.PerformanceAnalytics{}, nil
+}
+
+func (m *mockAPIStore) GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error) {
+	if m.getCostAnalyticsFn != nil {
+		return m.getCostAnalyticsFn(ctx, projectID, from, to)
+	}
+	return &store.CostAnalytics{}, nil
+}
+
+func (m *mockAPIStore) GetCostTrends(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error) {
+	if m.getCostTrendsFn != nil {
+		return m.getCostTrendsFn(ctx, projectID, from, to)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error) {
+	if m.getTopCostsFn != nil {
+		return m.getTopCostsFn(ctx, projectID, from, to, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error) {
+	if m.getComputeCostAnalyticsFn != nil {
+		return m.getComputeCostAnalyticsFn(ctx, projectID, from, to)
+	}
+	return &store.ComputeCostAnalytics{}, nil
+}
+
+func (m *mockAPIStore) GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error) {
+	if m.getApprovalStatsFn != nil {
+		return m.getApprovalStatsFn(ctx, projectID, from, to)
+	}
+	return &store.ApprovalStats{}, nil
+}
+
+func (m *mockAPIStore) GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error) {
+	if m.getCostOutliersFn != nil {
+		return m.getCostOutliersFn(ctx, projectID, from, to, threshold)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) AggregateCostStatsHourly(ctx context.Context, hour time.Time) error {
+	if m.aggregateCostStatsHourlyFn != nil {
+		return m.aggregateCostStatsHourlyFn(ctx, hour)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) CreateWorkflow(ctx context.Context, w *domain.Workflow) error {
@@ -1199,6 +1301,13 @@ func (m *mockAPIStore) ListAuditEvents(_ context.Context, _, _, _, _ string, _ i
 	return nil, nil
 }
 
+func (m *mockAPIStore) StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error {
+	if m.streamAuditEventsFn != nil {
+		return m.streamAuditEventsFn(ctx, projectID, actorID, resourceType, from, to, fn)
+	}
+	return nil
+}
+
 // Event trigger mock methods.
 
 func (m *mockAPIStore) CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error {
@@ -1621,4 +1730,95 @@ func (m *mockAPIStore) UpdateProjectDefaultRegion(ctx context.Context, projectID
 		return m.updateProjectDefaultRegionFn(ctx, projectID, defaultRegion)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error {
+	if m.upsertJobMemoryFn != nil {
+		return m.upsertJobMemoryFn(ctx, mem)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error {
+	if m.upsertJobMemoryWithQuotaFn != nil {
+		return m.upsertJobMemoryWithQuotaFn(ctx, mem, maxPerKey, maxPerJob)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error) {
+	if m.getJobMemoryFn != nil {
+		return m.getJobMemoryFn(ctx, jobID, key)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error) {
+	if m.listJobMemoryFn != nil {
+		return m.listJobMemoryFn(ctx, jobID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteJobMemory(ctx context.Context, jobID, key string) error {
+	if m.deleteJobMemoryFn != nil {
+		return m.deleteJobMemoryFn(ctx, jobID, key)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) SumJobMemorySizeBytes(ctx context.Context, jobID string) (int, error) {
+	if m.sumJobMemorySizeBytesFn != nil {
+		return m.sumJobMemorySizeBytesFn(ctx, jobID)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) CreateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error {
+	if m.createNotificationChannelFn != nil {
+		return m.createNotificationChannelFn(ctx, ch)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetNotificationChannel(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error) {
+	if m.getNotificationChannelFn != nil {
+		return m.getNotificationChannelFn(ctx, id, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
+	if m.listNotificationChannelsFn != nil {
+		return m.listNotificationChannelsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error {
+	if m.updateNotificationChannelFn != nil {
+		return m.updateNotificationChannelFn(ctx, ch)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) DeleteNotificationChannel(ctx context.Context, id, projectID string) error {
+	if m.deleteNotificationChannelFn != nil {
+		return m.deleteNotificationChannelFn(ctx, id, projectID)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
+	if m.createNotificationDeliveryFn != nil {
+		return m.createNotificationDeliveryFn(ctx, d)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error) {
+	if m.listNotificationDeliveriesFn != nil {
+		return m.listNotificationDeliveriesFn(ctx, projectID, limit, cursor)
+	}
+	return nil, nil
 }

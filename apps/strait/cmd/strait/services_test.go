@@ -47,3 +47,23 @@ func TestShutdownReason(t *testing.T) {
 		t.Fatalf("shutdownReason(other error) = %q, want forced", got)
 	}
 }
+
+func TestNotificationWorkerEnabled(t *testing.T) {
+	t.Helper()
+
+	tests := []struct {
+		mode string
+		want bool
+	}{
+		{mode: "api", want: false},
+		{mode: "worker", want: true},
+		{mode: "all", want: true},
+		{mode: "", want: false},
+	}
+
+	for _, tt := range tests {
+		if got := notificationWorkerEnabled(tt.mode); got != tt.want {
+			t.Fatalf("notificationWorkerEnabled(%q) = %v, want %v", tt.mode, got, tt.want)
+		}
+	}
+}

@@ -484,11 +484,7 @@ func (s *Server) handleBulkCancelAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id query parameter is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	if req.JobID == "" && req.BatchID == "" && req.TriggeredBy == "" && req.Status == "" {
 		respondError(w, r, http.StatusBadRequest, "at least one filter is required")

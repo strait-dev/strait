@@ -77,11 +77,7 @@ func (s *Server) handleCreateDeploymentVersion(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleListDeploymentVersions(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 	environment := r.URL.Query().Get("environment")
 
 	limit, cursor, err := parsePaginationParams(r)

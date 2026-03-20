@@ -48,9 +48,10 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 			timeout_secs_override, output_transform,
 			sub_workflow_id, max_nesting_depth,
 			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
-			concurrency_key, resource_class
+			concurrency_key, resource_class,
+			cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -82,6 +83,9 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 		dbscan.NilIfEmptyString(step.EventEmitKey),
 		step.ConcurrencyKey,
 		step.ResourceClass,
+		dbscan.NilIfZeroInt64(step.CostGateThresholdMicrousd),
+		dbscan.NilIfZeroInt(step.CostGateTimeoutSecs),
+		dbscan.NilIfEmptyString(step.CostGateDefaultAction),
 	).Scan(&step.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow step: %w", err)
@@ -102,6 +106,7 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 		       sub_workflow_id, max_nesting_depth,
 		       event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
 		       concurrency_key, resource_class,
+		       cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action,
 		       created_at
 		FROM workflow_steps
 		WHERE workflow_id = $1
@@ -142,6 +147,7 @@ func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.Workf
 		       sub_workflow_id, max_nesting_depth,
 		       event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
 		       concurrency_key, resource_class,
+		       cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action,
 		       created_at
 		FROM workflow_steps
 		WHERE id = $1`
@@ -186,6 +192,9 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	var eventEmitKey *string
 	var concurrencyKey *string
 	var resourceClass *string
+	var costGateThreshold *int64
+	var costGateTimeout *int
+	var costGateDefaultAction *string
 
 	err := scanner.Scan(
 		&step.ID,
@@ -214,6 +223,9 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 		&eventEmitKey,
 		&concurrencyKey,
 		&resourceClass,
+		&costGateThreshold,
+		&costGateTimeout,
+		&costGateDefaultAction,
 		&step.CreatedAt,
 	)
 	if err != nil {
@@ -254,6 +266,15 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	}
 	if step.ResourceClass == "" {
 		step.ResourceClass = "small"
+	}
+	if costGateThreshold != nil {
+		step.CostGateThresholdMicrousd = *costGateThreshold
+	}
+	if costGateTimeout != nil {
+		step.CostGateTimeoutSecs = *costGateTimeout
+	}
+	if costGateDefaultAction != nil {
+		step.CostGateDefaultAction = *costGateDefaultAction
 	}
 
 	return &step, nil

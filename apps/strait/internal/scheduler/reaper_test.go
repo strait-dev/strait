@@ -2092,3 +2092,450 @@ func TestReaper_ReapStale_NilMachineDestroyerNoPanic(t *testing.T) {
 		t.Fatalf("expected 1 crash transition, got %d", transitioned.Load())
 	}
 }
+
+// mockNotifierReaperStore composes mockReaperStore with ApprovalNotifierStore and ApprovalReminderStore.
+type mockNotifierReaperStore struct {
+	mockReaperStore
+	listEnabledNotificationChannelsFn func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	createNotificationDeliveryFn      func(ctx context.Context, d *domain.NotificationDelivery) error
+	getWorkflowRunFn                  func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	listApprovalsPastReminderPointFn  func(ctx context.Context) ([]domain.WorkflowStepApproval, error)
+}
+
+func (m *mockNotifierReaperStore) ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
+	if m.listEnabledNotificationChannelsFn != nil {
+		return m.listEnabledNotificationChannelsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockNotifierReaperStore) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
+	if m.createNotificationDeliveryFn != nil {
+		return m.createNotificationDeliveryFn(ctx, d)
+	}
+	return nil
+}
+
+func (m *mockNotifierReaperStore) GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error) {
+	if m.getWorkflowRunFn != nil {
+		return m.getWorkflowRunFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockNotifierReaperStore) ListApprovalsPastReminderPoint(ctx context.Context) ([]domain.WorkflowStepApproval, error) {
+	if m.listApprovalsPastReminderPointFn != nil {
+		return m.listApprovalsPastReminderPointFn(ctx)
+	}
+	return nil, nil
+}
+
+func TestReaper_ReapExpiredApprovals_SendsExpiredNotification(t *testing.T) {
+	t.Parallel()
+	var deliveries []*domain.NotificationDelivery
+	expires := time.Now().Add(-1 * time.Minute)
+	ms := &mockNotifierReaperStore{
+		mockReaperStore: mockReaperStore{
+			listExpiredApprovalsFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+				return []domain.WorkflowStepApproval{
+					{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "pending", ExpiresAt: &expires},
+				}, nil
+			},
+			updateWorkflowApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", WorkflowID: "wf-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredApprovals(context.Background())
+
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].EventType != domain.NotificationEventApprovalExpired {
+		t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalExpired, deliveries[0].EventType)
+	}
+}
+
+func TestReaper_ReapExpiredApprovals_NoNotificationWithoutInterface(t *testing.T) {
+	t.Parallel()
+	approvalReaped := false
+	ms := &mockReaperStore{
+		listExpiredApprovalsFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return []domain.WorkflowStepApproval{
+				{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "pending"},
+			}, nil
+		},
+		updateWorkflowApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+			approvalReaped = true
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredApprovals(context.Background())
+
+	if !approvalReaped {
+		t.Fatal("expected approval to be reaped even without notification interface")
+	}
+}
+
+func TestReaper_ReapExpiredApprovals_IgnoresRejectedApprovals(t *testing.T) {
+	t.Parallel()
+	updateCalled := false
+	ms := &mockReaperStore{
+		listExpiredApprovalsFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			// Rejected approvals are filtered out by the query (WHERE status = 'pending'),
+			// so the store returns empty.
+			return nil, nil
+		},
+		updateWorkflowApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+			updateCalled = true
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			updateCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredApprovals(context.Background())
+
+	if updateCalled {
+		t.Fatal("expected no updates when all approvals are rejected (filtered by query)")
+	}
+}
+
+func TestReaper_ReapExpiredApprovals_MixedApprovals(t *testing.T) {
+	t.Parallel()
+	var reapedIDs []string
+	expires := time.Now().Add(-1 * time.Minute)
+	ms := &mockNotifierReaperStore{
+		mockReaperStore: mockReaperStore{
+			listExpiredApprovalsFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+				// Only the still-pending one is returned by the query.
+				return []domain.WorkflowStepApproval{
+					{ID: "appr-2", WorkflowRunID: "wr-2", WorkflowStepRunID: "sr-2", Status: "pending", ExpiresAt: &expires},
+				}, nil
+			},
+			updateWorkflowApprovalFn: func(_ context.Context, id string, _ string, _ string, _ *time.Time, _ string) error {
+				reapedIDs = append(reapedIDs, id)
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-2", ProjectID: "proj-1", WorkflowID: "wf-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return nil, nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredApprovals(context.Background())
+
+	if len(reapedIDs) != 1 || reapedIDs[0] != "appr-2" {
+		t.Fatalf("expected exactly appr-2 to be reaped, got %v", reapedIDs)
+	}
+}
+
+func TestSkipThenReap_ApprovalNotReaped(t *testing.T) {
+	t.Parallel()
+	// Simulates the full skip-then-reap lifecycle:
+	// 1. An approval starts as "pending"
+	// 2. SkipStep transitions it to "rejected"
+	// 3. The reaper's ListExpiredWorkflowStepApprovals (WHERE status = 'pending')
+	//    no longer matches it, so it is never reaped.
+	expires := time.Now().Add(-1 * time.Minute) // already expired
+
+	// After skip, the approval status is "rejected" (was "pending" before skip).
+	approvalStatus := domain.ApprovalStatusRejected
+
+	// Step 2: simulate reaper query — only returns pending approvals.
+	updateCalled := false
+	ms := &mockReaperStore{
+		listExpiredApprovalsFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			// The real query filters WHERE status = 'pending'.
+			if approvalStatus == domain.ApprovalStatusPending {
+				return []domain.WorkflowStepApproval{
+					{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: approvalStatus, ExpiresAt: &expires},
+				}, nil
+			}
+			return nil, nil
+		},
+		updateWorkflowApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+			updateCalled = true
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			updateCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredApprovals(context.Background())
+
+	if updateCalled {
+		t.Fatal("rejected approval should not be reaped — WHERE status = 'pending' must exclude it")
+	}
+}
+
+func TestReaper_ReapApprovalReminders_SendsReminder(t *testing.T) {
+	t.Parallel()
+	var deliveries []*domain.NotificationDelivery
+	// 60 min total timeout, 58% elapsed (past 50% threshold).
+	now := time.Now()
+	requested := now.Add(-35 * time.Minute)
+	expires := now.Add(25 * time.Minute)
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return []domain.WorkflowStepApproval{
+				{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "pending", RequestedAt: requested, ExpiresAt: &expires},
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", WorkflowID: "wf-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].EventType != domain.NotificationEventApprovalReminder {
+		t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalReminder, deliveries[0].EventType)
+	}
+}
+
+func TestReaper_ReapApprovalReminders_BeforeHalfway_NoReminder(t *testing.T) {
+	t.Parallel()
+	deliveryCalled := false
+	// 60 min total, only 17% elapsed -- DB would filter this out.
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return nil, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+
+	if deliveryCalled {
+		t.Fatal("expected no deliveries before 50% elapsed")
+	}
+}
+
+func TestReaper_ReapApprovalReminders_ExactlyHalfway(t *testing.T) {
+	t.Parallel()
+	var deliveries []*domain.NotificationDelivery
+	now := time.Now()
+	requested := now.Add(-30 * time.Minute)
+	expires := now.Add(30 * time.Minute)
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return []domain.WorkflowStepApproval{
+				{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "pending", RequestedAt: requested, ExpiresAt: &expires},
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", WorkflowID: "wf-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery at exactly 50%%, got %d", len(deliveries))
+	}
+}
+
+func TestReaper_ReapApprovalReminders_ShortTimeout(t *testing.T) {
+	t.Parallel()
+	var deliveries []*domain.NotificationDelivery
+	// 10 min total, 60% elapsed.
+	now := time.Now()
+	requested := now.Add(-6 * time.Minute)
+	expires := now.Add(4 * time.Minute)
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return []domain.WorkflowStepApproval{
+				{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "pending", RequestedAt: requested, ExpiresAt: &expires},
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", WorkflowID: "wf-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery for short timeout, got %d", len(deliveries))
+	}
+}
+
+func TestReaper_ReapApprovalReminders_LongTimeout(t *testing.T) {
+	t.Parallel()
+	var deliveries []*domain.NotificationDelivery
+	// 4h total, 62.5% elapsed.
+	now := time.Now()
+	requested := now.Add(-150 * time.Minute)
+	expires := now.Add(90 * time.Minute)
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return []domain.WorkflowStepApproval{
+				{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "pending", RequestedAt: requested, ExpiresAt: &expires},
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", WorkflowID: "wf-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery for long timeout, got %d", len(deliveries))
+	}
+}
+
+func TestReaper_ReapApprovalReminders_StoreError(t *testing.T) {
+	t.Parallel()
+	deliveryCalled := false
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return nil, errors.New("db down")
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+
+	if deliveryCalled {
+		t.Fatal("expected no deliveries on store error")
+	}
+}
+
+func TestReaper_ReapApprovalReminders_Dedup(t *testing.T) {
+	t.Parallel()
+	var deliveryCount int
+	expires := time.Now().Add(10 * time.Minute)
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return []domain.WorkflowStepApproval{
+				{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "pending", ExpiresAt: &expires},
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", WorkflowID: "wf-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCount++
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+	r.reapApprovalReminders(context.Background())
+
+	if deliveryCount != 1 {
+		t.Fatalf("expected 1 delivery (dedup), got %d", deliveryCount)
+	}
+}
+
+func TestReaper_ReapApprovalReminders_NoApprovals(t *testing.T) {
+	t.Parallel()
+	deliveryCalled := false
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return nil, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+
+	if deliveryCalled {
+		t.Fatal("expected no deliveries when no approvals nearing expiry")
+	}
+}

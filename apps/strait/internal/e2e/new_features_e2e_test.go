@@ -48,7 +48,7 @@ func TestE2E_DLQ_ListDeadLetterRuns(t *testing.T) {
 	}
 
 	// List DLQ runs
-	w = doRequest(t, http.MethodGet, "/v1/runs/dlq?project_id="+projectID, "")
+	w = doRequest(t, http.MethodGet, "/v1/runs/dlq", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list dlq status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -117,7 +117,7 @@ func TestE2E_DLQ_ReplayNonDLQRun_Fails(t *testing.T) {
 func TestE2E_DLQ_FeatureFlag_Disabled(t *testing.T) {
 	// DLQ is enabled in our config, so this verifies the endpoint exists.
 	// When disabled, it returns 404. We test by confirming 200/400 (not 404).
-	w := doRequest(t, http.MethodGet, "/v1/runs/dlq?project_id=nonexistent", "")
+	w := doRequest(t, http.MethodGet, "/v1/runs/dlq", "", "nonexistent")
 	if w.Code == http.StatusNotFound {
 		t.Fatal("DLQ should be enabled but returned 404")
 	}
