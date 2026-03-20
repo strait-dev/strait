@@ -2,8 +2,10 @@ package clickhouse
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -273,6 +275,14 @@ func TestExporter_MultipleBatchFlushes(t *testing.T) {
 
 	if e.PendingCount() != 0 {
 		t.Errorf("after stop, pending = %d, want 0", e.PendingCount())
+	}
+}
+
+func TestNew_DriverRegistered(t *testing.T) {
+	t.Parallel()
+	drivers := sql.Drivers()
+	if !slices.Contains(drivers, "clickhouse") {
+		t.Errorf("expected 'clickhouse' in sql.Drivers(), got %v", drivers)
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	_ "github.com/ClickHouse/clickhouse-go/v2" // registers "clickhouse" database/sql driver
 )
 
 // Client wraps a ClickHouse connection pool with health checks and graceful shutdown.
