@@ -14,9 +14,16 @@ type EventLister interface {
 	ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 }
 
+// maxConcurrentEventFetches limits how many background ListEvents goroutines
+// can run concurrently to prevent DB pool exhaustion under burst load.
+const maxConcurrentEventFetches = 20
+
 // ClickHouseSubscriber enqueues run analytics and individual run events into
 // the ClickHouse exporter on terminal run events (completed, failed, timed out, etc.).
 func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister) RunEventSubscriber {
+	// Semaphore to bound concurrent ListEvents goroutines.
+	sem := make(chan struct{}, maxConcurrentEventFetches)
+
 	return func(_ context.Context, event RunLifecycleEvent) {
 		if exporter == nil {
 			return
@@ -69,20 +76,27 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister) Run
 		})
 
 		// Enqueue individual run events in background so we don't block the subscriber.
+		// Semaphore bounds concurrent DB queries to prevent pool exhaustion under burst.
 		if events != nil {
-			go func() { //nolint:gosec // G118: intentionally detached from request ctx; subscriber must not block.
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
+			select {
+			case sem <- struct{}{}:
+				go func() { //nolint:gosec // G118: intentionally detached from request ctx; subscriber must not block.
+					defer func() { <-sem }()
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
 
-				evts, err := events.ListEvents(ctx, run.ID, 1000, nil)
-				if err != nil {
-					slog.Error("clickhouse: list run events", "run_id", run.ID, "error", err)
-					return
-				}
-				for _, rec := range runEventsFromDomain(run, evts) {
-					exporter.Enqueue(rec)
-				}
-			}()
+					evts, err := events.ListEvents(ctx, run.ID, 1000, nil)
+					if err != nil {
+						slog.Error("clickhouse: list run events", "run_id", run.ID, "error", err)
+						return
+					}
+					for _, rec := range runEventsFromDomain(run, evts) {
+						exporter.Enqueue(rec)
+					}
+				}()
+			default:
+				slog.Warn("clickhouse: event fetch semaphore full, skipping run events", "run_id", run.ID)
+			}
 		}
 	}
 }

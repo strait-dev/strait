@@ -98,7 +98,7 @@ func (q *Queries) ListEnabledLogDrains(ctx context.Context) ([]domain.LogDrain, 
 
 	rows, err := q.db.Query(ctx, `
 		SELECT id, project_id, name, drain_type, endpoint_url, auth_type, auth_config, level_filter, enabled, created_at, updated_at
-		FROM log_drains WHERE enabled = true ORDER BY created_at DESC
+		FROM log_drains WHERE enabled = true ORDER BY created_at DESC LIMIT 500
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled log drains: %w", err)
