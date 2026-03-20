@@ -60,9 +60,10 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 func newTestServerWithPinger(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, pinger Pinger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
-		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		InternalSecret:           "test-secret",
+		MaxBulkTriggerItems:      500,
+		JWTSigningKey:            "test-jwt-key-must-be-32-chars-long",
+		TriggerRateLimitRequests: 10000,
 	}
 	var p pubsub.Publisher
 	if pub != nil {
