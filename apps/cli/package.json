@@ -19,10 +19,10 @@
     "clean": "git clean -xdf .turbo node_modules dist"
   },
   "dependencies": {
-    "@effect/platform": "^0.95.0",
-    "@effect/platform-node": "^0.105.0",
+    "@effect/platform": "^0.96.0",
+    "@effect/platform-node": "^0.106.0",
     "@stricli/core": "^1.2.6",
-    "effect": "^3.20.0"
+    "effect": "^3.21.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

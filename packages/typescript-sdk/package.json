@@ -39,10 +39,10 @@
     "ai": ">=6.0.116"
   },
   "dependencies": {
-    "@effect/platform": "^0.95.0",
-    "@effect/platform-node": "^0.105.0",
+    "@effect/platform": "^0.96.0",
+    "@effect/platform-node": "^0.106.0",
     "@standard-schema/spec": "^1.1.0",
-    "effect": "^3.20.0",
+    "effect": "^3.21.0",
     "xstate": "5",
     "yaml": "^2.8.2"
   }

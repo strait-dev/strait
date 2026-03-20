@@ -43,9 +43,9 @@
     "@manypkg/cli": "^0.25.1",
     "@typescript/native-preview": "^7.0.0-dev.20260319.1",
     "baseline-browser-mapping": "^2.10.9",
-    "knip": "^5.88.1",
+    "knip": "^6.0.0",
     "lefthook": "^2.1.4",
-    "turbo": "^2.8.19",
+    "turbo": "^2.8.20",
     "ultracite": "7.3.2"
   }
 }
