@@ -158,6 +158,26 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 	}()
 
+	// Initialize OTel log bridge to export structured logs via OTLP.
+	otelLogger, shutdownLogBridge, err := telemetry.InitLogBridge(ctx, "strait", cfg.OTELEndpoint, cfg.SentryEnvironment)
+	if err != nil {
+		return fmt.Errorf("init log bridge: %w", err)
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := shutdownLogBridge(shutdownCtx); err != nil {
+			slog.Error("failed to shutdown log bridge", "error", err)
+		}
+	}()
+	if otelLogger != nil {
+		// Chain OTel log handler with the existing handler (which may already
+		// include Sentry) so log records flow to both stdout and the OTel pipeline.
+		currentHandler := slog.Default().Handler()
+		tee := telemetry.NewTeeHandler(currentHandler, otelLogger.Handler())
+		slog.SetDefault(slog.New(tee))
+	}
+
 	dbPool, err := connectDatabase(ctx, cfg)
 	if err != nil {
 		return err
