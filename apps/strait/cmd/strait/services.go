@@ -12,6 +12,7 @@ import (
 
 	"strait/internal/api"
 	"strait/internal/cdc"
+	"strait/internal/clickhouse"
 	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/health"
@@ -391,7 +392,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, chExporter *clickhouse.Exporter) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -470,6 +471,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	}
 	if pub != nil {
 		exec.Subscribe(worker.PubSubSubscriber(pub))
+	}
+	if chExporter != nil {
+		exec.Subscribe(worker.ClickHouseSubscriber(chExporter))
 	}
 
 	healthReg.Register(health.NewPoolChecker(p))

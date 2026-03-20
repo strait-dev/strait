@@ -81,14 +81,15 @@ func (t *TeeHandler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (t *TeeHandler) Handle(ctx context.Context, record slog.Record) error {
+	var firstErr error
 	for _, h := range t.handlers {
 		if h.Enabled(ctx, record.Level) {
-			if err := h.Handle(ctx, record); err != nil {
-				return err
+			if err := h.Handle(ctx, record.Clone()); err != nil && firstErr == nil {
+				firstErr = err
 			}
 		}
 	}
-	return nil
+	return firstErr
 }
 
 func (t *TeeHandler) WithAttrs(attrs []slog.Attr) slog.Handler {

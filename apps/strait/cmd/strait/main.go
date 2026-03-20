@@ -303,7 +303,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	startNotificationWorker(g, cfg, queries)
 	startLogDrainWorker(g, cfg, queries)
 	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor)
-	startWorker(g, cfg, queries, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg)
+	startWorker(g, cfg, queries, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, chExporter)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)
