@@ -33,6 +33,7 @@ import { Route as AppLogsIndexRouteImport } from './routes/app/logs/index'
 import { Route as AppJobsIndexRouteImport } from './routes/app/jobs/index'
 import { Route as AppEventsIndexRouteImport } from './routes/app/events/index'
 import { Route as AppDlqIndexRouteImport } from './routes/app/dlq/index'
+import { Route as AppBillingIndexRouteImport } from './routes/app/billing/index'
 import { Route as AppWorkflowsIdRouteImport } from './routes/app/workflows/$id'
 import { Route as AppSchedulesIdRouteImport } from './routes/app/schedules/$id'
 import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
@@ -40,6 +41,7 @@ import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/comp
 import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AppProjectsProjectIdSettingsRouteImport } from './routes/app/projects/$projectId/settings'
 
 const AppLayoutRoute = AppLayoutRouteImport.update({
   id: '/app',
@@ -161,6 +163,11 @@ const AppDlqIndexRoute = AppDlqIndexRouteImport.update({
   path: '/dlq/',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppBillingIndexRoute = AppBillingIndexRouteImport.update({
+  id: '/billing/',
+  path: '/billing/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
   id: '/workflows/$id',
   path: '/workflows/$id',
@@ -196,6 +203,12 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppProjectsProjectIdSettingsRoute =
+  AppProjectsProjectIdSettingsRouteImport.update({
+    id: '/projects/$projectId/settings',
+    path: '/projects/$projectId/settings',
+    getParentRoute: () => AppLayoutRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -220,6 +233,7 @@ export interface FileRoutesByFullPath {
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
   '/app/jobs/': typeof AppJobsIndexRoute
@@ -229,6 +243,7 @@ export interface FileRoutesByFullPath {
   '/app/settings/': typeof AppSettingsIndexRoute
   '/app/webhooks/': typeof AppWebhooksIndexRoute
   '/app/workflows/': typeof AppWorkflowsIndexRoute
+  '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -252,6 +267,7 @@ export interface FileRoutesByTo {
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/billing': typeof AppBillingIndexRoute
   '/app/dlq': typeof AppDlqIndexRoute
   '/app/events': typeof AppEventsIndexRoute
   '/app/jobs': typeof AppJobsIndexRoute
@@ -261,6 +277,7 @@ export interface FileRoutesByTo {
   '/app/settings': typeof AppSettingsIndexRoute
   '/app/webhooks': typeof AppWebhooksIndexRoute
   '/app/workflows': typeof AppWorkflowsIndexRoute
+  '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -286,6 +303,7 @@ export interface FileRoutesById {
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
   '/app/jobs/': typeof AppJobsIndexRoute
@@ -295,6 +313,7 @@ export interface FileRoutesById {
   '/app/settings/': typeof AppSettingsIndexRoute
   '/app/webhooks/': typeof AppWebhooksIndexRoute
   '/app/workflows/': typeof AppWorkflowsIndexRoute
+  '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -321,6 +340,7 @@ export interface FileRouteTypes {
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
+    | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
     | '/app/jobs/'
@@ -330,6 +350,7 @@ export interface FileRouteTypes {
     | '/app/settings/'
     | '/app/webhooks/'
     | '/app/workflows/'
+    | '/app/projects/$projectId/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -353,6 +374,7 @@ export interface FileRouteTypes {
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
+    | '/app/billing'
     | '/app/dlq'
     | '/app/events'
     | '/app/jobs'
@@ -362,6 +384,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/webhooks'
     | '/app/workflows'
+    | '/app/projects/$projectId/settings'
   id:
     | '__root__'
     | '/'
@@ -386,6 +409,7 @@ export interface FileRouteTypes {
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
+    | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
     | '/app/jobs/'
@@ -395,6 +419,7 @@ export interface FileRouteTypes {
     | '/app/settings/'
     | '/app/webhooks/'
     | '/app/workflows/'
+    | '/app/projects/$projectId/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -583,6 +608,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDlqIndexRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/billing/': {
+      id: '/app/billing/'
+      path: '/billing'
+      fullPath: '/app/billing/'
+      preLoaderRoute: typeof AppBillingIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/workflows/$id': {
       id: '/app/workflows/$id'
       path: '/workflows/$id'
@@ -632,6 +664,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/projects/$projectId/settings': {
+      id: '/app/projects/$projectId/settings'
+      path: '/projects/$projectId/settings'
+      fullPath: '/app/projects/$projectId/settings'
+      preLoaderRoute: typeof AppProjectsProjectIdSettingsRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
   }
 }
 
@@ -645,6 +684,7 @@ interface AppLayoutRouteChildren {
   AppRunsIdRoute: typeof AppRunsIdRoute
   AppSchedulesIdRoute: typeof AppSchedulesIdRoute
   AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
+  AppBillingIndexRoute: typeof AppBillingIndexRoute
   AppDlqIndexRoute: typeof AppDlqIndexRoute
   AppEventsIndexRoute: typeof AppEventsIndexRoute
   AppJobsIndexRoute: typeof AppJobsIndexRoute
@@ -654,6 +694,7 @@ interface AppLayoutRouteChildren {
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
   AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
+  AppProjectsProjectIdSettingsRoute: typeof AppProjectsProjectIdSettingsRoute
 }
 
 const AppLayoutRouteChildren: AppLayoutRouteChildren = {
@@ -666,6 +707,7 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppRunsIdRoute: AppRunsIdRoute,
   AppSchedulesIdRoute: AppSchedulesIdRoute,
   AppWorkflowsIdRoute: AppWorkflowsIdRoute,
+  AppBillingIndexRoute: AppBillingIndexRoute,
   AppDlqIndexRoute: AppDlqIndexRoute,
   AppEventsIndexRoute: AppEventsIndexRoute,
   AppJobsIndexRoute: AppJobsIndexRoute,
@@ -675,6 +717,7 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppWebhooksIndexRoute: AppWebhooksIndexRoute,
   AppWorkflowsIndexRoute: AppWorkflowsIndexRoute,
+  AppProjectsProjectIdSettingsRoute: AppProjectsProjectIdSettingsRoute,
 }
 
 const AppLayoutRouteWithChildren = AppLayoutRoute._addFileChildren(

@@ -2,6 +2,7 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": [
     "src/start.ts!",
+    "src/server.ts!",
     "src/router.tsx!",
     "src/routes/**/*.{ts,tsx}!",
     "postcss.config.mjs"

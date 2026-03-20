@@ -32,6 +32,7 @@ import {
   BriefcaseIcon,
   ChevronDownIcon,
   ClockIcon,
+  CreditCardIcon,
   DashboardIcon,
   FileTextIcon,
   LayersIcon,
@@ -69,6 +70,10 @@ const observabilityNav: NavItem[] = [
   { title: "Logs", url: "/app/logs", icon: FileTextIcon },
   { title: "Events", url: "/app/events", icon: LayersIcon },
   { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
+];
+
+const billingNav: NavItem[] = [
+  { title: "Billing", url: "/app/billing", icon: CreditCardIcon },
 ];
 
 type Environment = "production" | "staging" | "development";
@@ -235,6 +240,28 @@ const AppSidebar = ({ session }: Props) => {
               </SidebarGroupContent>
             </CollapsibleContent>
           </Collapsible>
+        </SidebarGroup>
+
+        {/* Billing */}
+        <SidebarGroup>
+          <SidebarMenu>
+            {billingNav.map((item) => (
+              <SidebarMenuItem key={item.url}>
+                <SidebarMenuButton
+                  isActive={isActive(item)}
+                  render={<Link to={item.url} />}
+                  tooltip={item.title}
+                >
+                  <HugeiconsIcon
+                    className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                    icon={item.icon}
+                    size={22}
+                  />
+                  <span>{item.title}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
 

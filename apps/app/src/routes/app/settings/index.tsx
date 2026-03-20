@@ -1,4 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
 import { Shell } from "@strait/ui/components/shell";
 import {
   Tabs,
@@ -6,13 +14,10 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
-import { createFileRoute } from "@tanstack/react-router";
-import { Suspense } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import Account from "@/components/(settings)/account";
-import { UsageDashboard } from "@/components/billing/usage-dashboard";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
-
 import { CreditCardIcon, UserIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -51,13 +56,20 @@ function RouteComponent() {
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="billing">
-            <Suspense
-              fallback={
-                <div className="h-64 animate-pulse rounded-lg bg-muted" />
-              }
-            >
-              <UsageDashboard />
-            </Suspense>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Usage & Billing</CardTitle>
+                <CardDescription>
+                  View detailed usage metrics, cost breakdowns, and spending
+                  limits for your organization.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button render={<Link to="/app/billing" />} variant="outline">
+                  View Billing Details
+                </Button>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
