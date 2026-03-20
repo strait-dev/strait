@@ -139,8 +139,12 @@ func (re *RampEngine) Run(ctx context.Context) (*RampResult, error) {
 }
 
 func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
-	stepCtx, cancel := context.WithTimeout(ctx, re.config.StepInterval)
-	defer cancel()
+	stepCtx, stepCancel := context.WithTimeout(ctx, re.config.StepInterval)
+	defer stepCancel()
+
+	// opsCtx is the parent for all per-operation contexts. Cancelling it
+	// force-aborts every in-flight HTTP request so the WaitGroup can drain.
+	opsCtx, opsCancel := context.WithCancel(context.Background())
 
 	var (
 		ops    atomic.Int64
@@ -155,14 +159,15 @@ func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
 
 	switch re.config.Mode {
 	case RampThroughput:
-		re.runThroughputStep(stepCtx, rate, &ops, &errs, latencies, &wg)
+		re.runThroughputStep(stepCtx, opsCtx, rate, &ops, &errs, latencies, &wg)
 	case RampConcurrency:
-		re.runConcurrencyStep(stepCtx, rate, &ops, &errs, latencies, &wg)
+		re.runConcurrencyStep(stepCtx, opsCtx, rate, &ops, &errs, latencies, &wg)
 	}
 
 	// Wait for step duration to complete
 	<-stepCtx.Done()
-	// Wait for in-flight operations to finish (with a brief timeout)
+
+	// Give in-flight operations a brief window to finish naturally
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -170,8 +175,12 @@ func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
 	}()
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(2 * time.Second):
+		// Force-cancel all in-flight operations and wait for goroutines to exit
+		opsCancel()
+		<-done
 	}
+	opsCancel() // no-op if already cancelled, but ensures cleanup
 
 	totalOps := ops.Load()
 	totalErrs := errs.Load()
@@ -200,25 +209,27 @@ func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
 }
 
 func (re *RampEngine) runThroughputStep(
-	ctx context.Context,
+	stepCtx context.Context,
+	opsCtx context.Context,
 	rate int,
 	ops, errs *atomic.Int64,
 	latencies *latencyTracker,
 	wg *conc.WaitGroup,
 ) {
 	// Send 'rate' operations per second for the step duration.
-	// Each operation gets its own context so step boundary cancellation
-	// does not count in-flight requests as errors.
+	// Per-operation contexts derive from opsCtx (not stepCtx) so step
+	// boundary cancellation does not count in-flight requests as errors.
+	// opsCtx is cancelled by runStep after the drain window expires.
 	ticker := time.NewTicker(time.Second / time.Duration(max(rate, 1)))
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-stepCtx.Done():
 			return
 		case <-ticker.C:
 			wg.Go(func() {
-				opCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				opCtx, cancel := context.WithTimeout(opsCtx, 5*time.Second)
 				defer cancel()
 				start := time.Now()
 				if err := re.operation(opCtx); err != nil {
@@ -233,23 +244,24 @@ func (re *RampEngine) runThroughputStep(
 }
 
 func (re *RampEngine) runConcurrencyStep(
-	ctx context.Context,
+	stepCtx context.Context,
+	opsCtx context.Context,
 	concurrent int,
 	ops, errs *atomic.Int64,
 	latencies *latencyTracker,
 	wg *conc.WaitGroup,
 ) {
 	// Run 'concurrent' workers in parallel for the step duration.
-	// Each operation gets its own context so step boundary cancellation
-	// does not count in-flight requests as errors.
+	// Per-operation contexts derive from opsCtx so they can be force-cancelled
+	// after the drain window.
 	for range concurrent {
 		wg.Go(func() {
 			for {
 				select {
-				case <-ctx.Done():
+				case <-stepCtx.Done():
 					return
 				default:
-					opCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					opCtx, cancel := context.WithTimeout(opsCtx, 5*time.Second)
 					start := time.Now()
 					if err := re.operation(opCtx); err != nil {
 						errs.Add(1)
@@ -264,7 +276,7 @@ func (re *RampEngine) runConcurrencyStep(
 	}
 
 	// Wait for step duration (context will cancel)
-	<-ctx.Done()
+	<-stepCtx.Done()
 }
 
 func (re *RampEngine) checkStopConditions(step RampStepResult) string {
