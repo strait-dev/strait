@@ -1,7 +1,10 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -237,6 +240,127 @@ func TestPermissionCache_ZeroTTL(t *testing.T) {
 	_, ok := c.Get("proj", "user")
 	if ok {
 		t.Fatal("expected cache miss with zero TTL")
+	}
+}
+
+func TestPermissionCache_RLockAllowsConcurrentReads(t *testing.T) {
+	t.Parallel()
+
+	c := newPermissionCache(5 * time.Second)
+	defer c.Stop()
+
+	c.Set("proj", "user", []string{"read"})
+
+	// 100 concurrent readers should all succeed without blocking each other.
+	var wg sync.WaitGroup
+	const readers = 100
+	wg.Add(readers)
+	results := make([]bool, readers)
+	for i := range readers {
+		go func(idx int) {
+			defer wg.Done()
+			_, ok := c.Get("proj", "user")
+			results[idx] = ok
+		}(i)
+	}
+	wg.Wait()
+
+	for i, ok := range results {
+		if !ok {
+			t.Errorf("reader %d got cache miss, expected hit", i)
+		}
+	}
+}
+
+func TestPermissionCache_EvictRaceOnExpiry(t *testing.T) {
+	t.Parallel()
+
+	c := newPermissionCache(1 * time.Millisecond)
+	defer c.Stop()
+
+	c.Set("proj", "user", []string{"*"})
+	time.Sleep(5 * time.Millisecond)
+
+	// Multiple goroutines race to evict the same expired entry.
+	// This verifies the double-check pattern prevents panics.
+	var wg sync.WaitGroup
+	const goroutines = 50
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			_, ok := c.Get("proj", "user")
+			if ok {
+				t.Error("expected miss for expired entry")
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Verify the entry was actually removed.
+	c.mu.RLock()
+	_, exists := c.entries[c.key("proj", "user")]
+	c.mu.RUnlock()
+	if exists {
+		t.Fatal("expired entry should have been evicted")
+	}
+}
+
+func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
+	t.Parallel()
+
+	c := newPermissionCache(5 * time.Second)
+	defer c.Stop()
+
+	// Set initial value.
+	c.Set("proj", "user", []string{"old"})
+
+	// Start readers in a loop.
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	var readCount atomic.Int64
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for ctx.Err() == nil {
+			c.Get("proj", "user")
+			readCount.Add(1)
+		}
+	})
+
+	// Simultaneously set new values — should not deadlock.
+	for i := range 100 {
+		c.Set("proj", "user", []string{fmt.Sprintf("perm-%d", i)})
+	}
+
+	cancel()
+	wg.Wait()
+
+	if readCount.Load() == 0 {
+		t.Fatal("no reads completed, possible deadlock")
+	}
+}
+
+func TestPermissionCache_RefreshedBetweenRLockAndLock(t *testing.T) {
+	t.Parallel()
+
+	c := newPermissionCache(1 * time.Millisecond)
+	defer c.Stop()
+
+	c.Set("proj", "user", []string{"original"})
+	time.Sleep(5 * time.Millisecond)
+
+	// Simulate: one goroutine refreshes between another's RLock and Lock.
+	// We can't perfectly control timing, but we can verify correctness
+	// by refreshing and then checking.
+	c.Set("proj", "user", []string{"refreshed"})
+
+	perms, ok := c.Get("proj", "user")
+	if !ok {
+		t.Fatal("expected hit after refresh")
+	}
+	if len(perms) != 1 || perms[0] != "refreshed" {
+		t.Fatalf("perms = %v, want [refreshed]", perms)
 	}
 }
 

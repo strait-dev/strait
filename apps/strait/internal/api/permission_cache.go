@@ -102,48 +102,46 @@ func (c *permissionCache) key(projectID, userID string) string {
 
 // Get returns cached permissions if they exist and haven't expired.
 // Returns (permissions, true) on hit, (nil, false) on miss.
-// Expired entries are evicted on access to prevent unbounded growth.
+// Uses RLock for the fast path (cache hit) to allow concurrent reads.
+// Escalates to Lock only when an expired entry needs eviction.
 func (c *permissionCache) Get(projectID, userID string) ([]string, bool) {
 	k := c.key(projectID, userID)
-	var (
-		permissions  []string
-		hit          int64
-		miss         int64
-		evicted      int64
-		entriesDelta int64
-		ok           bool
-	)
 
-	c.mu.Lock()
+	// Fast path: read lock for cache hits (most common case).
+	c.mu.RLock()
 	entry, exists := c.entries[k]
-	if !exists {
-		miss = 1
-	} else if time.Since(entry.cachedAt) > c.ttl {
-		delete(c.entries, k)
-		miss = 1
-		evicted = 1
-		entriesDelta = -1
-	} else {
-		permissions = entry.permissions
-		hit = 1
-		ok = true
+	if exists && time.Since(entry.cachedAt) <= c.ttl {
+		c.mu.RUnlock()
+		c.hits.Add(metricsCtx, 1)
+		return entry.permissions, true
 	}
-	c.mu.Unlock()
+	c.mu.RUnlock()
 
-	if hit > 0 {
-		c.hits.Add(metricsCtx, hit)
-	}
-	if miss > 0 {
-		c.misses.Add(metricsCtx, miss)
-	}
-	if evicted > 0 {
-		c.evictions.Add(metricsCtx, evicted)
-	}
-	if entriesDelta != 0 {
-		c.entriesUp.Add(metricsCtx, entriesDelta)
+	// Slow path: miss or expired entry. Acquire write lock if eviction needed.
+	if exists {
+		// Entry was expired — evict under write lock.
+		c.mu.Lock()
+		// Double-check: another goroutine may have evicted or refreshed it.
+		entry, exists = c.entries[k]
+		if exists && time.Since(entry.cachedAt) > c.ttl {
+			delete(c.entries, k)
+			c.mu.Unlock()
+			c.evictions.Add(metricsCtx, 1)
+			c.entriesUp.Add(metricsCtx, -1)
+			c.misses.Add(metricsCtx, 1)
+			return nil, false
+		}
+		c.mu.Unlock()
+
+		// Entry was refreshed by another goroutine between our RLock and Lock.
+		if exists {
+			c.hits.Add(metricsCtx, 1)
+			return entry.permissions, true
+		}
 	}
 
-	return permissions, ok
+	c.misses.Add(metricsCtx, 1)
+	return nil, false
 }
 
 // Set stores permissions in the cache.
