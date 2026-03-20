@@ -191,7 +191,8 @@ func (re *RampEngine) runThroughputStep(
 	latencies *latencyTracker,
 ) {
 	// Send 'rate' operations per second for the step duration.
-	// Goroutines are fire-and-forget; they update atomic counters.
+	// Each operation gets its own context so step boundary cancellation
+	// does not count in-flight requests as errors.
 	ticker := time.NewTicker(time.Second / time.Duration(max(rate, 1)))
 	defer ticker.Stop()
 
@@ -201,8 +202,10 @@ func (re *RampEngine) runThroughputStep(
 			return
 		case <-ticker.C:
 			go func() {
+				opCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
 				start := time.Now()
-				if err := re.operation(ctx); err != nil {
+				if err := re.operation(opCtx); err != nil {
 					errs.Add(1)
 				} else {
 					ops.Add(1)
@@ -219,7 +222,9 @@ func (re *RampEngine) runConcurrencyStep(
 	ops, errs *atomic.Int64,
 	latencies *latencyTracker,
 ) {
-	// Run 'concurrent' workers in parallel for the step duration
+	// Run 'concurrent' workers in parallel for the step duration.
+	// Each operation gets its own context so step boundary cancellation
+	// does not count in-flight requests as errors.
 	for range concurrent {
 		go func() {
 			for {
@@ -227,13 +232,15 @@ func (re *RampEngine) runConcurrencyStep(
 				case <-ctx.Done():
 					return
 				default:
+					opCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					start := time.Now()
-					if err := re.operation(ctx); err != nil {
+					if err := re.operation(opCtx); err != nil {
 						errs.Add(1)
 					} else {
 						ops.Add(1)
 					}
 					latencies.record(time.Since(start))
+					cancel()
 				}
 			}
 		}()
