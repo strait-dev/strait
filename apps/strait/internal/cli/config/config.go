@@ -34,9 +34,10 @@ type File struct {
 }
 
 type LoadResult struct {
-	Path   string
-	Exists bool
-	Data   *File
+	Path    string
+	Exists  bool
+	IsLocal bool
+	Data    *File
 }
 
 type ResolveInput struct {
@@ -68,6 +69,14 @@ func Load(pathOverride string) (*LoadResult, error) {
 		return nil, err
 	}
 
+	var localPath string
+	if pathOverride == "" {
+		cwd, cwdErr := os.Getwd()
+		if cwdErr == nil {
+			localPath = filepath.Join(cwd, localConfigName)
+		}
+	}
+
 	for _, p := range paths {
 		st, statErr := os.Stat(p)
 		if statErr != nil {
@@ -93,7 +102,16 @@ func Load(pathOverride string) (*LoadResult, error) {
 		}
 		normalize(cfg)
 
-		return &LoadResult{Path: p, Exists: true, Data: cfg}, nil
+		isLocal := false
+		if localPath != "" {
+			resolvedP, _ := filepath.EvalSymlinks(p)
+			resolvedLocal, _ := filepath.EvalSymlinks(localPath)
+			if resolvedP == resolvedLocal {
+				isLocal = true
+			}
+		}
+
+		return &LoadResult{Path: p, Exists: true, IsLocal: isLocal, Data: cfg}, nil
 	}
 
 	defaultPath := paths[len(paths)-1]
@@ -253,4 +271,38 @@ func newDefault() *File {
 		Secrets:  map[string][]string{},
 		Contexts: map[string]Context{},
 	}
+}
+
+// HomePath returns the path to the user's home config file only.
+func HomePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get user home: %w", err)
+	}
+	return filepath.Join(home, ".config", serviceDirName, configFileName), nil
+}
+
+// HasSensitiveLocalFields returns field names that are set in cfg among
+// security-sensitive fields: server, api_key, active_context, contexts, aliases.
+func HasSensitiveLocalFields(cfg *File) []string {
+	if cfg == nil {
+		return nil
+	}
+	var fields []string
+	if cfg.ServerURL != "" {
+		fields = append(fields, "server")
+	}
+	if cfg.Token != "" {
+		fields = append(fields, "api_key")
+	}
+	if cfg.ActiveContext != "" {
+		fields = append(fields, "active_context")
+	}
+	if len(cfg.Contexts) > 0 {
+		fields = append(fields, "contexts")
+	}
+	if len(cfg.Aliases) > 0 {
+		fields = append(fields, "aliases")
+	}
+	return fields
 }

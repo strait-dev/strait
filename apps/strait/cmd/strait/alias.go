@@ -105,7 +105,16 @@ func expandAliasArgs(args []string, configPath string) []string {
 		return args
 	}
 
-	loaded, err := cliconfig.Load(configPath)
+	loadPath := configPath
+	if loadPath == "" {
+		homePath, err := cliconfig.HomePath()
+		if err != nil {
+			return args
+		}
+		loadPath = homePath
+	}
+
+	loaded, err := cliconfig.Load(loadPath)
 	if err != nil || loaded == nil || loaded.Data == nil || len(loaded.Data.Aliases) == 0 {
 		return args
 	}

@@ -56,6 +56,12 @@ func newRootCommand() *cobra.Command {
 				return err
 			}
 
+			if loaded.IsLocal && loaded.Exists {
+				if fields := cliconfig.HasSensitiveLocalFields(loaded.Data); len(fields) > 0 {
+					fmt.Fprintf(os.Stderr, "warning: local config %s overrides: %s\n", loaded.Path, strings.Join(fields, ", "))
+				}
+			}
+
 			resolved := cliconfig.Resolve(cliconfig.ResolveInput{
 				Flags: map[string]string{
 					"server":  opts.serverURL,
