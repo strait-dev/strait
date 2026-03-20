@@ -230,14 +230,13 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 }
 
 func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	query := "INSERT INTO run_events (event_id, run_id, project_id, job_id, event_type, level, message, metadata, created_at) VALUES "
+	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*9)
-	placeholders := make([]string, 0, len(records))
 
 	for i, r := range records {
-		base := i * 9
-		placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9))
+		placeholders[i] = row
 		args = append(args, r.EventID, r.RunID, r.ProjectID, r.JobID, r.EventType, r.Level, r.Message, r.Metadata, r.CreatedAt)
 	}
 
@@ -245,14 +244,13 @@ func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord
 }
 
 func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalyticsRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	query := "INSERT INTO run_analytics (run_id, job_id, project_id, status, execution_mode, machine_preset, attempt, duration_ms, queue_wait_ms, cost_microusd, compute_cost_microusd, triggered_by, created_at, started_at, finished_at) VALUES "
+	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*15)
-	placeholders := make([]string, 0, len(records))
 
 	for i, r := range records {
-		base := i * 15
-		placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9, base+10, base+11, base+12, base+13, base+14, base+15))
+		placeholders[i] = row
 		args = append(args, r.RunID, r.JobID, r.ProjectID, r.Status, r.ExecutionMode, r.MachinePreset,
 			r.Attempt, r.DurationMs, r.QueueWaitMs, r.CostMicrousd, r.ComputeCostMicrousd, r.TriggeredBy,
 			r.CreatedAt, r.StartedAt, r.FinishedAt)
@@ -262,14 +260,13 @@ func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalytic
 }
 
 func (e *Exporter) insertComputeUsage(ctx context.Context, records []ComputeUsageRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?)"
 	query := "INSERT INTO compute_usage (run_id, project_id, machine_preset, machine_id, duration_secs, cost_microusd, started_at, finished_at) VALUES "
+	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*8)
-	placeholders := make([]string, 0, len(records))
 
 	for i, r := range records {
-		base := i * 8
-		placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8))
+		placeholders[i] = row
 		args = append(args, r.RunID, r.ProjectID, r.MachinePreset, r.MachineID, r.DurationSecs, r.CostMicrousd, r.StartedAt, r.FinishedAt)
 	}
 
