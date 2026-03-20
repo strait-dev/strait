@@ -332,7 +332,7 @@ export type OperationQueryParamsById = {
   "deleteV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationChannelsByChannelID": undefined;
   "patchV1NotificationChannelsByChannelID": undefined;
-  "getV1NotificationDeliveries": { "project_id": string; "limit"?: number; "cursor"?: string };
+  "getV1NotificationDeliveries": { "limit"?: number; "cursor"?: string };
   "getV1ProjectsByProjectIDSettings": undefined;
   "putV1ProjectsByProjectIDSettings": undefined;
   "getV1Regions": undefined;
