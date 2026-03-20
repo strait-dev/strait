@@ -97,6 +97,8 @@ export const NAV_ITEMS: NavItem[] = [
         links: [
           { label: "vs Temporal", href: "/compare/temporal" },
           { label: "vs Inngest", href: "/compare/inngest" },
+          { label: "vs Trigger.dev", href: "/compare/trigger-dev" },
+          { label: "vs Hatchet", href: "/compare/hatchet" },
           { label: "vs BullMQ", href: "/compare/bullmq" },
           { label: "vs Celery", href: "/compare/celery" },
           { label: "vs Sidekiq", href: "/compare/sidekiq" },

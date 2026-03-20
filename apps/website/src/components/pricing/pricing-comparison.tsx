@@ -143,24 +143,6 @@ function buildSections(): PricingSection[] {
           },
           "Cost per additional 1,000 runs once your included compute credit is exhausted."
         ),
-        row(
-          "AI Assistant messages",
-          "text",
-          (k) => {
-            const count = PLANS[k].governance.aiMessagesPerDay;
-            if (count === null) {
-              return "Unlimited";
-            }
-            return `${count}/day`;
-          },
-          "Daily messages available from the built-in AI assistant for debugging and workflow help."
-        ),
-        row(
-          "AI BYOK",
-          "boolean",
-          (k) => PLANS[k].governance.aiByok,
-          "Bring Your Own Key -- use your own LLM API keys instead of Strait's built-in allocation."
-        ),
       ],
     },
     {

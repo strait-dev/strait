@@ -2,7 +2,11 @@
 
 import { MinusSignIcon, Tick01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { formatPlanPrice, PLANS } from "@strait/billing/products";
+import {
+  formatPlanPrice,
+  formatPriceWithCents,
+  PLANS,
+} from "@strait/billing/products";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -63,35 +67,39 @@ function PlanPrice({
   interval: "monthly" | "yearly";
 }) {
   const planData = PLANS[plan.key];
-  const display = formatPlanPrice(planData, interval);
   const isCustom = plan.prices.monthly < 0;
   const isFree = plan.prices.monthly === 0;
 
-  return (
-    <p className="flex items-baseline gap-x-1 text-foreground">
-      <span className="font-semibold text-3xl tracking-tight">{display}</span>
-      {!(isCustom || isFree) && (
-        <span className="font-light text-muted-foreground text-sm">/mo</span>
-      )}
-    </p>
-  );
-}
-
-function AnnualNote({
-  plan,
-  interval,
-}: {
-  plan: PlanSummary;
-  interval: "monthly" | "yearly";
-}) {
-  if (interval !== "yearly" || plan.prices.yearly <= 0) {
-    return null;
+  if (interval === "yearly" && !(isCustom || isFree)) {
+    return (
+      <div>
+        <p className="flex items-baseline gap-x-1 text-foreground">
+          <span className="font-semibold text-3xl tracking-tight">
+            {formatPriceWithCents(plan.prices.yearly)}
+          </span>
+          <span className="font-light text-muted-foreground text-sm">/yr</span>
+        </p>
+        <p className="mt-1 text-muted-foreground/60 text-xs">
+          {formatPlanPrice(planData, "yearly")}/mo
+        </p>
+      </div>
+    );
   }
-  const yearly = plan.prices.yearly / 100;
+
+  const display = formatPlanPrice(planData, interval);
+
   return (
-    <p className="mt-1 text-muted-foreground/60 text-xs">
-      billed ${yearly.toLocaleString("en-US")}/yr
-    </p>
+    <div>
+      <p className="flex items-baseline gap-x-1 text-foreground">
+        <span className="font-semibold text-3xl tracking-tight">{display}</span>
+        {!(isCustom || isFree) && (
+          <span className="font-light text-muted-foreground text-sm">/mo</span>
+        )}
+      </p>
+      {isFree && (
+        <p className="mt-1 text-muted-foreground/60 text-xs">Free forever</p>
+      )}
+    </div>
   );
 }
 
@@ -137,7 +145,6 @@ function MobilePlanCard({
           </div>
           <div className="text-right">
             <PlanPrice interval={interval} plan={plan} />
-            <AnnualNote interval={interval} plan={plan} />
           </div>
         </div>
       </div>
@@ -323,9 +330,8 @@ const PricingComparisonClient = ({
                                 </Badge>
                               )}
                             </div>
-                            <div className="mt-2">
+                            <div className="mt-2 min-h-[3.5rem]">
                               <PlanPrice interval={interval} plan={plan} />
-                              <AnnualNote interval={interval} plan={plan} />
                             </div>
                             <Button
                               className="mt-6 w-full"

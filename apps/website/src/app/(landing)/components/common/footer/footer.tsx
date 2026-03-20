@@ -18,6 +18,8 @@ const FOOTER_LINKS: Record<string, Array<{ label: string; href: string }>> = {
     },
     { label: "vs Temporal", href: "/compare/temporal" },
     { label: "vs Inngest", href: "/compare/inngest" },
+    { label: "vs Trigger.dev", href: "/compare/trigger-dev" },
+    { label: "vs Hatchet", href: "/compare/hatchet" },
   ],
   Resources: [
     { label: "Blog", href: "/blog" },

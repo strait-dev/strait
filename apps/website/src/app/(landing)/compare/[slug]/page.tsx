@@ -3,7 +3,8 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-
+import ComparisonHighlights from "@/components/compare/comparison-highlights.tsx";
+import ComparisonTable from "@/components/compare/comparison-table.tsx";
 import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
@@ -43,28 +44,6 @@ export async function generateMetadata({ params }: Props) {
       "workflow",
     ],
   });
-}
-
-function FeatureValue({ value }: { value: string | boolean }) {
-  if (typeof value === "boolean") {
-    if (value) {
-      return (
-        <span
-          aria-label="Yes"
-          className="font-medium text-emerald-500"
-          role="img"
-        >
-          &#10003;
-        </span>
-      );
-    }
-    return (
-      <span aria-label="No" className="text-muted-foreground/50" role="img">
-        &#10005;
-      </span>
-    );
-  }
-  return <span className="text-muted-foreground text-sm">{value}</span>;
 }
 
 export default async function ComparisonPage({ params }: Props) {
@@ -128,7 +107,7 @@ export default async function ComparisonPage({ params }: Props) {
                 </span>
               </h1>
             </Reveal>
-            <p className="mt-6 max-w-2xl text-lg text-muted-foreground/70 leading-relaxed">
+            <p className="mt-6 max-w-2xl text-muted-foreground/70 text-sm leading-relaxed sm:text-base">
               {comparison.description}
             </p>
             <div className="mt-8">
@@ -182,54 +161,26 @@ export default async function ComparisonPage({ params }: Props) {
         </Shell>
       </section>
 
-      {/* Comparison Table */}
+      {/* Feature Comparison Table */}
       <section className="py-16 sm:py-20">
         <Shell variant="wide">
           <h2 className="mb-10 text-2xl tracking-tight sm:text-3xl">
             Feature comparison
           </h2>
-          <div className="space-y-6">
-            {comparison.categories.map((category, idx) => (
-              <Reveal delay={idx * 0.08} key={category.name}>
-                <details
-                  className="group rounded-xl border border-border/60 bg-card"
-                  key={category.name}
-                  open
-                >
-                  <summary className="cursor-pointer select-none px-6 py-4 font-semibold text-foreground">
-                    {category.name}
-                  </summary>
-                  <div className="border-border/40 border-t">
-                    {/* Header row */}
-                    <div className="grid grid-cols-3 gap-4 border-border/30 border-b px-6 py-3">
-                      <p className="text-muted-foreground text-sm">Feature</p>
-                      <p className="text-center text-muted-foreground text-sm">
-                        Strait
-                      </p>
-                      <p className="text-center text-muted-foreground text-sm">
-                        {comparison.competitor}
-                      </p>
-                    </div>
-                    {/* Feature rows */}
-                    {category.features.map((row) => (
-                      <div
-                        className="grid grid-cols-3 gap-4 border-border/20 border-b px-6 py-3 last:border-b-0"
-                        key={row.feature}
-                      >
-                        <p className="text-foreground text-sm">{row.feature}</p>
-                        <p className="text-center">
-                          <FeatureValue value={row.strait} />
-                        </p>
-                        <p className="text-center">
-                          <FeatureValue value={row.competitor} />
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              </Reveal>
-            ))}
-          </div>
+          <ComparisonTable
+            categories={comparison.categories}
+            competitorName={comparison.competitor}
+          />
+        </Shell>
+      </section>
+
+      {/* Feature Highlights */}
+      <section className="border-border/40 border-t py-16 sm:py-20">
+        <Shell variant="wide">
+          <ComparisonHighlights
+            competitorName={comparison.competitor}
+            highlights={comparison.highlights}
+          />
         </Shell>
       </section>
 

@@ -5,7 +5,12 @@ import {
   CheckmarkCircle02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { formatPlanPrice, PLAN_KEYS, PLANS } from "@strait/billing/products";
+import {
+  formatPlanPrice,
+  formatPriceWithCents,
+  PLAN_KEYS,
+  PLANS,
+} from "@strait/billing/products";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import { cn } from "@strait/ui/utils";
@@ -114,14 +119,39 @@ export function StaticPricingTable() {
               )}
 
               <div className="flex flex-1 flex-col px-5 pb-6 sm:px-6">
-                <div className="mt-6 mb-6 flex items-baseline gap-1">
-                  <span className="text-4xl text-foreground tabular-nums tracking-tight sm:text-5xl">
-                    {priceDisplay}
-                  </span>
-                  {!(isEnterprise || isFree) && (
-                    <span className="text-muted-foreground text-sm">
-                      /{interval === "monthly" ? "mo" : "mo billed yearly"}
-                    </span>
+                <div className="mt-6 mb-6">
+                  {interval === "yearly" && !(isEnterprise || isFree) ? (
+                    <>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl text-foreground tabular-nums tracking-tight sm:text-5xl">
+                          {formatPriceWithCents(plan.prices.yearly)}
+                        </span>
+                        <span className="text-muted-foreground text-sm">
+                          /yr
+                        </span>
+                      </div>
+                      <p className="mt-1 text-muted-foreground/60 text-xs">
+                        {priceDisplay}/mo
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl text-foreground tabular-nums tracking-tight sm:text-5xl">
+                          {priceDisplay}
+                        </span>
+                        {!(isEnterprise || isFree) && (
+                          <span className="text-muted-foreground text-sm">
+                            /mo
+                          </span>
+                        )}
+                      </div>
+                      {isFree && (
+                        <p className="mt-1 text-muted-foreground/60 text-xs">
+                          Free forever
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
 

@@ -11,13 +11,13 @@ const ROWS = [
     values: [
       "5 (TS, Py, Go, Rb, Rust)",
       "1 (TypeScript)",
-      "1 (TypeScript)",
-      "4 (Go, Java, Py, TS)",
+      "4 (TS, Py, Go, Kt)",
+      "7 (Go, Java, PHP, Py, TS, .NET, Rb)",
     ],
   },
   {
     feature: "Self-hosting",
-    values: ["Simple", "Limited", "Not available", "Complex"],
+    values: ["Simple", "Docker/K8s", "Available", "Complex"],
   },
   {
     feature: "AI cost tracking",
@@ -25,7 +25,7 @@ const ROWS = [
   },
   {
     feature: "License",
-    values: ["Apache 2.0", "Apache 2.0", "SSPL", "MIT"],
+    values: ["Apache 2.0", "Apache 2.0", "SSPL (server)", "MIT"],
   },
   {
     feature: "Execution model",
@@ -38,7 +38,12 @@ const ROWS = [
   },
   {
     feature: "Workflow approvals",
-    values: ["Built-in gates", "No", "No", "Manual setup"],
+    values: [
+      "Built-in gates",
+      "wait.forToken()",
+      "waitForEvent()",
+      "Via Signals",
+    ],
   },
 ] as const;
 
