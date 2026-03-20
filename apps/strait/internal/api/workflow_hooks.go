@@ -42,6 +42,12 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 	// Use detached context so client disconnect doesn't abort webhook delivery.
 	eventType := "workflow_run." + reason
 	go func() { //nolint:gosec // intentional detached context for webhook delivery
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("panic in workflow webhook delivery",
+					"workflow_run_id", run.ID, "panic", r)
+			}
+		}()
 		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		subs, listErr := s.store.ListWebhookSubscriptions(bgCtx, run.ProjectID)
