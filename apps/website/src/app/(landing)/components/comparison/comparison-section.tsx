@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
 
+// Homepage shows the 3 most recognizable competitors; full list lives in compare/data.ts
 const COMPETITORS = ["Strait", "Trigger.dev", "Inngest", "Temporal"] as const;
 
 const ROWS = [

@@ -15,12 +15,8 @@ function transformCategories(
         ? "boolean"
         : "text") as "text" | "boolean",
       values: {
-        strait:
-          typeof feature.strait === "boolean" ? feature.strait : feature.strait,
-        competitor:
-          typeof feature.competitor === "boolean"
-            ? feature.competitor
-            : feature.competitor,
+        strait: feature.strait,
+        competitor: feature.competitor,
       },
       ...(feature.tooltip ? { tooltip: feature.tooltip } : {}),
     })),

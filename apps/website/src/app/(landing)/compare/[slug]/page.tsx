@@ -175,14 +175,16 @@ export default async function ComparisonPage({ params }: Props) {
       </section>
 
       {/* Feature Highlights */}
-      <section className="border-border/40 border-t py-16 sm:py-20">
-        <Shell variant="wide">
-          <ComparisonHighlights
-            competitorName={comparison.competitor}
-            highlights={comparison.highlights}
-          />
-        </Shell>
-      </section>
+      {comparison.highlights.length > 0 && (
+        <section className="border-border/40 border-t py-16 sm:py-20">
+          <Shell variant="wide">
+            <ComparisonHighlights
+              competitorName={comparison.competitor}
+              highlights={comparison.highlights}
+            />
+          </Shell>
+        </section>
+      )}
 
       {/* Switching Steps */}
       <section className="border-border/40 border-t py-16 sm:py-20">

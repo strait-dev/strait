@@ -14,32 +14,37 @@ import { Fragment } from "react";
 import type { ComparisonTableProps } from "./comparison-table.types.ts";
 
 function CellContent({
-  type,
   value,
 }: {
   type: "text" | "boolean";
   value: string | boolean | null;
 }) {
-  if (type === "text") {
+  if (typeof value === "boolean") {
     if (value) {
-      return <span>{value as string}</span>;
+      return (
+        <span aria-label="Yes" role="img">
+          <HugeiconsIcon
+            aria-hidden="true"
+            className="mx-auto size-5 text-foreground"
+            icon={Tick01Icon}
+          />
+        </span>
+      );
     }
-    return <span className="text-muted-foreground/40">&mdash;</span>;
-  }
-  if (value) {
     return (
-      <HugeiconsIcon
-        className="mx-auto size-5 text-foreground"
-        icon={Tick01Icon}
-      />
+      <span aria-label="No" role="img">
+        <HugeiconsIcon
+          aria-hidden="true"
+          className="mx-auto size-5 text-muted-foreground/40"
+          icon={MinusSignIcon}
+        />
+      </span>
     );
   }
-  return (
-    <HugeiconsIcon
-      className="mx-auto size-5 text-muted-foreground/40"
-      icon={MinusSignIcon}
-    />
-  );
+  if (value) {
+    return <span>{value}</span>;
+  }
+  return <span className="text-muted-foreground/40">&mdash;</span>;
 }
 
 function RowLabel({ label, tooltip }: { label: string; tooltip?: string }) {
@@ -101,7 +106,7 @@ const ComparisonTableClient = ({
                       <th
                         className="px-6 py-4 text-left"
                         colSpan={3}
-                        scope="colgroup"
+                        scope="rowgroup"
                       >
                         <span className="font-semibold text-foreground text-sm">
                           {section.name}
