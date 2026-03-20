@@ -26,7 +26,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(strait_queue_depth_ratio)",
+          "expr": "sum(strait_queue_depth_ratio{deployment_environment=~\"$environment\"})",
           "legendFormat": "queue depth",
           "refId": "A"
         }
@@ -56,7 +56,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "strait_pool_running_workers_ratio",
+          "expr": "strait_pool_running_workers_ratio{deployment_environment=~\"$environment\"}",
           "legendFormat": "workers",
           "refId": "A"
         }
@@ -86,7 +86,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "strait_db_pool_total_ratio",
+          "expr": "strait_db_pool_total_ratio{deployment_environment=~\"$environment\"}",
           "legendFormat": "total",
           "refId": "A"
         }
@@ -123,12 +123,12 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "rate(strait_pool_completed_tasks_total[1m])",
+          "expr": "rate(strait_pool_completed_tasks_total{deployment_environment=~\"$environment\"}[1m])",
           "legendFormat": "completed/sec",
           "refId": "A"
         },
         {
-          "expr": "rate(strait_pool_submitted_tasks_total[1m])",
+          "expr": "rate(strait_pool_submitted_tasks_total{deployment_environment=~\"$environment\"}[1m])",
           "legendFormat": "submitted/sec",
           "refId": "B"
         }
@@ -151,17 +151,17 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, rate(strait_dequeue_duration_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.5, rate(strait_dequeue_duration_seconds_bucket{deployment_environment=~\"$environment\"}[1m]))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(strait_dequeue_duration_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.95, rate(strait_dequeue_duration_seconds_bucket{deployment_environment=~\"$environment\"}[1m]))",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(strait_dequeue_duration_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.99, rate(strait_dequeue_duration_seconds_bucket{deployment_environment=~\"$environment\"}[1m]))",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -184,12 +184,12 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "rate(strait_pool_failed_tasks_total[1m])",
+          "expr": "rate(strait_pool_failed_tasks_total{deployment_environment=~\"$environment\"}[1m])",
           "legendFormat": "failed/sec",
           "refId": "A"
         },
         {
-          "expr": "rate(strait_pool_dropped_tasks_total[1m])",
+          "expr": "rate(strait_pool_dropped_tasks_total{deployment_environment=~\"$environment\"}[1m])",
           "legendFormat": "dropped/sec",
           "refId": "B"
         }
@@ -220,7 +220,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "rate(strait_run_transitions_total[1m])",
+          "expr": "rate(strait_run_transitions_total{deployment_environment=~\"$environment\"}[1m])",
           "legendFormat": "{{from}}-{{to}}",
           "refId": "A"
         }
@@ -243,7 +243,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "strait_queue_depth_ratio",
+          "expr": "strait_queue_depth_ratio{deployment_environment=~\"$environment\"}",
           "legendFormat": "{{status}}",
           "refId": "A"
         }
@@ -274,17 +274,17 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "strait_db_pool_acquired_ratio",
+          "expr": "strait_db_pool_acquired_ratio{deployment_environment=~\"$environment\"}",
           "legendFormat": "acquired",
           "refId": "A"
         },
         {
-          "expr": "strait_db_pool_idle_ratio",
+          "expr": "strait_db_pool_idle_ratio{deployment_environment=~\"$environment\"}",
           "legendFormat": "idle",
           "refId": "B"
         },
         {
-          "expr": "strait_db_pool_total_ratio",
+          "expr": "strait_db_pool_total_ratio{deployment_environment=~\"$environment\"}",
           "legendFormat": "total",
           "refId": "C"
         }
@@ -307,7 +307,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "rate(strait_db_pool_wait_count_ratio[1m])",
+          "expr": "rate(strait_db_pool_wait_count_ratio{deployment_environment=~\"$environment\"}[1m])",
           "legendFormat": "waits/sec",
           "refId": "A"
         }
@@ -338,7 +338,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "go_goroutines",
+          "expr": "go_goroutines{deployment_environment=~\"$environment\"}",
           "legendFormat": "goroutines",
           "refId": "A"
         }
@@ -361,12 +361,12 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "go_memstats_heap_alloc_bytes",
+          "expr": "go_memstats_heap_alloc_bytes{deployment_environment=~\"$environment\"}",
           "legendFormat": "heap alloc",
           "refId": "A"
         },
         {
-          "expr": "go_memstats_heap_inuse_bytes",
+          "expr": "go_memstats_heap_inuse_bytes{deployment_environment=~\"$environment\"}",
           "legendFormat": "heap inuse",
           "refId": "B"
         }
@@ -389,7 +389,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "rate(go_gc_duration_seconds_sum[1m])",
+          "expr": "rate(go_gc_duration_seconds_sum{deployment_environment=~\"$environment\"}[1m])",
           "legendFormat": "gc time/sec",
           "refId": "A"
         }
@@ -406,7 +406,22 @@
       }
     }
   ],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "query": "label_values(deployment_environment)",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" },
+        "multi": false
+      }
+    ]
+  },
   "annotations": { "list": [] },
   "links": []
 }
