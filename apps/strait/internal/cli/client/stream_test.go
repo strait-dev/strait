@@ -8,7 +8,50 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestStreamRunEvents_SurvivesBeyondClientTimeout(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+
+		// Send first event immediately
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"event\",\"message\":\"first\",\"timestamp\":\"2026-03-19T10:00:00Z\"}\n\n")
+		flusher.Flush()
+
+		// Wait longer than the client's regular HTTP timeout (1s), then send second event
+		time.Sleep(1500 * time.Millisecond)
+
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"event\",\"message\":\"second\",\"timestamp\":\"2026-03-19T10:00:02Z\"}\n\n")
+		flusher.Flush()
+	}))
+	defer srv.Close()
+
+	// Create client with a 1s timeout for regular HTTP requests
+	c, err := New(srv.URL, "test-key", 1*time.Second)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	var messages []RunStreamMessage
+	err = c.StreamRunEvents(context.Background(), "run-1", func(msg RunStreamMessage) error {
+		messages = append(messages, msg)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("StreamRunEvents: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(messages))
+	}
+	if messages[0].Message != "first" || messages[1].Message != "second" {
+		t.Fatalf("unexpected messages: %+v", messages)
+	}
+}
 
 func TestStreamRunEvents(t *testing.T) {
 	t.Parallel()

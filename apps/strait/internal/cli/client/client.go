@@ -17,9 +17,10 @@ import (
 )
 
 type Client struct {
-	baseURL string
-	apiKey  string
-	http    *http.Client
+	baseURL    string
+	apiKey     string
+	http       *http.Client
+	streamHTTP *http.Client
 }
 
 func New(baseURL, apiKey string, timeout time.Duration) (*Client, error) {
@@ -40,9 +41,10 @@ func New(baseURL, apiKey string, timeout time.Duration) (*Client, error) {
 	}
 
 	return &Client{
-		baseURL: parsed.String(),
-		apiKey:  strings.TrimSpace(apiKey),
-		http:    &http.Client{Timeout: timeout},
+		baseURL:    parsed.String(),
+		apiKey:     strings.TrimSpace(apiKey),
+		http:       &http.Client{Timeout: timeout},
+		streamHTTP: &http.Client{Timeout: 0},
 	}, nil
 }
 

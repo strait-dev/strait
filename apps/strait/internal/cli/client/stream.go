@@ -45,7 +45,7 @@ func (c *Client) StreamRunEvents(ctx context.Context, runID string, handle func(
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	resp, err := c.http.Do(req)
+	resp, err := c.streamHTTP.Do(req)
 	if err != nil {
 		return err
 	}

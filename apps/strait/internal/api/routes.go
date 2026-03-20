@@ -84,6 +84,14 @@ func (s *Server) routes() chi.Router {
 		r.Get("/", s.handleEventTriggerStream)
 	})
 
+	// Run stream route without timeout middleware so SSE connections stay open.
+	r.Route("/v1/runs/{runID}/stream", func(r chi.Router) {
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectContextMiddleware)
+		r.Use(s.projectRateLimit)
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleRunStream)
+	})
+
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(s.projectContextMiddleware)
@@ -162,7 +170,6 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/", s.handleCancelRun)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/replay", s.handleReplayRun)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/dlq-replay", s.handleReplayDeadLetterRun)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/stream", s.handleRunStream)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/children", s.handleListChildRuns)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/events", s.handleListRunEvents)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/checkpoints", s.handleListRunCheckpoints)

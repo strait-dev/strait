@@ -63,6 +63,18 @@ func TestNew_DefaultTimeout(t *testing.T) {
 	}
 }
 
+func TestNew_StreamHTTPHasNoTimeout(t *testing.T) {
+	t.Parallel()
+
+	c, err := New("http://localhost:8080", "key", 10*time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.streamHTTP.Timeout != 0 {
+		t.Fatalf("expected 0 timeout for streamHTTP, got %v", c.streamHTTP.Timeout)
+	}
+}
+
 func TestListJobs(t *testing.T) {
 	t.Parallel()
 
