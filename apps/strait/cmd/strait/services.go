@@ -15,6 +15,7 @@ import (
 	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/health"
+	"strait/internal/logdrain"
 	"strait/internal/notification"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
@@ -276,6 +277,28 @@ func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *s
 		slog.Info("stopping notification worker")
 		notifWorker.Stop()
 		slog.Info("notification worker stopped")
+		return nil
+	})
+}
+
+func startLogDrainWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries) {
+	if cfg == nil || !notificationWorkerEnabled(cfg.Mode) {
+		return
+	}
+
+	svc := logdrain.NewService()
+	w := logdrain.NewWorker(queries, svc, 30*time.Second)
+
+	g.Go(func(ctx context.Context) error {
+		w.Run(ctx)
+		return nil
+	})
+
+	g.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		slog.Info("stopping log drain worker")
+		w.Stop()
+		slog.Info("log drain worker stopped")
 		return nil
 	})
 }
