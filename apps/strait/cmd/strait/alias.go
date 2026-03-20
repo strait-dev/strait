@@ -23,13 +23,28 @@ func newAliasCommand(state *appState) *cobra.Command {
 	return cmd
 }
 
+func loadHomeConfigForWrite() (*cliconfig.File, string, error) {
+	homePath, err := cliconfig.HomePath()
+	if err != nil {
+		return nil, "", err
+	}
+	loaded, err := cliconfig.Load(homePath)
+	if err != nil {
+		return nil, "", err
+	}
+	if loaded.Data == nil {
+		return nil, "", fmt.Errorf("unable to load home config")
+	}
+	return loaded.Data, loaded.Path, nil
+}
+
 func newAliasSetCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <name> <expansion>",
 		Short: "Set a command alias",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
-			cfg, path, err := loadConfigForWrite(state)
+			cfg, path, err := loadHomeConfigForWrite()
 			if err != nil {
 				return err
 			}
@@ -79,7 +94,7 @@ func newAliasDeleteCommand(state *appState) *cobra.Command {
 		Short: "Delete command alias",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			cfg, path, err := loadConfigForWrite(state)
+			cfg, path, err := loadHomeConfigForWrite()
 			if err != nil {
 				return err
 			}
