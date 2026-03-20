@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"strait/internal/cli/client"
@@ -40,20 +39,18 @@ func newCreateJobCommand(state *appState) *cobra.Command {
 		Short: "Create a new job",
 		Long:  "Create a new job via flags or JSON input.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			var err error
-			projectID, err = requireProjectID(state, projectID)
-			if err != nil {
-				return err
-			}
-
 			// JSON mode: read from stdin
 			if asJSON {
 				var req client.CreateJobRequest
-				if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
+				if err := json.NewDecoder(cmd.InOrStdin()).Decode(&req); err != nil {
 					return fmt.Errorf("invalid JSON input: %w", err)
 				}
 				if req.ProjectID == "" {
-					req.ProjectID = projectID
+					resolved, err := requireProjectID(state, projectID)
+					if err != nil {
+						return err
+					}
+					req.ProjectID = resolved
 				}
 
 				cli, err := newAPIClient(state)
@@ -65,6 +62,12 @@ func newCreateJobCommand(state *appState) *cobra.Command {
 					return err
 				}
 				return printData(state, job)
+			}
+
+			var err error
+			projectID, err = requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 
 			if name == "" {
@@ -128,20 +131,18 @@ func newCreateWorkflowCommand(state *appState) *cobra.Command {
 		Short: "Create a new workflow",
 		Long:  "Create a new workflow via flags or JSON input.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			var err error
-			projectID, err = requireProjectID(state, projectID)
-			if err != nil {
-				return err
-			}
-
 			// JSON mode: read from stdin
 			if asJSON {
 				var req client.CreateWorkflowRequest
-				if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
+				if err := json.NewDecoder(cmd.InOrStdin()).Decode(&req); err != nil {
 					return fmt.Errorf("invalid JSON input: %w", err)
 				}
 				if req.ProjectID == "" {
-					req.ProjectID = projectID
+					resolved, err := requireProjectID(state, projectID)
+					if err != nil {
+						return err
+					}
+					req.ProjectID = resolved
 				}
 
 				cli, err := newAPIClient(state)
@@ -153,6 +154,12 @@ func newCreateWorkflowCommand(state *appState) *cobra.Command {
 					return err
 				}
 				return printData(state, wf)
+			}
+
+			var err error
+			projectID, err = requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 
 			if name == "" {
