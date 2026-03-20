@@ -2,15 +2,21 @@ package worker
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
 )
 
-// ClickHouseSubscriber enqueues run analytics into the ClickHouse exporter
-// on terminal run events (completed, failed, timed out, etc.).
-func ClickHouseSubscriber(exporter *clickhouse.Exporter) RunEventSubscriber {
+// EventLister fetches run events from the store. Implemented by *store.Queries.
+type EventLister interface {
+	ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
+}
+
+// ClickHouseSubscriber enqueues run analytics and individual run events into
+// the ClickHouse exporter on terminal run events (completed, failed, timed out, etc.).
+func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister) RunEventSubscriber {
 	return func(_ context.Context, event RunLifecycleEvent) {
 		if exporter == nil {
 			return
@@ -61,6 +67,23 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter) RunEventSubscriber {
 			StartedAt:     run.StartedAt,
 			FinishedAt:    run.FinishedAt,
 		})
+
+		// Enqueue individual run events in background so we don't block the subscriber.
+		if events != nil {
+			go func() { //nolint:gosec // G118: intentionally detached from request ctx; subscriber must not block.
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+
+				evts, err := events.ListEvents(ctx, run.ID, 1000, nil)
+				if err != nil {
+					slog.Error("clickhouse: list run events", "run_id", run.ID, "error", err)
+					return
+				}
+				for _, rec := range runEventsFromDomain(run, evts) {
+					exporter.Enqueue(rec)
+				}
+			}()
+		}
 	}
 }
 
@@ -73,8 +96,8 @@ func isTerminalEvent(t RunEventType) bool {
 	}
 }
 
-// RunEventsFromDomain converts domain RunEvents to ClickHouse RunEventRecords.
-func RunEventsFromDomain(run *domain.JobRun, events []domain.RunEvent) []clickhouse.RunEventRecord {
+// runEventsFromDomain converts domain RunEvents to ClickHouse RunEventRecords.
+func runEventsFromDomain(run *domain.JobRun, events []domain.RunEvent) []clickhouse.RunEventRecord {
 	records := make([]clickhouse.RunEventRecord, 0, len(events))
 	for _, e := range events {
 		var metadata string
