@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -48,16 +49,19 @@ func (c *Client) StreamRunEvents(ctx context.Context, runID string, handle func(
 	if err != nil {
 		return err
 	}
+	var closeOnce sync.Once
+	closeBody := func() { _ = resp.Body.Close() }
+
 	done := make(chan struct{})
 	defer func() {
 		close(done)
-		_ = resp.Body.Close()
+		closeOnce.Do(closeBody)
 	}()
 
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = resp.Body.Close()
+			closeOnce.Do(closeBody)
 		case <-done:
 		}
 	}()

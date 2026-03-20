@@ -38,7 +38,7 @@ func Generate(provider string, cfg GenerateConfig) (string, error) {
 }
 
 func containsUnsafeChars(s string) bool {
-	for _, ch := range []string{"${", "`", "{{", "}}", "$(", ";", "|", "&"} {
+	for _, ch := range []string{"${", "`", "{{", "}}", "$(", ";", "|", "&", "\n", "\r"} {
 		if strings.Contains(s, ch) {
 			return true
 		}
