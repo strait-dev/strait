@@ -106,7 +106,7 @@ so metrics, traces, and logs can be correlated and filtered by environment.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LOADTEST_STRAIT_URL` | `http://localhost:8080` | Strait API URL |
+| `LOADTEST_STRAIT_URL` | `http://localhost:7676` | Strait API URL (must match `LOADTEST_PORT` in Makefile) |
 | `LOADTEST_INTERNAL_SECRET` | `$INTERNAL_SECRET` | API auth secret |
 | `LOADTEST_DATABASE_URL` | `$DATABASE_URL` | PostgreSQL for metrics |
 | `LOADTEST_REDIS_URL` | `$REDIS_URL` | Redis for metrics |

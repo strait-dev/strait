@@ -36,7 +36,7 @@ func setupHarness(t *testing.T) *loadtest.Harness {
 	t.Helper()
 
 	h := loadtest.NewHarness(loadtest.HarnessConfig{
-		StraitURL:       envOrDefault("LOADTEST_STRAIT_URL", "http://localhost:8080"),
+		StraitURL:       envOrDefault("LOADTEST_STRAIT_URL", "http://localhost:7676"),
 		InternalSecret:  envOrDefault("LOADTEST_INTERNAL_SECRET", os.Getenv("INTERNAL_SECRET")),
 		DatabaseURL:     envOrDefault("LOADTEST_DATABASE_URL", os.Getenv("DATABASE_URL")),
 		RedisURL:        envOrDefault("LOADTEST_REDIS_URL", os.Getenv("REDIS_URL")),
@@ -730,7 +730,7 @@ func TestEnduranceWeekend(t *testing.T) {
 // Use: LOADTEST_STRAIT_URL=https://your-app.fly.dev go test -tags=loadtest -run TestFlyValidation -timeout 2h ./internal/loadtest/...
 func TestFlyValidation(t *testing.T) {
 	straitURL := os.Getenv("LOADTEST_STRAIT_URL")
-	if straitURL == "" || straitURL == "http://localhost:8080" {
+	if straitURL == "" || straitURL == "http://localhost:7676" {
 		t.Skip("set LOADTEST_STRAIT_URL to a Fly.io deployment URL to run")
 	}
 
