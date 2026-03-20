@@ -40,7 +40,7 @@ func setupHarness(t *testing.T) *loadtest.Harness {
 		InternalSecret:  envOrDefault("LOADTEST_INTERNAL_SECRET", os.Getenv("INTERNAL_SECRET")),
 		DatabaseURL:     envOrDefault("LOADTEST_DATABASE_URL", os.Getenv("DATABASE_URL")),
 		RedisURL:        envOrDefault("LOADTEST_REDIS_URL", os.Getenv("REDIS_URL")),
-		TestServerPort:  9999,
+		TestServerPort:  9000,
 		MetricsInterval: 5 * time.Second,
 	})
 
@@ -542,7 +542,7 @@ func TestErrorScenarios(t *testing.T) {
 
 // TestTestServerEndpoints validates the test HTTP server works correctly.
 func TestTestServerEndpoints(t *testing.T) {
-	srv := loadtest.NewTestServer(19999)
+	srv := loadtest.NewTestServer(19000)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("starting test server: %v", err)
 	}
@@ -568,7 +568,7 @@ func TestTestServerEndpoints(t *testing.T) {
 
 	for _, ep := range endpoints {
 		t.Run(ep.name, func(t *testing.T) {
-			url := fmt.Sprintf("http://localhost:19999%s", ep.path)
+			url := fmt.Sprintf("http://localhost:19000%s", ep.path)
 			var req *http.Request
 			var err error
 

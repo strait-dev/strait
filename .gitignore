@@ -156,6 +156,7 @@ playwright/
 playwright/.auth/
 playwright/.cache/
 /blob-report/
+apps/strait/report/
 
 # ==============================================================================
 # EXTERNAL SERVICES & TOOLS

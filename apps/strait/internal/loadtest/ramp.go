@@ -6,9 +6,13 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand/v2"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // RampMode determines how the ramp engine increases load.
@@ -146,17 +150,28 @@ func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
 	// Track latencies
 	latencies := newLatencyTracker()
 
+	// Use a WaitGroup to track all goroutines spawned during the step
+	var wg conc.WaitGroup
+
 	switch re.config.Mode {
 	case RampThroughput:
-		go re.runThroughputStep(stepCtx, rate, &ops, &errs, latencies)
+		re.runThroughputStep(stepCtx, rate, &ops, &errs, latencies, &wg)
 	case RampConcurrency:
-		go re.runConcurrencyStep(stepCtx, rate, &ops, &errs, latencies)
+		re.runConcurrencyStep(stepCtx, rate, &ops, &errs, latencies, &wg)
 	}
 
 	// Wait for step duration to complete
 	<-stepCtx.Done()
-	// Give in-flight operations a brief window to complete
-	time.Sleep(500 * time.Millisecond)
+	// Wait for in-flight operations to finish (with a brief timeout)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+	}
 
 	totalOps := ops.Load()
 	totalErrs := errs.Load()
@@ -189,6 +204,7 @@ func (re *RampEngine) runThroughputStep(
 	rate int,
 	ops, errs *atomic.Int64,
 	latencies *latencyTracker,
+	wg *conc.WaitGroup,
 ) {
 	// Send 'rate' operations per second for the step duration.
 	// Each operation gets its own context so step boundary cancellation
@@ -201,7 +217,7 @@ func (re *RampEngine) runThroughputStep(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			go func() {
+			wg.Go(func() {
 				opCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				start := time.Now()
@@ -211,7 +227,7 @@ func (re *RampEngine) runThroughputStep(
 					ops.Add(1)
 				}
 				latencies.record(time.Since(start))
-			}()
+			})
 		}
 	}
 }
@@ -221,12 +237,13 @@ func (re *RampEngine) runConcurrencyStep(
 	concurrent int,
 	ops, errs *atomic.Int64,
 	latencies *latencyTracker,
+	wg *conc.WaitGroup,
 ) {
 	// Run 'concurrent' workers in parallel for the step duration.
 	// Each operation gets its own context so step boundary cancellation
 	// does not count in-flight requests as errors.
 	for range concurrent {
-		go func() {
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -243,7 +260,7 @@ func (re *RampEngine) runConcurrencyStep(
 					cancel()
 				}
 			}
-		}()
+		})
 	}
 
 	// Wait for step duration (context will cancel)
@@ -265,22 +282,35 @@ func (re *RampEngine) checkStopConditions(step RampStepResult) string {
 	return ""
 }
 
-// latencyTracker collects latency measurements for percentile computation.
+const reservoirSize = 10000
+
+// latencyTracker collects latency measurements using reservoir sampling
+// to bound memory usage while maintaining statistical accuracy.
 type latencyTracker struct {
 	mu      sync.Mutex
 	samples []time.Duration
+	count   int64
 }
 
 func newLatencyTracker() *latencyTracker {
 	return &latencyTracker{
-		samples: make([]time.Duration, 0, 1024),
+		samples: make([]time.Duration, 0, reservoirSize),
 	}
 }
 
 func (lt *latencyTracker) record(d time.Duration) {
 	lt.mu.Lock()
-	lt.samples = append(lt.samples, d)
-	lt.mu.Unlock()
+	defer lt.mu.Unlock()
+	lt.count++
+	if len(lt.samples) < reservoirSize {
+		lt.samples = append(lt.samples, d)
+	} else {
+		// Reservoir sampling: replace a random element with probability reservoirSize/count
+		j := rand.Int64N(lt.count)
+		if j < reservoirSize {
+			lt.samples[j] = d
+		}
+	}
 }
 
 func (lt *latencyTracker) percentile(p float64) time.Duration {
@@ -295,7 +325,7 @@ func (lt *latencyTracker) percentile(p float64) time.Duration {
 	// Copy and sort
 	sorted := make([]time.Duration, n)
 	copy(sorted, lt.samples)
-	sortDurations(sorted)
+	slices.Sort(sorted)
 
 	idx := int(math.Ceil(p/100*float64(n))) - 1
 	if idx < 0 {
@@ -305,17 +335,4 @@ func (lt *latencyTracker) percentile(p float64) time.Duration {
 		idx = n - 1
 	}
 	return sorted[idx]
-}
-
-func sortDurations(d []time.Duration) {
-	// Simple insertion sort for moderate sizes; production would use sort.Slice
-	for i := 1; i < len(d); i++ {
-		key := d[i]
-		j := i - 1
-		for j >= 0 && d[j] > key {
-			d[j+1] = d[j]
-			j--
-		}
-		d[j+1] = key
-	}
 }

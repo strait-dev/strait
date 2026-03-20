@@ -85,16 +85,15 @@ func (lc *LogCapture) CaptureAll() error {
 		return fmt.Errorf("creating logs dir: %w", err)
 	}
 
-	// Capture Postgres slow query log
-	lc.captureDockerLog("strait-postgres-1", "postgres.log")
-	lc.captureDockerLog("cayenne-postgres-1", "postgres.log")
+	// Capture Postgres slow query log (auto-detect container)
+	if pgContainer, err := findContainer("postgres"); err == nil {
+		lc.captureDockerLog(pgContainer, "postgres.log")
+	}
 
-	// Capture Redis log
-	lc.captureDockerLog("strait-redis-1", "redis.log")
-	lc.captureDockerLog("cayenne-redis-1", "redis.log")
-
-	// Capture Docker events
-	lc.captureDockerLog("", "docker.log")
+	// Capture Redis log (auto-detect container)
+	if redisContainer, err := findContainer("redis"); err == nil {
+		lc.captureDockerLog(redisContainer, "redis.log")
+	}
 
 	return nil
 }

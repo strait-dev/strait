@@ -3,6 +3,7 @@
 package loadtest
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const defaultMaxFileSize int64 = 100 * 1024 * 1024 // 100MB
+
 // MetricsCollector gathers system metrics at regular intervals
 // and writes them to JSONL files for later analysis.
 type MetricsCollector struct {
@@ -24,9 +27,16 @@ type MetricsCollector struct {
 	outputDir string
 	interval  time.Duration
 
-	mu       sync.Mutex
+	mu        sync.Mutex
 	snapshots []MetricsSnapshot
-	file     *os.File
+
+	fileMu       sync.Mutex
+	file         *os.File
+	writer       *bufio.Writer
+	maxFileSize  int64
+	bytesWritten int64
+	fileIndex    int
+	filePrefix   string
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -105,24 +115,23 @@ func NewMetricsCollector(cfg MetricsCollectorConfig) (*MetricsCollector, error) 
 	}
 
 	return &MetricsCollector{
-		pool:      cfg.Pool,
-		redis:     cfg.Redis,
-		outputDir: cfg.OutputDir,
-		interval:  cfg.Interval,
-		done:      make(chan struct{}),
+		pool:        cfg.Pool,
+		redis:       cfg.Redis,
+		outputDir:   cfg.OutputDir,
+		interval:    cfg.Interval,
+		maxFileSize: defaultMaxFileSize,
+		done:        make(chan struct{}),
 	}, nil
 }
 
 // Start begins collecting metrics in a background goroutine.
 func (mc *MetricsCollector) Start(ctx context.Context) error {
-	filename := filepath.Join(mc.outputDir, fmt.Sprintf("metrics_%s.jsonl",
-		time.Now().Format("2006-01-02T15-04-05")))
+	mc.filePrefix = fmt.Sprintf("metrics_%s", time.Now().Format("2006-01-02T15-04-05"))
+	mc.fileIndex = 0
 
-	f, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("creating metrics file: %w", err)
+	if err := mc.openNewFile(); err != nil {
+		return err
 	}
-	mc.file = f
 
 	ctx, mc.cancel = context.WithCancel(ctx)
 
@@ -137,6 +146,14 @@ func (mc *MetricsCollector) Stop() error {
 	}
 	<-mc.done
 
+	mc.fileMu.Lock()
+	defer mc.fileMu.Unlock()
+
+	if mc.writer != nil {
+		if err := mc.writer.Flush(); err != nil {
+			return fmt.Errorf("flushing metrics writer: %w", err)
+		}
+	}
 	if mc.file != nil {
 		return mc.file.Close()
 	}
@@ -150,6 +167,36 @@ func (mc *MetricsCollector) Snapshots() []MetricsSnapshot {
 	result := make([]MetricsSnapshot, len(mc.snapshots))
 	copy(result, mc.snapshots)
 	return result
+}
+
+func (mc *MetricsCollector) openNewFile() error {
+	filename := filepath.Join(mc.outputDir, fmt.Sprintf("%s_%d.jsonl", mc.filePrefix, mc.fileIndex))
+
+	f, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("creating metrics file: %w", err)
+	}
+
+	mc.file = f
+	mc.writer = bufio.NewWriterSize(f, 64*1024) // 64KB buffer
+	mc.bytesWritten = 0
+	return nil
+}
+
+func (mc *MetricsCollector) rotateFile() error {
+	if mc.writer != nil {
+		if err := mc.writer.Flush(); err != nil {
+			return fmt.Errorf("flushing metrics writer during rotation: %w", err)
+		}
+	}
+	if mc.file != nil {
+		if err := mc.file.Close(); err != nil {
+			return fmt.Errorf("closing metrics file during rotation: %w", err)
+		}
+	}
+
+	mc.fileIndex++
+	return mc.openNewFile()
 }
 
 func (mc *MetricsCollector) collectLoop(ctx context.Context) {
@@ -191,14 +238,21 @@ func (mc *MetricsCollector) collect(ctx context.Context) {
 	mc.snapshots = append(mc.snapshots, snap)
 	mc.mu.Unlock()
 
-	// Write to JSONL file
-	if mc.file != nil {
+	// Write to JSONL file under a separate mutex
+	mc.fileMu.Lock()
+	defer mc.fileMu.Unlock()
+
+	if mc.writer != nil {
 		data, err := json.Marshal(snap)
 		if err == nil {
-			mc.mu.Lock()
-			mc.file.Write(data)
-			mc.file.Write([]byte("\n"))
-			mc.mu.Unlock()
+			n, _ := mc.writer.Write(data)
+			mc.writer.Write([]byte("\n"))
+			mc.bytesWritten += int64(n) + 1
+
+			// Check if rotation is needed
+			if mc.bytesWritten >= mc.maxFileSize {
+				mc.rotateFile()
+			}
 		}
 	}
 }

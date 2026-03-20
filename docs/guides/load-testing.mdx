@@ -124,6 +124,31 @@ The HTML report includes:
 - Chaos engineering verdicts
 - Error scenario pass/fail matrix
 
+## Grafana Dashboard
+
+The load test environment includes a pre-configured Grafana dashboard for real-time monitoring.
+
+### Setup
+
+```bash
+# Start the full load test stack
+cd apps/strait
+docker compose -f docker-compose.loadtest.yml up -d
+
+# Open Grafana (default: admin/admin)
+open http://localhost:3001
+```
+
+The dashboard shows:
+- Queue depth and active workers
+- Throughput and dispatch latency (P50/P95/P99)
+- Error rates and worker pool utilization
+- Database connection pool breakdown
+- Webhook delivery metrics
+- Go runtime (goroutines, heap memory, GC pauses)
+
+Prometheus scrapes Strait's `/metrics` endpoint every 5 seconds, so panels update in near real-time during load tests.
+
 ## Understanding Your Results
 
 ### What each metric means

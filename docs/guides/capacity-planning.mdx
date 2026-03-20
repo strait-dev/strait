@@ -7,6 +7,20 @@ description: Use load test results to plan your Strait deployment hardware and c
 
 These benchmarks are from our internal load tests. Your results will vary based on hardware, network, and workload mix. Run the [load testing suite](/guides/load-testing) on your own infrastructure for accurate numbers.
 
+### Local Development Benchmarks
+
+Tested on a MacBook Pro (M-series, shared CPU), Strait running with `DB_MAX_CONNS=50`, `WORKER_CONCURRENCY=25`, PostgreSQL and Redis co-located.
+
+| Test | Result | Bottleneck |
+| --- | --- | --- |
+| Throughput Ceiling | 70 jobs/sec sustained, breaks at 80 | Queue depth > 10K |
+| Concurrency Ceiling | 350 concurrent, breaks at 400+ | Test context timeout |
+| Quick Validation | 80 jobs/sec sustained | P99 latency > 5s at 90/sec |
+| Total Operations (Throughput) | 21,594 with 0 errors | - |
+| Total Operations (Concurrency) | 350,863 with 0 errors | - |
+
+These numbers represent a **floor**, not a ceiling. Production deployments on dedicated hardware with `DB_MAX_CONNS=100` will achieve significantly higher throughput. Run the [load testing suite](/guides/load-testing) on your own infrastructure for accurate numbers.
+
 ## Hardware Sizing Guide
 
 | Customers | Runs/Day | Recommended Hardware | PostgreSQL | Redis |
@@ -121,3 +135,24 @@ For Fly.io deployments:
 | Growth | `shared-cpu-2x` (2048MB) | 1 API + 1 worker | Single |
 | Scale | `performance-2x` (4GB) | 1 API + 2 workers | Multi-region |
 | Enterprise | `performance-4x` (8GB) | 2 API + 4 workers | Multi-region |
+
+### Running Your Own Benchmarks
+
+Use the included load testing framework with Grafana dashboards for real-time visualization:
+
+```bash
+# Start the load test environment (Postgres, Redis, Prometheus, Grafana)
+cd apps/strait
+docker compose -f docker-compose.loadtest.yml up -d
+
+# Start Strait
+DATABASE_URL="postgres://strait:strait@localhost:5432/strait?sslmode=disable" \
+REDIS_URL="redis://localhost:6379" go run ./cmd/strait
+
+# Run the quick validation
+LOADTEST_QUICK=true go test -tags=loadtest -run TestQuickValidation \
+  -timeout 15m ./internal/loadtest/...
+
+# View results in Grafana
+open http://localhost:3001
+```

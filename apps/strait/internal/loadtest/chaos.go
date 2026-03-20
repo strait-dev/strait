@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -54,6 +55,29 @@ func NewChaosEngine(h *Harness, loadRate int, projectID, jobSlug string) *ChaosE
 		projectID: projectID,
 		jobSlug:   jobSlug,
 	}
+}
+
+// findContainer finds a running Docker container matching the given service name.
+func findContainer(serviceName string) (string, error) {
+	out, err := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", serviceName), "--format", "{{.Names}}").Output()
+	if err != nil {
+		return "", fmt.Errorf("docker ps failed: %w", err)
+	}
+	names := strings.TrimSpace(string(out))
+	if names == "" {
+		return "", fmt.Errorf("no container found matching %q", serviceName)
+	}
+	// Take the first match
+	lines := strings.Split(names, "\n")
+	return lines[0], nil
+}
+
+func (ce *ChaosEngine) findPostgresContainer() (string, error) {
+	return findContainer("postgres")
+}
+
+func (ce *ChaosEngine) findRedisContainer() (string, error) {
+	return findContainer("redis")
 }
 
 // AllChaosScenarios returns all 8 defined chaos scenarios.
@@ -236,26 +260,24 @@ func (ce *ChaosEngine) chaosWorkerKill(ctx context.Context) error {
 }
 
 func (ce *ChaosEngine) chaosDatabaseFailover(ctx context.Context) error {
+	container, err := ce.findPostgresContainer()
+	if err != nil {
+		return fmt.Errorf("failed to find postgres container: %w", err)
+	}
+
 	// Simulate by pausing postgres container
-	pause := exec.CommandContext(ctx, "docker", "pause", "strait-postgres-1")
+	pause := exec.CommandContext(ctx, "docker", "pause", container)
 	if err := pause.Run(); err != nil {
-		// Try alternate container name
-		pause = exec.CommandContext(ctx, "docker", "pause", "cayenne-postgres-1")
-		if err := pause.Run(); err != nil {
-			return fmt.Errorf("failed to pause postgres: %w", err)
-		}
+		return fmt.Errorf("failed to pause postgres container %s: %w", container, err)
 	}
 
 	// Hold for 10 seconds
 	time.Sleep(10 * time.Second)
 
 	// Unpause
-	unpause := exec.CommandContext(ctx, "docker", "unpause", "strait-postgres-1")
+	unpause := exec.CommandContext(ctx, "docker", "unpause", container)
 	if err := unpause.Run(); err != nil {
-		unpause = exec.CommandContext(ctx, "docker", "unpause", "cayenne-postgres-1")
-		if err := unpause.Run(); err != nil {
-			return fmt.Errorf("failed to unpause postgres: %w", err)
-		}
+		return fmt.Errorf("failed to unpause postgres container %s: %w", container, err)
 	}
 
 	// Wait for connections to recover
@@ -264,25 +286,24 @@ func (ce *ChaosEngine) chaosDatabaseFailover(ctx context.Context) error {
 }
 
 func (ce *ChaosEngine) chaosRedisFailure(ctx context.Context) error {
+	container, err := ce.findRedisContainer()
+	if err != nil {
+		return fmt.Errorf("failed to find redis container: %w", err)
+	}
+
 	// Kill Redis container
-	kill := exec.CommandContext(ctx, "docker", "kill", "strait-redis-1")
+	kill := exec.CommandContext(ctx, "docker", "kill", container)
 	if err := kill.Run(); err != nil {
-		kill = exec.CommandContext(ctx, "docker", "kill", "cayenne-redis-1")
-		if err := kill.Run(); err != nil {
-			return fmt.Errorf("failed to kill redis: %w", err)
-		}
+		return fmt.Errorf("failed to kill redis container %s: %w", container, err)
 	}
 
 	// Wait 2 minutes
 	time.Sleep(2 * time.Minute)
 
 	// Restart Redis
-	start := exec.CommandContext(ctx, "docker", "start", "strait-redis-1")
+	start := exec.CommandContext(ctx, "docker", "start", container)
 	if err := start.Run(); err != nil {
-		start = exec.CommandContext(ctx, "docker", "start", "cayenne-redis-1")
-		if err := start.Run(); err != nil {
-			return fmt.Errorf("failed to restart redis: %w", err)
-		}
+		return fmt.Errorf("failed to restart redis container %s: %w", container, err)
 	}
 
 	// Wait for reconnection
@@ -350,6 +371,8 @@ func (ce *ChaosEngine) chaosClockSkew(_ context.Context) error {
 }
 
 func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
+	redisContainer, redisErr := ce.findRedisContainer()
+
 	var wg sync.WaitGroup
 
 	// Simultaneously: kill Redis + spike traffic + kill worker
@@ -358,7 +381,10 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	// Kill Redis
 	go func() {
 		defer wg.Done()
-		exec.CommandContext(ctx, "docker", "kill", "strait-redis-1").Run()
+		if redisErr != nil {
+			return
+		}
+		exec.CommandContext(ctx, "docker", "kill", redisContainer).Run()
 	}()
 
 	// 10x traffic spike
@@ -394,7 +420,9 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	time.Sleep(2 * time.Minute)
 
 	// Restart everything
-	exec.CommandContext(ctx, "docker", "start", "strait-redis-1").Run()
+	if redisErr == nil {
+		exec.CommandContext(ctx, "docker", "start", redisContainer).Run()
+	}
 	time.Sleep(10 * time.Second)
 
 	// Wait for recovery

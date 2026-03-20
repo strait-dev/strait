@@ -56,7 +56,7 @@ type HarnessConfig struct {
 // NewHarness creates a test harness with the given configuration.
 func NewHarness(cfg HarnessConfig) *Harness {
 	if cfg.TestServerPort == 0 {
-		cfg.TestServerPort = 9999
+		cfg.TestServerPort = 9000
 	}
 	if cfg.OutputDir == "" {
 		cfg.OutputDir = filepath.Join("loadtest-results", time.Now().Format("2006-01-02T15-04-05"))
