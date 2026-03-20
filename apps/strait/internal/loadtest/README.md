@@ -66,6 +66,26 @@ After running `make loadtest-up`, open http://localhost:3001 to see:
 
 Prometheus scrapes Strait's `/metrics` endpoint every 5 seconds.
 
+Use the **Environment** dropdown at the top to filter all panels by
+`deployment.environment` (dev/stg/prd). The attribute is set from
+`SENTRY_ENVIRONMENT` on startup.
+
+## Observability Pipeline
+
+Strait exports telemetry through several channels:
+
+| Signal | Destination | Notes |
+|--------|------------|-------|
+| Metrics (Prometheus) | Grafana Cloud via OTel collector | 45+ custom metrics, scraped every 5s |
+| Traces (OTLP) | Grafana Cloud / ClickHouse | Spans include `deployment.environment` |
+| Structured logs (OTLP) | ClickHouse via OTel collector | slog records bridged through `otelslog` |
+| Error tracking | Sentry | Environment-aware, PII-scrubbed |
+| Customer run events | ClickHouse | Batch-exported via async exporter |
+| Log drains | Customer webhooks | Worker dispatches events to configured endpoints |
+
+All OTel resources include `service.name` and `deployment.environment` attributes
+so metrics, traces, and logs can be correlated and filtered by environment.
+
 ## Architecture
 
 ```
