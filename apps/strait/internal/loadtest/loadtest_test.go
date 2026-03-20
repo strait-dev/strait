@@ -180,7 +180,11 @@ func TestConcurrencyCeiling(t *testing.T) {
 			})
 		})
 
-		result, err := engine.Run(context.Background())
+		// Use a shorter context than the test timeout to allow goroutine cleanup
+		ctx, cancel := context.WithTimeout(context.Background(), 14*time.Minute)
+		defer cancel()
+
+		result, err := engine.Run(ctx)
 		if err != nil {
 			t.Fatalf("HTTP concurrency test failed: %v", err)
 		}
