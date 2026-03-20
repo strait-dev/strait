@@ -87,9 +87,12 @@ func ValidateAPIKey(ctx context.Context, serverURL, apiKey string, timeout time.
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusForbidden:
+		return nil // 200 = full access, 403 = valid key missing stats:read
+	case http.StatusUnauthorized:
+		return fmt.Errorf("api key is invalid or revoked")
+	default:
 		return fmt.Errorf("api key validation failed with status %d", resp.StatusCode)
 	}
-
-	return nil
 }
