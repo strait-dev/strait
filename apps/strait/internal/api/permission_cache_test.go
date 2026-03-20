@@ -315,18 +315,25 @@ func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
 	// Set initial value.
 	c.Set("proj", "user", []string{"old"})
 
-	// Start readers in a loop.
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	// Use a started channel to ensure the reader goroutine is running
+	// before we start writing. Without this, the writes can finish
+	// before the reader is even scheduled (especially under -race).
+	started := make(chan struct{})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	var readCount atomic.Int64
 	var wg sync.WaitGroup
 	wg.Go(func() {
+		close(started)
 		for ctx.Err() == nil {
 			c.Get("proj", "user")
 			readCount.Add(1)
 		}
 	})
+
+	// Wait for the reader to be scheduled.
+	<-started
 
 	// Simultaneously set new values — should not deadlock.
 	for i := range 100 {
