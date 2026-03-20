@@ -508,7 +508,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 	g.Go(func(ctx context.Context) error {
 		if adaptive != nil {
-			adaptive.Run(ctx, 10*time.Second, func(probeCtx context.Context) (int, float64, error) {
+			adaptive.Run(ctx, 3*time.Second, func(probeCtx context.Context) (int, float64, error) {
 				stats, err := queries.QueueStats(probeCtx)
 				if err != nil {
 					return 0, 0, err

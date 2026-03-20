@@ -53,17 +53,29 @@ func (a *AdaptiveConcurrency) Observe(queueDepth int, utilization float64) int {
 	defer a.mu.Unlock()
 
 	current := a.current
-	if queueDepth > current*2 && utilization > 0.80 {
-		inc := max(int(math.Ceil(float64(current)*0.25)), 1)
+
+	// Scale up: tiered by queue depth severity.
+	if queueDepth > current*2 && utilization > 0.70 {
+		var factor float64
+		switch {
+		case queueDepth > 1000:
+			factor = 1.0 // Double on deep queue
+		case queueDepth > 100:
+			factor = 0.50 // 50% increase on moderate queue
+		default:
+			factor = 0.25 // 25% increase on mild backlog
+		}
+		inc := max(int(math.Ceil(float64(current)*factor)), 1)
 		a.current = min(current+inc, a.max)
 		a.idleChecks = 0
 		return a.current
 	}
 
+	// Scale down: 33% decrease after 2 consecutive idle checks.
 	if queueDepth == 0 && utilization < 0.20 {
 		a.idleChecks++
 		if a.idleChecks >= 2 {
-			dec := max(int(math.Ceil(float64(current)*0.25)), 1)
+			dec := max(int(math.Ceil(float64(current)*0.33)), 1)
 			a.current = max(current-dec, a.min)
 			a.idleChecks = 0
 		}
