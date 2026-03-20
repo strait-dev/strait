@@ -38,9 +38,10 @@ func decodePaginatedList(t testing.TB, body []byte, out any) {
 func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
-		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "01234567890123456789012345678901",
+		InternalSecret:           "test-secret",
+		MaxBulkTriggerItems:      500,
+		JWTSigningKey:            "01234567890123456789012345678901",
+		TriggerRateLimitRequests: 10000,
 	}
 	var p pubsub.Publisher
 	if pub != nil {
