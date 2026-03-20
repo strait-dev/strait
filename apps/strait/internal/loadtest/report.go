@@ -247,8 +247,45 @@ func (rg *ReportGenerator) generateDiff(current *Report) error {
 		})
 	}
 
-	return rg.writeJSON("diff.json", diff)
+	if err := rg.writeJSON("diff.json", diff); err != nil {
+		return err
+	}
+
+	// Also generate HTML diff
+	return rg.writeDiffHTML("diff.html", diff)
 }
+
+func (rg *ReportGenerator) writeDiffHTML(filename string, diff ReportDiff) error {
+	path := filepath.Join(rg.OutputDir, filename)
+
+	funcMap := template.FuncMap{
+		"changeColor": func(change string) string {
+			switch change {
+			case "improved":
+				return "#22c55e"
+			case "degraded":
+				return "#ef4444"
+			default:
+				return "#888"
+			}
+		},
+	}
+
+	tmpl, err := template.New("diff").Funcs(funcMap).Parse(diffHTMLTemplate)
+	if err != nil {
+		return fmt.Errorf("parsing diff template: %w", err)
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("creating diff file: %w", err)
+	}
+	defer f.Close()
+
+	return tmpl.Execute(f, diff)
+}
+
+var diffHTMLTemplate = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n<title>Strait Load Test Diff</title>\n<style>\n  body { font-family: -apple-system, sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 2rem; }\n  h1 { color: #fff; margin-bottom: 1rem; }\n  table { width: 100%%; border-collapse: collapse; margin: 1rem 0; }\n  th, td { padding: 0.8rem 1rem; text-align: left; border-bottom: 1px solid #1a1a1a; }\n  th { color: #888; font-size: 0.8rem; text-transform: uppercase; }\n  .improved { color: #22c55e; }\n  .degraded { color: #ef4444; }\n  .unchanged { color: #888; }\n</style>\n</head>\n<body>\n<h1>Load Test Comparison</h1>\n<table>\n  <thead><tr><th>Metric</th><th>Run A</th><th>Run B</th><th>Change</th></tr></thead>\n  <tbody>\n  {{range .Changes}}\n  <tr>\n    <td>{{.Metric}}</td>\n    <td>{{.ValueA}}</td>\n    <td>{{.ValueB}}</td>\n    <td class=\"{{.Change}}\">{{.Change}}</td>\n  </tr>\n  {{end}}\n  </tbody>\n</table>\n</body>\n</html>"
 
 func (rg *ReportGenerator) generatePDF() error {
 	// PDF generation uses chromedp to render the HTML report to PDF.

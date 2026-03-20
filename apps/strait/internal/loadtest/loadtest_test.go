@@ -603,22 +603,30 @@ func TestTestServerEndpoints(t *testing.T) {
 	t.Logf("server stats: total=%d", snap.Total)
 }
 
-// TestChaosWorkerKill tests worker SIGKILL recovery during load.
-// Use: go test -tags=loadtest -run TestChaosWorkerKill -timeout 30m ./internal/loadtest/...
-func TestChaosWorkerKill(t *testing.T) {
+// TestChaosScenarios runs each chaos scenario as an individual subtest.
+// Use: go test -tags=loadtest -run TestChaosScenarios -timeout 4h ./internal/loadtest/...
+// Or run a single scenario: go test -tags=loadtest -run TestChaosScenarios/worker_sigkill -timeout 30m
+func TestChaosScenarios(t *testing.T) {
 	h := setupHarness(t)
 	ce := loadtest.NewChaosEngine(h, 100, loadtestProjectID, resolveJobID("loadtest-fast-echo"))
 
-	scenarios := loadtest.AllChaosScenarios()
-	result := ce.RunScenario(context.Background(), scenarios[0]) // worker_sigkill
+	for _, scenario := range loadtest.AllChaosScenarios() {
+		t.Run(scenario.Name, func(t *testing.T) {
+			result := ce.RunScenario(context.Background(), scenario)
 
-	t.Logf("CHAOS: %s", result.Scenario)
-	t.Logf("Load: ~%d runs/sec | In-flight: %d", result.LoadRate, result.InFlight)
-	t.Logf("Lost: %d | Recovered: %d | Recovery: %s", result.Lost, result.Recovered, result.RecoveryTime)
-	t.Logf("Queue peak: %d | Drain: %s | VERDICT: %s", result.QueuePeak, result.DrainTime, result.Verdict)
+			t.Logf("CHAOS: %s", result.Scenario)
+			t.Logf("Load: ~%d runs/sec | In-flight: %d", result.LoadRate, result.InFlight)
+			t.Logf("Lost: %d | Recovered: %d | Recovery: %s", result.Lost, result.Recovered, result.RecoveryTime)
+			t.Logf("Queue peak: %d | Drain: %s | VERDICT: %s", result.QueuePeak, result.DrainTime, result.Verdict)
 
-	if result.Verdict != "PASS" {
-		t.Errorf("chaos test failed: %s", result.Error)
+			if result.Verdict != "PASS" {
+				t.Errorf("chaos test failed: %s", result.Error)
+			}
+
+			if err := h.WriteResult("chaos_"+scenario.Name+".json", result); err != nil {
+				t.Errorf("writing result: %v", err)
+			}
+		})
 	}
 }
 
@@ -650,5 +658,122 @@ func TestChaosAll(t *testing.T) {
 
 	if err := h.WriteResult("chaos_all.json", results); err != nil {
 		t.Errorf("writing results: %v", err)
+	}
+}
+
+// TestEnduranceWeekend runs at 70% of throughput ceiling for 72 hours.
+// Use: go test -tags=loadtest -run TestEnduranceWeekend -timeout 74h ./internal/loadtest/...
+func TestEnduranceWeekend(t *testing.T) {
+	duration := 72 * time.Hour
+	if v := os.Getenv("LOADTEST_DURATION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			duration = d
+		}
+	}
+
+	targetRate := 100
+	if data, err := os.ReadFile("loadtest-results/latest/throughput_ceiling.json"); err == nil {
+		var prior loadtest.RampResult
+		if json.Unmarshal(data, &prior) == nil && prior.MaxRate > 0 {
+			targetRate = int(float64(prior.MaxRate) * 0.7)
+		}
+	}
+	if v := os.Getenv("LOADTEST_TARGET_RATE"); v != "" {
+		fmt.Sscanf(v, "%d", &targetRate)
+	}
+
+	h := setupHarness(t)
+	t.Logf("running 72h weekend endurance: %d jobs/sec for %s", targetRate, duration)
+
+	runner := loadtest.NewEnduranceRunner(loadtest.EnduranceConfig{
+		TargetRate:     targetRate,
+		Duration:       duration,
+		SpikeInterval:  4 * time.Hour,
+		SpikeMultiple:  10,
+		SpikeDuration:  5 * time.Minute,
+		LongRunJobs:    20,
+		LongRunMinutes: 240,
+		AlertThresholds: loadtest.AlertThresholds{
+			MemoryGrowthPerHourMB:  100,
+			GoroutineGrowthPerHour: 1000,
+			P99GrowthPerHourPct:    10,
+			ErrorGrowthPerHourPct:  0.1,
+		},
+	})
+
+	result, alerts, err := runner.Run(context.Background(), h)
+	if err != nil {
+		t.Fatalf("weekend endurance test failed: %v", err)
+	}
+
+	t.Logf("=== 72H ENDURANCE RESULTS ===")
+	t.Logf("duration: %s", result.Duration)
+	t.Logf("total operations: %d", result.TotalOperations)
+	t.Logf("total errors: %d", result.TotalErrors)
+	t.Logf("spikes injected: %d", result.SpikesInjected)
+	t.Logf("long-run jobs completed: %d/%d", result.LongRunCompleted, result.LongRunTotal)
+	t.Logf("alerts: %d", len(alerts))
+
+	for _, alert := range alerts {
+		t.Logf("ALERT [%s]: %s (hour %d)", alert.Severity, alert.Message, alert.Hour)
+		if alert.Severity == "LEAK" || alert.Severity == "DEGRADATION" {
+			t.Errorf("endurance alert: %s", alert.Message)
+		}
+	}
+
+	if err := h.WriteResult("endurance_weekend.json", result); err != nil {
+		t.Errorf("writing result: %v", err)
+	}
+}
+
+// TestFlyValidation runs load tests against a Fly.io deployment.
+// Use: LOADTEST_STRAIT_URL=https://your-app.fly.dev go test -tags=loadtest -run TestFlyValidation -timeout 2h ./internal/loadtest/...
+func TestFlyValidation(t *testing.T) {
+	straitURL := os.Getenv("LOADTEST_STRAIT_URL")
+	if straitURL == "" || straitURL == "http://localhost:8080" {
+		t.Skip("set LOADTEST_STRAIT_URL to a Fly.io deployment URL to run")
+	}
+
+	h := setupHarness(t)
+	scenario := loadtest.FlyValidation()
+
+	t.Logf("running Fly.io validation against %s", straitURL)
+
+	engine := loadtest.NewRampEngine(*scenario.RampConfig, func(ctx context.Context) error {
+		return h.TriggerJob(ctx, loadtestProjectID, resolveJobID("loadtest-fast-echo"), map[string]any{
+			"timestamp": time.Now().UnixMilli(),
+			"source":    "fly_validation",
+		})
+	})
+
+	engine.SetQueueDepthFn(func() int64 {
+		stats, err := h.GetQueueStats(context.Background(), loadtestProjectID)
+		if err != nil {
+			return 0
+		}
+		return stats.QueueDepth()
+	})
+
+	result, err := engine.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Fly.io validation failed: %v", err)
+	}
+
+	t.Logf("=== FLY.IO VALIDATION RESULTS ===")
+	t.Logf("max sustained: %d jobs/sec", result.MaxRate)
+	t.Logf("breaks at: %d jobs/sec", result.BreakingRate)
+	t.Logf("bottleneck: %s", result.Bottleneck)
+	t.Logf("total operations: %d", result.TotalOperations)
+	t.Logf("total errors: %d", result.TotalErrors)
+
+	for _, step := range result.Steps {
+		t.Logf("  rate=%d ops=%d errs=%d p50=%s p95=%s p99=%s queue=%d",
+			step.Rate, step.Operations, step.Errors,
+			step.LatencyP50, step.LatencyP95, step.LatencyP99,
+			step.QueueDepth)
+	}
+
+	if err := h.WriteResult("fly_validation.json", result); err != nil {
+		t.Errorf("writing result: %v", err)
 	}
 }

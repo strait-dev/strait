@@ -139,6 +139,38 @@ func ErrorScenarios() Scenario {
 	}
 }
 
+// EnduranceWeekend returns a 72-hour weekend endurance scenario.
+func EnduranceWeekend() Scenario {
+	return Scenario{
+		Name:        "endurance_weekend",
+		Description: "Tier 4: 72-hour weekend run at 70% of throughput ceiling. Extended leak and drift detection.",
+		Tier:        4,
+		Duration:    72 * time.Hour,
+	}
+}
+
+// FlyValidation returns a Fly.io real-network validation scenario.
+func FlyValidation() Scenario {
+	return Scenario{
+		Name:        "fly_validation",
+		Description: "Fly.io validation: real network latency, multi-region, production infrastructure.",
+		Tier:        5,
+		Duration:    1 * time.Hour,
+		RampConfig: &RampConfig{
+			Mode:         RampThroughput,
+			StartRate:    10,
+			StepSize:     5,
+			StepInterval: 60 * time.Second,
+			StopCondition: StopCondition{
+				MaxQueueDepth: 10000,
+				MaxLatencyP99: 10 * time.Second,
+				MaxErrorRate:  0.01,
+				MaxDuration:   1 * time.Hour,
+			},
+		},
+	}
+}
+
 // AllScenarios returns every pre-defined scenario.
 func AllScenarios() []Scenario {
 	return []Scenario{
@@ -148,7 +180,9 @@ func AllScenarios() []Scenario {
 		ProductionSimulation(500, 4*time.Hour),
 		BreakingPoint(),
 		Endurance(24 * time.Hour),
+		EnduranceWeekend(),
 		ChaosAll(),
 		ErrorScenarios(),
+		FlyValidation(),
 	}
 }
