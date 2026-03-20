@@ -39,6 +39,8 @@ deploy-staging: preflight
 # Load Testing
 # ──────────────────────────────────────────────
 
+LOADTEST_PORT ?= 7676
+
 LOADTEST_ENV = \
 	DATABASE_URL="postgres://strait:strait@localhost:5432/strait?sslmode=disable" \
 	REDIS_URL="redis://localhost:6379" \
@@ -46,10 +48,11 @@ LOADTEST_ENV = \
 	JWT_SIGNING_KEY="loadtest-jwt-signing-key-at-least-32-chars" \
 	ALLOW_PRIVATE_ENDPOINTS=true \
 	RATE_LIMIT_REQUESTS=100000 \
-	TRIGGER_RATE_LIMIT_REQUESTS=100000
+	TRIGGER_RATE_LIMIT_REQUESTS=100000 \
+	PORT=$(LOADTEST_PORT)
 
 LOADTEST_RUN = \
-	LOADTEST_STRAIT_URL=http://localhost:8080 \
+	LOADTEST_STRAIT_URL=http://localhost:$(LOADTEST_PORT) \
 	INTERNAL_SECRET="loadtest-secret-that-is-long-enough" \
 	DATABASE_URL="postgres://strait:strait@localhost:5432/strait?sslmode=disable" \
 	REDIS_URL="redis://localhost:6379"
