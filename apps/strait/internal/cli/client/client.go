@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -72,28 +74,35 @@ func (c *Client) doListJSON(ctx context.Context, endpoint string, query url.Valu
 // doListAllJSON auto-paginates a list endpoint by following next_cursor,
 // accumulating all pages and unmarshaling the combined data into out.
 func (c *Client) doListAllJSON(ctx context.Context, endpoint string, query url.Values, out any) error {
-	if query == nil {
-		query = url.Values{}
-	}
-	query.Set("limit", "100")
+	const maxPages = 100
+
+	q := url.Values{}
+	maps.Copy(q, query)
+	q.Set("limit", "100")
 
 	var allData []json.RawMessage
-	for {
+	var pages int
+	for range maxPages {
 		var envelope paginatedResponse
-		if err := c.doJSON(ctx, http.MethodGet, endpoint, query, nil, &envelope); err != nil {
+		if err := c.doJSON(ctx, http.MethodGet, endpoint, q, nil, &envelope); err != nil {
 			return err
 		}
 
-		var page []json.RawMessage
-		if err := json.Unmarshal(envelope.Data, &page); err != nil {
+		var items []json.RawMessage
+		if err := json.Unmarshal(envelope.Data, &items); err != nil {
 			return fmt.Errorf("decode paginated data: %w", err)
 		}
-		allData = append(allData, page...)
+		allData = append(allData, items...)
+		pages++
 
 		if !envelope.HasMore || envelope.NextCursor == nil {
 			break
 		}
-		query.Set("cursor", *envelope.NextCursor)
+		q.Set("cursor", *envelope.NextCursor)
+	}
+
+	if pages >= maxPages {
+		fmt.Fprintf(os.Stderr, "warning: results truncated at %d items (pagination limit reached)\n", len(allData))
 	}
 
 	merged, err := json.Marshal(allData)

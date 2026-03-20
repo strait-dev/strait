@@ -1,11 +1,13 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1960,5 +1962,97 @@ func TestDoListAllJSON_EmptyResult(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("expected 0 events, got %d", len(got))
+	}
+}
+
+func TestDoListAllJSON_TruncationWarning(t *testing.T) {
+	var callCount atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertAuth(t, r, "test-key")
+
+		n := callCount.Add(1)
+		cursor := fmt.Sprintf("page%d", n+1)
+		respondJSON(t, w, http.StatusOK, paginatedResponse{
+			Data:       mustMarshal(t, []domain.RunEvent{{ID: fmt.Sprintf("evt-%d", n)}}),
+			HasMore:    true,
+			NextCursor: &cursor,
+		})
+	}))
+	defer srv.Close()
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListRunEvents(context.Background(), "run-1", "", "")
+
+	_ = w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	stderrOutput := buf.String()
+
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	// maxPages=100, each page has 1 event
+	if len(got) != 100 {
+		t.Fatalf("expected 100 events, got %d", len(got))
+	}
+	if !strings.Contains(stderrOutput, "truncated") {
+		t.Fatalf("expected truncation warning on stderr, got: %q", stderrOutput)
+	}
+}
+
+func TestDoListAllJSON_NoWarningOnNormalPagination(t *testing.T) {
+	var callCount atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertAuth(t, r, "test-key")
+
+		n := callCount.Add(1)
+		if n == 1 {
+			cursor := "page2"
+			respondJSON(t, w, http.StatusOK, paginatedResponse{
+				Data:       mustMarshal(t, []domain.RunEvent{{ID: "evt-1"}}),
+				HasMore:    true,
+				NextCursor: &cursor,
+			})
+		} else {
+			respondJSON(t, w, http.StatusOK, paginatedResponse{
+				Data:    mustMarshal(t, []domain.RunEvent{{ID: "evt-2"}}),
+				HasMore: false,
+			})
+		}
+	}))
+	defer srv.Close()
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListRunEvents(context.Background(), "run-1", "", "")
+
+	_ = w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	stderrOutput := buf.String()
+
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(got))
+	}
+	if strings.Contains(stderrOutput, "truncated") {
+		t.Fatalf("should not warn on normal pagination, got: %q", stderrOutput)
 	}
 }
