@@ -71,11 +71,11 @@ func NewHarness(cfg HarnessConfig) *Harness {
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 			Transport: &http.Transport{
-				MaxIdleConns:          100,
-				MaxIdleConnsPerHost:   100,
-				IdleConnTimeout:      2 * time.Second,
-				DisableKeepAlives:    true,
-				ResponseHeaderTimeout: 5 * time.Second,
+				MaxIdleConns:          500,
+				MaxIdleConnsPerHost:   500,
+				MaxConnsPerHost:       500,
+				IdleConnTimeout:       90 * time.Second,
+				ResponseHeaderTimeout: 10 * time.Second,
 			},
 		},
 	}

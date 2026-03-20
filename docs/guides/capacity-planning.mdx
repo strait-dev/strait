@@ -24,11 +24,17 @@ The most common bottleneck. Strait uses `pgx/v5` connection pooling.
 
 | Setting | Default | Recommended (< 500 tenants) | Recommended (> 500 tenants) |
 | --- | --- | --- | --- |
-| `DB_MAX_CONNS` | 25 | 25-50 | 50-100 |
-| `DB_MIN_CONNS` | 5 | 5-10 | 10-25 |
+| `DB_MAX_CONNS` | 50 | 50 | 50-100 |
+| `DB_MIN_CONNS` | 10 | 10 | 10-25 |
 | `DB_MAX_CONN_LIFETIME` | 30m | 30m | 15m |
 | `DB_MAX_CONN_IDLE_TIME` | 5m | 5m | 2m |
 | `DB_STATEMENT_TIMEOUT` | 30s | 30s | 15s |
+
+### Connection Budget
+
+When running multiple Fly machines, the total database connections equals `DB_MAX_CONNS * number_of_machines`. Ensure your PostgreSQL `max_connections` exceeds this sum.
+
+For example, with `DB_MAX_CONNS=100` and 4 machines, you need at least 400 connections on the primary. PlanetScale PostgreSQL supports 1000 connections per primary and per replica by default.
 
 ### PostgreSQL Server
 
@@ -61,7 +67,7 @@ max_connections = 200           # Must exceed DB_MAX_CONNS * worker_count
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `WORKER_CONCURRENCY` | 10 | Max parallel job executions per worker |
+| `WORKER_CONCURRENCY` | 25 | Starting parallel job executions per worker (auto-scales to `ADAPTIVE_CONCURRENCY_MAX`) |
 | `MAX_DEQUEUE_BATCH_SIZE` | 10 | Jobs claimed per dequeue cycle |
 | `DEQUEUE_STRATEGY` | priority | `priority` or `fifo` |
 | `DEFAULT_JOB_TIMEOUT_SECS` | 300 | Default job timeout |
@@ -111,7 +117,7 @@ For Fly.io deployments:
 
 | Scale | Machine Size | Count | Region |
 | --- | --- | --- | --- |
-| Starter | `shared-cpu-1x` (256MB) | 1 combined | Single |
-| Growth | `shared-cpu-2x` (512MB) | 1 API + 1 worker | Single |
+| Starter | `shared-cpu-2x` (1024MB) | 1 combined | Single |
+| Growth | `shared-cpu-2x` (2048MB) | 1 API + 1 worker | Single |
 | Scale | `performance-2x` (4GB) | 1 API + 2 workers | Multi-region |
 | Enterprise | `performance-4x` (8GB) | 2 API + 4 workers | Multi-region |

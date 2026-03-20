@@ -153,9 +153,11 @@ The HTML report includes:
 
 | Bottleneck | Symptom | Fix |
 | --- | --- | --- |
-| Queue throughput | Queue depth growing, dequeue rate flat | Increase `DB_MAX_CONNS`, optimize dequeue query |
+| Queue throughput | Queue depth growing, dequeue rate flat | Increase `DB_MAX_CONNS` (default: 50), optimize dequeue query |
 | Concurrent limit | Errors spike at N concurrent | Increase `WORKER_CONCURRENCY` |
 | Memory growth | RSS increases linearly over 24h | Check for leaked goroutines, unclosed connections |
 | Webhook delivery | Webhook latency spiking | Increase `WEBHOOK_CONCURRENCY`, check endpoint health |
-| Database connections | `wait_count` increasing | Increase `DB_MAX_CONNS`, add connection pooler |
+| Database connections | `wait_count` increasing | Increase `DB_MAX_CONNS` (default: 50), add connection pooler |
+
+The load test harness uses HTTP keep-alives with connection pooling for realistic measurements that match production client behavior.
 | Redis memory | Used memory > maxmemory | Increase `maxmemory`, review eviction policy |

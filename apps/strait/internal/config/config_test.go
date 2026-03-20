@@ -35,8 +35,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Port != 8080 {
 		t.Fatalf("Port = %d, want %d", cfg.Port, 8080)
 	}
-	if cfg.WorkerConcurrency != 10 {
-		t.Fatalf("WorkerConcurrency = %d, want %d", cfg.WorkerConcurrency, 10)
+	if cfg.WorkerConcurrency != 25 {
+		t.Fatalf("WorkerConcurrency = %d, want %d", cfg.WorkerConcurrency, 25)
 	}
 	if cfg.LogLevel != "info" {
 		t.Fatalf("LogLevel = %q, want %q", cfg.LogLevel, "info")
@@ -59,11 +59,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.WebhookMaxPayloadBytes != int64(1<<20) {
 		t.Fatalf("WebhookMaxPayloadBytes = %d, want %d", cfg.WebhookMaxPayloadBytes, int64(1<<20))
 	}
-	if cfg.DBMaxConns != 25 {
-		t.Fatalf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 25)
+	if cfg.DBMaxConns != 50 {
+		t.Fatalf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 50)
 	}
-	if cfg.DBMinConns != 5 {
-		t.Fatalf("DBMinConns = %d, want %d", cfg.DBMinConns, 5)
+	if cfg.DBMinConns != 10 {
+		t.Fatalf("DBMinConns = %d, want %d", cfg.DBMinConns, 10)
 	}
 	if cfg.DBMaxConnLifetime != 30*time.Minute {
 		t.Fatalf("DBMaxConnLifetime = %v, want %v", cfg.DBMaxConnLifetime, 30*time.Minute)
