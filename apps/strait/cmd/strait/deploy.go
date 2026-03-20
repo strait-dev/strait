@@ -56,12 +56,26 @@ func newDeployCommand(state *appState) *cobra.Command {
 					return cfgErr
 				}
 
+				jobs := cfg.Jobs
+				if jobSlug != "" {
+					var filtered []deploy.DeployJobConfig
+					for _, j := range cfg.Jobs {
+						if j.Slug == jobSlug {
+							filtered = append(filtered, j)
+						}
+					}
+					if len(filtered) == 0 {
+						return fmt.Errorf("job %q not found in config %s", jobSlug, configPath)
+					}
+					jobs = filtered
+				}
+
 				reg := registry
 				if cfg.Registry != "" {
 					reg = cfg.Registry
 				}
 
-				for _, jobCfg := range cfg.Jobs {
+				for _, jobCfg := range jobs {
 					jobPreset := jobCfg.Preset
 					if preset != "" {
 						jobPreset = preset
