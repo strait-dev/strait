@@ -3,7 +3,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@strait/ui/components/sidebar";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   createFileRoute,
   Outlet,
@@ -91,23 +91,26 @@ export const Route = createFileRoute("/app")({
 
     let hasOrganization = !!defaultOrgId;
 
-    await Promise.all([
+    const results = await Promise.allSettled([
       context.queryClient.ensureQueryData(organizationsQueryOptions()),
       defaultOrgId
-        ? context.queryClient
-            .ensureQueryData(organizationQueryOptions(defaultOrgId))
-            .catch(() => {
-              hasOrganization = false;
-            })
+        ? context.queryClient.ensureQueryData(
+            organizationQueryOptions(defaultOrgId)
+          )
         : Promise.resolve(),
       defaultOrgId
-        ? context.queryClient
-            .ensureQueryData(projectsQueryOptions(defaultOrgId))
-            .catch(() => null)
+        ? context.queryClient.ensureQueryData(
+            projectsQueryOptions(defaultOrgId)
+          )
         : Promise.resolve(),
       context.queryClient.ensureQueryData(subscriptionQueryOptions()),
       context.queryClient.ensureQueryData(subscriptionStateQueryOptions()),
     ]);
+
+    // If the org query failed, mark organization as unavailable
+    if (results[1].status === "rejected") {
+      hasOrganization = false;
+    }
 
     return {
       session,
@@ -127,19 +130,22 @@ function RouteComponent() {
   const showTrialModal = Boolean(search.trial_started);
   const hasIdentifiedRef = useRef(false);
 
-  const { data: subscription } = useSuspenseQuery(subscriptionQueryOptions());
-  const { data: subscriptionState } = useSuspenseQuery(
-    subscriptionStateQueryOptions()
-  );
+  const { data: subscription } = useQuery(subscriptionQueryOptions());
+  const { data: subscriptionState } = useQuery(subscriptionStateQueryOptions());
 
   useEffect(() => {
-    if (hasIdentifiedRef.current || !posthog || !session?.user?.id) {
+    if (
+      hasIdentifiedRef.current ||
+      !posthog ||
+      !session?.user?.id ||
+      !subscriptionState
+    ) {
       return;
     }
 
-    const plan = subscriptionState?.planSlug ?? "none";
-    const isTrialing = subscriptionState?.isTrialing ?? false;
-    const trialEnd = subscriptionState?.trialInfo?.trialEnd ?? null;
+    const plan = subscriptionState.planSlug ?? "none";
+    const isTrialing = subscriptionState.isTrialing ?? false;
+    const trialEnd = subscriptionState.trialInfo?.trialEnd ?? null;
     const organizationId = session.user.defaultOrganizationId;
 
     posthog.identify(session.user.id, {

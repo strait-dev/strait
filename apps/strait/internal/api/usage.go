@@ -33,6 +33,32 @@ func (s *Server) validateCallerOrgAccess(ctx context.Context, orgID string) erro
 	return nil
 }
 
+// validateProjectBelongsToCallerOrg checks that the target project belongs to
+// the same org as the caller's project context. Unlike validateCallerOrgAccess,
+// this runs for ALL callers including internal-secret, because project-scoped
+// endpoints must always verify ownership.
+func (s *Server) validateProjectBelongsToCallerOrg(ctx context.Context, targetProjectID string) error {
+	if s.billingEnforcer == nil {
+		return nil
+	}
+	callerProjectID := projectIDFromContext(ctx)
+	if callerProjectID == "" {
+		return fmt.Errorf("no project context")
+	}
+	callerOrg, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, callerProjectID)
+	if err != nil || callerOrg == "" {
+		return fmt.Errorf("failed to resolve caller org: %w", err)
+	}
+	targetOrg, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, targetProjectID)
+	if err != nil || targetOrg == "" {
+		return fmt.Errorf("failed to resolve target project org: %w", err)
+	}
+	if callerOrg != targetOrg {
+		return fmt.Errorf("project does not belong to caller's organization")
+	}
+	return nil
+}
+
 // resolveUsageOrgID extracts org_id from the request query, enforcing tenant
 // isolation for non-internal project-scoped callers. Returns the org_id or
 // writes an error response.
@@ -341,6 +367,11 @@ func (s *Server) handleGetProjectBudget(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if err := s.validateProjectBelongsToCallerOrg(r.Context(), projectID); err != nil {
+		respondError(w, r, http.StatusForbidden, "access denied")
+		return
+	}
+
 	budget, err := s.usageService.GetProjectBudget(r.Context(), projectID)
 	if err != nil {
 		slog.Error("failed to get project budget", "error", err)
@@ -368,6 +399,11 @@ func (s *Server) handleUpdateProjectBudget(w http.ResponseWriter, r *http.Reques
 	}
 	if req.ProjectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	if err := s.validateProjectBelongsToCallerOrg(r.Context(), req.ProjectID); err != nil {
+		respondError(w, r, http.StatusForbidden, "access denied")
 		return
 	}
 

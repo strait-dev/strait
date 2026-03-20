@@ -5,6 +5,7 @@ import type { Project } from "@/hooks/api/types";
 import { auth, authPool } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireOrgAccess, requireProjectAccess } from "@/middlewares/require-access";
 
 /**
  * Ensures the project table exists in the auth database.
@@ -45,6 +46,7 @@ export const createProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    await requireOrgAccess(context.user.id, data.organizationId);
     await ensureProjectTable();
 
     const slug = data.name
@@ -89,7 +91,8 @@ export const listProjectsServerFn = createServerFn({ method: "GET" })
     z.object({ organizationId: z.string().min(1) }).parse(data)
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
+    await requireOrgAccess(context.user.id, data.organizationId);
     await ensureProjectTable();
 
     const result = await authPool.query<Project>(
@@ -109,16 +112,28 @@ export const getProjectServerFn = createServerFn({ method: "GET" })
     z.object({ id: z.string().min(1) }).parse(data)
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
     await ensureProjectTable();
 
+    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+
+    if (activeOrgId) {
+      const result = await authPool.query<Project>(
+        `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
+         FROM project
+         WHERE id = $1 AND organization_id = $2`,
+        [data.id, activeOrgId]
+      );
+      return result.rows[0] ?? null;
+    }
+
+    // Fallback for callers without org context
     const result = await authPool.query<Project>(
       `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
        FROM project
        WHERE id = $1`,
       [data.id]
     );
-
     return result.rows[0] ?? null;
   });
 
@@ -129,6 +144,10 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    if (activeOrgId) {
+      await requireOrgAccess(context.user.id, activeOrgId);
+    }
     await ensureProjectTable();
 
     const result = await authPool.query(
@@ -155,7 +174,10 @@ export const setActiveProjectServerFn = createServerFn({ method: "POST" })
     z.object({ projectId: z.string().min(1) }).parse(data)
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
+    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
+
     const headers = getRequestHeaders();
     await auth.api.updateUser({
       body: { activeProjectId: data.projectId },

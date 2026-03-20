@@ -27,6 +27,11 @@ func (s *Server) handleGetProjectSettings(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if err := s.validateProjectBelongsToCallerOrg(r.Context(), projectID); err != nil {
+		respondError(w, r, http.StatusForbidden, "access denied")
+		return
+	}
+
 	quota, err := s.store.GetProjectQuota(r.Context(), projectID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get project settings")
@@ -51,6 +56,11 @@ func (s *Server) handleUpdateProjectSettings(w http.ResponseWriter, r *http.Requ
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	if err := s.validateProjectBelongsToCallerOrg(r.Context(), projectID); err != nil {
+		respondError(w, r, http.StatusForbidden, "access denied")
 		return
 	}
 

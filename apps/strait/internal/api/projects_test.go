@@ -524,3 +524,105 @@ func TestProjectEndpoints_InternalSecret(t *testing.T) {
 		t.Fatalf("DELETE: expected 204, got %d", w.Code)
 	}
 }
+
+func TestGetProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+			"proj-B": "org-B",
+		},
+	}
+	ms := &mockAPIStore{
+		getProjectFn: func(_ context.Context, id string) (*domain.Project, error) {
+			return &domain.Project{ID: id, OrgID: "org-B", Name: "Test"}, nil
+		},
+	}
+	srv := newUsageTestServerFull(t, usageTestServerOpts{
+		enforcer: enforcer,
+		store:    ms,
+	})
+	req := internalSecretRequestWithProject(http.MethodGet, "/v1/projects/proj-B", "", "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetProject_InternalSecret_SameOrgAllowed(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(time.Second)
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A":  "org-A",
+			"proj-A2": "org-A",
+		},
+	}
+	ms := &mockAPIStore{
+		getProjectFn: func(_ context.Context, id string) (*domain.Project, error) {
+			return &domain.Project{ID: id, OrgID: "org-A", Name: "Test", CreatedAt: now, UpdatedAt: now}, nil
+		},
+	}
+	srv := newUsageTestServerFull(t, usageTestServerOpts{
+		enforcer: enforcer,
+		store:    ms,
+	})
+	req := internalSecretRequestWithProject(http.MethodGet, "/v1/projects/proj-A2", "", "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+			"proj-B": "org-B",
+		},
+	}
+	ms := &mockAPIStore{
+		deleteProjectFn: func(_ context.Context, _ string) error {
+			t.Fatal("delete should not be called for cross-org access")
+			return nil
+		},
+	}
+	srv := newUsageTestServerFull(t, usageTestServerOpts{
+		enforcer: enforcer,
+		store:    ms,
+	})
+	req := internalSecretRequestWithProject(http.MethodDelete, "/v1/projects/proj-B", "", "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteProject_InternalSecret_SameOrgAllowed(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A":  "org-A",
+			"proj-A2": "org-A",
+		},
+	}
+	ms := &mockAPIStore{
+		deleteProjectFn: func(_ context.Context, _ string) error {
+			return nil
+		},
+	}
+	srv := newUsageTestServerFull(t, usageTestServerOpts{
+		enforcer: enforcer,
+		store:    ms,
+	})
+	req := internalSecretRequestWithProject(http.MethodDelete, "/v1/projects/proj-A2", "", "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+}

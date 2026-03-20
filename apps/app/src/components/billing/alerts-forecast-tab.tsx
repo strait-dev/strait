@@ -10,7 +10,7 @@ import { Input } from "@strait/ui/components/input";
 import { Label } from "@strait/ui/components/label";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { anomalyAlertsQueryOptions } from "@/hooks/billing/use-anomaly-alerts";
 import {
   anomalyConfigQueryOptions,
@@ -169,6 +169,11 @@ function ThresholdConfigCard({
   const [warning, setWarning] = useState(String(warningThreshold));
   const [critical, setCritical] = useState(String(criticalThreshold));
   const mutation = useSetAnomalyConfig();
+
+  useEffect(() => {
+    setWarning(String(warningThreshold));
+    setCritical(String(criticalThreshold));
+  }, [warningThreshold, criticalThreshold]);
 
   const handleSave = () => {
     const w = Number.parseFloat(warning);

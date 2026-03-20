@@ -15,7 +15,9 @@ import { SpendingLimitsTab } from "@/components/billing/spending-limits-tab";
 import { UsageDashboard } from "@/components/billing/usage-dashboard";
 import { UsageHistoryTab } from "@/components/billing/usage-history-tab";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
+import { InlineError } from "@/components/common/inline-error";
 import NotFound from "@/components/common/not-found";
+import { QueryErrorBoundary } from "@/components/common/query-error-boundary";
 import { anomalyAlertsQueryOptions } from "@/hooks/billing/use-anomaly-alerts";
 import { anomalyConfigQueryOptions } from "@/hooks/billing/use-anomaly-config";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
@@ -41,7 +43,7 @@ const TabSkeleton = () => (
 export const Route = createFileRoute("/app/billing/")({
   loader: async ({ context }) => {
     const ctx = context as AppRouteContext;
-    await Promise.all([
+    await Promise.allSettled([
       ctx.queryClient.ensureQueryData(orgUsageQueryOptions()),
       ctx.queryClient.ensureQueryData(usageHistoryQueryOptions()),
       ctx.queryClient.ensureQueryData(projectCostsQueryOptions()),
@@ -99,39 +101,93 @@ function RouteComponent() {
           </TabsList>
 
           <TabsContent className="mt-6 space-y-6" value="overview">
-            <Suspense fallback={<TabSkeleton />}>
-              <UsageDashboard />
-            </Suspense>
+            <QueryErrorBoundary
+              fallback={({ resetErrorBoundary }) => (
+                <InlineError
+                  message="Failed to load usage overview"
+                  onRetry={resetErrorBoundary}
+                />
+              )}
+            >
+              <Suspense fallback={<TabSkeleton />}>
+                <UsageDashboard />
+              </Suspense>
+            </QueryErrorBoundary>
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="history">
-            <Suspense fallback={<TabSkeleton />}>
-              <UsageHistoryTab />
-            </Suspense>
+            <QueryErrorBoundary
+              fallback={({ resetErrorBoundary }) => (
+                <InlineError
+                  message="Failed to load usage history"
+                  onRetry={resetErrorBoundary}
+                />
+              )}
+            >
+              <Suspense fallback={<TabSkeleton />}>
+                <UsageHistoryTab />
+              </Suspense>
+            </QueryErrorBoundary>
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="projects">
-            <Suspense fallback={<TabSkeleton />}>
-              <ProjectCostsTab />
-            </Suspense>
+            <QueryErrorBoundary
+              fallback={({ resetErrorBoundary }) => (
+                <InlineError
+                  message="Failed to load project costs"
+                  onRetry={resetErrorBoundary}
+                />
+              )}
+            >
+              <Suspense fallback={<TabSkeleton />}>
+                <ProjectCostsTab />
+              </Suspense>
+            </QueryErrorBoundary>
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="spending">
-            <Suspense fallback={<TabSkeleton />}>
-              <SpendingLimitsTab />
-            </Suspense>
+            <QueryErrorBoundary
+              fallback={({ resetErrorBoundary }) => (
+                <InlineError
+                  message="Failed to load spending limits"
+                  onRetry={resetErrorBoundary}
+                />
+              )}
+            >
+              <Suspense fallback={<TabSkeleton />}>
+                <SpendingLimitsTab />
+              </Suspense>
+            </QueryErrorBoundary>
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="alerts">
-            <Suspense fallback={<TabSkeleton />}>
-              <AlertsForecastTab />
-            </Suspense>
+            <QueryErrorBoundary
+              fallback={({ resetErrorBoundary }) => (
+                <InlineError
+                  message="Failed to load alerts"
+                  onRetry={resetErrorBoundary}
+                />
+              )}
+            >
+              <Suspense fallback={<TabSkeleton />}>
+                <AlertsForecastTab />
+              </Suspense>
+            </QueryErrorBoundary>
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="referrals">
-            <Suspense fallback={<TabSkeleton />}>
-              <ReferralProgram />
-            </Suspense>
+            <QueryErrorBoundary
+              fallback={({ resetErrorBoundary }) => (
+                <InlineError
+                  message="Failed to load referrals"
+                  onRetry={resetErrorBoundary}
+                />
+              )}
+            >
+              <Suspense fallback={<TabSkeleton />}>
+                <ReferralProgram />
+              </Suspense>
+            </QueryErrorBoundary>
           </TabsContent>
         </Tabs>
       </div>

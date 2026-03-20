@@ -1031,3 +1031,183 @@ func TestActivateReferral_APIKey_SameTenantAllowed(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// internalSecretRequestWithProject creates an internal-secret request with a
+// project ID in the context, simulating an internal caller with project scope.
+// Uses the X-Project-Id header so the auth middleware sets the correct context.
+func internalSecretRequestWithProject(method, url, body, projectID string) *http.Request {
+	var req *http.Request
+	if body != "" {
+		req = httptest.NewRequest(method, url, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		req = httptest.NewRequest(method, url, nil)
+	}
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	if projectID != "" {
+		req.Header.Set("X-Project-Id", projectID)
+	}
+	return req
+}
+
+// Project budget cross-tenant tests.
+
+func TestGetProjectBudget_InternalSecret_CrossOrgForbidden(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+			"proj-B": "org-B",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	req := internalSecretRequestWithProject(http.MethodGet, "/v1/project-budget?project_id=proj-B", "", "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetProjectBudget_InternalSecret_SameOrgAllowed(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A":  "org-A",
+			"proj-A2": "org-A",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	req := internalSecretRequestWithProject(http.MethodGet, "/v1/project-budget?project_id=proj-A2", "", "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetProjectBudget_APIKey_CrossOrgForbidden(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+			"proj-B": "org-B",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	// Use X-Project-Id header to ensure the caller's project context is proj-A,
+	// not overwritten by the project_id query param in the auth middleware.
+	req := apiKeyRequest(http.MethodGet, "/v1/project-budget?project_id=proj-B", "", "proj-A")
+	req.Header.Set("X-Project-Id", "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetProjectBudget_APIKey_SameOrgAllowed(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	req := apiKeyRequest(http.MethodGet, "/v1/project-budget?project_id=proj-A", "", "proj-A")
+	req.Header.Set("X-Project-Id", "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateProjectBudget_InternalSecret_CrossOrgForbidden(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+			"proj-B": "org-B",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	body := `{"project_id":"proj-B","budget_microusd":1000000,"action":"notify"}`
+	req := internalSecretRequestWithProject(http.MethodPut, "/v1/project-budget", body, "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateProjectBudget_InternalSecret_SameOrgAllowed(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	body := `{"project_id":"proj-A","budget_microusd":1000000,"action":"notify"}`
+	req := internalSecretRequestWithProject(http.MethodPut, "/v1/project-budget", body, "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Edge cases.
+
+func TestGetProjectBudget_NoProjectContext_BadRequest(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{"proj-A": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	// Internal secret with no project_id at all: should get 400 (missing param).
+	req := authedRequest(http.MethodGet, "/v1/project-budget", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 without project_id param, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetProjectBudget_NonexistentProject_Forbidden(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{"proj-A": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	req := internalSecretRequestWithProject(http.MethodGet, "/v1/project-budget?project_id=proj-nonexistent", "", "proj-A")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for nonexistent project, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateProjectBudget_EmptyProjectID_BadRequest(t *testing.T) {
+	t.Parallel()
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	body := `{"project_id":"","budget_microusd":1000000,"action":"notify"}`
+	req := authedRequest(http.MethodPut, "/v1/project-budget", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateProjectBudget_MissingBody_BadRequest(t *testing.T) {
+	t.Parallel()
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodPut, "/v1/project-budget", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}

@@ -12,6 +12,7 @@ import type {
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireProjectAccess } from "@/middlewares/require-access";
 
 // ---------------------------------------------------------------------------
 // Server functions
@@ -28,7 +29,10 @@ export const fetchRegions = createServerFn({ method: "GET" })
 export const fetchProjectSettings = createServerFn({ method: "GET" })
   .inputValidator((data: { projectId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
+    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
+
     return await runWithSentryReport(
       apiEffect<ProjectSettings>(`/v1/projects/${data.projectId}/settings`)
     );
@@ -37,7 +41,10 @@ export const fetchProjectSettings = createServerFn({ method: "GET" })
 export const updateProjectSettingsFn = createServerFn({ method: "POST" })
   .inputValidator((data: { projectId: string; default_region: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
+    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
+
     return await runWithSentryReport(
       apiEffect<ProjectSettings>(`/v1/projects/${data.projectId}/settings`, {
         method: "PUT",

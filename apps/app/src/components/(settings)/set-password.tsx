@@ -8,7 +8,7 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { toast } from "@strait/ui/components/toast/index";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { LoadingIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
@@ -24,12 +24,25 @@ const SetPassword = ({ email }: Props) => {
   const [sent, setSent] = useState(false);
   const [cooldown, setCooldown] = useState(0);
 
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, []);
+
   const startCooldown = () => {
     setCooldown(RESEND_COOLDOWN_SECONDS);
-    const interval = setInterval(() => {
+    intervalRef.current = setInterval(() => {
       setCooldown((prev) => {
         if (prev <= 1) {
-          clearInterval(interval);
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
           return 0;
         }
         return prev - 1;

@@ -10,6 +10,9 @@ import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
+import ErrorComponent from "@/components/common/error-component";
+import { InlineError } from "@/components/common/inline-error";
+import { QueryErrorBoundary } from "@/components/common/query-error-boundary";
 import { FailedRunsByJobChart } from "@/components/dashboard/failed-runs-by-job-chart";
 import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed";
 import { MetricsCard } from "@/components/dashboard/metrics-card";
@@ -54,6 +57,7 @@ export const Route = createFileRoute("/app/dashboard")({
     }
     return { hasProject, activeProjectId };
   },
+  errorComponent: ErrorComponent,
   component: RouteComponent,
 });
 
@@ -143,7 +147,18 @@ function DashboardContent({
       </div>
 
       {/* Project Cost Card */}
-      {activeProjectId && <ProjectCostCard activeProjectId={activeProjectId} />}
+      {activeProjectId && (
+        <QueryErrorBoundary
+          fallback={({ resetErrorBoundary }) => (
+            <InlineError
+              message="Failed to load project costs"
+              onRetry={resetErrorBoundary}
+            />
+          )}
+        >
+          <ProjectCostCard activeProjectId={activeProjectId} />
+        </QueryErrorBoundary>
+      )}
 
       {/* Row 3: Failed Runs by Job + Duration Trends */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

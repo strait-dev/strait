@@ -37,6 +37,8 @@ const SDK_TABS = [
   { value: "cli", label: "CLI", install: "npm install -g @strait/cli" },
 ] as const;
 
+const SDK_TABS_WITHOUT_CLI = SDK_TABS.filter((t) => t.value !== "cli");
+
 const CODE_EXAMPLES: Record<string, string> = {
   typescript: `import { Strait } from "@strait/sdk";
 
@@ -181,13 +183,13 @@ export const GettingStarted = ({ user }: Props) => {
               value={activeTab}
             >
               <TabsList>
-                {SDK_TABS.filter((t) => t.value !== "cli").map((tab) => (
+                {SDK_TABS_WITHOUT_CLI.map((tab) => (
                   <TabsTrigger key={tab.value} value={tab.value}>
                     {tab.label}
                   </TabsTrigger>
                 ))}
               </TabsList>
-              {SDK_TABS.filter((t) => t.value !== "cli").map((tab) => (
+              {SDK_TABS_WITHOUT_CLI.map((tab) => (
                 <TabsContent key={tab.value} value={tab.value}>
                   <pre className="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm">
                     <code>{CODE_EXAMPLES[tab.value]}</code>

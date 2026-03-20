@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { queryKeys } from "@/hooks/query-keys";
-import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
 
@@ -29,15 +29,14 @@ const getProjectCostsServerFn = createServerFn({ method: "GET" })
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    return await runWithFallback(
+    return await runWithSentryReport(
       apiEffect<ProjectCostEntry[]>("/v1/usage/projects", {
         params: {
           org_id: orgId,
           from: from.toISOString().split("T")[0],
           to: now.toISOString().split("T")[0],
         },
-      }),
-      [] as ProjectCostEntry[]
+      })
     );
   });
 

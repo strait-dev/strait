@@ -54,7 +54,11 @@ const PROJECT_RUNS_LABEL_MAP = {
 };
 
 export function UsageDashboard() {
-  const { data: usage, isLoading } = useQuery(orgUsageQueryOptions());
+  const {
+    data: usage,
+    isLoading,
+    isError: isUsageError,
+  } = useQuery(orgUsageQueryOptions());
   const { data: history } = useQuery(usageHistoryQueryOptions());
   const { data: projectCosts } = useQuery(projectCostsQueryOptions());
   const navigate = useNavigate();
@@ -72,6 +76,16 @@ export function UsageDashboard() {
       window.location.href = result.url;
     }
   };
+
+  if (isUsageError) {
+    return (
+      <div className="flex h-48 items-center justify-center">
+        <p className="text-destructive text-sm">
+          Failed to load usage data. Please try again later.
+        </p>
+      </div>
+    );
+  }
 
   if (isLoading || !usage) {
     return (

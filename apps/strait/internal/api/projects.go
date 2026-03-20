@@ -113,6 +113,18 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Internal-secret callers: verify project belongs to caller's org context.
+	if scopesFromContext(r.Context()) == nil {
+		if err := s.validateProjectBelongsToCallerOrg(r.Context(), projectID); err != nil {
+			// Gracefully allow when no billing enforcer or no project context
+			// (backwards compat for callers without X-Project-Id).
+			if projectIDFromContext(r.Context()) != "" {
+				respondError(w, r, http.StatusForbidden, "access denied")
+				return
+			}
+		}
+	}
+
 	project, err := s.store.GetProject(r.Context(), projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
@@ -139,6 +151,16 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		if projectIDFromContext(r.Context()) != projectID {
 			respondError(w, r, http.StatusForbidden, "access denied")
 			return
+		}
+	}
+
+	// Internal-secret callers: verify project belongs to caller's org context.
+	if scopesFromContext(r.Context()) == nil {
+		if err := s.validateProjectBelongsToCallerOrg(r.Context(), projectID); err != nil {
+			if projectIDFromContext(r.Context()) != "" {
+				respondError(w, r, http.StatusForbidden, "access denied")
+				return
+			}
 		}
 	}
 

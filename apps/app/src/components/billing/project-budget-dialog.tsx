@@ -44,9 +44,18 @@ export function ProjectBudgetDialog({
   const mutation = useSetProjectBudget();
 
   const handleSave = () => {
-    const budgetMicro = budgetUsd
-      ? Math.round(Number.parseFloat(budgetUsd) * 1_000_000)
-      : -1;
+    if (!budgetUsd) {
+      mutation.mutate(
+        { projectId, budgetMicrousd: -1, action },
+        { onSuccess: () => onOpenChange(false) }
+      );
+      return;
+    }
+    const parsed = Number.parseFloat(budgetUsd);
+    if (Number.isNaN(parsed) || !Number.isFinite(parsed) || parsed < 0) {
+      return;
+    }
+    const budgetMicro = Math.round(parsed * 1_000_000);
     mutation.mutate(
       { projectId, budgetMicrousd: budgetMicro, action },
       { onSuccess: () => onOpenChange(false) }

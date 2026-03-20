@@ -11,6 +11,7 @@ import {
   runWithSentryReport,
 } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireProjectAccess } from "@/middlewares/require-access";
 
 export type ProjectBudgetData = {
   project_id: string;
@@ -27,7 +28,10 @@ type GetBudgetInput = {
 const getProjectBudgetServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: GetBudgetInput) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
+    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
+
     return await runWithFallback(
       apiEffect<ProjectBudgetData>("/v1/project-budget", {
         params: { project_id: data.projectId },
@@ -52,7 +56,10 @@ type SetBudgetInput = {
 const setProjectBudgetServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: SetBudgetInput) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
+    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
+
     return await runWithSentryReport(
       apiEffect<{ status: string }>("/v1/project-budget", {
         method: "PUT",

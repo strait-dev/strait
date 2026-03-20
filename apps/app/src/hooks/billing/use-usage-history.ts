@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { queryKeys } from "@/hooks/query-keys";
-import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
 
@@ -29,15 +29,14 @@ const getUsageHistoryServerFn = createServerFn({ method: "GET" })
     const from = new Date(now.getFullYear(), now.getMonth(), 1);
     const to = now;
 
-    return await runWithFallback(
+    return await runWithSentryReport(
       apiEffect<UsageHistoryEntry[]>("/v1/usage/history", {
         params: {
           org_id: orgId,
           from: from.toISOString().split("T")[0],
           to: to.toISOString().split("T")[0],
         },
-      }),
-      [] as UsageHistoryEntry[]
+      })
     );
   });
 
