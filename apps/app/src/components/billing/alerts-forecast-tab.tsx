@@ -10,6 +10,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { anomalyAlertsQueryOptions } from "@/hooks/billing/use-anomaly-alerts";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
+import { capitalize } from "@/lib/format";
+import { MetricsCard } from "./metrics-card";
 
 const SEVERITY_VARIANT: Record<
   string,
@@ -40,7 +42,9 @@ export function AlertsForecastTab() {
           ) : (
             <div className="space-y-3">
               {alerts.map((alert) => (
-                <Card key={`${alert.severity}-${alert.top_contributor}`}>
+                <Card
+                  key={`${alert.severity}-${alert.top_contributor}-${alert.spike_ratio}-${alert.today_spend}`}
+                >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
                       <div className="space-y-1">
@@ -82,48 +86,26 @@ export function AlertsForecastTab() {
           {forecast ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-muted-foreground text-xs">
-                      Projected Runs
-                    </p>
-                    <p className="mt-1 font-medium text-foreground text-lg tabular-nums">
-                      {forecast.projected_monthly_runs.toLocaleString()}
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-muted-foreground text-xs">
-                      Projected Compute
-                    </p>
-                    <p className="mt-1 font-medium text-foreground text-lg tabular-nums">
-                      ${forecast.projected_monthly_compute_usd.toFixed(2)}
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-muted-foreground text-xs">
-                      Projected AI Cost
-                    </p>
-                    <p className="mt-1 font-medium text-foreground text-lg tabular-nums">
-                      ${forecast.projected_monthly_ai_cost_usd.toFixed(2)}
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-muted-foreground text-xs">
-                      Days Until Limit
-                    </p>
-                    <p className="mt-1 font-medium text-foreground text-lg tabular-nums">
-                      {forecast.days_until_limit === -1
-                        ? "N/A"
-                        : forecast.days_until_limit}
-                    </p>
-                  </CardContent>
-                </Card>
+                <MetricsCard
+                  label="Projected Runs"
+                  value={forecast.projected_monthly_runs.toLocaleString()}
+                />
+                <MetricsCard
+                  label="Projected Compute"
+                  value={`$${forecast.projected_monthly_compute_usd.toFixed(2)}`}
+                />
+                <MetricsCard
+                  label="Projected AI Cost"
+                  value={`$${forecast.projected_monthly_ai_cost_usd.toFixed(2)}`}
+                />
+                <MetricsCard
+                  label="Days Until Limit"
+                  value={
+                    forecast.days_until_limit === -1
+                      ? "N/A"
+                      : String(forecast.days_until_limit)
+                  }
+                />
               </div>
 
               {forecast.recommended_plan && (
@@ -132,8 +114,7 @@ export function AlertsForecastTab() {
                     <p className="text-sm">
                       Based on your projected usage, we recommend the{" "}
                       <span className="font-medium">
-                        {forecast.recommended_plan.charAt(0).toUpperCase() +
-                          forecast.recommended_plan.slice(1)}
+                        {capitalize(forecast.recommended_plan)}
                       </span>{" "}
                       plan.
                     </p>

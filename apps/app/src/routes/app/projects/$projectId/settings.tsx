@@ -11,12 +11,14 @@ import {
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/projects/$projectId/settings")({
-  loader: ({ context, params }) => {
+  loader: async ({ context, params }) => {
     const ctx = context as AppRouteContext;
-    ctx.queryClient.ensureQueryData(regionsQueryOptions());
-    ctx.queryClient.ensureQueryData(
-      projectSettingsQueryOptions(params.projectId)
-    );
+    await Promise.all([
+      ctx.queryClient.ensureQueryData(regionsQueryOptions()),
+      ctx.queryClient.ensureQueryData(
+        projectSettingsQueryOptions(params.projectId)
+      ),
+    ]);
   },
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,

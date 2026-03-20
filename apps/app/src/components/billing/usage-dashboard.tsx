@@ -10,6 +10,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
+import { capitalize } from "@/lib/format";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 
 function UsageGauge({
@@ -69,7 +70,7 @@ export function UsageDashboard() {
     );
   }
 
-  const planName = usage.plan.charAt(0).toUpperCase() + usage.plan.slice(1);
+  const planName = capitalize(usage.plan);
 
   return (
     <div className="space-y-6">

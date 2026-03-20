@@ -72,10 +72,6 @@ const observabilityNav: NavItem[] = [
   { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
 ];
 
-const billingNav: NavItem[] = [
-  { title: "Billing", url: "/app/billing", icon: CreditCardIcon },
-];
-
 type Environment = "production" | "staging" | "development";
 
 const environments: { value: Environment; label: string; dotClass: string }[] =
@@ -245,22 +241,23 @@ const AppSidebar = ({ session }: Props) => {
         {/* Billing */}
         <SidebarGroup>
           <SidebarMenu>
-            {billingNav.map((item) => (
-              <SidebarMenuItem key={item.url}>
-                <SidebarMenuButton
-                  isActive={isActive(item)}
-                  render={<Link to={item.url} />}
-                  tooltip={item.title}
-                >
-                  <HugeiconsIcon
-                    className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
-                    icon={item.icon}
-                    size={22}
-                  />
-                  <span>{item.title}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={
+                  pathname === "/app/billing" ||
+                  pathname.startsWith("/app/billing/")
+                }
+                render={<Link to="/app/billing" />}
+                tooltip="Billing"
+              >
+                <HugeiconsIcon
+                  className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                  icon={CreditCardIcon}
+                  size={22}
+                />
+                <span>Billing</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>

@@ -6,6 +6,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { toast } from "@strait/ui/components/toast/index";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   projectSettingsQueryOptions,
@@ -64,12 +65,17 @@ export function ProjectSettings({ projectId }: Props) {
                   className={`relative flex flex-col rounded-lg border p-4 text-left transition-colors ${borderClass}`}
                   disabled={!isAvailable || updateSettings.isPending}
                   key={region.code}
-                  onClick={() =>
-                    updateSettings.mutate({
+                  onClick={() => {
+                    const promise = updateSettings.mutateAsync({
                       projectId,
                       default_region: region.code,
-                    })
-                  }
+                    });
+                    toast.promise(promise, {
+                      loading: "Updating region...",
+                      success: "Default region updated!",
+                      error: "Failed to update region",
+                    });
+                  }}
                   type="button"
                 >
                   <div className="flex items-center justify-between">

@@ -7,6 +7,7 @@ import {
 } from "@strait/ui/components/card";
 import { useQuery } from "@tanstack/react-query";
 import { spendingLimitQueryOptions } from "@/hooks/billing/use-spending-limit";
+import { capitalize } from "@/lib/format";
 
 export function SpendingLimitsTab() {
   const { data: spending } = useQuery(spendingLimitQueryOptions());
@@ -23,8 +24,7 @@ export function SpendingLimitsTab() {
     );
   }
 
-  const planName =
-    spending.plan_tier.charAt(0).toUpperCase() + spending.plan_tier.slice(1);
+  const planName = capitalize(spending.plan_tier);
   const percent =
     spending.spending_limit_usd > 0
       ? (spending.current_spend_usd / spending.spending_limit_usd) * 100

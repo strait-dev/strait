@@ -35,14 +35,16 @@ const TabSkeleton = () => (
 );
 
 export const Route = createFileRoute("/app/billing/")({
-  loader: ({ context }) => {
+  loader: async ({ context }) => {
     const ctx = context as AppRouteContext;
-    ctx.queryClient.ensureQueryData(orgUsageQueryOptions());
-    ctx.queryClient.ensureQueryData(usageHistoryQueryOptions());
-    ctx.queryClient.ensureQueryData(projectCostsQueryOptions());
-    ctx.queryClient.ensureQueryData(spendingLimitQueryOptions());
-    ctx.queryClient.ensureQueryData(anomalyAlertsQueryOptions());
-    ctx.queryClient.ensureQueryData(usageForecastQueryOptions());
+    await Promise.all([
+      ctx.queryClient.ensureQueryData(orgUsageQueryOptions()),
+      ctx.queryClient.ensureQueryData(usageHistoryQueryOptions()),
+      ctx.queryClient.ensureQueryData(projectCostsQueryOptions()),
+      ctx.queryClient.ensureQueryData(spendingLimitQueryOptions()),
+      ctx.queryClient.ensureQueryData(anomalyAlertsQueryOptions()),
+      ctx.queryClient.ensureQueryData(usageForecastQueryOptions()),
+    ]);
   },
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,

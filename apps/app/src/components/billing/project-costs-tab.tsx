@@ -15,6 +15,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { formatMicroUsd } from "@/lib/format";
+import { MetricsCard } from "./metrics-card";
 
 export function ProjectCostsTab() {
   const { data: costs } = useQuery(projectCostsQueryOptions());
@@ -46,38 +47,13 @@ export function ProjectCostsTab() {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs">Total Runs</p>
-            <p className="mt-1 font-medium text-foreground text-lg tabular-nums">
-              {totals.runs.toLocaleString()}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs">Compute Cost</p>
-            <p className="mt-1 font-medium text-foreground text-lg tabular-nums">
-              {formatMicroUsd(totals.compute)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs">AI Cost</p>
-            <p className="mt-1 font-medium text-foreground text-lg tabular-nums">
-              {formatMicroUsd(totals.ai)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs">Total Cost</p>
-            <p className="mt-1 font-medium text-foreground text-lg tabular-nums">
-              {formatMicroUsd(totals.total)}
-            </p>
-          </CardContent>
-        </Card>
+        <MetricsCard label="Total Runs" value={totals.runs.toLocaleString()} />
+        <MetricsCard
+          label="Compute Cost"
+          value={formatMicroUsd(totals.compute)}
+        />
+        <MetricsCard label="AI Cost" value={formatMicroUsd(totals.ai)} />
+        <MetricsCard label="Total Cost" value={formatMicroUsd(totals.total)} />
       </div>
 
       <Card>
