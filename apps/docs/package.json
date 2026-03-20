@@ -31,7 +31,7 @@
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "^7.0.0-dev.20260319.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260320.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "tailwindcss": "^4.2.2",
     "tsx": "^4.21.0",

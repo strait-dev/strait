@@ -39,7 +39,7 @@
     "@changesets/cli": "^2.30.0",
     "@commitlint/config-conventional": "^20.5.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260319.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260320.1",
     "knip": "^6.0.0",
     "lefthook": "^2.1.4",
     "turbo": "^2.8.20",

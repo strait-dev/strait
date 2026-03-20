@@ -35,7 +35,7 @@
     "@ai-sdk/provider": "^3.0.8",
     "@types/bun": "latest",
     "@types/node": "^25.5.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260319.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260320.1",
     "ai": ">=6.0.116"
   },
   "dependencies": {
