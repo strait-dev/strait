@@ -47,4 +47,5 @@ export const CHART_COLORS = {
   active: "var(--info)",
   warning: "var(--warning)",
   neutral: "var(--muted-foreground)",
+  compute: "var(--info)",
 } as const;

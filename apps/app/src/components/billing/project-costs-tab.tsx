@@ -16,8 +16,19 @@ import {
 } from "@strait/ui/components/table";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { formatMicroUsd } from "@/lib/format";
+import { CHART_COLORS } from "@/lib/status-colors";
+import { ChartTooltip } from "../dashboard/chart-tooltip";
 import { MetricsCard } from "./metrics-card";
 import { ProjectBudgetDialog } from "./project-budget-dialog";
 
@@ -67,6 +78,71 @@ export function ProjectCostsTab() {
         <MetricsCard label="AI Cost" value={formatMicroUsd(totals.ai)} />
         <MetricsCard label="Total Cost" value={formatMicroUsd(totals.total)} />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-medium text-sm">Cost by Project</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div
+            style={{
+              height: `${Math.max(200, costs.length * 36)}px`,
+            }}
+          >
+            <ResponsiveContainer
+              height="100%"
+              minHeight={1}
+              minWidth={1}
+              width="100%"
+            >
+              <BarChart
+                data={[...costs].sort(
+                  (a, b) => b.total_microusd - a.total_microusd
+                )}
+                layout="vertical"
+              >
+                <CartesianGrid
+                  className="stroke-border"
+                  strokeDasharray="3 3"
+                />
+                <XAxis
+                  className="text-muted-foreground"
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={(v: number) => formatMicroUsd(v)}
+                  type="number"
+                />
+                <YAxis
+                  className="text-muted-foreground"
+                  dataKey="name"
+                  tick={{ fontSize: 12 }}
+                  type="category"
+                  width={100}
+                />
+                <Tooltip
+                  content={
+                    <ChartTooltip
+                      labelMap={{
+                        total_microusd: {
+                          label: "Total Cost",
+                          color: CHART_COLORS.active,
+                          format: formatMicroUsd,
+                        },
+                      }}
+                    />
+                  }
+                  cursor={{ fill: "var(--muted)" }}
+                />
+                <Bar
+                  dataKey="total_microusd"
+                  fill={CHART_COLORS.active}
+                  isAnimationActive={false}
+                  radius={[0, 4, 4, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

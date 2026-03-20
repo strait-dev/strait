@@ -18,8 +18,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import {
   Bar,
-  BarChart,
   CartesianGrid,
+  ComposedChart,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -43,6 +44,10 @@ const LABEL_MAP = {
     label: "AI Cost",
     color: CHART_COLORS.warning,
     format: formatMicroUsd,
+  },
+  runs_count: {
+    label: "Runs",
+    color: CHART_COLORS.neutral,
   },
 };
 
@@ -95,6 +100,13 @@ export function UsageHistoryTab() {
                   />
                   <span>AI Cost</span>
                 </div>
+                <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground">
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: CHART_COLORS.neutral }}
+                  />
+                  <span>Runs</span>
+                </div>
               </div>
             )}
             <Button
@@ -121,7 +133,7 @@ export function UsageHistoryTab() {
                 minWidth={1}
                 width="100%"
               >
-                <BarChart data={history}>
+                <ComposedChart data={history}>
                   <CartesianGrid
                     className="stroke-border"
                     strokeDasharray="3 3"
@@ -136,6 +148,13 @@ export function UsageHistoryTab() {
                     className="text-muted-foreground"
                     tick={{ fontSize: 12 }}
                     tickFormatter={(v: number) => formatMicroUsd(v)}
+                    yAxisId="cost"
+                  />
+                  <YAxis
+                    className="text-muted-foreground"
+                    orientation="right"
+                    tick={{ fontSize: 12 }}
+                    yAxisId="runs"
                   />
                   <Tooltip
                     content={<ChartTooltip labelMap={LABEL_MAP} />}
@@ -146,14 +165,25 @@ export function UsageHistoryTab() {
                     fill={CHART_COLORS.active}
                     radius={[2, 2, 0, 0]}
                     stackId="cost"
+                    yAxisId="cost"
                   />
                   <Bar
                     dataKey="ai_cost_microusd"
                     fill={CHART_COLORS.warning}
                     radius={[2, 2, 0, 0]}
                     stackId="cost"
+                    yAxisId="cost"
                   />
-                </BarChart>
+                  <Line
+                    dataKey="runs_count"
+                    dot={false}
+                    isAnimationActive={false}
+                    stroke={CHART_COLORS.neutral}
+                    strokeWidth={2}
+                    type="monotone"
+                    yAxisId="runs"
+                  />
+                </ComposedChart>
               </ResponsiveContainer>
             )}
           </div>

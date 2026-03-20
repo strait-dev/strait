@@ -1,6 +1,14 @@
+import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
+import { Progress } from "@strait/ui/components/progress";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { FailedRunsByJobChart } from "@/components/dashboard/failed-runs-by-job-chart";
 import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed";
@@ -17,6 +25,8 @@ import {
   statsQueryOptions as statsQueryOptionsFn,
 } from "@/hooks/api/use-dashboard";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
+import { formatMicroUsd } from "@/lib/format";
 import {
   ActivityIcon,
   AlertIcon,
@@ -33,25 +43,38 @@ export const Route = createFileRoute("/app/dashboard")({
   loader: async ({ context }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
+    const activeProjectId = session.user.activeProjectId ?? null;
     if (hasProject) {
       await Promise.allSettled([
         context.queryClient.ensureQueryData(statsQueryOptions),
         context.queryClient.ensureQueryData(analyticsQueryOptions),
         context.queryClient.ensureQueryData(runsQueryOptions({ limit: 20 })),
+        context.queryClient.ensureQueryData(projectCostsQueryOptions()),
       ]);
     }
-    return { hasProject };
+    return { hasProject, activeProjectId };
   },
   component: RouteComponent,
 });
 
 function RouteComponent() {
-  const { hasProject } = Route.useLoaderData();
+  const { hasProject, activeProjectId } = Route.useLoaderData();
 
-  return <DashboardContent hasProject={hasProject} />;
+  return (
+    <DashboardContent
+      activeProjectId={activeProjectId}
+      hasProject={hasProject}
+    />
+  );
 }
 
-function DashboardContent({ hasProject }: { hasProject: boolean }) {
+function DashboardContent({
+  hasProject,
+  activeProjectId,
+}: {
+  hasProject: boolean;
+  activeProjectId: string | null;
+}) {
   const { data: stats } = useQuery({
     ...statsQueryOptions,
     enabled: hasProject,
@@ -119,6 +142,9 @@ function DashboardContent({ hasProject }: { hasProject: boolean }) {
         <StatusDistributionChart hasProject={hasProject} />
       </div>
 
+      {/* Project Cost Card */}
+      {activeProjectId && <ProjectCostCard activeProjectId={activeProjectId} />}
+
       {/* Row 3: Failed Runs by Job + Duration Trends */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <FailedRunsByJobChart hasProject={hasProject} />
@@ -140,5 +166,69 @@ function DashboardContent({ hasProject }: { hasProject: boolean }) {
         <LiveActivityFeed hasProject={hasProject} />
       </div>
     </Shell>
+  );
+}
+
+function ProjectCostCard({ activeProjectId }: { activeProjectId: string }) {
+  const { data: costs } = useQuery(projectCostsQueryOptions());
+  const project = costs?.find((c) => c.project_id === activeProjectId);
+
+  if (!project) {
+    return null;
+  }
+
+  const budget = (project as { monthly_budget_microusd?: number })
+    .monthly_budget_microusd;
+  const hasBudget = budget !== undefined && budget > 0;
+  const budgetPct = hasBudget
+    ? Math.min((project.total_microusd / budget) * 100, 100)
+    : 0;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="font-medium text-sm">
+          This Project's Cost
+        </CardTitle>
+        <Button render={<Link to="/app/billing" />} size="sm" variant="link">
+          View Billing
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <p className="text-muted-foreground text-xs">Compute</p>
+            <p className="font-medium text-foreground tabular-nums">
+              {formatMicroUsd(project.compute_microusd)}
+            </p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">AI Cost</p>
+            <p className="font-medium text-foreground tabular-nums">
+              {formatMicroUsd(project.ai_microusd)}
+            </p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Total</p>
+            <p className="font-medium text-foreground tabular-nums">
+              {formatMicroUsd(project.total_microusd)}
+            </p>
+          </div>
+        </div>
+        {hasBudget && (
+          <div className="mt-3">
+            <div className="mb-1 flex items-center justify-between">
+              <p className="text-muted-foreground text-xs">
+                Budget: {formatMicroUsd(budget)}
+              </p>
+              <p className="text-muted-foreground text-xs tabular-nums">
+                {budgetPct.toFixed(0)}%
+              </p>
+            </div>
+            <Progress className="h-1.5" value={budgetPct} />
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
