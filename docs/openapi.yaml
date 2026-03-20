@@ -5708,7 +5708,7 @@ components:
       type: apiKey
       in: header
       name: Authorization
-      description: Bearer API key passed as Authorization: Bearer strait_...
+      description: "Bearer API key passed as Authorization: Bearer strait_..."
     bearerAuth:
       type: http
       scheme: bearer
