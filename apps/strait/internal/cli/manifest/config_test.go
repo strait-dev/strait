@@ -259,6 +259,74 @@ func TestLoadProjectConfig_FallbackBothFail(t *testing.T) {
 	}
 }
 
+func TestLoadProjectConfig_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{
+			name:    "job empty slug",
+			content: `{"project":{"id":"p1"},"jobs":[{"slug":"","name":"Good Name"}]}`,
+			wantErr: "jobs[0].slug is required",
+		},
+		{
+			name:    "job empty name",
+			content: `{"project":{"id":"p1"},"jobs":[{"slug":"good-slug","name":""}]}`,
+			wantErr: "jobs[0].name is required",
+		},
+		{
+			name:    "job whitespace-only slug",
+			content: `{"project":{"id":"p1"},"jobs":[{"slug":"  ","name":"Good Name"}]}`,
+			wantErr: "jobs[0].slug is required",
+		},
+		{
+			name:    "workflow empty slug",
+			content: `{"project":{"id":"p1"},"workflows":[{"slug":"","name":"Good Name"}]}`,
+			wantErr: "workflows[0].slug is required",
+		},
+		{
+			name:    "workflow empty name",
+			content: `{"project":{"id":"p1"},"workflows":[{"slug":"good-slug","name":""}]}`,
+			wantErr: "workflows[0].name is required",
+		},
+		{
+			name: "valid jobs and workflows",
+			content: `{"project":{"id":"p1"},"jobs":[{"slug":"j1","name":"Job 1"}],
+			           "workflows":[{"slug":"w1","name":"Workflow 1"}]}`,
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			p := filepath.Join(dir, "strait.json")
+			if err := os.WriteFile(p, []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := LoadProjectConfig(p)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("expected no error, got: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got: %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
 func TestLoadProjectConfig_FileNotFound(t *testing.T) {
 	t.Parallel()
 

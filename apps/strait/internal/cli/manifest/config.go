@@ -74,5 +74,21 @@ func validateConfig(cfg *ProjectConfig) error {
 	if cfg.Project.ID == "" {
 		return fmt.Errorf("project.id is required")
 	}
+	for i, j := range cfg.Jobs {
+		if strings.TrimSpace(j.Slug) == "" {
+			return fmt.Errorf("jobs[%d].slug is required", i)
+		}
+		if strings.TrimSpace(j.Name) == "" {
+			return fmt.Errorf("jobs[%d].name is required", i)
+		}
+	}
+	for i, w := range cfg.Workflows {
+		if strings.TrimSpace(w.Slug) == "" {
+			return fmt.Errorf("workflows[%d].slug is required", i)
+		}
+		if strings.TrimSpace(w.Name) == "" {
+			return fmt.Errorf("workflows[%d].name is required", i)
+		}
+	}
 	return nil
 }
