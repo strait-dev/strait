@@ -330,7 +330,10 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/subscriptions/{subID}", s.handleDeleteEventSubscription)
 			})
 		})
-		r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/events/dispatch", s.handleDispatchEvent)
+		r.With(
+			s.requirePermission(domain.ScopeJobsWrite),
+			rateLimit(triggerRateLimitRequests, triggerRateLimitWindow),
+		).Post("/events/dispatch", s.handleDispatchEvent)
 
 		r.Route("/events", func(r chi.Router) {
 			r.Get("/", s.handleListEventTriggers)
