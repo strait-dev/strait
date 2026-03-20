@@ -104,9 +104,9 @@ func Load(pathOverride string) (*LoadResult, error) {
 
 		isLocal := false
 		if localPath != "" {
-			resolvedP, _ := filepath.EvalSymlinks(p)
-			resolvedLocal, _ := filepath.EvalSymlinks(localPath)
-			if resolvedP == resolvedLocal {
+			resolvedP, errP := filepath.EvalSymlinks(p)
+			resolvedLocal, errL := filepath.EvalSymlinks(localPath)
+			if errP == nil && errL == nil && resolvedP == resolvedLocal {
 				isLocal = true
 			}
 		}

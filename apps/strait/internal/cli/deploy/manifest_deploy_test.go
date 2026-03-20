@@ -296,3 +296,129 @@ func TestDeployManifest_RequiresArtifactURI(t *testing.T) {
 		t.Fatalf("expected missing artifact error, got %v", err)
 	}
 }
+
+func TestCreateManifestDeployment_DryRunSkipsArtifactValidation(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "strait.json")
+	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"},"runtime":"node"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cli, err := client.New("https://example.com", "test-key", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, manifest, _, _, err := CreateManifestDeployment(context.Background(), cli, ManifestDeployOptions{
+		ConfigPath: configPath,
+		DryRun:     true,
+		// No ArtifactURI -- should be OK for dry-run
+	})
+	if err != nil {
+		t.Fatalf("dry-run should not require artifact URI: %v", err)
+	}
+	if manifest == nil {
+		t.Fatal("expected manifest to be returned")
+	}
+}
+
+func TestCreateManifestDeployment_DryRunStillRequiresRuntime(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "strait.json")
+	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cli, err := client.New("https://example.com", "test-key", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, _, err = CreateManifestDeployment(context.Background(), cli, ManifestDeployOptions{
+		ConfigPath: configPath,
+		DryRun:     true,
+	})
+	if err == nil {
+		t.Fatal("expected error for missing runtime")
+	}
+	if err.Error() != "manifest deploy requires project.runtime in the config file" {
+		t.Fatalf("expected runtime error, got: %v", err)
+	}
+}
+
+func TestCreateManifestDeployment_RealDeployRequiresArtifactURI(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "strait.json")
+	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"},"runtime":"node"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cli, err := client.New("https://example.com", "test-key", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, _, err = CreateManifestDeployment(context.Background(), cli, ManifestDeployOptions{
+		ConfigPath: configPath,
+		DryRun:     false,
+		// No ArtifactURI
+	})
+	if err == nil {
+		t.Fatal("expected error for missing artifact URI on real deploy")
+	}
+	if err.Error() != "manifest deploy requires --artifact-uri" {
+		t.Fatalf("expected artifact URI error, got: %v", err)
+	}
+}
+
+func TestCreateManifestDeployment_RealDeployWithAllInputs(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "strait.json")
+	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"},"runtime":"node"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var createCalled atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/deployments" {
+			createCalled.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(client.DeploymentVersion{ID: "dep-1", CreatedAt: time.Now()})
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	cli, err := client.New(srv.URL, "test-key", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deployment, manifest, _, _, err := CreateManifestDeployment(context.Background(), cli, ManifestDeployOptions{
+		ConfigPath:  configPath,
+		DryRun:      false,
+		ArtifactURI: "https://example.com/artifact.tgz",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if deployment == nil {
+		t.Fatal("expected deployment to be returned")
+	}
+	if manifest == nil {
+		t.Fatal("expected manifest to be returned")
+	}
+	if createCalled.Load() != 1 {
+		t.Errorf("expected 1 create call, got %d", createCalled.Load())
+	}
+}

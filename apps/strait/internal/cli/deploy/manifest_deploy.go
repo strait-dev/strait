@@ -57,12 +57,17 @@ func CreateManifestDeployment(ctx context.Context, cli *client.Client, opts Mani
 
 	manifest := climanifest.BuildManifest(cfg)
 	env := resolveManifestEnvironment(cfg, opts.Environment)
-	if err := validateManifestDeployInputs(manifest, opts.ArtifactURI); err != nil {
-		return nil, nil, "", nil, err
+
+	if strings.TrimSpace(manifest.Runtime) == "" {
+		return nil, nil, "", nil, fmt.Errorf("manifest deploy requires project.runtime in the config file")
 	}
 
 	if opts.DryRun {
 		return nil, manifest, env, cfg, nil
+	}
+
+	if strings.TrimSpace(opts.ArtifactURI) == "" {
+		return nil, nil, "", nil, fmt.Errorf("manifest deploy requires --artifact-uri")
 	}
 
 	deployment, err := cli.CreateDeploymentVersion(ctx, client.CreateDeploymentVersionRequest{
@@ -97,16 +102,6 @@ func resolveManifestEnvironment(cfg *climanifest.ProjectConfig, override string)
 		return env
 	}
 	return "production"
-}
-
-func validateManifestDeployInputs(manifest *climanifest.ProjectManifest, artifactURI string) error {
-	if strings.TrimSpace(manifest.Runtime) == "" {
-		return fmt.Errorf("manifest deploy requires project.runtime in the config file")
-	}
-	if strings.TrimSpace(artifactURI) == "" {
-		return fmt.Errorf("manifest deploy requires --artifact-uri")
-	}
-	return nil
 }
 
 func writeManifest(cfg *climanifest.ProjectConfig, manifest *climanifest.ProjectManifest, outDir string) error {
