@@ -10,6 +10,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -82,17 +83,24 @@ type Metrics struct {
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
-func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Context) error, error) {
+func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(context.Context) error, error) {
 	exporter, err := prometheus.New()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
+	}
+
+	attrs := []attribute.KeyValue{
+		semconv.ServiceName(serviceName),
+	}
+	if environment != "" {
+		attrs = append(attrs, semconv.DeploymentEnvironmentName(environment))
 	}
 
 	res, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName(serviceName),
+			attrs...,
 		),
 	)
 	if err != nil {

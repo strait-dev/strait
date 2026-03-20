@@ -134,7 +134,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	)
 
 	// Initialize OpenTelemetry tracing
-	shutdownTracer, err := telemetry.Init(ctx, "strait", cfg.OTELEndpoint)
+	shutdownTracer, err := telemetry.Init(ctx, "strait", cfg.OTELEndpoint, cfg.SentryEnvironment)
 	if err != nil {
 		return fmt.Errorf("init telemetry: %w", err)
 	}
@@ -146,7 +146,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 	}()
 
-	metrics, metricsHandler, shutdownMetrics, err := telemetry.InitMetrics("strait")
+	metrics, metricsHandler, shutdownMetrics, err := telemetry.InitMetrics("strait", cfg.SentryEnvironment)
 	if err != nil {
 		return fmt.Errorf("init metrics: %w", err)
 	}
