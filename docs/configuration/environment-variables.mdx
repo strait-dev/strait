@@ -47,6 +47,7 @@ This page documents all environment variables available for configuring Strait.
 | `DEFAULT_JOB_MAX_ATTEMPTS` | Integer | `3` | Default maximum retry attempts for jobs. |
 | `DEFAULT_JOB_TIMEOUT_SECS` | Integer | `300` | Default timeout for jobs in seconds. |
 | `WORKER_QUEUE_SIZE` | Integer | `0` | Bounded task queue size for the worker pool. When the queue is full, task submission blocks until a slot opens, providing backpressure. `0` means unbounded. |
+| `WEBHOOK_CONCURRENCY` | Integer | `50` | Maximum concurrent webhook deliveries. Increase for high-throughput webhook workloads. |
 | `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `15s` | Timeout for webhook dispatch requests. |
 
 ## Scheduler Configuration

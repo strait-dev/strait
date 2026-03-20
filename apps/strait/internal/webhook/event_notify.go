@@ -40,7 +40,7 @@ type DeliveryStore interface {
 	UpdateEventTriggerNotifyStatus(ctx context.Context, id string, notifyStatus string) error
 }
 
-const defaultDeliveryConcurrency = 5
+const defaultDeliveryConcurrency = 50
 const defaultWebhookMaxPayloadBytes = 1 << 20
 
 type DeliveryWorker struct {
@@ -107,7 +107,7 @@ func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...Deliver
 		logger = slog.Default()
 	}
 	w := &DeliveryWorker{
-		client:             &http.Client{Timeout: 10 * time.Second},
+		client:             &http.Client{}, // Per-request timeout via context; see attemptDelivery.
 		store:              store,
 		logger:             logger,
 		concurrency:        defaultDeliveryConcurrency,
@@ -367,7 +367,15 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		return
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.WebhookURL, bytes.NewReader(body))
+	// Tiered timeout: 5s for initial attempts, 15s for retries.
+	reqTimeout := 5 * time.Second
+	if d.Attempts > 1 {
+		reqTimeout = 15 * time.Second
+	}
+	reqCtx, reqCancel := context.WithTimeout(ctx, reqTimeout)
+	defer reqCancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, d.WebhookURL, bytes.NewReader(body))
 	if err != nil {
 		errMsg := fmt.Sprintf("create request: %v", err)
 		n.recordFailure(ctx, d, now, false, errMsg)

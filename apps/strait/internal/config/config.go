@@ -86,6 +86,7 @@ type Config struct {
 	ExecutorIdleConnTimeout time.Duration `mapstructure:"EXECUTOR_IDLE_CONN_TIMEOUT"`
 	WebhookDispatchTimeout  time.Duration `mapstructure:"WEBHOOK_DISPATCH_TIMEOUT"`
 	WebhookMaxPayloadBytes  int64         `mapstructure:"WEBHOOK_MAX_PAYLOAD_BYTES"`
+	WebhookConcurrency      int           `mapstructure:"WEBHOOK_CONCURRENCY"`
 
 	// Worker settings
 	WebhookMaxAttempts       int `mapstructure:"WEBHOOK_MAX_ATTEMPTS"`
@@ -209,6 +210,7 @@ func setDefaults() {
 	viper.SetDefault("EXECUTOR_IDLE_CONN_TIMEOUT", 90*time.Second)
 	viper.SetDefault("WEBHOOK_DISPATCH_TIMEOUT", 15*time.Second)
 	viper.SetDefault("WEBHOOK_MAX_PAYLOAD_BYTES", int64(1<<20))
+	viper.SetDefault("WEBHOOK_CONCURRENCY", 50)
 	viper.SetDefault("WEBHOOK_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_TIMEOUT_SECS", 300)
