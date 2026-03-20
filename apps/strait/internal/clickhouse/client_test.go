@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"testing"
@@ -172,5 +173,113 @@ func TestConfig_CustomPoolSize(t *testing.T) {
 	cfg := Config{MaxOpenConns: 20, MaxIdleConns: 10}
 	if cfg.MaxOpenConns != 20 || cfg.MaxIdleConns != 10 {
 		t.Error("pool config not set")
+	}
+}
+
+func TestExporter_InsertBatch_TypeRouting(t *testing.T) {
+	t.Parallel()
+	// Use a nil-db client so Exec is a no-op.
+	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: 100}, slog.Default())
+
+	now := time.Now()
+	e.Enqueue(RunEventRecord{
+		EventID:   "evt-1",
+		RunID:     "run-1",
+		ProjectID: "proj-1",
+		EventType: "log",
+		Level:     "info",
+		Message:   "test",
+		CreatedAt: now,
+	})
+	e.Enqueue(RunAnalyticsRecord{
+		RunID:     "run-1",
+		ProjectID: "proj-1",
+		Status:    "completed",
+		CreatedAt: now,
+	})
+	e.Enqueue(ComputeUsageRecord{
+		RunID:        "run-1",
+		ProjectID:    "proj-1",
+		DurationSecs: 10.5,
+		StartedAt:    now,
+		FinishedAt:   now,
+	})
+	// Unknown type should be silently logged.
+	e.Enqueue("unknown-type")
+
+	if e.PendingCount() != 4 {
+		t.Fatalf("pending = %d, want 4", e.PendingCount())
+	}
+
+	// Flush manually - nil db means Exec is a no-op, so this verifies
+	// the type-switching and batching logic without a real DB.
+	e.flush(context.Background())
+
+	if e.PendingCount() != 0 {
+		t.Errorf("after flush, pending = %d, want 0", e.PendingCount())
+	}
+}
+
+func TestExporter_InsertBatch_EmptyBatch(t *testing.T) {
+	t.Parallel()
+	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: 100}, slog.Default())
+
+	// flush with no pending records should be a no-op.
+	e.flush(context.Background())
+	if e.PendingCount() != 0 {
+		t.Errorf("pending = %d, want 0", e.PendingCount())
+	}
+}
+
+func TestExporter_InsertBatch_NilClient(t *testing.T) {
+	t.Parallel()
+	e := &Exporter{
+		client:  nil,
+		config:  ExporterConfig{BatchSize: 100},
+		logger:  slog.Default(),
+		pending: make([]any, 0),
+		stopCh:  make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+
+	err := e.insertBatch(context.Background(), []any{RunEventRecord{EventID: "evt-1"}})
+	if err != nil {
+		t.Errorf("insertBatch with nil client should return nil, got %v", err)
+	}
+}
+
+func TestExporter_MultipleBatchFlushes(t *testing.T) {
+	t.Parallel()
+	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: 100, FlushInterval: 10 * time.Millisecond}, slog.Default())
+
+	now := time.Now()
+
+	ctx := context.Background()
+	e.Start(ctx)
+
+	// First batch.
+	for i := range 5 {
+		e.Enqueue(RunEventRecord{EventID: fmt.Sprintf("evt-%d", i), CreatedAt: now})
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	// Second batch.
+	for i := range 3 {
+		e.Enqueue(RunAnalyticsRecord{RunID: fmt.Sprintf("run-%d", i), CreatedAt: now})
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	e.Stop()
+
+	if e.PendingCount() != 0 {
+		t.Errorf("after stop, pending = %d, want 0", e.PendingCount())
+	}
+}
+
+func TestCreateSchema_NilClient(t *testing.T) {
+	t.Parallel()
+	err := CreateSchema(context.Background(), nil)
+	if err != nil {
+		t.Errorf("CreateSchema(nil) error = %v", err)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"strait/internal/api"
+	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/crypto"
 	"strait/internal/domain"
@@ -176,6 +177,39 @@ func runServe(ctx context.Context, modeOverride string) error {
 		currentHandler := slog.Default().Handler()
 		tee := telemetry.NewTeeHandler(currentHandler, otelLogger.Handler())
 		slog.SetDefault(slog.New(tee))
+	}
+
+	// Initialize ClickHouse (optional analytics backend).
+	chClient, err := clickhouse.New(clickhouse.Config{
+		URL:          cfg.ClickHouseURL,
+		Database:     cfg.ClickHouseDatabase,
+		Enabled:      cfg.ClickHouseEnabled,
+		MaxOpenConns: 10,
+		MaxIdleConns: 5,
+	}, slog.Default())
+	if err != nil {
+		return fmt.Errorf("init clickhouse: %w", err)
+	}
+	if chClient != nil {
+		defer chClient.Close()
+		if err := clickhouse.CreateSchema(ctx, chClient); err != nil {
+			return fmt.Errorf("create clickhouse schema: %w", err)
+		}
+		slog.Info("clickhouse enabled", "database", cfg.ClickHouseDatabase)
+	}
+
+	chExporter := clickhouse.NewExporter(chClient, clickhouse.ExporterConfig{
+		BatchSize:     cfg.ClickHouseBatchSize,
+		FlushInterval: cfg.ClickHouseFlushInterval,
+		Enabled:       cfg.ClickHouseExportEnabled,
+	}, slog.Default())
+	if chExporter != nil {
+		chExporter.Start(ctx)
+		defer chExporter.Stop()
+		slog.Info("clickhouse exporter enabled",
+			"batch_size", cfg.ClickHouseBatchSize,
+			"flush_interval", cfg.ClickHouseFlushInterval,
+		)
 	}
 
 	dbPool, err := connectDatabase(ctx, cfg)

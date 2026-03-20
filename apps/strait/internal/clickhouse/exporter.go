@@ -2,7 +2,9 @@ package clickhouse
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +15,50 @@ type ExporterConfig struct {
 	BatchSize     int           // Max events per batch insert.
 	FlushInterval time.Duration // Max time between flushes.
 	Enabled       bool          // Feature gate.
+}
+
+// RunEventRecord maps to the run_events ClickHouse table.
+type RunEventRecord struct {
+	EventID   string
+	RunID     string
+	ProjectID string
+	JobID     string
+	EventType string
+	Level     string
+	Message   string
+	Metadata  string
+	CreatedAt time.Time
+}
+
+// RunAnalyticsRecord maps to the run_analytics ClickHouse table.
+type RunAnalyticsRecord struct {
+	RunID               string
+	JobID               string
+	ProjectID           string
+	Status              string
+	ExecutionMode       string
+	MachinePreset       string
+	Attempt             int
+	DurationMs          uint64
+	QueueWaitMs         uint64
+	CostMicrousd        int64
+	ComputeCostMicrousd int64
+	TriggeredBy         string
+	CreatedAt           time.Time
+	StartedAt           *time.Time
+	FinishedAt          *time.Time
+}
+
+// ComputeUsageRecord maps to the compute_usage ClickHouse table.
+type ComputeUsageRecord struct {
+	RunID         string
+	ProjectID     string
+	MachinePreset string
+	MachineID     string
+	DurationSecs  float64
+	CostMicrousd  int64
+	StartedAt     time.Time
+	FinishedAt    time.Time
 }
 
 // Exporter batches events and periodically flushes them to ClickHouse.
@@ -127,16 +173,107 @@ func (e *Exporter) flush(ctx context.Context) {
 	}
 }
 
-// insertBatch writes a batch of records to ClickHouse.
+// insertBatch writes a batch of records to ClickHouse, grouping by record type.
 func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	if len(batch) == 0 || e.client == nil {
 		return nil
 	}
-	// Batch insert: each record type (RunEvent, RunAnalytics, ComputeUsage)
-	// maps to a ClickHouse table. Type-switch inserts into the correct one.
-	// TODO(STR-6): implement per-type INSERT INTO ... VALUES batch.
-	e.logger.Debug("clickhouse exporter flushed batch", "count", len(batch))
-	return e.client.Exec(ctx, "SELECT 1") // Validate connection is alive.
+
+	var events []RunEventRecord
+	var analytics []RunAnalyticsRecord
+	var usage []ComputeUsageRecord
+
+	for _, rec := range batch {
+		switch r := rec.(type) {
+		case RunEventRecord:
+			events = append(events, r)
+		case RunAnalyticsRecord:
+			analytics = append(analytics, r)
+		case ComputeUsageRecord:
+			usage = append(usage, r)
+		default:
+			e.logger.Warn("clickhouse exporter: unknown record type", "type", fmt.Sprintf("%T", rec))
+		}
+	}
+
+	var errs []error
+	if len(events) > 0 {
+		if err := e.insertRunEvents(ctx, events); err != nil {
+			errs = append(errs, fmt.Errorf("run_events: %w", err))
+		}
+	}
+	if len(analytics) > 0 {
+		if err := e.insertRunAnalytics(ctx, analytics); err != nil {
+			errs = append(errs, fmt.Errorf("run_analytics: %w", err))
+		}
+	}
+	if len(usage) > 0 {
+		if err := e.insertComputeUsage(ctx, usage); err != nil {
+			errs = append(errs, fmt.Errorf("compute_usage: %w", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		msgs := make([]string, len(errs))
+		for i, err := range errs {
+			msgs[i] = err.Error()
+		}
+		return fmt.Errorf("batch insert errors: %s", strings.Join(msgs, "; "))
+	}
+
+	e.logger.Debug("clickhouse exporter flushed batch",
+		"events", len(events),
+		"analytics", len(analytics),
+		"usage", len(usage),
+	)
+	return nil
+}
+
+func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord) error {
+	query := "INSERT INTO run_events (event_id, run_id, project_id, job_id, event_type, level, message, metadata, created_at) VALUES "
+	args := make([]any, 0, len(records)*9)
+	placeholders := make([]string, 0, len(records))
+
+	for i, r := range records {
+		base := i * 9
+		placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9))
+		args = append(args, r.EventID, r.RunID, r.ProjectID, r.JobID, r.EventType, r.Level, r.Message, r.Metadata, r.CreatedAt)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalyticsRecord) error {
+	query := "INSERT INTO run_analytics (run_id, job_id, project_id, status, execution_mode, machine_preset, attempt, duration_ms, queue_wait_ms, cost_microusd, compute_cost_microusd, triggered_by, created_at, started_at, finished_at) VALUES "
+	args := make([]any, 0, len(records)*15)
+	placeholders := make([]string, 0, len(records))
+
+	for i, r := range records {
+		base := i * 15
+		placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9, base+10, base+11, base+12, base+13, base+14, base+15))
+		args = append(args, r.RunID, r.JobID, r.ProjectID, r.Status, r.ExecutionMode, r.MachinePreset,
+			r.Attempt, r.DurationMs, r.QueueWaitMs, r.CostMicrousd, r.ComputeCostMicrousd, r.TriggeredBy,
+			r.CreatedAt, r.StartedAt, r.FinishedAt)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func (e *Exporter) insertComputeUsage(ctx context.Context, records []ComputeUsageRecord) error {
+	query := "INSERT INTO compute_usage (run_id, project_id, machine_preset, machine_id, duration_secs, cost_microusd, started_at, finished_at) VALUES "
+	args := make([]any, 0, len(records)*8)
+	placeholders := make([]string, 0, len(records))
+
+	for i, r := range records {
+		base := i * 8
+		placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8))
+		args = append(args, r.RunID, r.ProjectID, r.MachinePreset, r.MachineID, r.DurationSecs, r.CostMicrousd, r.StartedAt, r.FinishedAt)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
 }
 
 // PendingCount returns the number of records waiting to be flushed.
