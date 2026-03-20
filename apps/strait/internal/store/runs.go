@@ -915,6 +915,43 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	return runs, nil
 }
 
+func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, since time.Time, limit int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListFinishedRunsSince")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		FROM job_runs
+		WHERE project_id = $1
+		  AND status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')
+		  AND finished_at > $2
+		ORDER BY finished_at ASC
+		LIMIT $3
+	`
+
+	rows, err := q.db.Query(ctx, query, projectID, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list finished runs since: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0, limit)
+	for rows.Next() {
+		run, scanErr := dbscan.ScanRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list finished runs since scan: %w", scanErr)
+		}
+		runs = append(runs, *run)
+	}
+	return runs, rows.Err()
+}
+
 func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListDeadLetterRuns")
 	defer span.End()
