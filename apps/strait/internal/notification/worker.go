@@ -54,6 +54,11 @@ func (w *Worker) Stop() {
 }
 
 func (w *Worker) run(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("notification worker panic recovered", "panic", r)
+		}
+	}()
 	// Process once immediately on start.
 	w.process(ctx)
 

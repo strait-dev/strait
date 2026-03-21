@@ -134,6 +134,11 @@ func (e *Exporter) Start(ctx context.Context) {
 	}
 	go func() { //nolint:gosec // ctx is intentionally captured for the flush loop lifetime.
 		defer close(e.done)
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("clickhouse exporter panic recovered", "panic", r)
+			}
+		}()
 		ticker := time.NewTicker(e.config.FlushInterval)
 		defer ticker.Stop()
 
