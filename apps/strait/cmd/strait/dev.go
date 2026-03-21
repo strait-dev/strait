@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sort"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -46,19 +48,29 @@ func newDevCommand(state *appState) *cobra.Command {
 				}
 			}
 
-			setEnvIfEmpty("DATABASE_URL", "postgres://strait:strait@localhost:5432/strait?sslmode=disable")
-			setEnvIfEmpty("REDIS_URL", "redis://localhost:6379")
+			// Validate required environment variables. Never silently default secrets.
+			required := map[string]string{
+				"DATABASE_URL":    "connection string for PostgreSQL (e.g. postgres://strait:strait@localhost:5432/strait?sslmode=disable)",
+				"INTERNAL_SECRET": "shared secret for internal API auth (at least 16 characters)",
+				"JWT_SIGNING_KEY": "signing key for JWT tokens (at least 32 characters)",
+			}
+			var missing []string
+			for key, desc := range required {
+				if os.Getenv(key) == "" {
+					missing = append(missing, fmt.Sprintf("  %s - %s", key, desc))
+				}
+			}
+			if len(missing) > 0 {
+				sort.Strings(missing)
+				return fmt.Errorf("required environment variables are not set:\n%s\n\nCreate a .env file or export them before running strait dev", strings.Join(missing, "\n"))
+			}
 
-			// Use hardcoded dev secrets only for local development.
-			// These are intentionally weak and must never be used in production.
-			if os.Getenv("INTERNAL_SECRET") == "" {
-				_ = os.Setenv("INTERNAL_SECRET", "strait-dev-internal-secret-0123456789")
-				fmt.Fprintln(os.Stderr, "warning: using default dev INTERNAL_SECRET (not for production)")
+			// Optional: REDIS_URL (degrades gracefully without it)
+			if os.Getenv("REDIS_URL") == "" {
+				fmt.Fprintln(os.Stderr, "note: REDIS_URL not set; rate limiting and pub/sub will be disabled")
 			}
-			if os.Getenv("JWT_SIGNING_KEY") == "" {
-				_ = os.Setenv("JWT_SIGNING_KEY", "strait-dev-jwt-signing-key-0123456789")
-				fmt.Fprintln(os.Stderr, "warning: using default dev JWT_SIGNING_KEY (not for production)")
-			}
+
+			// Override only non-secret runtime settings for dev mode.
 			_ = os.Setenv("LOG_LEVEL", "debug")
 			_ = os.Setenv("PORT", strconv.Itoa(port))
 
@@ -88,12 +100,6 @@ func newDevCommand(state *appState) *cobra.Command {
 	cmd.Flags().BoolVar(&seed, "seed", false, "attempt to seed example data")
 
 	return cmd
-}
-
-func setEnvIfEmpty(key, value string) {
-	if os.Getenv(key) == "" {
-		_ = os.Setenv(key, value)
-	}
 }
 
 func newDevStatusCommand(state *appState) *cobra.Command {
