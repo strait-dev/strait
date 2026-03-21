@@ -47,10 +47,11 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 		p = pub
 	}
 	srv := NewServer(ServerDeps{
-		Config: cfg,
-		Store:  s,
-		Queue:  q,
-		PubSub: p,
+		Config:  cfg,
+		Store:   s,
+		Queue:   q,
+		PubSub:  p,
+		Edition: domain.EditionCloud,
 	})
 	t.Cleanup(srv.Close)
 	return srv
