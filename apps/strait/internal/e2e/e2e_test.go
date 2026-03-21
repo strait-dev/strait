@@ -51,7 +51,7 @@ func TestMain(m *testing.M) {
 			SecretEncryptionKey:      "test-encryption-key-32bytes!!!!",
 			RateLimitRequests:        0,
 			RateLimitWindow:          time.Minute,
-			TriggerRateLimitRequests: 10000,
+			TriggerRateLimitRequests: 0,
 			TriggerRateLimitWindow:   time.Minute,
 			CORSAllowedOrigins:       []string{"*"},
 			CORSAllowCredentials:     false,

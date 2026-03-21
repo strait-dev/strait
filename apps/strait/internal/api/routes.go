@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/http"
 	"time"
 
 	"strait/internal/domain"
@@ -56,7 +57,18 @@ func (s *Server) routes() chi.Router {
 		triggerRateLimitWindow = time.Minute
 	}
 
-	rateLimit := httprate.LimitByIP
+	// rateLimit returns a rate limiting middleware when rate limiting is enabled,
+	// otherwise a no-op. Rate limiting is considered enabled when either the
+	// global limiter (RateLimitRequests) or the trigger-specific limiter
+	// (TriggerRateLimitRequests) is configured, so that per-route limits always
+	// apply in production but can be disabled entirely in tests by zeroing both.
+	rateLimitEnabled := s.config.RateLimitRequests > 0 || s.config.TriggerRateLimitRequests > 0
+	rateLimit := func(requests int, window time.Duration) func(http.Handler) http.Handler {
+		if !rateLimitEnabled {
+			return func(next http.Handler) http.Handler { return next }
+		}
+		return httprate.LimitByIP(requests, window)
+	}
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)

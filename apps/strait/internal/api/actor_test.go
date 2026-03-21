@@ -34,10 +34,9 @@ func (m *mockActorSyncer) UpsertKnownActor(_ context.Context, id, email, name st
 func newTestServerWithActorSyncer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, syncer ActorSyncer) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:           "test-secret",
-		MaxBulkTriggerItems:      500,
-		JWTSigningKey:            "01234567890123456789012345678901",
-		TriggerRateLimitRequests: 10000,
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "01234567890123456789012345678901",
 	}
 	srv := NewServer(ServerDeps{
 		Config:      cfg,

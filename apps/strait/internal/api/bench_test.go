@@ -20,10 +20,9 @@ import (
 
 func benchmarkConfig() *config.Config {
 	return &config.Config{
-		InternalSecret:           "test-secret",
-		MaxBulkTriggerItems:      500,
-		JWTSigningKey:            "01234567890123456789012345678901",
-		TriggerRateLimitRequests: 10000,
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "01234567890123456789012345678901",
 	}
 }
 
