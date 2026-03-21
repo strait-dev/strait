@@ -3,6 +3,9 @@
 This runbook documents the manual configuration for Better Stack (uptime,
 alerting, on-call) and Grafana Cloud Alerting integration.
 
+**Note**: The Grafana webhook integration requires a Better Stack paid plan.
+When ready, run `ops/monitoring/setup-alert-routing.sh` with your webhook URL.
+
 ## 1. Better Stack Uptime Monitor
 
 1. Log in to Better Stack (https://betterstack.com)
