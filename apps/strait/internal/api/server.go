@@ -391,6 +391,45 @@ type AnalyticsStore interface {
 	GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
 	GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
 	GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
+
+	// Run analytics
+	GetRunTimeline(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.RunTimelineBucket, error)
+	GetRunDurationDistribution(ctx context.Context, projectID string, from, to time.Time) ([]store.RunDurationBucket, error)
+	GetRunFailureReasons(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.RunFailureReason, error)
+	GetRunSummary(ctx context.Context, projectID string, from, to time.Time) (*store.RunSummary, error)
+	GetRunsByTrigger(ctx context.Context, projectID string, from, to time.Time) ([]store.RunsByTrigger, error)
+
+	// Job analytics
+	GetJobHistory(ctx context.Context, projectID, jobID string, from, to time.Time, bucket string) ([]store.JobHistoryBucket, error)
+	GetJobComparison(ctx context.Context, projectID string, jobIDs []string, from, to time.Time) ([]store.JobComparison, error)
+	GetJobReliability(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobReliability, error)
+	GetRunsByVersion(ctx context.Context, projectID, jobID string, from, to time.Time) ([]store.RunsByVersion, error)
+	GetJobCostRanking(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobCostRanking, error)
+	GetTopFailingJobs(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingJob, error)
+
+	// Tag analytics
+	GetTagSummary(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TagSummary, error)
+	GetTopFailingTags(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingTag, error)
+	GetTagCost(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TagCost, error)
+
+	// Workflow analytics
+	GetWorkflowStepDurations(ctx context.Context, projectID, workflowID string, from, to time.Time) ([]store.StepDuration, error)
+	GetWorkflowCompletionRates(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.WorkflowCompletionBucket, error)
+	GetWorkflowSummary(ctx context.Context, projectID string, from, to time.Time) (*store.WorkflowSummary, error)
+
+	// Webhook analytics
+	GetWebhookDeliveryStats(ctx context.Context, projectID string, from, to time.Time) ([]store.WebhookEndpointStats, error)
+	GetWebhookEndpointHealth(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.WebhookHealthBucket, error)
+	GetTopFailingWebhooks(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingEndpoint, error)
+
+	// Event analytics
+	GetEventVolume(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.EventVolumeBucket, error)
+	GetEventLatency(ctx context.Context, projectID string, from, to time.Time) (*store.EventLatencyStats, error)
+
+	// Cost analytics (new)
+	GetCostForecast(ctx context.Context, projectID string, from, to time.Time) (*store.CostForecast, error)
+	GetCostByTrigger(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByTrigger, error)
+	GetCostByMachine(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByMachine, error)
 }
 
 type Server struct {
@@ -426,7 +465,13 @@ func (s *Server) analytics() AnalyticsStore {
 	if s.analyticsStore != nil {
 		return s.analyticsStore
 	}
-	return s.store
+	// The concrete type behind s.store (e.g. *store.Queries) implements
+	// AnalyticsStore as well, but the APIStore interface does not promise
+	// those methods. Use a type assertion so the fallback still works.
+	if as, ok := s.store.(AnalyticsStore); ok {
+		return as
+	}
+	return s.analyticsStore // nil -- callers guard with s.analyticsStore != nil
 }
 
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).

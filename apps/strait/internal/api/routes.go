@@ -254,6 +254,50 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/compute", s.handleGetComputeCostAnalytics)
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/approvals", s.handleGetApprovalStats)
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/cost-insights", s.handleGetCostInsights)
+
+			r.Route("/runs", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/timeline", s.handleRunTimeline)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/duration-distribution", s.handleRunDurationDistribution)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/failure-reasons", s.handleRunFailureReasons)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/summary", s.handleRunSummary)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/by-trigger", s.handleRunsByTrigger)
+			})
+
+			r.Route("/jobs", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/comparison", s.handleJobComparison)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/reliability", s.handleJobReliability)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/by-version", s.handleRunsByVersion)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/cost-ranking", s.handleJobCostRanking)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/top-failing", s.handleTopFailingJobs)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/{jobID}/history", s.handleJobHistory)
+			})
+
+			r.Route("/tags", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/summary", s.handleTagSummary)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/top-failing", s.handleTopFailingTags)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/cost", s.handleTagCost)
+			})
+
+			r.Route("/workflows", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/completion-rates", s.handleWorkflowCompletionRates)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/summary", s.handleWorkflowAnalyticsSummary)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/{workflowID}/step-durations", s.handleWorkflowStepDurations)
+			})
+
+			r.Route("/webhooks", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/delivery-stats", s.handleWebhookDeliveryStats)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/endpoint-health", s.handleWebhookEndpointHealth)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/top-failing", s.handleTopFailingWebhooks)
+			})
+
+			r.Route("/events", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/volume", s.handleEventVolume)
+				r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/latency", s.handleEventLatency)
+			})
+
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/forecast", s.handleCostForecast)
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/by-trigger", s.handleCostByTrigger)
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/by-machine", s.handleCostByMachine)
 		})
 
 		r.Route("/roles", func(r chi.Router) {

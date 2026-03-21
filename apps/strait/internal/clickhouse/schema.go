@@ -200,6 +200,74 @@ ORDER BY (project_id, webhook_url, created_at)
 TTL inserted_at + INTERVAL 365 DAY
 `
 
+// RunStatsDailyTable is the DDL for the pre-aggregated daily run stats table.
+const RunStatsDailyTable = `
+CREATE TABLE IF NOT EXISTS run_stats_daily (
+    project_id String,
+    job_id String,
+    day Date,
+    total UInt64,
+    completed UInt64,
+    failed UInt64,
+    timed_out UInt64,
+    avg_duration_ms Float64,
+    total_cost_microusd Int64,
+    inserted_at DateTime64(3) DEFAULT now64(3)
+) ENGINE = SummingMergeTree((total, completed, failed, timed_out, total_cost_microusd))
+PARTITION BY toYYYYMM(day)
+ORDER BY (project_id, job_id, day)
+TTL day + INTERVAL 365 DAY
+`
+
+// RunStatsDailyMV is the materialized view that populates run_stats_daily from run_analytics.
+const RunStatsDailyMV = `
+CREATE MATERIALIZED VIEW IF NOT EXISTS run_stats_daily_mv
+TO run_stats_daily AS
+SELECT
+    project_id,
+    job_id,
+    toDate(created_at) AS day,
+    count() AS total,
+    countIf(status = 'completed') AS completed,
+    countIf(status = 'failed') AS failed,
+    countIf(status = 'timed_out') AS timed_out,
+    avg(duration_ms) AS avg_duration_ms,
+    sum(cost_microusd) AS total_cost_microusd
+FROM run_analytics
+GROUP BY project_id, job_id, day
+`
+
+// CostDailyTable is the DDL for the pre-aggregated daily cost table.
+const CostDailyTable = `
+CREATE TABLE IF NOT EXISTS cost_daily (
+    project_id String,
+    day Date,
+    ai_cost_microusd Int64,
+    compute_cost_microusd Int64,
+    total_tokens UInt64,
+    run_count UInt64,
+    inserted_at DateTime64(3) DEFAULT now64(3)
+) ENGINE = SummingMergeTree((ai_cost_microusd, compute_cost_microusd, total_tokens, run_count))
+PARTITION BY toYYYYMM(day)
+ORDER BY (project_id, day)
+TTL day + INTERVAL 365 DAY
+`
+
+// CostDailyMV is the materialized view that populates cost_daily from run_usage_events.
+const CostDailyMV = `
+CREATE MATERIALIZED VIEW IF NOT EXISTS cost_daily_mv
+TO cost_daily AS
+SELECT
+    project_id,
+    toDate(created_at) AS day,
+    sum(cost_microusd) AS ai_cost_microusd,
+    0 AS compute_cost_microusd,
+    sum(total_tokens) AS total_tokens,
+    count(DISTINCT run_id) AS run_count
+FROM run_usage_events
+GROUP BY project_id, day
+`
+
 // schemaAlterations contains ALTER TABLE statements for adding columns to
 // existing tables. Each statement uses ADD COLUMN IF NOT EXISTS so they are
 // safe to run repeatedly.
@@ -238,6 +306,8 @@ func CreateSchema(ctx context.Context, c *Client) error {
 		{"workflow_run_analytics", WorkflowRunAnalyticsTable},
 		{"workflow_step_analytics", WorkflowStepAnalyticsTable},
 		{"event_trigger_events", EventTriggerEventsTable},
+		{"run_stats_daily", RunStatsDailyTable},
+		{"cost_daily", CostDailyTable},
 	}
 
 	for _, t := range tables {
@@ -250,6 +320,20 @@ func CreateSchema(ctx context.Context, c *Client) error {
 	for _, alt := range schemaAlterations {
 		if err := c.Exec(ctx, alt.ddl); err != nil {
 			return fmt.Errorf("alter table %s: %w", alt.table, err)
+		}
+	}
+
+	// Create materialized views (must come after tables they write to).
+	views := []struct {
+		name string
+		ddl  string
+	}{
+		{"run_stats_daily_mv", RunStatsDailyMV},
+		{"cost_daily_mv", CostDailyMV},
+	}
+	for _, v := range views {
+		if err := c.Exec(ctx, v.ddl); err != nil {
+			return fmt.Errorf("create materialized view %s: %w", v.name, err)
 		}
 	}
 

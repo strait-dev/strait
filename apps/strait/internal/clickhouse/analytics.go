@@ -463,3 +463,861 @@ func (s *AnalyticsStore) GetApprovalStats(ctx context.Context, projectID string,
 
 	return &stats, nil
 }
+
+// Run Analytics.
+
+// GetRunTimeline returns run status counts grouped by time bucket.
+func (s *AnalyticsStore) GetRunTimeline(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.RunTimelineBucket, error) {
+	truncFn := "toStartOfDay"
+	if bucket == "hour" {
+		truncFn = "toStartOfHour"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s(created_at) AS period,
+			countIf(status = 'completed') AS completed,
+			countIf(status = 'failed') AS failed,
+			countIf(status = 'timed_out') AS timed_out,
+			count() AS total
+		FROM run_analytics
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY period
+		ORDER BY period`, truncFn)
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse run timeline: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.RunTimelineBucket, 0)
+	for rows.Next() {
+		var b store.RunTimelineBucket
+		var period time.Time
+		if err := rows.Scan(&period, &b.Completed, &b.Failed, &b.TimedOut, &b.Total); err != nil {
+			return nil, fmt.Errorf("clickhouse run timeline scan: %w", err)
+		}
+		b.Period = period.Format(time.RFC3339)
+		result = append(result, b)
+	}
+	return result, rows.Err()
+}
+
+// GetRunDurationDistribution returns runs bucketed by duration range.
+func (s *AnalyticsStore) GetRunDurationDistribution(ctx context.Context, projectID string, from, to time.Time) ([]store.RunDurationBucket, error) {
+	query := `
+		SELECT
+			multiIf(
+				duration_ms < 1000, '<1s',
+				duration_ms < 5000, '1-5s',
+				duration_ms < 30000, '5-30s',
+				duration_ms < 60000, '30-60s',
+				'>60s'
+			) AS range,
+			count() AS count
+		FROM run_analytics
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY range
+		ORDER BY min(duration_ms)`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse duration distribution: %w", err)
+	}
+	defer rows.Close()
+
+	buckets := make([]store.RunDurationBucket, 0)
+	var total int
+	for rows.Next() {
+		var b store.RunDurationBucket
+		if err := rows.Scan(&b.Range, &b.Count); err != nil {
+			return nil, fmt.Errorf("clickhouse duration distribution scan: %w", err)
+		}
+		total += b.Count
+		buckets = append(buckets, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("clickhouse duration distribution rows: %w", err)
+	}
+
+	for i := range buckets {
+		if total > 0 {
+			buckets[i].Pct = float64(buckets[i].Count) / float64(total) * 100
+		}
+	}
+	return buckets, nil
+}
+
+// GetRunFailureReasons returns top failure messages from run events.
+func (s *AnalyticsStore) GetRunFailureReasons(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.RunFailureReason, error) {
+	query := `
+		SELECT message,
+			count() AS count,
+			max(created_at) AS last_seen,
+			any(run_id) AS example_run_id
+		FROM run_events
+		WHERE project_id = ? AND level = 'error' AND created_at >= ? AND created_at < ?
+		GROUP BY message
+		ORDER BY count DESC
+		LIMIT ?`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse failure reasons: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.RunFailureReason, 0)
+	for rows.Next() {
+		var r store.RunFailureReason
+		var lastSeen time.Time
+		if err := rows.Scan(&r.Message, &r.Count, &lastSeen, &r.ExampleRunID); err != nil {
+			return nil, fmt.Errorf("clickhouse failure reasons scan: %w", err)
+		}
+		r.LastSeen = lastSeen.Format(time.RFC3339)
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
+// GetRunSummary returns aggregate run statistics.
+func (s *AnalyticsStore) GetRunSummary(ctx context.Context, projectID string, from, to time.Time) (*store.RunSummary, error) {
+	query := `
+		SELECT
+			count() AS total,
+			countIf(status = 'completed') AS completed,
+			countIf(status = 'failed') AS failed,
+			countIf(status = 'timed_out') AS timed_out,
+			CASE WHEN count() > 0
+				THEN countIf(status = 'completed') / count()
+				ELSE 0
+			END AS success_rate,
+			coalesce(avg(duration_ms), 0) AS avg_duration_ms,
+			coalesce(quantile(0.95)(duration_ms), 0) AS p95_duration_ms
+		FROM run_analytics
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?`
+
+	var summary store.RunSummary
+	if err := s.client.QueryRow(ctx, query, projectID, from, to).Scan(
+		&summary.Total, &summary.Completed, &summary.Failed, &summary.TimedOut,
+		&summary.SuccessRate, &summary.AvgDurationMs, &summary.P95DurationMs,
+	); err != nil {
+		return nil, fmt.Errorf("clickhouse run summary: %w", err)
+	}
+	return &summary, nil
+}
+
+// GetRunsByTrigger returns run stats grouped by trigger type.
+func (s *AnalyticsStore) GetRunsByTrigger(ctx context.Context, projectID string, from, to time.Time) ([]store.RunsByTrigger, error) {
+	query := `
+		SELECT triggered_by,
+			count() AS total,
+			countIf(status = 'completed') AS completed,
+			countIf(status = 'failed') AS failed,
+			coalesce(avg(duration_ms), 0) AS avg_duration_ms
+		FROM run_analytics
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY triggered_by
+		ORDER BY total DESC`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse runs by trigger: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.RunsByTrigger, 0)
+	for rows.Next() {
+		var r store.RunsByTrigger
+		if err := rows.Scan(&r.TriggerType, &r.Total, &r.Completed, &r.Failed, &r.AvgDurationMs); err != nil {
+			return nil, fmt.Errorf("clickhouse runs by trigger scan: %w", err)
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
+// Job Analytics.
+
+// GetJobHistory returns a timeline of run stats for a specific job.
+func (s *AnalyticsStore) GetJobHistory(ctx context.Context, projectID, jobID string, from, to time.Time, bucket string) ([]store.JobHistoryBucket, error) {
+	truncFn := "toStartOfDay"
+	if bucket == "hour" {
+		truncFn = "toStartOfHour"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s(created_at) AS period,
+			countIf(status = 'completed') AS completed,
+			countIf(status = 'failed') AS failed,
+			coalesce(avg(duration_ms), 0) AS avg_duration_ms,
+			coalesce(quantile(0.95)(duration_ms), 0) AS p95_duration_ms
+		FROM run_analytics
+		WHERE project_id = ? AND job_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY period
+		ORDER BY period`, truncFn)
+
+	rows, err := s.client.Query(ctx, query, projectID, jobID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse job history: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.JobHistoryBucket, 0)
+	for rows.Next() {
+		var b store.JobHistoryBucket
+		var period time.Time
+		if err := rows.Scan(&period, &b.Completed, &b.Failed, &b.AvgDurationMs, &b.P95DurationMs); err != nil {
+			return nil, fmt.Errorf("clickhouse job history scan: %w", err)
+		}
+		b.Period = period.Format(time.RFC3339)
+		result = append(result, b)
+	}
+	return result, rows.Err()
+}
+
+// GetJobComparison compares metrics across specified jobs.
+func (s *AnalyticsStore) GetJobComparison(ctx context.Context, projectID string, jobIDs []string, from, to time.Time) ([]store.JobComparison, error) {
+	query := `
+		SELECT ra.job_id,
+			COALESCE(jm.slug, ra.job_id) AS slug,
+			count() AS total,
+			CASE WHEN count() > 0
+				THEN countIf(ra.status = 'completed') / count()
+				ELSE 0
+			END AS success_rate,
+			coalesce(avg(ra.duration_ms), 0) AS avg_duration_ms,
+			coalesce(sum(ra.cost_microusd), 0) AS cost
+		FROM run_analytics ra
+		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ra.job_id AND jm.project_id = ra.project_id
+		WHERE ra.project_id = ? AND ra.job_id IN ? AND ra.created_at >= ? AND ra.created_at < ?
+		GROUP BY ra.job_id, jm.slug
+		ORDER BY total DESC`
+
+	rows, err := s.client.Query(ctx, query, projectID, jobIDs, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse job comparison: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.JobComparison, 0)
+	for rows.Next() {
+		var j store.JobComparison
+		if err := rows.Scan(&j.JobID, &j.Slug, &j.Total, &j.SuccessRate, &j.AvgDurationMs, &j.Cost); err != nil {
+			return nil, fmt.Errorf("clickhouse job comparison scan: %w", err)
+		}
+		result = append(result, j)
+	}
+	return result, rows.Err()
+}
+
+// GetJobReliability ranks jobs by failure rate.
+func (s *AnalyticsStore) GetJobReliability(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobReliability, error) {
+	query := `
+		SELECT ra.job_id,
+			COALESCE(jm.slug, ra.job_id) AS slug,
+			count() AS total,
+			CASE WHEN count() > 0
+				THEN countIf(ra.status = 'completed') / count()
+				ELSE 0
+			END AS success_rate,
+			countIf(ra.status = 'failed') AS failed,
+			0 AS consecutive_failures
+		FROM run_analytics ra
+		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ra.job_id AND jm.project_id = ra.project_id
+		WHERE ra.project_id = ? AND ra.created_at >= ? AND ra.created_at < ?
+		GROUP BY ra.job_id, jm.slug
+		HAVING count() >= 5
+		ORDER BY success_rate ASC
+		LIMIT ?`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse job reliability: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.JobReliability, 0)
+	for rows.Next() {
+		var j store.JobReliability
+		if err := rows.Scan(&j.JobID, &j.Slug, &j.Total, &j.SuccessRate, &j.Failed, &j.ConsecutiveFailures); err != nil {
+			return nil, fmt.Errorf("clickhouse job reliability scan: %w", err)
+		}
+		result = append(result, j)
+	}
+	return result, rows.Err()
+}
+
+// GetRunsByVersion groups run stats by job version.
+func (s *AnalyticsStore) GetRunsByVersion(ctx context.Context, projectID, jobID string, from, to time.Time) ([]store.RunsByVersion, error) {
+	query := `
+		SELECT job_version_id,
+			count() AS total,
+			countIf(status = 'completed') AS completed,
+			countIf(status = 'failed') AS failed,
+			coalesce(avg(duration_ms), 0) AS avg_duration_ms
+		FROM run_analytics
+		WHERE project_id = ? AND job_id = ? AND created_at >= ? AND created_at < ?
+			AND job_version_id != ''
+		GROUP BY job_version_id
+		ORDER BY total DESC`
+
+	rows, err := s.client.Query(ctx, query, projectID, jobID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse runs by version: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.RunsByVersion, 0)
+	for rows.Next() {
+		var r store.RunsByVersion
+		if err := rows.Scan(&r.VersionID, &r.Total, &r.Completed, &r.Failed, &r.AvgDurationMs); err != nil {
+			return nil, fmt.Errorf("clickhouse runs by version scan: %w", err)
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
+// GetJobCostRanking ranks jobs by total cost.
+func (s *AnalyticsStore) GetJobCostRanking(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobCostRanking, error) {
+	query := `
+		SELECT ru.job_id,
+			COALESCE(jm.slug, ru.job_id) AS slug,
+			sum(ru.cost_microusd) AS total_cost,
+			count(DISTINCT ru.run_id) AS run_count,
+			CASE WHEN count(DISTINCT ru.run_id) > 0
+				THEN sum(ru.cost_microusd) / count(DISTINCT ru.run_id)
+				ELSE 0
+			END AS avg_cost_per_run
+		FROM run_usage_events ru
+		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ru.job_id AND jm.project_id = ru.project_id
+		WHERE ru.project_id = ? AND ru.created_at >= ? AND ru.created_at < ?
+		GROUP BY ru.job_id, jm.slug
+		ORDER BY total_cost DESC
+		LIMIT ?`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse job cost ranking: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.JobCostRanking, 0)
+	for rows.Next() {
+		var j store.JobCostRanking
+		if err := rows.Scan(&j.JobID, &j.Slug, &j.TotalCost, &j.RunCount, &j.AvgCostPerRun); err != nil {
+			return nil, fmt.Errorf("clickhouse job cost ranking scan: %w", err)
+		}
+		result = append(result, j)
+	}
+	return result, rows.Err()
+}
+
+// GetTopFailingJobs returns jobs sorted by failure count.
+func (s *AnalyticsStore) GetTopFailingJobs(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingJob, error) {
+	query := `
+		SELECT ra.job_id,
+			COALESCE(jm.slug, ra.job_id) AS slug,
+			countIf(ra.status = 'failed') AS failed_count,
+			count() AS total,
+			CASE WHEN count() > 0
+				THEN countIf(ra.status = 'failed') / count()
+				ELSE 0
+			END AS failure_rate
+		FROM run_analytics ra
+		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ra.job_id AND jm.project_id = ra.project_id
+		WHERE ra.project_id = ? AND ra.created_at >= ? AND ra.created_at < ?
+		GROUP BY ra.job_id, jm.slug
+		HAVING countIf(ra.status = 'failed') > 0
+		ORDER BY failed_count DESC
+		LIMIT ?`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse top failing jobs: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.TopFailingJob, 0)
+	for rows.Next() {
+		var j store.TopFailingJob
+		if err := rows.Scan(&j.JobID, &j.Slug, &j.FailedCount, &j.Total, &j.FailureRate); err != nil {
+			return nil, fmt.Errorf("clickhouse top failing jobs scan: %w", err)
+		}
+		result = append(result, j)
+	}
+	return result, rows.Err()
+}
+
+// Tag Analytics.
+
+// GetTagSummary groups run stats by tag key/value pairs.
+func (s *AnalyticsStore) GetTagSummary(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TagSummary, error) {
+	query := `
+		SELECT
+			tupleElement(kv, 1) AS tag_key,
+			tupleElement(kv, 2) AS tag_value,
+			count() AS total,
+			countIf(status = 'completed') AS completed,
+			countIf(status = 'failed') AS failed,
+			coalesce(avg(duration_ms), 0) AS avg_duration_ms
+		FROM run_analytics
+		ARRAY JOIN arrayJoin(JSONExtractKeysAndValues(tags, 'String')) AS kv
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+			AND tags != '{}'
+		GROUP BY tag_key, tag_value
+		ORDER BY total DESC
+		LIMIT ?`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse tag summary: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.TagSummary, 0)
+	for rows.Next() {
+		var t store.TagSummary
+		if err := rows.Scan(&t.TagKey, &t.TagValue, &t.Total, &t.Completed, &t.Failed, &t.AvgDurationMs); err != nil {
+			return nil, fmt.Errorf("clickhouse tag summary scan: %w", err)
+		}
+		result = append(result, t)
+	}
+	return result, rows.Err()
+}
+
+// GetTopFailingTags ranks tags by failure rate.
+func (s *AnalyticsStore) GetTopFailingTags(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingTag, error) {
+	query := `
+		SELECT
+			tupleElement(kv, 1) AS tag_key,
+			tupleElement(kv, 2) AS tag_value,
+			countIf(status = 'failed') AS failed,
+			count() AS total,
+			CASE WHEN count() > 0
+				THEN countIf(status = 'failed') / count()
+				ELSE 0
+			END AS failure_rate
+		FROM run_analytics
+		ARRAY JOIN arrayJoin(JSONExtractKeysAndValues(tags, 'String')) AS kv
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+			AND tags != '{}'
+		GROUP BY tag_key, tag_value
+		HAVING countIf(status = 'failed') > 0
+		ORDER BY failed DESC
+		LIMIT ?`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse top failing tags: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.TopFailingTag, 0)
+	for rows.Next() {
+		var t store.TopFailingTag
+		if err := rows.Scan(&t.TagKey, &t.TagValue, &t.Failed, &t.Total, &t.FailureRate); err != nil {
+			return nil, fmt.Errorf("clickhouse top failing tags scan: %w", err)
+		}
+		result = append(result, t)
+	}
+	return result, rows.Err()
+}
+
+// GetTagCost groups cost by tag key/value pairs.
+func (s *AnalyticsStore) GetTagCost(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TagCost, error) {
+	query := `
+		SELECT
+			tupleElement(kv, 1) AS tag_key,
+			tupleElement(kv, 2) AS tag_value,
+			coalesce(sum(cost_microusd), 0) AS total_cost,
+			count() AS run_count
+		FROM run_analytics
+		ARRAY JOIN arrayJoin(JSONExtractKeysAndValues(tags, 'String')) AS kv
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+			AND tags != '{}'
+		GROUP BY tag_key, tag_value
+		ORDER BY total_cost DESC
+		LIMIT ?`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse tag cost: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.TagCost, 0)
+	for rows.Next() {
+		var t store.TagCost
+		if err := rows.Scan(&t.TagKey, &t.TagValue, &t.TotalCost, &t.RunCount); err != nil {
+			return nil, fmt.Errorf("clickhouse tag cost scan: %w", err)
+		}
+		result = append(result, t)
+	}
+	return result, rows.Err()
+}
+
+// Workflow Analytics.
+
+// GetWorkflowStepDurations returns duration stats per workflow step.
+func (s *AnalyticsStore) GetWorkflowStepDurations(ctx context.Context, projectID, workflowID string, from, to time.Time) ([]store.StepDuration, error) {
+	query := `
+		SELECT step_ref,
+			coalesce(avg(duration_ms), 0) AS avg_ms,
+			coalesce(quantile(0.95)(duration_ms), 0) AS p95_ms,
+			count() AS count,
+			CASE WHEN count() > 0
+				THEN countIf(status = 'failed') / count()
+				ELSE 0
+			END AS failure_rate
+		FROM workflow_step_analytics
+		WHERE project_id = ? AND workflow_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY step_ref
+		ORDER BY avg_ms DESC`
+
+	rows, err := s.client.Query(ctx, query, projectID, workflowID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse workflow step durations: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.StepDuration, 0)
+	for rows.Next() {
+		var d store.StepDuration
+		if err := rows.Scan(&d.StepRef, &d.AvgMs, &d.P95Ms, &d.Count, &d.FailureRate); err != nil {
+			return nil, fmt.Errorf("clickhouse workflow step durations scan: %w", err)
+		}
+		result = append(result, d)
+	}
+	return result, rows.Err()
+}
+
+// GetWorkflowCompletionRates returns completion counts by time bucket.
+func (s *AnalyticsStore) GetWorkflowCompletionRates(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.WorkflowCompletionBucket, error) {
+	truncFn := "toStartOfDay"
+	if bucket == "hour" {
+		truncFn = "toStartOfHour"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s(created_at) AS period,
+			countIf(status = 'completed') AS completed,
+			countIf(status = 'failed') AS failed,
+			countIf(status = 'timed_out') AS timed_out
+		FROM workflow_run_analytics
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY period
+		ORDER BY period`, truncFn)
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse workflow completion rates: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.WorkflowCompletionBucket, 0)
+	for rows.Next() {
+		var b store.WorkflowCompletionBucket
+		var period time.Time
+		if err := rows.Scan(&period, &b.Completed, &b.Failed, &b.TimedOut); err != nil {
+			return nil, fmt.Errorf("clickhouse workflow completion rates scan: %w", err)
+		}
+		b.Period = period.Format(time.RFC3339)
+		result = append(result, b)
+	}
+	return result, rows.Err()
+}
+
+// GetWorkflowSummary returns aggregate workflow analytics.
+func (s *AnalyticsStore) GetWorkflowSummary(ctx context.Context, projectID string, from, to time.Time) (*store.WorkflowSummary, error) {
+	query := `
+		SELECT
+			count() AS total,
+			countIf(status = 'completed') AS completed,
+			countIf(status = 'failed') AS failed,
+			CASE WHEN count() > 0
+				THEN countIf(status = 'completed') / count()
+				ELSE 0
+			END AS success_rate,
+			coalesce(avg(duration_ms), 0) AS avg_duration_ms
+		FROM workflow_run_analytics
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?`
+
+	var summary store.WorkflowSummary
+	if err := s.client.QueryRow(ctx, query, projectID, from, to).Scan(
+		&summary.Total, &summary.Completed, &summary.Failed,
+		&summary.SuccessRate, &summary.AvgDurationMs,
+	); err != nil {
+		return nil, fmt.Errorf("clickhouse workflow summary: %w", err)
+	}
+	return &summary, nil
+}
+
+// Webhook Analytics.
+
+// GetWebhookDeliveryStats returns delivery stats per webhook URL.
+func (s *AnalyticsStore) GetWebhookDeliveryStats(ctx context.Context, projectID string, from, to time.Time) ([]store.WebhookEndpointStats, error) {
+	query := `
+		SELECT webhook_url,
+			count() AS total,
+			countIf(status = 'delivered') AS delivered,
+			countIf(status = 'failed') AS failed,
+			countIf(status = 'dead') AS dead,
+			coalesce(avg(duration_ms), 0) AS avg_latency_ms,
+			coalesce(quantile(0.95)(duration_ms), 0) AS p95_latency_ms
+		FROM webhook_delivery_events
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY webhook_url
+		ORDER BY total DESC`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse webhook delivery stats: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.WebhookEndpointStats, 0)
+	for rows.Next() {
+		var s store.WebhookEndpointStats
+		if err := rows.Scan(&s.URL, &s.Total, &s.Delivered, &s.Failed, &s.Dead, &s.AvgLatencyMs, &s.P95LatencyMs); err != nil {
+			return nil, fmt.Errorf("clickhouse webhook delivery stats scan: %w", err)
+		}
+		result = append(result, s)
+	}
+	return result, rows.Err()
+}
+
+// GetWebhookEndpointHealth returns per-URL health over time.
+func (s *AnalyticsStore) GetWebhookEndpointHealth(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.WebhookHealthBucket, error) {
+	truncFn := "toStartOfDay"
+	if bucket == "hour" {
+		truncFn = "toStartOfHour"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT webhook_url,
+			%s(created_at) AS period,
+			CASE WHEN count() > 0
+				THEN countIf(status = 'delivered') / count()
+				ELSE 0
+			END AS success_rate,
+			coalesce(avg(duration_ms), 0) AS avg_latency_ms
+		FROM webhook_delivery_events
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY webhook_url, period
+		ORDER BY webhook_url, period`, truncFn)
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse webhook endpoint health: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.WebhookHealthBucket, 0)
+	for rows.Next() {
+		var b store.WebhookHealthBucket
+		var period time.Time
+		if err := rows.Scan(&b.URL, &period, &b.SuccessRate, &b.AvgLatencyMs); err != nil {
+			return nil, fmt.Errorf("clickhouse webhook endpoint health scan: %w", err)
+		}
+		b.Period = period.Format(time.RFC3339)
+		result = append(result, b)
+	}
+	return result, rows.Err()
+}
+
+// GetTopFailingWebhooks ranks webhook endpoints by failure count.
+func (s *AnalyticsStore) GetTopFailingWebhooks(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingEndpoint, error) {
+	query := `
+		SELECT webhook_url,
+			countIf(status = 'failed') AS failed,
+			count() AS total,
+			CASE WHEN count() > 0
+				THEN countIf(status = 'failed') / count()
+				ELSE 0
+			END AS failure_rate,
+			'' AS last_error
+		FROM webhook_delivery_events
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY webhook_url
+		HAVING countIf(status = 'failed') > 0
+		ORDER BY failed DESC
+		LIMIT ?`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse top failing webhooks: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.TopFailingEndpoint, 0)
+	for rows.Next() {
+		var e store.TopFailingEndpoint
+		if err := rows.Scan(&e.URL, &e.Failed, &e.Total, &e.FailureRate, &e.LastError); err != nil {
+			return nil, fmt.Errorf("clickhouse top failing webhooks scan: %w", err)
+		}
+		result = append(result, e)
+	}
+	return result, rows.Err()
+}
+
+// Event Analytics.
+
+// GetEventVolume returns event trigger counts by time bucket.
+func (s *AnalyticsStore) GetEventVolume(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.EventVolumeBucket, error) {
+	truncFn := "toStartOfDay"
+	if bucket == "hour" {
+		truncFn = "toStartOfHour"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s(created_at) AS period,
+			countIf(status = 'created') AS created,
+			countIf(status = 'received') AS received,
+			countIf(status = 'timed_out') AS timed_out
+		FROM event_trigger_events
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY period
+		ORDER BY period`, truncFn)
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse event volume: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.EventVolumeBucket, 0)
+	for rows.Next() {
+		var b store.EventVolumeBucket
+		var period time.Time
+		if err := rows.Scan(&period, &b.Created, &b.Received, &b.TimedOut); err != nil {
+			return nil, fmt.Errorf("clickhouse event volume scan: %w", err)
+		}
+		b.Period = period.Format(time.RFC3339)
+		result = append(result, b)
+	}
+	return result, rows.Err()
+}
+
+// GetEventLatency returns aggregate event wait duration statistics.
+func (s *AnalyticsStore) GetEventLatency(ctx context.Context, projectID string, from, to time.Time) (*store.EventLatencyStats, error) {
+	query := `
+		SELECT
+			coalesce(avg(wait_duration_ms), 0) AS avg_ms,
+			coalesce(quantile(0.50)(wait_duration_ms), 0) AS p50_ms,
+			coalesce(quantile(0.95)(wait_duration_ms), 0) AS p95_ms,
+			coalesce(quantile(0.99)(wait_duration_ms), 0) AS p99_ms,
+			count() AS count
+		FROM event_trigger_events
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+			AND status = 'received' AND wait_duration_ms > 0`
+
+	var stats store.EventLatencyStats
+	if err := s.client.QueryRow(ctx, query, projectID, from, to).Scan(
+		&stats.AvgMs, &stats.P50Ms, &stats.P95Ms, &stats.P99Ms, &stats.Count,
+	); err != nil {
+		return nil, fmt.Errorf("clickhouse event latency: %w", err)
+	}
+	return &stats, nil
+}
+
+// Cost Analytics (new endpoints).
+
+// GetCostForecast projects future costs based on recent daily rate.
+func (s *AnalyticsStore) GetCostForecast(ctx context.Context, projectID string, from, to time.Time) (*store.CostForecast, error) {
+	query := `
+		WITH daily AS (
+			SELECT toStartOfDay(created_at) AS day,
+				sum(cost_microusd) AS daily_cost
+			FROM run_usage_events
+			WHERE project_id = ? AND created_at >= ? AND created_at < ?
+			GROUP BY day
+			ORDER BY day
+		)
+		SELECT
+			coalesce(avg(daily_cost), 0) AS daily_rate,
+			coalesce(avg(daily_cost) * 30, 0) AS projected_monthly,
+			CASE WHEN count() >= 2
+				THEN ((last_value(daily_cost) - first_value(daily_cost)) / greatest(first_value(daily_cost), 1)) * 100
+				ELSE 0
+			END AS trend_pct
+		FROM daily`
+
+	var forecast store.CostForecast
+	if err := s.client.QueryRow(ctx, query, projectID, from, to).Scan(
+		&forecast.DailyRate, &forecast.ProjectedMonthly, &forecast.TrendPct,
+	); err != nil {
+		return nil, fmt.Errorf("clickhouse cost forecast: %w", err)
+	}
+	return &forecast, nil
+}
+
+// GetCostByTrigger groups cost by trigger type.
+func (s *AnalyticsStore) GetCostByTrigger(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByTrigger, error) {
+	query := `
+		SELECT ra.triggered_by,
+			coalesce(sum(ra.cost_microusd), 0) AS cost,
+			count() AS run_count,
+			0 AS pct
+		FROM run_analytics ra
+		WHERE ra.project_id = ? AND ra.created_at >= ? AND ra.created_at < ?
+		GROUP BY ra.triggered_by
+		ORDER BY cost DESC`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse cost by trigger: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.CostByTrigger, 0)
+	var totalCost int64
+	for rows.Next() {
+		var c store.CostByTrigger
+		if err := rows.Scan(&c.Trigger, &c.Cost, &c.RunCount, &c.Pct); err != nil {
+			return nil, fmt.Errorf("clickhouse cost by trigger scan: %w", err)
+		}
+		totalCost += c.Cost
+		result = append(result, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("clickhouse cost by trigger rows: %w", err)
+	}
+
+	for i := range result {
+		if totalCost > 0 {
+			result[i].Pct = float64(result[i].Cost) / float64(totalCost) * 100
+		}
+	}
+	return result, nil
+}
+
+// GetCostByMachine groups cost by machine preset.
+func (s *AnalyticsStore) GetCostByMachine(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByMachine, error) {
+	query := `
+		SELECT machine_preset,
+			coalesce(sum(cost_microusd), 0) AS cost,
+			coalesce(sum(duration_secs), 0) AS duration_secs,
+			count() AS run_count
+		FROM compute_usage
+		WHERE project_id = ? AND started_at >= ? AND started_at < ?
+		GROUP BY machine_preset
+		ORDER BY cost DESC`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse cost by machine: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]store.CostByMachine, 0)
+	for rows.Next() {
+		var c store.CostByMachine
+		if err := rows.Scan(&c.Preset, &c.Cost, &c.DurationSecs, &c.RunCount); err != nil {
+			return nil, fmt.Errorf("clickhouse cost by machine scan: %w", err)
+		}
+		result = append(result, c)
+	}
+	return result, rows.Err()
+}
