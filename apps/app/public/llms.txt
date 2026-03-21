@@ -31,7 +31,7 @@ Docs: https://docs.strait.dev
 
 ```bash
 # Install the CLI
-npm install -g @strait/cli
+cd apps/strait && go install ./cmd/strait
 
 # Initialize a project
 strait init

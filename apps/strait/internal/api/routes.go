@@ -58,11 +58,12 @@ func (s *Server) routes() chi.Router {
 		triggerRateLimitWindow = time.Minute
 	}
 
-	// rateLimitEnabled controls whether per-route rate limiters are applied.
-	// When the global rate limit is disabled (RateLimitRequests=0), per-route
-	// rate limits are also skipped. This allows tests to run without hitting 429s.
-	rateLimitEnabled := s.config.RateLimitRequests > 0
-	// rateLimit returns a rate limiting middleware if enabled, otherwise a no-op.
+	// rateLimit returns a rate limiting middleware when rate limiting is enabled,
+	// otherwise a no-op. Rate limiting is considered enabled when either the
+	// global limiter (RateLimitRequests) or the trigger-specific limiter
+	// (TriggerRateLimitRequests) is configured, so that per-route limits always
+	// apply in production but can be disabled entirely in tests by zeroing both.
+	rateLimitEnabled := s.config.RateLimitRequests > 0 || s.config.TriggerRateLimitRequests > 0
 	rateLimit := func(requests int, window time.Duration) func(http.Handler) http.Handler {
 		if !rateLimitEnabled {
 			return func(next http.Handler) http.Handler { return next }
@@ -83,6 +84,14 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(chimw.Timeout(requestTimeout))
 		r.Get("/", s.handleEventTriggerStream)
+	})
+
+	// Run stream route without timeout middleware so SSE connections stay open.
+	r.Route("/v1/runs/{runID}/stream", func(r chi.Router) {
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectContextMiddleware)
+		r.Use(s.projectRateLimit)
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleRunStream)
 	})
 
 	r.Route("/v1", func(r chi.Router) {
@@ -163,7 +172,6 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/", s.handleCancelRun)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/replay", s.handleReplayRun)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/dlq-replay", s.handleReplayDeadLetterRun)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/stream", s.handleRunStream)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/children", s.handleListChildRuns)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/events", s.handleListRunEvents)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/checkpoints", s.handleListRunCheckpoints)
