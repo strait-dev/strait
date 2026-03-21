@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@strait/ui/components/select";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   projectBudgetQueryOptions,
   useSetProjectBudget,
@@ -45,45 +45,9 @@ export function ProjectBudgetDialog({
     ...projectBudgetQueryOptions(projectId),
     enabled: open,
   });
-  const liveBudgetMicro = budgetData?.monthly_budget_microusd ?? currentBudgetMicro;
+  const liveBudgetMicro =
+    budgetData?.monthly_budget_microusd ?? currentBudgetMicro;
   const liveBudgetAction = budgetData?.budget_action ?? currentAction;
-
-  const initialBudget =
-    liveBudgetMicro > 0 ? String(liveBudgetMicro / 1_000_000) : "";
-  const [budgetUsd, setBudgetUsd] = useState(initialBudget);
-  const [action, setAction] = useState(liveBudgetAction || "notify");
-  const mutation = useSetProjectBudget();
-
-  useEffect(() => {
-    setBudgetUsd(liveBudgetMicro > 0 ? String(liveBudgetMicro / 1_000_000) : "");
-    setAction(liveBudgetAction || "notify");
-  }, [liveBudgetMicro, liveBudgetAction]);
-
-  const handleSave = () => {
-    if (!budgetUsd) {
-      mutation.mutate(
-        { projectId, budgetMicrousd: -1, action },
-        { onSuccess: () => onOpenChange(false) }
-      );
-      return;
-    }
-    const parsed = Number.parseFloat(budgetUsd);
-    if (Number.isNaN(parsed) || !Number.isFinite(parsed) || parsed < 0) {
-      return;
-    }
-    const budgetMicro = Math.round(parsed * 1_000_000);
-    mutation.mutate(
-      { projectId, budgetMicrousd: budgetMicro, action },
-      { onSuccess: () => onOpenChange(false) }
-    );
-  };
-
-  const handleRemove = () => {
-    mutation.mutate(
-      { projectId, budgetMicrousd: -1, action: "notify" },
-      { onSuccess: () => onOpenChange(false) }
-    );
-  };
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -97,64 +61,120 @@ export function ProjectBudgetDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="budget">Monthly Budget (USD)</Label>
-            <Input
-              id="budget"
-              min="0"
-              onChange={(e) => setBudgetUsd(e.target.value)}
-              placeholder="e.g. 100"
-              step="1"
-              type="number"
-              value={budgetUsd}
-            />
-            <p className="text-muted-foreground text-xs">
-              Leave empty to remove the budget cap.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label>When budget is reached</Label>
-            <Select
-              onValueChange={(v) => {
-                if (v) {
-                  setAction(v);
-                }
-              }}
-              value={action}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="notify">Notify only (soft cap)</SelectItem>
-                <SelectItem value="reject">
-                  Reject new runs (hard cap)
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <DialogFooter>
-          {currentBudgetMicro > 0 && (
-            <Button
-              disabled={mutation.isPending}
-              onClick={handleRemove}
-              variant="ghost"
-            >
-              Remove Budget
-            </Button>
-          )}
-          <DialogClose render={<Button variant="outline" />}>
-            Cancel
-          </DialogClose>
-          <Button disabled={mutation.isPending} onClick={handleSave}>
-            {mutation.isPending ? "Saving..." : "Save"}
-          </Button>
-        </DialogFooter>
+        <BudgetForm
+          budgetAction={liveBudgetAction}
+          budgetMicro={liveBudgetMicro}
+          key={`${liveBudgetMicro}-${liveBudgetAction}`}
+          onClose={() => onOpenChange(false)}
+          projectId={projectId}
+        />
       </DialogContent>
     </Dialog>
+  );
+}
+
+function BudgetForm({
+  budgetMicro,
+  budgetAction,
+  projectId,
+  onClose,
+}: {
+  budgetMicro: number;
+  budgetAction: string;
+  projectId: string;
+  onClose: () => void;
+}) {
+  const [budgetUsd, setBudgetUsd] = useState(
+    budgetMicro > 0 ? String(budgetMicro / 1_000_000) : ""
+  );
+  const [action, setAction] = useState(budgetAction || "notify");
+  const mutation = useSetProjectBudget();
+
+  const handleSave = () => {
+    if (!budgetUsd) {
+      mutation.mutate(
+        { projectId, budgetMicrousd: -1, action },
+        { onSuccess: onClose }
+      );
+      return;
+    }
+    const parsed = Number.parseFloat(budgetUsd);
+    if (Number.isNaN(parsed) || !Number.isFinite(parsed) || parsed < 0) {
+      return;
+    }
+    const micro = Math.round(parsed * 1_000_000);
+    mutation.mutate(
+      { projectId, budgetMicrousd: micro, action },
+      { onSuccess: onClose }
+    );
+  };
+
+  const handleRemove = () => {
+    mutation.mutate(
+      { projectId, budgetMicrousd: -1, action: "notify" },
+      { onSuccess: onClose }
+    );
+  };
+
+  return (
+    <>
+      <div className="space-y-4 py-4">
+        <div className="space-y-2">
+          <Label htmlFor="budget">Monthly Budget (USD)</Label>
+          <Input
+            id="budget"
+            min="0"
+            onChange={(e) => setBudgetUsd(e.target.value)}
+            placeholder="e.g. 100"
+            step="1"
+            type="number"
+            value={budgetUsd}
+          />
+          <p className="text-muted-foreground text-xs">
+            Leave empty to remove the budget cap.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>When budget is reached</Label>
+          <Select
+            onValueChange={(v) => {
+              if (v) {
+                setAction(v);
+              }
+            }}
+            value={action}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="notify">Notify only (soft cap)</SelectItem>
+              <SelectItem value="reject">
+                Reject new runs (hard cap)
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <DialogFooter>
+        {budgetMicro > 0 && (
+          <Button
+            disabled={mutation.isPending}
+            onClick={handleRemove}
+            variant="ghost"
+          >
+            Remove Budget
+          </Button>
+        )}
+        <DialogClose render={<Button variant="outline" />}>
+          Cancel
+        </DialogClose>
+        <Button disabled={mutation.isPending} onClick={handleSave}>
+          {mutation.isPending ? "Saving..." : "Save"}
+        </Button>
+      </DialogFooter>
+    </>
   );
 }
