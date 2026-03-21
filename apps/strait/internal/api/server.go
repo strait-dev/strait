@@ -429,6 +429,7 @@ type Encryptor interface {
 // BillingEnforcer checks org-level billing limits.
 type BillingEnforcer interface {
 	CheckProjectLimit(ctx context.Context, orgID string) error
+	CheckMemberLimit(ctx context.Context, orgID string) error
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 }

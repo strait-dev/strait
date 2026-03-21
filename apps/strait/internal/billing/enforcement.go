@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -43,6 +46,7 @@ type Enforcer struct {
 	store    Store
 	rdb      redis.Cmdable
 	logger   *slog.Logger
+	metrics  *telemetry.Metrics
 	orgCache sync.Map // orgID -> cachedOrgLimits
 	cacheTTL time.Duration
 }
@@ -54,12 +58,26 @@ type cachedOrgLimits struct {
 }
 
 // NewEnforcer creates a billing enforcer.
-func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger) *Enforcer {
-	return &Enforcer{
+func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...EnforcerOption) *Enforcer {
+	e := &Enforcer{
 		store:    store,
 		rdb:      rdb,
 		logger:   logger,
 		cacheTTL: 5 * time.Minute,
+	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
+}
+
+// EnforcerOption configures the Enforcer.
+type EnforcerOption func(*Enforcer)
+
+// WithMetrics attaches Prometheus metrics to the enforcer.
+func WithMetrics(m *telemetry.Metrics) EnforcerOption {
+	return func(e *Enforcer) {
+		e.metrics = m
 	}
 }
 
@@ -152,6 +170,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 		if err := e.rdb.Decr(ctx, key).Err(); err != nil {
 			e.logger.Warn("failed to rollback org run counter", "org_id", orgID, "error", err)
 		}
+		e.recordRejection(ctx, "daily_run_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "org_daily_run_limit_exceeded",
 			Message:      fmt.Sprintf("Your %s plan allows %d runs per day. You've used %d.", limits.DisplayName, limits.MaxRunsPerDay, count-1),
@@ -212,6 +231,7 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 		if err := e.rdb.Decr(ctx, key).Err(); err != nil {
 			e.logger.Warn("failed to rollback concurrent run counter", "org_id", orgID, "error", err)
 		}
+		e.recordRejection(ctx, "concurrent_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "org_concurrent_run_limit_exceeded",
 			Message:      fmt.Sprintf("Your %s plan allows %d concurrent runs. Currently running: %d.", limits.DisplayName, limits.MaxConcurrentRuns, count-1),
@@ -259,6 +279,7 @@ func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 	}
 
 	if count >= limits.MaxProjectsPerOrg {
+		e.recordRejection(ctx, "project_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "project_limit_reached",
 			Message:      fmt.Sprintf("Your %s plan allows %d projects per organization. Upgrade to add more.", limits.DisplayName, limits.MaxProjectsPerOrg),
@@ -308,6 +329,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	overageSpend := max(periodSpend-includedCredit, 0)
 
 	if overageSpend >= sub.SpendingLimitMicrousd {
+		e.recordRejection(ctx, "spending_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "spending_limit_reached",
 			Message:      fmt.Sprintf("Your monthly spending limit of $%.2f has been reached.", float64(sub.SpendingLimitMicrousd)/1000000),
@@ -472,4 +494,112 @@ func (e *Enforcer) GetDailyRunCount(ctx context.Context, orgID string) (int64, e
 		return 0, fmt.Errorf("getting daily run count: %w", err)
 	}
 	return count, nil
+}
+
+// recordRejection increments the limit rejection Prometheus counter.
+func (e *Enforcer) recordRejection(ctx context.Context, reason string, planTier domain.PlanTier) {
+	if e.metrics == nil || e.metrics.LimitRejections == nil {
+		return
+	}
+	e.metrics.LimitRejections.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String("reason", reason),
+			attribute.String("plan_tier", string(planTier)),
+		),
+	)
+}
+
+// CheckMemberLimit checks if the org can add another member.
+func (e *Enforcer) CheckMemberLimit(ctx context.Context, orgID string) error {
+	if orgID == "" {
+		return nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for member check", "org_id", orgID, "error", err)
+		return nil
+	}
+
+	if limits.MaxMembersPerOrg == -1 {
+		return nil
+	}
+
+	count, err := e.store.CountMembersByOrg(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to count members by org", "org_id", orgID, "error", err)
+		return nil
+	}
+
+	if count >= limits.MaxMembersPerOrg {
+		e.recordRejection(ctx, "member_limit", limits.PlanTier)
+		return &LimitError{
+			Code:         "member_limit_reached",
+			Message:      fmt.Sprintf("Your %s plan allows %d members per organization. Upgrade to add more.", limits.DisplayName, limits.MaxMembersPerOrg),
+			CurrentUsage: int64(count),
+			Limit:        int64(limits.MaxMembersPerOrg),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
+}
+
+// CheckOrgCreationLimit checks if the user can create another organization.
+func (e *Enforcer) CheckOrgCreationLimit(ctx context.Context, userID string, planTier domain.PlanTier) error {
+	if userID == "" {
+		return nil
+	}
+
+	limits := GetPlanLimits(planTier)
+
+	if limits.MaxOrgsPerUser == -1 {
+		return nil
+	}
+
+	count, err := e.store.CountOrgsByUser(ctx, userID)
+	if err != nil {
+		e.logger.Warn("failed to count orgs by user", "user_id", userID, "error", err)
+		return nil
+	}
+
+	if count >= limits.MaxOrgsPerUser {
+		e.recordRejection(ctx, "org_limit", limits.PlanTier)
+		return &LimitError{
+			Code:         "org_limit_reached",
+			Message:      fmt.Sprintf("Your %s plan allows %d organizations. Upgrade to create more.", limits.DisplayName, limits.MaxOrgsPerUser),
+			CurrentUsage: int64(count),
+			Limit:        int64(limits.MaxOrgsPerUser),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
+}
+
+// Check80PercentDailyRunWarning returns true if the org has used 80% or more
+// of its daily run limit. Returns false for unlimited plans or on error.
+func (e *Enforcer) Check80PercentDailyRunWarning(ctx context.Context, orgID string) (bool, error) {
+	if orgID == "" || e.rdb == nil {
+		return false, nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		return false, fmt.Errorf("getting org plan limits: %w", err)
+	}
+
+	if limits.MaxRunsPerDay == -1 {
+		return false, nil
+	}
+
+	count, err := e.GetDailyRunCount(ctx, orgID)
+	if err != nil {
+		return false, fmt.Errorf("getting daily run count: %w", err)
+	}
+
+	threshold := int64(float64(limits.MaxRunsPerDay) * 0.8)
+	return count >= threshold, nil
 }

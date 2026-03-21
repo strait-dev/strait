@@ -30,6 +30,7 @@ type mockBillingStore struct {
 	subscriptions       map[string]*OrgSubscription
 	projects            map[string][]string
 	memberCounts        map[string]int
+	orgCountsByUser     map[string]int
 	executingRuns       map[string]int
 	aiModelCallCounts   map[string]int64
 	usageRecords        []UsageRecord
@@ -164,6 +165,13 @@ func (m *mockBillingStore) CountProjectsByOrg(_ context.Context, orgID string) (
 func (m *mockBillingStore) CountMembersByOrg(_ context.Context, orgID string) (int, error) {
 	if m.memberCounts != nil {
 		return m.memberCounts[orgID], nil
+	}
+	return 0, nil
+}
+
+func (m *mockBillingStore) CountOrgsByUser(_ context.Context, userID string) (int, error) {
+	if m.orgCountsByUser != nil {
+		return m.orgCountsByUser[userID], nil
 	}
 	return 0, nil
 }

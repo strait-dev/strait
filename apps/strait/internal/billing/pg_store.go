@@ -295,6 +295,21 @@ func (s *PgStore) CountMembersByOrg(ctx context.Context, orgID string) (int, err
 	return count, nil
 }
 
+func (s *PgStore) CountOrgsByUser(ctx context.Context, userID string) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT p.org_id)
+		FROM project_member_roles pmr
+		JOIN projects p ON p.id = pmr.project_id
+		WHERE pmr.user_id = $1
+		  AND p.org_id IS NOT NULL
+	`, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting orgs by user: %w", err)
+	}
+	return count, nil
+}
+
 func (s *PgStore) CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error) {
 	var count int
 	err := s.pool.QueryRow(ctx, `

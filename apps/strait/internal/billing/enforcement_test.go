@@ -414,3 +414,230 @@ func TestReconcileAll_NilRedis(t *testing.T) {
 		t.Fatalf("expected nil error for nil Redis, got %v", err)
 	}
 }
+
+// Member limit tests.
+
+func TestCheckMemberLimit_FreeAt3_Passes(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	store.memberCounts = map[string]int{"org_free": 2}
+
+	if err := enforcer.CheckMemberLimit(context.Background(), "org_free"); err != nil {
+		t.Fatalf("expected pass with 2 members on free (limit 3): %v", err)
+	}
+}
+
+func TestCheckMemberLimit_FreeAt3_Blocked(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	store.memberCounts = map[string]int{"org_free": 3}
+
+	err := enforcer.CheckMemberLimit(context.Background(), "org_free")
+	if err == nil {
+		t.Fatal("expected member limit error at 3 members on free plan")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T", err)
+	}
+	if le.Code != "member_limit_reached" {
+		t.Errorf("code = %q, want member_limit_reached", le.Code)
+	}
+	if le.Limit != 3 {
+		t.Errorf("limit = %d, want 3", le.Limit)
+	}
+}
+
+func TestCheckMemberLimit_StarterAt10_Passes(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_starter": {OrgID: "org_starter", PlanTier: "starter", Status: "active"},
+	}
+	store.memberCounts = map[string]int{"org_starter": 9}
+
+	if err := enforcer.CheckMemberLimit(context.Background(), "org_starter"); err != nil {
+		t.Fatalf("expected pass with 9 members on starter (limit 10): %v", err)
+	}
+}
+
+func TestCheckMemberLimit_StarterAt10_Blocked(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_starter": {OrgID: "org_starter", PlanTier: "starter", Status: "active"},
+	}
+	store.memberCounts = map[string]int{"org_starter": 10}
+
+	err := enforcer.CheckMemberLimit(context.Background(), "org_starter")
+	if err == nil {
+		t.Fatal("expected member limit error at 10 members on starter plan")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T", err)
+	}
+	if le.Code != "member_limit_reached" {
+		t.Errorf("code = %q, want member_limit_reached", le.Code)
+	}
+	if le.Limit != 10 {
+		t.Errorf("limit = %d, want 10", le.Limit)
+	}
+}
+
+func TestCheckMemberLimit_ProUnlimited_AlwaysPasses(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_ent": {OrgID: "org_ent", PlanTier: "enterprise", Status: "active"},
+	}
+	store.memberCounts = map[string]int{"org_ent": 1000}
+
+	if err := enforcer.CheckMemberLimit(context.Background(), "org_ent"); err != nil {
+		t.Fatalf("enterprise should be unlimited: %v", err)
+	}
+}
+
+// Org creation limit tests.
+
+func TestCheckOrgCreationLimit_FreeAt1_Passes(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	store.orgCountsByUser = map[string]int{"user1": 0}
+
+	if err := enforcer.CheckOrgCreationLimit(context.Background(), "user1", domain.PlanFree); err != nil {
+		t.Fatalf("expected pass with 0 orgs on free (limit 1): %v", err)
+	}
+}
+
+func TestCheckOrgCreationLimit_FreeAt1_Blocked(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	store.orgCountsByUser = map[string]int{"user1": 1}
+
+	err := enforcer.CheckOrgCreationLimit(context.Background(), "user1", domain.PlanFree)
+	if err == nil {
+		t.Fatal("expected org limit error at 1 org on free plan")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T", err)
+	}
+	if le.Code != "org_limit_reached" {
+		t.Errorf("code = %q, want org_limit_reached", le.Code)
+	}
+	if le.Limit != 1 {
+		t.Errorf("limit = %d, want 1", le.Limit)
+	}
+}
+
+func TestCheckOrgCreationLimit_StarterAt2_Passes(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	store.orgCountsByUser = map[string]int{"user2": 1}
+
+	if err := enforcer.CheckOrgCreationLimit(context.Background(), "user2", domain.PlanStarter); err != nil {
+		t.Fatalf("expected pass with 1 org on starter (limit 2): %v", err)
+	}
+}
+
+func TestCheckOrgCreationLimit_ProUnlimited(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	store.orgCountsByUser = map[string]int{"user3": 100}
+
+	if err := enforcer.CheckOrgCreationLimit(context.Background(), "user3", domain.PlanEnterprise); err != nil {
+		t.Fatalf("enterprise should be unlimited: %v", err)
+	}
+}
+
+// 80% daily run warning tests.
+
+func TestCheck80PercentWarning_Below80_False(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+
+	// Free plan: 5000 runs/day, 80% = 4000. Set count to 3999.
+	ctx := context.Background()
+	for range 3999 {
+		_ = enforcer.CheckDailyRunLimit(ctx, "org_warn_below")
+	}
+
+	warned, err := enforcer.Check80PercentDailyRunWarning(ctx, "org_warn_below")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if warned {
+		t.Error("expected false at 3999/5000 (79.98%)")
+	}
+}
+
+func TestCheck80PercentWarning_At80_True(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+
+	ctx := context.Background()
+	for range 4000 {
+		_ = enforcer.CheckDailyRunLimit(ctx, "org_warn_at80")
+	}
+
+	warned, err := enforcer.Check80PercentDailyRunWarning(ctx, "org_warn_at80")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !warned {
+		t.Error("expected true at 4000/5000 (80%)")
+	}
+}
+
+func TestCheck80PercentWarning_Above80_True(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+
+	ctx := context.Background()
+	for range 4500 {
+		_ = enforcer.CheckDailyRunLimit(ctx, "org_warn_above")
+	}
+
+	warned, err := enforcer.Check80PercentDailyRunWarning(ctx, "org_warn_above")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !warned {
+		t.Error("expected true at 4500/5000 (90%)")
+	}
+}
+
+func TestCheck80PercentWarning_Unlimited_False(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_ent": {OrgID: "org_ent", PlanTier: "enterprise", Status: "active"},
+	}
+
+	ctx := context.Background()
+	for range 100 {
+		_ = enforcer.CheckDailyRunLimit(ctx, "org_ent")
+	}
+
+	warned, err := enforcer.Check80PercentDailyRunWarning(ctx, "org_ent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if warned {
+		t.Error("expected false for unlimited plan")
+	}
+}
+
+func TestCheck80PercentWarning_ZeroUsage_False(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+
+	warned, err := enforcer.Check80PercentDailyRunWarning(context.Background(), "org_zero")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if warned {
+		t.Error("expected false at 0 usage")
+	}
+}

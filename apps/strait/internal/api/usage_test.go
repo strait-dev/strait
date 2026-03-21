@@ -25,6 +25,10 @@ func (m *mockBillingEnforcer) CheckProjectLimit(_ context.Context, _ string) err
 	return nil
 }
 
+func (m *mockBillingEnforcer) CheckMemberLimit(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockBillingEnforcer) GetProjectOrgID(_ context.Context, projectID string) (string, error) {
 	if m.projectOrgMap != nil {
 		return m.projectOrgMap[projectID], nil

@@ -69,6 +69,9 @@ type Metrics struct {
 	DLQDepth            metric.Int64Gauge
 	QueueDepthPerJob    metric.Int64Gauge
 
+	// Billing limit rejection metrics.
+	LimitRejections metric.Int64Counter
+
 	// Managed dispatch metrics.
 	ManagedDispatchTotal    metric.Int64Counter
 	ManagedDispatchDuration metric.Float64Histogram
@@ -493,6 +496,15 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 
 	queueDepthPerJob, _ := meter.Int64Gauge("strait_queue_depth_per_job", metric.WithDescription("Queue depth per job"), metric.WithUnit("1"))
 
+	limitRejections, err := meter.Int64Counter(
+		"strait.billing.limit_rejections_total",
+		metric.WithDescription("Total billing limit rejections by reason and plan tier"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create limit rejections counter: %w", err)
+	}
+
 	managedDispatchTotal, err := meter.Int64Counter(
 		"strait_managed_dispatch_total",
 		metric.WithDescription("Total managed container dispatches by status"),
@@ -570,6 +582,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		ShutdownTotal:            shutdownTotal,
 		DLQDepth:                 dlqDepth,
 		QueueDepthPerJob:         queueDepthPerJob,
+		LimitRejections:          limitRejections,
 		ManagedDispatchTotal:     managedDispatchTotal,
 		ManagedDispatchDuration:  managedDispatchDuration,
 		ManagedMachinesActive:    managedMachinesActive,
