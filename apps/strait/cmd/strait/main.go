@@ -180,6 +180,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 
 	// Initialize ClickHouse (optional analytics backend).
+	// ClickHouse is never required for operational correctness — degrade gracefully.
 	chClient, err := clickhouse.New(clickhouse.Config{
 		URL:          cfg.ClickHouseURL,
 		Database:     cfg.ClickHouseDatabase,
@@ -188,14 +189,31 @@ func runServe(ctx context.Context, modeOverride string) error {
 		MaxIdleConns: 5,
 	}, slog.Default())
 	if err != nil {
-		return fmt.Errorf("init clickhouse: %w", err)
+		slog.Warn("clickhouse unavailable, analytics disabled", "error", err)
 	}
 	if chClient != nil {
-		defer chClient.Close()
 		if err := clickhouse.CreateSchema(ctx, chClient); err != nil {
-			return fmt.Errorf("create clickhouse schema: %w", err)
+			slog.Warn("clickhouse schema creation failed, analytics disabled", "error", err)
+			_ = chClient.Close()
+			chClient = nil
 		}
+	}
+	if chClient != nil {
 		slog.Info("clickhouse enabled", "database", cfg.ClickHouseDatabase)
+	}
+
+	// DB pool must be deferred before the exporter so LIFO order ensures:
+	// exporter.Stop() (flush + goroutine drain) runs before dbPool.Close().
+	dbPool, err := connectDatabase(ctx, cfg)
+	if err != nil {
+		if chClient != nil {
+			_ = chClient.Close()
+		}
+		return err
+	}
+	defer dbPool.Close()
+	if chClient != nil {
+		defer chClient.Close()
 	}
 
 	chExporter := clickhouse.NewExporter(chClient, clickhouse.ExporterConfig{
@@ -211,12 +229,6 @@ func runServe(ctx context.Context, modeOverride string) error {
 			"flush_interval", cfg.ClickHouseFlushInterval,
 		)
 	}
-
-	dbPool, err := connectDatabase(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer dbPool.Close()
 
 	poolTuner, err := store.NewPoolTuner(dbPool, slog.Default(), cfg.DBMaxConns, cfg.DBMinConns)
 	if err != nil {

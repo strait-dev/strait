@@ -316,6 +316,140 @@ func TestExporter_PlaceholderFormat(t *testing.T) {
 	}
 }
 
+func TestBuildConnURL_AppendsDatabase(t *testing.T) {
+	t.Parallel()
+	got, err := buildConnURL("clickhouse://localhost:9000", "analytics")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "clickhouse://localhost:9000?database=analytics" {
+		t.Errorf("got %q, want clickhouse://localhost:9000?database=analytics", got)
+	}
+}
+
+func TestBuildConnURL_NoOverrideExisting(t *testing.T) {
+	t.Parallel()
+	got, err := buildConnURL("clickhouse://localhost:9000?database=existing", "analytics")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "clickhouse://localhost:9000?database=existing" {
+		t.Errorf("got %q, want clickhouse://localhost:9000?database=existing", got)
+	}
+}
+
+func TestBuildConnURL_EmptyDatabase(t *testing.T) {
+	t.Parallel()
+	got, err := buildConnURL("clickhouse://localhost:9000", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "clickhouse://localhost:9000" {
+		t.Errorf("got %q, want clickhouse://localhost:9000", got)
+	}
+}
+
+// newFailingClient returns a Client whose Exec always returns an error
+// by using an immediately-closed sql.DB.
+func newFailingClient(t *testing.T) *Client {
+	t.Helper()
+	db, err := sql.Open("clickhouse", "clickhouse://localhost:0/nonexistent")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	db.Close()
+	return &Client{db: db, logger: slog.Default()}
+}
+
+func TestExporter_FlushRequeuesOnError(t *testing.T) {
+	t.Parallel()
+	client := newFailingClient(t)
+	e := &Exporter{
+		client:  client,
+		config:  ExporterConfig{BatchSize: 100},
+		logger:  slog.Default(),
+		pending: make([]any, 0),
+		stopCh:  make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+
+	e.Enqueue(RunEventRecord{EventID: "evt-1"})
+	e.Enqueue(RunEventRecord{EventID: "evt-2"})
+
+	e.flush(context.Background())
+
+	if e.PendingCount() != 2 {
+		t.Errorf("after failed flush, pending = %d, want 2 (requeued)", e.PendingCount())
+	}
+	e.mu.Lock()
+	failures := e.consecutiveFailures
+	e.mu.Unlock()
+	if failures != 1 {
+		t.Errorf("consecutiveFailures = %d, want 1", failures)
+	}
+}
+
+func TestExporter_FlushDropsAfterMaxRetries(t *testing.T) {
+	t.Parallel()
+	client := newFailingClient(t)
+	e := &Exporter{
+		client:  client,
+		config:  ExporterConfig{BatchSize: 100},
+		logger:  slog.Default(),
+		pending: make([]any, 0),
+		stopCh:  make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+
+	e.Enqueue(RunEventRecord{EventID: "evt-1"})
+
+	// Flush maxFlushRetries+1 times (3 total) to trigger drop.
+	for range maxFlushRetries + 1 {
+		e.flush(context.Background())
+	}
+
+	if e.PendingCount() != 0 {
+		t.Errorf("after max retries, pending = %d, want 0 (dropped)", e.PendingCount())
+	}
+}
+
+func TestExporter_FlushResetsOnSuccess(t *testing.T) {
+	t.Parallel()
+	client := newFailingClient(t)
+	e := &Exporter{
+		client:  client,
+		config:  ExporterConfig{BatchSize: 100},
+		logger:  slog.Default(),
+		pending: make([]any, 0),
+		stopCh:  make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+
+	e.Enqueue(RunEventRecord{EventID: "evt-1"})
+	e.flush(context.Background()) // fails, requeues
+
+	e.mu.Lock()
+	if e.consecutiveFailures != 1 {
+		t.Fatalf("consecutiveFailures = %d, want 1", e.consecutiveFailures)
+	}
+	e.mu.Unlock()
+
+	// Swap to a nil-db client which returns nil from Exec (success).
+	e.mu.Lock()
+	e.client = &Client{}
+	e.mu.Unlock()
+
+	e.flush(context.Background()) // succeeds
+
+	e.mu.Lock()
+	failures := e.consecutiveFailures
+	e.mu.Unlock()
+
+	if failures != 0 {
+		t.Errorf("after success, consecutiveFailures = %d, want 0", failures)
+	}
+}
+
 func TestCreateSchema_NilClient(t *testing.T) {
 	t.Parallel()
 	err := CreateSchema(context.Background(), nil)

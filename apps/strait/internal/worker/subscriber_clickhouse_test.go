@@ -264,6 +264,76 @@ func TestRunEventsFromDomain(t *testing.T) {
 	}
 }
 
+func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	// Use a slow lister that blocks until cancelled to fill the semaphore.
+	cancelCtx, cancelAll := context.WithCancel(context.Background())
+	defer cancelAll()
+
+	slowLister := &blockingEventLister{
+		cancel: cancelCtx,
+		events: []domain.RunEvent{{ID: "evt-1", RunID: "run-1"}},
+	}
+
+	sub := ClickHouseSubscriber(exporter, slowLister)
+
+	// Fill the semaphore by launching maxConcurrentEventFetches goroutines.
+	for i := range maxConcurrentEventFetches {
+		sub(context.Background(), RunLifecycleEvent{
+			Type: EventCompleted,
+			Run:  &domain.JobRun{ID: "run-fill-" + string(rune('A'+i)), ProjectID: "proj-1"},
+		})
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Next call should block (waiting for semaphore), not return instantly.
+	start := time.Now()
+	done := make(chan struct{})
+	go func() {
+		sub(context.Background(), RunLifecycleEvent{
+			Type: EventCompleted,
+			Run:  &domain.JobRun{ID: "run-blocked", ProjectID: "proj-1"},
+		})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		elapsed := time.Since(start)
+		// Should have waited at least a bit (the 5s timeout), not returned instantly.
+		if elapsed < 100*time.Millisecond {
+			t.Errorf("subscriber returned too quickly (%v), expected to wait on semaphore", elapsed)
+		}
+	case <-time.After(10 * time.Second):
+		// The 5-second timeout should have fired by now.
+		t.Fatal("subscriber did not return within expected timeout")
+	}
+
+	// Clean up all blocked goroutines.
+	cancelAll()
+	time.Sleep(100 * time.Millisecond)
+}
+
+// blockingEventLister blocks ListEvents until its cancel context is done.
+type blockingEventLister struct {
+	cancel context.Context
+	events []domain.RunEvent
+}
+
+func (b *blockingEventLister) ListEvents(ctx context.Context, _ string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
+	select {
+	case <-b.cancel.Done():
+		return nil, b.cancel.Err()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 func TestIsTerminalEvent(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

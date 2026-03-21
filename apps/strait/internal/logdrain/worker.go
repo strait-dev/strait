@@ -12,14 +12,22 @@ import (
 const (
 	defaultBatchSize  = 100
 	defaultEventLimit = 1000
+	maxRunRetries     = 3
 )
+
+// drainCursor is a composite cursor using both timestamp and run ID
+// to avoid skipping runs that share the same finished_at timestamp.
+type drainCursor struct {
+	FinishedAt time.Time
+	RunID      string
+}
 
 // DrainStore is the subset of store operations needed by the worker.
 type DrainStore interface {
 	ListLogDrains(ctx context.Context, projectID string) ([]domain.LogDrain, error)
-	ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
+	ListEventsAsc(ctx context.Context, runID string, limit int, afterTime *time.Time, afterID string) ([]domain.RunEvent, error)
 	ListEnabledLogDrains(ctx context.Context) ([]domain.LogDrain, error)
-	ListFinishedRunsSince(ctx context.Context, projectID string, since time.Time, limit int) ([]domain.JobRun, error)
+	ListFinishedRunsSince(ctx context.Context, projectID string, since time.Time, sinceRunID string, limit int) ([]domain.JobRun, error)
 }
 
 // Worker periodically drains logs for finished runs.
@@ -31,7 +39,8 @@ type Worker struct {
 	done     chan struct{}
 
 	mu          sync.Mutex
-	checkpoints map[string]time.Time // drain ID -> last drained timestamp
+	checkpoints map[string]drainCursor // drain ID -> composite cursor
+	failCounts  map[string]int         // "drainID:runID" -> consecutive failure count
 }
 
 func NewWorker(store DrainStore, service *Service, interval time.Duration) *Worker {
@@ -41,7 +50,8 @@ func NewWorker(store DrainStore, service *Service, interval time.Duration) *Work
 		interval:    interval,
 		stop:        make(chan struct{}),
 		done:        make(chan struct{}),
-		checkpoints: make(map[string]time.Time),
+		checkpoints: make(map[string]drainCursor),
+		failCounts:  make(map[string]int),
 	}
 }
 
@@ -96,73 +106,141 @@ func (w *Worker) tick(ctx context.Context) {
 
 func (w *Worker) processDrain(ctx context.Context, drain *domain.LogDrain) {
 	w.mu.Lock()
-	checkpoint := w.checkpoints[drain.ID]
+	cursor := w.checkpoints[drain.ID]
 	w.mu.Unlock()
 
-	if checkpoint.IsZero() {
-		// First run: start from 1 minute ago to avoid processing the entire history.
-		checkpoint = time.Now().Add(-1 * time.Minute)
-	}
+	// Zero-value cursor is valid: the SQL query `finished_at > time.Time{}`
+	// matches everything, and ORDER BY ... ASC LIMIT efficiently scans from earliest.
+	// This ensures no data is lost on restart.
 
-	runs, err := w.store.ListFinishedRunsSince(ctx, drain.ProjectID, checkpoint, defaultBatchSize)
-	if err != nil {
-		slog.Error("log drain worker: list finished runs",
-			"drain_id", drain.ID,
-			"project_id", drain.ProjectID,
-			"error", err,
-		)
-		return
-	}
-
-	if len(runs) == 0 {
-		return
-	}
-
-	var latestFinished time.Time
-	for i := range runs {
-		if err := ctx.Err(); err != nil {
-			return
-		}
-		run := &runs[i]
-		if run.FinishedAt != nil && run.FinishedAt.After(latestFinished) {
-			latestFinished = *run.FinishedAt
-		}
-
-		events, evErr := w.store.ListEvents(ctx, run.ID, defaultEventLimit, nil)
-		if evErr != nil {
-			slog.Error("log drain worker: list events",
+	for {
+		runs, err := w.store.ListFinishedRunsSince(ctx, drain.ProjectID, cursor.FinishedAt, cursor.RunID, defaultBatchSize)
+		if err != nil {
+			slog.Error("log drain worker: list finished runs",
 				"drain_id", drain.ID,
-				"run_id", run.ID,
-				"error", evErr,
+				"project_id", drain.ProjectID,
+				"error", err,
 			)
-			continue
-		}
-
-		if len(events) == 0 {
-			continue
-		}
-
-		if drainErr := w.service.DrainRunEvents(ctx, drain, events); drainErr != nil {
-			slog.Error("log drain worker: drain events",
-				"drain_id", drain.ID,
-				"run_id", run.ID,
-				"endpoint", drain.EndpointURL,
-				"error", drainErr,
-			)
-			// Don't update checkpoint on failure so we retry next tick.
 			return
 		}
 
-		slog.Debug("log drain worker: drained events",
-			"drain_id", drain.ID,
-			"run_id", run.ID,
-			"event_count", len(events),
-		)
-	}
+		if len(runs) == 0 {
+			break
+		}
 
-	if !latestFinished.IsZero() {
+		for i := range runs {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+			run := &runs[i]
+
+			failKey := drain.ID + ":" + run.ID
+			w.mu.Lock()
+			failures := w.failCounts[failKey]
+			w.mu.Unlock()
+
+			if failures >= maxRunRetries {
+				slog.Error("log drain worker: skipping poison run after max retries",
+					"drain_id", drain.ID,
+					"run_id", run.ID,
+					"retries", failures,
+				)
+				w.mu.Lock()
+				delete(w.failCounts, failKey)
+				w.mu.Unlock()
+				// Advance past the poison run.
+				if run.FinishedAt != nil {
+					cursor = advanceCursor(cursor, *run.FinishedAt, run.ID)
+				}
+				continue
+			}
+
+			events, evErr := w.fetchAllEvents(ctx, run.ID)
+			if evErr != nil {
+				slog.Error("log drain worker: list events",
+					"drain_id", drain.ID,
+					"run_id", run.ID,
+					"error", evErr,
+				)
+				// Do NOT advance cursor past this run.
+				continue
+			}
+
+			if len(events) == 0 {
+				// Safe to advance — no events to lose.
+				if run.FinishedAt != nil {
+					cursor = advanceCursor(cursor, *run.FinishedAt, run.ID)
+				}
+				continue
+			}
+
+			if drainErr := w.service.DrainRunEvents(ctx, drain, events); drainErr != nil {
+				slog.Error("log drain worker: drain events",
+					"drain_id", drain.ID,
+					"run_id", run.ID,
+					"endpoint", drain.EndpointURL,
+					"error", drainErr,
+				)
+				w.mu.Lock()
+				w.failCounts[failKey]++
+				w.mu.Unlock()
+				// Continue to next run instead of returning.
+				continue
+			}
+
+			// Success — advance cursor and clear fail count.
+			w.mu.Lock()
+			delete(w.failCounts, failKey)
+			w.mu.Unlock()
+
+			if run.FinishedAt != nil {
+				cursor = advanceCursor(cursor, *run.FinishedAt, run.ID)
+			}
+
+			slog.Debug("log drain worker: drained events",
+				"drain_id", drain.ID,
+				"run_id", run.ID,
+				"event_count", len(events),
+			)
+		}
+
+		// Persist cursor progress after each page.
 		w.mu.Lock()
-		w.checkpoints[drain.ID] = latestFinished
+		w.checkpoints[drain.ID] = cursor
 		w.mu.Unlock()
+
+		if len(runs) < defaultBatchSize {
+			break // last page
+		}
 	}
+}
+
+// fetchAllEvents paginates forward through all events for a run using a
+// composite cursor (created_at, id) to avoid skipping events with duplicate timestamps.
+func (w *Worker) fetchAllEvents(ctx context.Context, runID string) ([]domain.RunEvent, error) {
+	var all []domain.RunEvent
+	var afterTime *time.Time
+	var afterID string
+	for {
+		batch, err := w.store.ListEventsAsc(ctx, runID, defaultEventLimit, afterTime, afterID)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, batch...)
+		if len(batch) < defaultEventLimit {
+			break
+		}
+		last := batch[len(batch)-1]
+		afterTime = &last.CreatedAt
+		afterID = last.ID
+	}
+	return all, nil
+}
+
+// advanceCursor returns a new cursor that is at least as far as (finishedAt, runID).
+func advanceCursor(cur drainCursor, finishedAt time.Time, runID string) drainCursor {
+	if finishedAt.After(cur.FinishedAt) || (finishedAt.Equal(cur.FinishedAt) && runID > cur.RunID) {
+		return drainCursor{FinishedAt: finishedAt, RunID: runID}
+	}
+	return cur
 }

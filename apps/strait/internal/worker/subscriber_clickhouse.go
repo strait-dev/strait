@@ -77,15 +77,18 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister) Run
 
 		// Enqueue individual run events in background so we don't block the subscriber.
 		// Semaphore bounds concurrent DB queries to prevent pool exhaustion under burst.
+		// Use a timeout instead of instant drop to tolerate short bursts.
 		if events != nil {
 			select {
 			case sem <- struct{}{}:
 				go func() { //nolint:gosec // G118: intentionally detached from request ctx; subscriber must not block.
 					defer func() { <-sem }()
-					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
 
-					evts, err := events.ListEvents(ctx, run.ID, 1000, nil)
+					// Use a high single-query limit because ListEvents uses backward
+					// pagination (created_at < cursor), so we fetch all events in one call.
+					evts, err := events.ListEvents(ctx, run.ID, 10000, nil)
 					if err != nil {
 						slog.Error("clickhouse: list run events", "run_id", run.ID, "error", err)
 						return
@@ -94,8 +97,8 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister) Run
 						exporter.Enqueue(rec)
 					}
 				}()
-			default:
-				slog.Warn("clickhouse: event fetch semaphore full, skipping run events", "run_id", run.ID)
+			case <-time.After(5 * time.Second):
+				slog.Warn("clickhouse: event fetch semaphore timeout", "run_id", run.ID)
 			}
 		}
 	}

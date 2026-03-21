@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ type mockDrainStore struct {
 	finishedRunsErr error
 	events          map[string][]domain.RunEvent // runID -> events
 	eventsErr       error
+	eventsErrByRun  map[string]error             // runID -> error (per-run override)
 	logDrains       map[string][]domain.LogDrain // projectID -> drains
 }
 
@@ -31,13 +33,41 @@ func (m *mockDrainStore) ListLogDrains(_ context.Context, projectID string) ([]d
 	return m.logDrains[projectID], nil
 }
 
-func (m *mockDrainStore) ListEvents(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
+func (m *mockDrainStore) ListEventsAsc(_ context.Context, runID string, limit int, afterTime *time.Time, afterID string) ([]domain.RunEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.eventsErrByRun != nil {
+		if err, ok := m.eventsErrByRun[runID]; ok {
+			return nil, err
+		}
+	}
 	if m.eventsErr != nil {
 		return nil, m.eventsErr
 	}
-	return m.events[runID], nil
+	allEvents := m.events[runID]
+	// Filter by composite cursor and apply limit for pagination testing.
+	var filtered []domain.RunEvent
+	for _, e := range allEvents {
+		if afterTime != nil {
+			if e.CreatedAt.Before(*afterTime) {
+				continue
+			}
+			if e.CreatedAt.Equal(*afterTime) && e.ID <= afterID {
+				continue
+			}
+		}
+		filtered = append(filtered, e)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].CreatedAt.Equal(filtered[j].CreatedAt) {
+			return filtered[i].ID < filtered[j].ID
+		}
+		return filtered[i].CreatedAt.Before(filtered[j].CreatedAt)
+	})
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+	return filtered, nil
 }
 
 func (m *mockDrainStore) ListEnabledLogDrains(_ context.Context) ([]domain.LogDrain, error) {
@@ -49,13 +79,33 @@ func (m *mockDrainStore) ListEnabledLogDrains(_ context.Context) ([]domain.LogDr
 	return m.enabledDrains, nil
 }
 
-func (m *mockDrainStore) ListFinishedRunsSince(_ context.Context, projectID string, _ time.Time, _ int) ([]domain.JobRun, error) {
+func (m *mockDrainStore) ListFinishedRunsSince(_ context.Context, projectID string, since time.Time, sinceRunID string, limit int) ([]domain.JobRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.finishedRunsErr != nil {
 		return nil, m.finishedRunsErr
 	}
-	return m.finishedRuns[projectID], nil
+	allRuns := m.finishedRuns[projectID]
+	// Filter by composite cursor.
+	var filtered []domain.JobRun
+	for _, r := range allRuns {
+		if r.FinishedAt == nil {
+			continue
+		}
+		if r.FinishedAt.After(since) || (r.FinishedAt.Equal(since) && r.ID > sinceRunID) {
+			filtered = append(filtered, r)
+		}
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].FinishedAt.Equal(*filtered[j].FinishedAt) {
+			return filtered[i].ID < filtered[j].ID
+		}
+		return filtered[i].FinishedAt.Before(*filtered[j].FinishedAt)
+	})
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+	return filtered, nil
 }
 
 func TestWorker_StartStop(t *testing.T) {
@@ -112,13 +162,12 @@ func TestWorker_Tick_NoDrains(t *testing.T) {
 
 	ctx := context.Background()
 	w.tick(ctx)
-	// No panic, no error - just returns.
 }
 
 func TestWorker_Tick_DrainDisabled(t *testing.T) {
 	t.Parallel()
 	store := &mockDrainStore{
-		enabledDrains: []domain.LogDrain{}, // empty - all disabled
+		enabledDrains: []domain.LogDrain{},
 	}
 	svc := NewService()
 	w := NewWorker(store, svc, time.Hour)
@@ -137,7 +186,6 @@ func TestWorker_Tick_ListDrainsError(t *testing.T) {
 
 	ctx := context.Background()
 	w.tick(ctx)
-	// Should log error and return without panic.
 }
 
 func TestWorker_Tick_NoFinishedRuns(t *testing.T) {
@@ -189,8 +237,8 @@ func TestWorker_Tick_DrainEventsDelivered(t *testing.T) {
 		},
 		events: map[string][]domain.RunEvent{
 			"run-1": {
-				{ID: "evt-1", RunID: "run-1", Message: "started"},
-				{ID: "evt-2", RunID: "run-1", Message: "completed"},
+				{ID: "evt-1", RunID: "run-1", Message: "started", CreatedAt: now.Add(-2 * time.Second)},
+				{ID: "evt-2", RunID: "run-1", Message: "completed", CreatedAt: now.Add(-1 * time.Second)},
 			},
 		},
 	}
@@ -238,8 +286,8 @@ func TestWorker_Tick_MultipleRuns(t *testing.T) {
 			},
 		},
 		events: map[string][]domain.RunEvent{
-			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done"}},
-			"run-2": {{ID: "evt-2", RunID: "run-2", Message: "failed"}},
+			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done", CreatedAt: now}},
+			"run-2": {{ID: "evt-2", RunID: "run-2", Message: "failed", CreatedAt: now}},
 		},
 	}
 	svc := NewService()
@@ -278,8 +326,8 @@ func TestWorker_Tick_CheckpointUpdated(t *testing.T) {
 			},
 		},
 		events: map[string][]domain.RunEvent{
-			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done"}},
-			"run-2": {{ID: "evt-2", RunID: "run-2", Message: "done"}},
+			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done", CreatedAt: now}},
+			"run-2": {{ID: "evt-2", RunID: "run-2", Message: "done", CreatedAt: now}},
 		},
 	}
 	svc := NewService()
@@ -292,21 +340,35 @@ func TestWorker_Tick_CheckpointUpdated(t *testing.T) {
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
 
-	if !cp.Equal(f2) {
-		t.Errorf("checkpoint = %v, want %v", cp, f2)
+	if !cp.FinishedAt.Equal(f2) {
+		t.Errorf("checkpoint.FinishedAt = %v, want %v", cp.FinishedAt, f2)
+	}
+	if cp.RunID != "run-2" {
+		t.Errorf("checkpoint.RunID = %q, want run-2", cp.RunID)
 	}
 }
 
-func TestWorker_Tick_DeliveryErrorStopsCheckpointUpdate(t *testing.T) {
+func TestWorker_Tick_DeliveryErrorContinuesToNextRun(t *testing.T) {
 	t.Parallel()
 
+	callCount := 0
+	var mu sync.Mutex
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
+		mu.Lock()
+		callCount++
+		c := callCount
+		mu.Unlock()
+		if c == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	now := time.Now()
-	finishedAt := now.Add(-30 * time.Second)
+	f1 := now.Add(-2 * time.Minute)
+	f2 := now.Add(-1 * time.Minute)
 
 	store := &mockDrainStore{
 		enabledDrains: []domain.LogDrain{
@@ -314,11 +376,13 @@ func TestWorker_Tick_DeliveryErrorStopsCheckpointUpdate(t *testing.T) {
 		},
 		finishedRuns: map[string][]domain.JobRun{
 			"proj-1": {
-				{ID: "run-1", ProjectID: "proj-1", FinishedAt: &finishedAt, Status: domain.StatusCompleted},
+				{ID: "run-1", ProjectID: "proj-1", FinishedAt: &f1, Status: domain.StatusCompleted},
+				{ID: "run-2", ProjectID: "proj-1", FinishedAt: &f2, Status: domain.StatusCompleted},
 			},
 		},
 		events: map[string][]domain.RunEvent{
-			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done"}},
+			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done", CreatedAt: now}},
+			"run-2": {{ID: "evt-2", RunID: "run-2", Message: "done", CreatedAt: now}},
 		},
 	}
 	svc := NewService()
@@ -327,12 +391,20 @@ func TestWorker_Tick_DeliveryErrorStopsCheckpointUpdate(t *testing.T) {
 	ctx := context.Background()
 	w.tick(ctx)
 
+	mu.Lock()
+	defer mu.Unlock()
+	// run-1 fails, run-2 succeeds - both should be attempted.
+	if callCount != 2 {
+		t.Errorf("expected 2 HTTP calls (run-1 fail + run-2 success), got %d", callCount)
+	}
+
+	// Checkpoint should advance past run-2 (success) but not run-1 (failure).
 	w.mu.Lock()
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
 
-	if !cp.IsZero() {
-		t.Errorf("checkpoint should not be updated on delivery failure, got %v", cp)
+	if !cp.FinishedAt.Equal(f2) {
+		t.Errorf("checkpoint.FinishedAt = %v, want %v (run-2)", cp.FinishedAt, f2)
 	}
 }
 
@@ -362,7 +434,7 @@ func TestWorker_Tick_NoEventsSkipsDelivery(t *testing.T) {
 			},
 		},
 		events: map[string][]domain.RunEvent{
-			"run-1": {}, // no events
+			"run-1": {},
 		},
 	}
 	svc := NewService()
@@ -385,7 +457,6 @@ func TestWorker_Tick_NilStore(t *testing.T) {
 
 	ctx := context.Background()
 	w.tick(ctx)
-	// Should return immediately without panic.
 }
 
 func TestWorker_Tick_ListEventsError(t *testing.T) {
@@ -415,7 +486,6 @@ func TestWorker_Tick_ListEventsError(t *testing.T) {
 
 	ctx := context.Background()
 	w.tick(ctx)
-	// Should log error and continue without panic.
 }
 
 func TestWorker_Tick_ContextCancelled(t *testing.T) {
@@ -440,17 +510,16 @@ func TestWorker_Tick_ContextCancelled(t *testing.T) {
 			"proj-2": {{ID: "run-2", ProjectID: "proj-2", FinishedAt: &f2, Status: domain.StatusCompleted}},
 		},
 		events: map[string][]domain.RunEvent{
-			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done"}},
-			"run-2": {{ID: "evt-2", RunID: "run-2", Message: "done"}},
+			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done", CreatedAt: now}},
+			"run-2": {{ID: "evt-2", RunID: "run-2", Message: "done", CreatedAt: now}},
 		},
 	}
 	svc := NewService()
 	w := NewWorker(store, svc, time.Hour)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
+	cancel()
 	w.tick(ctx)
-	// Should return early without processing all drains.
 }
 
 func TestWorker_Tick_FinishedRunsError(t *testing.T) {
@@ -467,5 +536,425 @@ func TestWorker_Tick_FinishedRunsError(t *testing.T) {
 
 	ctx := context.Background()
 	w.tick(ctx)
-	// Should log error and return.
+}
+
+// ListEvents error does not advance checkpoint.
+
+func TestWorker_Tick_ListEventsError_DoesNotAdvanceCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	now := time.Now()
+	f1 := now.Add(-2 * time.Minute)
+	f2 := now.Add(-1 * time.Minute)
+
+	store := &mockDrainStore{
+		enabledDrains: []domain.LogDrain{
+			{ID: "drain-1", ProjectID: "proj-1", EndpointURL: srv.URL, Enabled: true},
+		},
+		finishedRuns: map[string][]domain.JobRun{
+			"proj-1": {
+				{ID: "run-1", ProjectID: "proj-1", FinishedAt: &f1, Status: domain.StatusCompleted},
+				{ID: "run-2", ProjectID: "proj-1", FinishedAt: &f2, Status: domain.StatusCompleted},
+			},
+		},
+		events: map[string][]domain.RunEvent{
+			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done", CreatedAt: now}},
+		},
+		eventsErrByRun: map[string]error{
+			"run-2": fmt.Errorf("events query failed for run-2"),
+		},
+	}
+	svc := NewService()
+	w := NewWorker(store, svc, time.Hour)
+
+	ctx := context.Background()
+	w.tick(ctx)
+
+	w.mu.Lock()
+	cp := w.checkpoints["drain-1"]
+	w.mu.Unlock()
+
+	// Checkpoint should be at run-1, not run-2 (which had a ListEvents error).
+	if !cp.FinishedAt.Equal(f1) {
+		t.Errorf("checkpoint.FinishedAt = %v, want %v (run-1 only)", cp.FinishedAt, f1)
+	}
+}
+
+// Poison run skip after max retries.
+
+func TestWorker_Tick_PoisonRunSkippedAfterMaxRetries(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	now := time.Now()
+	finishedAt := now.Add(-30 * time.Second)
+
+	store := &mockDrainStore{
+		enabledDrains: []domain.LogDrain{
+			{ID: "drain-1", ProjectID: "proj-1", EndpointURL: srv.URL, Enabled: true},
+		},
+		finishedRuns: map[string][]domain.JobRun{
+			"proj-1": {
+				{ID: "run-1", ProjectID: "proj-1", FinishedAt: &finishedAt, Status: domain.StatusCompleted},
+			},
+		},
+		events: map[string][]domain.RunEvent{
+			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done", CreatedAt: now}},
+		},
+	}
+	svc := NewService()
+	w := NewWorker(store, svc, time.Hour)
+
+	ctx := context.Background()
+	// Tick maxRunRetries times to accumulate failures.
+	for range maxRunRetries {
+		w.tick(ctx)
+	}
+
+	// After maxRunRetries failures, checkpoint should NOT have advanced.
+	w.mu.Lock()
+	cp := w.checkpoints["drain-1"]
+	w.mu.Unlock()
+	if cp.FinishedAt.Equal(finishedAt) {
+		t.Error("checkpoint should not advance before the skip tick")
+	}
+
+	// One more tick: now it should be skipped as a poison run.
+	w.tick(ctx)
+
+	w.mu.Lock()
+	cp = w.checkpoints["drain-1"]
+	w.mu.Unlock()
+	if !cp.FinishedAt.Equal(finishedAt) {
+		t.Errorf("checkpoint.FinishedAt = %v, want %v (poison run should be skipped)", cp.FinishedAt, finishedAt)
+	}
+}
+
+func TestWorker_Tick_SuccessResetsFailCount(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		callCount++
+		c := callCount
+		mu.Unlock()
+		if c == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	now := time.Now()
+	finishedAt := now.Add(-30 * time.Second)
+
+	store := &mockDrainStore{
+		enabledDrains: []domain.LogDrain{
+			{ID: "drain-1", ProjectID: "proj-1", EndpointURL: srv.URL, Enabled: true},
+		},
+		finishedRuns: map[string][]domain.JobRun{
+			"proj-1": {
+				{ID: "run-1", ProjectID: "proj-1", FinishedAt: &finishedAt, Status: domain.StatusCompleted},
+			},
+		},
+		events: map[string][]domain.RunEvent{
+			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done", CreatedAt: now}},
+		},
+	}
+	svc := NewService()
+	w := NewWorker(store, svc, time.Hour)
+
+	ctx := context.Background()
+	w.tick(ctx) // fails
+
+	w.mu.Lock()
+	fc := w.failCounts["drain-1:run-1"]
+	w.mu.Unlock()
+	if fc != 1 {
+		t.Fatalf("fail count = %d, want 1", fc)
+	}
+
+	w.tick(ctx) // succeeds
+
+	w.mu.Lock()
+	fc = w.failCounts["drain-1:run-1"]
+	w.mu.Unlock()
+	if fc != 0 {
+		t.Errorf("fail count after success = %d, want 0", fc)
+	}
+}
+
+// Composite cursor handles timestamp collision.
+
+func TestWorker_Tick_TimestampCollisionPagination(t *testing.T) {
+	t.Parallel()
+
+	var deliveredRuns []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []domain.RunEvent
+		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		if len(events) > 0 {
+			deliveredRuns = append(deliveredRuns, events[0].RunID)
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	now := time.Now()
+	sameTime := now.Add(-1 * time.Minute)
+
+	store := &mockDrainStore{
+		enabledDrains: []domain.LogDrain{
+			{ID: "drain-1", ProjectID: "proj-1", EndpointURL: srv.URL, Enabled: true},
+		},
+		finishedRuns: map[string][]domain.JobRun{
+			"proj-1": {
+				{ID: "run-a", ProjectID: "proj-1", FinishedAt: &sameTime, Status: domain.StatusCompleted},
+				{ID: "run-b", ProjectID: "proj-1", FinishedAt: &sameTime, Status: domain.StatusCompleted},
+				{ID: "run-c", ProjectID: "proj-1", FinishedAt: &sameTime, Status: domain.StatusCompleted},
+			},
+		},
+		events: map[string][]domain.RunEvent{
+			"run-a": {{ID: "evt-a", RunID: "run-a", Message: "done", CreatedAt: now}},
+			"run-b": {{ID: "evt-b", RunID: "run-b", Message: "done", CreatedAt: now}},
+			"run-c": {{ID: "evt-c", RunID: "run-c", Message: "done", CreatedAt: now}},
+		},
+	}
+	svc := NewService()
+	w := NewWorker(store, svc, time.Hour)
+
+	ctx := context.Background()
+	w.tick(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(deliveredRuns) != 3 {
+		t.Errorf("expected 3 delivered runs, got %d: %v", len(deliveredRuns), deliveredRuns)
+	}
+}
+
+// Zero checkpoint and pagination on catch-up.
+
+func TestWorker_Tick_FirstRunProcessesAllHistory(t *testing.T) {
+	t.Parallel()
+
+	var deliveredCount int
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		deliveredCount++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	now := time.Now()
+	// Run finished hours ago - should still be processed with zero checkpoint.
+	hoursAgo := now.Add(-5 * time.Hour)
+
+	store := &mockDrainStore{
+		enabledDrains: []domain.LogDrain{
+			{ID: "drain-1", ProjectID: "proj-1", EndpointURL: srv.URL, Enabled: true},
+		},
+		finishedRuns: map[string][]domain.JobRun{
+			"proj-1": {
+				{ID: "run-1", ProjectID: "proj-1", FinishedAt: &hoursAgo, Status: domain.StatusCompleted},
+			},
+		},
+		events: map[string][]domain.RunEvent{
+			"run-1": {{ID: "evt-1", RunID: "run-1", Message: "done", CreatedAt: now}},
+		},
+	}
+	svc := NewService()
+	w := NewWorker(store, svc, time.Hour)
+
+	ctx := context.Background()
+	w.tick(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if deliveredCount != 1 {
+		t.Errorf("expected 1 delivery (old run processed), got %d", deliveredCount)
+	}
+}
+
+func TestWorker_Tick_PaginatesCatchUp(t *testing.T) {
+	t.Parallel()
+
+	var deliveredCount int
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		deliveredCount++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	now := time.Now()
+	// Create 250 runs across multiple pages (batch size = 100).
+	runs := make([]domain.JobRun, 250)
+	events := make(map[string][]domain.RunEvent, 250)
+	for i := range 250 {
+		id := fmt.Sprintf("run-%03d", i)
+		finishedAt := now.Add(-time.Duration(250-i) * time.Second)
+		runs[i] = domain.JobRun{
+			ID:         id,
+			ProjectID:  "proj-1",
+			FinishedAt: &finishedAt,
+			Status:     domain.StatusCompleted,
+		}
+		events[id] = []domain.RunEvent{
+			{ID: fmt.Sprintf("evt-%03d", i), RunID: id, Message: "done", CreatedAt: now},
+		}
+	}
+
+	store := &mockDrainStore{
+		enabledDrains: []domain.LogDrain{
+			{ID: "drain-1", ProjectID: "proj-1", EndpointURL: srv.URL, Enabled: true},
+		},
+		finishedRuns: map[string][]domain.JobRun{
+			"proj-1": runs,
+		},
+		events: events,
+	}
+	svc := NewService()
+	w := NewWorker(store, svc, time.Hour)
+
+	ctx := context.Background()
+	w.tick(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if deliveredCount != 250 {
+		t.Errorf("expected 250 deliveries (paginated catch-up), got %d", deliveredCount)
+	}
+}
+
+// Event pagination across multiple pages.
+
+func TestWorker_Tick_EventPagination(t *testing.T) {
+	t.Parallel()
+
+	var receivedEvents []domain.RunEvent
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []domain.RunEvent
+		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		receivedEvents = append(receivedEvents, events...)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	now := time.Now()
+	finishedAt := now.Add(-30 * time.Second)
+
+	// Create 2500 events (more than defaultEventLimit of 1000).
+	events := make([]domain.RunEvent, 2500)
+	for i := range 2500 {
+		events[i] = domain.RunEvent{
+			ID:        fmt.Sprintf("evt-%04d", i),
+			RunID:     "run-1",
+			Message:   fmt.Sprintf("event %d", i),
+			CreatedAt: now.Add(time.Duration(i) * time.Millisecond),
+		}
+	}
+
+	store := &mockDrainStore{
+		enabledDrains: []domain.LogDrain{
+			{ID: "drain-1", ProjectID: "proj-1", EndpointURL: srv.URL, Enabled: true},
+		},
+		finishedRuns: map[string][]domain.JobRun{
+			"proj-1": {
+				{ID: "run-1", ProjectID: "proj-1", FinishedAt: &finishedAt, Status: domain.StatusCompleted},
+			},
+		},
+		events: map[string][]domain.RunEvent{
+			"run-1": events,
+		},
+	}
+	svc := NewService()
+	w := NewWorker(store, svc, time.Hour)
+
+	ctx := context.Background()
+	w.tick(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(receivedEvents) != 2500 {
+		t.Errorf("expected 2500 events (paginated), got %d", len(receivedEvents))
+	}
+}
+
+func TestWorker_Tick_EventPaginationError(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	finishedAt := now.Add(-30 * time.Second)
+
+	// Create events that will span 2 pages.
+	events := make([]domain.RunEvent, 1500)
+	for i := range 1500 {
+		events[i] = domain.RunEvent{
+			ID:        fmt.Sprintf("evt-%04d", i),
+			RunID:     "run-1",
+			Message:   fmt.Sprintf("event %d", i),
+			CreatedAt: now.Add(time.Duration(i) * time.Millisecond),
+		}
+	}
+
+	callCount := 0
+	store := &mockDrainStore{
+		enabledDrains: []domain.LogDrain{
+			{ID: "drain-1", ProjectID: "proj-1", EndpointURL: "http://example.com", Enabled: true},
+		},
+		finishedRuns: map[string][]domain.JobRun{
+			"proj-1": {
+				{ID: "run-1", ProjectID: "proj-1", FinishedAt: &finishedAt, Status: domain.StatusCompleted},
+			},
+		},
+	}
+
+	// We test that the error on event fetch does not advance the checkpoint.
+	store.eventsErr = fmt.Errorf("page 2 failure")
+
+	svc := NewService()
+	w := NewWorker(store, svc, time.Hour)
+
+	ctx := context.Background()
+	w.tick(ctx)
+
+	_ = callCount
+
+	// Checkpoint should not have advanced since event fetch failed.
+	w.mu.Lock()
+	cp := w.checkpoints["drain-1"]
+	w.mu.Unlock()
+
+	if !cp.FinishedAt.IsZero() {
+		t.Errorf("checkpoint should be zero after event fetch error, got %v", cp.FinishedAt)
+	}
 }

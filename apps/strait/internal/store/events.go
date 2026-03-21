@@ -106,6 +106,69 @@ func (q *Queries) ListEvents(ctx context.Context, runID string, limit int, curso
 	return events, nil
 }
 
+func (q *Queries) ListEventsAsc(ctx context.Context, runID string, limit int, afterTime *time.Time, afterID string) ([]domain.RunEvent, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEventsAsc")
+	defer span.End()
+
+	query := `
+		SELECT id, run_id, type, level, message, data, created_at
+		FROM run_events
+		WHERE run_id = $1`
+
+	args := []any{runID}
+	param := 2
+
+	if afterTime != nil {
+		query += fmt.Sprintf(" AND (created_at > $%d OR (created_at = $%d AND id > $%d))", param, param, param+1)
+		args = append(args, *afterTime, afterID)
+		param += 2
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at ASC, id ASC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list events asc: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]domain.RunEvent, 0, 16)
+	for rows.Next() {
+		var event domain.RunEvent
+		var level *string
+		var data []byte
+
+		err := rows.Scan(
+			&event.ID,
+			&event.RunID,
+			&event.Type,
+			&level,
+			&event.Message,
+			&data,
+			&event.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("list events asc scan: %w", err)
+		}
+
+		if level != nil {
+			event.Level = *level
+		}
+		if data != nil {
+			event.Data = json.RawMessage(data)
+		}
+
+		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list events asc rows: %w", err)
+	}
+
+	return events, nil
+}
+
 func (q *Queries) ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEventsByRunFiltered")
 	defer span.End()

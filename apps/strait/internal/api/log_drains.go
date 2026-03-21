@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -11,6 +13,32 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
+
+// protectedAuthHeaders are HTTP headers that must not appear as keys in
+// log drain auth_config when auth_type is "header", to prevent request
+// smuggling and header injection.
+var protectedAuthHeaders = map[string]bool{
+	"host":              true,
+	"content-length":    true,
+	"content-type":      true,
+	"transfer-encoding": true,
+	"connection":        true,
+	"upgrade":           true,
+	"te":                true,
+	"trailer":           true,
+}
+
+func validateAuthConfig(authType string, config map[string]string) error {
+	if authType != "header" || config == nil {
+		return nil
+	}
+	for k := range config {
+		if protectedAuthHeaders[strings.ToLower(k)] {
+			return fmt.Errorf("auth_config key %q is a protected HTTP header and cannot be used", k)
+		}
+	}
+	return nil
+}
 
 type CreateLogDrainRequest struct {
 	ProjectID   string            `json:"project_id" validate:"required"`
@@ -42,6 +70,10 @@ func (s *Server) handleCreateLogDrain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateURL(req.EndpointURL); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateAuthConfig(req.AuthType, req.AuthConfig); err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -125,6 +157,14 @@ func (s *Server) handleUpdateLogDrain(w http.ResponseWriter, r *http.Request) {
 		patch["auth_type"] = *req.AuthType
 	}
 	if req.AuthConfig != nil {
+		authType := ""
+		if req.AuthType != nil {
+			authType = *req.AuthType
+		}
+		if err := validateAuthConfig(authType, req.AuthConfig); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
 		authJSON, _ := json.Marshal(req.AuthConfig)
 		patch["auth_config"] = authJSON
 	}

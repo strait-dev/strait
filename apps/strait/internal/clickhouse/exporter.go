@@ -61,17 +61,22 @@ type ComputeUsageRecord struct {
 	FinishedAt    time.Time
 }
 
+// maxFlushRetries is the maximum number of consecutive flush failures before
+// a batch is dropped to prevent unbounded growth.
+const maxFlushRetries = 2
+
 // Exporter batches events and periodically flushes them to ClickHouse.
 type Exporter struct {
 	client *Client
 	config ExporterConfig
 	logger *slog.Logger
 
-	mu       sync.Mutex
-	pending  []any // buffered records
-	stopping atomic.Bool
-	stopCh   chan struct{}
-	done     chan struct{}
+	mu                  sync.Mutex
+	pending             []any // buffered records
+	consecutiveFailures int
+	stopping            atomic.Bool
+	stopCh              chan struct{}
+	done                chan struct{}
 }
 
 // NewExporter creates a new async exporter. Returns nil if client is nil or disabled.
@@ -170,7 +175,26 @@ func (e *Exporter) flush(ctx context.Context) {
 
 	if err := e.insertBatch(ctx, batch); err != nil {
 		e.logger.Error("clickhouse exporter flush failed", "count", len(batch), "error", err)
+		e.mu.Lock()
+		e.consecutiveFailures++
+		if e.consecutiveFailures <= maxFlushRetries {
+			maxBuffer := e.config.BatchSize * 10
+			combined := append(batch, e.pending...) //nolint:gocritic // intentional prepend of failed batch
+			if len(combined) > maxBuffer {
+				// Keep the front (failed batch first) and drop newest overflow.
+				combined = combined[:maxBuffer]
+			}
+			e.pending = combined
+			e.logger.Warn("clickhouse requeued failed batch", "attempt", e.consecutiveFailures)
+		} else {
+			e.logger.Error("clickhouse dropping batch after max retries", "dropped", len(batch))
+		}
+		e.mu.Unlock()
+		return
 	}
+	e.mu.Lock()
+	e.consecutiveFailures = 0
+	e.mu.Unlock()
 }
 
 // insertBatch writes a batch of records to ClickHouse, grouping by record type.

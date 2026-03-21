@@ -915,7 +915,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	return runs, nil
 }
 
-func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, since time.Time, limit int) ([]domain.JobRun, error) {
+func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, since time.Time, sinceRunID string, limit int) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListFinishedRunsSince")
 	defer span.End()
 
@@ -930,12 +930,12 @@ func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, s
 		FROM job_runs
 		WHERE project_id = $1
 		  AND status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')
-		  AND finished_at > $2
-		ORDER BY finished_at ASC
-		LIMIT $3
+		  AND (finished_at > $2 OR (finished_at = $2 AND id > $3))
+		ORDER BY finished_at ASC, id ASC
+		LIMIT $4
 	`
 
-	rows, err := q.db.Query(ctx, query, projectID, since, limit)
+	rows, err := q.db.Query(ctx, query, projectID, since, sinceRunID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list finished runs since: %w", err)
 	}

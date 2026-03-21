@@ -258,6 +258,39 @@ func TestLoad_ValidConfig(t *testing.T) {
 	}
 }
 
+func TestLoad_WebhookConcurrencyDefault(t *testing.T) {
+	viper.Reset()
+	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("INTERNAL_SECRET", "test-secret")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.WebhookConcurrency != 50 {
+		t.Errorf("WebhookConcurrency = %d, want 50", cfg.WebhookConcurrency)
+	}
+}
+
+func TestLoad_WebhookConcurrencyFromEnv(t *testing.T) {
+	viper.Reset()
+	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "WEBHOOK_CONCURRENCY")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("INTERNAL_SECRET", "test-secret")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("WEBHOOK_CONCURRENCY", "100")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.WebhookConcurrency != 100 {
+		t.Errorf("WebhookConcurrency = %d, want 100", cfg.WebhookConcurrency)
+	}
+}
+
 func TestLoad_MaxBulkTriggerItemsDefault(t *testing.T) {
 	viper.Reset()
 	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY")
