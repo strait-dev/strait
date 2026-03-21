@@ -1,0 +1,81 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: strait
+      POSTGRES_PASSWORD: strait
+      POSTGRES_DB: strait
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U strait"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  strait:
+    image: ghcr.io/leonardomso/strait:latest
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://strait:strait@postgres:5432/strait?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change-this-internal-secret-at-least-32-chars}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-change-this-jwt-signing-key-at-least-32-chars}
+      STRAIT_EDITION: community
+      MODE: all
+      PORT: "8080"
+      LOG_LEVEL: info
+      ALLOW_PRIVATE_ENDPOINTS: "true"
+      WEBHOOK_REQUIRE_TLS: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "strait", "health", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/self-host/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      strait:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./deploy/self-host/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/self-host/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+
+volumes:
+  pgdata:
+  prometheus_data:
+  grafana_data:
