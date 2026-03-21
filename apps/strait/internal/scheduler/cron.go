@@ -107,6 +107,8 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerJob")
 	defer span.End()
 
+	cs.recordCronDrift(ctx, job.Cron)
+
 	run := domain.JobRun{
 		JobID:        job.ID,
 		ProjectID:    job.ProjectID,
@@ -161,6 +163,8 @@ func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Wo
 	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerWorkflow")
 	defer span.End()
 
+	cs.recordCronDrift(ctx, workflow.Cron)
+
 	if workflow.SkipIfRunning {
 		running, err := cs.store.CountRunningWorkflowRuns(ctx, workflow.ID)
 		if err != nil {
@@ -199,4 +203,29 @@ func (cs *CronScheduler) Start() {
 
 func (cs *CronScheduler) Stop() context.Context {
 	return cs.cron.Stop()
+}
+
+// recordCronDrift calculates the delta between the expected cron fire time
+// and the actual fire time, and records it as a histogram metric.
+func (cs *CronScheduler) recordCronDrift(ctx context.Context, cronExpr string) {
+	if cs.metrics == nil || cronExpr == "" {
+		return
+	}
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(cronExpr)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	// Walk forward from 2 hours ago to find the most recent expected fire time.
+	probe := now.Add(-2 * time.Hour)
+	expected := schedule.Next(probe)
+	for expected.Before(now) {
+		prev := expected
+		expected = schedule.Next(expected)
+		if expected.After(now) {
+			cs.metrics.CronDrift.Record(ctx, now.Sub(prev).Seconds())
+			return
+		}
+	}
 }

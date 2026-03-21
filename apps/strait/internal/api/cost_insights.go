@@ -23,7 +23,7 @@ func (s *Server) handleGetCostInsights(w http.ResponseWriter, r *http.Request) {
 		threshold = parsed
 	}
 
-	outliers, err := s.store.GetCostOutliers(r.Context(), projectID, from, to, threshold)
+	outliers, err := s.analytics().GetCostOutliers(r.Context(), projectID, from, to, threshold)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get cost insights")
 		return

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/domain"
 )
 
@@ -38,10 +39,40 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 		}
 	}
 
+	// Enqueue ClickHouse workflow run analytics on terminal status transitions.
+	if to.IsTerminal() && s.chExporter != nil {
+		var durationMs uint64
+		if run.StartedAt != nil {
+			finishedAt := time.Now()
+			if run.FinishedAt != nil {
+				finishedAt = *run.FinishedAt
+			}
+			durationMs = uint64(max(finishedAt.Sub(*run.StartedAt).Milliseconds(), 0))
+		}
+		s.chExporter.Enqueue(clickhouse.WorkflowRunAnalyticsRecord{
+			WorkflowRunID: run.ID,
+			WorkflowID:    run.WorkflowID,
+			ProjectID:     run.ProjectID,
+			Status:        string(to),
+			TriggeredBy:   run.TriggeredBy,
+			StepCount:     0, // Step count is not readily available here.
+			DurationMs:    durationMs,
+			CreatedAt:     run.CreatedAt,
+			StartedAt:     run.StartedAt,
+			FinishedAt:    run.FinishedAt,
+		})
+	}
+
 	// Enqueue webhook deliveries for matching subscriptions (non-fatal).
 	// Use detached context so client disconnect doesn't abort webhook delivery.
 	eventType := "workflow_run." + reason
 	go func() { //nolint:gosec // intentional detached context for webhook delivery
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("panic in workflow webhook delivery",
+					"workflow_run_id", run.ID, "panic", r)
+			}
+		}()
 		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		subs, listErr := s.store.ListWebhookSubscriptions(bgCtx, run.ProjectID)

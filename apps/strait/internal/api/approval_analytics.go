@@ -24,7 +24,7 @@ func (s *Server) handleGetApprovalStats(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	stats, err := s.store.GetApprovalStats(r.Context(), projectID, from, to)
+	stats, err := s.analytics().GetApprovalStats(r.Context(), projectID, from, to)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get approval stats")
 		return

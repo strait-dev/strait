@@ -12,6 +12,7 @@ import (
 
 	"strait/internal/api"
 	"strait/internal/cli/styles"
+	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/crypto"
 	"strait/internal/domain"
@@ -23,6 +24,7 @@ import (
 	"strait/internal/workflow"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/redis/go-redis/v9"
 	concpool "github.com/sourcegraph/conc/pool"
 	otelattr "go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -181,7 +183,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	)
 
 	// Initialize OpenTelemetry tracing
-	shutdownTracer, err := telemetry.Init(ctx, "strait", cfg.OTELEndpoint)
+	shutdownTracer, err := telemetry.Init(ctx, "strait", cfg.OTELEndpoint, cfg.SentryEnvironment)
 	if err != nil {
 		return fmt.Errorf("init telemetry: %w", err)
 	}
@@ -193,7 +195,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 	}()
 
-	metrics, metricsHandler, shutdownMetrics, err := telemetry.InitMetrics("strait")
+	metrics, metricsHandler, shutdownMetrics, err := telemetry.InitMetrics("strait", cfg.SentryEnvironment)
 	if err != nil {
 		return fmt.Errorf("init metrics: %w", err)
 	}
@@ -205,11 +207,97 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 	}()
 
+	// Initialize OTel log bridge to export structured logs via OTLP.
+	otelLogger, shutdownLogBridge, err := telemetry.InitLogBridge(ctx, "strait", cfg.OTELEndpoint, cfg.SentryEnvironment)
+	if err != nil {
+		return fmt.Errorf("init log bridge: %w", err)
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := shutdownLogBridge(shutdownCtx); err != nil {
+			slog.Error("failed to shutdown log bridge", "error", err)
+		}
+	}()
+	if otelLogger != nil {
+		// Chain OTel log handler with the existing handler (which may already
+		// include Sentry) so log records flow to both stdout and the OTel pipeline.
+		currentHandler := slog.Default().Handler()
+		tee := telemetry.NewTeeHandler(currentHandler, otelLogger.Handler())
+		slog.SetDefault(slog.New(tee))
+	}
+
+	// Initialize ClickHouse (optional analytics backend).
+	// ClickHouse is never required for operational correctness — degrade gracefully.
+	chClient, err := clickhouse.New(clickhouse.Config{
+		URL:          cfg.ClickHouseURL,
+		Database:     cfg.ClickHouseDatabase,
+		Enabled:      cfg.ClickHouseEnabled,
+		MaxOpenConns: 10,
+		MaxIdleConns: 5,
+	}, slog.Default())
+	if err != nil {
+		slog.Warn("clickhouse unavailable, analytics disabled", "error", err)
+	}
+	if chClient != nil {
+		if err := clickhouse.CreateSchema(ctx, chClient); err != nil {
+			slog.Warn("clickhouse schema creation failed, analytics disabled", "error", err)
+			_ = chClient.Close()
+			chClient = nil
+		}
+	}
+	if chClient != nil {
+		slog.Info("clickhouse enabled", "database", cfg.ClickHouseDatabase)
+	}
+
+	// DB pool must be deferred before the exporter so LIFO order ensures:
+	// exporter.Stop() (flush + goroutine drain) runs before dbPool.Close().
 	dbPool, err := connectDatabase(ctx, cfg)
 	if err != nil {
+		if chClient != nil {
+			_ = chClient.Close()
+		}
 		return err
 	}
 	defer dbPool.Close()
+	if chClient != nil {
+		defer chClient.Close()
+	}
+
+	chExporter := clickhouse.NewExporter(chClient, clickhouse.ExporterConfig{
+		BatchSize:     cfg.ClickHouseBatchSize,
+		FlushInterval: cfg.ClickHouseFlushInterval,
+		Enabled:       cfg.ClickHouseExportEnabled,
+	}, slog.Default())
+	if chExporter != nil {
+		if metrics != nil {
+			chExporter.WithMetrics(&clickhouse.ExporterMetrics{
+				DroppedRecords: metrics.ClickHouseDroppedRecords,
+				FlushFailures:  metrics.ClickHouseFlushFailures,
+			})
+		}
+		chExporter.Start(ctx)
+		defer chExporter.Stop()
+		slog.Info("clickhouse exporter enabled",
+			"batch_size", cfg.ClickHouseBatchSize,
+			"flush_interval", cfg.ClickHouseFlushInterval,
+		)
+
+		// Wire approval change hook so workflow approvals flow to ClickHouse.
+		store.OnApprovalChanged = func(_ context.Context, approval *domain.WorkflowStepApproval) {
+			if approval == nil {
+				return
+			}
+			chExporter.Enqueue(clickhouse.WorkflowApprovalEventRecord{
+				ApprovalID:    approval.ID,
+				WorkflowRunID: approval.WorkflowRunID,
+				StepRunID:     approval.WorkflowStepRunID,
+				Status:        approval.Status,
+				RequestedAt:   approval.RequestedAt,
+				ApprovedAt:    approval.ApprovedAt,
+			})
+		}
+	}
 
 	poolTuner, err := store.NewPoolTuner(dbPool, slog.Default(), cfg.DBMaxConns, cfg.DBMinConns)
 	if err != nil {
@@ -254,6 +342,8 @@ func runServe(ctx context.Context, modeOverride string) error {
 	webhookOptions = append(webhookOptions,
 		webhook.WithMetrics(metrics),
 		webhook.WithMaxPayloadBytes(cfg.WebhookMaxPayloadBytes),
+		webhook.WithConcurrency(cfg.WebhookConcurrency),
+		webhook.WithChExporter(chExporter),
 	)
 	eventNotifier := webhook.NewEventNotifier(queries, slog.Default(), webhookOptions...)
 
@@ -266,6 +356,17 @@ func runServe(ctx context.Context, modeOverride string) error {
 			)
 			metrics.EventTriggersCreated.Add(context.Background(), 1, attrs)
 		}
+		if chExporter != nil {
+			chExporter.Enqueue(clickhouse.EventTriggerEventRecord{
+				TriggerID:   trigger.ID,
+				EventKey:    trigger.EventKey,
+				ProjectID:   trigger.ProjectID,
+				SourceType:  trigger.SourceType,
+				Status:      domain.EventTriggerStatusWaiting,
+				TimeoutSecs: uint32(max(trigger.TimeoutSecs, 0)), //nolint:gosec // timeout is always non-negative
+				CreatedAt:   trigger.RequestedAt,
+			})
+		}
 		eventNotifier.NotifyAsyncWithContext(ctx, trigger)
 	}
 
@@ -273,13 +374,16 @@ func runServe(ctx context.Context, modeOverride string) error {
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
 		WithMetrics(metrics).
 		WithOnTriggerCreate(onTriggerCreate)
-	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).WithMetrics(metrics)
+	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).WithMetrics(metrics).WithChExporter(chExporter)
 
 	healthReg := health.NewRegistry()
 	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {
 		_, err := queries.QueueStats(ctx)
 		return err
 	}))
+	if rdb != nil {
+		healthReg.Register(health.NewRedisChecker(redisPingerAdapter{rdb}))
+	}
 
 	var apiEncryptor api.Encryptor
 	if cfg.EncryptionKey != "" {
@@ -293,9 +397,14 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	startCDCConsumer(g, cfg, pub)
 	startWebhookWorker(g, cfg, eventNotifier)
-	startNotificationWorker(g, cfg, queries)
-	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor)
-	startWorker(g, cfg, queries, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg)
+	startNotificationWorker(g, cfg, queries, metrics)
+	startLogDrainWorker(g, cfg, queries, metrics)
+	var chAnalytics api.AnalyticsStore
+	if chClient != nil {
+		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
+	}
+	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, chAnalytics, chExporter)
+	startWorker(g, cfg, queries, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, chExporter)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)
@@ -303,6 +412,15 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	slog.Info("strait stopped")
 	return nil
+}
+
+// redisPingerAdapter wraps *redis.Client to satisfy health.RedisPinger.
+type redisPingerAdapter struct {
+	rdb *redis.Client
+}
+
+func (r redisPingerAdapter) Ping(ctx context.Context) error {
+	return r.rdb.Ping(ctx).Err()
 }
 
 // setupLogging configures the default slog logger from a level string.

@@ -1,0 +1,9 @@
+FROM node:22-alpine
+
+COPY typescript/ /app/
+
+WORKDIR /app
+
+# Set SCRIPT_NAME env var to choose which script to run.
+# Example: SCRIPT_NAME=data-pipeline.ts
+ENTRYPOINT ["sh", "-c", "node --experimental-strip-types /app/${SCRIPT_NAME}"]

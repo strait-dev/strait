@@ -86,6 +86,7 @@ type Config struct {
 	ExecutorIdleConnTimeout time.Duration `mapstructure:"EXECUTOR_IDLE_CONN_TIMEOUT"`
 	WebhookDispatchTimeout  time.Duration `mapstructure:"WEBHOOK_DISPATCH_TIMEOUT"`
 	WebhookMaxPayloadBytes  int64         `mapstructure:"WEBHOOK_MAX_PAYLOAD_BYTES"`
+	WebhookConcurrency      int           `mapstructure:"WEBHOOK_CONCURRENCY"`
 
 	// Worker settings
 	WebhookMaxAttempts       int `mapstructure:"WEBHOOK_MAX_ATTEMPTS"`
@@ -159,12 +160,15 @@ type Config struct {
 	// Sentry error tracking
 	SentryDSN         string `mapstructure:"SENTRY_DSN"`
 	SentryEnvironment string `mapstructure:"SENTRY_ENVIRONMENT"`
+
+	// Edition controls feature gating (community vs cloud)
+	Edition string `mapstructure:"STRAIT_EDITION"`
 }
 
 func setDefaults() {
 	viper.SetDefault("MODE", "all")
 	viper.SetDefault("PORT", 8080)
-	viper.SetDefault("WORKER_CONCURRENCY", 10)
+	viper.SetDefault("WORKER_CONCURRENCY", 25)
 	viper.SetDefault("LOG_LEVEL", "info")
 	viper.SetDefault("HEARTBEAT_INTERVAL", 10*time.Second)
 	viper.SetDefault("REAPER_INTERVAL", 30*time.Second)
@@ -173,8 +177,8 @@ func setDefaults() {
 	viper.SetDefault("WORKFLOW_RUN_RETENTION_DAYS", 30)
 	viper.SetDefault("RUN_RETENTION_SHORT", 30*24*time.Hour)
 	viper.SetDefault("RUN_RETENTION_LONG", 90*24*time.Hour)
-	viper.SetDefault("DB_MAX_CONNS", 25)
-	viper.SetDefault("DB_MIN_CONNS", 5)
+	viper.SetDefault("DB_MAX_CONNS", 50)
+	viper.SetDefault("DB_MIN_CONNS", 10)
 	viper.SetDefault("DB_MAX_CONN_LIFETIME", 30*time.Minute)
 	viper.SetDefault("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
 	viper.SetDefault("DB_STATEMENT_TIMEOUT", 30*time.Second)
@@ -209,6 +213,7 @@ func setDefaults() {
 	viper.SetDefault("EXECUTOR_IDLE_CONN_TIMEOUT", 90*time.Second)
 	viper.SetDefault("WEBHOOK_DISPATCH_TIMEOUT", 15*time.Second)
 	viper.SetDefault("WEBHOOK_MAX_PAYLOAD_BYTES", int64(1<<20))
+	viper.SetDefault("WEBHOOK_CONCURRENCY", 50)
 	viper.SetDefault("WEBHOOK_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_TIMEOUT_SECS", 300)
@@ -251,6 +256,7 @@ func setDefaults() {
 	viper.SetDefault("OTLP_METRIC_ENABLED", false)
 	viper.SetDefault("SENTRY_DSN", "")
 	viper.SetDefault("SENTRY_ENVIRONMENT", "development")
+	viper.SetDefault("STRAIT_EDITION", "community")
 }
 
 func BindEnv() error {
@@ -268,7 +274,7 @@ func BindEnv() error {
 		"ADAPTIVE_CONCURRENCY_MIN", "ADAPTIVE_CONCURRENCY_MAX", "DB_PGBOUNCER_MODE",
 		"WORKER_DRAIN_TIMEOUT",
 		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
-		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_PAYLOAD_BYTES", "WEBHOOK_MAX_ATTEMPTS",
+		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_PAYLOAD_BYTES", "WEBHOOK_CONCURRENCY", "WEBHOOK_MAX_ATTEMPTS",
 		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "DEFAULT_JOB_MAX_CONCURRENCY", "WORKER_QUEUE_SIZE", "MAX_DEQUEUE_BATCH_SIZE",
 		"WORKFLOW_RETENTION", "INDEX_MAINTENANCE_INTERVAL", "REAPER_DELETE_BATCH_SIZE",
 		"WF_STALL_THRESHOLD", "WF_STALL_ACTION", "WF_MAX_STEP_CAP", "WF_STEP_CONCURRENCY_LIMIT",
@@ -291,6 +297,7 @@ func BindEnv() error {
 		"CLICKHOUSE_BATCH_SIZE", "CLICKHOUSE_FLUSH_INTERVAL", "CLICKHOUSE_EXPORT_ENABLED",
 		"OTLP_METRIC_ENDPOINT", "OTLP_METRIC_ENABLED",
 		"SENTRY_DSN", "SENTRY_ENVIRONMENT",
+		"STRAIT_EDITION",
 	}
 
 	for _, key := range keys {
@@ -348,6 +355,7 @@ func Load() (*Config, error) {
 	cfg.ExecutorIdleConnTimeout = viper.GetDuration("EXECUTOR_IDLE_CONN_TIMEOUT")
 	cfg.WebhookDispatchTimeout = viper.GetDuration("WEBHOOK_DISPATCH_TIMEOUT")
 	cfg.WebhookMaxPayloadBytes = viper.GetInt64("WEBHOOK_MAX_PAYLOAD_BYTES")
+	cfg.WebhookConcurrency = viper.GetInt("WEBHOOK_CONCURRENCY")
 	cfg.WorkflowRetention = viper.GetDuration("WORKFLOW_RETENTION")
 	cfg.EventTriggerRetention = viper.GetDuration("EVENT_TRIGGER_RETENTION")
 	cfg.IndexMaintenanceInterval = viper.GetDuration("INDEX_MAINTENANCE_INTERVAL")
@@ -394,6 +402,7 @@ func Load() (*Config, error) {
 	cfg.OTLPMetricEnabled = viper.GetBool("OTLP_METRIC_ENABLED")
 	cfg.SentryDSN = viper.GetString("SENTRY_DSN")
 	cfg.SentryEnvironment = viper.GetString("SENTRY_ENVIRONMENT")
+	cfg.Edition = viper.GetString("STRAIT_EDITION")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")
@@ -467,6 +476,12 @@ func Load() (*Config, error) {
 			return nil, &domain.ConfigError{Field: "FLY_APP_NAME", Message: "is required when COMPUTE_RUNTIME=fly"}
 		}
 	}
+	if cfg.Edition == string(domain.EditionCommunity) && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
+		slog.Warn("community edition does not support managed execution; overriding COMPUTE_RUNTIME to none",
+			"configured", cfg.ComputeRuntime)
+		cfg.ComputeRuntime = "none"
+	}
+
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return nil, &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
 	}

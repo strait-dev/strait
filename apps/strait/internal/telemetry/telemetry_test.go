@@ -9,7 +9,7 @@ import (
 func TestInit_NoEndpoint(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	shutdown, err := Init(ctx, "test-service", "")
+	shutdown, err := Init(ctx, "test-service", "", "test")
 
 	if err != nil {
 		t.Errorf("Init with empty endpoint returned error: %v", err)
@@ -32,7 +32,7 @@ func TestInit_WithEndpoint(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	// Use a localhost endpoint that won't actually connect
-	shutdown, err := Init(ctx, "test-service", "http://localhost:4318")
+	shutdown, err := Init(ctx, "test-service", "http://localhost:4318", "test")
 
 	// We expect an error because the endpoint doesn't exist, but the function
 	// should attempt to create the exporter
@@ -60,7 +60,7 @@ func TestInit_ServiceName(t *testing.T) {
 	for _, name := range serviceNames {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			shutdown, err := Init(ctx, name, "")
+			shutdown, err := Init(ctx, name, "", "test")
 			if err != nil {
 				t.Errorf("Init with service name %q returned error: %v", name, err)
 			}
@@ -72,11 +72,25 @@ func TestInit_ServiceName(t *testing.T) {
 	}
 }
 
+// TestInit_EmptyEnvironment verifies that Init works with an empty environment.
+func TestInit_EmptyEnvironment(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	shutdown, err := Init(ctx, "test-service", "", "")
+	if err != nil {
+		t.Fatalf("Init with empty environment returned error: %v", err)
+	}
+	if shutdown == nil {
+		t.Fatal("Init returned nil shutdown function")
+	}
+	_ = shutdown(ctx)
+}
+
 // TestInit_ShutdownIdempotent verifies that shutdown can be called multiple times.
 func TestInit_ShutdownIdempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	shutdown, err := Init(ctx, "test-service", "")
+	shutdown, err := Init(ctx, "test-service", "", "test")
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}

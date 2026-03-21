@@ -12,9 +12,12 @@ import (
 
 	"strait/internal/api"
 	"strait/internal/cdc"
+	"strait/internal/clickhouse"
 	"strait/internal/compute"
 	"strait/internal/config"
+	"strait/internal/domain"
 	"strait/internal/health"
+	"strait/internal/logdrain"
 	"strait/internal/notification"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
@@ -262,13 +265,16 @@ func notificationWorkerEnabled(mode string) bool {
 	return mode == "worker" || mode == "all"
 }
 
-func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries) {
+func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, metrics *telemetry.Metrics) {
 	if cfg == nil || !notificationWorkerEnabled(cfg.Mode) {
 		return
 	}
 
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	notifWorker := notification.NewWorker(queries, httpClient)
+	if metrics != nil {
+		notifWorker.WithDeliveriesCounter(metrics.NotificationDeliveriesTotal)
+	}
 
 	g.Go(func(ctx context.Context) error {
 		notifWorker.Start(ctx)
@@ -280,8 +286,33 @@ func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *s
 	})
 }
 
+func startLogDrainWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, metrics *telemetry.Metrics) {
+	if cfg == nil || !notificationWorkerEnabled(cfg.Mode) {
+		return
+	}
+
+	svc := logdrain.NewService()
+	w := logdrain.NewWorker(queries, svc, 30*time.Second)
+	if metrics != nil {
+		w.WithEventsCounter(metrics.LogDrainEventsTotal)
+	}
+
+	g.Go(func(ctx context.Context) error {
+		w.Run(ctx)
+		return nil
+	})
+
+	g.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		slog.Info("stopping log drain worker")
+		w.Stop()
+		slog.Info("log drain worker stopped")
+		return nil
+	})
+}
+
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor, analyticsStore api.AnalyticsStore, chExporter *clickhouse.Exporter) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -327,6 +358,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	srv := api.NewServer(api.ServerDeps{
 		Config:           cfg,
 		Store:            queries,
+		AnalyticsStore:   analyticsStore,
 		Queue:            q,
 		PubSub:           pub,
 		MetricsHandler:   metricsHandler,
@@ -339,6 +371,8 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		RedisClient:      rdb,
 		Encryptor:        encryptor,
 		ContainerRuntime: apiContainerRuntime,
+		CHExporter:       chExporter,
+		Edition:          domain.ParseEdition(cfg.Edition),
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -368,7 +402,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, chExporter *clickhouse.Exporter) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -446,7 +480,17 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		exec.Subscribe(worker.MetricsSubscriber(metrics))
 	}
 	if pub != nil {
-		exec.Subscribe(worker.PubSubSubscriber(pub))
+		if metrics != nil {
+			exec.Subscribe(worker.PubSubSubscriber(pub, metrics.PubSubPublishErrors))
+		} else {
+			exec.Subscribe(worker.PubSubSubscriber(pub))
+		}
+	}
+	if chExporter != nil {
+		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries, worker.ClickHouseSubscriberDeps{
+			UsageLister:        queries,
+			ComputeUsageLister: queries,
+		}))
 	}
 
 	healthReg.Register(health.NewPoolChecker(p))
@@ -477,11 +521,31 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		}, metrics.QueueDepth); err != nil {
 			slog.Warn("failed to register queue depth metrics callback", "error", err)
 		}
+
+		// Report webhook backlog and ClickHouse exporter buffer depth.
+		g.Go(func(ctx context.Context) error {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-ticker.C:
+					if chExporter != nil {
+						metrics.ClickHouseExporterPending.Record(ctx, int64(chExporter.PendingCount()))
+					}
+					count, err := queries.CountPendingWebhookDeliveries(ctx)
+					if err == nil {
+						metrics.WebhookBacklogDepth.Record(ctx, count)
+					}
+				}
+			}
+		})
 	}
 
 	g.Go(func(ctx context.Context) error {
 		if adaptive != nil {
-			adaptive.Run(ctx, 10*time.Second, func(probeCtx context.Context) (int, float64, error) {
+			adaptive.Run(ctx, 3*time.Second, func(probeCtx context.Context) (int, float64, error) {
 				stats, err := queries.QueueStats(probeCtx)
 				if err != nil {
 					return 0, 0, err
@@ -537,6 +601,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
 			scheduler.WithSchedulerMetrics(metrics),
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
+			scheduler.WithChExporter(chExporter),
 		)
 		if err := sched.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)

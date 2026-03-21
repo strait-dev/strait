@@ -9,6 +9,7 @@ import (
 
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/queue"
 	"strait/internal/store"
@@ -75,6 +76,13 @@ type SchedulerOption func(*Scheduler)
 func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	return func(s *Scheduler) {
 		s.reaper.WithMetrics(m)
+	}
+}
+
+// WithChExporter attaches the ClickHouse exporter to the reaper for event trigger analytics.
+func WithChExporter(e *clickhouse.Exporter) SchedulerOption {
+	return func(s *Scheduler) {
+		s.reaper.WithChExporter(e)
 	}
 }
 
