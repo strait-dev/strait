@@ -772,6 +772,9 @@ type DeploymentVersion struct {
 	Manifest               json.RawMessage         `json:"manifest,omitempty"`
 	Checksum               string                  `json:"checksum,omitempty"`
 	Status                 DeploymentVersionStatus `json:"status"`
+	Strategy               DeploymentStrategy      `json:"strategy"`
+	CanaryPercent          *int                    `json:"canary_percent,omitempty"`
+	CanaryDuration         *time.Duration          `json:"canary_duration,omitempty"`
 	FinalizedAt            *time.Time              `json:"finalized_at,omitempty"`
 	PromotedAt             *time.Time              `json:"promoted_at,omitempty"`
 	RollbackFromDeployment string                  `json:"rollback_from_deployment_id,omitempty"`

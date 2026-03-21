@@ -54,6 +54,139 @@ func TestCreateDeploymentVersion(t *testing.T) {
 	}
 }
 
+func TestCreateDeploymentVersion_WithCanaryStrategy(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		createDeploymentVersionFn: func(_ context.Context, deployment *domain.DeploymentVersion) error {
+			deployment.ID = "dep-canary"
+			deployment.CreatedAt = time.Now()
+			deployment.UpdatedAt = deployment.CreatedAt
+			if deployment.Strategy != domain.DeploymentStrategyCanary {
+				return errors.New("expected canary strategy")
+			}
+			if deployment.CanaryPercent == nil || *deployment.CanaryPercent != 25 {
+				return errors.New("expected canary_percent = 25")
+			}
+			if deployment.CanaryDuration == nil || *deployment.CanaryDuration != 10*time.Minute {
+				return errors.New("expected canary_duration = 10m")
+			}
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	body := `{
+		"project_id":"proj-1",
+		"environment":"production",
+		"runtime":"node",
+		"artifact_uri":"https://example.com/artifacts/dep-canary.tgz",
+		"strategy":"canary",
+		"canary_percent":25,
+		"canary_duration":"10m"
+	}`
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if response["strategy"] != "canary" {
+		t.Fatalf("strategy = %v, want canary", response["strategy"])
+	}
+}
+
+func TestCreateDeploymentVersion_CanaryRequiresPercent(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{
+		"project_id":"proj-1",
+		"environment":"production",
+		"runtime":"node",
+		"artifact_uri":"https://example.com/artifacts/dep-1.tgz",
+		"strategy":"canary"
+	}`
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateDeploymentVersion_DirectDefault(t *testing.T) {
+	t.Parallel()
+
+	var captured *domain.DeploymentVersion
+	ms := &mockAPIStore{
+		createDeploymentVersionFn: func(_ context.Context, deployment *domain.DeploymentVersion) error {
+			captured = deployment
+			deployment.ID = "dep-direct"
+			deployment.CreatedAt = time.Now()
+			deployment.UpdatedAt = deployment.CreatedAt
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	body := `{
+		"project_id":"proj-1",
+		"environment":"production",
+		"runtime":"node",
+		"artifact_uri":"https://example.com/artifacts/dep-1.tgz"
+	}`
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if captured.Strategy != domain.DeploymentStrategyDirect {
+		t.Fatalf("strategy = %v, want direct", captured.Strategy)
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if response["strategy"] != "direct" {
+		t.Fatalf("strategy = %v, want direct", response["strategy"])
+	}
+}
+
+func TestCreateDeploymentVersion_InvalidStrategy(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{
+		"project_id":"proj-1",
+		"environment":"production",
+		"runtime":"node",
+		"artifact_uri":"https://example.com/artifacts/dep-1.tgz",
+		"strategy":"blue_green"
+	}`
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestFinalizeDeploymentVersion_NotFound(t *testing.T) {
 	t.Parallel()
 

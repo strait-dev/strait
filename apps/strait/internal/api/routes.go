@@ -76,6 +76,13 @@ func (s *Server) routes() chi.Router {
 		r.Handle("/metrics", s.metricsHandler)
 	}
 
+	// CLI device authorization endpoints (no auth required).
+	r.Route("/v1/cli/auth", func(r chi.Router) {
+		r.Use(rateLimit(10, time.Minute))
+		r.Post("/device-code", s.handleDeviceCode)
+		r.Post("/token", s.handleDeviceToken)
+	})
+
 	// SSE stream route with query-param token auth for browser EventSource clients.
 	// Placed before the main /v1 group so sseTokenAuth runs before apiKeyOrSecretAuth.
 	r.Route("/v1/events/{eventKey}/stream", func(r chi.Router) {
@@ -242,6 +249,8 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage), rateLimit(10, time.Minute)).Post("/{keyID}/rotate", s.handleRotateAPIKey)
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Delete("/{keyID}", s.handleRevokeAPIKey)
 		})
+
+		r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Post("/cli/device-codes/approve", s.handleApproveDeviceCode)
 
 		r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/stats", s.handleStats)
 

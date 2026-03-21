@@ -59,6 +59,34 @@ paths:
                     type: string
                     example: ok
 
+  /v1/cli/auth/device-code:
+    post:
+      tags: [CLI Auth]
+      summary: Request a device code for CLI authentication
+      security: []
+      responses:
+        '200':
+          description: Device code created
+
+  /v1/cli/auth/token:
+    post:
+      tags: [CLI Auth]
+      summary: Exchange device code for API token
+      security: []
+      responses:
+        '200':
+          description: Token issued
+        '400':
+          description: Authorization pending or expired
+
+  /v1/cli/device-codes/approve:
+    post:
+      tags: [CLI Auth]
+      summary: Approve a device code
+      responses:
+        '200':
+          description: Device code approved
+
   /health/ready:
     get:
       tags:
