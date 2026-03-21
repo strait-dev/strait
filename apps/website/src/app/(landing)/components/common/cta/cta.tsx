@@ -26,13 +26,12 @@ const CTA = ({
       className="relative overflow-hidden border-border/40 border-y py-20 sm:py-28"
     >
       <div className="absolute inset-0 -z-10 bg-primary/[0.03]" />
-      <div className="orchestration-grid pointer-events-none absolute inset-0 opacity-[0.08]" />
 
       <Shell className="relative z-10" variant="wide">
-        <div className="flex flex-col items-center text-center">
+        <div className="max-w-3xl">
           <Reveal variant="blur">
             <h2
-              className="max-w-3xl text-balance text-2xl leading-[1.1] sm:text-3xl lg:text-4xl"
+              className="text-balance text-2xl leading-[1.1] sm:text-3xl lg:text-4xl"
               id={headingId}
             >
               {heading}
@@ -41,7 +40,7 @@ const CTA = ({
 
           {showInstallSnippet && (
             <Reveal delay={0.1}>
-              <div className="mt-8 overflow-hidden rounded-lg border border-border/40 bg-muted/30 px-6 py-3">
+              <div className="mt-8 inline-block overflow-hidden rounded-lg border border-border/40 bg-muted/30 px-6 py-3">
                 <pre className="font-mono text-foreground/80 text-sm">
                   <code>
                     npm install @strait/ts{" "}
@@ -55,9 +54,8 @@ const CTA = ({
           )}
 
           <Reveal delay={showInstallSnippet ? 0.2 : 0.1} spring>
-            <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row">
+            <div className="mt-10 flex flex-col gap-4 sm:flex-row">
               <Button
-                className="transition-shadow duration-300"
                 render={<Link href={dashboardHref("/login")} />}
                 size="default"
                 variant="gradient"
@@ -77,7 +75,9 @@ const CTA = ({
           </Reveal>
 
           <Reveal delay={showInstallSnippet ? 0.3 : 0.2}>
-            <p className="mt-6 text-muted-foreground text-sm">{description}</p>
+            <p className="mt-6 text-muted-foreground/60 text-sm">
+              {description}
+            </p>
           </Reveal>
         </div>
       </Shell>

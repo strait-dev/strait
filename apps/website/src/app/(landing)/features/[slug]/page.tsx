@@ -68,7 +68,6 @@ export default async function FeaturePage({ params }: Props) {
 
       {/* Hero */}
       <section className="relative isolate overflow-hidden pt-32 pb-16 sm:pt-40 sm:pb-20">
-        <div className="orchestration-grid absolute inset-0 -z-10 opacity-[0.08]" />
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_transparent,_var(--background)_70%)]" />
 
         <Shell variant="wide">

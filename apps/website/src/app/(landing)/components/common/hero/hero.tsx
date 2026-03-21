@@ -12,7 +12,6 @@ const Hero = () => {
   return (
     <section className="relative isolate overflow-hidden pt-32 pb-16 sm:pt-40 sm:pb-24">
       <div className="absolute inset-0 -z-10 bg-primary/[0.03]" />
-      <div className="orchestration-grid absolute inset-0 -z-10 opacity-[0.06]" />
 
       <Shell variant="wide">
         <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
