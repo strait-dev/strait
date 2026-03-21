@@ -122,6 +122,12 @@ func (m *mockEnforcerStore) UpdateAnomalyThresholds(_ context.Context, _ string,
 func (m *mockEnforcerStore) CountOrgsByUser(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
+func (m *mockEnforcerStore) UpdatePaymentStatus(_ context.Context, _ string, _ string, _ *time.Time) error {
+	return nil
+}
+func (m *mockEnforcerStore) ListOrgsInGracePeriod(_ context.Context) ([]billing.OrgSubscription, error) {
+	return nil, nil
+}
 func (m *mockEnforcerStore) ListAllSubscribedOrgIDs(_ context.Context) ([]string, error) {
 	return nil, nil
 }

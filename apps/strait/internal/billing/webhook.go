@@ -118,6 +118,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		err = h.handleSubscriptionCanceled(ctx, payload.Data)
 	case "subscription.revoked":
 		err = h.handleSubscriptionRevoked(ctx, payload.Data)
+	case "subscription.active":
+		err = h.handlePaymentSucceeded(ctx, payload.Data)
+	case "order.paid":
+		err = h.handlePaymentSucceeded(ctx, payload.Data)
 	default:
 		h.logger.Debug("ignoring unhandled webhook event", "type", payload.Type)
 		w.WriteHeader(http.StatusOK)
@@ -267,6 +271,41 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 	status := sub.Status
 	if status == "" {
 		status = "active"
+	}
+
+	// If subscription becomes past_due, set grace period for payment recovery.
+	if status == "past_due" {
+		// Check if this is a free org (no payment to fail).
+		existing, existErr := h.store.GetOrgSubscription(ctx, orgID)
+		if existErr == nil && existing.PlanTier != string(domain.PlanFree) {
+			graceEnd := time.Now().Add(72 * time.Hour)
+			if err := h.store.UpdatePaymentStatus(ctx, orgID, "grace", &graceEnd); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+				return fmt.Errorf("setting grace period on past_due: %w", err)
+			}
+			if h.enforcer != nil {
+				h.enforcer.InvalidateOrgCache(orgID)
+			}
+			h.logger.Info("payment past due, grace period set",
+				"org_id", orgID,
+				"grace_period_end", graceEnd,
+			)
+		}
+	}
+
+	// If subscription returns to active from a grace/restricted state, clear it.
+	if status == "active" {
+		existing, existErr := h.store.GetOrgSubscription(ctx, orgID)
+		if existErr == nil && (existing.PaymentStatus == "grace" || existing.PaymentStatus == "restricted") {
+			if err := h.store.UpdatePaymentStatus(ctx, orgID, "ok", nil); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+				return fmt.Errorf("clearing grace period on active: %w", err)
+			}
+			if h.enforcer != nil {
+				h.enforcer.InvalidateOrgCache(orgID)
+			}
+			h.logger.Info("payment recovered, grace period cleared",
+				"org_id", orgID,
+			)
+		}
 	}
 
 	// Check if this is a downgrade by comparing plan limits.
@@ -462,6 +501,41 @@ func (h *WebhookHandler) handleSubscriptionRevoked(ctx context.Context, data jso
 	h.logger.Info("subscription revoked, downgraded to free",
 		"org_id", orgID,
 	)
+	return nil
+}
+
+func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.RawMessage) error {
+	var sub PolarSubscriptionData
+	if err := json.Unmarshal(data, &sub); err != nil {
+		return fmt.Errorf("parsing payment success data: %w", err)
+	}
+
+	orgID := h.resolveOrgID(sub)
+	if orgID == "" {
+		return nil
+	}
+
+	existing, err := h.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return nil
+		}
+		return fmt.Errorf("getting subscription for payment success: %w", err)
+	}
+
+	// Only clear grace if the org is actually in grace or restricted state.
+	if existing.PaymentStatus == "grace" || existing.PaymentStatus == "restricted" {
+		if err := h.store.UpdatePaymentStatus(ctx, orgID, "ok", nil); err != nil {
+			return fmt.Errorf("clearing grace on payment success: %w", err)
+		}
+		if h.enforcer != nil {
+			h.enforcer.InvalidateOrgCache(orgID)
+		}
+		h.logger.Info("payment succeeded, grace period cleared",
+			"org_id", orgID,
+		)
+	}
+
 	return nil
 }
 

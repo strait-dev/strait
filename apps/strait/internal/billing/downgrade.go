@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"strait/internal/domain"
 )
@@ -26,8 +27,11 @@ type ResourceImpact struct {
 
 // DowngradeImpact summarizes the effects of downgrading to a lower plan tier.
 type DowngradeImpact struct {
-	TargetTier string           `json:"target_tier"`
-	Impacts    []ResourceImpact `json:"impacts"`
+	TargetTier    string           `json:"target_tier"`
+	EffectiveDate string           `json:"effective_date"`
+	Impacts       []ResourceImpact `json:"impacts"`
+	ManualActions []ResourceImpact `json:"manual_actions"`
+	AutoDisabled  []ResourceImpact `json:"auto_disabled"`
 }
 
 // PreviewDowngrade compares the org's current resource usage against the limits
@@ -49,8 +53,16 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 		return nil, fmt.Errorf("listing projects for downgrade preview: %w", err)
 	}
 
+	// Determine effective date from subscription period end.
+	now := time.Now().UTC()
+	effectiveDate := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, time.UTC)
+	if sub.CurrentPeriodEnd != nil {
+		effectiveDate = *sub.CurrentPeriodEnd
+	}
+
 	impact := &DowngradeImpact{
-		TargetTier: string(targetTier),
+		TargetTier:    string(targetTier),
+		EffectiveDate: effectiveDate.Format("2006-01-02"),
 	}
 
 	// Projects
@@ -110,7 +122,28 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 		int64(targetRegions),
 	))
 
+	// Separate impacts into manual actions vs auto-disabled.
+	impact.ManualActions, impact.AutoDisabled = AutoDisableResources(impact.Impacts)
+
 	return impact, nil
+}
+
+// AutoDisableResources separates resource impacts into those requiring manual
+// user action (projects, members) and those that can be auto-disabled
+// (log drains, alert rules, webhooks, custom roles, etc.).
+func AutoDisableResources(impacts []ResourceImpact) (manualActions []ResourceImpact, autoDisabled []ResourceImpact) {
+	for _, impact := range impacts {
+		if impact.Action == ResourceActionOK {
+			continue
+		}
+		switch impact.Resource {
+		case "projects", "members", "members_per_org":
+			manualActions = append(manualActions, impact)
+		default:
+			autoDisabled = append(autoDisabled, impact)
+		}
+	}
+	return
 }
 
 func buildImpact(resource string, current, limit int64) ResourceImpact {

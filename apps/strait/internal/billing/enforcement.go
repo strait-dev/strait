@@ -25,6 +25,8 @@ var (
 	ErrOrgLimitReached               = errors.New("org limit reached")
 	ErrSpendingLimitReached          = errors.New("spending limit reached")
 	ErrProjectBudgetReached          = errors.New("project budget reached")
+	ErrGracePeriodExpired            = errors.New("payment grace period expired")
+	ErrPaymentRestricted             = errors.New("payment restricted")
 )
 
 // LimitError provides structured information about a limit rejection.
@@ -136,10 +138,53 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (OrgPlanL
 	return limits, nil
 }
 
+// checkPaymentStatus checks the org's payment/grace status and returns an error
+// if the org should be blocked, or nil if the run should be allowed (including
+// during an active grace period). The second return value indicates whether the
+// caller should skip further limit checks (true when in active grace).
+func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) (error, bool) {
+	sub, err := e.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return nil, false // free tier, no payment status
+		}
+		e.logger.Warn("failed to get org subscription for payment check", "org_id", orgID, "error", err)
+		return nil, false // fail open
+	}
+
+	switch sub.PaymentStatus {
+	case "restricted":
+		return &LimitError{
+			Code:    "payment_restricted",
+			Message: "Your account is restricted due to failed payment. Please update your payment method.",
+			Plan:    sub.PlanTier,
+		}, false
+	case "grace":
+		if sub.GracePeriodEnd != nil && time.Now().Before(*sub.GracePeriodEnd) {
+			// Active grace period: allow the run, skip further limit checks.
+			return nil, true
+		}
+		// Grace period has expired.
+		return &LimitError{
+			Code:    "grace_period_expired",
+			Message: "Your payment grace period has expired. Please update your payment method.",
+			Plan:    sub.PlanTier,
+		}, false
+	default:
+		return nil, false
+	}
+}
+
 // CheckDailyRunLimit checks if the org has exceeded its daily run quota.
 // Uses Redis INCR with TTL for atomic counting.
 func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	if orgID == "" || e.rdb == nil {
+		return nil
+	}
+
+	if err, skipLimits := e.checkPaymentStatus(ctx, orgID); err != nil {
+		return err
+	} else if skipLimits {
 		return nil
 	}
 
@@ -199,6 +244,12 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 // Uses Redis INCR for atomic counting. Call DecrConcurrentRunCount when the run finishes.
 func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) error {
 	if orgID == "" || e.rdb == nil {
+		return nil
+	}
+
+	if err, skipLimits := e.checkPaymentStatus(ctx, orgID); err != nil {
+		return err
+	} else if skipLimits {
 		return nil
 	}
 

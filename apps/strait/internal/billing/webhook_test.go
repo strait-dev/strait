@@ -1015,3 +1015,261 @@ func TestWebhook_AuditEvent_HasCorrectResourceType(t *testing.T) {
 		t.Errorf("actor_id = %q, want polar-webhook", audit.events[0].ActorID)
 	}
 }
+
+// Grace period webhook tests.
+
+func TestWebhook_PaymentFailed_SetsGracePeriod72h(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_pastdue": {
+				OrgID:         "org_pastdue",
+				PlanTier:      "pro",
+				Status:        "active",
+				PaymentStatus: "ok",
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.updated",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_pastdue",
+			ProductID:  "pro-id",
+			CustomerID: "cust_pastdue",
+			Status:     "past_due",
+			Metadata:   map[string]string{"org_id": "org_pastdue"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	before := time.Now()
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	sub := store.subscriptions["org_pastdue"]
+	if sub.PaymentStatus != "grace" {
+		t.Errorf("payment_status = %q, want grace", sub.PaymentStatus)
+	}
+	if sub.GracePeriodEnd == nil {
+		t.Fatal("expected grace_period_end to be set")
+	}
+	// Grace period should be roughly 72 hours from now.
+	expected := before.Add(72 * time.Hour)
+	diff := sub.GracePeriodEnd.Sub(expected)
+	if diff < -5*time.Second || diff > 5*time.Second {
+		t.Errorf("grace_period_end off by %v from expected 72h", diff)
+	}
+}
+
+func TestWebhook_PaymentFailed_StatusBecomesGrace(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_grace_status": {
+				OrgID:         "org_grace_status",
+				PlanTier:      "starter",
+				Status:        "active",
+				PaymentStatus: "ok",
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.updated",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_grace",
+			ProductID:  "starter-id",
+			CustomerID: "cust_grace",
+			Status:     "past_due",
+			Metadata:   map[string]string{"org_id": "org_grace_status"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	if store.lastPaymentStatusUpdate == nil {
+		t.Fatal("expected payment status update")
+	}
+	if store.lastPaymentStatusUpdate.status != "grace" {
+		t.Errorf("status = %q, want grace", store.lastPaymentStatusUpdate.status)
+	}
+}
+
+func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
+	t.Parallel()
+
+	graceEnd := time.Now().Add(48 * time.Hour)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_recover": {
+				OrgID:          "org_recover",
+				PlanTier:       "pro",
+				Status:         "active",
+				PaymentStatus:  "grace",
+				GracePeriodEnd: &graceEnd,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.active",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_recover",
+			ProductID:  "pro-id",
+			CustomerID: "cust_recover",
+			Metadata:   map[string]string{"org_id": "org_recover"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	sub := store.subscriptions["org_recover"]
+	if sub.PaymentStatus != "ok" {
+		t.Errorf("payment_status = %q, want ok", sub.PaymentStatus)
+	}
+	if sub.GracePeriodEnd != nil {
+		t.Errorf("expected grace_period_end to be cleared, got %v", sub.GracePeriodEnd)
+	}
+}
+
+func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
+	t.Parallel()
+
+	oldGrace := time.Now().Add(24 * time.Hour) // 24h left
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_extend": {
+				OrgID:          "org_extend",
+				PlanTier:       "pro",
+				Status:         "active",
+				PaymentStatus:  "grace",
+				GracePeriodEnd: &oldGrace,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.updated",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_extend",
+			ProductID:  "pro-id",
+			CustomerID: "cust_extend",
+			Status:     "past_due",
+			Metadata:   map[string]string{"org_id": "org_extend"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	sub := store.subscriptions["org_extend"]
+	if sub.PaymentStatus != "grace" {
+		t.Errorf("payment_status = %q, want grace", sub.PaymentStatus)
+	}
+	// Grace period should be extended to ~72h from now, not the old 24h.
+	if sub.GracePeriodEnd == nil {
+		t.Fatal("expected grace_period_end to be set")
+	}
+	if sub.GracePeriodEnd.Before(time.Now().Add(70 * time.Hour)) {
+		t.Errorf("expected grace period to be extended to ~72h, got %v", sub.GracePeriodEnd)
+	}
+}
+
+func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_free_pay": {
+				OrgID:         "org_free_pay",
+				PlanTier:      "free",
+				Status:        "active",
+				PaymentStatus: "ok",
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.updated",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_free_pay",
+			ProductID:  "starter-id",
+			CustomerID: "cust_free_pay",
+			Status:     "past_due",
+			Metadata:   map[string]string{"org_id": "org_free_pay"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// Free org should not have grace period set.
+	sub := store.subscriptions["org_free_pay"]
+	if sub.PaymentStatus != "ok" {
+		t.Errorf("payment_status = %q, want ok (no grace for free orgs)", sub.PaymentStatus)
+	}
+}

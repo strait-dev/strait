@@ -21,6 +21,8 @@ type OrgSubscription struct {
 	CanceledAt               *time.Time
 	AnomalyThresholdWarning  float64
 	AnomalyThresholdCritical float64
+	GracePeriodEnd           *time.Time
+	PaymentStatus            string // "ok", "grace", "restricted"
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
 }
@@ -77,6 +79,10 @@ type Store interface {
 
 	// Anomaly thresholds
 	UpdateAnomalyThresholds(ctx context.Context, orgID string, warning, critical float64) error
+
+	// Grace period
+	UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error
+	ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription, error)
 
 	// Org listing
 	ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)

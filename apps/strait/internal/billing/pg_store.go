@@ -30,6 +30,7 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
 			COALESCE(anomaly_threshold_critical, 10.0),
+			grace_period_end, COALESCE(payment_status, 'ok'),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE org_id = $1
@@ -39,6 +40,7 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 		&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 		&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 		&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
+		&sub.GracePeriodEnd, &sub.PaymentStatus,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -169,6 +171,7 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
 			COALESCE(anomaly_threshold_critical, 10.0),
+			grace_period_end, COALESCE(payment_status, 'ok'),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE pending_plan_tier IS NOT NULL
@@ -189,6 +192,7 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
+			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pending downgrade: %w", err)
@@ -858,6 +862,58 @@ func (s *PgStore) ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+func (s *PgStore) UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET payment_status = $2, grace_period_end = $3, updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, status, graceEnd)
+	if err != nil {
+		return fmt.Errorf("updating payment status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSubscriptionNotFound
+	}
+	return nil
+}
+
+func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+			status, current_period_start, current_period_end,
+			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
+			COALESCE(anomaly_threshold_warning, 3.0),
+			COALESCE(anomaly_threshold_critical, 10.0),
+			grace_period_end, COALESCE(payment_status, 'ok'),
+			created_at, updated_at
+		FROM organization_subscriptions
+		WHERE payment_status = 'grace'
+		  AND grace_period_end < NOW()
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("listing orgs in grace period: %w", err)
+	}
+	defer rows.Close()
+
+	var subs []OrgSubscription
+	for rows.Next() {
+		var sub OrgSubscription
+		if err := rows.Scan(
+			&sub.ID, &sub.OrgID, &sub.PlanTier,
+			&sub.PolarSubscriptionID, &sub.PolarCustomerID,
+			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
+			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
+			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
+			&sub.GracePeriodEnd, &sub.PaymentStatus,
+			&sub.CreatedAt, &sub.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning grace period org: %w", err)
+		}
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
 }
 
 func scanUsageRecords(rows pgx.Rows) ([]UsageRecord, error) {

@@ -19,22 +19,29 @@ type fullUpdate struct {
 	periodEnd   *time.Time
 }
 
+type paymentStatusUpdate struct {
+	orgID    string
+	status   string
+	graceEnd *time.Time
+}
+
 type mockBillingStore struct {
-	lastUpserted        *OrgSubscription
-	upsertCount         int
-	lastPlanUpdate      *planUpdate
-	lastFullUpdate      *fullUpdate
-	lastPendingTier     string
-	lastClearedPending  string
-	pendingDowngradeOrg string
-	subscriptions       map[string]*OrgSubscription
-	projects            map[string][]string
-	memberCounts        map[string]int
-	orgCountsByUser     map[string]int
-	executingRuns       map[string]int
-	aiModelCallCounts   map[string]int64
-	usageRecords        []UsageRecord
-	periodSpendByOrg    map[string]int64
+	lastUpserted            *OrgSubscription
+	upsertCount             int
+	lastPlanUpdate          *planUpdate
+	lastFullUpdate          *fullUpdate
+	lastPendingTier         string
+	lastClearedPending      string
+	pendingDowngradeOrg     string
+	lastPaymentStatusUpdate *paymentStatusUpdate
+	subscriptions           map[string]*OrgSubscription
+	projects                map[string][]string
+	memberCounts            map[string]int
+	orgCountsByUser         map[string]int
+	executingRuns           map[string]int
+	aiModelCallCounts       map[string]int64
+	usageRecords            []UsageRecord
+	periodSpendByOrg        map[string]int64
 }
 
 func (m *mockBillingStore) GetOrgSubscription(_ context.Context, orgID string) (*OrgSubscription, error) {
@@ -231,6 +238,28 @@ func (m *mockBillingStore) GetProjectPeriodSpend(_ context.Context, _ string, _ 
 
 func (m *mockBillingStore) UpdateAnomalyThresholds(_ context.Context, _ string, _, _ float64) error {
 	return nil
+}
+
+func (m *mockBillingStore) UpdatePaymentStatus(_ context.Context, orgID string, status string, graceEnd *time.Time) error {
+	m.lastPaymentStatusUpdate = &paymentStatusUpdate{orgID: orgID, status: status, graceEnd: graceEnd}
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok {
+			sub.PaymentStatus = status
+			sub.GracePeriodEnd = graceEnd
+			return nil
+		}
+	}
+	return ErrSubscriptionNotFound
+}
+
+func (m *mockBillingStore) ListOrgsInGracePeriod(_ context.Context) ([]OrgSubscription, error) {
+	var subs []OrgSubscription
+	for _, sub := range m.subscriptions {
+		if sub.PaymentStatus == "grace" && sub.GracePeriodEnd != nil && sub.GracePeriodEnd.Before(time.Now()) {
+			subs = append(subs, *sub)
+		}
+	}
+	return subs, nil
 }
 
 func (m *mockBillingStore) ListAllSubscribedOrgIDs(_ context.Context) ([]string, error) {

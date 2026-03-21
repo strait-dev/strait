@@ -45,6 +45,7 @@ type Scheduler struct {
 	costEstimateRefresher *CostEstimateRefresher
 	memoryCleanup         *MemoryCleanup
 	referralExpiry        *ReferralExpiry
+	gracePeriodEnforcer   *GracePeriodEnforcer
 	wg                    conc.WaitGroup
 }
 
@@ -125,6 +126,13 @@ func WithReferralExpiry(expiry *ReferralExpiry) SchedulerOption {
 	}
 }
 
+// WithGracePeriodEnforcer enables periodic enforcement of expired payment grace periods.
+func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.gracePeriodEnforcer = enforcer
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
@@ -154,6 +162,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.referralExpiry != nil {
 		s.wg.Go(func() { s.referralExpiry.Run(ctx) })
+	}
+	if s.gracePeriodEnforcer != nil {
+		s.wg.Go(func() { s.gracePeriodEnforcer.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

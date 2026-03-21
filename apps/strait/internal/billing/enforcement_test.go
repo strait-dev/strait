@@ -641,3 +641,139 @@ func TestCheck80PercentWarning_ZeroUsage_False(t *testing.T) {
 		t.Error("expected false at 0 usage")
 	}
 }
+
+// Grace period enforcement tests.
+
+func TestGracePeriod_InFlight_Allowed_DuringGrace(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	graceEnd := time.Now().Add(24 * time.Hour)
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_grace": {
+			OrgID:          "org_grace",
+			PlanTier:       "starter",
+			Status:         "active",
+			PaymentStatus:  "grace",
+			GracePeriodEnd: &graceEnd,
+		},
+	}
+
+	// During active grace, daily run limit should be skipped (allowed).
+	if err := enforcer.CheckDailyRunLimit(context.Background(), "org_grace"); err != nil {
+		t.Fatalf("expected run to be allowed during grace period: %v", err)
+	}
+}
+
+func TestGracePeriod_InFlight_Rejected_AfterGrace(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	graceEnd := time.Now().Add(-1 * time.Hour) // expired
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_expired": {
+			OrgID:          "org_expired",
+			PlanTier:       "starter",
+			Status:         "active",
+			PaymentStatus:  "grace",
+			GracePeriodEnd: &graceEnd,
+		},
+	}
+
+	err := enforcer.CheckDailyRunLimit(context.Background(), "org_expired")
+	if err == nil {
+		t.Fatal("expected rejection after grace period expired")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T", err)
+	}
+	if le.Code != "grace_period_expired" {
+		t.Errorf("code = %q, want grace_period_expired", le.Code)
+	}
+}
+
+func TestGracePeriod_PaymentOK_NoGraceCheck(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_ok": {
+			OrgID:         "org_ok",
+			PlanTier:      "starter",
+			Status:        "active",
+			PaymentStatus: "ok",
+		},
+	}
+
+	// Normal limit checking: should succeed without grace period interference.
+	if err := enforcer.CheckDailyRunLimit(context.Background(), "org_ok"); err != nil {
+		t.Fatalf("expected normal limit check to pass: %v", err)
+	}
+}
+
+func TestGracePeriod_PaymentRestricted_RejectedImmediately(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_restricted": {
+			OrgID:         "org_restricted",
+			PlanTier:      "starter",
+			Status:        "active",
+			PaymentStatus: "restricted",
+		},
+	}
+
+	err := enforcer.CheckDailyRunLimit(context.Background(), "org_restricted")
+	if err == nil {
+		t.Fatal("expected rejection for restricted payment status")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T", err)
+	}
+	if le.Code != "payment_restricted" {
+		t.Errorf("code = %q, want payment_restricted", le.Code)
+	}
+}
+
+func TestGracePeriod_ConcurrentLimit_StillChecked_DuringGrace(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	graceEnd := time.Now().Add(24 * time.Hour)
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_conc_grace": {
+			OrgID:          "org_conc_grace",
+			PlanTier:       "starter",
+			Status:         "active",
+			PaymentStatus:  "grace",
+			GracePeriodEnd: &graceEnd,
+		},
+	}
+
+	// During active grace, concurrent limit should also be skipped.
+	if err := enforcer.CheckConcurrentRunLimit(context.Background(), "org_conc_grace"); err != nil {
+		t.Fatalf("expected concurrent run to be allowed during grace period: %v", err)
+	}
+
+	// Also verify restricted concurrent limit is rejected.
+	store.subscriptions["org_conc_restricted"] = &OrgSubscription{
+		OrgID:         "org_conc_restricted",
+		PlanTier:      "starter",
+		Status:        "active",
+		PaymentStatus: "restricted",
+	}
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org_conc_restricted")
+	if err == nil {
+		t.Fatal("expected concurrent limit rejection for restricted status")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T", err)
+	}
+	if le.Code != "payment_restricted" {
+		t.Errorf("code = %q, want payment_restricted", le.Code)
+	}
+}
