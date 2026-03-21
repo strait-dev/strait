@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/wizard"
 
 	"github.com/spf13/cobra"
 )
@@ -37,7 +38,12 @@ func newCreateJobCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "job",
 		Short: "Create a new job",
-		Long:  "Create a new job via flags or JSON input.",
+		Long: `Create a new job via flags, JSON input, or interactive wizard.
+
+When run without --name or --json in a TTY, an interactive wizard guides you through job creation.`,
+		Example: `  strait create job
+  strait create job --name my-job --endpoint http://localhost:3000/jobs/my-job --project proj-1
+  echo '{"name":"my-job","endpoint_url":"http://localhost:3000"}' | strait create job --json`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// JSON mode: read from stdin
 			if asJSON {
@@ -64,6 +70,20 @@ func newCreateJobCommand(state *appState) *cobra.Command {
 				return printData(state, job)
 			}
 
+			// Interactive mode: no name provided and TTY available
+			if name == "" && stdoutIsTTY() {
+				result, wizErr := wizard.RunCreateJobWizard()
+				if wizErr != nil {
+					return wizErr
+				}
+				name = result.Name
+				slug = result.Slug
+				endpoint = result.Endpoint
+				cronExpr = result.Cron
+				timeout = result.Timeout
+				maxAttempts = result.MaxAttempts
+			}
+
 			var err error
 			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
@@ -71,7 +91,7 @@ func newCreateJobCommand(state *appState) *cobra.Command {
 			}
 
 			if name == "" {
-				return fmt.Errorf("--name is required")
+				return fmt.Errorf("--name is required (or run interactively in a TTY)")
 			}
 
 			if slug == "" {
@@ -129,7 +149,12 @@ func newCreateWorkflowCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workflow",
 		Short: "Create a new workflow",
-		Long:  "Create a new workflow via flags or JSON input.",
+		Long: `Create a new workflow via flags, JSON input, or interactive wizard.
+
+When run without --name or --json in a TTY, an interactive wizard guides you through workflow creation with a step builder.`,
+		Example: `  strait create workflow
+  strait create workflow --name data-pipeline --project proj-1
+  echo '{"name":"pipeline","steps":[...]}' | strait create workflow --json`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// JSON mode: read from stdin
 			if asJSON {
@@ -156,6 +181,46 @@ func newCreateWorkflowCommand(state *appState) *cobra.Command {
 				return printData(state, wf)
 			}
 
+			// Interactive mode: no name provided and TTY available
+			if name == "" && stdoutIsTTY() {
+				result, wizErr := wizard.RunCreateWorkflowWizard()
+				if wizErr != nil {
+					return wizErr
+				}
+				name = result.Name
+				slug = result.Slug
+				description = result.Description
+				// Convert wizard steps to JSON for the steps field
+				if len(result.Steps) > 0 {
+					var steps []map[string]any
+					for _, s := range result.Steps {
+						step := map[string]any{
+							"step_ref": s.StepRef,
+							"job_ref":  s.JobSlug,
+						}
+						if s.DependsOn != "" {
+							deps := strings.Split(s.DependsOn, ",")
+							var trimmed []string
+							for _, d := range deps {
+								d = strings.TrimSpace(d)
+								if d != "" {
+									trimmed = append(trimmed, d)
+								}
+							}
+							if len(trimmed) > 0 {
+								step["depends_on"] = trimmed
+							}
+						}
+						steps = append(steps, step)
+					}
+					stepsBytes, marshalErr := json.Marshal(steps)
+					if marshalErr != nil {
+						return fmt.Errorf("encode steps: %w", marshalErr)
+					}
+					stepsJSON = string(stepsBytes)
+				}
+			}
+
 			var err error
 			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
@@ -163,7 +228,7 @@ func newCreateWorkflowCommand(state *appState) *cobra.Command {
 			}
 
 			if name == "" {
-				return fmt.Errorf("--name is required")
+				return fmt.Errorf("--name is required (or run interactively in a TTY)")
 			}
 
 			if slug == "" {

@@ -1,16 +1,42 @@
 package main
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"strait/internal/cli/wizard"
+
 	"gopkg.in/yaml.v3"
 
 	"github.com/spf13/cobra"
 )
+
+type straitConfigJSON struct {
+	Project  projectBlock    `json:"project"`
+	Runtime  string          `json:"runtime,omitempty"`
+	Jobs     []jobBlock      `json:"jobs,omitempty"`
+	Workflow []workflowBlock `json:"workflows,omitempty"`
+}
+
+type projectBlock struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+type jobBlock struct {
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	EndpointURL string `json:"endpointUrl,omitempty"`
+	Cron        string `json:"cron,omitempty"`
+}
+
+type workflowBlock struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
 
 type initConfigFile struct {
 	Server        string `yaml:"server"`
@@ -34,88 +60,188 @@ type initWorkflowManifest struct {
 }
 
 func newInitCommand(state *appState) *cobra.Command {
-	var yes bool
-	var template string
-	var name string
+	var (
+		yes         bool
+		force       bool
+		template    string
+		name        string
+		runtime     string
+		withJob     bool
+		jobName     string
+		jobEndpoint string
+		jobCron     string
+	)
 
 	cmd := &cobra.Command{
-		Use:     "init",
-		Short:   "Initialize local strait project files",
-		Long:    "Creates baseline strait project files such as config, env, and declarative definitions.",
-		Example: "strait init\n  strait init --yes --name demo-project --template minimal\n  strait init --template full",
+		Use:   "init",
+		Short: "Initialize a new strait project",
+		Long: `Initialize a new strait project with configuration files.
+
+In interactive mode (default when TTY), a wizard guides you through setup.
+In non-interactive mode (--yes), all values come from flags.`,
+		Example: `  strait init
+  strait init --yes --name my-api --runtime node
+  strait init --yes --name my-api --runtime bun --with-job --job-name process-payment --job-endpoint http://localhost:3000/jobs/payment
+  strait init --template full --name demo`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if !yes {
-				if !stdoutIsTTY() {
-					return fmt.Errorf("init requires --yes when stdout is not a TTY")
-				}
-
-				reader := bufio.NewReader(os.Stdin)
-				projectInput, err := promptWithDefault(reader, "project name", name)
+			// Interactive mode: TTY + no --yes flag
+			if !yes && stdoutIsTTY() {
+				result, err := wizard.RunInitWizard()
 				if err != nil {
 					return err
 				}
-				templateInput, err := promptWithDefault(reader, "template (minimal|full)", template)
-				if err != nil {
-					return err
-				}
-
-				name = projectInput
-				template = templateInput
+				name = result.ProjectName
+				runtime = result.Runtime
+				withJob = result.WithJob
+				jobName = result.JobName
+				jobEndpoint = result.JobEndpoint
+				jobCron = result.JobCron
+			} else if !yes {
+				return fmt.Errorf("interactive mode requires a TTY; use --yes with flags for non-interactive init")
 			}
 
-			if template == "" {
-				template = "minimal"
-			}
-			template = strings.ToLower(strings.TrimSpace(template))
-			if template != "minimal" && template != "full" {
-				return fmt.Errorf("invalid template %q; supported values: minimal, full", template)
-			}
-
+			// Validate inputs
 			name = strings.TrimSpace(name)
-			if name == "" {
-				return fmt.Errorf("project name is required")
+			if err := wizard.ValidateProjectName(name); err != nil {
+				return err
+			}
+			if runtime != "" {
+				if err := wizard.ValidateRuntime(runtime); err != nil {
+					return err
+				}
 			}
 
+			// Check for existing config (unless --force)
+			configPath := "strait.config.json"
+			if !force {
+				if _, err := os.Stat(configPath); err == nil {
+					return fmt.Errorf("config file %s already exists (use --force to overwrite)", configPath)
+				}
+			}
+
+			// Write strait.config.json
+			cfg := straitConfigJSON{
+				Project: projectBlock{ID: name, Name: name},
+				Runtime: runtime,
+			}
+			if withJob && jobName != "" {
+				slug := wizard.GenerateSlug(jobName)
+				cfg.Jobs = append(cfg.Jobs, jobBlock{
+					Slug:        slug,
+					Name:        jobName,
+					EndpointURL: jobEndpoint,
+					Cron:        jobCron,
+				})
+			}
+
+			encoded, err := json.MarshalIndent(cfg, "", "  ")
+			if err != nil {
+				return fmt.Errorf("encode config: %w", err)
+			}
+			if err := os.WriteFile(configPath, append(encoded, '\n'), 0o600); err != nil {
+				return fmt.Errorf("write config: %w", err)
+			}
+
+			// Write .strait.yaml (local CLI config)
 			configStatus, err := writeInitConfig(name)
 			if err != nil {
-				return fmt.Errorf("writing config: %w", err)
+				return fmt.Errorf("writing CLI config: %w", err)
 			}
-			envStatus, err := writeInitEnv()
-			if err != nil {
-				return fmt.Errorf("writing .env: %w", err)
+
+			// Update .gitignore
+			gitignoreStatus := updateGitignore()
+
+			// Write declarative definitions (legacy template mode)
+			if template == "full" || template == "minimal" {
+				envStatus, envErr := writeInitEnv()
+				if envErr != nil {
+					return fmt.Errorf("writing .env: %w", envErr)
+				}
+				dcStatus, dcErr := writeInitDockerCompose()
+				if dcErr != nil {
+					return fmt.Errorf("writing docker-compose: %w", dcErr)
+				}
+				manifestStatus, mErr := writeInitJobManifest(template, name)
+				if mErr != nil {
+					return fmt.Errorf("writing job manifest: %w", mErr)
+				}
+				wfStatus, wfErr := writeInitWorkflowManifest(template, name)
+				if wfErr != nil {
+					return fmt.Errorf("writing workflow manifest: %w", wfErr)
+				}
+
+				return printData(state, map[string]any{
+					"project":  name,
+					"runtime":  runtime,
+					"template": template,
+					"files": []map[string]any{
+						{"path": configPath, "status": "created"},
+						{"path": ".strait.yaml", "status": configStatus},
+						{"path": ".gitignore", "status": gitignoreStatus},
+						{"path": ".env", "status": envStatus},
+						{"path": "docker-compose.yml", "status": dcStatus},
+						{"path": "definitions/jobs.yaml", "status": manifestStatus},
+						{"path": "definitions/workflows.yaml", "status": wfStatus},
+					},
+				})
 			}
-			dockerComposeStatus, err := writeInitDockerCompose()
-			if err != nil {
-				return fmt.Errorf("writing docker-compose: %w", err)
-			}
-			manifestStatus, err := writeInitJobManifest(template, name)
-			if err != nil {
-				return fmt.Errorf("writing job manifest: %w", err)
-			}
-			workflowManifestStatus, err := writeInitWorkflowManifest(template, name)
-			if err != nil {
-				return fmt.Errorf("writing workflow manifest: %w", err)
+
+			files := []map[string]any{
+				{"path": configPath, "status": "created"},
+				{"path": ".strait.yaml", "status": configStatus},
+				{"path": ".gitignore", "status": gitignoreStatus},
 			}
 
 			return printData(state, map[string]any{
-				"project":  name,
-				"template": template,
-				"files": []map[string]any{
-					{"path": ".strait.yaml", "status": configStatus},
-					{"path": ".env", "status": envStatus},
-					{"path": "docker-compose.yml", "status": dockerComposeStatus},
-					{"path": "definitions/jobs.yaml", "status": manifestStatus},
-					{"path": "definitions/workflows.yaml", "status": workflowManifestStatus},
-				},
+				"project": name,
+				"runtime": runtime,
+				"files":   files,
 			})
 		},
 	}
 
-	cmd.Flags().BoolVar(&yes, "yes", false, "run non-interactive initialization")
-	cmd.Flags().StringVar(&template, "template", "minimal", "template name")
-	cmd.Flags().StringVar(&name, "name", "demo-project", "project name")
+	cmd.Flags().BoolVar(&yes, "yes", false, "run non-interactive initialization with flags")
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite existing config files")
+	cmd.Flags().StringVar(&template, "template", "", "template mode (minimal|full) for legacy definitions")
+	cmd.Flags().StringVar(&name, "name", "", "project name")
+	cmd.Flags().StringVar(&runtime, "runtime", "", "project runtime (node, bun, python, go, docker)")
+	cmd.Flags().BoolVar(&withJob, "with-job", false, "include a starter job")
+	cmd.Flags().StringVar(&jobName, "job-name", "", "starter job name (requires --with-job)")
+	cmd.Flags().StringVar(&jobEndpoint, "job-endpoint", "", "starter job endpoint URL (requires --with-job)")
+	cmd.Flags().StringVar(&jobCron, "job-cron", "", "starter job cron schedule (optional)")
 
 	return cmd
+}
+
+func updateGitignore() string {
+	const entry = ".strait/"
+	path := ".gitignore"
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		// No .gitignore — create one
+		if err := os.WriteFile(path, []byte(entry+"\n"), 0o600); err != nil {
+			return "error"
+		}
+		return "created"
+	}
+
+	// Check if already present
+	for line := range strings.SplitSeq(string(content), "\n") {
+		if strings.TrimSpace(line) == entry {
+			return "skipped"
+		}
+	}
+
+	// Append
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		content = append(content, '\n')
+	}
+	content = append(content, []byte(entry+"\n")...)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		return "error"
+	}
+	return "updated"
 }
 
 func writeInitConfig(projectName string) (string, error) {
@@ -182,7 +308,6 @@ func writeInitDockerCompose() (string, error) {
 }
 
 func writeInitJobManifest(template, projectName string) (string, error) {
-
 	dir := "definitions"
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err
@@ -276,17 +401,4 @@ func writeInitWorkflowManifest(template, projectName string) (string, error) {
 	}
 
 	return "created", nil
-}
-
-func promptWithDefault(reader *bufio.Reader, label, defaultValue string) (string, error) {
-	_, _ = fmt.Fprintf(os.Stderr, "%s [%s]: ", label, defaultValue)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return "", err
-	}
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return defaultValue, nil
-	}
-	return line, nil
 }
