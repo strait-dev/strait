@@ -53,6 +53,7 @@ func TestValidateScopes_AllConstants(t *testing.T) {
 		ScopeWorkflowsRead, ScopeWorkflowsWrite, ScopeWorkflowsTrigger,
 		ScopeSecretsRead, ScopeSecretsWrite,
 		ScopeAPIKeysManage, ScopeRBACManage, ScopeStatsRead,
+		ScopeProjectsRead, ScopeProjectsWrite, ScopeProjectsManage,
 	}
 	for _, scope := range allScopes {
 		if err := ValidateScopes([]string{scope}); err != nil {

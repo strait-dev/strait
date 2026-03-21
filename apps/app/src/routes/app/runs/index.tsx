@@ -23,11 +23,11 @@ import { useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
-import { NoProjectState } from "@/components/common/no-project-state";
+import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
-import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
-import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
-import { StatusBadge } from "@/components/dashboard/status-badge";
+import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
+import StatusBadge from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
@@ -42,25 +42,15 @@ import {
   SearchIcon,
   XCircleIcon,
 } from "@/lib/icons";
+import { RUN_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
-const searchSchema = z.object({
+export const searchSchema = z.object({
   query: z.string().optional(),
   status: z.array(z.string()).optional(),
   page: z.number().optional().default(1),
   perPage: z.number().optional().default(20),
 });
-
-const STATUS_OPTIONS: RunStatus[] = [
-  "queued",
-  "executing",
-  "completed",
-  "failed",
-  "timed_out",
-  "canceled",
-  "dead_letter",
-  "waiting",
-];
 
 export const Route = createFileRoute("/app/runs/")({
   validateSearch: zodValidator(searchSchema),
@@ -181,7 +171,7 @@ function RunsPage() {
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            {STATUS_OPTIONS.map((status) => (
+            {RUN_STATUS_OPTIONS.map((status) => (
               <DropdownMenuCheckboxItem
                 checked={selectedStatuses.includes(status)}
                 key={status}

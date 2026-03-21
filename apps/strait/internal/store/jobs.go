@@ -635,6 +635,89 @@ func (q *Queries) CountProjectActiveRuns(ctx context.Context, projectID string) 
 	return count, nil
 }
 
+// CountExecutingRunsByOrg counts runs in executing status across all projects in an org.
+func (q *Queries) CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountExecutingRunsByOrg")
+	defer span.End()
+
+	query := `
+		SELECT COUNT(*)
+		FROM job_runs jr
+		WHERE jr.project_id IN (SELECT id FROM projects WHERE org_id = $1)
+		  AND jr.status = 'executing'`
+
+	var count int
+	if err := q.db.QueryRow(ctx, query, orgID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count executing runs by org: %w", err)
+	}
+
+	return count, nil
+}
+
+// BulkCountExecutingRunsByOrg counts executing runs for multiple orgs in a single
+// query, returning a map of orgID -> count.
+func (q *Queries) BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []string) (map[string]int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkCountExecutingRunsByOrg")
+	defer span.End()
+
+	if len(orgIDs) == 0 {
+		return map[string]int{}, nil
+	}
+
+	rows, err := q.db.Query(ctx, `
+		SELECT p.org_id, COUNT(jr.id)::int
+		FROM job_runs jr
+		JOIN projects p ON p.id = jr.project_id
+		WHERE p.org_id = ANY($1)
+		  AND jr.status = 'executing'
+		GROUP BY p.org_id
+	`, orgIDs)
+	if err != nil {
+		return nil, fmt.Errorf("bulk count executing runs by org: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int, len(orgIDs))
+	for rows.Next() {
+		var orgID string
+		var count int
+		if err := rows.Scan(&orgID, &count); err != nil {
+			return nil, fmt.Errorf("scanning bulk executing run count: %w", err)
+		}
+		result[orgID] = count
+	}
+	return result, rows.Err()
+}
+
+// ListOrgsWithExecutingRuns returns distinct org IDs that have at least one executing run.
+func (q *Queries) ListOrgsWithExecutingRuns(ctx context.Context) ([]string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListOrgsWithExecutingRuns")
+	defer span.End()
+
+	query := `
+		SELECT DISTINCT p.org_id
+		FROM job_runs jr
+		JOIN projects p ON p.id = jr.project_id
+		WHERE jr.status = 'executing'
+		  AND p.org_id IS NOT NULL`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("listing orgs with executing runs: %w", err)
+	}
+	defer rows.Close()
+
+	var orgIDs []string
+	for rows.Next() {
+		var orgID string
+		if err := rows.Scan(&orgID); err != nil {
+			return nil, fmt.Errorf("scanning org_id: %w", err)
+		}
+		orgIDs = append(orgIDs, orgID)
+	}
+	return orgIDs, rows.Err()
+}
+
 // UpdateProjectDefaultRegion sets the default_region for a project's quota row.
 // It upserts the row if it does not exist.
 func (q *Queries) UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error {

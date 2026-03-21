@@ -2,7 +2,7 @@ type AuthDividerProps = {
   label?: string;
 };
 
-export const AuthDivider = ({ label = "or" }: AuthDividerProps) => {
+const AuthDivider = ({ label = "or" }: AuthDividerProps) => {
   return (
     <div className="relative flex items-center justify-center">
       <div className="absolute inset-0 flex items-center">
@@ -14,3 +14,5 @@ export const AuthDivider = ({ label = "or" }: AuthDividerProps) => {
     </div>
   );
 };
+
+export default AuthDivider;

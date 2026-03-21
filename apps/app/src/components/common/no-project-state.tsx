@@ -9,7 +9,7 @@ type Props = {
   user: AuthUser;
 };
 
-export const NoProjectState = ({ user }: Props) => {
+const NoProjectState = ({ user }: Props) => {
   const [createOpen, setCreateOpen] = useState(false);
   const organizationId = user.defaultOrganizationId;
 
@@ -53,3 +53,5 @@ export const NoProjectState = ({ user }: Props) => {
     </div>
   );
 };
+
+export default NoProjectState;

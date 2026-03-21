@@ -4,7 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -15,8 +15,10 @@ import {
   YAxis,
 } from "recharts";
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
+import { ActivityIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import { ChartTooltip } from "./chart-tooltip";
+import ChartEmptyState from "./chart-empty-state";
+import ChartTooltip from "./chart-tooltip";
 
 const LABEL_MAP = {
   count: {
@@ -26,8 +28,11 @@ const LABEL_MAP = {
   },
 };
 
-export function ThroughputChart() {
-  const { data: analytics } = useSuspenseQuery(analyticsQueryOptions(24));
+const ThroughputChart = ({ hasProject = true }: { hasProject?: boolean }) => {
+  const { data: analytics } = useQuery({
+    ...analyticsQueryOptions(24),
+    enabled: hasProject,
+  });
 
   const throughput = analytics?.throughput;
   const chartData = throughput
@@ -39,6 +44,9 @@ export function ThroughputChart() {
       ]
     : [];
 
+  const total = chartData.reduce((sum, d) => sum + d.count, 0);
+  const isEmpty = !hasProject || total === 0;
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -46,36 +54,52 @@ export function ThroughputChart() {
       </CardHeader>
       <CardContent>
         <div className="h-[240px]">
-          <ResponsiveContainer
-            height="100%"
-            minHeight={1}
-            minWidth={1}
-            width="100%"
-          >
-            <BarChart data={chartData}>
-              <CartesianGrid className="stroke-border" strokeDasharray="3 3" />
-              <XAxis
-                className="text-muted-foreground"
-                dataKey="status"
-                tick={{ fontSize: 14 }}
-              />
-              <YAxis
-                className="text-muted-foreground"
-                tick={{ fontSize: 14 }}
-              />
-              <Tooltip
-                content={<ChartTooltip labelMap={LABEL_MAP} />}
-                cursor={{ fill: "var(--muted)" }}
-              />
-              <Bar
-                dataKey="count"
-                fill={CHART_COLORS.success}
-                radius={[4, 4, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
+          {isEmpty ? (
+            <ChartEmptyState
+              icon={ActivityIcon}
+              message={
+                hasProject
+                  ? "No throughput data yet. Execute jobs to see metrics."
+                  : "Create a project to track throughput."
+              }
+            />
+          ) : (
+            <ResponsiveContainer
+              height="100%"
+              minHeight={1}
+              minWidth={1}
+              width="100%"
+            >
+              <BarChart data={chartData}>
+                <CartesianGrid
+                  className="stroke-border"
+                  strokeDasharray="3 3"
+                />
+                <XAxis
+                  className="text-muted-foreground"
+                  dataKey="status"
+                  tick={{ fontSize: 14 }}
+                />
+                <YAxis
+                  className="text-muted-foreground"
+                  tick={{ fontSize: 14 }}
+                />
+                <Tooltip
+                  content={<ChartTooltip labelMap={LABEL_MAP} />}
+                  cursor={{ fill: "var(--muted)" }}
+                />
+                <Bar
+                  dataKey="count"
+                  fill={CHART_COLORS.success}
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </CardContent>
     </Card>
   );
-}
+};
+
+export default ThroughputChart;

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -249,6 +250,21 @@ func (s *Server) handleAssignMember(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.validateRequest(w, r, &req) {
 		return
+	}
+
+	// Check member limit before assigning.
+	if s.billingEnforcer != nil {
+		projectID := projectIDFromContext(r.Context())
+		orgID, err := s.billingEnforcer.GetActiveProjectOrgID(r.Context(), projectID)
+		if err == nil && orgID != "" {
+			if err := s.billingEnforcer.CheckMemberLimit(r.Context(), orgID); err != nil {
+				var le *billing.LimitError
+				if errors.As(err, &le) {
+					respondError(w, r, http.StatusForbidden, le)
+					return
+				}
+			}
+		}
 	}
 
 	// Verify the role exists.

@@ -76,8 +76,8 @@ const HeaderBreadcrumb = () => {
   }, [pathname]);
 
   return (
-    <Breadcrumb>
-      <BreadcrumbList>
+    <Breadcrumb className="min-w-0">
+      <BreadcrumbList className="flex-nowrap overflow-hidden">
         {crumbs.map((crumb, i) => (
           <BreadcrumbItem key={crumb.href}>
             {i > 0 && <BreadcrumbSeparator />}

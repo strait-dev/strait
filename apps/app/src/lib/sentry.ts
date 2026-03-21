@@ -7,7 +7,6 @@ import type { AuthUser } from "@/routes/__root";
  * All consumer files should import from `@/lib/sentry` instead of `@sentry/react` directly.
  */
 export const captureException = Sentry.captureException.bind(Sentry);
-export const addBreadcrumb = Sentry.addBreadcrumb.bind(Sentry);
 
 const ANDROID_WEBOS_IPHONE_IPAD_IPOD_BLACKBERRY_IEMOBILE_OPERA_MINI_REGEX =
   /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;

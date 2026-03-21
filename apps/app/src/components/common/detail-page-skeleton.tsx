@@ -5,7 +5,7 @@ const METRIC_KEYS = ["metric-0", "metric-1", "metric-2", "metric-3"];
 const TAB_KEYS = ["tab-0", "tab-1", "tab-2"];
 const ROW_KEYS = ["row-0", "row-1", "row-2", "row-3", "row-4", "row-5"];
 
-export function DetailPageSkeleton() {
+const DetailPageSkeleton = () => {
   return (
     <Shell>
       <div className="flex items-center gap-3">
@@ -37,4 +37,6 @@ export function DetailPageSkeleton() {
       </div>
     </Shell>
   );
-}
+};
+
+export default DetailPageSkeleton;

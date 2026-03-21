@@ -10,7 +10,7 @@ import {
 import { useEffect } from "react";
 import { captureException } from "@/lib/sentry";
 
-export const DefaultCatchBoundary = ({ error }: ErrorComponentProps) => {
+const DefaultCatchBoundary = ({ error }: ErrorComponentProps) => {
   const router = useRouter();
   const isRoot = useMatch({
     strict: false,
@@ -57,3 +57,5 @@ export const DefaultCatchBoundary = ({ error }: ErrorComponentProps) => {
     </div>
   );
 };
+
+export default DefaultCatchBoundary;

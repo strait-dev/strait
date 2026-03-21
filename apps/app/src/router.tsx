@@ -8,6 +8,7 @@ import { createRouter } from "@tanstack/react-router";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
+import { PostHogProvider } from "@/components/providers/posthog-provider";
 import { captureException, initializeSentry } from "@/lib/sentry";
 import { routeTree } from "./routeTree.gen";
 
@@ -58,7 +59,7 @@ export const getRouter = () => {
       defaultErrorComponent: ({ error }) => <ErrorComponent error={error} />,
       Wrap: ({ children }) => (
         <QueryClientProvider client={queryClient}>
-          {children}
+          <PostHogProvider>{children}</PostHogProvider>
         </QueryClientProvider>
       ),
     }),

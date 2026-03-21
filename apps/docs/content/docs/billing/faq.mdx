@@ -1,0 +1,119 @@
+---
+title: "Billing FAQ"
+description: "Common questions about Strait pricing, plans, compute credits, spending limits, and the referral program."
+---
+
+# Billing FAQ
+
+## Can I use Strait for free?
+
+Yes. The Free plan is fully functional with no time limit. You get 500 job runs per day, up to 10 job definitions, 5 concurrent executions, and 1 project. All core features are available—job orchestration, workflow DAGs, retries, event triggers, webhooks, and observability.
+
+The Free plan does not include managed execution compute credits, so HTTP execution against your own endpoints is the primary dispatch mode on the Free plan.
+
+## Do I need a credit card?
+
+No credit card is required to start on the Free plan. A payment method is only required when you upgrade to a paid plan or when you want to enable managed execution (which incurs per-second compute charges).
+
+## What happens when I reach the plan limit?
+
+When you reach your daily run limit, new job triggers are rejected with a `429 Too Many Requests` response. Existing queued and executing runs are not affected.
+
+You have three options:
+
+1. **Wait for the daily reset.** Limits reset at midnight UTC.
+2. **Enable overage billing.** At $0.20 per 1,000 additional runs, overages are charged at the end of your billing period.
+3. **Upgrade your plan.** Higher plans have higher daily limits. See the [Pricing page](/docs/billing/pricing) for a full comparison.
+
+<Callout type="warn">
+If you have a spending limit set and your overage charges would exceed it, new runs are rejected until you raise the limit or the billing period resets.
+</Callout>
+
+## What are spending limits?
+
+A spending limit is a hard cap on your total monthly charges (subscription + compute + overages). When the limit is reached, Strait stops accepting new job triggers until you raise the limit or the next billing period starts.
+
+Spending limits protect against runaway workloads or billing surprises. You can set or update your spending limit from the billing settings page or via the API. Setting a limit of $0 disables new charges entirely (Free plan behavior).
+
+## Can I change plans?
+
+Yes, at any time.
+
+- **Upgrades** take effect immediately. You are prorated for the remainder of the billing period.
+- **Downgrades** take effect at the end of the current billing period. Your account remains on the current plan until then.
+- **Cancellation** also takes effect at the end of the billing period. Your data is retained for 30 days after the plan expires.
+
+If you downgrade and your current usage exceeds the new plan's limits, existing resources are preserved but you cannot create new ones until usage is within the new plan's limits.
+
+## How do compute credits work?
+
+Every paid plan includes a monthly compute credit equal to the subscription price:
+
+- **Starter ($49/mo):** $49 in compute credits
+- **Pro ($199/mo):** $199 in compute credits
+
+Compute credits apply to managed execution—jobs running inside ephemeral Fly Machines billed at per-second rates by preset. Credits do not apply to HTTP execution against your own endpoints.
+
+Credits are consumed before any per-usage billing. Unused credits do not roll over to the next month. When credits are exhausted, additional compute is billed at the standard rates and charged against your spending limit (if set).
+
+See the [Pricing page](/docs/billing/pricing) for per-second rates by machine preset.
+
+## What are organizations?
+
+Organizations are the top-level billing and access control unit. A single subscription (and its limits) applies to the organization. Projects live within an organization, and team members are invited at the organization level with optional per-project RBAC permissions.
+
+Key organization behaviors:
+
+- All projects within an organization share the plan's resource limits (daily runs, concurrent executions, etc.)
+- Compute credits and spending limits apply to the entire organization, not individual projects
+- Billing is managed at the organization level—one invoice covers all projects
+- On the Pro and Enterprise plans, RBAC roles can restrict which team members can manage billing settings
+
+## What payment methods are accepted?
+
+Strait accepts:
+
+- **Credit and debit cards**: Visa, Mastercard, American Express, Discover
+- **ACH bank transfer** (US only, Enterprise plans)
+- **Wire transfer** (Enterprise plans, invoiced annually)
+
+All card payments are processed securely via Stripe. Strait does not store card numbers. Enterprise customers on annual contracts can request invoice-based billing with net-30 terms.
+
+## What is included in Enterprise?
+
+Enterprise plans are custom-priced and designed for organizations with strict compliance, scale, or integration requirements. Enterprise includes everything in Pro, plus:
+
+- **Unlimited projects and team members**
+- **Custom daily run and concurrency limits**
+- **Custom log retention** (up to 7 years for compliance)
+- **OIDC/SSO** with any SAML 2.0 or OIDC-compatible identity provider
+- **99.99% uptime SLA** with financial penalties
+- **Dedicated support** with a named success manager and escalation path
+- **Custom data residency** (EU, US, APAC region selection)
+- **SOC 2 Type II report** and BAA for HIPAA-eligible workloads
+- **Audit log export** to S3, GCS, or BigQuery
+- **Annual contract with invoice billing**
+
+Contact the sales team to discuss Enterprise pricing and requirements.
+
+## How does the referral program work?
+
+Strait offers a referral credit program for users who bring new paying customers to the platform.
+
+**How to participate:**
+
+1. Find your referral link in the billing settings page under "Referral Program."
+2. Share it with developers, teams, or companies who might benefit from Strait.
+3. When a referred account upgrades to a paid plan and remains active for 60 days, you receive a credit.
+
+**Credit amounts:**
+
+- $25 credit when a referred account activates a Starter plan
+- $100 credit when a referred account activates a Pro plan
+- Custom credit for Enterprise referrals (contact sales)
+
+Credits are applied to your next invoice and do not expire while your account remains active. There is no limit to the number of referrals you can make. Credits are non-transferable and cannot be redeemed for cash.
+
+<Callout type="info">
+Referral credits are applied as account credits, not compute credits. They reduce your subscription invoice directly.
+</Callout>

@@ -9,7 +9,7 @@ type SsoFormProps = {
 // SSO is temporarily disabled due to an upstream dependency issue
 // in @better-auth/sso (samlify CJS/ESM incompatibility).
 // Tracking: https://github.com/better-auth/better-auth/issues/8620
-export const SsoForm = (_props: SsoFormProps) => {
+const SsoForm = (_props: SsoFormProps) => {
   return (
     <form
       onSubmit={(e) => {
@@ -40,3 +40,5 @@ export const SsoForm = (_props: SsoFormProps) => {
     </form>
   );
 };
+
+export default SsoForm;

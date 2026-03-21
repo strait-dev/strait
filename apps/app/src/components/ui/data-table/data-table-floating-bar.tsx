@@ -21,11 +21,11 @@ type DataTableFloatingBarProps = {
   actions: FloatingBarAction[];
 };
 
-export function DataTableFloatingBar({
+export const DataTableFloatingBar = ({
   selectedCount,
   onClearSelection,
   actions,
-}: DataTableFloatingBarProps) {
+}: DataTableFloatingBarProps) => {
   return (
     <TooltipProvider>
       <div className="flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 shadow-lg">
@@ -69,4 +69,4 @@ export function DataTableFloatingBar({
       </div>
     </TooltipProvider>
   );
-}
+};

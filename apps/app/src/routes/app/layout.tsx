@@ -3,7 +3,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@strait/ui/components/sidebar";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   createFileRoute,
   Outlet,
@@ -13,15 +13,17 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useEffect, useRef } from "react";
 import * as z from "zod";
+import PaymentStatusBanner from "@/components/billing/payment-status-banner";
+import UpgradeNudgeBanner from "@/components/billing/upgrade-nudge-banner";
 import ErrorComponent from "@/components/common/error-component";
 import HeaderBreadcrumb from "@/components/common/header-breadcrumb";
 import HeaderUserMenu from "@/components/common/header-user-menu";
 import Sidebar from "@/components/common/sidebar";
-import { ThemeToggle } from "@/components/common/theme-toggle";
+import ThemeToggle from "@/components/common/theme-toggle";
 import FeedbackDialog from "@/components/help/feedback-dialog";
 import SupportDialog from "@/components/help/support-dialog";
 import { usePostHog } from "@/components/providers/posthog-provider";
-import { TrialStartedModal } from "@/components/upgrade/trial-started-modal";
+import TrialStartedModal from "@/components/upgrade/trial-started-modal";
 import { projectsQueryOptions } from "@/hooks/api/use-projects";
 import {
   organizationQueryOptions,
@@ -90,23 +92,26 @@ export const Route = createFileRoute("/app/layout")({
 
     let hasOrganization = !!defaultOrgId;
 
-    await Promise.all([
+    const results = await Promise.allSettled([
       context.queryClient.ensureQueryData(organizationsQueryOptions()),
       defaultOrgId
-        ? context.queryClient
-            .ensureQueryData(organizationQueryOptions(defaultOrgId))
-            .catch(() => {
-              hasOrganization = false;
-            })
+        ? context.queryClient.ensureQueryData(
+            organizationQueryOptions(defaultOrgId)
+          )
         : Promise.resolve(),
       defaultOrgId
-        ? context.queryClient
-            .ensureQueryData(projectsQueryOptions(defaultOrgId))
-            .catch(() => null)
+        ? context.queryClient.ensureQueryData(
+            projectsQueryOptions(defaultOrgId)
+          )
         : Promise.resolve(),
       context.queryClient.ensureQueryData(subscriptionQueryOptions()),
       context.queryClient.ensureQueryData(subscriptionStateQueryOptions()),
     ]);
+
+    // If the org query failed, mark organization as unavailable
+    if (results[1].status === "rejected") {
+      hasOrganization = false;
+    }
 
     return {
       session,
@@ -126,19 +131,22 @@ function RouteComponent() {
   const showTrialModal = Boolean(search.trial_started);
   const hasIdentifiedRef = useRef(false);
 
-  const { data: subscription } = useSuspenseQuery(subscriptionQueryOptions());
-  const { data: subscriptionState } = useSuspenseQuery(
-    subscriptionStateQueryOptions()
-  );
+  const { data: subscription } = useQuery(subscriptionQueryOptions());
+  const { data: subscriptionState } = useQuery(subscriptionStateQueryOptions());
 
   useEffect(() => {
-    if (hasIdentifiedRef.current || !posthog || !session?.user?.id) {
+    if (
+      hasIdentifiedRef.current ||
+      !posthog ||
+      !session?.user?.id ||
+      !subscriptionState
+    ) {
       return;
     }
 
-    const plan = subscriptionState?.planSlug ?? "none";
-    const isTrialing = subscriptionState?.isTrialing ?? false;
-    const trialEnd = subscriptionState?.trialInfo?.trialEnd ?? null;
+    const plan = subscriptionState.planSlug ?? "none";
+    const isTrialing = subscriptionState.isTrialing ?? false;
+    const trialEnd = subscriptionState.trialInfo?.trialEnd ?? null;
     const organizationId = session.user.defaultOrganizationId;
 
     posthog.identify(session.user.id, {
@@ -182,9 +190,13 @@ function RouteComponent() {
                 <SidebarTrigger className="-ml-1 text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary" />
                 <HeaderBreadcrumb />
               </div>
-              <div className="flex items-center gap-2">
-                <ThemeToggle />
-                <FeedbackDialog user={session.user} />
+              <div className="flex items-center gap-1 sm:gap-2">
+                <span className="hidden sm:inline-flex">
+                  <ThemeToggle />
+                </span>
+                <span className="hidden sm:inline-flex">
+                  <FeedbackDialog user={session.user} />
+                </span>
                 <SupportDialog user={session.user} />
                 <HeaderUserMenu user={session.user} />
               </div>
@@ -195,6 +207,10 @@ function RouteComponent() {
           className="flex flex-1 flex-col gap-4 bg-background pt-0"
           vaul-drawer-wrapper=""
         >
+          <div className="space-y-2 px-4 pt-2">
+            <PaymentStatusBanner />
+            <UpgradeNudgeBanner />
+          </div>
           <Outlet />
         </div>
       </SidebarInset>

@@ -1,0 +1,103 @@
+import {
+  queryOptions,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { createServerFn } from "@tanstack/react-start";
+import z from "zod/v4";
+import { queryKeys } from "@/hooks/query-keys";
+import {
+  apiEffect,
+  runWithFallback,
+  runWithSentryReport,
+} from "@/lib/effect-api.server";
+import { authMiddleware } from "@/middlewares/auth";
+import { getOrgIdFromSession } from "./session";
+
+/** Spending limit and current spend data for the organization. */
+export type SpendingLimitData = {
+  org_id: string;
+  plan_tier: string;
+  spending_limit_usd: number;
+  limit_action: string;
+  current_spend_usd: number;
+  included_credit_usd: number;
+  overage_spend_usd: number;
+  is_hard_capped: boolean;
+};
+
+const getSpendingLimitServerFn = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (ctx) => {
+    const orgId = getOrgIdFromSession(
+      ctx.context.session as Record<string, unknown>
+    );
+
+    if (!orgId) {
+      return null;
+    }
+
+    return await runWithFallback(
+      apiEffect<SpendingLimitData>("/v1/spending-limit", {
+        params: { org_id: orgId },
+      }),
+      null
+    );
+  });
+
+/** Query options for the organization's spending limit and current spend. Refetches every 60s. */
+export const spendingLimitQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.billing.spendingLimit.queryKey,
+    queryFn: () => getSpendingLimitServerFn(),
+    refetchInterval: 60_000,
+  });
+
+type UpdateSpendingLimitInput = {
+  limitMicrousd: number;
+  action: string;
+};
+
+const updateSpendingLimitServerFn = createServerFn({ method: "POST" })
+  .inputValidator((data: UpdateSpendingLimitInput) =>
+    z
+      .object({
+        limitMicrousd: z.number().min(0),
+        action: z.string().min(1),
+      })
+      .parse(data)
+  )
+  .middleware([authMiddleware])
+  .handler(async ({ data, context }) => {
+    const orgId = getOrgIdFromSession(
+      context.session as Record<string, unknown>
+    );
+
+    if (!orgId) {
+      throw new Error("No active organization");
+    }
+
+    return await runWithSentryReport(
+      apiEffect<{ status: string }>("/v1/spending-limit", {
+        method: "PUT",
+        body: {
+          org_id: orgId,
+          limit_microusd: data.limitMicrousd,
+          action: data.action,
+        },
+      })
+    );
+  });
+
+export const useUpdateSpendingLimit = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { limitMicrousd: number; action: string }) =>
+      updateSpendingLimitServerFn({ data: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.billing.spendingLimit.queryKey,
+      });
+    },
+  });
+};

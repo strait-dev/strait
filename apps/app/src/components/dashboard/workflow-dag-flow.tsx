@@ -69,7 +69,7 @@ const TYPE_BADGE_VARIANTS: Record<
 };
 
 /** Custom node renderer for workflow steps */
-function WorkflowStepNode({ data }: { data: StepNodeData }) {
+const WorkflowStepNode = ({ data }: { data: StepNodeData }) => {
   const borderClass =
     TYPE_BORDER_COLORS[data.stepType] ?? "border-l-muted-foreground";
   const dotColor = STATUS_DOT_COLORS[data.status] ?? "bg-muted-foreground";
@@ -106,7 +106,7 @@ function WorkflowStepNode({ data }: { data: StepNodeData }) {
       />
     </>
   );
-}
+};
 
 const nodeTypes = { workflowStep: WorkflowStepNode };
 
@@ -229,7 +229,7 @@ function buildNodesAndEdges(steps: WorkflowDAGFlowProps["steps"]): {
   return { nodes, edges };
 }
 
-export function WorkflowDAGFlow({ steps }: WorkflowDAGFlowProps) {
+const WorkflowDAGFlow = ({ steps }: WorkflowDAGFlowProps) => {
   const { initialNodes, initialEdges } = useMemo(() => {
     const { nodes, edges } = buildNodesAndEdges(steps);
     return { initialNodes: nodes, initialEdges: edges };
@@ -272,4 +272,6 @@ export function WorkflowDAGFlow({ steps }: WorkflowDAGFlowProps) {
       </ReactFlow>
     </div>
   );
-}
+};
+
+export default WorkflowDAGFlow;

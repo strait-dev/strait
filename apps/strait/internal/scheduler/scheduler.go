@@ -39,8 +39,14 @@ type Scheduler struct {
 	batchFlusher          *BatchFlusher
 	statsAggregator       *StatsAggregator
 	budgetMonitor         *BudgetMonitor
+	anomalyMonitor        *AnomalyMonitor
+	usageFlusher          *UsageFlusher
+	concurrentReconciler  *ConcurrentReconciler
+	downgradeApplier      *DowngradeApplier
 	costEstimateRefresher *CostEstimateRefresher
 	memoryCleanup         *MemoryCleanup
+	referralExpiry        *ReferralExpiry
+	gracePeriodEnforcer   *GracePeriodEnforcer
 	wg                    conc.WaitGroup
 }
 
@@ -93,21 +99,81 @@ func WithBudgetWebhookEnqueuer(enqueuer BudgetMonitorWebhookEnqueuer) SchedulerO
 	}
 }
 
+// WithConcurrentReconciler enables periodic reconciliation of concurrent run counters.
+func WithConcurrentReconciler(reconciler *ConcurrentReconciler) SchedulerOption {
+	return func(s *Scheduler) {
+		s.concurrentReconciler = reconciler
+	}
+}
+
+// WithDowngradeApplier enables periodic application of pending plan downgrades.
+func WithDowngradeApplier(applier *DowngradeApplier) SchedulerOption {
+	return func(s *Scheduler) {
+		s.downgradeApplier = applier
+	}
+}
+
+// WithAnomalyMonitor sets an anomaly monitor for periodic cost anomaly detection.
+func WithAnomalyMonitor(monitor *AnomalyMonitor) SchedulerOption {
+	return func(s *Scheduler) {
+		s.anomalyMonitor = monitor
+	}
+}
+
+// WithUsageFlusher sets a usage flusher for periodic usage record materialization.
+func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
+	return func(s *Scheduler) {
+		s.usageFlusher = flusher
+	}
+}
+
+// WithReferralExpiry enables periodic expiration of old referral credits.
+func WithReferralExpiry(expiry *ReferralExpiry) SchedulerOption {
+	return func(s *Scheduler) {
+		s.referralExpiry = expiry
+	}
+}
+
+// WithGracePeriodEnforcer enables periodic enforcement of expired payment grace periods.
+func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.gracePeriodEnforcer = enforcer
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
 	}
 
 	s.cron.Start()
-	s.wg.Go(func() { s.poller.Run(ctx) })
-	s.wg.Go(func() { s.reaper.Run(ctx) })
-	s.wg.Go(func() { s.indexMaintainer.Run(ctx) })
-	s.wg.Go(func() { s.debouncePoller.Run(ctx) })
-	s.wg.Go(func() { s.batchFlusher.Run(ctx) })
-	s.wg.Go(func() { s.statsAggregator.Run(ctx) })
-	s.wg.Go(func() { s.budgetMonitor.Run(ctx) })
-	s.wg.Go(func() { s.costEstimateRefresher.Run(ctx) })
-	s.wg.Go(func() { s.memoryCleanup.Run(ctx) })
+	safeGo(&s.wg, "poller", func() { s.poller.Run(ctx) })
+	safeGo(&s.wg, "reaper", func() { s.reaper.Run(ctx) })
+	safeGo(&s.wg, "index_maintainer", func() { s.indexMaintainer.Run(ctx) })
+	safeGo(&s.wg, "debounce_poller", func() { s.debouncePoller.Run(ctx) })
+	safeGo(&s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
+	safeGo(&s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
+	safeGo(&s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
+	safeGo(&s.wg, "cost_estimate_refresher", func() { s.costEstimateRefresher.Run(ctx) })
+	safeGo(&s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
+	if s.usageFlusher != nil {
+		safeGo(&s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })
+	}
+	if s.concurrentReconciler != nil {
+		safeGo(&s.wg, "concurrent_reconciler", func() { s.concurrentReconciler.Run(ctx) })
+	}
+	if s.downgradeApplier != nil {
+		safeGo(&s.wg, "downgrade_applier", func() { s.downgradeApplier.Run(ctx) })
+	}
+	if s.anomalyMonitor != nil {
+		safeGo(&s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
+	}
+	if s.referralExpiry != nil {
+		safeGo(&s.wg, "referral_expiry", func() { s.referralExpiry.Run(ctx) })
+	}
+	if s.gracePeriodEnforcer != nil {
+		safeGo(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
+	}
 
 	slog.Info("scheduler started")
 	return nil

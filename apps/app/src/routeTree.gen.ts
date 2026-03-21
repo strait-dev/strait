@@ -34,12 +34,15 @@ import { Route as AppLogsIndexRouteImport } from './routes/app/logs/index'
 import { Route as AppJobsIndexRouteImport } from './routes/app/jobs/index'
 import { Route as AppEventsIndexRouteImport } from './routes/app/events/index'
 import { Route as AppDlqIndexRouteImport } from './routes/app/dlq/index'
+import { Route as AppBillingIndexRouteImport } from './routes/app/billing/index'
 import { Route as AppWorkflowsIdRouteImport } from './routes/app/workflows/$id'
 import { Route as AppSchedulesIdRouteImport } from './routes/app/schedules/$id'
 import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
+import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/compare'
 import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AppProjectsProjectIdSettingsRouteImport } from './routes/app/projects/$projectId/settings'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -166,6 +169,11 @@ const AppDlqIndexRoute = AppDlqIndexRouteImport.update({
   path: '/app/dlq/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppBillingIndexRoute = AppBillingIndexRouteImport.update({
+  id: '/app/billing/',
+  path: '/app/billing/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
   id: '/app/workflows/$id',
   path: '/app/workflows/$id',
@@ -179,6 +187,11 @@ const AppSchedulesIdRoute = AppSchedulesIdRouteImport.update({
 const AppRunsIdRoute = AppRunsIdRouteImport.update({
   id: '/app/runs/$id',
   path: '/app/runs/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppPricingCompareRoute = AppPricingCompareRouteImport.update({
+  id: '/app/pricing/compare',
+  path: '/app/pricing/compare',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppOrgIdRoute = AppOrgIdRouteImport.update({
@@ -196,6 +209,12 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppProjectsProjectIdSettingsRoute =
+  AppProjectsProjectIdSettingsRouteImport.update({
+    id: '/app/projects/$projectId/settings',
+    path: '/app/projects/$projectId/settings',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -217,9 +236,11 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
+  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
   '/app/jobs/': typeof AppJobsIndexRoute
@@ -229,6 +250,7 @@ export interface FileRoutesByFullPath {
   '/app/settings/': typeof AppSettingsIndexRoute
   '/app/webhooks/': typeof AppWebhooksIndexRoute
   '/app/workflows/': typeof AppWorkflowsIndexRoute
+  '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -250,9 +272,11 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
+  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/billing': typeof AppBillingIndexRoute
   '/app/dlq': typeof AppDlqIndexRoute
   '/app/events': typeof AppEventsIndexRoute
   '/app/jobs': typeof AppJobsIndexRoute
@@ -262,6 +286,7 @@ export interface FileRoutesByTo {
   '/app/settings': typeof AppSettingsIndexRoute
   '/app/webhooks': typeof AppWebhooksIndexRoute
   '/app/workflows': typeof AppWorkflowsIndexRoute
+  '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -284,9 +309,11 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
+  '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
   '/app/jobs/': typeof AppJobsIndexRoute
@@ -296,6 +323,7 @@ export interface FileRoutesById {
   '/app/settings/': typeof AppSettingsIndexRoute
   '/app/webhooks/': typeof AppWebhooksIndexRoute
   '/app/workflows/': typeof AppWorkflowsIndexRoute
+  '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -319,9 +347,11 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/app/jobs/$id'
     | '/app/org/$id'
+    | '/app/pricing/compare'
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
+    | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
     | '/app/jobs/'
@@ -331,6 +361,7 @@ export interface FileRouteTypes {
     | '/app/settings/'
     | '/app/webhooks/'
     | '/app/workflows/'
+    | '/app/projects/$projectId/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -352,9 +383,11 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/app/jobs/$id'
     | '/app/org/$id'
+    | '/app/pricing/compare'
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
+    | '/app/billing'
     | '/app/dlq'
     | '/app/events'
     | '/app/jobs'
@@ -364,6 +397,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/webhooks'
     | '/app/workflows'
+    | '/app/projects/$projectId/settings'
   id:
     | '__root__'
     | '/'
@@ -385,9 +419,11 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/app/jobs/$id'
     | '/app/org/$id'
+    | '/app/pricing/compare'
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
+    | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
     | '/app/jobs/'
@@ -397,6 +433,7 @@ export interface FileRouteTypes {
     | '/app/settings/'
     | '/app/webhooks/'
     | '/app/workflows/'
+    | '/app/projects/$projectId/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -419,9 +456,11 @@ export interface RootRouteChildren {
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
   AppOrgIdRoute: typeof AppOrgIdRoute
+  AppPricingCompareRoute: typeof AppPricingCompareRoute
   AppRunsIdRoute: typeof AppRunsIdRoute
   AppSchedulesIdRoute: typeof AppSchedulesIdRoute
   AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
+  AppBillingIndexRoute: typeof AppBillingIndexRoute
   AppDlqIndexRoute: typeof AppDlqIndexRoute
   AppEventsIndexRoute: typeof AppEventsIndexRoute
   AppJobsIndexRoute: typeof AppJobsIndexRoute
@@ -431,6 +470,7 @@ export interface RootRouteChildren {
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
   AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
+  AppProjectsProjectIdSettingsRoute: typeof AppProjectsProjectIdSettingsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -610,6 +650,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDlqIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/billing/': {
+      id: '/app/billing/'
+      path: '/app/billing'
+      fullPath: '/app/billing/'
+      preLoaderRoute: typeof AppBillingIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/workflows/$id': {
       id: '/app/workflows/$id'
       path: '/app/workflows/$id'
@@ -631,6 +678,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRunsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/pricing/compare': {
+      id: '/app/pricing/compare'
+      path: '/app/pricing/compare'
+      fullPath: '/app/pricing/compare'
+      preLoaderRoute: typeof AppPricingCompareRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/org/$id': {
       id: '/app/org/$id'
       path: '/app/org/$id'
@@ -650,6 +704,13 @@ declare module '@tanstack/react-router' {
       path: '/api/auth/$'
       fullPath: '/api/auth/$'
       preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/projects/$projectId/settings': {
+      id: '/app/projects/$projectId/settings'
+      path: '/app/projects/$projectId/settings'
+      fullPath: '/app/projects/$projectId/settings'
+      preLoaderRoute: typeof AppProjectsProjectIdSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -675,9 +736,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   AppJobsIdRoute: AppJobsIdRoute,
   AppOrgIdRoute: AppOrgIdRoute,
+  AppPricingCompareRoute: AppPricingCompareRoute,
   AppRunsIdRoute: AppRunsIdRoute,
   AppSchedulesIdRoute: AppSchedulesIdRoute,
   AppWorkflowsIdRoute: AppWorkflowsIdRoute,
+  AppBillingIndexRoute: AppBillingIndexRoute,
   AppDlqIndexRoute: AppDlqIndexRoute,
   AppEventsIndexRoute: AppEventsIndexRoute,
   AppJobsIndexRoute: AppJobsIndexRoute,
@@ -687,6 +750,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppWebhooksIndexRoute: AppWebhooksIndexRoute,
   AppWorkflowsIndexRoute: AppWorkflowsIndexRoute,
+  AppProjectsProjectIdSettingsRoute: AppProjectsProjectIdSettingsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -23,10 +23,10 @@ import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
-import { NoProjectState } from "@/components/common/no-project-state";
+import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
-import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
-import { WorkflowDetailSheet } from "@/components/dashboard/workflow-detail-sheet";
+import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import WorkflowDetailSheet from "@/components/dashboard/workflow-detail-sheet";
 import { workflowColumns } from "@/components/tables/workflows-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
@@ -40,11 +40,10 @@ import {
   SearchIcon,
   WorkflowIcon,
 } from "@/lib/icons";
+import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
-const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
-
-const searchSchema = z.object({
+export const searchSchema = z.object({
   query: z.string().optional(),
   status: z.array(z.string()).optional(),
   page: z.number().optional().default(1),
@@ -189,7 +188,7 @@ function WorkflowsPage() {
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            {STATUS_OPTIONS.map((status) => (
+            {ENABLED_STATUS_OPTIONS.map((status) => (
               <DropdownMenuCheckboxItem
                 checked={selectedStatuses.includes(status)}
                 key={status}

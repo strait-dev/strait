@@ -1,0 +1,228 @@
+---
+title: "Migration Guide"
+description: "Migrate to Strait from BullMQ, Temporal, Sidekiq, or other job schedulers. Concept mapping, code examples, and infrastructure comparison."
+---
+
+# Migration Guide
+
+This guide covers moving your background job workloads to Strait from common schedulers and orchestration systems. Strait uses HTTP dispatch and PostgreSQL-backed queuing, which differs from broker-based systems but maps cleanly onto the same concepts.
+
+## Overview
+
+Strait replaces the following components of a typical job processing stack:
+
+- **Message broker** (Redis, RabbitMQ, SQS): replaced by PostgreSQL with `SELECT FOR UPDATE SKIP LOCKED`
+- **Worker process**: replaced by `strait server --mode worker`
+- **Job framework** (BullMQ, Sidekiq, Celery): replaced by HTTP endpoints you control
+- **Workflow engine** (Temporal, Airflow): replaced by Strait workflow DAGs
+
+The core shift is from SDK-defined job logic to HTTP endpoint job logic. Your worker code becomes a plain HTTP handler—any language, any framework.
+
+## Concept Mapping
+
+### BullMQ
+
+| BullMQ | Strait | Notes |
+|--------|--------|-------|
+| Queue | Job | A job definition with endpoint, schedule, and retry config |
+| Job (instance) | Run | A single execution of a job |
+| Worker | Worker mode | `strait server --mode worker` |
+| Processor function | HTTP endpoint | Your job logic lives behind an HTTP endpoint |
+| Repeatable job | Cron schedule | `schedule: "*/5 * * * *"` |
+| Job attempts | `max_retries` | Same concept, configured per job |
+| Backoff strategy | `retry_strategy` | exponential, linear, fixed, or custom |
+| Flow (parent/child) | Workflow DAG | Fan-in/fan-out, conditions, approvals |
+| Delayed jobs | `delayed_secs` | Schedule runs for the future |
+| Rate limiter | Per-key rate limiting | Built into job definitions |
+
+### Temporal
+
+| Temporal | Strait | Notes |
+|----------|--------|-------|
+| Workflow | Workflow | DAG of steps with dependencies |
+| Activity | Job | HTTP endpoint that performs the work |
+| Workflow Execution | Workflow Run | A single execution of a workflow |
+| Activity Execution | Run | A single execution of a job step |
+| Task Queue | Job queue | PostgreSQL-backed, no external broker |
+| Worker | Worker mode | Built into the Strait binary |
+| Signal | Event Trigger | Pause and wait for external events |
+| Timer | sleep step / `delayed_secs` | Built into workflow steps |
+| Child Workflow | Sub-workflow | Nested workflow execution |
+| Retry Policy | `retry_strategy` | exponential, linear, fixed |
+
+### Sidekiq / ActiveJob
+
+| Sidekiq | Strait | Notes |
+|---------|--------|-------|
+| Worker class | Job definition | Defined via API or CLI |
+| `perform_async` | Trigger API | `POST /v1/jobs/{slug}/trigger` |
+| `perform_in` | `delayed_secs` | Delay before execution |
+| Queue name | Job slug | Used for routing and deduplication |
+| Retry count | `max_retries` | Configured per job |
+| Sidekiq Pro batch | Workflow DAG | Structured dependencies between steps |
+| Sidekiq Cron | Cron schedule | `schedule: "0 9 * * 1-5"` |
+
+### Celery
+
+| Celery | Strait | Notes |
+|--------|--------|-------|
+| Task | Job + HTTP endpoint | Task logic moves to your HTTP handler |
+| Worker | Worker mode | `strait server --mode worker` |
+| `apply_async` | Trigger API | `POST /v1/jobs/{slug}/trigger` |
+| `eta` / `countdown` | `delayed_secs` | Schedule future execution |
+| `chord` / `group` | Workflow DAG | Fan-out with fan-in conditions |
+| Beat scheduler | Cron schedule | Built into job definitions |
+| Result backend | Run state | Stored in PostgreSQL |
+
+## Code Examples
+
+### Defining a Job
+
+**Before (BullMQ):**
+```typescript
+const queue = new Queue("send-email", { connection: redis });
+const worker = new Worker("send-email", async (job) => {
+  await sendEmail(job.data.to, job.data.subject, job.data.body);
+}, { connection: redis });
+```
+
+**After (Strait):**
+
+Create the job definition once:
+```bash
+strait jobs create \
+  --name "send-email" \
+  --endpoint "https://your-app.com/api/jobs/send-email" \
+  --timeout 60 \
+  --max-retries 3 \
+  --retry-strategy exponential
+```
+
+Implement the HTTP endpoint (any language):
+```typescript
+export async function POST(req: Request) {
+  const { payload } = await req.json();
+  await sendEmail(payload.to, payload.subject, payload.body);
+  return Response.json({ status: "sent" });
+}
+```
+
+### Triggering a Run
+
+**Before (BullMQ):**
+```typescript
+await emailQueue.add("welcome", {
+  to: "user@example.com",
+  subject: "Welcome",
+});
+```
+
+**After (Strait):**
+```typescript
+import { createClient } from "@strait/sdk";
+
+const client = createClient({
+  baseUrl: "https://your-strait-instance.com",
+  apiKey: process.env.STRAIT_API_KEY,
+});
+
+await client.jobs.trigger("send-email", {
+  payload: { to: "user@example.com", subject: "Welcome" },
+});
+```
+
+### Cron Schedules
+
+**Before (Sidekiq Cron):**
+```ruby
+Sidekiq::Cron::Job.create(
+  name: "Cleanup old records",
+  cron: "0 0 * * *",
+  class: "CleanupWorker"
+)
+```
+
+**After (Strait):**
+```bash
+strait jobs create \
+  --name "cleanup" \
+  --endpoint "https://your-app.com/api/jobs/cleanup" \
+  --schedule "0 0 * * *"
+```
+
+### Workflow Orchestration
+
+**Before (Temporal):**
+```go
+func OrderWorkflow(ctx workflow.Context, order Order) error {
+  err := workflow.ExecuteActivity(ctx, ValidateOrder, order).Get(ctx, nil)
+  err = workflow.ExecuteActivity(ctx, ChargePayment, order).Get(ctx, nil)
+  err = workflow.ExecuteActivity(ctx, FulfillOrder, order).Get(ctx, nil)
+  return err
+}
+```
+
+**After (Strait):**
+```json
+{
+  "name": "order-workflow",
+  "steps": [
+    { "name": "validate", "job": "validate-order" },
+    { "name": "charge", "job": "charge-payment", "depends_on": ["validate"] },
+    { "name": "fulfill", "job": "fulfill-order", "depends_on": ["charge"] }
+  ]
+}
+```
+
+### Human Approval Gates
+
+**Before (Temporal):**
+```go
+ch := workflow.GetSignalChannel(ctx, "approval")
+ch.Receive(ctx, &approved)
+if !approved {
+  return errors.New("rejected")
+}
+```
+
+**After (Strait):**
+```json
+{
+  "name": "review",
+  "type": "approval",
+  "depends_on": ["analyze"],
+  "timeout_secs": 86400
+}
+```
+
+## Infrastructure Comparison
+
+| Dimension | Redis + BullMQ | Temporal | Strait |
+|-----------|---------------|----------|--------|
+| External broker | Redis | Temporal server cluster | None (PostgreSQL) |
+| Database | Optional | Required (Postgres or MySQL) | Required (PostgreSQL) |
+| Worker language | Node.js (SDK) | Any (per-SDK) | Any (HTTP) |
+| Workflow language | Node.js (SDK) | Any (per-SDK) | JSON DAG |
+| Deployment | 2-3 services | 4-6 services | 1 binary |
+| Horizontal scaling | Redis partitioning | Namespace sharding | PostgreSQL SKIP LOCKED |
+
+## What You Gain
+
+- **No Redis or broker dependency.** PostgreSQL handles queuing with `SKIP LOCKED`—concurrent workers without external coordination.
+- **Language-agnostic job logic.** HTTP endpoints mean any language, framework, or existing service can be a job executor.
+- **Workflow DAGs.** Complex multi-step pipelines with fan-in/fan-out, conditions, approval gates, and event waits are built in.
+- **Cost tracking.** Budget controls for AI/API spending per run and per project.
+- **Real-time observability.** Prometheus metrics, OpenTelemetry tracing, and structured logs without additional infrastructure.
+
+## Detailed Migration Guides
+
+For step-by-step instructions specific to your current system:
+
+<Cards>
+  <Card title="Migrating from BullMQ" href="/docs/guides/migrating-from-bullmq">
+    Queue definitions, processor conversion, and repeatable job patterns.
+  </Card>
+  <Card title="Migrating from Temporal" href="/docs/guides/migrating-from-temporal">
+    Activity conversion, workflow DAG mapping, and signal/event trigger equivalents.
+  </Card>
+</Cards>

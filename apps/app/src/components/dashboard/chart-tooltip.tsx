@@ -15,13 +15,13 @@ type ChartTooltipProps = {
 
 const defaultFormat = (v: number) => v.toLocaleString();
 
-export function ChartTooltip({
+const ChartTooltip = ({
   active,
   payload,
   label,
   labelMap,
   valueFormat = defaultFormat,
-}: ChartTooltipProps) {
+}: ChartTooltipProps) => {
   if (!(active && payload?.length)) {
     return null;
   }
@@ -60,4 +60,6 @@ export function ChartTooltip({
       </div>
     </div>
   );
-}
+};
+
+export default ChartTooltip;

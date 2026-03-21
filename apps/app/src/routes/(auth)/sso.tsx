@@ -1,6 +1,6 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { AuthLayout } from "@/components/(auth)/auth-layout";
-import { SsoForm } from "@/components/(auth)/sso-form";
+import AuthLayout from "@/components/(auth)/auth-layout";
+import SsoForm from "@/components/(auth)/sso-form";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";

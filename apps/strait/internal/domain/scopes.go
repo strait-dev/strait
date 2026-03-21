@@ -18,6 +18,9 @@ const (
 	ScopeAPIKeysManage    = "api-keys:manage"
 	ScopeRBACManage       = "rbac:manage"
 	ScopeStatsRead        = "stats:read"
+	ScopeProjectsRead     = "projects:read"
+	ScopeProjectsWrite    = "projects:write"
+	ScopeProjectsManage   = "projects:manage"
 )
 
 // ValidScopes is the set of all recognized scope strings.
@@ -36,6 +39,9 @@ var ValidScopes = map[string]bool{
 	ScopeAPIKeysManage:    true,
 	ScopeRBACManage:       true,
 	ScopeStatsRead:        true,
+	ScopeProjectsRead:     true,
+	ScopeProjectsWrite:    true,
+	ScopeProjectsManage:   true,
 }
 
 // ValidateScopes checks that all scopes in the slice are recognized.

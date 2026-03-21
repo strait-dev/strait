@@ -11,6 +11,9 @@ export type GeneratedOperationSchema = {
 };
 
 const componentSchemas: Record<string, Schema.Schema.AnyNoContext> = {};
+componentSchemas["CurrentUsageResponse"] = Schema.Struct({ "org_id": Schema.optional(Schema.String), "plan": Schema.optional(Schema.String), "period": Schema.optional(Schema.Struct({ "start": Schema.optional(Schema.String), "end": Schema.optional(Schema.String) })), "usage": Schema.optional(Schema.suspend(() => componentSchemas["CurrentUsageDimensions"] ?? Schema.Unknown)), "alerts": Schema.optional(Schema.Array(Schema.Record({ key: Schema.String, value: Schema.Unknown }))) });
+componentSchemas["CurrentUsageDimensions"] = Schema.Struct({ "runs_today": Schema.optional(Schema.suspend(() => componentSchemas["UsageDimension"] ?? Schema.Unknown)), "concurrent_runs": Schema.optional(Schema.suspend(() => componentSchemas["UsageDimension"] ?? Schema.Unknown)), "compute_credit": Schema.optional(Schema.suspend(() => componentSchemas["UsageDimension"] ?? Schema.Unknown)), "projects": Schema.optional(Schema.suspend(() => componentSchemas["UsageDimension"] ?? Schema.Unknown)), "members": Schema.optional(Schema.suspend(() => componentSchemas["UsageDimension"] ?? Schema.Unknown)), "ai_model_calls_today": Schema.optional(Schema.Unknown), "ai_assistant_messages_today": Schema.optional(Schema.Unknown), "retention_days": Schema.optional(Schema.Number.pipe(Schema.int())), "regions_available": Schema.optional(Schema.Number.pipe(Schema.int())) });
+componentSchemas["UsageDimension"] = Schema.Struct({ "used": Schema.optional(Schema.Number.pipe(Schema.int())), "limit": Schema.optional(Schema.Number.pipe(Schema.int())), "percent": Schema.optional(Schema.Number), "display": Schema.optional(Schema.String) });
 componentSchemas["EventTrigger"] = Schema.Struct({ "id": Schema.optional(Schema.String), "event_key": Schema.optional(Schema.String), "project_id": Schema.optional(Schema.String), "source_type": Schema.optional(Schema.Literal("workflow_step", "job_run")), "workflow_run_id": Schema.optional(Schema.NullOr(Schema.String)), "workflow_step_run_id": Schema.optional(Schema.NullOr(Schema.String)), "job_run_id": Schema.optional(Schema.NullOr(Schema.String)), "status": Schema.optional(Schema.Literal("waiting", "received", "timed_out", "canceled")), "request_payload": Schema.optional(Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.Unknown }))), "response_payload": Schema.optional(Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.Unknown }))), "timeout_secs": Schema.optional(Schema.Number.pipe(Schema.int())), "requested_at": Schema.optional(Schema.String), "received_at": Schema.optional(Schema.NullOr(Schema.String)), "expires_at": Schema.optional(Schema.String), "error": Schema.optional(Schema.NullOr(Schema.String)) });
 componentSchemas["SendEventRequest"] = Schema.Struct({ "payload": Schema.optional(Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.Unknown }))) });
 componentSchemas["SDKWaitForEventRequest"] = Schema.Struct({ "event_key": Schema.String, "timeout_secs": Schema.optional(Schema.Number.pipe(Schema.int())), "notify_url": Schema.optional(Schema.String) });
@@ -124,6 +127,7 @@ componentSchemas["BulkCancelAllRequest"] = Schema.Struct({ "job_id": Schema.opti
 componentSchemas["BulkReplayRequest"] = Schema.Struct({ "run_ids": Schema.Array(Schema.String) });
 componentSchemas["BulkWorkflowRunRequest"] = Schema.Struct({ "workflow_run_ids": Schema.Array(Schema.String) });
 componentSchemas["Region"] = Schema.Struct({ "code": Schema.optional(Schema.String), "label": Schema.optional(Schema.String), "city": Schema.optional(Schema.String), "country": Schema.optional(Schema.String), "continent": Schema.optional(Schema.String) });
+componentSchemas["Project"] = Schema.Struct({ "id": Schema.optional(Schema.String), "org_id": Schema.optional(Schema.String), "name": Schema.optional(Schema.String), "created_at": Schema.optional(Schema.String), "updated_at": Schema.optional(Schema.String) });
 componentSchemas["ProjectSettings"] = Schema.Struct({ "project_id": Schema.optional(Schema.String), "default_region": Schema.optional(Schema.String), "plan_tier": Schema.optional(Schema.String) });
 componentSchemas["NotificationChannel"] = Schema.Struct({ "id": Schema.optional(Schema.String), "project_id": Schema.optional(Schema.String), "channel_type": Schema.optional(Schema.Literal("slack", "discord", "webhook")), "name": Schema.optional(Schema.String), "enabled": Schema.optional(Schema.Boolean), "created_at": Schema.optional(Schema.String), "updated_at": Schema.optional(Schema.String) });
 componentSchemas["CreateNotificationChannelRequest"] = Schema.Struct({ "channel_type": Schema.Literal("slack", "discord", "webhook"), "name": Schema.String, "config": Schema.Record({ key: Schema.String, value: Schema.Unknown }), "enabled": Schema.optional(Schema.Boolean) });
@@ -164,9 +168,36 @@ export const generatedOperationSchemas = {
   "getV1AnalyticsCompute": { response: Schema.suspend(() => componentSchemas["ComputeCostAnalytics"] ?? Schema.Unknown) },
   "getV1AnalyticsCostInsights": {},
   "getV1AnalyticsCosts": { response: Schema.suspend(() => componentSchemas["CostAnalytics"] ?? Schema.Unknown) },
+  "getV1AnalyticsCostsByMachine": {},
+  "getV1AnalyticsCostsByTrigger": {},
+  "getV1AnalyticsCostsForecast": {},
   "getV1AnalyticsCostsTop": { response: Schema.Array(Schema.suspend(() => componentSchemas["TopCostItem"] ?? Schema.Unknown)) },
   "getV1AnalyticsCostsTrends": { response: Schema.Array(Schema.suspend(() => componentSchemas["CostTrendPoint"] ?? Schema.Unknown)) },
+  "getV1AnalyticsEventsLatency": {},
+  "getV1AnalyticsEventsVolume": {},
+  "getV1AnalyticsJobsByJobIDHistory": {},
+  "getV1AnalyticsJobsByVersion": {},
+  "getV1AnalyticsJobsComparison": {},
+  "getV1AnalyticsJobsCostRanking": {},
+  "getV1AnalyticsJobsReliability": {},
+  "getV1AnalyticsJobsTopFailing": {},
   "getV1AnalyticsPerformance": { response: Schema.suspend(() => componentSchemas["PerformanceAnalytics"] ?? Schema.Unknown) },
+  "getV1AnalyticsRunsByTrigger": {},
+  "getV1AnalyticsRunsDurationDistribution": {},
+  "getV1AnalyticsRunsFailureReasons": {},
+  "getV1AnalyticsRunsSummary": {},
+  "getV1AnalyticsRunsTimeline": {},
+  "getV1AnalyticsTagsCost": {},
+  "getV1AnalyticsTagsSummary": {},
+  "getV1AnalyticsTagsTopFailing": {},
+  "getV1AnalyticsWebhooksDeliveryStats": {},
+  "getV1AnalyticsWebhooksEndpointHealth": {},
+  "getV1AnalyticsWebhooksTopFailing": {},
+  "getV1AnalyticsWorkflowsByWorkflowIDStepDurations": {},
+  "getV1AnalyticsWorkflowsCompletionRates": {},
+  "getV1AnalyticsWorkflowsSummary": {},
+  "getV1AnomalyConfig": {},
+  "putV1AnomalyConfig": { request: Schema.Struct({ "warning_threshold": Schema.optional(Schema.Number), "critical_threshold": Schema.optional(Schema.Number) }) },
   "getV1ApiKeys": { response: Schema.Array(Schema.suspend(() => componentSchemas["APIKey"] ?? Schema.Unknown)) },
   "postV1ApiKeys": { request: Schema.Struct({ "project_id": Schema.String, "name": Schema.String, "scopes": Schema.optional(Schema.Array(Schema.String)), "expires_in_days": Schema.optional(Schema.Number.pipe(Schema.int())), "environment_id": Schema.optional(Schema.String), "rotation_interval_days": Schema.optional(Schema.Number.pipe(Schema.int())) }), response: Schema.suspend(() => componentSchemas["APIKey"] ?? Schema.Unknown) },
   "deleteV1ApiKeysByKeyID": {},
@@ -178,11 +209,13 @@ export const generatedOperationSchemas = {
   "postV1CliAuthDeviceCode": { response: Schema.Struct({ "device_code": Schema.optional(Schema.String), "user_code": Schema.optional(Schema.String), "verification_url": Schema.optional(Schema.String), "expires_in": Schema.optional(Schema.Number.pipe(Schema.int())), "interval": Schema.optional(Schema.Number.pipe(Schema.int())) }) },
   "postV1CliAuthToken": { request: Schema.Struct({ "device_code": Schema.String, "grant_type": Schema.Literal("device_code") }), response: Schema.Struct({ "api_key": Schema.optional(Schema.String), "project_id": Schema.optional(Schema.String) }) },
   "postV1CliDeviceCodesApprove": { request: Schema.Struct({ "user_code": Schema.String, "project_id": Schema.optional(Schema.String) }) },
+  "getV1CostEstimate": {},
   "getV1Deployments": { response: Schema.suspend(() => componentSchemas["ListDeploymentVersionsResponse"] ?? Schema.Unknown) },
   "postV1Deployments": { request: Schema.suspend(() => componentSchemas["CreateDeploymentVersionRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["DeploymentVersion"] ?? Schema.Unknown) },
   "postV1DeploymentsByDeploymentIDFinalize": { request: Schema.suspend(() => componentSchemas["DeploymentVersionMutationRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["DeploymentVersion"] ?? Schema.Unknown) },
   "postV1DeploymentsByDeploymentIDPromote": { request: Schema.suspend(() => componentSchemas["DeploymentVersionMutationRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["DeploymentVersion"] ?? Schema.Unknown) },
   "postV1DeploymentsByDeploymentIDRollback": { request: Schema.suspend(() => componentSchemas["DeploymentVersionMutationRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["DeploymentVersion"] ?? Schema.Unknown) },
+  "getV1DowngradePreview": {},
   "getV1Environments": { response: Schema.Array(Schema.suspend(() => componentSchemas["Environment"] ?? Schema.Unknown)) },
   "postV1Environments": { request: Schema.suspend(() => componentSchemas["CreateEnvironmentRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["Environment"] ?? Schema.Unknown) },
   "deleteV1EnvironmentsByEnvID": {},
@@ -247,8 +280,19 @@ export const generatedOperationSchemas = {
   "getV1NotificationChannelsByChannelID": { response: Schema.suspend(() => componentSchemas["NotificationChannel"] ?? Schema.Unknown) },
   "patchV1NotificationChannelsByChannelID": { request: Schema.suspend(() => componentSchemas["UpdateNotificationChannelRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["NotificationChannel"] ?? Schema.Unknown) },
   "getV1NotificationDeliveries": { response: Schema.Array(Schema.suspend(() => componentSchemas["NotificationDelivery"] ?? Schema.Unknown)) },
+  "getV1OrganizationsByOrgIDJobs": {},
+  "getV1OrganizationsByOrgIDRuns": {},
+  "getV1ProjectBudget": {},
+  "putV1ProjectBudget": { request: Schema.Struct({ "project_id": Schema.optional(Schema.String), "budget_microusd": Schema.optional(Schema.Number.pipe(Schema.int())), "action": Schema.optional(Schema.String) }) },
+  "getV1Projects": { response: Schema.Array(Schema.suspend(() => componentSchemas["Project"] ?? Schema.Unknown)) },
+  "postV1Projects": { request: Schema.Struct({ "id": Schema.String, "org_id": Schema.String, "name": Schema.String }), response: Schema.suspend(() => componentSchemas["Project"] ?? Schema.Unknown) },
+  "deleteV1ProjectsByProjectID": {},
+  "getV1ProjectsByProjectID": { response: Schema.suspend(() => componentSchemas["Project"] ?? Schema.Unknown) },
   "getV1ProjectsByProjectIDSettings": { response: Schema.suspend(() => componentSchemas["ProjectSettings"] ?? Schema.Unknown) },
   "putV1ProjectsByProjectIDSettings": { request: Schema.Struct({ "default_region": Schema.optional(Schema.String) }), response: Schema.suspend(() => componentSchemas["ProjectSettings"] ?? Schema.Unknown) },
+  "getV1Referrals": {},
+  "postV1Referrals": { request: Schema.Struct({ "org_id": Schema.optional(Schema.String) }) },
+  "postV1ReferralsActivate": { request: Schema.Struct({ "code": Schema.optional(Schema.String), "referred_org_id": Schema.optional(Schema.String) }) },
   "getV1Regions": { response: Schema.Struct({ "regions": Schema.optional(Schema.Array(Schema.suspend(() => componentSchemas["Region"] ?? Schema.Unknown))) }) },
   "getV1ResourcePolicies": { response: Schema.suspend(() => componentSchemas["ListResourcePoliciesResponse"] ?? Schema.Unknown) },
   "postV1ResourcePolicies": { request: Schema.suspend(() => componentSchemas["CreateResourcePolicyRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["ResourcePolicy"] ?? Schema.Unknown) },
@@ -291,10 +335,18 @@ export const generatedOperationSchemas = {
   "postV1Secrets": { request: Schema.suspend(() => componentSchemas["CreateSecretRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["JobSecret"] ?? Schema.Unknown) },
   "deleteV1SecretsBySecretID": {},
   "postV1SeedRoles": {},
+  "getV1SpendingLimit": {},
+  "putV1SpendingLimit": { request: Schema.Struct({ "limit_microusd": Schema.optional(Schema.Number.pipe(Schema.int())), "action": Schema.optional(Schema.String) }) },
   "getV1Stats": { response: Schema.suspend(() => componentSchemas["QueueStats"] ?? Schema.Unknown) },
   "getV1TagPolicies": { response: Schema.suspend(() => componentSchemas["ListTagPoliciesResponse"] ?? Schema.Unknown) },
   "postV1TagPolicies": { request: Schema.suspend(() => componentSchemas["CreateTagPolicyRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["TagPolicy"] ?? Schema.Unknown) },
   "deleteV1TagPoliciesByPolicyID": {},
+  "getV1UsageAnomalies": {},
+  "getV1UsageCurrent": { response: Schema.suspend(() => componentSchemas["CurrentUsageResponse"] ?? Schema.Unknown) },
+  "getV1UsageExport": {},
+  "getV1UsageForecast": {},
+  "getV1UsageHistory": {},
+  "getV1UsageProjects": {},
   "getV1WebhookDeliveries": { response: Schema.Array(Schema.suspend(() => componentSchemas["WebhookDelivery"] ?? Schema.Unknown)) },
   "postV1WebhookDeliveriesByDeliveryIDRetry": { response: Schema.suspend(() => componentSchemas["WebhookDelivery"] ?? Schema.Unknown) },
   "getV1WebhooksDeliveries": { response: Schema.Array(Schema.suspend(() => componentSchemas["WebhookDelivery"] ?? Schema.Unknown)) },

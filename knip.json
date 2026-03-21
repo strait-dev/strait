@@ -2,12 +2,15 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreDependencies": [
     "@manypkg/cli",
-    "@typescript/native-preview",
-    "better-auth",
-    "@commitlint/config-conventional"
+    "@typescript/native-preview"
   ],
   "ignoreWorkspaces": ["apps/website", "apps/strait", "packages/*"],
-  "ignore": ["commitlint.config.js", "sdk/**"],
+  "ignore": ["sdk/**"],
+  "workspaces": {
+    "apps/docs": {
+      "entry": ["source.config.ts"]
+    }
+  },
   "rules": {
     "unlisted": "off",
     "exports": "warn",

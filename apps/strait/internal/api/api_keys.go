@@ -18,6 +18,7 @@ import (
 
 type CreateAPIKeyRequest struct {
 	ProjectID            string   `json:"project_id" validate:"required"`
+	OrgID                string   `json:"org_id,omitempty"`
 	Name                 string   `json:"name" validate:"required"`
 	Scopes               []string `json:"scopes,omitempty"`
 	ExpiresIn            *int     `json:"expires_in_days,omitempty"`
@@ -90,6 +91,7 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	key := &domain.APIKey{
 		ProjectID:            req.ProjectID,
+		OrgID:                req.OrgID,
 		Name:                 req.Name,
 		KeyHash:              hashAPIKey(rawKey),
 		KeyPrefix:            rawKey[:12],
@@ -122,11 +124,7 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	orgID := r.URL.Query().Get("org_id")
 
 	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
@@ -134,7 +132,17 @@ func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keys, err := s.store.ListAPIKeysByProject(r.Context(), projectID, limit+1, cursor)
+	var keys []domain.APIKey
+	if orgID != "" {
+		keys, err = s.store.ListAPIKeysByOrg(r.Context(), orgID, limit+1, cursor)
+	} else {
+		projectID := projectIDFromContext(r.Context())
+		if projectID == "" {
+			respondError(w, r, http.StatusBadRequest, "project_id is required")
+			return
+		}
+		keys, err = s.store.ListAPIKeysByProject(r.Context(), projectID, limit+1, cursor)
+	}
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list api keys")
 		return

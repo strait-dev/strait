@@ -14,7 +14,7 @@ const ROW_KEYS = [
 ];
 const CELL_KEYS = ["cell-0", "cell-1", "cell-2", "cell-3", "cell-4"];
 
-export function TablePageSkeleton() {
+const TablePageSkeleton = () => {
   return (
     <Shell>
       <div className="flex items-center justify-between">
@@ -46,4 +46,6 @@ export function TablePageSkeleton() {
       </div>
     </Shell>
   );
-}
+};
+
+export default TablePageSkeleton;

@@ -148,7 +148,7 @@ const LinkedAccounts = () => {
   );
 };
 
-function ProviderIcon({ provider }: { provider: string }) {
+const ProviderIcon = ({ provider }: { provider: string }) => {
   if (provider === "google") {
     return (
       <svg aria-hidden="true" className="size-5" viewBox="0 0 24 24">
@@ -186,6 +186,6 @@ function ProviderIcon({ provider }: { provider: string }) {
   }
 
   return null;
-}
+};
 
 export default LinkedAccounts;

@@ -41,6 +41,11 @@ func NewWorker(ns store.NotificationStore, client *http.Client) *Worker {
 	}
 }
 
+// RegisterSender adds or replaces a channel sender for the given channel type.
+func (w *Worker) RegisterSender(channelType string, sender ChannelSender) {
+	w.senders[channelType] = sender
+}
+
 // WithDeliveriesCounter attaches an OTel counter for tracking delivery outcomes.
 func (w *Worker) WithDeliveriesCounter(c metric.Int64Counter) *Worker {
 	w.deliveriesCounter = c

@@ -13,7 +13,7 @@ type CreateOrganizationLimitGateProps = {
 /**
  * Gate component that enforces organization creation limits based on subscription plan
  */
-export const CreateOrganizationLimitGate = ({
+const CreateOrganizationLimitGate = ({
   currentCount,
   children,
   onUpgradeClick,
@@ -66,3 +66,5 @@ export const CreateOrganizationLimitGate = ({
     </AddMoreGate>
   );
 };
+
+export default CreateOrganizationLimitGate;

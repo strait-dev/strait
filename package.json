@@ -36,13 +36,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.8",
-    "@changesets/changelog-github": "^0.6.0",
     "@changesets/cli": "^2.30.0",
-    "@commitlint/cli": "^20.5.0",
-    "@commitlint/config-conventional": "^20.5.0",
     "@manypkg/cli": "^0.25.1",
     "@typescript/native-preview": "^7.0.0-dev.20260321.1",
-    "baseline-browser-mapping": "^2.10.9",
     "knip": "^6.0.1",
     "lefthook": "^2.1.4",
     "turbo": "^2.8.20",

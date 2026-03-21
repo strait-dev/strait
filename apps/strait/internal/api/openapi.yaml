@@ -180,6 +180,570 @@ paths:
                     items:
                       $ref: '#/components/schemas/Region'
 
+  /v1/usage/current:
+    get:
+      tags:
+        - Usage
+      summary: Get current billing usage
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed. The response exposes `ai_model_calls_today` as the primary daily AI usage metric and keeps `ai_assistant_messages_today` as a deprecated compatibility alias for one release.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current usage data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUsageResponse'
+
+  /v1/usage/history:
+    get:
+      tags:
+        - Usage
+      summary: Get usage history
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Usage history entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/usage/forecast:
+    get:
+      tags:
+        - Usage
+      summary: Get usage forecast
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Usage forecast
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/usage/projects:
+    get:
+      tags:
+        - Usage
+      summary: Get per-project cost allocation
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Project cost entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/usage/anomalies:
+    get:
+      tags:
+        - Usage
+      summary: Get anomaly alerts
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Anomaly alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/usage/export:
+    get:
+      tags:
+        - Usage
+      summary: Export usage as CSV
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+
+  /v1/spending-limit:
+    get:
+      tags:
+        - Usage
+      summary: Get spending limit
+      description: Returns the current spending limit. Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed. Free-tier orgs without a subscription row receive a read-only hard-capped free-tier response.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Spending limit info
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      tags:
+        - Usage
+      summary: Update spending limit
+      description: Bearer and API key callers must have `projects:manage` on the project identified by their request context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit_microusd:
+                  type: integer
+                action:
+                  type: string
+      responses:
+        '200':
+          description: Spending limit updated
+
+  /v1/cost-estimate:
+    get:
+      tags:
+        - Usage
+      summary: Get compute cost estimate
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context when requesting org-scoped credit context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: preset
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: timeout_secs
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: org_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cost estimate
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/downgrade-preview:
+    get:
+      tags:
+        - Usage
+      summary: Preview downgrade impact
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: target_tier
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Downgrade impact preview
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/project-budget:
+    get:
+      tags:
+        - Usage
+      summary: Get project budget
+      description: Returns the monthly budget and current spend for a project.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Project budget info
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      tags:
+        - Usage
+      summary: Set project budget
+      description: Sets or updates a per-project monthly budget cap.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id:
+                  type: string
+                budget_microusd:
+                  type: integer
+                action:
+                  type: string
+      responses:
+        '200':
+          description: Project budget updated
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/anomaly-config:
+    get:
+      tags:
+        - Usage
+      summary: Get anomaly detection thresholds
+      description: Returns the current anomaly detection thresholds for the organization.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Anomaly detection thresholds
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      tags:
+        - Usage
+      summary: Update anomaly detection thresholds
+      description: Sets custom anomaly detection thresholds for the organization.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                warning_threshold:
+                  type: number
+                critical_threshold:
+                  type: number
+      responses:
+        '200':
+          description: Anomaly thresholds updated
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/referrals:
+    post:
+      tags:
+        - Referrals
+      summary: Create referral code
+      description: Bearer and API key callers must have `projects:manage` on the project identified by their request context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                org_id:
+                  type: string
+      responses:
+        '201':
+          description: Referral created
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Referrals
+      summary: List referrals
+      description: Bearer and API key callers must have `projects:read` on the project identified by their request context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Referral list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/referrals/activate:
+    post:
+      tags:
+        - Referrals
+      summary: Activate referral code
+      description: Bearer and API key callers must have `projects:manage` on the project identified by their request context. Internal secret callers remain allowed.
+      security:
+        - bearerAuth: []
+        - internalSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                referred_org_id:
+                  type: string
+      responses:
+        '200':
+          description: Referral activated
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/projects:
+    post:
+      tags:
+        - Projects
+      summary: Create a project
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+                - org_id
+                - name
+              properties:
+                id:
+                  type: string
+                org_id:
+                  type: string
+                name:
+                  type: string
+                  minLength: 2
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+    get:
+      tags:
+        - Projects
+      summary: List projects by organization
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: org_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+
+  /v1/projects/{projectID}:
+    get:
+      tags:
+        - Projects
+      summary: Get a project
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: projectID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+    delete:
+      tags:
+        - Projects
+      summary: Delete a project
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: projectID
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Project deleted
+
   /v1/projects/{projectID}/settings:
     get:
       tags:
@@ -5457,11 +6021,70 @@ paths:
                 items:
                   $ref: '#/components/schemas/NotificationDelivery'
 
+  /v1/organizations/{orgID}/runs:
+    get:
+      tags:
+        - Organizations
+      summary: List runs across all projects in an organization
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: orgID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of runs across the organization
+
+  /v1/organizations/{orgID}/jobs:
+    get:
+      tags:
+        - Organizations
+      summary: List jobs across all projects in an organization
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: orgID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of jobs across the organization
+
 components:
   securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: "Bearer API key passed as Authorization: Bearer strait_..."
     bearerAuth:
       type: http
       scheme: bearer
+    internalSecret:
+      type: apiKey
+      in: header
+      name: X-Internal-Secret
     runToken:
       type: http
       scheme: bearer
@@ -5486,6 +6109,65 @@ components:
       description: End of time range (RFC3339)
 
   schemas:
+    CurrentUsageResponse:
+      type: object
+      properties:
+        org_id:
+          type: string
+        plan:
+          type: string
+        period:
+          type: object
+          properties:
+            start:
+              type: string
+            end:
+              type: string
+        usage:
+          $ref: '#/components/schemas/CurrentUsageDimensions'
+        alerts:
+          type: array
+          items:
+            type: object
+    CurrentUsageDimensions:
+      type: object
+      properties:
+        runs_today:
+          $ref: '#/components/schemas/UsageDimension'
+        concurrent_runs:
+          $ref: '#/components/schemas/UsageDimension'
+        compute_credit:
+          $ref: '#/components/schemas/UsageDimension'
+        projects:
+          $ref: '#/components/schemas/UsageDimension'
+        members:
+          $ref: '#/components/schemas/UsageDimension'
+        ai_model_calls_today:
+          allOf:
+            - $ref: '#/components/schemas/UsageDimension'
+          description: Daily AI model usage calls recorded through the SDK usage endpoint.
+        ai_assistant_messages_today:
+          allOf:
+            - $ref: '#/components/schemas/UsageDimension'
+          deprecated: true
+          description: Deprecated compatibility alias for `ai_model_calls_today`.
+        retention_days:
+          type: integer
+        regions_available:
+          type: integer
+    UsageDimension:
+      type: object
+      properties:
+        used:
+          type: integer
+        limit:
+          type: integer
+        percent:
+          type: number
+          format: float
+        display:
+          type: string
+
     EventTrigger:
       type: object
       properties:
@@ -7667,55 +8349,6 @@ components:
             $ref: '#/components/schemas/RunOutput'
 
 
-    EventTrigger:
-      type: object
-      properties:
-        id:
-          type: string
-        event_key:
-          type: string
-        project_id:
-          type: string
-        source_type:
-          type: string
-          enum: [workflow_step, job_run]
-        workflow_run_id:
-          type: string
-        workflow_step_run_id:
-          type: string
-        job_run_id:
-          type: string
-        status:
-          type: string
-          enum: [waiting, received, timed_out, canceled]
-        request_payload:
-          type: object
-        response_payload:
-          type: object
-        timeout_secs:
-          type: integer
-        requested_at:
-          type: string
-          format: date-time
-        received_at:
-          type: string
-          format: date-time
-        expires_at:
-          type: string
-          format: date-time
-        error:
-          type: string
-        notify_url:
-          type: string
-        notify_status:
-          type: string
-          enum: [pending, sent, failed]
-        trigger_type:
-          type: string
-          enum: [event, sleep]
-        sent_by:
-          type: string
-
     BulkTriggerRequest:
       type: object
       required:
@@ -8100,6 +8733,22 @@ components:
           type: string
         continent:
           type: string
+
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+        org_id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     ProjectSettings:
       type: object
