@@ -121,22 +121,15 @@ export const getProjectServerFn = createServerFn({ method: "GET" })
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
 
-    if (activeOrgId) {
-      const result = await authPool.query<Project>(
-        `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
-         FROM project
-         WHERE id = $1 AND organization_id = $2`,
-        [data.id, activeOrgId]
-      );
-      return result.rows[0] ?? null;
+    if (!activeOrgId) {
+      return null;
     }
 
-    // Fallback for callers without org context
     const result = await authPool.query<Project>(
       `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
        FROM project
-       WHERE id = $1`,
-      [data.id]
+       WHERE id = $1 AND organization_id = $2`,
+      [data.id, activeOrgId]
     );
     return result.rows[0] ?? null;
   });
@@ -150,9 +143,10 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
-    if (activeOrgId) {
-      await requireOrgAccess(context.user.id, activeOrgId);
+    if (!activeOrgId) {
+      throw new Error("Forbidden");
     }
+    await requireOrgAccess(context.user.id, activeOrgId);
     await ensureProjectTable();
 
     const result = await authPool.query(
