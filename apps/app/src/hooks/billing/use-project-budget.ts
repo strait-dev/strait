@@ -59,11 +59,13 @@ type SetBudgetInput = {
 
 const setProjectBudgetServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: SetBudgetInput) =>
-    z.object({
-      projectId: z.string().min(1),
-      budgetMicrousd: z.number(),
-      action: z.string(),
-    }).parse(data)
+    z
+      .object({
+        projectId: z.string().min(1),
+        budgetMicrousd: z.number(),
+        action: z.string(),
+      })
+      .parse(data)
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {

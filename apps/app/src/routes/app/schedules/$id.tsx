@@ -201,4 +201,3 @@ function ScheduleDetailPage() {
     </Shell>
   );
 }
-

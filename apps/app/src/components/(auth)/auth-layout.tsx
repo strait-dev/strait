@@ -6,11 +6,7 @@ type AuthLayoutProps = {
   description?: string;
 };
 
-const AuthLayout = ({
-  children,
-  title,
-  description,
-}: AuthLayoutProps) => {
+const AuthLayout = ({ children, title, description }: AuthLayoutProps) => {
   return (
     <div className="flex min-h-dvh w-full items-center justify-center bg-background">
       <div className="w-full max-w-[450px] overflow-hidden rounded-custom border border-border/50 bg-background shadow-sm">

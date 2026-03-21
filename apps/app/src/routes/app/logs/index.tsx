@@ -32,11 +32,7 @@ import { logColumns } from "@/components/events/log-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type { EventTrigger } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
-import {
-  FileTextIcon,
-  FilterIcon,
-  SearchIcon,
-} from "@/lib/icons";
+import { FileTextIcon, FilterIcon, SearchIcon } from "@/lib/icons";
 import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -170,7 +166,8 @@ function LogsPage() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-36">
             {EVENT_STATUSES.map((status) => {
-              const style = EVENT_STATUS_STYLES[status] ?? EVENT_STATUS_STYLES.pending;
+              const style =
+                EVENT_STATUS_STYLES[status] ?? EVENT_STATUS_STYLES.pending;
               return (
                 <DropdownMenuCheckboxItem
                   checked={selectedStatuses.includes(status)}
@@ -222,4 +219,3 @@ function LogsPage() {
     </Shell>
   );
 }
-

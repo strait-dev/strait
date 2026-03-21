@@ -25,7 +25,13 @@ type JobDetailSheetProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-const StatCell = ({ label, value }: { label: string; value: string | number }) => {
+const StatCell = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) => {
   return (
     <div className="rounded-md border p-3 text-center">
       <p className="font-normal text-lg">{value}</p>
@@ -54,11 +60,7 @@ const DetailRow = ({
   );
 };
 
-const JobDetailSheet = ({
-  job,
-  open,
-  onOpenChange,
-}: JobDetailSheetProps) => {
+const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
   if (!job) {
     return null;
   }

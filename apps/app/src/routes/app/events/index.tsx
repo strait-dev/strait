@@ -116,4 +116,3 @@ function EventsPage() {
     </Shell>
   );
 }
-

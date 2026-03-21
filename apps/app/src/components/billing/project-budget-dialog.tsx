@@ -150,9 +150,7 @@ const BudgetForm = ({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="notify">Notify only (soft cap)</SelectItem>
-              <SelectItem value="reject">
-                Reject new runs (hard cap)
-              </SelectItem>
+              <SelectItem value="reject">Reject new runs (hard cap)</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -168,9 +166,7 @@ const BudgetForm = ({
             Remove Budget
           </Button>
         )}
-        <DialogClose render={<Button variant="outline" />}>
-          Cancel
-        </DialogClose>
+        <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
         <Button disabled={mutation.isPending} onClick={handleSave}>
           {mutation.isPending ? "Saving..." : "Save"}
         </Button>

@@ -31,11 +31,7 @@ const LABEL_MAP = {
   },
 };
 
-const QueueHealthChart = ({
-  hasProject = true,
-}: {
-  hasProject?: boolean;
-}) => {
+const QueueHealthChart = ({ hasProject = true }: { hasProject?: boolean }) => {
   const { data: stats } = useQuery({
     ...statsQueryOptions(),
     enabled: hasProject,

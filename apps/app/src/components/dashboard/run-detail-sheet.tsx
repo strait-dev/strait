@@ -72,11 +72,7 @@ function formatDuration(start: string | null, end: string | null): string {
   return `${(ms / 60_000).toFixed(1)}m`;
 }
 
-const RunDetailSheet = ({
-  run,
-  open,
-  onOpenChange,
-}: RunDetailSheetProps) => {
+const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
   if (!run) {
     return null;
   }

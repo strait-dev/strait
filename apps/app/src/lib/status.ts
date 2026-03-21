@@ -31,7 +31,8 @@ export const EVENT_STATUS_STYLES: Record<
   canceled: {
     dot: "bg-muted-foreground",
     label: "Canceled",
-    badge: "bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20",
+    badge:
+      "bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20",
   },
 };
 

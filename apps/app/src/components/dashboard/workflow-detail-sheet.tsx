@@ -28,7 +28,13 @@ const STEP_TYPE_COLORS: Record<WorkflowStepType, string> = {
   sleep: "bg-muted-foreground",
 };
 
-const StatCell = ({ label, value }: { label: string; value: string | number }) => {
+const StatCell = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) => {
   return (
     <div className="rounded-md border p-3 text-center">
       <p className="font-normal text-lg">{value}</p>

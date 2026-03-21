@@ -44,7 +44,12 @@ export const fetchProjectSettings = createServerFn({ method: "GET" })
 
 export const updateProjectSettingsFn = createServerFn({ method: "POST" })
   .inputValidator((data: { projectId: string; default_region: string }) =>
-    z.object({ projectId: z.string().min(1), default_region: z.string().min(1) }).parse(data)
+    z
+      .object({
+        projectId: z.string().min(1),
+        default_region: z.string().min(1),
+      })
+      .parse(data)
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {

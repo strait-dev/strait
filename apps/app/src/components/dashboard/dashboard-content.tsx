@@ -1,5 +1,5 @@
+import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
-
 import InlineError from "@/components/common/inline-error";
 import { QueryErrorBoundary } from "@/components/common/query-error-boundary";
 import FailedRunsByJobChart from "@/components/dashboard/failed-runs-by-job-chart";
@@ -17,7 +17,6 @@ import {
   analyticsQueryOptions as analyticsQueryOptionsFn,
   statsQueryOptions as statsQueryOptionsFn,
 } from "@/hooks/api/use-dashboard";
-import { Shell } from "@strait/ui/components/shell";
 import {
   ActivityIcon,
   AlertIcon,

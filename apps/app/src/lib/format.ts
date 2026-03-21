@@ -9,7 +9,10 @@ export function capitalize(str: string): string {
 }
 
 /** Format a duration between two timestamps as a human-readable string. */
-export function formatDuration(start: string | null, end: string | null): string {
+export function formatDuration(
+  start: string | null,
+  end: string | null
+): string {
   if (!start) {
     return "-";
   }

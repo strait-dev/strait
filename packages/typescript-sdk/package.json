@@ -44,6 +44,6 @@
     "@standard-schema/spec": "^1.1.0",
     "effect": "^3.21.0",
     "xstate": "5",
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.3"
   }
 }

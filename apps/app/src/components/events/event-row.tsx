@@ -6,7 +6,8 @@ import type { EventTrigger } from "@/hooks/api/types";
 import { EVENT_STATUS_STYLES } from "@/lib/status";
 
 const EventRow = ({ event }: { event: EventTrigger }) => {
-  const style = EVENT_STATUS_STYLES[event.status] ?? EVENT_STATUS_STYLES.pending;
+  const style =
+    EVENT_STATUS_STYLES[event.status] ?? EVENT_STATUS_STYLES.pending;
 
   return (
     <div className="relative flex items-start gap-3 py-2.5 pl-0">

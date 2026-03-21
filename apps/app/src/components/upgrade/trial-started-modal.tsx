@@ -15,10 +15,7 @@ type TrialStartedModalProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-const TrialStartedModal = ({
-  open,
-  onOpenChange,
-}: TrialStartedModalProps) => {
+const TrialStartedModal = ({ open, onOpenChange }: TrialStartedModalProps) => {
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="sm:max-w-md">

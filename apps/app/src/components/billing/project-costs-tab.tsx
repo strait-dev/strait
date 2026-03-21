@@ -56,7 +56,8 @@ const ProjectCostsTab = () => {
   );
 
   const sortedCosts = useMemo(
-    () => [...(costs ?? [])].sort((a, b) => b.total_microusd - a.total_microusd),
+    () =>
+      [...(costs ?? [])].sort((a, b) => b.total_microusd - a.total_microusd),
     [costs]
   );
 
@@ -100,10 +101,7 @@ const ProjectCostsTab = () => {
               minWidth={1}
               width="100%"
             >
-              <BarChart
-                data={sortedCosts}
-                layout="vertical"
-              >
+              <BarChart data={sortedCosts} layout="vertical">
                 <CartesianGrid
                   className="stroke-border"
                   strokeDasharray="3 3"

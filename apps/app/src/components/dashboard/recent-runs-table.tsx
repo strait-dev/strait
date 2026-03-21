@@ -36,11 +36,7 @@ function formatDuration(
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-const RecentRunsTable = ({
-  hasProject = true,
-}: {
-  hasProject?: boolean;
-}) => {
+const RecentRunsTable = ({ hasProject = true }: { hasProject?: boolean }) => {
   const { data } = useQuery({
     ...runsQueryOptions({ limit: 6 }),
     enabled: hasProject,

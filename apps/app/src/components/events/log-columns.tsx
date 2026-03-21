@@ -5,11 +5,7 @@ import { formatDistanceToNow } from "date-fns";
 
 import { createActionsColumn } from "@/components/tables/shared-columns";
 import type { EventTrigger } from "@/hooks/api/types";
-import {
-  EyeIcon,
-  FileTextIcon,
-  LinkSquareIcon,
-} from "@/lib/icons";
+import { EyeIcon, FileTextIcon, LinkSquareIcon } from "@/lib/icons";
 import { EVENT_STATUS_STYLES } from "@/lib/status";
 
 export const logColumns: ColumnDef<EventTrigger>[] = [
@@ -17,7 +13,8 @@ export const logColumns: ColumnDef<EventTrigger>[] = [
     accessorKey: "status",
     header: "Status",
     cell: ({ row }) => {
-      const style = EVENT_STATUS_STYLES[row.original.status] ?? EVENT_STATUS_STYLES.pending;
+      const style =
+        EVENT_STATUS_STYLES[row.original.status] ?? EVENT_STATUS_STYLES.pending;
       return (
         <div className="flex items-center gap-2">
           <span className={cn("size-2 shrink-0 rounded-full", style.dot)} />

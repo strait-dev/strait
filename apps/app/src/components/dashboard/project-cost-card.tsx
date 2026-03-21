@@ -13,11 +13,7 @@ import { projectBudgetQueryOptions } from "@/hooks/billing/use-project-budget";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { formatMicroUsd } from "@/lib/format";
 
-const ProjectCostCard = ({
-  activeProjectId,
-}: {
-  activeProjectId: string;
-}) => {
+const ProjectCostCard = ({ activeProjectId }: { activeProjectId: string }) => {
   const { data: costs } = useQuery(projectCostsQueryOptions());
   const { data: budget } = useQuery(projectBudgetQueryOptions(activeProjectId));
   const project = costs?.find((c) => c.project_id === activeProjectId);

@@ -98,4 +98,3 @@ function RouteComponent() {
     </Shell>
   );
 }
-
