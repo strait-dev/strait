@@ -93,7 +93,7 @@ export function CostEstimateCard({ timeoutSecs }: CostEstimateCardProps) {
               </p>
             ) : null}
 
-            {estimate.credit_info.estimated_runs_remaining > 0 ? (
+            {estimate.credit_info?.estimated_runs_remaining > 0 ? (
               <p className="text-muted-foreground text-xs">
                 ~
                 {estimate.credit_info.estimated_runs_remaining.toLocaleString()}{" "}

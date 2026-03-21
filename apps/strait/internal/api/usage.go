@@ -46,12 +46,18 @@ func (s *Server) validateProjectBelongsToCallerOrg(ctx context.Context, targetPr
 		return fmt.Errorf("no project context")
 	}
 	callerOrg, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, callerProjectID)
-	if err != nil || callerOrg == "" {
+	if err != nil {
 		return fmt.Errorf("failed to resolve caller org: %w", err)
 	}
+	if callerOrg == "" {
+		return fmt.Errorf("caller project has no associated organization")
+	}
 	targetOrg, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, targetProjectID)
-	if err != nil || targetOrg == "" {
+	if err != nil {
 		return fmt.Errorf("failed to resolve target project org: %w", err)
+	}
+	if targetOrg == "" {
+		return fmt.Errorf("target project has no associated organization")
 	}
 	if callerOrg != targetOrg {
 		return fmt.Errorf("project does not belong to caller's organization")

@@ -65,12 +65,12 @@ export function AlertsForecastTab() {
                             {alert.severity}
                           </Badge>
                           <span className="text-muted-foreground text-xs">
-                            {alert.spike_ratio.toFixed(1)}x spike
+                            {(alert.spike_ratio ?? 0).toFixed(1)}x spike
                           </span>
                         </div>
                         <p className="text-sm">
-                          Today: ${alert.today_spend.toFixed(2)} vs 7d avg: $
-                          {alert.avg_7d_spend.toFixed(2)}
+                          Today: ${(alert.today_spend ?? 0).toFixed(2)} vs 7d
+                          avg: ${(alert.avg_7d_spend ?? 0).toFixed(2)}
                         </p>
                         <p className="text-muted-foreground text-xs">
                           Top contributor: {alert.top_contributor}
@@ -107,15 +107,15 @@ export function AlertsForecastTab() {
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <MetricsCard
                   label="Projected Runs"
-                  value={forecast.projected_monthly_runs.toLocaleString()}
+                  value={(forecast.projected_monthly_runs ?? 0).toLocaleString()}
                 />
                 <MetricsCard
                   label="Projected Compute"
-                  value={`$${forecast.projected_monthly_compute_usd.toFixed(2)}`}
+                  value={`$${(forecast.projected_monthly_compute_usd ?? 0).toFixed(2)}`}
                 />
                 <MetricsCard
                   label="Projected AI Cost"
-                  value={`$${forecast.projected_monthly_ai_cost_usd.toFixed(2)}`}
+                  value={`$${(forecast.projected_monthly_ai_cost_usd ?? 0).toFixed(2)}`}
                 />
                 <MetricsCard
                   label="Days Until Limit"

@@ -95,7 +95,7 @@ export function runWithSentryReport<T>(
           })
         )
       ),
-      Effect.catchAll((error) => Effect.fail(error.cause))
+      Effect.catchAll((error) => Effect.die(error.cause))
     )
   );
 }
