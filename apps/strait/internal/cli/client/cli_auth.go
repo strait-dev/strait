@@ -126,6 +126,9 @@ func (c *Client) PollDeviceToken(ctx context.Context, deviceCode string, interva
 		// Handle 429 (rate limited) by backing off.
 		if resp.StatusCode == http.StatusTooManyRequests {
 			pollInterval *= 2
+			if pollInterval > 30*time.Second {
+				pollInterval = 30 * time.Second
+			}
 			continue
 		}
 

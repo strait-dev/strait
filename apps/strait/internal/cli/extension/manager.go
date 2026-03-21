@@ -90,8 +90,18 @@ func Remove(dir, name string) error {
 	if name == "" {
 		return fmt.Errorf("extension name is required")
 	}
+	if strings.ContainsAny(name, "/\\") || name == ".." || name == "." {
+		return fmt.Errorf("extension name %q contains invalid path characters", name)
+	}
 
 	pluginPath := filepath.Join(dir, name)
+
+	// Verify resolved path stays within extensions directory.
+	absDir, _ := filepath.Abs(dir)
+	absPlugin, _ := filepath.Abs(pluginPath)
+	if !strings.HasPrefix(absPlugin, absDir+string(filepath.Separator)) {
+		return fmt.Errorf("extension name %q resolves outside extensions directory", name)
+	}
 	info, err := os.Stat(pluginPath)
 	if err != nil {
 		if os.IsNotExist(err) {

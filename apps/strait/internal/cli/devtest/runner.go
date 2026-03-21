@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -40,6 +41,17 @@ const MaxPayloadSize = 5 * 1024 * 1024
 func RunTest(ctx context.Context, req TestRequest) (*TestResult, error) {
 	if req.EndpointURL == "" {
 		return nil, fmt.Errorf("endpoint URL is required for job %q", req.JobSlug)
+	}
+
+	parsed, err := url.Parse(req.EndpointURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid endpoint URL: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("endpoint URL must use http or https scheme, got %q", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("endpoint URL must have a host")
 	}
 
 	payload := req.Payload

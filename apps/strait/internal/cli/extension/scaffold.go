@@ -5,12 +5,24 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Scaffold creates a new plugin directory with boilerplate files:
 // strait-plugin.json, main.go, and README.md.
 func Scaffold(name, dir string) error {
+	if strings.ContainsAny(name, "/\\") || name == ".." || name == "." {
+		return fmt.Errorf("plugin name %q contains invalid path characters", name)
+	}
+
 	pluginDir := filepath.Join(dir, name)
+
+	// Verify resolved path stays within target directory.
+	absDir, _ := filepath.Abs(dir)
+	absPlugin, _ := filepath.Abs(pluginDir)
+	if !strings.HasPrefix(absPlugin, absDir+string(filepath.Separator)) {
+		return fmt.Errorf("plugin name %q resolves outside target directory", name)
+	}
 	if _, err := os.Stat(pluginDir); err == nil {
 		return fmt.Errorf("directory %q already exists", pluginDir)
 	}

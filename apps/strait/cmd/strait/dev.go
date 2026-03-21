@@ -377,6 +377,7 @@ Requires cloudflared to be installed (offers to download if missing).`,
 			// Wait for interrupt.
 			sigCh := make(chan os.Signal, 1)
 			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+			defer signal.Stop(sigCh)
 
 			select {
 			case sig := <-sigCh:
