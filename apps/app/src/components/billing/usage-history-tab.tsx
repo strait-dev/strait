@@ -14,8 +14,7 @@ import {
   TableRow,
 } from "@strait/ui/components/table";
 import { toast } from "@strait/ui/components/toast/index";
-import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Bar,
   CartesianGrid,
@@ -53,13 +52,11 @@ const LABEL_MAP = {
 
 const UsageHistoryTab = () => {
   const { data: history } = useQuery(usageHistoryQueryOptions());
-  const [isExporting, setIsExporting] = useState(false);
 
   const isEmpty = !history || history.length === 0;
 
-  const handleExportCsv = useCallback(async () => {
-    setIsExporting(true);
-    try {
+  const exportMutation = useMutation({
+    mutationFn: async () => {
       const now = new Date();
       const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
       const csv = await fetchUsageExportCsv(period);
@@ -70,13 +67,14 @@ const UsageHistoryTab = () => {
       a.download = `usage-${period}.csv`;
       a.click();
       URL.revokeObjectURL(url);
+    },
+    onSuccess: () => {
       toast.success("CSV exported successfully");
-    } catch {
+    },
+    onError: () => {
       toast.error("Failed to export usage data");
-    } finally {
-      setIsExporting(false);
-    }
-  }, []);
+    },
+  });
 
   return (
     <div className="space-y-6">
@@ -110,12 +108,12 @@ const UsageHistoryTab = () => {
               </div>
             )}
             <Button
-              disabled={isEmpty || isExporting}
-              onClick={handleExportCsv}
+              disabled={isEmpty || exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
               size="sm"
               variant="outline"
             >
-              {isExporting ? "Exporting..." : "Download CSV"}
+              {exportMutation.isPending ? "Exporting..." : "Download CSV"}
             </Button>
           </div>
         </CardHeader>

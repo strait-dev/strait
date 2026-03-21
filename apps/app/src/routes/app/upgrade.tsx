@@ -29,6 +29,7 @@ import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
 import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import { authMiddleware } from "@/middlewares/auth";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const PLAN_SLUGS: Record<string, string> = {
   "starter-monthly": "starter-monthly",
@@ -83,6 +84,10 @@ const upgradeSearchSchema = z.object({
 
 export const Route = createFileRoute("/app/upgrade")({
   validateSearch: zodValidator(upgradeSearchSchema),
+  loader: async ({ context }) => {
+    const ctx = context as AppRouteContext;
+    await ctx.queryClient.ensureQueryData(subscriptionStateQueryOptions());
+  },
   errorComponent: ErrorComponent,
   component: RouteComponent,
 });

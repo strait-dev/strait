@@ -49,10 +49,13 @@ const ReferralProgram = () => {
   };
 
   const handleGenerateCode = () => {
-    toast.promise(createCode.mutateAsync(), {
-      loading: "Generating referral code...",
-      success: "Referral code generated!",
-      error: "Failed to generate referral code",
+    createCode.mutate(undefined, {
+      onSuccess: () => {
+        toast.success("Referral code generated!");
+      },
+      onError: () => {
+        toast.error("Failed to generate referral code");
+      },
     });
   };
 

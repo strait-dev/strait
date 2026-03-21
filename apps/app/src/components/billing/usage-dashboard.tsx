@@ -7,8 +7,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { toast } from "@strait/ui/components/toast/index";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import {
   Bar,
   BarChart,
@@ -62,18 +64,33 @@ const UsageDashboard = () => {
   const { data: history } = useQuery(usageHistoryQueryOptions());
   const { data: projectCosts } = useQuery(projectCostsQueryOptions());
   const navigate = useNavigate();
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   const handleManageBilling = async () => {
-    const result = await getCustomerPortalUrlServerFn();
-    if (result.url) {
-      window.location.href = result.url;
+    setIsRedirecting(true);
+    try {
+      const result = await getCustomerPortalUrlServerFn();
+      if (result.url) {
+        window.location.href = result.url;
+      }
+    } catch {
+      toast.error("Failed to open billing portal");
+    } finally {
+      setIsRedirecting(false);
     }
   };
 
   const handleViewInvoices = async () => {
-    const result = await getCustomerPortalUrlServerFn();
-    if (result.url) {
-      window.location.href = result.url;
+    setIsRedirecting(true);
+    try {
+      const result = await getCustomerPortalUrlServerFn();
+      if (result.url) {
+        window.location.href = result.url;
+      }
+    } catch {
+      toast.error("Failed to load invoices");
+    } finally {
+      setIsRedirecting(false);
     }
   };
 
@@ -142,7 +159,12 @@ const UsageDashboard = () => {
           >
             Upgrade Plan
           </Button>
-          <Button onClick={handleManageBilling} size="sm" variant="outline">
+          <Button
+            disabled={isRedirecting}
+            onClick={handleManageBilling}
+            size="sm"
+            variant="outline"
+          >
             Manage Billing
           </Button>
         </div>
@@ -425,10 +447,20 @@ const UsageDashboard = () => {
           {usage.usage.retention_days === 1 ? "" : "s"}
         </p>
         <div className="flex gap-2">
-          <Button onClick={handleManageBilling} size="sm" variant="link">
+          <Button
+            disabled={isRedirecting}
+            onClick={handleManageBilling}
+            size="sm"
+            variant="link"
+          >
             Manage Billing in Polar
           </Button>
-          <Button onClick={handleViewInvoices} size="sm" variant="link">
+          <Button
+            disabled={isRedirecting}
+            onClick={handleViewInvoices}
+            size="sm"
+            variant="link"
+          >
             View Invoices
           </Button>
         </div>
