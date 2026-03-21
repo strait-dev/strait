@@ -98,6 +98,14 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleRunStream)
 	})
 
+	// Org-scoped cross-project query routes.
+	r.Route("/v1/organizations/{orgID}", func(r chi.Router) {
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(chimw.Timeout(requestTimeout))
+		r.Get("/runs", s.handleListOrgRuns)
+		r.Get("/jobs", s.handleListOrgJobs)
+	})
+
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(s.projectContextMiddleware)

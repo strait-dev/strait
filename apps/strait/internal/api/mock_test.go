@@ -78,12 +78,15 @@ type mockAPIStore struct {
 	deleteWebhookSubscriptionFn          func(ctx context.Context, id string) error
 	createAPIKeyFn                       func(ctx context.Context, key *domain.APIKey) error
 	listAPIKeysByProjectFn               func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
+	listAPIKeysByOrgFn                   func(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 	revokeAPIKeyFn                       func(ctx context.Context, id string) error
 	listJobVersionsByJobFn               func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
 	getAPIKeyByHashFn                    func(ctx context.Context, keyHash string) (*domain.APIKey, error)
 	getAPIKeyByIDFn                      func(ctx context.Context, id string) (*domain.APIKey, error)
 	markAPIKeyRotatedFn                  func(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	touchAPIKeyLastUsedFn                func(ctx context.Context, id string) error
+	listRunsByOrgFn                      func(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	listJobsByOrgFn                      func(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	updateHeartbeatFn                    func(ctx context.Context, id string) error
 	batchUpdateHeartbeatFn               func(ctx context.Context, ids []string) error
 	queueStatsFn                         func(ctx context.Context) (*store.QueueStats, error)
@@ -674,6 +677,27 @@ func (m *mockAPIStore) CreateAPIKey(ctx context.Context, key *domain.APIKey) err
 func (m *mockAPIStore) ListAPIKeysByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error) {
 	if m.listAPIKeysByProjectFn != nil {
 		return m.listAPIKeysByProjectFn(ctx, projectID, limit, cursor)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListAPIKeysByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.APIKey, error) {
+	if m.listAPIKeysByOrgFn != nil {
+		return m.listAPIKeysByOrgFn(ctx, orgID, limit, cursor)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListRunsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	if m.listRunsByOrgFn != nil {
+		return m.listRunsByOrgFn(ctx, orgID, limit, cursor)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListJobsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error) {
+	if m.listJobsByOrgFn != nil {
+		return m.listJobsByOrgFn(ctx, orgID, limit, cursor)
 	}
 	return nil, nil
 }

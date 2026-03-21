@@ -16,6 +16,7 @@ import (
 )
 
 const ctxProjectIDKey contextKey = "project_id"
+const ctxOrgIDKey contextKey = "org_id"
 const ctxScopesKey contextKey = "scopes"
 const ctxAPIKeyIDKey contextKey = "api_key_id"
 const ctxActorIDKey contextKey = "actor_id"
@@ -43,6 +44,13 @@ func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 
 func projectIDFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(ctxProjectIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func orgIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxOrgIDKey).(string); ok {
 		return v
 	}
 	return ""
@@ -93,6 +101,11 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxScopesKey, apiKey.Scopes)
 		ctx = context.WithValue(ctx, ctxAPIKeyIDKey, apiKey.ID)
 		ctx = context.WithValue(ctx, ctxAuthKeyObjKey, apiKey)
+
+		// Org-scoped keys get org context set so cross-project queries work.
+		if apiKey.OrgID != "" {
+			ctx = context.WithValue(ctx, ctxOrgIDKey, apiKey.OrgID)
+		}
 
 		// Actor identity: API key requests are always attributed to the key itself.
 		// User-level actor context is only set via internal secret auth (see below)

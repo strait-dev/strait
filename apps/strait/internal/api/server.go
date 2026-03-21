@@ -293,11 +293,14 @@ type EventTriggerStore interface {
 type AuthStore interface {
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	ListAPIKeysByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
+	ListAPIKeysByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 	RevokeAPIKey(ctx context.Context, id string) error
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
 	GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error)
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
+	ListRunsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListJobsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error)
 }
 
 // RBACStore handles role-based access control.

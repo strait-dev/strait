@@ -37,6 +37,11 @@ func NewWorker(ns store.NotificationStore, client *http.Client) *Worker {
 	}
 }
 
+// RegisterSender adds or replaces a channel sender for the given channel type.
+func (w *Worker) RegisterSender(channelType string, sender ChannelSender) {
+	w.senders[channelType] = sender
+}
+
 // Start begins the background polling loop.
 func (w *Worker) Start(ctx context.Context) {
 	w.ticker = time.NewTicker(30 * time.Second)

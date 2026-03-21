@@ -157,6 +157,9 @@ func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID str
 		"timestamp":       time.Now().UTC(),
 	})
 
+	// Send email for high (5x+) and critical (10x+) spikes in addition to all channels.
+	isHighOrCritical := alert.Severity == billing.AnomalySeverityHigh || alert.Severity == billing.AnomalySeverityCritical
+
 	for _, projectID := range projectIDs {
 		channels, chErr := am.store.ListEnabledNotificationChannels(ctx, projectID)
 		if chErr != nil {
@@ -166,6 +169,11 @@ func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID str
 		}
 
 		for _, ch := range channels {
+			// Email channels only fire for high/critical spikes (5x+).
+			if ch.ChannelType == domain.ChannelTypeEmail && !isHighOrCritical {
+				continue
+			}
+
 			d := &domain.NotificationDelivery{
 				ChannelID:   ch.ID,
 				ProjectID:   projectID,

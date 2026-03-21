@@ -50,7 +50,7 @@ const (
 	ChannelTypeSlack   = "slack"
 	ChannelTypeDiscord = "discord"
 	ChannelTypeWebhook = "webhook"
-	ChannelTypeEmail   = "email" // not yet supported (no email sender implemented)
+	ChannelTypeEmail   = "email"
 )
 
 const (
@@ -58,8 +58,10 @@ const (
 	NotificationEventApprovalReminder  = "approval.reminder"
 	NotificationEventApprovalExpired   = "approval.expired"
 	NotificationEventApprovalCompleted = "approval.completed"
-	NotificationEventBudgetThreshold   = "budget.threshold_reached"
-	NotificationEventCostAnomaly       = "cost.anomaly_detected"
+	NotificationEventBudgetThreshold      = "budget.threshold_reached"
+	NotificationEventCostAnomaly          = "cost.anomaly_detected"
+	NotificationEventSpendingLimitWarning = "spending.limit_warning"
+	NotificationEventSpendingLimitReached = "spending.limit_reached"
 )
 
 // NotificationChannel represents a configured notification destination for a project.
@@ -679,10 +681,11 @@ type WebhookSubscription struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// APIKey represents a per-project API key for authentication.
+// APIKey represents a per-project or org-scoped API key for authentication.
 type APIKey struct {
 	ID                   string     `json:"id"`
 	ProjectID            string     `json:"project_id"`
+	OrgID                string     `json:"org_id,omitempty"`
 	Name                 string     `json:"name"`
 	KeyHash              string     `json:"-"`
 	KeyPrefix            string     `json:"key_prefix"`

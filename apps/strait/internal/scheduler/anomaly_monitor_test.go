@@ -740,6 +740,141 @@ func TestAnomalyMonitor_CustomThresholds_Used(t *testing.T) {
 	}
 }
 
+func TestAnomalyMonitor_5xSpike_SendsEmail(t *testing.T) {
+	t.Parallel()
+
+	var deliveries []*domain.NotificationDelivery
+	s := &mockAnomalyMonitorStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+			return defaultOrgSub("org-1"), nil
+		},
+		getOrgUsageForPeriodFn: func(_ context.Context, orgID string, _, _ time.Time) ([]billing.UsageRecord, error) {
+			return buildSpikeUsage(orgID, "proj-1", 1000, 5000), nil // 5x spike = high severity
+		},
+		listProjectsByOrgFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"proj-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{
+				{ID: "ch-webhook", ProjectID: "proj-1", ChannelType: domain.ChannelTypeWebhook},
+				{ID: "ch-email", ProjectID: "proj-1", ChannelType: domain.ChannelTypeEmail},
+			}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	am := NewAnomalyMonitor(s, time.Minute)
+	am.check(context.Background())
+
+	// At 5x (high severity): both webhook and email should fire.
+	if len(deliveries) != 2 {
+		t.Fatalf("expected 2 deliveries (webhook + email), got %d", len(deliveries))
+	}
+
+	channelIDs := map[string]bool{}
+	for _, d := range deliveries {
+		channelIDs[d.ChannelID] = true
+	}
+	if !channelIDs["ch-webhook"] || !channelIDs["ch-email"] {
+		t.Error("expected both webhook and email deliveries for 5x spike")
+	}
+}
+
+func TestAnomalyMonitor_3xSpike_NoEmail(t *testing.T) {
+	t.Parallel()
+
+	var deliveries []*domain.NotificationDelivery
+	s := &mockAnomalyMonitorStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+			return defaultOrgSub("org-1"), nil
+		},
+		getOrgUsageForPeriodFn: func(_ context.Context, orgID string, _, _ time.Time) ([]billing.UsageRecord, error) {
+			return buildSpikeUsage(orgID, "proj-1", 1000, 3000), nil // 3x spike = warning severity
+		},
+		listProjectsByOrgFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"proj-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{
+				{ID: "ch-webhook", ProjectID: "proj-1", ChannelType: domain.ChannelTypeWebhook},
+				{ID: "ch-email", ProjectID: "proj-1", ChannelType: domain.ChannelTypeEmail},
+			}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	am := NewAnomalyMonitor(s, time.Minute)
+	am.check(context.Background())
+
+	// At 3x (warning severity): only webhook should fire, not email.
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery (webhook only), got %d", len(deliveries))
+	}
+	if deliveries[0].ChannelID != "ch-webhook" {
+		t.Errorf("expected webhook channel, got %s", deliveries[0].ChannelID)
+	}
+}
+
+func TestAnomalyMonitor_WebhookPayload_IncludesTopContributor(t *testing.T) {
+	t.Parallel()
+
+	var deliveries []*domain.NotificationDelivery
+	s := &mockAnomalyMonitorStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+			return defaultOrgSub("org-1"), nil
+		},
+		getOrgUsageForPeriodFn: func(_ context.Context, orgID string, _, _ time.Time) ([]billing.UsageRecord, error) {
+			return buildSpikeUsage(orgID, "proj-main", 1000, 5000), nil
+		},
+		listProjectsByOrgFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"proj-main"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{
+				{ID: "ch-1", ProjectID: "proj-main", ChannelType: domain.ChannelTypeWebhook},
+			}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	am := NewAnomalyMonitor(s, time.Minute)
+	am.check(context.Background())
+
+	if len(deliveries) == 0 {
+		t.Fatal("expected at least 1 delivery")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
+		t.Fatalf("failed to unmarshal payload: %v", err)
+	}
+	tc, ok := payload["top_contributor"]
+	if !ok {
+		t.Fatal("payload missing top_contributor field")
+	}
+	if tc == "" {
+		t.Error("top_contributor should not be empty")
+	}
+}
+
 func TestAnomalyMonitor_NoChannels_StillLogs(t *testing.T) {
 	t.Parallel()
 
