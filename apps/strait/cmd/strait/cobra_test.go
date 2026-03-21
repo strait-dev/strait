@@ -266,7 +266,7 @@ func TestDevCommand_HasSubcommands(t *testing.T) {
 	cmd := newRootCommand()
 	dev := findSubcommand(t, cmd, "dev")
 
-	expected := []string{"status", "test"}
+	expected := []string{"status", "test", "tunnel"}
 	assertSubcommands(t, dev, expected)
 }
 

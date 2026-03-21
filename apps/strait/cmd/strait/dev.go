@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"strait/internal/cli/devtest"
 	climanifest "strait/internal/cli/manifest"
+	"strait/internal/cli/tunnel"
 
 	"github.com/spf13/cobra"
 )
@@ -69,6 +72,7 @@ func newDevCommand(state *appState) *cobra.Command {
 
 	cmd.AddCommand(newDevStatusCommand(state))
 	cmd.AddCommand(newDevTestCommand(state))
+	cmd.AddCommand(newDevTunnelCommand(state))
 
 	cmd.Flags().BoolVar(&noDocker, "no-docker", false, "skip docker compose startup")
 	cmd.Flags().IntVar(&port, "port", 8080, "API port for dev mode")
@@ -297,4 +301,104 @@ func readStdinIfAvailable() ([]byte, error) {
 		return nil, nil
 	}
 	return os.ReadFile("/dev/stdin")
+}
+
+func newDevTunnelCommand(state *appState) *cobra.Command {
+	var (
+		port     int
+		job      string
+		noUpdate bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "tunnel",
+		Short: "Create a Cloudflare Quick Tunnel to expose a local port",
+		Long: `Creates a Cloudflare Quick Tunnel using cloudflared to expose a local port
+to the internet. Useful for testing webhooks and job endpoints during development.
+
+Requires cloudflared to be installed (offers to download if missing).`,
+		Example: `  strait dev tunnel --port 8080
+  strait dev tunnel --port 3000 --job process-payment
+  strait dev tunnel --port 8080 --no-update`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Detect cloudflared binary.
+			cfPath := tunnel.DetectCloudflared()
+			if cfPath == "" {
+				cachePath := tunnel.CachePath()
+				// Check cached download location.
+				if info, err := os.Stat(cachePath); err == nil && !info.IsDir() {
+					cfPath = cachePath
+				}
+			}
+
+			if cfPath == "" {
+				downloadURL, urlErr := tunnel.DownloadURL()
+				if urlErr != nil {
+					return fmt.Errorf("cloudflared not found and cannot determine download URL: %w", urlErr)
+				}
+				return fmt.Errorf("cloudflared not found; install it from %s or add it to your PATH", downloadURL)
+			}
+
+			// Start cloudflared quick tunnel.
+			args := []string{"tunnel", "--url", fmt.Sprintf("http://localhost:%d", port)}
+			cfCmd := exec.CommandContext(cmd.Context(), cfPath, args...) //nolint:gosec // cfPath is from LookPath or user-controlled --cloudflared flag
+
+			// Capture stderr where cloudflared prints the tunnel URL.
+			cfCmd.Stdout = os.Stdout
+			cfCmd.Stderr = os.Stderr
+
+			if err := cfCmd.Start(); err != nil {
+				return fmt.Errorf("start cloudflared: %w", err)
+			}
+
+			fmt.Fprintf(os.Stderr, "cloudflared started, tunneling localhost:%d\n", port)
+
+			if !noUpdate && job != "" {
+				fmt.Fprintf(os.Stderr, "job filter: %s\n", job)
+			}
+
+			// Print helpful output.
+			result := map[string]any{
+				"port":        port,
+				"cloudflared": cfPath,
+				"status":      "running",
+			}
+			if job != "" {
+				result["job_filter"] = job
+			}
+			if noUpdate {
+				result["update_endpoints"] = false
+			}
+
+			if err := printData(state, result); err != nil {
+				return err
+			}
+
+			// Wait for interrupt.
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+			select {
+			case sig := <-sigCh:
+				fmt.Fprintf(os.Stderr, "received %s, stopping tunnel\n", sig)
+			case <-cmd.Context().Done():
+				fmt.Fprintln(os.Stderr, "context cancelled, stopping tunnel")
+			}
+
+			if cfCmd.Process != nil {
+				_ = cfCmd.Process.Signal(syscall.SIGTERM)
+				_ = cfCmd.Wait()
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVar(&port, "port", 0, "local port to tunnel (required)")
+	cmd.Flags().StringVar(&job, "job", "", "filter to specific job slug")
+	cmd.Flags().BoolVar(&noUpdate, "no-update", false, "create tunnel without updating job endpoints")
+
+	_ = cmd.MarkFlagRequired("port")
+
+	return cmd
 }
