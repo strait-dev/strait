@@ -21,6 +21,8 @@ func newLoginCommand(state *appState) *cobra.Command {
 	var withToken bool
 	var contextName string
 	var server string
+	var browser bool
+	var noBrowser bool
 
 	cmd := &cobra.Command{
 		Use:   "login",
@@ -39,6 +41,19 @@ func newLoginCommand(state *appState) *cobra.Command {
 				targetServer = state.opts.serverURL
 			}
 
+			useBrowser := browser && !noBrowser
+			if useBrowser && apiKey == "" && !withToken {
+				dashURL := cliauth.DashboardURL(targetServer)
+				if dashURL != "" {
+					keysURL := dashURL + "/settings/api-keys"
+					fmt.Fprintf(os.Stderr, "Opening %s in your browser...\n", keysURL)
+					if err := openBrowser(keysURL); err != nil {
+						fmt.Fprintf(os.Stderr, "Could not open browser. Visit %s manually.\n", keysURL)
+					}
+					fmt.Fprintln(os.Stderr, "Create an API key, then paste it below.")
+				}
+			}
+
 			resolvedKey, err := resolveAPIKeyInput(apiKey, withToken)
 			if err != nil {
 				return err
@@ -55,6 +70,9 @@ func newLoginCommand(state *appState) *cobra.Command {
 			cfg, path, err := loadConfigForWrite(state)
 			if err != nil {
 				return err
+			}
+			if cfg.Contexts == nil {
+				cfg.Contexts = make(map[string]cliconfig.Context)
 			}
 			ctx := cfg.Contexts[targetContext]
 			if targetServer != "" {
@@ -78,6 +96,8 @@ func newLoginCommand(state *appState) *cobra.Command {
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "read API key from stdin")
 	cmd.Flags().StringVar(&contextName, "context", "", "context to save API key under")
 	cmd.Flags().StringVar(&server, "server", "", "server URL to validate against")
+	cmd.Flags().BoolVar(&browser, "browser", false, "open the dashboard API key page in your browser")
+	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "do not open browser")
 
 	return cmd
 }

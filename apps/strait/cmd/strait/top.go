@@ -114,7 +114,8 @@ func newTopJobsCommand(state *appState) *cobra.Command {
 			if limit <= 0 {
 				return fmt.Errorf("limit must be greater than zero")
 			}
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}

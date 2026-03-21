@@ -92,7 +92,8 @@ func newWorkflowRunsListCommand(state *appState) *cobra.Command {
 		Use:   "list",
 		Short: "List workflow runs",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}

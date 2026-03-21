@@ -56,6 +56,12 @@ func newRootCommand() *cobra.Command {
 				return err
 			}
 
+			if loaded.IsLocal && loaded.Exists {
+				if fields := cliconfig.HasSensitiveLocalFields(loaded.Data); len(fields) > 0 {
+					fmt.Fprintf(os.Stderr, "warning: local config %s overrides: %s\n", loaded.Path, strings.Join(fields, ", "))
+				}
+			}
+
 			resolved := cliconfig.Resolve(cliconfig.ResolveInput{
 				Flags: map[string]string{
 					"server":  opts.serverURL,
@@ -195,6 +201,16 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newProfileCommand(state))
 	cmd.AddCommand(newDeployCommand(state))
 	cmd.AddCommand(newProjectCommand(state))
+	cmd.AddCommand(newBuildCommand(state))
+	cmd.AddCommand(newDoctorCommand(state))
+	cmd.AddCommand(newOpenCommand(state))
+	cmd.AddCommand(newStatusCommand(state))
+	cmd.AddCommand(newDebugCommand(state))
+	cmd.AddCommand(newCreateCommand(state))
+	cmd.AddCommand(newCICommand(state))
+	cmd.AddCommand(newPerfCommand(state))
+	cmd.AddCommand(newTeamCommand(state))
+	cmd.AddCommand(newAuditCommand(state))
 
 	rawArgs := os.Args[1:]
 	configPath := extractConfigPath(rawArgs)
@@ -282,6 +298,19 @@ func normalizeLegacyArgs(args []string) []string {
 		"upgrade":       {},
 		"backup":        {},
 		"profile":       {},
+		"deploy":        {},
+		"project":       {},
+		"build":         {},
+		"doctor":        {},
+		"open":          {},
+		"status":        {},
+		"debug":         {},
+		"create":        {},
+		"ci":            {},
+		"perf":          {},
+		"team":          {},
+		"audit":         {},
+		"triggers":      {},
 	}
 
 	first := args[0]
