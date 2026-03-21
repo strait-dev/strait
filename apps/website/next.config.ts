@@ -16,6 +16,7 @@ const nextConfig: NextConfig = {
       "@hugeicons/core-free-icons",
       "@hugeicons/react",
       "date-fns",
+      "react-syntax-highlighter",
     ],
   },
   images: {

@@ -26,7 +26,7 @@ const FEATURES: FeatureCard[] = [
     subtitle: "Never lose a job again",
     description:
       "Every run tracks through 13 states from queued to completed. Failed jobs retry with exponential backoff, dead runs route to DLQ for review, and stale jobs clean up on their own.",
-    span: "sm:col-span-1 lg:col-span-6",
+    span: "sm:col-span-1 lg:col-span-4",
     Animation: QueueAnimation,
   },
   {
@@ -44,7 +44,7 @@ const FEATURES: FeatureCard[] = [
     subtitle: "Zero infrastructure to manage",
     description:
       "Your code runs in containers with warm pools, multi-region deployment, and automatic scaling. Ship without provisioning servers.",
-    span: "sm:col-span-1 lg:col-span-4",
+    span: "sm:col-span-1 lg:col-span-6",
     Animation: ExecutionAnimation,
   },
   {

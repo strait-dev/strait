@@ -811,6 +811,19 @@
   animation: flow-dash 1s linear infinite;
 }
 
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee var(--marquee-duration, 30s) linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .parallax-slow,
   .demo-cursor,
@@ -830,6 +843,7 @@
   .animate-scale-in,
   .animate-gradient-shimmer,
   .animate-glow-pulse,
+  .animate-marquee,
   .animate-flow-dash {
     opacity: 1 !important;
     transform: none !important;

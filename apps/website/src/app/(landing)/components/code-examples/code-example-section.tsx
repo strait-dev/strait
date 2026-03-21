@@ -1,7 +1,9 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
 import MockBrowserWindow from "@/components/magicui/mock-browser-window.tsx";
@@ -11,168 +13,111 @@ const TABS = [
   {
     label: "Define a job",
     filename: "jobs/process-order.ts",
-    lines: [
-      { text: "import", kind: "keyword" },
-      { text: " { defineJob } ", kind: "default" },
-      { text: "from", kind: "keyword" },
-      { text: ' "@strait/sdk"', kind: "string" },
-      { text: ";\n\n", kind: "default" },
-      { text: "export default", kind: "keyword" },
-      { text: " defineJob(", kind: "default" },
-      { text: '"process-order"', kind: "string" },
-      { text: ", {\n", kind: "default" },
-      { text: "  retries: 3,\n", kind: "default" },
-      { text: "  backoff: ", kind: "default" },
-      { text: '"exponential"', kind: "string" },
-      { text: ",\n", kind: "default" },
-      { text: "  timeout: ", kind: "default" },
-      { text: '"30s"', kind: "string" },
-      { text: ",\n\n", kind: "default" },
-      { text: "  async", kind: "keyword" },
-      { text: " handler(run) {\n", kind: "default" },
-      { text: "    ", kind: "default" },
-      { text: "const", kind: "keyword" },
-      { text: " order = ", kind: "default" },
-      { text: "await", kind: "keyword" },
-      { text: " db.orders.find(run.payload.orderId);\n", kind: "default" },
-      { text: "    ", kind: "default" },
-      { text: "await", kind: "keyword" },
-      { text: " chargePayment(order);\n", kind: "default" },
-      { text: "    ", kind: "default" },
-      { text: "await", kind: "keyword" },
-      { text: " sendConfirmation(order);\n", kind: "default" },
-      { text: "  },\n});", kind: "default" },
-    ],
+    language: "typescript",
+    code: `import { defineJob } from "@strait/sdk";
+
+export default defineJob("process-order", {
+  retries: 3,
+  backoff: "exponential",
+  timeout: "30s",
+
+  async handler(run) {
+    const order = await db.orders.find(run.payload.orderId);
+    await chargePayment(order);
+    await sendConfirmation(order);
+  },
+});`,
   },
   {
     label: "Create a workflow",
     filename: "workflows/checkout.ts",
-    lines: [
-      { text: "import", kind: "keyword" },
-      { text: " { defineWorkflow } ", kind: "default" },
-      { text: "from", kind: "keyword" },
-      { text: ' "@strait/sdk"', kind: "string" },
-      { text: ";\n\n", kind: "default" },
-      { text: "export default", kind: "keyword" },
-      { text: " defineWorkflow(", kind: "default" },
-      { text: '"checkout-flow"', kind: "string" },
-      { text: ", {\n", kind: "default" },
-      { text: "  steps: {\n", kind: "default" },
-      { text: "    validate:  { job: ", kind: "default" },
-      { text: '"validate-order"', kind: "string" },
-      { text: " },\n", kind: "default" },
-      { text: "    charge:   { job: ", kind: "default" },
-      { text: '"charge-payment"', kind: "string" },
-      { text: ", after: [", kind: "default" },
-      { text: '"validate"', kind: "string" },
-      { text: "] },\n", kind: "default" },
-      { text: "    approve:  { gate: ", kind: "default" },
-      { text: '"manual"', kind: "string" },
-      { text: ", after: [", kind: "default" },
-      { text: '"charge"', kind: "string" },
-      { text: "] },\n", kind: "default" },
-      { text: "    fulfill:  { job: ", kind: "default" },
-      { text: '"fulfill-order"', kind: "string" },
-      { text: ", after: [", kind: "default" },
-      { text: '"approve"', kind: "string" },
-      { text: "] },\n", kind: "default" },
-      { text: "    notify:   { job: ", kind: "default" },
-      { text: '"send-receipt"', kind: "string" },
-      { text: ", after: [", kind: "default" },
-      { text: '"fulfill"', kind: "string" },
-      { text: "] },\n", kind: "default" },
-      { text: "  },\n});", kind: "default" },
-    ],
+    language: "typescript",
+    code: `import { defineWorkflow } from "@strait/sdk";
+
+export default defineWorkflow("checkout-flow", {
+  steps: {
+    validate:  { job: "validate-order" },
+    charge:   { job: "charge-payment", after: ["validate"] },
+    approve:  { gate: "manual", after: ["charge"] },
+    fulfill:  { job: "fulfill-order", after: ["approve"] },
+    notify:   { job: "send-receipt", after: ["fulfill"] },
+  },
+});`,
   },
   {
     label: "AI agent guardrails",
     filename: "jobs/ai-research.ts",
-    lines: [
-      { text: "import", kind: "keyword" },
-      { text: " { defineJob } ", kind: "default" },
-      { text: "from", kind: "keyword" },
-      { text: ' "@strait/sdk"', kind: "string" },
-      { text: ";\n\n", kind: "default" },
-      { text: "export default", kind: "keyword" },
-      { text: " defineJob(", kind: "default" },
-      { text: '"ai-research-agent"', kind: "string" },
-      { text: ", {\n", kind: "default" },
-      { text: "  budget: { maxCost: ", kind: "default" },
-      { text: '"$5.00"', kind: "string" },
-      { text: ", model: ", kind: "default" },
-      { text: '"gpt-4o"', kind: "string" },
-      { text: " },\n", kind: "default" },
-      { text: "  approvalRequired: ", kind: "default" },
-      { text: "true", kind: "keyword" },
-      { text: ",\n", kind: "default" },
-      { text: "  retries: 1,\n\n", kind: "default" },
-      { text: "  async", kind: "keyword" },
-      { text: " handler(run) {\n", kind: "default" },
-      { text: "    ", kind: "default" },
-      { text: "const", kind: "keyword" },
-      { text: " result = ", kind: "default" },
-      { text: "await", kind: "keyword" },
-      { text: " run.ai.complete({\n", kind: "default" },
-      { text: "      prompt: run.payload.query,\n", kind: "default" },
-      { text: "      tools: [searchWeb, readDocs],\n", kind: "default" },
-      { text: "    });\n", kind: "default" },
-      { text: "    ", kind: "default" },
-      { text: "return", kind: "keyword" },
-      { text: " result;\n", kind: "default" },
-      { text: "    ", kind: "default" },
-      { text: "// cost is tracked automatically", kind: "comment" },
-      { text: "\n  },\n});", kind: "default" },
-    ],
+    language: "typescript",
+    code: `import { defineJob } from "@strait/sdk";
+
+export default defineJob("ai-research-agent", {
+  budget: { maxCost: "$5.00", model: "gpt-4o" },
+  approvalRequired: true,
+  retries: 1,
+
+  async handler(run) {
+    const result = await run.ai.complete({
+      prompt: run.payload.query,
+      tools: [searchWeb, readDocs],
+    });
+    return result;
+    // cost is tracked automatically
+  },
+});`,
   },
   {
     label: "Stream with React",
     filename: "components/order-status.tsx",
-    lines: [
-      { text: "import", kind: "keyword" },
-      { text: " { useRun } ", kind: "default" },
-      { text: "from", kind: "keyword" },
-      { text: ' "@strait/react"', kind: "string" },
-      { text: ";\n\n", kind: "default" },
-      { text: "export function", kind: "keyword" },
-      { text: " OrderStatus({ runId }: { runId: ", kind: "default" },
-      { text: "string", kind: "keyword" },
-      { text: " }) {\n", kind: "default" },
-      { text: "  ", kind: "default" },
-      { text: "const", kind: "keyword" },
-      {
-        text: " { status, steps, cost } = useRun(runId);\n\n",
-        kind: "default",
-      },
-      { text: "  ", kind: "default" },
-      { text: "return", kind: "keyword" },
-      { text: " (\n", kind: "default" },
-      { text: "    <div>\n", kind: "default" },
-      { text: "      <p>Status: {status}</p>\n", kind: "default" },
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: intentional code display text
-      { text: "      <p>Cost: ${cost.total}</p>\n", kind: "default" },
-      { text: "      {steps.map(step =>\n", kind: "default" },
-      { text: "        <Step ", kind: "default" },
-      { text: "key", kind: "keyword" },
-      { text: "={step.id} {...step} />\n", kind: "default" },
-      { text: "      )}\n", kind: "default" },
-      { text: "    </div>\n  );\n}", kind: "default" },
-    ],
+    language: "tsx",
+    code: `import { useRun } from "@strait/react";
+
+export function OrderStatus({ runId }: { runId: string }) {
+  const { status, steps, cost } = useRun(runId);
+
+  return (
+    <div>
+      <p>Status: {status}</p>
+      <p>Cost: \${cost.total}</p>
+      {steps.map(step =>
+        <Step key={step.id} {...step} />
+      )}
+    </div>
+  );
+}`,
   },
 ] as const;
 
-type CodeToken = { text: string; kind: string };
-
-function getPlainText(tokens: readonly CodeToken[]): string {
-  return tokens.map((t) => t.text).join("");
-}
+const customTheme = {
+  ...oneDark,
+  'pre[class*="language-"]': {
+    ...oneDark['pre[class*="language-"]'],
+    background: "transparent",
+    margin: 0,
+    padding: 0,
+    fontSize: "0.875rem",
+    lineHeight: "1.625",
+  },
+  'code[class*="language-"]': {
+    ...oneDark['code[class*="language-"]'],
+    background: "transparent",
+    fontSize: "0.875rem",
+    lineHeight: "1.625",
+  },
+};
 
 const CopyButton = ({ text }: { text: string }) => {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    return () => clearTimeout(timerRef.current);
+  }, []);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(text);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopied(false), 2000);
   }, [text]);
 
   return (
@@ -215,31 +160,6 @@ const CopyButton = ({ text }: { text: string }) => {
     </button>
   );
 };
-
-const CodeDisplay = ({ tokens }: { tokens: readonly CodeToken[] }) => (
-  <pre className="overflow-x-auto font-mono text-sm leading-relaxed">
-    <code>
-      {tokens.map((token, i) => {
-        let className = "text-foreground/80";
-        if (token.kind === "keyword") {
-          className = "text-primary";
-        } else if (token.kind === "string") {
-          className = "text-success";
-        } else if (token.kind === "comment") {
-          className = "text-muted-foreground";
-        }
-        return (
-          <span
-            className={className}
-            key={`${String(i)}-${token.text.slice(0, 8)}`}
-          >
-            {token.text}
-          </span>
-        );
-      })}
-    </code>
-  </pre>
-);
 
 const CodeExampleSection = () => {
   const [activeTab, setActiveTab] = useState(0);
@@ -315,7 +235,7 @@ const CodeExampleSection = () => {
 
         <Reveal delay={0.1} spring variant="scale">
           <MockBrowserWindow
-            actions={<CopyButton text={getPlainText(currentTab.lines)} />}
+            actions={<CopyButton text={currentTab.code} />}
             url={currentTab.filename}
           >
             <div
@@ -332,7 +252,12 @@ const CodeExampleSection = () => {
                   key={activeTab}
                   transition={SPRING_SNAPPY}
                 >
-                  <CodeDisplay tokens={currentTab.lines} />
+                  <SyntaxHighlighter
+                    language={currentTab.language}
+                    style={customTheme}
+                  >
+                    {currentTab.code}
+                  </SyntaxHighlighter>
                 </motion.div>
               </AnimatePresence>
             </div>
