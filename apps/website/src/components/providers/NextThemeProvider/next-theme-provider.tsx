@@ -14,6 +14,7 @@ const NextThemeProvider = ({ children }: Props) => (
     disableTransitionOnChange
     enableColorScheme={false}
     enableSystem={false}
+    forcedTheme="dark"
     themes={["light", "dark"]}
   >
     <TooltipProvider>{children}</TooltipProvider>

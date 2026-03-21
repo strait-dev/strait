@@ -25,6 +25,7 @@ import { cn } from "@strait/ui/utils";
 import Link from "next/link";
 import { Fragment, useId, useState } from "react";
 
+import Shell from "@/components/layout/shell.tsx";
 import type {
   PlanSummary,
   PricingComparisonClientProps,
@@ -96,9 +97,6 @@ function PlanPrice({
           <span className="font-light text-muted-foreground text-sm">/mo</span>
         )}
       </p>
-      {isFree && (
-        <p className="mt-1 text-muted-foreground/60 text-xs">Free forever</p>
-      )}
     </div>
   );
 }
@@ -223,7 +221,7 @@ const PricingComparisonClient = ({
       className="bg-background py-20 sm:py-28"
       id={sectionId}
     >
-      <div className="mx-auto max-w-7xl px-6 lg:px-8">
+      <Shell variant="wide">
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">
           <span className="kicker">{header.badge}</span>
           <h2
@@ -296,7 +294,7 @@ const PricingComparisonClient = ({
         {/* Desktop table */}
         <div className="mt-16 hidden lg:block">
           <div className="border-border/50 border-y">
-            <div className="mx-auto max-w-6xl border-border/50 border-x">
+            <div className="mx-auto border-border/50 border-x">
               <table className="w-full border-collapse">
                 <caption className="sr-only">
                   Pricing plan comparison table
@@ -428,7 +426,7 @@ const PricingComparisonClient = ({
             </div>
           </div>
         </div>
-      </div>
+      </Shell>
     </section>
   );
 };

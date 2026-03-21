@@ -87,7 +87,7 @@ const PricingFaqClient = ({
             <Button
               className="inline-flex"
               render={<Link href="mailto:leonardomso11@gmail.com" />}
-              size="sm"
+              size="default"
               variant="link"
             >
               Contact our team

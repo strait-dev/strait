@@ -57,7 +57,7 @@ const Header = () => {
               <Button
                 render={<Link href={dashboardHref("/login")} />}
                 size="default"
-                variant="ghost"
+                variant="outline"
               >
                 Sign in
               </Button>

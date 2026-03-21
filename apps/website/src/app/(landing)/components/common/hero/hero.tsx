@@ -58,7 +58,8 @@ const Hero = () => {
                     target="_blank"
                   />
                 }
-                variant="ghost"
+                size="default"
+                variant="outline"
               >
                 View on GitHub
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />

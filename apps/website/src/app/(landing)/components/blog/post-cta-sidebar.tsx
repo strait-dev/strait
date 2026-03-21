@@ -70,7 +70,7 @@ const PostCtaSidebar = async () => {
         <Button
           className="mt-6 w-full"
           render={<Link href={dashboardHref(buttonHref)} />}
-          size="sm"
+          size="default"
         >
           {buttonText}
           <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />

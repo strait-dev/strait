@@ -9,7 +9,6 @@ import {
   JsonLd,
 } from "@/lib/structured-data.tsx";
 import Hero from "./components/common/hero/hero.tsx";
-import LogoWall from "./components/logos/logo-wall.tsx";
 import PricingTeaser from "./components/pricing/pricing-teaser.tsx";
 
 const FeatureBentoGrid = dynamic(
@@ -80,7 +79,6 @@ const LandingPage = () => {
       <JsonLd data={softwareAppSchema} />
       {howToSchema ? <JsonLd data={howToSchema} /> : null}
       <Hero />
-      <LogoWall />
       <Suspense fallback={null}>
         <ProblemSection />
       </Suspense>
