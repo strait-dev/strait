@@ -82,14 +82,21 @@ func newAliasListCommand(state *appState) *cobra.Command {
 			for k := range cfg.Aliases {
 				keys = append(keys, k)
 			}
-			rows := make([]map[string]any, 0, len(keys))
 			sort.Strings(keys)
-			for _, k := range keys {
-				expansion := cfg.Aliases[k]
-				if isTTYRich(state) {
-					expansion = styles.MutedStyle.Render(expansion)
+
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Aliases", len(keys)))
+				for _, k := range keys {
+					fmt.Fprintf(os.Stderr, "  %s -> %s\n",
+						styles.Bold.Render(k),
+						styles.MutedStyle.Render(cfg.Aliases[k]),
+					)
 				}
-				rows = append(rows, map[string]any{"alias": styles.Bold.Render(k), "expansion": expansion})
+				return nil
+			}
+			rows := make([]map[string]any, 0, len(keys))
+			for _, k := range keys {
+				rows = append(rows, map[string]any{"alias": k, "expansion": cfg.Aliases[k]})
 			}
 			return printData(state, rows)
 		},

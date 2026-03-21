@@ -132,21 +132,34 @@ func newContextListCommand(state *appState) *cobra.Command {
 				cfg = &cliconfig.File{}
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Contexts", len(cfg.Contexts)))
+				for name, ctx := range cfg.Contexts {
+					marker := "  "
+					displayName := name
+					if cfg.ActiveContext == name {
+						marker = "* "
+						displayName = styles.SelectedStyle.Render(name)
+					}
+					fmt.Fprintf(os.Stderr, "  %s%s  server=%s  project=%s\n",
+						marker,
+						displayName,
+						styles.MutedStyle.Render(ctx.Server),
+						styles.MutedStyle.Render(ctx.Project),
+					)
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(cfg.Contexts))
 			for name, ctx := range cfg.Contexts {
-				displayName := name
-				if isTTYRich(state) && cfg.ActiveContext == name {
-					displayName = styles.SelectedStyle.Render(name + " *")
-				}
 				rows = append(rows, map[string]any{
-					"name":    displayName,
+					"name":    name,
 					"active":  cfg.ActiveContext == name,
 					"server":  ctx.Server,
 					"project": ctx.Project,
 					"format":  ctx.Format,
 				})
 			}
-
 			return printData(state, rows)
 		},
 	}
@@ -161,10 +174,23 @@ func newContextCurrentCommand(state *appState) *cobra.Command {
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := state.config
 			if cfg == nil || cfg.ActiveContext == "" {
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.Info("No active context"))
+					return nil
+				}
 				return printData(state, map[string]any{"active_context": ""})
 			}
 
 			ctx := cfg.Contexts[cfg.ActiveContext]
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.DetailBox("Current Context", []string{
+					styles.DetailLine("Name", styles.Bold.Render(cfg.ActiveContext)),
+					styles.DetailLine("Server", ctx.Server),
+					styles.DetailLine("Project", ctx.Project),
+					styles.DetailLine("Format", ctx.Format),
+				}))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"name":    cfg.ActiveContext,
 				"server":  ctx.Server,

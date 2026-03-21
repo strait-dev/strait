@@ -202,6 +202,26 @@ func printGroupedLogs(state *appState, rows []map[string]any) error {
 		groups[slug] = append(groups[slug], row)
 	}
 
+	if isTTYRich(state) {
+		for _, slug := range order {
+			events := groups[slug]
+			levelCounts := make(map[string]int)
+			for _, e := range events {
+				l, _ := e["level"].(string)
+				if l == "" {
+					l = "unknown"
+				}
+				levelCounts[l]++
+			}
+			fmt.Fprintf(os.Stderr, "  %s  %d event(s)  %v\n",
+				styles.Bold.Render(slug),
+				len(events),
+				levelCounts,
+			)
+		}
+		return nil
+	}
+
 	summary := make([]map[string]any, 0, len(groups))
 	for _, slug := range order {
 		events := groups[slug]
@@ -219,7 +239,6 @@ func printGroupedLogs(state *appState, rows []map[string]any) error {
 			"levels":       levelCounts,
 		})
 	}
-
 	return printData(state, summary)
 }
 

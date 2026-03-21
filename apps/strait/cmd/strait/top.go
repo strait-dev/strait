@@ -87,6 +87,16 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 						counts[string(run.Status)]++
 					}
 
+					if ttyMode {
+						fmt.Fprintln(os.Stderr, styles.SectionHeader("Queue ("+projectID+")", -1))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Queued", fmt.Sprintf("%d", counts["queued"])))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Executing", fmt.Sprintf("%d", counts["executing"])))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Delayed", fmt.Sprintf("%d", counts["delayed"])))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Waiting", fmt.Sprintf("%d", counts["waiting"])))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Failed", fmt.Sprintf("%d", counts["failed"]+counts["timed_out"]+counts["crashed"]+counts["system_failed"])))
+						return nil
+					}
+
 					rows = append(rows,
 						map[string]any{"metric": "queued", "value": counts["queued"], "scope": projectID, "sampled_at": sampledAt},
 						map[string]any{"metric": "executing", "value": counts["executing"], "scope": projectID, "sampled_at": sampledAt},
@@ -203,6 +213,20 @@ func newTopJobsCommand(state *appState) *cobra.Command {
 					rows = rows[:limit]
 				}
 
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.SectionHeader("Job Activity", len(rows)))
+					for _, r := range rows {
+						fmt.Fprintf(os.Stderr, "  %s  %s  active=%d  failed=%d  total=%d\n",
+							styles.Enabled(r.Enabled),
+							styles.Bold.Render(r.Slug),
+							r.Active,
+							r.Failed,
+							r.Total,
+						)
+					}
+					return nil
+				}
+
 				sampledAt := time.Now().UTC().Format(time.RFC3339)
 				out := make([]map[string]any, 0, len(rows))
 				for _, r := range rows {
@@ -217,7 +241,6 @@ func newTopJobsCommand(state *appState) *cobra.Command {
 						"sampled_at":   sampledAt,
 					})
 				}
-
 				return printData(state, out)
 			})
 		},

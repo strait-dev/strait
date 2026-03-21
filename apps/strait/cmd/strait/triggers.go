@@ -51,22 +51,28 @@ func newTriggersListCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Event Triggers", len(triggers)))
+				for _, t := range triggers {
+					fmt.Fprintf(os.Stderr, "  %s  %s  %s\n",
+						styles.Bold.Render(t.EventKey),
+						styles.StatusBadge(t.Status),
+						styles.MutedStyle.Render(t.SourceType),
+					)
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(triggers))
 			for _, t := range triggers {
-				status := t.Status
-				if isTTYRich(state) {
-					status = styles.StatusBadge(t.Status)
-				}
 				rows = append(rows, map[string]any{
 					"id":           t.ID,
 					"event_key":    t.EventKey,
-					"status":       status,
+					"status":       t.Status,
 					"source_type":  t.SourceType,
 					"requested_at": t.RequestedAt,
 					"expires_at":   t.ExpiresAt,
 				})
 			}
-
 			return printData(state, rows)
 		},
 	}
@@ -96,6 +102,17 @@ func newTriggersGetCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.DetailBox("Event Trigger", []string{
+					styles.DetailLine("ID", trigger.ID),
+					styles.DetailLine("Event Key", styles.Bold.Render(trigger.EventKey)),
+					styles.DetailLine("Status", styles.StatusBadge(trigger.Status)),
+					styles.DetailLine("Source", trigger.SourceType),
+					styles.DetailLine("Timeout", fmt.Sprintf("%ds", trigger.TimeoutSecs)),
+					styles.DetailLine("Requested", styles.RelativeTime(trigger.RequestedAt)),
+				}))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"id":                   trigger.ID,
 				"event_key":            trigger.EventKey,
@@ -183,6 +200,14 @@ func newTriggersPurgeCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				if dryRun {
+					fmt.Fprintln(os.Stderr, styles.Info(fmt.Sprintf("Would delete %d trigger(s)", count)))
+				} else {
+					fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Purged %d trigger(s)", count)))
+				}
+				return nil
+			}
 			if dryRun {
 				return printData(state, map[string]any{"dry_run": true, "would_delete": count})
 			}

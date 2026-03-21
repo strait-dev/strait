@@ -222,6 +222,10 @@ func newDeployCreateCommand(state *appState) *cobra.Command {
 			}
 
 			if dryRun {
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.Info("Dry run: manifest preview"))
+					return nil
+				}
 				return printData(state, manifest)
 			}
 
@@ -229,6 +233,13 @@ func newDeployCreateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Created deployment "+styles.Bold.Render(deployment.ID)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Environment", resolvedEnv))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Checksum", manifest.Checksum))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Status", deployment.Status))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"deployment_id": deployment.ID,
 				"project_id":    manifest.ProjectID,
@@ -271,6 +282,10 @@ func newDeployFinalizeCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Finalized deployment "+styles.Bold.Render(args[0])))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"deployment_id": args[0],
 				"project_id":    resolvedProject,
@@ -318,6 +333,10 @@ func newDeployPromoteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Promoted deployment "+styles.Bold.Render(args[0])+" to "+env))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"promoted":    true,
 				"deployment":  args[0],
@@ -369,6 +388,10 @@ func newDeployRollbackCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Rolled back to deployment "+styles.Bold.Render(toID)+" in "+env))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"rolled_back": true,
 				"deployment":  toID,
@@ -408,17 +431,29 @@ func newDeployListCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Deployments", len(deps)))
+				for _, dep := range deps {
+					fmt.Fprintf(os.Stderr, "  %s  %s  %s  %s  %s\n",
+						styles.Bold.Render(dep.ID),
+						dep.Environment,
+						styles.StatusBadge(dep.Status),
+						styles.MutedStyle.Render(dep.Checksum),
+						styles.RelativeTime(dep.CreatedAt),
+					)
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(deps))
 			for _, dep := range deps {
 				rows = append(rows, map[string]any{
 					"id":          dep.ID,
 					"environment": dep.Environment,
-					"status":      styles.Status(dep.Status),
+					"status":      dep.Status,
 					"checksum":    dep.Checksum,
 					"created_at":  dep.CreatedAt,
 				})
 			}
-
 			return printData(state, rows)
 		},
 	}

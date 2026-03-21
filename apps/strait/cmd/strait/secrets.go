@@ -61,21 +61,27 @@ func newSecretsListCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Secrets", len(secrets)))
+				for _, s := range secrets {
+					fmt.Fprintf(os.Stderr, "  %s  %s  %s\n",
+						styles.Bold.Render(s.SecretKey),
+						styles.MutedStyle.Render(s.Environment),
+						styles.RelativeTime(s.CreatedAt),
+					)
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(secrets))
 			for _, s := range secrets {
-				env := s.Environment
-				if isTTYRich(state) {
-					env = styles.MutedStyle.Render(s.Environment)
-				}
 				rows = append(rows, map[string]any{
 					"id":          s.ID,
 					"key":         s.SecretKey,
-					"environment": env,
+					"environment": s.Environment,
 					"value":       "***",
 					"created_at":  s.CreatedAt,
 				})
 			}
-
 			return printData(state, rows)
 		},
 	}
@@ -248,6 +254,10 @@ func newSecretsLocalCreateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Stored local secret "+styles.Bold.Render(name)))
+				return nil
+			}
 			return printData(state, map[string]any{"project": projectID, "name": name, "stored": true})
 		},
 	}
@@ -279,11 +289,18 @@ func newSecretsLocalListCommand(state *appState) *cobra.Command {
 
 			names := append([]string(nil), cfg.Secrets[projectID]...)
 			sort.Strings(names)
+
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Local Secrets", len(names)))
+				for _, name := range names {
+					fmt.Fprintf(os.Stderr, "  %s\n", styles.Bold.Render(name))
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(names))
 			for _, name := range names {
 				rows = append(rows, map[string]any{"project": projectID, "name": name})
 			}
-
 			return printData(state, rows)
 		},
 	}
@@ -333,6 +350,10 @@ func newSecretsLocalDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Deleted local secret "+styles.Bold.Render(name)))
+				return nil
+			}
 			return printData(state, map[string]any{"project": projectID, "name": name, "deleted": true})
 		},
 	}

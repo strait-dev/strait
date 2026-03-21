@@ -312,6 +312,17 @@ func newAuthCommand(state *appState) *cobra.Command {
 
 			_, err := cliauth.LoadAPIKey(targetContext)
 			authed := err == nil
+
+			if isTTYRich(state) {
+				if authed {
+					fmt.Fprintln(os.Stderr, styles.Success("Authenticated"))
+				} else {
+					fmt.Fprintln(os.Stderr, styles.Warn("Not authenticated"))
+				}
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Context", targetContext))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Server", state.opts.serverURL))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"authenticated": authed,
 				"context":       targetContext,

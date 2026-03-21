@@ -96,16 +96,15 @@ func newAPIKeysListCommand(state *appState) *cobra.Command {
 				return err
 			}
 			if isTTYRich(state) {
-				rows := make([]map[string]any, 0, len(keys))
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("API Keys", len(keys)))
 				for _, k := range keys {
-					rows = append(rows, map[string]any{
-						"id":     k.ID,
-						"name":   k.Name,
-						"prefix": styles.MutedStyle.Render(k.KeyPrefix),
-						"scopes": strings.Join(k.Scopes, ","),
-					})
+					fmt.Fprintf(os.Stderr, "  %s  %s  %s\n",
+						styles.Bold.Render(k.Name),
+						styles.MutedStyle.Render(k.KeyPrefix),
+						styles.MutedStyle.Render(strings.Join(k.Scopes, ",")),
+					)
 				}
-				return printData(state, rows)
+				return nil
 			}
 			return printData(state, keys)
 		},

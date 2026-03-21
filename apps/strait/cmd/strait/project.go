@@ -8,6 +8,7 @@ import (
 
 	"strait/internal/bundle"
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 	"strait/internal/domain"
 
 	"github.com/spf13/cobra"
@@ -98,6 +99,13 @@ func newProjectExportCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("writing bundle file: %w", err)
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Exported project to "+styles.FilePath(outputFile)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Jobs", fmt.Sprintf("%d", len(jobs))))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Workflows", fmt.Sprintf("%d", len(workflows))))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Environments", fmt.Sprintf("%d", len(environments))))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"project_id":   projectID,
 				"output":       outputFile,
@@ -186,6 +194,13 @@ func newProjectImportCommand(state *appState) *cobra.Command {
 			diff := bundle.ComputeDiff(b, existingJobSlugs, existingWFSlugs, existingEnvSlugs)
 
 			if dryRun {
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.Info(fmt.Sprintf("Dry run: %d change(s) detected", len(diff))))
+					for _, entry := range diff {
+						fmt.Fprintf(os.Stderr, "  %s %s/%s\n", entry.Action, entry.ResourceType, entry.Slug)
+					}
+					return nil
+				}
 				return printData(state, map[string]any{
 					"dry_run": true,
 					"diff":    diff,
@@ -214,6 +229,13 @@ func newProjectImportCommand(state *appState) *cobra.Command {
 				}
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Import complete: %d created, %d updated, %d skipped", result.Created, result.Updated, result.Skipped)))
+				if result.Failed > 0 {
+					fmt.Fprintln(os.Stderr, styles.Warn(fmt.Sprintf("%d failed", result.Failed)))
+				}
+				return nil
+			}
 			return printData(state, result)
 		},
 	}
