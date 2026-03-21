@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"strait/internal/cli/client"
+	clitui "strait/internal/cli/tui"
 	"strait/internal/domain"
 
 	"github.com/gdamore/tcell/v2"
@@ -72,9 +73,13 @@ type tuiDashboard struct {
 	detailView *tview.TextView
 	layout     *tview.Flex
 
+	helpOverlay *tview.TextView
+	pages       *tview.Pages
+
 	mu            sync.Mutex
 	selectedRunID string
 	rowsByIndex   map[int]runRow
+	showingHelp   bool
 }
 
 type runRow struct {
@@ -88,7 +93,7 @@ func newTUIDashboard(cli *client.Client, projectID string, runLimit, eventLimit 
 	header := tview.NewTextView().
 		SetDynamicColors(true).
 		SetWrap(true).
-		SetText("[::b]Strait TUI[::-]  [yellow]Tab[-]:focus  [yellow]j/k[-]:nav  [yellow]Enter[-]:inspect  [yellow]r[-]:refresh  [yellow]q[-]:quit")
+		SetText("[::b]Strait TUI[::-]  [yellow]?[-]:help  [yellow]Tab[-]:focus  [yellow]j/k[-]:nav  [yellow]t[-]:trigger  [yellow]c[-]:cancel  [yellow]r[-]:refresh  [yellow]q[-]:quit")
 
 	statsView := tview.NewTextView().SetDynamicColors(true)
 	statsView.SetBorder(true)
@@ -110,6 +115,14 @@ func newTUIDashboard(cli *client.Client, projectID string, runLimit, eventLimit 
 		AddItem(runsTable, 0, 3, true).
 		AddItem(detailView, 0, 2, false)
 
+	helpOverlay := tview.NewTextView().SetDynamicColors(true).SetWrap(true)
+	helpOverlay.SetBorder(true).SetTitle(" Help ")
+	helpOverlay.SetText(clitui.FormatHelp())
+
+	pages := tview.NewPages().
+		AddPage("main", layout, true, true).
+		AddPage("help", helpCenter(helpOverlay), true, false)
+
 	return &tuiDashboard{
 		cli:         cli,
 		projectID:   projectID,
@@ -120,6 +133,8 @@ func newTUIDashboard(cli *client.Client, projectID string, runLimit, eventLimit 
 		runsTable:   runsTable,
 		detailView:  detailView,
 		layout:      layout,
+		helpOverlay: helpOverlay,
+		pages:       pages,
 		rowsByIndex: map[int]runRow{},
 	}
 }
@@ -148,7 +163,7 @@ func (d *tuiDashboard) run(ctx context.Context, interval time.Duration) error {
 	go d.refreshLoop(ctx, interval, done)
 	d.setupInputCapture(done)
 
-	if err := d.app.SetRoot(d.layout, true).SetFocus(d.runsTable).Run(); err != nil {
+	if err := d.app.SetRoot(d.pages, true).SetFocus(d.runsTable).Run(); err != nil {
 		close(done)
 		return err
 	}
@@ -293,12 +308,44 @@ func (d *tuiDashboard) setupInputCapture(done chan struct{}) {
 		}
 
 		switch event.Rune() {
+		case '?':
+			d.showingHelp = !d.showingHelp
+			if d.showingHelp {
+				d.pages.ShowPage("help")
+				d.app.SetFocus(d.helpOverlay)
+			} else {
+				d.pages.HidePage("help")
+				d.app.SetFocus(d.runsTable)
+			}
+			return nil
 		case 'q':
+			if d.showingHelp {
+				d.showingHelp = false
+				d.pages.HidePage("help")
+				d.app.SetFocus(d.runsTable)
+				return nil
+			}
 			close(done)
 			d.app.Stop()
 			return nil
 		case 'r':
 			_ = d.refresh(context.Background())
+			return nil
+		case 't':
+			d.mu.Lock()
+			runID := d.selectedRunID
+			d.mu.Unlock()
+			if runID != "" {
+				go d.triggerSelectedJob(context.Background(), runID)
+			}
+			return nil
+		case 'c':
+			d.mu.Lock()
+			runID := d.selectedRunID
+			d.mu.Unlock()
+			if runID != "" {
+				go d.cancelSelectedRun(context.Background(), runID)
+			}
 			return nil
 		case 'j':
 			row, col := d.runsTable.GetSelection()
@@ -323,6 +370,50 @@ func tcellAttrBold() tcell.AttrMask {
 }
 
 // tviewStatusColor wraps a run status in tview color tags.
+// helpCenter creates a centered help overlay using tview Pages.
+func helpCenter(content *tview.TextView) *tview.Flex {
+	return tview.NewFlex().
+		AddItem(nil, 0, 1, false).
+		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+			AddItem(nil, 0, 1, false).
+			AddItem(content, 20, 1, true).
+			AddItem(nil, 0, 1, false),
+			60, 1, true).
+		AddItem(nil, 0, 1, false)
+}
+
+// triggerSelectedJob re-triggers the job associated with the selected run.
+func (d *tuiDashboard) triggerSelectedJob(ctx context.Context, runID string) {
+	run, err := d.cli.GetRun(ctx, runID)
+	if err != nil {
+		d.detailView.SetText(fmt.Sprintf("[red]trigger error[-]: %v", err))
+		return
+	}
+
+	_, triggerErr := d.cli.TriggerJob(ctx, run.JobID, client.TriggerJobRequest{
+		Payload: run.Payload,
+	}, "")
+	if triggerErr != nil {
+		d.detailView.SetText(fmt.Sprintf("[red]trigger error[-]: %v", triggerErr))
+		return
+	}
+
+	d.detailView.SetText(fmt.Sprintf("[green]triggered job %s from run %s[-]", run.JobID, runID))
+	_ = d.refresh(ctx)
+}
+
+// cancelSelectedRun cancels the selected run.
+func (d *tuiDashboard) cancelSelectedRun(ctx context.Context, runID string) {
+	_, err := d.cli.CancelRun(ctx, runID)
+	if err != nil {
+		d.detailView.SetText(fmt.Sprintf("[red]cancel error[-]: %v", err))
+		return
+	}
+
+	d.detailView.SetText(fmt.Sprintf("[yellow]canceled run %s[-]", runID))
+	_ = d.refresh(ctx)
+}
+
 func tviewStatusColor(status domain.RunStatus) string {
 	switch status {
 	case domain.StatusCompleted:
