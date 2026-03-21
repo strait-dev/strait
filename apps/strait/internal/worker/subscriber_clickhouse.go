@@ -59,6 +59,11 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister) Run
 			machinePreset = string(event.Job.MachinePreset)
 		}
 
+		// TODO(observability): enqueue ComputeUsageRecord when RunLifecycleEvent
+		// carries compute data (MachineID, compute cost, container start/finish times).
+		// Currently these fields are not available on the event struct; they would
+		// need to be populated from the managed execution path or a store lookup.
+
 		exporter.Enqueue(clickhouse.RunAnalyticsRecord{
 			RunID:         run.ID,
 			JobID:         run.JobID,

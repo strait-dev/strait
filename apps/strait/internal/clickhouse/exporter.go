@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.opentelemetry.io/otel/metric"
 )
 
 // ExporterConfig controls the async export worker behavior.
@@ -65,11 +67,18 @@ type ComputeUsageRecord struct {
 // a batch is dropped to prevent unbounded growth.
 const maxFlushRetries = 2
 
+// ExporterMetrics holds optional OTel counters for exporter observability.
+type ExporterMetrics struct {
+	DroppedRecords metric.Int64Counter
+	FlushFailures  metric.Int64Counter
+}
+
 // Exporter batches events and periodically flushes them to ClickHouse.
 type Exporter struct {
-	client *Client
-	config ExporterConfig
-	logger *slog.Logger
+	client  *Client
+	config  ExporterConfig
+	logger  *slog.Logger
+	metrics *ExporterMetrics
 
 	mu                  sync.Mutex
 	pending             []any // buffered records
@@ -101,6 +110,15 @@ func NewExporter(client *Client, config ExporterConfig, logger *slog.Logger) *Ex
 		stopCh:  make(chan struct{}),
 		done:    make(chan struct{}),
 	}
+}
+
+// WithMetrics attaches optional OTel counters to the exporter.
+func (e *Exporter) WithMetrics(m *ExporterMetrics) *Exporter {
+	if e == nil {
+		return nil
+	}
+	e.metrics = m
+	return e
 }
 
 // Enqueue adds a record to the export buffer. Safe for concurrent use.
@@ -180,6 +198,9 @@ func (e *Exporter) flush(ctx context.Context) {
 
 	if err := e.insertBatch(ctx, batch); err != nil {
 		e.logger.Error("clickhouse exporter flush failed", "count", len(batch), "error", err)
+		if e.metrics != nil && e.metrics.FlushFailures != nil {
+			e.metrics.FlushFailures.Add(ctx, 1)
+		}
 		e.mu.Lock()
 		e.consecutiveFailures++
 		if e.consecutiveFailures <= maxFlushRetries {
@@ -193,6 +214,9 @@ func (e *Exporter) flush(ctx context.Context) {
 			e.logger.Warn("clickhouse requeued failed batch", "attempt", e.consecutiveFailures)
 		} else {
 			e.logger.Error("clickhouse dropping batch after max retries", "dropped", len(batch))
+			if e.metrics != nil && e.metrics.DroppedRecords != nil {
+				e.metrics.DroppedRecords.Add(ctx, int64(len(batch)))
+			}
 		}
 		e.mu.Unlock()
 		return

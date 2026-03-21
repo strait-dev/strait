@@ -264,13 +264,16 @@ func notificationWorkerEnabled(mode string) bool {
 	return mode == "worker" || mode == "all"
 }
 
-func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries) {
+func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, metrics *telemetry.Metrics) {
 	if cfg == nil || !notificationWorkerEnabled(cfg.Mode) {
 		return
 	}
 
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	notifWorker := notification.NewWorker(queries, httpClient)
+	if metrics != nil {
+		notifWorker.WithDeliveriesCounter(metrics.NotificationDeliveriesTotal)
+	}
 
 	g.Go(func(ctx context.Context) error {
 		notifWorker.Start(ctx)
@@ -282,13 +285,16 @@ func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *s
 	})
 }
 
-func startLogDrainWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries) {
+func startLogDrainWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, metrics *telemetry.Metrics) {
 	if cfg == nil || !notificationWorkerEnabled(cfg.Mode) {
 		return
 	}
 
 	svc := logdrain.NewService()
 	w := logdrain.NewWorker(queries, svc, 30*time.Second)
+	if metrics != nil {
+		w.WithEventsCounter(metrics.LogDrainEventsTotal)
+	}
 
 	g.Go(func(ctx context.Context) error {
 		w.Run(ctx)

@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -38,9 +41,10 @@ type Worker struct {
 	stop     chan struct{}
 	done     chan struct{}
 
-	mu          sync.Mutex
-	checkpoints map[string]drainCursor // drain ID -> composite cursor
-	failCounts  map[string]int         // "drainID:runID" -> consecutive failure count
+	mu            sync.Mutex
+	checkpoints   map[string]drainCursor // drain ID -> composite cursor
+	failCounts    map[string]int         // "drainID:runID" -> consecutive failure count
+	eventsCounter metric.Int64Counter
 }
 
 func NewWorker(store DrainStore, service *Service, interval time.Duration) *Worker {
@@ -53,6 +57,12 @@ func NewWorker(store DrainStore, service *Service, interval time.Duration) *Work
 		checkpoints: make(map[string]drainCursor),
 		failCounts:  make(map[string]int),
 	}
+}
+
+// WithEventsCounter attaches an OTel counter for tracking log drain event outcomes.
+func (w *Worker) WithEventsCounter(c metric.Int64Counter) *Worker {
+	w.eventsCounter = c
+	return w
 }
 
 // Run starts the background worker. It blocks until Stop is called.
@@ -181,11 +191,18 @@ func (w *Worker) processDrain(ctx context.Context, drain *domain.LogDrain) {
 					"endpoint", drain.EndpointURL,
 					"error", drainErr,
 				)
+				if w.eventsCounter != nil {
+					w.eventsCounter.Add(ctx, int64(len(events)), metric.WithAttributes(attribute.String("status", "error")))
+				}
 				w.mu.Lock()
 				w.failCounts[failKey]++
 				w.mu.Unlock()
 				// Continue to next run instead of returning.
 				continue
+			}
+
+			if w.eventsCounter != nil {
+				w.eventsCounter.Add(ctx, int64(len(events)), metric.WithAttributes(attribute.String("status", "success")))
 			}
 
 			// Success — advance cursor and clear fail count.

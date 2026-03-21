@@ -222,6 +222,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 		Enabled:       cfg.ClickHouseExportEnabled,
 	}, slog.Default())
 	if chExporter != nil {
+		if metrics != nil {
+			chExporter.WithMetrics(&clickhouse.ExporterMetrics{
+				DroppedRecords: metrics.ClickHouseDroppedRecords,
+				FlushFailures:  metrics.ClickHouseFlushFailures,
+			})
+		}
 		chExporter.Start(ctx)
 		defer chExporter.Stop()
 		slog.Info("clickhouse exporter enabled",
@@ -313,8 +319,8 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	startCDCConsumer(g, cfg, pub)
 	startWebhookWorker(g, cfg, eventNotifier)
-	startNotificationWorker(g, cfg, queries)
-	startLogDrainWorker(g, cfg, queries)
+	startNotificationWorker(g, cfg, queries, metrics)
+	startLogDrainWorker(g, cfg, queries, metrics)
 	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor)
 	startWorker(g, cfg, queries, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, chExporter)
 
