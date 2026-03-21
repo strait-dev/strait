@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@strait/ui/utils";
+import { useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 type FlickeringGridProps = {
@@ -24,6 +25,9 @@ const FlickeringGrid = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const dimensionsRef = useRef({ width: 0, height: 0 });
   const isVisibleRef = useRef(true);
+  const prefersReducedMotion = useReducedMotion();
+  const reducedMotionRef = useRef(prefersReducedMotion);
+  reducedMotionRef.current = prefersReducedMotion;
 
   const memoizedColor = useMemo(() => {
     const match = color.match(/\d+/g);
@@ -116,7 +120,7 @@ const FlickeringGrid = ({
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
-      if (!isVisibleRef.current) {
+      if (!isVisibleRef.current || reducedMotionRef.current) {
         return;
       }
       const ctx = canvas.getContext("2d");

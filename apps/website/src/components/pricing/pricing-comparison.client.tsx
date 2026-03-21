@@ -75,7 +75,7 @@ function PlanPrice({
     return (
       <div>
         <p className="flex items-baseline gap-x-1 text-foreground">
-          <span className="font-semibold text-3xl tracking-tight">
+          <span className="font-semibold text-3xl">
             {formatPriceWithCents(plan.prices.yearly)}
           </span>
           <span className="font-light text-muted-foreground text-sm">/yr</span>
@@ -92,7 +92,7 @@ function PlanPrice({
   return (
     <div>
       <p className="flex items-baseline gap-x-1 text-foreground">
-        <span className="font-semibold text-3xl tracking-tight">{display}</span>
+        <span className="font-semibold text-3xl">{display}</span>
         {!(isCustom || isFree) && (
           <span className="font-light text-muted-foreground text-sm">/mo</span>
         )}
@@ -225,7 +225,7 @@ const PricingComparisonClient = ({
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">
           <span className="kicker">{header.badge}</span>
           <h2
-            className="text-balance font-semibold text-2xl text-foreground tracking-tight sm:text-3xl lg:text-4xl"
+            className="text-balance font-semibold text-2xl text-foreground sm:text-3xl lg:text-4xl"
             id={headingId}
           >
             {header.title}

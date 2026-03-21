@@ -93,7 +93,7 @@ const FeatureBentoGrid = () => (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
         {FEATURES.map((feature, idx) => (
           <Reveal
-            className={`group overflow-hidden rounded-2xl border border-border/40 bg-card/50 shadow-sm transition-[border-color,box-shadow] duration-300 hover:border-border/60 hover:shadow-lg ${feature.span}`}
+            className={`group overflow-hidden rounded-2xl border border-border/40 bg-card/50 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-border/60 hover:shadow-lg ${feature.span}`}
             delay={idx * 0.06}
             key={feature.id}
             spring

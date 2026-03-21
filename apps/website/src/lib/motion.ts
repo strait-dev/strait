@@ -1,4 +1,4 @@
-import type { Transition, Variants } from "motion/react";
+import type { Easing, Transition, Variants } from "motion/react";
 
 export const SPRING_SNAPPY: Transition = {
   type: "spring",
@@ -24,7 +24,7 @@ export const SPRING_GENTLE: Transition = {
   damping: 18,
 };
 
-export const EASE_OUT: [number, number, number, number] = [0, 0, 0.2, 1];
+export const EASE_OUT: Easing = "easeOut";
 
 export function staggerContainer(delay = 0.08): Variants {
   return {

@@ -15,9 +15,8 @@ import HeroProductPreview from "./hero-product-preview.tsx";
 const Hero = () => {
   return (
     <section className="relative isolate overflow-hidden pt-32 pb-16 sm:pt-40 sm:pb-24">
-      <div className="parallax-slow absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_var(--primary)/0.06,_transparent_40%)]" />
+      <div className="parallax-slow absolute inset-0 -z-10 bg-primary/[0.04]" />
       <div className="orchestration-grid absolute inset-0 -z-10 opacity-[0.14]" />
-      <div className="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_transparent,_var(--background)_70%)]" />
       <div className="paper-texture absolute inset-0 -z-10 opacity-[0.02]" />
 
       <Shell variant="wide">

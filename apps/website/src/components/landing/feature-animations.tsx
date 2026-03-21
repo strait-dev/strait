@@ -37,7 +37,7 @@ export const QueueAnimation = () => {
         const isActive = i === activeIdx;
         return (
           <div
-            className={`flex gap-8 rounded px-2 py-1 transition-colors duration-500 ${
+            className={`flex gap-8 rounded px-2 py-1 transition-colors duration-150 ${
               isActive
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground/60"
@@ -71,7 +71,7 @@ export const ExecutionAnimation = () => {
         const isActive = i === activeIdx;
         return (
           <div
-            className={`flex items-center gap-3 rounded px-2 py-1 transition-colors duration-500 ${
+            className={`flex items-center gap-3 rounded px-2 py-1 transition-colors duration-150 ${
               isActive
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground/60"

@@ -68,7 +68,7 @@ const PostFeatured = ({
             </div>
 
             <h2
-              className="font-semibold text-2xl tracking-tight transition-colors group-hover:text-foreground sm:text-3xl lg:text-4xl"
+              className="font-semibold text-2xl transition-colors group-hover:text-foreground sm:text-3xl lg:text-4xl"
               id="featured-article-title"
             >
               {_title}

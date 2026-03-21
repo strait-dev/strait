@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@strait/ui/utils";
+import { useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
 type ParticlesProps = {
@@ -45,6 +46,9 @@ const Particles = ({
   const canvasSize = useRef({ w: 0, h: 0 });
   const dprRef = useRef(1);
   const isVisibleRef = useRef(true);
+  const prefersReducedMotion = useReducedMotion();
+  const reducedMotionRef = useRef(prefersReducedMotion);
+  reducedMotionRef.current = prefersReducedMotion;
   const [rgb, setRgb] = useState({ r: 255, g: 255, b: 255 });
   const rafRef = useRef(0);
 
@@ -149,7 +153,10 @@ const Particles = ({
 
     const animate = () => {
       rafRef.current = requestAnimationFrame(animate);
-      if (!(isVisibleRef.current && context.current)) {
+      if (
+        !(isVisibleRef.current && context.current) ||
+        reducedMotionRef.current
+      ) {
         return;
       }
       context.current.clearRect(

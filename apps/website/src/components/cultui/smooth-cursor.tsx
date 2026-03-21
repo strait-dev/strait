@@ -54,7 +54,7 @@ const SmoothCursor = ({ containerRef }: SmoothCursorProps) => {
 
   return (
     <motion.div
-      className="pointer-events-none fixed top-0 left-0 z-[9999] size-4 rounded-full bg-primary-foreground/30 mix-blend-difference"
+      className="pointer-events-none fixed top-0 left-0 z-50 size-4 rounded-full bg-primary-foreground/30 mix-blend-difference"
       style={{ x, y }}
     />
   );

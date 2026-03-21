@@ -16,7 +16,7 @@ const SocialProofBar = () => (
             className="flex items-center gap-2.5 text-center sm:text-left"
             key={stat.label}
           >
-            <span className="text-foreground text-lg tracking-tight sm:text-xl">
+            <span className="text-foreground text-lg sm:text-xl">
               {stat.value}
             </span>
             <span className="text-muted-foreground text-sm">{stat.label}</span>

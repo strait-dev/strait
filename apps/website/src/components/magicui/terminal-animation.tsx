@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@strait/ui/utils";
+import { useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type TerminalAnimationProps = {
@@ -20,8 +21,14 @@ const TerminalAnimation = ({
   const [isComplete, setIsComplete] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const hasStarted = useRef(false);
+  const prefersReducedMotion = useReducedMotion();
 
   const startTyping = useCallback(() => {
+    if (prefersReducedMotion) {
+      setDisplayedCode(code);
+      setIsComplete(true);
+      return;
+    }
     let i = 0;
     setDisplayedCode("");
     setIsComplete(false);
@@ -36,7 +43,7 @@ const TerminalAnimation = ({
     }, typingSpeed);
 
     return () => clearInterval(interval);
-  }, [code, typingSpeed]);
+  }, [code, typingSpeed, prefersReducedMotion]);
 
   useEffect(() => {
     if (!startOnView) {

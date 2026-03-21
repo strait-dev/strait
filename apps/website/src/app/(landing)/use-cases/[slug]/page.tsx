@@ -4,15 +4,14 @@ import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
 import LoadingCarousel from "@/components/cultui/loading-carousel.tsx";
-import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
   StaggerGroup,
   StaggerItem,
 } from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
-import Particles from "@/components/magicui/particles.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { getBreadcrumbSchema, JsonLd } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
@@ -131,9 +130,7 @@ export default async function UseCasePage({ params }: Props) {
       {/* Workflow Diagram */}
       <section className="border-border/40 border-y py-16 sm:py-20">
         <Shell variant="wide">
-          <h2 className="mb-10 text-2xl tracking-tight sm:text-3xl">
-            How it works
-          </h2>
+          <h2 className="mb-10 text-2xl sm:text-3xl">How it works</h2>
           <LoadingCarousel
             autoplayDelay={4000}
             slides={useCase.workflowSteps.map((step, index) => ({
@@ -148,9 +145,7 @@ export default async function UseCasePage({ params }: Props) {
       {/* Relevant Features */}
       <section className="py-16 sm:py-20">
         <Shell variant="wide">
-          <h2 className="mb-8 text-2xl tracking-tight sm:text-3xl">
-            Relevant features
-          </h2>
+          <h2 className="mb-8 text-2xl sm:text-3xl">Relevant features</h2>
           <StaggerGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {useCase.relevantFeatures.map((feature) => (
               <StaggerItem key={feature.slug}>
@@ -171,34 +166,11 @@ export default async function UseCasePage({ params }: Props) {
         </Shell>
       </section>
 
-      {/* CTA */}
-      <section className="relative border-border/40 border-t bg-primary py-16 sm:py-20">
-        <MeshGradientBg />
-        <Particles
-          className="pointer-events-none absolute inset-0"
-          color="var(--background)"
-          quantity={80}
-          size={0.4}
-          staticity={40}
-        />
-        <Shell className="relative z-10 text-center" variant="wide">
-          <h2 className="text-2xl text-primary-foreground tracking-tight sm:text-3xl">
-            Ready to build {useCase.title.toLowerCase()}?
-          </h2>
-          <p className="mt-4 text-primary-foreground/70">
-            Deploy your first workflow in under 10 minutes.
-          </p>
-          <div className="mt-8">
-            <Button
-              render={<Link href={dashboardHref("/login")} />}
-              variant="outline"
-            >
-              Get started
-              <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
-            </Button>
-          </div>
-        </Shell>
-      </section>
+      <CTA
+        description="Deploy your first workflow in under 10 minutes."
+        heading={`Ready to build ${useCase.title.toLowerCase()}?`}
+        showInstallSnippet={false}
+      />
     </>
   );
 }

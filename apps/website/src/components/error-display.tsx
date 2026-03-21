@@ -94,13 +94,11 @@ const ErrorDisplay = ({
 
     <div className="relative z-10 mx-auto max-w-lg px-4 text-center sm:px-6">
       {code && (
-        <p className="font-mono text-7xl text-foreground/10 tracking-tighter sm:text-9xl">
+        <p className="font-mono text-7xl text-foreground/10 sm:text-9xl">
           {code}
         </p>
       )}
-      <h1 className="mt-2 text-2xl text-foreground tracking-tight sm:text-3xl">
-        {title}
-      </h1>
+      <h1 className="mt-2 text-2xl text-foreground sm:text-3xl">{title}</h1>
       <p className="mt-4 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
         {description}
       </p>

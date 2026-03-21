@@ -3,16 +3,15 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
 import ComparisonHighlights from "@/components/compare/comparison-highlights.tsx";
 import ComparisonTable from "@/components/compare/comparison-table.tsx";
-import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
   StaggerGroup,
   StaggerItem,
 } from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
-import FlickeringGrid from "@/components/magicui/flickering-grid.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { getBreadcrumbSchema, JsonLd } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
@@ -126,9 +125,7 @@ export default async function ComparisonPage({ params }: Props) {
       {/* Differentiators */}
       <section className="border-border/40 border-y py-16 sm:py-20">
         <Shell variant="wide">
-          <h2 className="mb-10 text-2xl tracking-tight sm:text-3xl">
-            Key differences
-          </h2>
+          <h2 className="mb-10 text-2xl sm:text-3xl">Key differences</h2>
           <StaggerGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {comparison.differentiators.map((diff) => (
               <StaggerItem key={diff.title}>
@@ -164,9 +161,7 @@ export default async function ComparisonPage({ params }: Props) {
       {/* Feature Comparison Table */}
       <section className="py-16 sm:py-20">
         <Shell variant="wide">
-          <h2 className="mb-10 text-2xl tracking-tight sm:text-3xl">
-            Feature comparison
-          </h2>
+          <h2 className="mb-10 text-2xl sm:text-3xl">Feature comparison</h2>
           <ComparisonTable
             categories={comparison.categories}
             competitorName={comparison.competitor}
@@ -189,7 +184,7 @@ export default async function ComparisonPage({ params }: Props) {
       {/* Switching Steps */}
       <section className="border-border/40 border-t py-16 sm:py-20">
         <Shell variant="wide">
-          <h2 className="mb-10 text-2xl tracking-tight sm:text-3xl">
+          <h2 className="mb-10 text-2xl sm:text-3xl">
             Switching from {comparison.competitor}
           </h2>
           <StaggerGroup className="space-y-4">
@@ -212,32 +207,11 @@ export default async function ComparisonPage({ params }: Props) {
         </Shell>
       </section>
 
-      {/* CTA */}
-      <section className="relative border-border/40 border-t bg-primary py-16 sm:py-20">
-        <MeshGradientBg />
-        <FlickeringGrid
-          color="rgba(255,255,255,0.6)"
-          flickerChance={0.2}
-          maxOpacity={0.15}
-        />
-        <Shell className="relative z-10 text-center" variant="wide">
-          <h2 className="text-2xl text-primary-foreground tracking-tight sm:text-3xl">
-            Ready to switch from {comparison.competitor}?
-          </h2>
-          <p className="mt-4 text-primary-foreground/70">
-            Deploy your first workflow in under 10 minutes.
-          </p>
-          <div className="mt-8">
-            <Button
-              render={<Link href={dashboardHref("/login")} />}
-              variant="outline"
-            >
-              Get started
-              <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
-            </Button>
-          </div>
-        </Shell>
-      </section>
+      <CTA
+        description="Deploy your first workflow in under 10 minutes."
+        heading={`Ready to switch from ${comparison.competitor}?`}
+        showInstallSnippet={false}
+      />
     </>
   );
 }

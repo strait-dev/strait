@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@strait/ui/utils";
+import { useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type HyperTextProps = {
@@ -24,9 +25,10 @@ const HyperText = ({
   const [isAnimating, setIsAnimating] = useState(false);
   const ref = useRef<HTMLElement>(null);
   const hasAnimated = useRef(false);
+  const prefersReducedMotion = useReducedMotion();
 
   const runAnimation = useCallback(() => {
-    if (isAnimating) {
+    if (isAnimating || prefersReducedMotion) {
       return;
     }
     setIsAnimating(true);
@@ -61,7 +63,7 @@ const HyperText = ({
         setIsAnimating(false);
       }
     }, 30);
-  }, [children, duration, isAnimating]);
+  }, [children, duration, isAnimating, prefersReducedMotion]);
 
   useEffect(() => {
     if (!startOnView) {

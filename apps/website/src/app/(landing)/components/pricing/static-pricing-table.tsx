@@ -75,7 +75,7 @@ export function StaticPricingTable() {
           return (
             <div
               className={cn(
-                "relative flex h-full flex-col overflow-hidden rounded-xl border transition-shadow duration-300",
+                "relative flex h-full flex-col overflow-hidden rounded-xl border transition-shadow duration-150",
                 plan.highlighted
                   ? "border-primary/40"
                   : "border-border/60 bg-card hover:border-border hover:shadow-md"
@@ -123,7 +123,7 @@ export function StaticPricingTable() {
                   {interval === "yearly" && !(isEnterprise || isFree) ? (
                     <>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-4xl text-foreground tabular-nums tracking-tight sm:text-5xl">
+                        <span className="text-4xl text-foreground tabular-nums sm:text-5xl">
                           {formatPriceWithCents(plan.prices.yearly)}
                         </span>
                         <span className="text-muted-foreground text-sm">
@@ -137,7 +137,7 @@ export function StaticPricingTable() {
                   ) : (
                     <>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-4xl text-foreground tabular-nums tracking-tight sm:text-5xl">
+                        <span className="text-4xl text-foreground tabular-nums sm:text-5xl">
                           {priceDisplay}
                         </span>
                         {!(isEnterprise || isFree) && (
@@ -187,7 +187,7 @@ export function StaticPricingTable() {
                 </ul>
 
                 <Button
-                  className="w-full transition-shadow duration-300"
+                  className="w-full transition-shadow duration-150"
                   render={<Link href={href} />}
                   variant={plan.highlighted ? "default" : "outline"}
                 >

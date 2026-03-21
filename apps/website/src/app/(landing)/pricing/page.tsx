@@ -53,7 +53,7 @@ export default function PricingPage() {
         <Shell variant="wide">
           <div className="mx-auto max-w-3xl text-center">
             <span className="kicker">Pricing</span>
-            <h1 className="mt-6 text-balance text-4xl leading-[1.12] tracking-tight sm:text-5xl lg:text-6xl">
+            <h1 className="mt-6 text-balance text-4xl leading-[1.12] sm:text-5xl lg:text-6xl">
               Simple pricing, built for reliable orchestration.
             </h1>
             <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
@@ -88,7 +88,7 @@ export default function PricingPage() {
       <section className="pb-20 sm:pb-28">
         <Shell variant="wide">
           <div className="mx-auto max-w-3xl">
-            <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
+            <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
               Every plan includes all core features.
             </h2>
             <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">

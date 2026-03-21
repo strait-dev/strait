@@ -51,7 +51,7 @@ const ProductShowcase = () => {
       <div className="showcase-dots pointer-events-none absolute inset-0" />
       <div className="relative mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
         <div className="mb-14 max-w-3xl">
-          <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
+          <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             <span className="text-primary-foreground">
               Everything you need to keep background work moving.
             </span>{" "}

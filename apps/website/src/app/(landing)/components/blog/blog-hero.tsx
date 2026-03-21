@@ -49,7 +49,7 @@ const BlogHero = async () => {
         <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
           <span className="kicker">{badge}</span>
 
-          <h1 className="mt-6 text-balance text-4xl leading-[1.15] tracking-tight sm:text-5xl lg:text-6xl">
+          <h1 className="mt-6 text-balance text-4xl leading-[1.15] sm:text-5xl lg:text-6xl">
             <span className="text-foreground">{title}</span>{" "}
             <span className="text-muted-foreground">{subtitle}</span>
           </h1>
