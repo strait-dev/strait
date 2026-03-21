@@ -9,6 +9,7 @@
     "cli",
     "guides",
     "operations",
-    "development"
+    "development",
+    "billing"
   ]
 }
