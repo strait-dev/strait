@@ -8,32 +8,19 @@ import (
 	"strings"
 
 	"strait/internal/domain"
+	"strait/internal/logdrain"
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
-// protectedAuthHeaders are HTTP headers that must not appear as keys in
-// log drain auth_config when auth_type is "header", to prevent request
-// smuggling and header injection.
-var protectedAuthHeaders = map[string]bool{
-	"host":              true,
-	"content-length":    true,
-	"content-type":      true,
-	"transfer-encoding": true,
-	"connection":        true,
-	"upgrade":           true,
-	"te":                true,
-	"trailer":           true,
-}
-
 func validateAuthConfig(authType string, config map[string]string) error {
 	if authType != "header" || config == nil {
 		return nil
 	}
 	for k := range config {
-		if protectedAuthHeaders[strings.ToLower(k)] {
+		if logdrain.ProtectedHeaders[strings.ToLower(k)] {
 			return fmt.Errorf("auth_config key %q is a protected HTTP header and cannot be used", k)
 		}
 	}
@@ -157,9 +144,22 @@ func (s *Server) handleUpdateLogDrain(w http.ResponseWriter, r *http.Request) {
 		patch["auth_type"] = *req.AuthType
 	}
 	if req.AuthConfig != nil {
-		authType := ""
+		var authType string
 		if req.AuthType != nil {
 			authType = *req.AuthType
+		} else {
+			// Load existing drain's auth_type to validate against the current
+			// type when the PATCH body doesn't include auth_type.
+			existing, getErr := s.store.GetLogDrain(r.Context(), drainID, projectID)
+			if getErr != nil {
+				if errors.Is(getErr, store.ErrLogDrainNotFound) {
+					respondError(w, r, http.StatusNotFound, "log drain not found")
+					return
+				}
+				respondError(w, r, http.StatusInternalServerError, "failed to get log drain")
+				return
+			}
+			authType = existing.AuthType
 		}
 		if err := validateAuthConfig(authType, req.AuthConfig); err != nil {
 			respondError(w, r, http.StatusBadRequest, err.Error())

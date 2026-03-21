@@ -12,10 +12,10 @@ import (
 	"strait/internal/domain"
 )
 
-// protectedHeaders are HTTP headers that must not be overridden by
+// ProtectedHeaders are HTTP headers that must not be overridden by
 // user-provided auth config to prevent request smuggling and
 // header injection attacks.
-var protectedHeaders = map[string]bool{
+var ProtectedHeaders = map[string]bool{
 	"host":              true,
 	"content-length":    true,
 	"content-type":      true,
@@ -61,7 +61,7 @@ func (s *Service) DrainRunEvents(ctx context.Context, drain *domain.LogDrain, ev
 		req.SetBasicAuth(user, pass)
 	case "header":
 		for k, v := range drain.AuthConfig {
-			if protectedHeaders[strings.ToLower(k)] {
+			if ProtectedHeaders[strings.ToLower(k)] {
 				continue
 			}
 			req.Header.Set(k, v)

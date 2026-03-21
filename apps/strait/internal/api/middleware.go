@@ -253,8 +253,8 @@ func (s *Server) requestMetrics(next http.Handler) http.Handler {
 		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 		duration := time.Since(start).Seconds()
-		s.metrics.HTTPRequestDuration.Record(r.Context(), duration)
-		s.metrics.HTTPInflightRequests.Add(r.Context(), -1)
+		s.metrics.HTTPRequestDuration.Record(context.Background(), duration)
+		s.metrics.HTTPInflightRequests.Add(context.Background(), -1)
 	})
 }
 
