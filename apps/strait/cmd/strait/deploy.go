@@ -121,12 +121,12 @@ func newDeployCommand(state *appState) *cobra.Command {
 						CacheEnabled: cacheEnabled,
 					}
 
-					fmt.Fprintf(os.Stderr, "deploying %s...\n", jobCfg.Slug)
+					fmt.Fprintln(os.Stderr, styles.Info("Deploying "+jobCfg.Slug+"..."))
 					if deployErr := deploy.DeployJob(cmd.Context(), cli, opts); deployErr != nil {
 						return fmt.Errorf("deploy %s: %w", jobCfg.Slug, deployErr)
 					}
 					if !dryRun {
-						fmt.Fprintf(os.Stderr, "deployed %s successfully\n", jobCfg.Slug)
+						fmt.Fprintln(os.Stderr, styles.Success("Deployed "+jobCfg.Slug))
 					}
 				}
 				return nil
@@ -156,7 +156,7 @@ func newDeployCommand(state *appState) *cobra.Command {
 			}
 
 			if !dryRun {
-				fmt.Fprintf(os.Stderr, "deployed %s successfully\n", jobSlug)
+				fmt.Fprintln(os.Stderr, styles.Success("Deployed "+jobSlug))
 			}
 			return nil
 		},
@@ -302,7 +302,7 @@ func newDeployPromoteCommand(state *appState) *cobra.Command {
 			}
 
 			if dryRun {
-				fmt.Fprintf(os.Stderr, "[dry-run] would promote deployment %s to %s\n", args[0], env)
+				fmt.Fprintln(os.Stderr, styles.Info("[dry-run] would promote deployment "+args[0]+" to "+env))
 				return nil
 			}
 
@@ -353,7 +353,7 @@ func newDeployRollbackCommand(state *appState) *cobra.Command {
 			}
 
 			if dryRun {
-				fmt.Fprintf(os.Stderr, "[dry-run] would rollback to deployment %s in %s\n", toID, env)
+				fmt.Fprintln(os.Stderr, styles.Info("[dry-run] would rollback to deployment "+toID+" in "+env))
 				return nil
 			}
 

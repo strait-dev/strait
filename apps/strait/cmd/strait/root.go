@@ -58,7 +58,7 @@ func newRootCommand() *cobra.Command {
 
 			if loaded.IsLocal && loaded.Exists {
 				if fields := cliconfig.HasSensitiveLocalFields(loaded.Data); len(fields) > 0 {
-					fmt.Fprintf(os.Stderr, "warning: local config %s overrides: %s\n", loaded.Path, strings.Join(fields, ", "))
+					fmt.Fprintln(os.Stderr, styles.Warn("local config "+loaded.Path+" overrides: "+strings.Join(fields, ", ")))
 				}
 			}
 
@@ -408,13 +408,25 @@ func newVersionCommand(state *appState) *cobra.Command {
 				return enc.Encode(info)
 			}
 
-			fmt.Printf("version: %s\n", info["version"])
-			fmt.Printf("commit: %s\n", info["commit"])
-			fmt.Printf("date: %s\n", info["date"])
-			fmt.Printf("go: %s\n", info["go"])
-			fmt.Printf("os/arch: %s\n", info["os_arch"])
-			if checkServer {
-				fmt.Printf("server: %s\n", info["server"])
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Println(styles.TitleStyle.Render("Strait CLI"))
+				fmt.Println(styles.KeyValue("Version", info["version"]))
+				fmt.Println(styles.KeyValue("Commit", info["commit"]))
+				fmt.Println(styles.KeyValue("Date", info["date"]))
+				fmt.Println(styles.KeyValue("Go", info["go"]))
+				fmt.Println(styles.KeyValue("OS/Arch", info["os_arch"]))
+				if checkServer {
+					fmt.Println(styles.KeyValue("Server", info["server"]))
+				}
+			} else {
+				fmt.Printf("version: %s\n", info["version"])
+				fmt.Printf("commit: %s\n", info["commit"])
+				fmt.Printf("date: %s\n", info["date"])
+				fmt.Printf("go: %s\n", info["go"])
+				fmt.Printf("os/arch: %s\n", info["os_arch"])
+				if checkServer {
+					fmt.Printf("server: %s\n", info["server"])
+				}
 			}
 
 			if checkUpdate {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc/pool"
@@ -270,6 +271,13 @@ func printLogRows(state *appState, rows []map[string]any, group bool, outputFmt 
 		}
 		return nil
 	}
+	if stdoutIsTTY() && state.opts.outputFormat == "" {
+		for i, row := range rows {
+			if level, ok := row["level"].(string); ok && level != "" {
+				rows[i]["level"] = styles.LogLevel(level)
+			}
+		}
+	}
 	return printData(state, rows)
 }
 
@@ -374,10 +382,16 @@ func renderFollowLogRow(state *appState, outputFmt string, row map[string]any) e
 		return json.NewEncoder(os.Stdout).Encode(row)
 	}
 
-	timestamp := logRowTimestamp(row).Format(time.RFC3339)
+	ts := logRowTimestamp(row)
 	level, _ := row["level"].(string)
 	eventType, _ := row["type"].(string)
 	message, _ := row["message"].(string)
-	_, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n", timestamp, level, eventType, message)
+
+	if stdoutIsTTY() && state.opts.outputFormat == "" {
+		_, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n", styles.Timestamp(ts), styles.LogLevel(level), eventType, message)
+		return err
+	}
+
+	_, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n", ts.Format(time.RFC3339), level, eventType, message)
 	return err
 }
