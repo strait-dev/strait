@@ -4,13 +4,16 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import z from "zod/v4";
 import type {
   PaginatedResponse,
   ProjectSettings,
   Region,
 } from "@/hooks/api/types";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireProjectAccess } from "@/middlewares/require-access";
 
 // ---------------------------------------------------------------------------
 // Server functions
@@ -19,28 +22,46 @@ import { authMiddleware } from "@/middlewares/auth";
 export const fetchRegions = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<PaginatedResponse<Region>>("/v1/regions");
+    return await runWithSentryReport(
+      apiEffect<PaginatedResponse<Region>>("/v1/regions")
+    );
   });
 
 export const fetchProjectSettings = createServerFn({ method: "GET" })
-  .inputValidator((data: { projectId: string }) => data)
+  .inputValidator((data: { projectId: string }) =>
+    z.object({ projectId: z.string().min(1) }).parse(data)
+  )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<ProjectSettings>(
-      `/v1/projects/${data.projectId}/settings`
+  .handler(async ({ context, data }) => {
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
+    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
+
+    return await runWithSentryReport(
+      apiEffect<ProjectSettings>(`/v1/projects/${data.projectId}/settings`)
     );
   });
 
 export const updateProjectSettingsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { projectId: string; default_region: string }) => data)
+  .inputValidator((data: { projectId: string; default_region: string }) =>
+    z
+      .object({
+        projectId: z.string().min(1),
+        default_region: z.string().min(1),
+      })
+      .parse(data)
+  )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<ProjectSettings>(
-      `/v1/projects/${data.projectId}/settings`,
-      { method: "PUT", body: { default_region: data.default_region } }
+  .handler(async ({ context, data }) => {
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
+    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
+
+    return await runWithSentryReport(
+      apiEffect<ProjectSettings>(`/v1/projects/${data.projectId}/settings`, {
+        method: "PUT",
+        body: { default_region: data.default_region },
+      })
     );
   });
 

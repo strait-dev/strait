@@ -32,6 +32,7 @@ import {
   BriefcaseIcon,
   ChevronDownIcon,
   ClockIcon,
+  CreditCardIcon,
   DashboardIcon,
   FileTextIcon,
   LayersIcon,
@@ -78,17 +79,17 @@ const environments: { value: Environment; label: string; dotClass: string }[] =
     {
       value: "production",
       label: "Production",
-      dotClass: "bg-chart-1", // green
+      dotClass: "bg-green-500",
     },
     {
       value: "staging",
       label: "Staging",
-      dotClass: "bg-chart-3", // yellow
+      dotClass: "bg-blue-500",
     },
     {
       value: "development",
       label: "Development",
-      dotClass: "bg-chart-2", // blue
+      dotClass: "bg-yellow-500",
     },
   ];
 
@@ -235,6 +236,29 @@ const AppSidebar = ({ session }: Props) => {
               </SidebarGroupContent>
             </CollapsibleContent>
           </Collapsible>
+        </SidebarGroup>
+
+        {/* Billing */}
+        <SidebarGroup>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={
+                  pathname === "/app/billing" ||
+                  pathname.startsWith("/app/billing/")
+                }
+                render={<Link to="/app/billing" />}
+                tooltip="Billing"
+              >
+                <HugeiconsIcon
+                  className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                  icon={CreditCardIcon}
+                  size={22}
+                />
+                <span>Billing</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
 

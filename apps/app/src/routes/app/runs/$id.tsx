@@ -22,12 +22,15 @@ import {
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { DetailPageSkeleton } from "@/components/common/detail-page-skeleton";
+import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
-import { StatusBadge } from "@/components/dashboard/status-badge";
-import type { ExecutionTrace, RunStatus } from "@/hooks/api/types";
+import StatusBadge from "@/components/dashboard/status-badge";
+import DetailCell from "@/components/runs/detail-cell";
+import ExecutionTraceBar from "@/components/runs/execution-trace-bar";
+import type { RunStatus } from "@/hooks/api/types";
 import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
+import { formatDuration } from "@/lib/format";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/runs/$id")({
@@ -76,10 +79,10 @@ function RunDetailPage() {
   return (
     <Shell>
       {/* Header */}
-      <div className="flex items-start justify-between pt-4 pb-6">
-        <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3 pt-4 pb-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-2 overflow-hidden">
           <div className="flex items-center gap-3">
-            <h1 className="text-balance font-mono font-normal text-xl tracking-tight">
+            <h1 className="truncate font-mono font-normal text-lg tracking-tight sm:text-xl">
               {run.id}
             </h1>
             <StatusBadge showDot status={run.status} />
@@ -91,7 +94,7 @@ function RunDetailPage() {
             </span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           {isFailed && (
             <Button size="sm" variant="outline">
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
@@ -122,7 +125,7 @@ function RunDetailPage() {
           <CardTitle>Execution Overview</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
             <DetailCell label="Status" value={run.status} />
             <DetailCell
               label="Duration"
@@ -171,7 +174,7 @@ function RunDetailPage() {
         </TabsList>
 
         <TabsContent className="mt-6" value="logs">
-          <pre className="max-h-[500px] overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
+          <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">
             {events && events.length > 0
               ? events
                   .map(
@@ -184,13 +187,13 @@ function RunDetailPage() {
         </TabsContent>
 
         <TabsContent className="mt-6" value="payload">
-          <pre className="max-h-[500px] overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
+          <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">
             {run.payload ? JSON.stringify(run.payload, null, 2) : "No payload"}
           </pre>
         </TabsContent>
 
         <TabsContent className="mt-6" value="response">
-          <pre className="max-h-[500px] overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
+          <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">
             {run.result
               ? JSON.stringify(run.result, null, 2)
               : "No response data"}
@@ -199,89 +202,4 @@ function RunDetailPage() {
       </Tabs>
     </Shell>
   );
-}
-
-function DetailCell({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-muted-foreground text-xs">{label}</span>
-      <span className="font-mono text-sm">{value}</span>
-    </div>
-  );
-}
-
-const TRACE_SEGMENTS: {
-  key: keyof ExecutionTrace;
-  label: string;
-  color: string;
-}[] = [
-  { key: "queue_wait_ms", label: "Queue Wait", color: "bg-blue-500" },
-  { key: "dequeue_ms", label: "Dequeue", color: "bg-indigo-500" },
-  { key: "dispatch_ms", label: "Dispatch", color: "bg-violet-500" },
-  { key: "connect_ms", label: "Connect", color: "bg-amber-500" },
-  { key: "ttfb_ms", label: "TTFB", color: "bg-emerald-500" },
-  { key: "transfer_ms", label: "Transfer", color: "bg-cyan-500" },
-];
-
-function ExecutionTraceBar({ trace }: { trace: ExecutionTrace }) {
-  const total = trace.total_ms || 1;
-
-  return (
-    <div className="space-y-3">
-      {/* Bar visualization */}
-      <div className="flex h-6 w-full overflow-hidden rounded-md">
-        {TRACE_SEGMENTS.map((seg) => {
-          const ms = trace[seg.key];
-          const pct = (ms / total) * 100;
-          if (pct < 0.5) {
-            return null;
-          }
-          return (
-            <div
-              className={`${seg.color} opacity-80`}
-              key={seg.key}
-              style={{ width: `${pct}%` }}
-              title={`${seg.label}: ${ms}ms`}
-            />
-          );
-        })}
-      </div>
-
-      {/* Legend / key-value list */}
-      <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
-        {TRACE_SEGMENTS.map((seg) => (
-          <div className="flex items-center gap-2" key={seg.key}>
-            <span
-              className={`inline-block h-2.5 w-2.5 rounded-sm ${seg.color} opacity-80`}
-            />
-            <span className="text-muted-foreground text-xs">{seg.label}</span>
-            <span className="font-mono text-xs">{trace[seg.key]}ms</span>
-          </div>
-        ))}
-        <div className="flex items-center gap-2">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-foreground/20" />
-          <span className="text-muted-foreground text-xs">Total</span>
-          <span className="font-mono text-xs">{trace.total_ms}ms</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function formatDuration(start: string | null, end: string | null): string {
-  if (!start) {
-    return "-";
-  }
-  const s = new Date(start).getTime();
-  const e = end ? new Date(end).getTime() : Date.now();
-  const ms = e - s;
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-  if (ms < 60_000) {
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
-  const mins = Math.floor(ms / 60_000);
-  const secs = Math.round((ms % 60_000) / 1000);
-  return `${mins}m ${secs}s`;
 }

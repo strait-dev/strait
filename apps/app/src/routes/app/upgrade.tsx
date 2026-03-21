@@ -16,31 +16,37 @@ import { createServerFn } from "@tanstack/react-start";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as z from "zod";
+import DowngradePreviewDialog from "@/components/billing/downgrade-preview-dialog";
+import ErrorComponent from "@/components/common/error-component";
+import type {
+  BillingInterval,
+  PlanType,
+} from "@/components/upgrade/plan-selection";
 import { PlanSelection } from "@/components/upgrade/plan-selection";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
+import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import { authMiddleware } from "@/middlewares/auth";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const PLAN_SLUGS: Record<string, string> = {
   "starter-monthly": "starter-monthly",
   "starter-yearly": "starter-yearly",
-  "growth-monthly": "growth-monthly",
-  "growth-yearly": "growth-yearly",
-  "professional-monthly": "professional-monthly",
-  "professional-yearly": "professional-yearly",
+  "pro-monthly": "pro-monthly",
+  "pro-yearly": "pro-yearly",
   "enterprise-monthly": "enterprise-monthly",
   "enterprise-yearly": "enterprise-yearly",
 };
 
 type StartCheckoutInput = {
-  planSlug: "starter" | "growth" | "professional" | "enterprise";
+  planSlug: "starter" | "pro" | "enterprise";
   billingInterval: "monthly" | "yearly";
 };
 
 const startCheckoutInputSchema = z.object({
-  planSlug: z.enum(["starter", "growth", "professional", "enterprise"]),
+  planSlug: z.enum(["starter", "pro", "enterprise"]),
   billingInterval: z.enum(["monthly", "yearly"]),
 });
 
@@ -78,6 +84,11 @@ const upgradeSearchSchema = z.object({
 
 export const Route = createFileRoute("/app/upgrade")({
   validateSearch: zodValidator(upgradeSearchSchema),
+  loader: async ({ context }) => {
+    const ctx = context as AppRouteContext;
+    await ctx.queryClient.ensureQueryData(subscriptionStateQueryOptions());
+  },
+  errorComponent: ErrorComponent,
   component: RouteComponent,
 });
 
@@ -88,21 +99,20 @@ function RouteComponent() {
   );
   const { isActive, isTrialing } = subscriptionState;
   const currentPlan = subscriptionState.plan as
+    | "free"
     | "starter"
-    | "growth"
-    | "professional"
+    | "pro"
     | "enterprise";
-  const [selectedPlan, setSelectedPlan] = useState<
-    "starter" | "growth" | "professional" | "enterprise"
-  >(currentPlan || "growth");
-  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">(
-    "monthly"
+  const [selectedPlan, setSelectedPlan] = useState<PlanType>(
+    currentPlan || "starter"
   );
+  const [billingInterval, setBillingInterval] =
+    useState<BillingInterval>("monthly");
   const [isPortalLoading, setIsPortalLoading] = useState(false);
+  const [downgradeTarget, setDowngradeTarget] = useState<string | null>(null);
   const { trackSubscription } = useAnalytics();
   const hasTrackedPageView = useRef(false);
 
-  // Track page view on mount
   useEffect(() => {
     if (!hasTrackedPageView.current) {
       trackSubscription("UPGRADE_PAGE_VIEWED", {
@@ -114,13 +124,17 @@ function RouteComponent() {
   }, [trackSubscription, currentPlan, isTrialing]);
 
   const startCheckout = useMutation({
-    mutationFn: () =>
-      startCheckoutServerFn({
+    mutationFn: () => {
+      if (selectedPlan === "free") {
+        return Promise.resolve({ checkoutUrl: "/app" });
+      }
+      return startCheckoutServerFn({
         data: {
-          planSlug: selectedPlan,
+          planSlug: selectedPlan as "starter" | "pro" | "enterprise",
           billingInterval,
         },
-      }),
+      });
+    },
     onSuccess: (data) => {
       if (data.checkoutUrl) {
         window.location.assign(data.checkoutUrl);
@@ -133,7 +147,28 @@ function RouteComponent() {
     },
   });
 
+  const isDowngrade = checkIsDowngrade(currentPlan, selectedPlan);
+
   const handleStartCheckout = useCallback(() => {
+    if (isDowngrade) {
+      setDowngradeTarget(selectedPlan);
+      return;
+    }
+    trackSubscription("CHECKOUT_STARTED", {
+      plan: selectedPlan,
+      billing_interval: billingInterval,
+    });
+    startCheckout.mutate();
+  }, [
+    startCheckout,
+    trackSubscription,
+    selectedPlan,
+    billingInterval,
+    isDowngrade,
+  ]);
+
+  const handleConfirmDowngrade = useCallback(() => {
+    setDowngradeTarget(null);
     trackSubscription("CHECKOUT_STARTED", {
       plan: selectedPlan,
       billing_interval: billingInterval,
@@ -162,7 +197,6 @@ function RouteComponent() {
 
   return (
     <Shell>
-      {/* Show cancellation message if user canceled checkout */}
       {search.canceled ? (
         <Alert className="mb-6 border-yellow-200 bg-yellow-50">
           <HugeiconsIcon
@@ -175,7 +209,6 @@ function RouteComponent() {
         </Alert>
       ) : null}
 
-      {/* Show error message if there was an error */}
       {search.error ? (
         <Alert className="mb-6 border-red-200 bg-red-50">
           <HugeiconsIcon
@@ -189,7 +222,6 @@ function RouteComponent() {
       ) : null}
 
       <div className="space-y-8">
-        {/* Portal Access for Existing Customers */}
         {hasActiveSubscription ? (
           <Card className="border-border bg-muted/50">
             <CardHeader>
@@ -214,18 +246,29 @@ function RouteComponent() {
           </Card>
         ) : null}
 
-        {/* Plan Selection */}
         <PlanSelection
           billingInterval={billingInterval}
           currentPlanSlug={currentPlan}
           isLoading={startCheckout.isPending}
-          mode="trial_ended"
+          mode="upgrade"
           onBillingIntervalChange={setBillingInterval}
           onPlanChange={setSelectedPlan}
           onStartCheckout={handleStartCheckout}
           selectedPlan={selectedPlan}
         />
       </div>
+
+      <DowngradePreviewDialog
+        isLoading={startCheckout.isPending}
+        onConfirm={handleConfirmDowngrade}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDowngradeTarget(null);
+          }
+        }}
+        open={!!downgradeTarget}
+        targetTier={downgradeTarget ?? ""}
+      />
     </Shell>
   );
 }

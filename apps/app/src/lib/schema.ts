@@ -1,6 +1,5 @@
 import * as z from "zod";
 
-const DEFAULT_MIN_CODE_LENGTH = 6;
 const DEFAULT_MAX_WORKSPACE_LENGTH = 100;
 const DEFAULT_MAX_USE_CASE_LENGTH = 8;
 const DEFAULT_MAX_DESCRIPTION_LENGTH = 500;
@@ -28,29 +27,6 @@ export const SupportFormSchema = z.object({
     .min(10, "Describe the steps to reproduce the problem"),
   expected_result: z.string().min(10, "Describe the expected result"),
   actual_result: z.string().min(10, "Describe the actual result"),
-});
-
-export const DeleteOrganizationSchema = z.object({
-  confirm: z
-    .boolean()
-    .refine((val) => val === true, { message: "Confirm deletion" }),
-  word: z
-    .string()
-    .min(1, { message: "Type the word correctly" })
-    .refine((val) => val.toLowerCase() === "delete", {
-      message: "Type exactly the word 'delete'",
-    }),
-});
-
-export const VerifyCodeDeletionSchema = z.object({
-  verificationCode: z
-    .string()
-    .min(DEFAULT_MIN_CODE_LENGTH, {
-      message: "Code must be at least 6 characters",
-    })
-    .max(DEFAULT_MIN_CODE_LENGTH, {
-      message: "Code must be at most 6 characters",
-    }),
 });
 
 export const RequestOrganizationDeletionSchema = z.object({

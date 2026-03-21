@@ -431,7 +431,7 @@ export type ListParams = {
 };
 
 /** Plan tier for region gating. Matches Go domain.PlanTier. */
-export type PlanTier = "free" | "starter" | "professional" | "enterprise";
+export type PlanTier = "free" | "starter" | "pro" | "enterprise";
 
 /** Region metadata from GET /v1/regions. */
 export type Region = {

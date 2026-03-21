@@ -14,7 +14,7 @@ import { formatFieldErrors } from "@/lib/form-errors";
 import { environments, teamSizes } from "../data/company-sizes";
 import type { OnboardingStepProps } from "../types";
 
-export const CompanyInfoStep = ({ form }: OnboardingStepProps) => {
+const CompanyInfoStep = ({ form }: OnboardingStepProps) => {
   const { trackCompanyInfoFieldFilled } = useOnboardingAnalytics();
   const trackedFieldsRef = useRef<Set<string>>(new Set());
   const teamSizeSelectId = useId();
@@ -171,3 +171,5 @@ export const CompanyInfoStep = ({ form }: OnboardingStepProps) => {
     </div>
   );
 };
+
+export default CompanyInfoStep;

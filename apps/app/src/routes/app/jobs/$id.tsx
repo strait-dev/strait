@@ -33,13 +33,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { DetailPageSkeleton } from "@/components/common/detail-page-skeleton";
+import CostEstimateCard from "@/components/billing/cost-estimate-card";
+import ConfigRow from "@/components/common/config-row";
+import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
-import { ChartTooltip } from "@/components/dashboard/chart-tooltip";
-import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
-import { StatusBadge } from "@/components/dashboard/status-badge";
+import ChartTooltip from "@/components/dashboard/chart-tooltip";
+import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
+import StatusBadge from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
@@ -180,10 +182,10 @@ function JobDetailPage() {
   return (
     <Shell>
       {/* Header */}
-      <div className="flex items-start justify-between pt-4 pb-4">
+      <div className="flex flex-col gap-3 pt-4 pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-3">
-            <h1 className="text-balance font-normal text-2xl tracking-tight">
+            <h1 className="text-balance font-normal text-xl tracking-tight sm:text-2xl">
               {job.name}
             </h1>
             <StatusBadge
@@ -246,7 +248,7 @@ function JobDetailPage() {
 
           {/* Run History Bar Chart */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardHeader className="flex flex-col gap-2 pb-2 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="font-medium text-sm">
                 Run History (Last {rangeDays} Days)
               </CardTitle>
@@ -339,6 +341,9 @@ function JobDetailPage() {
               />
             </CardContent>
           </Card>
+
+          {/* Cost Estimate */}
+          <CostEstimateCard timeoutSecs={job.timeout_secs} />
 
           {/* Tags */}
           {job.tags && Object.keys(job.tags).length > 0 && (
@@ -477,29 +482,5 @@ function StatCard({ label, value }: { label: string; value: string }) {
         <p className="mt-1 text-muted-foreground text-xs">{label}</p>
       </CardContent>
     </Card>
-  );
-}
-
-function ConfigRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: any;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2 text-sm">
-      <div className="flex shrink-0 items-center gap-2">
-        <HugeiconsIcon
-          className="text-muted-foreground"
-          icon={icon}
-          size={14}
-        />
-        <span className="text-muted-foreground">{label}</span>
-      </div>
-      <span className="truncate font-mono text-xs">{value}</span>
-    </div>
   );
 }

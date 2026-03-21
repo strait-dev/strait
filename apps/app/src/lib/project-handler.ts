@@ -3,7 +3,12 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import z from "zod/v4";
 import type { Project } from "@/hooks/api/types";
 import { auth, authPool } from "@/lib/auth.server";
+import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import {
+  requireOrgAccess,
+  requireProjectAccess,
+} from "@/middlewares/require-access";
 
 /**
  * Ensures the project table exists in the auth database.
@@ -44,6 +49,7 @@ export const createProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    await requireOrgAccess(context.user.id, data.organizationId);
     await ensureProjectTable();
 
     const slug = data.name
@@ -64,7 +70,22 @@ export const createProjectServerFn = createServerFn({ method: "POST" })
       ]
     );
 
-    return result.rows[0];
+    const project = result.rows[0];
+
+    // Sync to Go service (best-effort).
+    await runWithFallback(
+      apiEffect("/v1/projects", {
+        method: "POST",
+        body: {
+          id: project.id,
+          org_id: data.organizationId,
+          name: data.name,
+        },
+      }),
+      undefined
+    );
+
+    return project;
   });
 
 /** List projects for an organization. */
@@ -73,7 +94,8 @@ export const listProjectsServerFn = createServerFn({ method: "GET" })
     z.object({ organizationId: z.string().min(1) }).parse(data)
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
+    await requireOrgAccess(context.user.id, data.organizationId);
     await ensureProjectTable();
 
     const result = await authPool.query<Project>(
@@ -93,16 +115,22 @@ export const getProjectServerFn = createServerFn({ method: "GET" })
     z.object({ id: z.string().min(1) }).parse(data)
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
     await ensureProjectTable();
+
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
+
+    if (!activeOrgId) {
+      return null;
+    }
 
     const result = await authPool.query<Project>(
       `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
        FROM project
-       WHERE id = $1`,
-      [data.id]
+       WHERE id = $1 AND organization_id = $2`,
+      [data.id, activeOrgId]
     );
-
     return result.rows[0] ?? null;
   });
 
@@ -113,6 +141,12 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
+    if (!activeOrgId) {
+      throw new Error("Forbidden");
+    }
+    await requireOrgAccess(context.user.id, activeOrgId);
     await ensureProjectTable();
 
     const result = await authPool.query(
@@ -124,6 +158,12 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
       throw new Error("Project not found or permission denied");
     }
 
+    // Sync deletion to Go service (best-effort).
+    await runWithFallback(
+      apiEffect(`/v1/projects/${data.id}`, { method: "DELETE" }),
+      undefined
+    );
+
     return { success: true };
   });
 
@@ -133,7 +173,11 @@ export const setActiveProjectServerFn = createServerFn({ method: "POST" })
     z.object({ projectId: z.string().min(1) }).parse(data)
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
+    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
+
     const headers = getRequestHeaders();
     await auth.api.updateUser({
       body: { activeProjectId: data.projectId },

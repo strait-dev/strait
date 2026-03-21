@@ -41,6 +41,8 @@ const SDK_TABS = [
   },
 ] as const;
 
+const SDK_TABS_WITHOUT_CLI = SDK_TABS.filter((t) => t.value !== "cli");
+
 const CODE_EXAMPLES: Record<string, string> = {
   typescript: `import { Strait } from "@strait/sdk";
 
@@ -117,7 +119,7 @@ export const GettingStarted = ({ user }: Props) => {
             </div>
             <CardTitle className="text-base">Create a project</CardTitle>
           </CardHeader>
-          <CardContent className="pl-14">
+          <CardContent className="pl-6 sm:pl-14">
             <p className="text-muted-foreground text-sm">
               Projects organize your jobs and workflows.
             </p>
@@ -140,7 +142,7 @@ export const GettingStarted = ({ user }: Props) => {
             </div>
             <CardTitle className="text-base">Install the SDK</CardTitle>
           </CardHeader>
-          <CardContent className="pl-14">
+          <CardContent className="pl-6 sm:pl-14">
             <p className="text-muted-foreground text-sm">
               Add the Strait SDK to your application.
             </p>
@@ -175,7 +177,7 @@ export const GettingStarted = ({ user }: Props) => {
             </div>
             <CardTitle className="text-base">Deploy your first job</CardTitle>
           </CardHeader>
-          <CardContent className="pl-14">
+          <CardContent className="pl-6 sm:pl-14">
             <p className="text-muted-foreground text-sm">
               Register and deploy a job to start processing work.
             </p>
@@ -185,13 +187,13 @@ export const GettingStarted = ({ user }: Props) => {
               value={activeTab}
             >
               <TabsList>
-                {SDK_TABS.filter((t) => t.value !== "cli").map((tab) => (
+                {SDK_TABS_WITHOUT_CLI.map((tab) => (
                   <TabsTrigger key={tab.value} value={tab.value}>
                     {tab.label}
                   </TabsTrigger>
                 ))}
               </TabsList>
-              {SDK_TABS.filter((t) => t.value !== "cli").map((tab) => (
+              {SDK_TABS_WITHOUT_CLI.map((tab) => (
                 <TabsContent key={tab.value} value={tab.value}>
                   <pre className="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm">
                     <code>{CODE_EXAMPLES[tab.value]}</code>

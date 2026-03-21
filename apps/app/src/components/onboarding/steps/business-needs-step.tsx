@@ -9,7 +9,7 @@ import { formatFieldErrors } from "@/lib/form-errors";
 import { useCaseOptions } from "../data/business-needs-options";
 import type { OnboardingStepProps } from "../types";
 
-export const BusinessNeedsStep = ({ form }: OnboardingStepProps) => {
+const BusinessNeedsStep = ({ form }: OnboardingStepProps) => {
   const { trackBusinessNeedSelected, trackBusinessNeedDeselected } =
     useOnboardingAnalytics();
 
@@ -76,3 +76,5 @@ export const BusinessNeedsStep = ({ form }: OnboardingStepProps) => {
     </div>
   );
 };
+
+export default BusinessNeedsStep;

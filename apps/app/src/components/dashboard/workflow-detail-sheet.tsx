@@ -12,7 +12,7 @@ import { cn } from "@strait/ui/utils/index";
 import { Link } from "@tanstack/react-router";
 import type { Workflow, WorkflowStepType } from "@/hooks/api/types";
 import { ClockIcon, PlayActionIcon, TagIcon } from "@/lib/icons";
-import { StatusBadge } from "./status-badge";
+import StatusBadge from "./status-badge";
 
 type WorkflowDetailSheetProps = {
   workflow: Workflow | null;
@@ -28,20 +28,26 @@ const STEP_TYPE_COLORS: Record<WorkflowStepType, string> = {
   sleep: "bg-muted-foreground",
 };
 
-function StatCell({ label, value }: { label: string; value: string | number }) {
+const StatCell = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) => {
   return (
     <div className="rounded-md border p-3 text-center">
       <p className="font-normal text-lg">{value}</p>
       <p className="text-muted-foreground text-xs">{label}</p>
     </div>
   );
-}
+};
 
-export function WorkflowDetailSheet({
+const WorkflowDetailSheet = ({
   workflow,
   open,
   onOpenChange,
-}: WorkflowDetailSheetProps) {
+}: WorkflowDetailSheetProps) => {
   if (!workflow) {
     return null;
   }
@@ -206,4 +212,6 @@ export function WorkflowDetailSheet({
       </SheetContent>
     </Sheet>
   );
-}
+};
+
+export default WorkflowDetailSheet;

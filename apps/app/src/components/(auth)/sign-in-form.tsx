@@ -24,7 +24,7 @@ type SignInFormProps = {
   onTwoFactorRequired?: () => void;
 };
 
-export const SignInForm = ({
+const SignInForm = ({
   redirectTo,
   disabled,
   onTwoFactorRequired,
@@ -222,3 +222,5 @@ export const SignInForm = ({
     </form>
   );
 };
+
+export default SignInForm;

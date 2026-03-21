@@ -28,9 +28,9 @@ import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 const ATTENTION_STATUSES = new Set(["incomplete", "past_due", "unpaid"]);
 
 const PLAN_NAMES = {
+  free: "Free",
   starter: "Starter",
-  growth: "Growth",
-  professional: "Professional",
+  pro: "Pro",
   enterprise: "Enterprise",
 } as const;
 

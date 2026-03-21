@@ -1,7 +1,7 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import * as z from "zod";
-import { AuthLayout } from "@/components/(auth)/auth-layout";
+import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authClient } from "@/lib/auth-client";

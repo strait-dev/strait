@@ -23,7 +23,7 @@ type SignUpFormProps = {
   disabled?: boolean;
 };
 
-export const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
+const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
   const [emailSent, setEmailSent] = useState(false);
 
   const form = useForm({
@@ -172,3 +172,5 @@ export const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
     </form>
   );
 };
+
+export default SignUpForm;

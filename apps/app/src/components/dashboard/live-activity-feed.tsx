@@ -10,6 +10,8 @@ import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import type { JobRun } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { ActivityIcon } from "@/lib/icons";
+import ChartEmptyState from "./chart-empty-state";
 
 const STATUS_DOT: Record<string, string> = {
   executing: "bg-info",
@@ -46,8 +48,11 @@ function runToMessage(run: JobRun): string {
   }
 }
 
-export function LiveActivityFeed() {
-  const { data } = useQuery(runsQueryOptions({ limit: 20 }));
+const LiveActivityFeed = ({ hasProject = true }: { hasProject?: boolean }) => {
+  const { data } = useQuery({
+    ...runsQueryOptions({ limit: 20 }),
+    enabled: hasProject,
+  });
   const runs = data?.data ?? [];
 
   return (
@@ -79,13 +84,22 @@ export function LiveActivityFeed() {
               </div>
             ))}
             {runs.length === 0 && (
-              <p className="py-6 text-center text-muted-foreground text-sm">
-                No recent activity
-              </p>
+              <div className="py-8">
+                <ChartEmptyState
+                  icon={ActivityIcon}
+                  message={
+                    hasProject
+                      ? "No recent activity yet."
+                      : "Create a project to see live activity."
+                  }
+                />
+              </div>
             )}
           </div>
         </ScrollArea>
       </CardContent>
     </Card>
   );
-}
+};
+
+export default LiveActivityFeed;

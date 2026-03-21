@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Button } from "@strait/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";

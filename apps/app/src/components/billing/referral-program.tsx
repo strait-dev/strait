@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";

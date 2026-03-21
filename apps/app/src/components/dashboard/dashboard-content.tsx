@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import InlineError from "@/components/common/inline-error";

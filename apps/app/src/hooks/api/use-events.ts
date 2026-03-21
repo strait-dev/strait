@@ -7,6 +7,7 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -19,23 +20,25 @@ export const fetchEvents = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<PaginatedResponse<EventTrigger>>("/v1/events", {
-      params: {
-        limit: data.limit,
-        cursor: data.cursor,
-        type: data.type,
-        search: data.search,
-      },
-    });
+    return await runWithSentryReport(
+      apiEffect<PaginatedResponse<EventTrigger>>("/v1/events", {
+        params: {
+          limit: data.limit,
+          cursor: data.cursor,
+          type: data.type,
+          search: data.search,
+        },
+      })
+    );
   });
 
 export const fetchEvent = createServerFn({ method: "GET" })
   .inputValidator((data: { eventKey: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<EventTrigger>(`/v1/events/${data.eventKey}`);
+    return await runWithSentryReport(
+      apiEffect<EventTrigger>(`/v1/events/${data.eventKey}`)
+    );
   });
 
 // ---------------------------------------------------------------------------

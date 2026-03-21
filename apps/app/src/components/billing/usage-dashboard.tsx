@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {

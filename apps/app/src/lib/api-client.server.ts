@@ -13,10 +13,12 @@ function getInternalSecret(): string {
   return secret;
 }
 
-type RequestOptions = {
+/** Options for `apiRequest` calls to the Strait Go API. */
+export type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   params?: Record<string, string | number | boolean | undefined>;
+  responseType?: "json" | "text" | "arraybuffer";
 };
 
 /** Resolve the active project ID from the current session. */
@@ -78,7 +80,7 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { method = "GET", body, params } = options;
+  const { method = "GET", body, params, responseType = "json" } = options;
   const url = buildUrl(path, params);
   const projectId = await resolveProjectId();
 
@@ -107,6 +109,14 @@ export async function apiRequest<T>(
 
   if (response.status === 204) {
     return {} as T;
+  }
+
+  if (responseType === "text") {
+    return response.text() as Promise<T>;
+  }
+
+  if (responseType === "arraybuffer") {
+    return response.arrayBuffer() as Promise<T>;
   }
 
   return response.json() as Promise<T>;

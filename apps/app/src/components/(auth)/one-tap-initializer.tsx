@@ -5,7 +5,7 @@ const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as
   | string
   | undefined;
 
-export const OneTapInitializer = () => {
+const OneTapInitializer = () => {
   useEffect(() => {
     if (!googleClientId) {
       return;
@@ -17,3 +17,5 @@ export const OneTapInitializer = () => {
 
   return null;
 };
+
+export default OneTapInitializer;

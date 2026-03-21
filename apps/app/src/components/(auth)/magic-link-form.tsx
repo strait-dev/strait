@@ -20,7 +20,7 @@ type MagicLinkFormProps = {
   disabled?: boolean;
 };
 
-export const MagicLinkForm = ({ redirectTo, disabled }: MagicLinkFormProps) => {
+const MagicLinkForm = ({ redirectTo, disabled }: MagicLinkFormProps) => {
   const [sent, setSent] = useState(false);
 
   const form = useForm({
@@ -122,3 +122,5 @@ export const MagicLinkForm = ({ redirectTo, disabled }: MagicLinkFormProps) => {
     </form>
   );
 };
+
+export default MagicLinkForm;

@@ -2,7 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { z } from "zod";
-import { AuthLayout } from "@/components/(auth)/auth-layout";
+import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { apiRequest } from "@/lib/api-client.server";

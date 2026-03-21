@@ -11,10 +11,7 @@ type SocialProvidersProps = {
   disabled?: boolean;
 };
 
-export const SocialProviders = ({
-  redirectTo,
-  disabled,
-}: SocialProvidersProps) => {
+const SocialProviders = ({ redirectTo, disabled }: SocialProvidersProps) => {
   const [loadingProvider, setLoadingProvider] = useState<
     "google" | "github" | null
   >(null);
@@ -101,3 +98,5 @@ export const SocialProviders = ({
     </div>
   );
 };
+
+export default SocialProviders;

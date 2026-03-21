@@ -1,4 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
 import { Shell } from "@strait/ui/components/shell";
 import {
   Tabs,
@@ -6,12 +14,11 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import Account from "@/components/(settings)/account";
-import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
+import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
-
-import { UserIcon } from "@/lib/icons";
+import { CreditCardIcon, UserIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/settings/")({
@@ -38,10 +45,31 @@ function RouteComponent() {
               <HugeiconsIcon className="size-4" icon={UserIcon} />
               Account
             </TabsTrigger>
+            <TabsTrigger className="flex items-center gap-2" value="billing">
+              <HugeiconsIcon className="size-4" icon={CreditCardIcon} />
+              Usage & Billing
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent className="mt-6 space-y-6" value="account">
             <Account user={session.user} />
+          </TabsContent>
+
+          <TabsContent className="mt-6 space-y-6" value="billing">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Usage & Billing</CardTitle>
+                <CardDescription>
+                  View detailed usage metrics, cost breakdowns, and spending
+                  limits for your organization.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button render={<Link to="/app/billing" />} variant="outline">
+                  View Billing Details
+                </Button>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
