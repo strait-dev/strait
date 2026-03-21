@@ -15,7 +15,7 @@ type TrialStartedModalProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-export const TrialStartedModal = ({
+const TrialStartedModal = ({
   open,
   onOpenChange,
 }: TrialStartedModalProps) => {
@@ -81,3 +81,5 @@ export const TrialStartedModal = ({
     </Dialog>
   );
 };
+
+export default TrialStartedModal;

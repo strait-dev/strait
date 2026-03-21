@@ -122,11 +122,11 @@ type StatusBadgeProps = {
   showDot?: boolean;
 };
 
-export function StatusBadge({
+const StatusBadge = ({
   status,
   size = "md",
   showDot = true,
-}: StatusBadgeProps) {
+}: StatusBadgeProps) => {
   const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
   return (
     <Badge size={SIZE_MAP[size]} variant={config.variant}>
@@ -142,4 +142,6 @@ export function StatusBadge({
       {config.label}
     </Badge>
   );
-}
+};
+
+export default StatusBadge;

@@ -17,18 +17,18 @@ import {
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { AlertIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import { ChartEmptyState } from "./chart-empty-state";
-import { ChartTooltip } from "./chart-tooltip";
+import ChartEmptyState from "./chart-empty-state";
+import ChartTooltip from "./chart-tooltip";
 
 const LABEL_MAP = {
   failures: { label: "Failures", color: CHART_COLORS.error },
 };
 
-export function FailedRunsByJobChart({
+const FailedRunsByJobChart = ({
   hasProject = true,
 }: {
   hasProject?: boolean;
-}) {
+}) => {
   const { data: analytics } = useQuery({
     ...analyticsQueryOptions(24),
     enabled: hasProject,
@@ -99,4 +99,6 @@ export function FailedRunsByJobChart({
       </CardContent>
     </Card>
   );
-}
+};
+
+export default FailedRunsByJobChart;

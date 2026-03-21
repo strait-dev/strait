@@ -4,7 +4,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { MoonIcon, SunIcon } from "@/lib/icons";
 
-export const ThemeToggle = () => {
+const ThemeToggle = () => {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -40,3 +40,5 @@ export const ThemeToggle = () => {
     </Button>
   );
 };
+
+export default ThemeToggle;

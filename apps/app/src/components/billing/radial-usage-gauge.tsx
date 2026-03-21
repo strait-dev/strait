@@ -27,13 +27,13 @@ function getGaugeColor(percent: number): string {
   return CHART_COLORS.active;
 }
 
-export function RadialUsageGauge({
+const RadialUsageGauge = ({
   label,
   used,
   limit,
   percent,
   display,
-}: RadialUsageGaugeProps) {
+}: RadialUsageGaugeProps) => {
   const isUnlimited = limit === -1;
   const displayValue = display || `${used.toLocaleString()}`;
   const limitDisplay = isUnlimited ? "Unlimited" : limit.toLocaleString();
@@ -92,4 +92,6 @@ export function RadialUsageGauge({
       </CardContent>
     </Card>
   );
-}
+};
+
+export default RadialUsageGauge;

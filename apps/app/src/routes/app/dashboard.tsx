@@ -11,18 +11,18 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 import ErrorComponent from "@/components/common/error-component";
-import { InlineError } from "@/components/common/inline-error";
+import InlineError from "@/components/common/inline-error";
 import { QueryErrorBoundary } from "@/components/common/query-error-boundary";
-import { FailedRunsByJobChart } from "@/components/dashboard/failed-runs-by-job-chart";
-import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed";
-import { MetricsCard } from "@/components/dashboard/metrics-card";
-import { QueueHealthChart } from "@/components/dashboard/queue-health-chart";
-import { RecentRunsTable } from "@/components/dashboard/recent-runs-table";
-import { RunDurationTrendsChart } from "@/components/dashboard/run-duration-trends-chart";
-import { RunsChart } from "@/components/dashboard/runs-chart";
-import { StatusDistributionChart } from "@/components/dashboard/status-distribution-chart";
-import { ThroughputChart } from "@/components/dashboard/throughput-chart";
-import { TopJobsChart } from "@/components/dashboard/top-jobs-chart";
+import FailedRunsByJobChart from "@/components/dashboard/failed-runs-by-job-chart";
+import LiveActivityFeed from "@/components/dashboard/live-activity-feed";
+import MetricsCard from "@/components/dashboard/metrics-card";
+import QueueHealthChart from "@/components/dashboard/queue-health-chart";
+import RecentRunsTable from "@/components/dashboard/recent-runs-table";
+import RunDurationTrendsChart from "@/components/dashboard/run-duration-trends-chart";
+import RunsChart from "@/components/dashboard/runs-chart";
+import StatusDistributionChart from "@/components/dashboard/status-distribution-chart";
+import ThroughputChart from "@/components/dashboard/throughput-chart";
+import TopJobsChart from "@/components/dashboard/top-jobs-chart";
 import {
   analyticsQueryOptions as analyticsQueryOptionsFn,
   statsQueryOptions as statsQueryOptionsFn,

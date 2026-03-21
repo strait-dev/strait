@@ -28,9 +28,9 @@ import {
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { formatMicroUsd } from "@/lib/format";
 import { CHART_COLORS } from "@/lib/status-colors";
-import { ChartTooltip } from "../dashboard/chart-tooltip";
-import { MetricsCard } from "./metrics-card";
-import { ProjectBudgetDialog } from "./project-budget-dialog";
+import ChartTooltip from "../dashboard/chart-tooltip";
+import MetricsCard from "./metrics-card";
+import ProjectBudgetDialog from "./project-budget-dialog";
 
 type BudgetDialogState = {
   projectId: string;
@@ -39,7 +39,7 @@ type BudgetDialogState = {
   action: string;
 } | null;
 
-export function ProjectCostsTab() {
+const ProjectCostsTab = () => {
   const { data: costs } = useQuery(projectCostsQueryOptions());
   const [budgetDialog, setBudgetDialog] = useState<BudgetDialogState>(null);
 
@@ -251,7 +251,7 @@ export function ProjectCostsTab() {
       )}
     </div>
   );
-}
+};
 
 type ProjectCostWithBudget = {
   project_id: string;
@@ -263,3 +263,5 @@ type ProjectCostWithBudget = {
   monthly_budget_microusd?: number;
   budget_action?: string;
 };
+
+export default ProjectCostsTab;

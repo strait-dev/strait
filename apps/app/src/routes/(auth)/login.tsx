@@ -1,11 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { AuthDivider } from "@/components/(auth)/auth-divider";
-import { AuthLayout } from "@/components/(auth)/auth-layout";
-import { OneTapInitializer } from "@/components/(auth)/one-tap-initializer";
-import { PasskeyButton } from "@/components/(auth)/passkey-button";
-import { SignInForm } from "@/components/(auth)/sign-in-form";
-import { SocialProviders } from "@/components/(auth)/social-providers";
+import AuthDivider from "@/components/(auth)/auth-divider";
+import AuthLayout from "@/components/(auth)/auth-layout";
+import OneTapInitializer from "@/components/(auth)/one-tap-initializer";
+import PasskeyButton from "@/components/(auth)/passkey-button";
+import SignInForm from "@/components/(auth)/sign-in-form";
+import SocialProviders from "@/components/(auth)/social-providers";
 import { ButtonLink } from "@/components/common/button-link";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";

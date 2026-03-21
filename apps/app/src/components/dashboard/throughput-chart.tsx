@@ -17,8 +17,8 @@ import {
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { ActivityIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import { ChartEmptyState } from "./chart-empty-state";
-import { ChartTooltip } from "./chart-tooltip";
+import ChartEmptyState from "./chart-empty-state";
+import ChartTooltip from "./chart-tooltip";
 
 const LABEL_MAP = {
   count: {
@@ -28,11 +28,11 @@ const LABEL_MAP = {
   },
 };
 
-export function ThroughputChart({
+const ThroughputChart = ({
   hasProject = true,
 }: {
   hasProject?: boolean;
-}) {
+}) => {
   const { data: analytics } = useQuery({
     ...analyticsQueryOptions(24),
     enabled: hasProject,
@@ -104,4 +104,6 @@ export function ThroughputChart({
       </CardContent>
     </Card>
   );
-}
+};
+
+export default ThroughputChart;

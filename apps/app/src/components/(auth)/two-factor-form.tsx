@@ -19,7 +19,7 @@ type TwoFactorFormProps = {
 
 type VerifyMode = "totp" | "backup";
 
-export const TwoFactorForm = ({ redirectTo, disabled }: TwoFactorFormProps) => {
+const TwoFactorForm = ({ redirectTo, disabled }: TwoFactorFormProps) => {
   const [mode, setMode] = useState<VerifyMode>("totp");
   const [code, setCode] = useState("");
   const [backupCode, setBackupCode] = useState("");
@@ -201,3 +201,5 @@ export const TwoFactorForm = ({ redirectTo, disabled }: TwoFactorFormProps) => {
     </div>
   );
 };
+
+export default TwoFactorForm;

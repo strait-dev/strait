@@ -17,7 +17,7 @@ import {
   RefreshIcon,
   TagIcon,
 } from "@/lib/icons";
-import { StatusBadge } from "./status-badge";
+import StatusBadge from "./status-badge";
 
 type JobDetailSheetProps = {
   job: Job | null;
@@ -25,16 +25,16 @@ type JobDetailSheetProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-function StatCell({ label, value }: { label: string; value: string | number }) {
+const StatCell = ({ label, value }: { label: string; value: string | number }) => {
   return (
     <div className="rounded-md border p-3 text-center">
       <p className="font-normal text-lg">{value}</p>
       <p className="text-muted-foreground text-xs">{label}</p>
     </div>
   );
-}
+};
 
-function DetailRow({
+const DetailRow = ({
   icon,
   label,
   value,
@@ -42,7 +42,7 @@ function DetailRow({
   icon: any;
   label: string;
   value: string;
-}) {
+}) => {
   return (
     <div className="flex items-start justify-between gap-2 text-sm">
       <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
@@ -52,13 +52,13 @@ function DetailRow({
       <span className="truncate text-right font-mono text-sm">{value}</span>
     </div>
   );
-}
+};
 
-export function JobDetailSheet({
+const JobDetailSheet = ({
   job,
   open,
   onOpenChange,
-}: JobDetailSheetProps) {
+}: JobDetailSheetProps) => {
   if (!job) {
     return null;
   }
@@ -179,4 +179,6 @@ export function JobDetailSheet({
       </SheetContent>
     </Sheet>
   );
-}
+};
+
+export default JobDetailSheet;

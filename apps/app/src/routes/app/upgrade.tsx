@@ -16,7 +16,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as z from "zod";
-import { DowngradePreviewDialog } from "@/components/billing/downgrade-preview-dialog";
+import DowngradePreviewDialog from "@/components/billing/downgrade-preview-dialog";
 import ErrorComponent from "@/components/common/error-component";
 import type {
   BillingInterval,

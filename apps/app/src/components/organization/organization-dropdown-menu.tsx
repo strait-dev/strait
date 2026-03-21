@@ -37,7 +37,7 @@ import {
 } from "@/lib/icons";
 import type { AuthUser, Session } from "@/routes/__root";
 import CreateOrganizationDialog from "./create-organization-dialog";
-import { CreateOrganizationLimitGate } from "./create-organization-limit-gate";
+import CreateOrganizationLimitGate from "./create-organization-limit-gate";
 
 type Props = {
   user: AuthUser;

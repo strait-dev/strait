@@ -19,7 +19,7 @@ import {
   RefreshIcon,
   XCircleIcon,
 } from "@/lib/icons";
-import { StatusBadge } from "./status-badge";
+import StatusBadge from "./status-badge";
 
 type RunDetailSheetProps = {
   run: JobRun | null;
@@ -27,7 +27,7 @@ type RunDetailSheetProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-function CollapsibleSection({
+const CollapsibleSection = ({
   title,
   children,
   defaultOpen = false,
@@ -35,7 +35,7 @@ function CollapsibleSection({
   title: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
-}) {
+}) => {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="rounded-md border">
@@ -54,7 +54,7 @@ function CollapsibleSection({
       {open && <div className="border-t px-3 py-2">{children}</div>}
     </div>
   );
-}
+};
 
 function formatDuration(start: string | null, end: string | null): string {
   if (!start) {
@@ -72,11 +72,11 @@ function formatDuration(start: string | null, end: string | null): string {
   return `${(ms / 60_000).toFixed(1)}m`;
 }
 
-export function RunDetailSheet({
+const RunDetailSheet = ({
   run,
   open,
   onOpenChange,
-}: RunDetailSheetProps) {
+}: RunDetailSheetProps) => {
   if (!run) {
     return null;
   }
@@ -248,4 +248,6 @@ export function RunDetailSheet({
       </SheetContent>
     </Sheet>
   );
-}
+};
+
+export default RunDetailSheet;

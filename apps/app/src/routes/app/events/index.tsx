@@ -9,8 +9,8 @@ import { formatDistanceToNow } from "date-fns";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
-import { NoProjectState } from "@/components/common/no-project-state";
-import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
+import NoProjectState from "@/components/common/no-project-state";
+import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import type { EventTrigger } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import type { AppRouteContext } from "@/routes/app/layout";

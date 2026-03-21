@@ -11,7 +11,7 @@ type SocialProvidersProps = {
   disabled?: boolean;
 };
 
-export const SocialProviders = ({
+const SocialProviders = ({
   redirectTo,
   disabled,
 }: SocialProvidersProps) => {
@@ -101,3 +101,5 @@ export const SocialProviders = ({
     </div>
   );
 };
+
+export default SocialProviders;

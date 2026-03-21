@@ -5,7 +5,7 @@ type ChartEmptyStateProps = {
   message: string;
 };
 
-export function ChartEmptyState({ icon, message }: ChartEmptyStateProps) {
+const ChartEmptyState = ({ icon, message }: ChartEmptyStateProps) => {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3">
       <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
@@ -16,4 +16,6 @@ export function ChartEmptyState({ icon, message }: ChartEmptyStateProps) {
       </p>
     </div>
   );
-}
+};
+
+export default ChartEmptyState;

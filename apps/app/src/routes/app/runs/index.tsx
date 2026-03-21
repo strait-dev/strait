@@ -23,11 +23,11 @@ import { useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
-import { NoProjectState } from "@/components/common/no-project-state";
+import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
-import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
-import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
-import { StatusBadge } from "@/components/dashboard/status-badge";
+import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
+import StatusBadge from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";

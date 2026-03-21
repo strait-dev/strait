@@ -28,8 +28,8 @@ import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
 import { capitalize, formatMicroUsd } from "@/lib/format";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
-import { ChartTooltip } from "../dashboard/chart-tooltip";
-import { RadialUsageGauge } from "./radial-usage-gauge";
+import ChartTooltip from "../dashboard/chart-tooltip";
+import RadialUsageGauge from "./radial-usage-gauge";
 
 const RUNS_LABEL_MAP = {
   runs_count: {
@@ -53,7 +53,7 @@ const PROJECT_RUNS_LABEL_MAP = {
   },
 };
 
-export function UsageDashboard() {
+const UsageDashboard = () => {
   const {
     data: usage,
     isLoading,
@@ -435,4 +435,6 @@ export function UsageDashboard() {
       </div>
     </div>
   );
-}
+};
+
+export default UsageDashboard;

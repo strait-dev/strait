@@ -18,7 +18,7 @@ import {
 } from "@/hooks/billing/use-anomaly-config";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
 import { capitalize } from "@/lib/format";
-import { MetricsCard } from "./metrics-card";
+import MetricsCard from "./metrics-card";
 
 const SEVERITY_VARIANT: Record<
   string,
@@ -29,7 +29,7 @@ const SEVERITY_VARIANT: Record<
   critical: "destructive",
 };
 
-export function AlertsForecastTab() {
+const AlertsForecastTab = () => {
   const { data: alerts } = useQuery(anomalyAlertsQueryOptions());
   const { data: forecast } = useQuery(usageForecastQueryOptions());
   const { data: config } = useQuery(anomalyConfigQueryOptions());
@@ -159,15 +159,15 @@ export function AlertsForecastTab() {
       </Card>
     </div>
   );
-}
+};
 
-function ThresholdConfigCard({
+const ThresholdConfigCard = ({
   warningThreshold,
   criticalThreshold,
 }: {
   warningThreshold: number;
   criticalThreshold: number;
-}) {
+}) => {
   return (
     <Card>
       <CardHeader>
@@ -188,15 +188,15 @@ function ThresholdConfigCard({
       </CardContent>
     </Card>
   );
-}
+};
 
-function ThresholdForm({
+const ThresholdForm = ({
   warningThreshold,
   criticalThreshold,
 }: {
   warningThreshold: number;
   criticalThreshold: number;
-}) {
+}) => {
   const [warning, setWarning] = useState(String(warningThreshold));
   const [critical, setCritical] = useState(String(criticalThreshold));
   const mutation = useSetAnomalyConfig();
@@ -264,4 +264,6 @@ function ThresholdForm({
       )}
     </>
   );
-}
+};
+
+export default AlertsForecastTab;

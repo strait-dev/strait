@@ -33,14 +33,14 @@ type ProjectBudgetDialogProps = {
   currentAction: string;
 };
 
-export function ProjectBudgetDialog({
+const ProjectBudgetDialog = ({
   open,
   onOpenChange,
   projectId,
   projectName,
   currentBudgetMicro,
   currentAction,
-}: ProjectBudgetDialogProps) {
+}: ProjectBudgetDialogProps) => {
   const { data: budgetData } = useQuery({
     ...projectBudgetQueryOptions(projectId),
     enabled: open,
@@ -71,9 +71,9 @@ export function ProjectBudgetDialog({
       </DialogContent>
     </Dialog>
   );
-}
+};
 
-function BudgetForm({
+const BudgetForm = ({
   budgetMicro,
   budgetAction,
   projectId,
@@ -83,7 +83,7 @@ function BudgetForm({
   budgetAction: string;
   projectId: string;
   onClose: () => void;
-}) {
+}) => {
   const [budgetUsd, setBudgetUsd] = useState(
     budgetMicro > 0 ? String(budgetMicro / 1_000_000) : ""
   );
@@ -177,4 +177,6 @@ function BudgetForm({
       </DialogFooter>
     </>
   );
-}
+};
+
+export default ProjectBudgetDialog;

@@ -11,7 +11,7 @@ type PasskeyButtonProps = {
   disabled?: boolean;
 };
 
-export const PasskeyButton = ({ disabled }: PasskeyButtonProps) => {
+const PasskeyButton = ({ disabled }: PasskeyButtonProps) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const handlePasskeySignIn = async () => {
@@ -55,3 +55,5 @@ export const PasskeyButton = ({ disabled }: PasskeyButtonProps) => {
     </Button>
   );
 };
+
+export default PasskeyButton;

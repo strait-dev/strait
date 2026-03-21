@@ -8,7 +8,7 @@ import { useCallback } from "react";
 import * as z from "zod";
 
 import { GettingStarted } from "@/components/common/getting-started";
-import { MetricsCard } from "@/components/dashboard/metrics-card";
+import MetricsCard from "@/components/dashboard/metrics-card";
 import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog";
 import {
   analyticsQueryOptions,

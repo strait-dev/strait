@@ -5,7 +5,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useState } from "react";
 import z from "zod/v4";
-import { AuthLayout } from "@/components/(auth)/auth-layout";
+import AuthLayout from "@/components/(auth)/auth-layout";
 import {
   getPublicInvitationServerFn,
   type PublicInvitationData,

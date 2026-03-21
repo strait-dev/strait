@@ -18,11 +18,11 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
-import { DetailPageSkeleton } from "@/components/common/detail-page-skeleton";
+import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
-import { StatusBadge } from "@/components/dashboard/status-badge";
+import StatusBadge from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { jobQueryOptions } from "@/hooks/api/use-jobs";

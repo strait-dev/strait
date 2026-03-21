@@ -11,7 +11,7 @@ import { formatDistanceToNow } from "date-fns";
 import type { JobRun } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import { ActivityIcon } from "@/lib/icons";
-import { ChartEmptyState } from "./chart-empty-state";
+import ChartEmptyState from "./chart-empty-state";
 
 const STATUS_DOT: Record<string, string> = {
   executing: "bg-info",
@@ -48,11 +48,11 @@ function runToMessage(run: JobRun): string {
   }
 }
 
-export function LiveActivityFeed({
+const LiveActivityFeed = ({
   hasProject = true,
 }: {
   hasProject?: boolean;
-}) {
+}) => {
   const { data } = useQuery({
     ...runsQueryOptions({ limit: 20 }),
     enabled: hasProject,
@@ -104,4 +104,6 @@ export function LiveActivityFeed({
       </CardContent>
     </Card>
   );
-}
+};
+
+export default LiveActivityFeed;

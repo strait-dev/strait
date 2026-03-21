@@ -26,9 +26,9 @@ import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
-import { NoProjectState } from "@/components/common/no-project-state";
+import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
-import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
+import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import { createActionsColumn } from "@/components/tables/shared-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type { EventTrigger } from "@/hooks/api/types";

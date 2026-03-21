@@ -16,7 +16,7 @@ import {
 } from "@strait/ui/components/tabs";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import Account from "@/components/(settings)/account";
-import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
+import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 import { CreditCardIcon, UserIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";

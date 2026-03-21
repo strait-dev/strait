@@ -1,9 +1,9 @@
 import { Shell } from "@strait/ui/components/shell";
 import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
-import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
+import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
-import { ProjectSettings } from "@/components/project/project-settings";
+import ProjectSettings from "@/components/project/project-settings";
 import {
   projectSettingsQueryOptions,
   regionsQueryOptions,

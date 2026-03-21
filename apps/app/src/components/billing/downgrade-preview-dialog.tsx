@@ -32,7 +32,7 @@ type DowngradePreviewDialogProps = {
   isLoading?: boolean;
 };
 
-function ActionBadge({ action }: { action: string }) {
+const ActionBadge = ({ action }: { action: string }) => {
   if (action === "ok") {
     return <Badge variant="success-light">OK</Badge>;
   }
@@ -40,9 +40,9 @@ function ActionBadge({ action }: { action: string }) {
     return <Badge variant="warning">Reduce</Badge>;
   }
   return <Badge variant="destructive">Remove</Badge>;
-}
+};
 
-function DowngradePreviewContent({
+const DowngradePreviewContent = ({
   isLoading: isPreviewLoading,
   preview,
   hasIssues,
@@ -50,7 +50,7 @@ function DowngradePreviewContent({
   isLoading: boolean;
   preview: DowngradePreview | null | undefined;
   hasIssues: boolean | undefined;
-}) {
+}) => {
   if (isPreviewLoading) {
     return (
       <div className="flex h-32 items-center justify-center">
@@ -109,15 +109,15 @@ function DowngradePreviewContent({
       </Table>
     </div>
   );
-}
+};
 
-export function DowngradePreviewDialog({
+const DowngradePreviewDialog = ({
   open,
   onOpenChange,
   targetTier,
   onConfirm,
   isLoading,
-}: DowngradePreviewDialogProps) {
+}: DowngradePreviewDialogProps) => {
   const { data: preview, isLoading: isPreviewLoading } = useQuery({
     ...downgradePreviewQueryOptions(targetTier),
     enabled: open && !!targetTier,
@@ -156,4 +156,6 @@ export function DowngradePreviewDialog({
       </DialogContent>
     </Dialog>
   );
-}
+};
+
+export default DowngradePreviewDialog;

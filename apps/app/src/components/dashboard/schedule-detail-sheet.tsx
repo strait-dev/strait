@@ -15,7 +15,7 @@ import {
   ClockIcon,
   RefreshIcon,
 } from "@/lib/icons";
-import { StatusBadge } from "./status-badge";
+import StatusBadge from "./status-badge";
 
 type ScheduleDetailSheetProps = {
   schedule: Job | null;
@@ -23,7 +23,7 @@ type ScheduleDetailSheetProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-function DetailRow({
+const DetailRow = ({
   icon,
   label,
   value,
@@ -31,7 +31,7 @@ function DetailRow({
   icon: any;
   label: string;
   value: string;
-}) {
+}) => {
   return (
     <div className="flex items-center gap-2 text-sm">
       <HugeiconsIcon className="text-muted-foreground" icon={icon} size={14} />
@@ -39,13 +39,13 @@ function DetailRow({
       <span className="ml-auto font-mono text-sm">{value}</span>
     </div>
   );
-}
+};
 
-export function ScheduleDetailSheet({
+const ScheduleDetailSheet = ({
   schedule,
   open,
   onOpenChange,
-}: ScheduleDetailSheetProps) {
+}: ScheduleDetailSheetProps) => {
   if (!schedule) {
     return null;
   }
@@ -123,4 +123,6 @@ export function ScheduleDetailSheet({
       </SheetContent>
     </Sheet>
   );
-}
+};
+
+export default ScheduleDetailSheet;

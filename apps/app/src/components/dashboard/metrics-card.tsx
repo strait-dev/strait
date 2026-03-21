@@ -8,7 +8,7 @@ import {
 import { cn } from "@strait/ui/utils/index";
 import { Bar, BarChart, ResponsiveContainer, Tooltip } from "recharts";
 import { ArrowDownRightIcon, ArrowUpRightIcon } from "@/lib/icons";
-import { ChartTooltip } from "./chart-tooltip";
+import ChartTooltip from "./chart-tooltip";
 
 type MetricsCardProps = {
   title: string;
@@ -21,7 +21,7 @@ type MetricsCardProps = {
   chartColor?: string;
 };
 
-export function MetricsCard({
+const MetricsCard = ({
   title,
   value,
   change,
@@ -30,7 +30,7 @@ export function MetricsCard({
   className,
   chartData,
   chartColor = "var(--color-chart-1)",
-}: MetricsCardProps) {
+}: MetricsCardProps) => {
   const isPositive = change && change.value >= 0;
   const barData = chartData?.map((v) => ({ value: v }));
 
@@ -93,4 +93,6 @@ export function MetricsCard({
       </CardContent>
     </Card>
   );
-}
+};
+
+export default MetricsCard;

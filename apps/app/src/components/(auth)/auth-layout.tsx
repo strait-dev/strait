@@ -6,7 +6,7 @@ type AuthLayoutProps = {
   description?: string;
 };
 
-export const AuthLayout = ({
+const AuthLayout = ({
   children,
   title,
   description,
@@ -41,3 +41,5 @@ export const AuthLayout = ({
     </div>
   );
 };
+
+export default AuthLayout;

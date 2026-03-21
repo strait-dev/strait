@@ -19,7 +19,7 @@ type ForgotPasswordFormProps = {
   disabled?: boolean;
 };
 
-export const ForgotPasswordForm = ({ disabled }: ForgotPasswordFormProps) => {
+const ForgotPasswordForm = ({ disabled }: ForgotPasswordFormProps) => {
   const [sent, setSent] = useState(false);
 
   const form = useForm({
@@ -121,3 +121,5 @@ export const ForgotPasswordForm = ({ disabled }: ForgotPasswordFormProps) => {
     </form>
   );
 };
+
+export default ForgotPasswordForm;

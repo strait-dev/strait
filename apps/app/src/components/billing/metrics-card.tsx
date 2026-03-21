@@ -5,7 +5,7 @@ type Props = {
   value: string;
 };
 
-export function MetricsCard({ label, value }: Props) {
+const MetricsCard = ({ label, value }: Props) => {
   return (
     <Card>
       <CardContent className="p-4">
@@ -16,4 +16,6 @@ export function MetricsCard({ label, value }: Props) {
       </CardContent>
     </Card>
   );
-}
+};
+
+export default MetricsCard;

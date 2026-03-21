@@ -28,7 +28,7 @@ type CostEstimateCardProps = {
   timeoutSecs: number;
 };
 
-export function CostEstimateCard({ timeoutSecs }: CostEstimateCardProps) {
+const CostEstimateCard = ({ timeoutSecs }: CostEstimateCardProps) => {
   const [preset, setPreset] = useState("micro");
 
   const { data: estimate } = useQuery(
@@ -112,4 +112,6 @@ export function CostEstimateCard({ timeoutSecs }: CostEstimateCardProps) {
       </CardContent>
     </Card>
   );
-}
+};
+
+export default CostEstimateCard;

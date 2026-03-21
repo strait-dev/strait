@@ -1,7 +1,7 @@
 import { Shell } from "@strait/ui/components/shell";
 import { createFileRoute } from "@tanstack/react-router";
-import { MigrationCalculator } from "@/components/billing/migration-calculator";
-import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
+import MigrationCalculator from "@/components/billing/migration-calculator";
+import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 
 export const Route = createFileRoute("/app/pricing/compare")({

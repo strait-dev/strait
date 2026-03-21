@@ -17,8 +17,8 @@ import {
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { ClockIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import { ChartEmptyState } from "./chart-empty-state";
-import { ChartTooltip } from "./chart-tooltip";
+import ChartEmptyState from "./chart-empty-state";
+import ChartTooltip from "./chart-tooltip";
 
 const formatSeconds = (v: number) => `${v.toFixed(1)}s`;
 
@@ -40,11 +40,11 @@ const LEGEND_ITEMS = [
   { label: "P95", color: CHART_COLORS.warning },
 ];
 
-export function RunDurationTrendsChart({
+const RunDurationTrendsChart = ({
   hasProject = true,
 }: {
   hasProject?: boolean;
-}) {
+}) => {
   const { data: analytics } = useQuery({
     ...analyticsQueryOptions(24),
     enabled: hasProject,
@@ -137,4 +137,6 @@ export function RunDurationTrendsChart({
       </CardContent>
     </Card>
   );
-}
+};
+
+export default RunDurationTrendsChart;

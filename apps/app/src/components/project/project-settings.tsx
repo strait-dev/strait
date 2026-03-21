@@ -18,7 +18,7 @@ type Props = {
   projectId: string;
 };
 
-export function ProjectSettings({ projectId }: Props) {
+const ProjectSettings = ({ projectId }: Props) => {
   const { data: regionsResponse } = useSuspenseQuery(regionsQueryOptions());
   const { data: settings } = useSuspenseQuery(
     projectSettingsQueryOptions(projectId)
@@ -98,4 +98,6 @@ export function ProjectSettings({ projectId }: Props) {
       </Card>
     </div>
   );
-}
+};
+
+export default ProjectSettings;

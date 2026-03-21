@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { useApproachingLimits } from "@/hooks/billing/use-org-usage";
 
-export function UpgradeNudgeBanner() {
+const UpgradeNudgeBanner = () => {
   const approaching = useApproachingLimits();
   const navigate = useNavigate();
   const [dismissed, setDismissed] = useState(false);
@@ -33,4 +33,6 @@ export function UpgradeNudgeBanner() {
       </div>
     </div>
   );
-}
+};
+
+export default UpgradeNudgeBanner;

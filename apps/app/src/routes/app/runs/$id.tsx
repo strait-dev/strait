@@ -22,10 +22,10 @@ import {
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { DetailPageSkeleton } from "@/components/common/detail-page-skeleton";
+import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
-import { StatusBadge } from "@/components/dashboard/status-badge";
+import StatusBadge from "@/components/dashboard/status-badge";
 import type { ExecutionTrace, RunStatus } from "@/hooks/api/types";
 import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";

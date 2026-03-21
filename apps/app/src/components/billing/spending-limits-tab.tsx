@@ -9,7 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { spendingLimitQueryOptions } from "@/hooks/billing/use-spending-limit";
 import { capitalize } from "@/lib/format";
 
-export function SpendingLimitsTab() {
+const SpendingLimitsTab = () => {
   const { data: spending } = useQuery(spendingLimitQueryOptions());
 
   if (!spending) {
@@ -88,4 +88,6 @@ export function SpendingLimitsTab() {
       </Card>
     </div>
   );
-}
+};
+
+export default SpendingLimitsTab;

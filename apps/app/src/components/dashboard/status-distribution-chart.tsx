@@ -16,18 +16,18 @@ import {
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { CheckCircleIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import { ChartEmptyState } from "./chart-empty-state";
-import { ChartTooltip } from "./chart-tooltip";
+import ChartEmptyState from "./chart-empty-state";
+import ChartTooltip from "./chart-tooltip";
 
 const LABEL_MAP = {
   value: { label: "Runs", color: CHART_COLORS.success },
 };
 
-export function StatusDistributionChart({
+const StatusDistributionChart = ({
   hasProject = true,
 }: {
   hasProject?: boolean;
-}) {
+}) => {
   const { data: analytics } = useQuery({
     ...analyticsQueryOptions(24),
     enabled: hasProject,
@@ -134,4 +134,6 @@ export function StatusDistributionChart({
       </CardContent>
     </Card>
   );
-}
+};
+
+export default StatusDistributionChart;

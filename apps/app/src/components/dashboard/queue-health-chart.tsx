@@ -20,8 +20,8 @@ import {
 } from "@/hooks/api/use-dashboard";
 import { ClockIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import { ChartEmptyState } from "./chart-empty-state";
-import { ChartTooltip } from "./chart-tooltip";
+import ChartEmptyState from "./chart-empty-state";
+import ChartTooltip from "./chart-tooltip";
 
 const LABEL_MAP = {
   count: {
@@ -31,11 +31,11 @@ const LABEL_MAP = {
   },
 };
 
-export function QueueHealthChart({
+const QueueHealthChart = ({
   hasProject = true,
 }: {
   hasProject?: boolean;
-}) {
+}) => {
   const { data: stats } = useQuery({
     ...statsQueryOptions(),
     enabled: hasProject,
@@ -110,4 +110,6 @@ export function QueueHealthChart({
       </CardContent>
     </Card>
   );
-}
+};
+
+export default QueueHealthChart;

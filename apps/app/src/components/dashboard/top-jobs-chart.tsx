@@ -17,14 +17,14 @@ import {
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { TrendingUpIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import { ChartEmptyState } from "./chart-empty-state";
-import { ChartTooltip } from "./chart-tooltip";
+import ChartEmptyState from "./chart-empty-state";
+import ChartTooltip from "./chart-tooltip";
 
 const LABEL_MAP = {
   runs: { label: "Executions", color: CHART_COLORS.active },
 };
 
-export function TopJobsChart({ hasProject = true }: { hasProject?: boolean }) {
+const TopJobsChart = ({ hasProject = true }: { hasProject?: boolean }) => {
   const { data: analytics } = useQuery({
     ...analyticsQueryOptions(24),
     enabled: hasProject,
@@ -97,4 +97,6 @@ export function TopJobsChart({ hasProject = true }: { hasProject?: boolean }) {
       </CardContent>
     </Card>
   );
-}
+};
+
+export default TopJobsChart;

@@ -42,10 +42,10 @@ class ErrorBoundaryInner extends Component<
   }
 }
 
-export function QueryErrorBoundary({
+export const QueryErrorBoundary = ({
   children,
   fallback,
-}: QueryErrorBoundaryProps) {
+}: QueryErrorBoundaryProps) => {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
@@ -55,6 +55,6 @@ export function QueryErrorBoundary({
       )}
     </QueryErrorResetBoundary>
   );
-}
+};
 
 export type { FallbackProps };

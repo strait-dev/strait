@@ -32,4 +32,3 @@ export const MAX_SLUG_LENGTH = 50;
  * Default pincode length
  */
 export const DEFAULT_PINCODE_LENGTH = 6;
-

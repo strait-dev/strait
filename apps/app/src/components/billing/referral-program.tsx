@@ -28,7 +28,7 @@ import {
 import { formatMicroUsd } from "@/lib/format";
 import { CheckIcon, LoadingIcon, PlusIcon } from "@/lib/icons";
 
-function StatusBadgeForReferral({ status }: { status: string }) {
+const StatusBadgeForReferral = ({ status }: { status: string }) => {
   if (status === "activated") {
     return <Badge variant="success-light">Activated</Badge>;
   }
@@ -36,9 +36,9 @@ function StatusBadgeForReferral({ status }: { status: string }) {
     return <Badge variant="info-light">Pending</Badge>;
   }
   return <Badge variant="secondary">{status}</Badge>;
-}
+};
 
-export function ReferralProgram() {
+const ReferralProgram = () => {
   const { data: referralData } = useQuery(referralsQueryOptions());
   const createCode = useCreateReferralCode();
   const activateReferral = useActivateReferral();
@@ -219,4 +219,6 @@ export function ReferralProgram() {
       </Card>
     </div>
   );
-}
+};
+
+export default ReferralProgram;

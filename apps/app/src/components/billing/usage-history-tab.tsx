@@ -31,8 +31,8 @@ import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
 import { formatMicroUsd } from "@/lib/format";
 import { ActivityIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import { ChartEmptyState } from "../dashboard/chart-empty-state";
-import { ChartTooltip } from "../dashboard/chart-tooltip";
+import ChartEmptyState from "../dashboard/chart-empty-state";
+import ChartTooltip from "../dashboard/chart-tooltip";
 
 const LABEL_MAP = {
   compute_cost_microusd: {
@@ -51,7 +51,7 @@ const LABEL_MAP = {
   },
 };
 
-export function UsageHistoryTab() {
+const UsageHistoryTab = () => {
   const { data: history } = useQuery(usageHistoryQueryOptions());
   const [isExporting, setIsExporting] = useState(false);
 
@@ -229,4 +229,6 @@ export function UsageHistoryTab() {
       )}
     </div>
   );
-}
+};
+
+export default UsageHistoryTab;

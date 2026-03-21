@@ -6,8 +6,8 @@ import { useForm } from "@tanstack/react-form";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { BusinessNeedsStep } from "@/components/onboarding/steps/business-needs-step";
-import { CompanyInfoStep } from "@/components/onboarding/steps/company-info-step";
+import BusinessNeedsStep from "@/components/onboarding/steps/business-needs-step";
+import CompanyInfoStep from "@/components/onboarding/steps/company-info-step";
 import type { OnboardingStepProps } from "@/components/onboarding/types";
 import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
 import {

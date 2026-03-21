@@ -17,8 +17,8 @@ import {
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { ActivityIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import { ChartEmptyState } from "./chart-empty-state";
-import { ChartTooltip } from "./chart-tooltip";
+import ChartEmptyState from "./chart-empty-state";
+import ChartTooltip from "./chart-tooltip";
 
 const LABEL_MAP = {
   completed: { label: "Completed", color: CHART_COLORS.success },
@@ -34,7 +34,7 @@ const LEGEND_ITEMS = [
   { label: "Canceled", color: CHART_COLORS.neutral },
 ];
 
-export function RunsChart({ hasProject = true }: { hasProject?: boolean }) {
+const RunsChart = ({ hasProject = true }: { hasProject?: boolean }) => {
   const { data: analytics } = useQuery({
     ...analyticsQueryOptions(24),
     enabled: hasProject,
@@ -143,4 +143,6 @@ export function RunsChart({ hasProject = true }: { hasProject?: boolean }) {
       </CardContent>
     </Card>
   );
-}
+};
+
+export default RunsChart;

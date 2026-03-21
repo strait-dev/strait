@@ -15,7 +15,7 @@ import OrganizationInfo from "@/components/(settings)/organization-info";
 import PendingInvitations from "@/components/(settings)/pending-invitations";
 import SubscriptionOverview from "@/components/(settings)/subscription-overview";
 import TeamMembers from "@/components/(settings)/team-members";
-import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
+import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 
 import { organizationQueryOptions } from "@/hooks/auth/use-organization";

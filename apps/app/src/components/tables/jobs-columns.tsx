@@ -1,6 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { StatusBadge } from "@/components/dashboard/status-badge";
+import StatusBadge from "@/components/dashboard/status-badge";
 import type { Job } from "@/hooks/api/types";
 import { EyeIcon, PauseActionIcon, PlayActionIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";

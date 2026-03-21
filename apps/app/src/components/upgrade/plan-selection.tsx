@@ -664,7 +664,7 @@ const COMPARISON_FEATURES = [
   },
 ] as const;
 
-function FeatureCellValue({ value }: { value: string }) {
+const FeatureCellValue = ({ value }: { value: string }) => {
   if (value === "Yes") {
     return (
       <HugeiconsIcon
@@ -677,9 +677,9 @@ function FeatureCellValue({ value }: { value: string }) {
     return <span className="text-muted-foreground/50">-</span>;
   }
   return <>{value}</>;
-}
+};
 
-function FeatureComparisonMatrix() {
+const FeatureComparisonMatrix = () => {
   const tiers = ["free", "starter", "pro", "enterprise"] as const;
   const tierLabels = {
     free: "Free",
@@ -725,7 +725,7 @@ function FeatureComparisonMatrix() {
       </div>
     </div>
   );
-}
+};
 
 const FAQ_ITEMS = [
   {
@@ -760,7 +760,7 @@ const FAQ_ITEMS = [
   },
 ];
 
-function PricingFAQ() {
+const PricingFAQ = () => {
   return (
     <div className="mx-auto mt-12 max-w-2xl">
       <h3 className="mb-6 text-center font-semibold text-lg">
@@ -780,6 +780,6 @@ function PricingFAQ() {
       </Accordion>
     </div>
   );
-}
+};
 
 export type { BillingInterval, PlanSlug, PlanType, UpgradeMode };

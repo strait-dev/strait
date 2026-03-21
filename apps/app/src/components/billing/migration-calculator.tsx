@@ -67,7 +67,7 @@ function estimateStraitCost(
   };
 }
 
-export function MigrationCalculator() {
+const MigrationCalculator = () => {
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(
     null
   );
@@ -231,4 +231,6 @@ export function MigrationCalculator() {
       )}
     </div>
   );
-}
+};
+
+export default MigrationCalculator;

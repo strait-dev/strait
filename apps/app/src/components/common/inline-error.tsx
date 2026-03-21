@@ -7,10 +7,10 @@ type InlineErrorProps = {
   onRetry?: () => void;
 };
 
-export function InlineError({
+const InlineError = ({
   message = "Failed to load",
   onRetry,
-}: InlineErrorProps) {
+}: InlineErrorProps) => {
   return (
     <div className="flex items-center justify-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3">
       <HugeiconsIcon
@@ -25,4 +25,6 @@ export function InlineError({
       )}
     </div>
   );
-}
+};
+
+export default InlineError;

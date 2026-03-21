@@ -17,8 +17,8 @@ import { Link } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import { ActivityIcon } from "@/lib/icons";
-import { ChartEmptyState } from "./chart-empty-state";
-import { StatusBadge } from "./status-badge";
+import ChartEmptyState from "./chart-empty-state";
+import StatusBadge from "./status-badge";
 
 function formatDuration(
   startedAt: string | null,
@@ -36,11 +36,11 @@ function formatDuration(
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export function RecentRunsTable({
+const RecentRunsTable = ({
   hasProject = true,
 }: {
   hasProject?: boolean;
-}) {
+}) => {
   const { data } = useQuery({
     ...runsQueryOptions({ limit: 6 }),
     enabled: hasProject,
@@ -114,4 +114,6 @@ export function RecentRunsTable({
       </CardContent>
     </Card>
   );
-}
+};
+
+export default RecentRunsTable;
