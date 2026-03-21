@@ -484,7 +484,10 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		}
 	}
 	if chExporter != nil {
-		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries, queries))
+		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries, worker.ClickHouseSubscriberDeps{
+			UsageLister:        queries,
+			ComputeUsageLister: queries,
+		}))
 	}
 
 	healthReg.Register(health.NewPoolChecker(p))

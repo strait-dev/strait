@@ -20,16 +20,29 @@ type UsageLister interface {
 	ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error)
 }
 
+// ComputeUsageLister fetches committed compute usage records for a run. Implemented by *store.Queries.
+type ComputeUsageLister interface {
+	ListRunComputeUsage(ctx context.Context, runID string) ([]domain.RunComputeUsage, error)
+}
+
 // maxConcurrentEventFetches limits how many background ListEvents goroutines
 // can run concurrently to prevent DB pool exhaustion under burst load.
 const maxConcurrentEventFetches = 20
 
+// ClickHouseSubscriberDeps holds optional dependencies for the ClickHouse subscriber.
+type ClickHouseSubscriberDeps struct {
+	UsageLister        UsageLister
+	ComputeUsageLister ComputeUsageLister
+}
+
 // ClickHouseSubscriber enqueues run analytics and individual run events into
 // the ClickHouse exporter on terminal run events (completed, failed, timed out, etc.).
-func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, usageLister ...UsageLister) RunEventSubscriber {
+func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, deps ...ClickHouseSubscriberDeps) RunEventSubscriber {
 	var usage UsageLister
-	if len(usageLister) > 0 {
-		usage = usageLister[0]
+	var computeUsage ComputeUsageLister
+	if len(deps) > 0 {
+		usage = deps[0].UsageLister
+		computeUsage = deps[0].ComputeUsageLister
 	}
 	// Semaphore to bound concurrent ListEvents goroutines.
 	sem := make(chan struct{}, maxConcurrentEventFetches)
@@ -68,11 +81,6 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, usa
 		if event.Job != nil {
 			machinePreset = string(event.Job.MachinePreset)
 		}
-
-		// TODO(observability): enqueue ComputeUsageRecord when RunLifecycleEvent
-		// carries compute data (MachineID, compute cost, container start/finish times).
-		// Currently these fields are not available on the event struct; they would
-		// need to be populated from the managed execution path or a store lookup.
 
 		var tagsJSON string
 		if len(run.Tags) > 0 {
@@ -160,6 +168,45 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, usa
 				}()
 			case <-time.After(5 * time.Second):
 				slog.Warn("clickhouse: usage fetch semaphore timeout", "run_id", run.ID)
+			}
+		}
+
+		// Enqueue compute usage records so managed execution costs flow to ClickHouse.
+		if computeUsage != nil {
+			select {
+			case sem <- struct{}{}:
+				go func() { //nolint:gosec // G118: intentionally detached from request ctx; subscriber must not block.
+					defer func() { <-sem }()
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+
+					records, err := computeUsage.ListRunComputeUsage(ctx, run.ID)
+					if err != nil {
+						slog.Error("clickhouse: list run compute usage", "run_id", run.ID, "error", err)
+						return
+					}
+					for _, cu := range records {
+						var startedAt, finishedAt time.Time
+						if cu.StartedAt != nil {
+							startedAt = *cu.StartedAt
+						}
+						if cu.FinishedAt != nil {
+							finishedAt = *cu.FinishedAt
+						}
+						exporter.Enqueue(clickhouse.ComputeUsageRecord{
+							RunID:         cu.RunID,
+							ProjectID:     cu.ProjectID,
+							MachinePreset: cu.MachinePreset,
+							MachineID:     cu.MachineID,
+							DurationSecs:  cu.DurationSecs,
+							CostMicrousd:  cu.CostMicrousd,
+							StartedAt:     startedAt,
+							FinishedAt:    finishedAt,
+						})
+					}
+				}()
+			case <-time.After(5 * time.Second):
+				slog.Warn("clickhouse: compute usage fetch semaphore timeout", "run_id", run.ID)
 			}
 		}
 	}
