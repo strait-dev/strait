@@ -15,6 +15,7 @@ import (
 	"strait/internal/clickhouse"
 	"strait/internal/compute"
 	"strait/internal/config"
+	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/logdrain"
 	"strait/internal/notification"
@@ -371,6 +372,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		Encryptor:        encryptor,
 		ContainerRuntime: apiContainerRuntime,
 		CHExporter:       chExporter,
+		Edition:          domain.ParseEdition(cfg.Edition),
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

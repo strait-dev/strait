@@ -463,6 +463,7 @@ type Server struct {
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
 	chExporter         *clickhouse.Exporter
+	edition            domain.Edition
 }
 
 // analytics returns the ClickHouse analytics store when available, falling back to Postgres.
@@ -505,6 +506,7 @@ type ServerDeps struct {
 	Encryptor        Encryptor                // Optional: enables event source signature encryption.
 	ContainerRuntime compute.ContainerRuntime // Optional: enables managed container stop on cancel.
 	CHExporter       *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
+	Edition          domain.Edition           // Edition controls feature gating (community vs cloud).
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -550,6 +552,7 @@ func NewServer(deps ServerDeps) *Server {
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
 		chExporter:         deps.CHExporter,
+		edition:            deps.Edition,
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
