@@ -64,7 +64,9 @@ func newTriggerCommand(state *appState) *cobra.Command {
 			}
 
 			if isTTYRich(state) {
-				fmt.Fprintln(os.Stderr, styles.Info("Triggered run "+styles.Bold.Render(resp.ID)))
+				fmt.Fprintln(os.Stderr, styles.Success("Triggered "+styles.Bold.Render(args[0])))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Run", resp.ID))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Status", styles.StatusBadge("queued")))
 			} else if err := printData(state, resp); err != nil {
 				return err
 			}

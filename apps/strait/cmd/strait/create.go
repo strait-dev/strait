@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 	"strait/internal/cli/wizard"
 
 	"github.com/spf13/cobra"
@@ -67,6 +69,11 @@ When run without --name or --json in a TTY, an interactive wizard guides you thr
 				if err != nil {
 					return err
 				}
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.Success("Created job "+styles.Bold.Render(job.Slug)))
+					fmt.Fprintln(os.Stderr, styles.KeyValue("ID", job.ID))
+					return nil
+				}
 				return printData(state, job)
 			}
 
@@ -119,6 +126,19 @@ When run without --name or --json in a TTY, an interactive wizard guides you thr
 			job, err := cli.CreateJob(cmd.Context(), req)
 			if err != nil {
 				return err
+			}
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Created job "+styles.Bold.Render(job.Slug)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("ID", job.ID))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Endpoint", job.EndpointURL))
+				if job.Cron != "" {
+					fmt.Fprintln(os.Stderr, styles.KeyValue("Schedule", job.Cron))
+				}
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Timeout", fmt.Sprintf("%ds", job.TimeoutSecs)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Retries", fmt.Sprintf("%d", job.MaxAttempts)))
+				fmt.Fprintln(os.Stderr)
+				fmt.Fprintln(os.Stderr, styles.MutedStyle.Render("  Trigger: strait trigger "+job.Slug+" --payload '{}'"))
+				return nil
 			}
 			return printData(state, job)
 		},
