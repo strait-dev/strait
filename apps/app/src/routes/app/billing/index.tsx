@@ -14,6 +14,7 @@ import ReferralProgram from "@/components/billing/referral-program";
 import SpendingLimitsTab from "@/components/billing/spending-limits-tab";
 import UsageDashboard from "@/components/billing/usage-dashboard";
 import UsageHistoryTab from "@/components/billing/usage-history-tab";
+import TabSkeleton from "@/components/common/tab-skeleton";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import InlineError from "@/components/common/inline-error";
 import NotFound from "@/components/common/not-found";
@@ -35,10 +36,6 @@ import {
   UsersIcon,
 } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
-
-const TabSkeleton = () => (
-  <div className="h-64 animate-pulse rounded-lg bg-muted" />
-);
 
 export const Route = createFileRoute("/app/billing/")({
   loader: async ({ context }) => {

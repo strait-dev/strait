@@ -1,17 +1,15 @@
-import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import { Shell } from "@strait/ui/components/shell";
 import { cn } from "@strait/ui/utils/index";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { formatDistanceToNow } from "date-fns";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
-import type { EventTrigger } from "@/hooks/api/types";
+import EventRow from "@/components/events/event-row";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -119,36 +117,3 @@ function EventsPage() {
   );
 }
 
-function EventRow({ event }: { event: EventTrigger }) {
-  const style = EVENT_STATUS_STYLES[event.status] ?? EVENT_STATUS_STYLES.pending;
-
-  return (
-    <div className="relative flex items-start gap-3 py-2.5 pl-0">
-      {/* Dot */}
-      <span
-        className={cn(
-          "relative z-10 mt-1.5 h-[9px] w-[9px] shrink-0 rounded-full border-2 border-background",
-          style.dot
-        )}
-      />
-
-      {/* Content */}
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex items-center gap-2">
-          <Badge className={cn("px-1.5 py-0", style.badge)} variant="outline">
-            {style.label}
-          </Badge>
-          <span className="font-mono text-muted-foreground text-xs">
-            {formatDistanceToNow(new Date(event.requested_at), {
-              addSuffix: true,
-            })}
-          </span>
-        </div>
-        <p className="text-sm">{event.event_key}</p>
-        <span className="font-mono text-muted-foreground text-xs">
-          {event.trigger_type} | {event.source_type}
-        </span>
-      </div>
-    </div>
-  );
-}

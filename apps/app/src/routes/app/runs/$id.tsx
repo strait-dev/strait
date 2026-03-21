@@ -26,8 +26,11 @@ import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import StatusBadge from "@/components/dashboard/status-badge";
-import type { ExecutionTrace, RunStatus } from "@/hooks/api/types";
+import DetailCell from "@/components/runs/detail-cell";
+import ExecutionTraceBar from "@/components/runs/execution-trace-bar";
+import type { RunStatus } from "@/hooks/api/types";
 import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
+import { formatDuration } from "@/lib/format";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/runs/$id")({
@@ -201,87 +204,3 @@ function RunDetailPage() {
   );
 }
 
-function DetailCell({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-muted-foreground text-xs">{label}</span>
-      <span className="font-mono text-sm">{value}</span>
-    </div>
-  );
-}
-
-const TRACE_SEGMENTS: {
-  key: keyof ExecutionTrace;
-  label: string;
-  color: string;
-}[] = [
-  { key: "queue_wait_ms", label: "Queue Wait", color: "bg-blue-500" },
-  { key: "dequeue_ms", label: "Dequeue", color: "bg-indigo-500" },
-  { key: "dispatch_ms", label: "Dispatch", color: "bg-violet-500" },
-  { key: "connect_ms", label: "Connect", color: "bg-amber-500" },
-  { key: "ttfb_ms", label: "TTFB", color: "bg-emerald-500" },
-  { key: "transfer_ms", label: "Transfer", color: "bg-cyan-500" },
-];
-
-function ExecutionTraceBar({ trace }: { trace: ExecutionTrace }) {
-  const total = trace.total_ms || 1;
-
-  return (
-    <div className="space-y-3">
-      {/* Bar visualization */}
-      <div className="flex h-6 w-full overflow-hidden rounded-md">
-        {TRACE_SEGMENTS.map((seg) => {
-          const ms = trace[seg.key];
-          const pct = (ms / total) * 100;
-          if (pct < 0.5) {
-            return null;
-          }
-          return (
-            <div
-              className={`${seg.color} opacity-80`}
-              key={seg.key}
-              style={{ width: `${pct}%` }}
-              title={`${seg.label}: ${ms}ms`}
-            />
-          );
-        })}
-      </div>
-
-      {/* Legend / key-value list */}
-      <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
-        {TRACE_SEGMENTS.map((seg) => (
-          <div className="flex items-center gap-2" key={seg.key}>
-            <span
-              className={`inline-block h-2.5 w-2.5 rounded-sm ${seg.color} opacity-80`}
-            />
-            <span className="text-muted-foreground text-xs">{seg.label}</span>
-            <span className="font-mono text-xs">{trace[seg.key]}ms</span>
-          </div>
-        ))}
-        <div className="flex items-center gap-2">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-foreground/20" />
-          <span className="text-muted-foreground text-xs">Total</span>
-          <span className="font-mono text-xs">{trace.total_ms}ms</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function formatDuration(start: string | null, end: string | null): string {
-  if (!start) {
-    return "-";
-  }
-  const s = new Date(start).getTime();
-  const e = end ? new Date(end).getTime() : Date.now();
-  const ms = e - s;
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-  if (ms < 60_000) {
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
-  const mins = Math.floor(ms / 60_000);
-  const secs = Math.round((ms % 60_000) / 1000);
-  return `${mins}m ${secs}s`;
-}

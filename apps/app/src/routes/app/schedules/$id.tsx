@@ -18,6 +18,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
+import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -201,20 +202,3 @@ function ScheduleDetailPage() {
   );
 }
 
-function ConfigRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: any;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center gap-2 text-sm">
-      <HugeiconsIcon className="text-muted-foreground" icon={icon} size={14} />
-      <span className="text-muted-foreground">{label}</span>
-      <span className="ml-auto font-mono text-xs">{value}</span>
-    </div>
-  );
-}

@@ -34,6 +34,7 @@ import {
   YAxis,
 } from "recharts";
 import CostEstimateCard from "@/components/billing/cost-estimate-card";
+import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -484,26 +485,3 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ConfigRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: any;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2 text-sm">
-      <div className="flex shrink-0 items-center gap-2">
-        <HugeiconsIcon
-          className="text-muted-foreground"
-          icon={icon}
-          size={14}
-        />
-        <span className="text-muted-foreground">{label}</span>
-      </div>
-      <span className="truncate font-mono text-xs">{value}</span>
-    </div>
-  );
-}
