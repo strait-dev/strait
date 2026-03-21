@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -417,6 +418,7 @@ type Server struct {
 	rateLimiter        *ratelimit.RedisRateLimiter
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
+	chExporter         *clickhouse.Exporter
 }
 
 // analytics returns the ClickHouse analytics store when available, falling back to Postgres.
@@ -452,6 +454,7 @@ type ServerDeps struct {
 	RedisClient      *redis.Client            // Optional: enables per-project/key rate limiting.
 	Encryptor        Encryptor                // Optional: enables event source signature encryption.
 	ContainerRuntime compute.ContainerRuntime // Optional: enables managed container stop on cancel.
+	CHExporter       *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -496,6 +499,7 @@ func NewServer(deps ServerDeps) *Server {
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
+		chExporter:         deps.CHExporter,
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)

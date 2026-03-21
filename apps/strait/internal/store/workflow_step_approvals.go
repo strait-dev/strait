@@ -12,6 +12,11 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// OnApprovalChanged is an optional hook called after an approval is created or updated.
+// Set this to a non-nil function to receive approval change notifications (e.g., for
+// ClickHouse export). The function must not block.
+var OnApprovalChanged func(ctx context.Context, approval *domain.WorkflowStepApproval)
+
 func (q *Queries) CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowStepApproval")
 	defer span.End()
@@ -38,6 +43,10 @@ func (q *Queries) CreateWorkflowStepApproval(ctx context.Context, approval *doma
 		nilIfEmptyString(approval.Error),
 	); err != nil {
 		return fmt.Errorf("create workflow step approval: %w", err)
+	}
+
+	if OnApprovalChanged != nil {
+		OnApprovalChanged(ctx, approval)
 	}
 
 	return nil
@@ -96,6 +105,16 @@ func (q *Queries) UpdateWorkflowStepApproval(
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrWorkflowStepRunNotFound
+	}
+
+	if OnApprovalChanged != nil {
+		OnApprovalChanged(ctx, &domain.WorkflowStepApproval{
+			ID:         id,
+			Status:     status,
+			ApprovedBy: approvedBy,
+			ApprovedAt: approvedAt,
+			Error:      errMsg,
+		})
 	}
 
 	return nil

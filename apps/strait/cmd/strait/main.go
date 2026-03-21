@@ -235,6 +235,21 @@ func runServe(ctx context.Context, modeOverride string) error {
 			"batch_size", cfg.ClickHouseBatchSize,
 			"flush_interval", cfg.ClickHouseFlushInterval,
 		)
+
+		// Wire approval change hook so workflow approvals flow to ClickHouse.
+		store.OnApprovalChanged = func(_ context.Context, approval *domain.WorkflowStepApproval) {
+			if approval == nil {
+				return
+			}
+			chExporter.Enqueue(clickhouse.WorkflowApprovalEventRecord{
+				ApprovalID:    approval.ID,
+				WorkflowRunID: approval.WorkflowRunID,
+				StepRunID:     approval.WorkflowStepRunID,
+				Status:        approval.Status,
+				RequestedAt:   approval.RequestedAt,
+				ApprovedAt:    approval.ApprovedAt,
+			})
+		}
 	}
 
 	poolTuner, err := store.NewPoolTuner(dbPool, slog.Default(), cfg.DBMaxConns, cfg.DBMinConns)
@@ -329,7 +344,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
-	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, chAnalytics)
+	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, chAnalytics, chExporter)
 	startWorker(g, cfg, queries, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, chExporter)
 
 	if err := g.Wait(); err != nil {
