@@ -10,7 +10,7 @@ import {
 import Shell from "@/components/layout/shell.tsx";
 import { siteConfig } from "@/config/site.ts";
 import { dashboardHref } from "@/lib/urls.ts";
-import HeroCodeTabs from "./hero-code-tabs.tsx";
+import HeroProductPreview from "./hero-product-preview.tsx";
 
 const Hero = () => {
   return (
@@ -88,9 +88,9 @@ const Hero = () => {
           </StaggerGroup>
         </div>
 
-        {/* Code snippet */}
+        {/* Interactive product preview */}
         <Reveal className="mt-16 sm:mt-20" delay={0.4} spring variant="scale">
-          <HeroCodeTabs />
+          <HeroProductPreview />
         </Reveal>
       </Shell>
     </section>
