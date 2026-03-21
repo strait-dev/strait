@@ -63,6 +63,38 @@ type ComputeUsageRecord struct {
 	FinishedAt    time.Time
 }
 
+// RunUsageEventRecord maps to the run_usage_events ClickHouse table.
+type RunUsageEventRecord struct {
+	RunID            string
+	JobID            string
+	ProjectID        string
+	Provider         string
+	Model            string
+	PromptTokens     uint32
+	CompletionTokens uint32
+	TotalTokens      uint32
+	CostMicrousd     int64
+	CreatedAt        time.Time
+}
+
+// WorkflowApprovalEventRecord maps to the workflow_approval_events ClickHouse table.
+type WorkflowApprovalEventRecord struct {
+	ApprovalID    string
+	WorkflowRunID string
+	StepRunID     string
+	ProjectID     string
+	Status        string
+	RequestedAt   time.Time
+	ApprovedAt    *time.Time
+}
+
+// JobMetadataRecord maps to the job_metadata ClickHouse table.
+type JobMetadataRecord struct {
+	JobID     string
+	ProjectID string
+	Slug      string
+}
+
 // maxFlushRetries is the maximum number of consecutive flush failures before
 // a batch is dropped to prevent unbounded growth.
 const maxFlushRetries = 2
@@ -235,6 +267,9 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	var events []RunEventRecord
 	var analytics []RunAnalyticsRecord
 	var usage []ComputeUsageRecord
+	var runUsage []RunUsageEventRecord
+	var approvals []WorkflowApprovalEventRecord
+	var jobMeta []JobMetadataRecord
 
 	for _, rec := range batch {
 		switch r := rec.(type) {
@@ -244,6 +279,12 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			analytics = append(analytics, r)
 		case ComputeUsageRecord:
 			usage = append(usage, r)
+		case RunUsageEventRecord:
+			runUsage = append(runUsage, r)
+		case WorkflowApprovalEventRecord:
+			approvals = append(approvals, r)
+		case JobMetadataRecord:
+			jobMeta = append(jobMeta, r)
 		default:
 			e.logger.Warn("clickhouse exporter: unknown record type", "type", fmt.Sprintf("%T", rec))
 		}
@@ -265,6 +306,21 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			errs = append(errs, fmt.Errorf("compute_usage: %w", err))
 		}
 	}
+	if len(runUsage) > 0 {
+		if err := e.insertRunUsageEvents(ctx, runUsage); err != nil {
+			errs = append(errs, fmt.Errorf("run_usage_events: %w", err))
+		}
+	}
+	if len(approvals) > 0 {
+		if err := e.insertWorkflowApprovalEvents(ctx, approvals); err != nil {
+			errs = append(errs, fmt.Errorf("workflow_approval_events: %w", err))
+		}
+	}
+	if len(jobMeta) > 0 {
+		if err := e.insertJobMetadata(ctx, jobMeta); err != nil {
+			errs = append(errs, fmt.Errorf("job_metadata: %w", err))
+		}
+	}
 
 	if len(errs) > 0 {
 		msgs := make([]string, len(errs))
@@ -278,6 +334,9 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 		"events", len(events),
 		"analytics", len(analytics),
 		"usage", len(usage),
+		"run_usage", len(runUsage),
+		"approvals", len(approvals),
+		"job_metadata", len(jobMeta),
 	)
 	return nil
 }
@@ -321,6 +380,50 @@ func (e *Exporter) insertComputeUsage(ctx context.Context, records []ComputeUsag
 	for i, r := range records {
 		placeholders[i] = row
 		args = append(args, r.RunID, r.ProjectID, r.MachinePreset, r.MachineID, r.DurationSecs, r.CostMicrousd, r.StartedAt, r.FinishedAt)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func (e *Exporter) insertRunUsageEvents(ctx context.Context, records []RunUsageEventRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO run_usage_events (run_id, job_id, project_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd, created_at) VALUES "
+	placeholders := make([]string, len(records))
+	args := make([]any, 0, len(records)*10)
+
+	for i, r := range records {
+		placeholders[i] = row
+		args = append(args, r.RunID, r.JobID, r.ProjectID, r.Provider, r.Model,
+			r.PromptTokens, r.CompletionTokens, r.TotalTokens, r.CostMicrousd, r.CreatedAt)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func (e *Exporter) insertWorkflowApprovalEvents(ctx context.Context, records []WorkflowApprovalEventRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO workflow_approval_events (approval_id, workflow_run_id, step_run_id, project_id, status, requested_at, approved_at) VALUES "
+	placeholders := make([]string, len(records))
+	args := make([]any, 0, len(records)*7)
+
+	for i, r := range records {
+		placeholders[i] = row
+		args = append(args, r.ApprovalID, r.WorkflowRunID, r.StepRunID, r.ProjectID,
+			r.Status, r.RequestedAt, r.ApprovedAt)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func (e *Exporter) insertJobMetadata(ctx context.Context, records []JobMetadataRecord) error {
+	const row = "(?, ?, ?)"
+	query := "INSERT INTO job_metadata (job_id, project_id, slug) VALUES "
+	placeholders := make([]string, len(records))
+	args := make([]any, 0, len(records)*3)
+
+	for i, r := range records {
+		placeholders[i] = row
+		args = append(args, r.JobID, r.ProjectID, r.Slug)
 	}
 
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)

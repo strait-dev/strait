@@ -67,6 +67,54 @@ ORDER BY (project_id, started_at)
 TTL inserted_at + INTERVAL 365 DAY
 `
 
+// RunUsageEventsTable is the DDL for the run_usage_events ClickHouse table.
+const RunUsageEventsTable = `
+CREATE TABLE IF NOT EXISTS run_usage_events (
+    run_id String,
+    job_id String,
+    project_id String,
+    provider LowCardinality(String),
+    model LowCardinality(String),
+    prompt_tokens UInt32,
+    completion_tokens UInt32,
+    total_tokens UInt32,
+    cost_microusd Int64,
+    created_at DateTime64(3),
+    inserted_at DateTime64(3) DEFAULT now64(3)
+) ENGINE = MergeTree()
+PARTITION BY toDate(inserted_at)
+ORDER BY (project_id, job_id, created_at)
+TTL inserted_at + INTERVAL 365 DAY
+`
+
+// WorkflowApprovalEventsTable is the DDL for the workflow_approval_events ClickHouse table.
+const WorkflowApprovalEventsTable = `
+CREATE TABLE IF NOT EXISTS workflow_approval_events (
+    approval_id String,
+    workflow_run_id String,
+    step_run_id String,
+    project_id String,
+    status LowCardinality(String),
+    requested_at DateTime64(3),
+    approved_at Nullable(DateTime64(3)),
+    inserted_at DateTime64(3) DEFAULT now64(3)
+) ENGINE = MergeTree()
+PARTITION BY toDate(inserted_at)
+ORDER BY (project_id, requested_at)
+TTL inserted_at + INTERVAL 365 DAY
+`
+
+// JobMetadataTable is the DDL for the job_metadata ClickHouse table.
+const JobMetadataTable = `
+CREATE TABLE IF NOT EXISTS job_metadata (
+    job_id String,
+    project_id String,
+    slug String,
+    inserted_at DateTime64(3) DEFAULT now64(3)
+) ENGINE = ReplacingMergeTree(inserted_at)
+ORDER BY (project_id, job_id)
+`
+
 // CreateSchema creates all ClickHouse tables. Idempotent (IF NOT EXISTS).
 func CreateSchema(ctx context.Context, c *Client) error {
 	if c == nil {
@@ -80,6 +128,9 @@ func CreateSchema(ctx context.Context, c *Client) error {
 		{"run_events", RunEventsTable},
 		{"run_analytics", RunAnalyticsTable},
 		{"compute_usage", ComputeUsageTable},
+		{"run_usage_events", RunUsageEventsTable},
+		{"workflow_approval_events", WorkflowApprovalEventsTable},
+		{"job_metadata", JobMetadataTable},
 	}
 
 	for _, t := range tables {
