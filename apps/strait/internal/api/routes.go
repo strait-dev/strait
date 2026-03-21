@@ -30,6 +30,7 @@ func (s *Server) routes() chi.Router {
 	r.Use(chimw.RealIP)
 	r.Use(otelchi.Middleware("strait", otelchi.WithChiRoutes(r)))
 	r.Use(s.requestLogger)
+	r.Use(s.requestMetrics)
 	sentryHandler := sentryhttp.New(sentryhttp.Options{
 		Repanic:         true,
 		WaitForDelivery: false,

@@ -504,6 +504,26 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		}, metrics.QueueDepth); err != nil {
 			slog.Warn("failed to register queue depth metrics callback", "error", err)
 		}
+
+		// Report webhook backlog and ClickHouse exporter buffer depth.
+		g.Go(func(ctx context.Context) error {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-ticker.C:
+					if chExporter != nil {
+						metrics.ClickHouseExporterPending.Record(ctx, int64(chExporter.PendingCount()))
+					}
+					count, err := queries.CountPendingWebhookDeliveries(ctx)
+					if err == nil {
+						metrics.WebhookBacklogDepth.Record(ctx, count)
+					}
+				}
+			}
+		})
 	}
 
 	g.Go(func(ctx context.Context) error {

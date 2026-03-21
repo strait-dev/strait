@@ -389,6 +389,15 @@ func (q *Queries) ReplayWebhookDelivery(ctx context.Context, id string) (*domain
 	return d, nil
 }
 
+// CountPendingWebhookDeliveries returns the number of webhook deliveries with status 'pending'.
+func (q *Queries) CountPendingWebhookDeliveries(ctx context.Context) (int64, error) {
+	var count int64
+	err := q.db.QueryRow(ctx,
+		"SELECT COUNT(*) FROM webhook_deliveries WHERE status = 'pending'",
+	).Scan(&count)
+	return count, err
+}
+
 func (q *Queries) ResetStuckWebhookDeliveries(ctx context.Context) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResetStuckWebhookDeliveries")
 	defer span.End()

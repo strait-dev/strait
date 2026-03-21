@@ -80,6 +80,14 @@ type Metrics struct {
 	DBPoolIdleConns     metric.Int64ObservableGauge
 	DBPoolAcquiredConns metric.Int64ObservableGauge
 	DBPoolMaxConns      metric.Int64ObservableGauge
+
+	// HTTP request metrics (otelchi only generates traces, not metrics).
+	HTTPRequestDuration  metric.Float64Histogram
+	HTTPInflightRequests metric.Int64UpDownCounter
+
+	// Operational depth gauges.
+	WebhookBacklogDepth       metric.Int64Gauge
+	ClickHouseExporterPending metric.Int64Gauge
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -534,57 +542,83 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	dbPoolAcquired, _ := meter.Int64ObservableGauge("strait_db_pool_acquired_conns", metric.WithDescription("Acquired DB pool connections"))
 	dbPoolMax, _ := meter.Int64ObservableGauge("strait_db_pool_max_conns", metric.WithDescription("Max DB pool connections"))
 
+	httpRequestDuration, _ := meter.Float64Histogram(
+		"strait.http.request_duration",
+		metric.WithDescription("HTTP request duration"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+	)
+	httpInflightRequests, _ := meter.Int64UpDownCounter(
+		"strait.http.inflight_requests",
+		metric.WithDescription("Number of HTTP requests currently being handled"),
+		metric.WithUnit("1"),
+	)
+	webhookBacklogDepth, _ := meter.Int64Gauge(
+		"strait_webhook_backlog_depth",
+		metric.WithDescription("Number of pending webhook deliveries"),
+		metric.WithUnit("1"),
+	)
+	clickhouseExporterPending, _ := meter.Int64Gauge(
+		"strait_clickhouse_exporter_pending",
+		metric.WithDescription("Number of records buffered in ClickHouse exporter"),
+		metric.WithUnit("1"),
+	)
+
 	m := &Metrics{
-		RunTransitions:           runTransitions,
-		DequeueDuration:          dequeueDuration,
-		DispatchDuration:         dispatchDuration,
-		DispatchErrors:           dispatchErrors,
-		ReaperOperations:         reaperOperations,
-		ReaperRecordsDeleted:     reaperRecordsDeleted,
-		CronTriggers:             cronTriggers,
-		PollerRunsQueued:         pollerRunsQueued,
-		WorkflowTriggers:         workflowTriggers,
-		WorkflowStepProgressions: workflowStepProgressions,
-		QueueDepth:               queueDepth,
-		ExecutionTraceDispatch:   executionTraceDispatch,
-		ExecutionTraceQueueWait:  executionTraceQueueWait,
-		WebhookDeliveriesTotal:   webhookDeliveriesTotal,
-		WebhookDeliveryDuration:  webhookDeliveryDuration,
-		WebhookDeliveryAttempts:  webhookDeliveryAttempts,
-		WebhookRetryAttempts:     webhookRetryAttempts,
-		WebhookCircuitBreaker:    webhookCircuitBreaker,
-		EndpointHealthScore:      endpointHealthScore,
-		WebhookPayloadBytes:      webhookPayloadBytes,
-		EventTriggersCreated:     eventTriggersCreated,
-		EventTriggersReceived:    eventTriggersReceived,
-		EventTriggersTimedOut:    eventTriggersTimedOut,
-		EventTriggerWaitDuration: eventTriggerWaitDuration,
-		AnalyticsQueryDuration:   analyticsQueryDuration,
-		BulkOperationsTotal:      bulkOperationsTotal,
-		BulkItemsProcessed:       bulkItemsProcessed,
-		ChildCancellationsTotal:  childCancellationsTotal,
-		LatencyAnomalies:         latencyAnomalies,
-		SnoozeTotal:              snoozeTotal,
-		WorkflowDependencyWaits:  workflowDependencyWaits,
-		WorkflowStepWaitDuration: workflowStepWaitDuration,
-		WorkflowStalledRuns:      workflowStalledRuns,
-		PoolRunningWorkers:       poolRunning,
-		PoolWaitingTasks:         poolWaiting,
-		PoolSubmittedTasks:       poolSubmitted,
-		PoolCompletedTasks:       poolCompleted,
-		PoolSuccessfulTasks:      poolSuccessful,
-		PoolFailedTasks:          poolFailed,
-		PoolDroppedTasks:         poolDropped,
-		ShutdownTotal:            shutdownTotal,
-		DLQDepth:                 dlqDepth,
-		QueueDepthPerJob:         queueDepthPerJob,
-		ManagedDispatchTotal:     managedDispatchTotal,
-		ManagedDispatchDuration:  managedDispatchDuration,
-		ManagedMachinesActive:    managedMachinesActive,
-		DBPoolTotalConns:         dbPoolTotal,
-		DBPoolIdleConns:          dbPoolIdle,
-		DBPoolAcquiredConns:      dbPoolAcquired,
-		DBPoolMaxConns:           dbPoolMax,
+		RunTransitions:            runTransitions,
+		DequeueDuration:           dequeueDuration,
+		DispatchDuration:          dispatchDuration,
+		DispatchErrors:            dispatchErrors,
+		ReaperOperations:          reaperOperations,
+		ReaperRecordsDeleted:      reaperRecordsDeleted,
+		CronTriggers:              cronTriggers,
+		PollerRunsQueued:          pollerRunsQueued,
+		WorkflowTriggers:          workflowTriggers,
+		WorkflowStepProgressions:  workflowStepProgressions,
+		QueueDepth:                queueDepth,
+		ExecutionTraceDispatch:    executionTraceDispatch,
+		ExecutionTraceQueueWait:   executionTraceQueueWait,
+		WebhookDeliveriesTotal:    webhookDeliveriesTotal,
+		WebhookDeliveryDuration:   webhookDeliveryDuration,
+		WebhookDeliveryAttempts:   webhookDeliveryAttempts,
+		WebhookRetryAttempts:      webhookRetryAttempts,
+		WebhookCircuitBreaker:     webhookCircuitBreaker,
+		EndpointHealthScore:       endpointHealthScore,
+		WebhookPayloadBytes:       webhookPayloadBytes,
+		EventTriggersCreated:      eventTriggersCreated,
+		EventTriggersReceived:     eventTriggersReceived,
+		EventTriggersTimedOut:     eventTriggersTimedOut,
+		EventTriggerWaitDuration:  eventTriggerWaitDuration,
+		AnalyticsQueryDuration:    analyticsQueryDuration,
+		BulkOperationsTotal:       bulkOperationsTotal,
+		BulkItemsProcessed:        bulkItemsProcessed,
+		ChildCancellationsTotal:   childCancellationsTotal,
+		LatencyAnomalies:          latencyAnomalies,
+		SnoozeTotal:               snoozeTotal,
+		WorkflowDependencyWaits:   workflowDependencyWaits,
+		WorkflowStepWaitDuration:  workflowStepWaitDuration,
+		WorkflowStalledRuns:       workflowStalledRuns,
+		PoolRunningWorkers:        poolRunning,
+		PoolWaitingTasks:          poolWaiting,
+		PoolSubmittedTasks:        poolSubmitted,
+		PoolCompletedTasks:        poolCompleted,
+		PoolSuccessfulTasks:       poolSuccessful,
+		PoolFailedTasks:           poolFailed,
+		PoolDroppedTasks:          poolDropped,
+		ShutdownTotal:             shutdownTotal,
+		DLQDepth:                  dlqDepth,
+		QueueDepthPerJob:          queueDepthPerJob,
+		ManagedDispatchTotal:      managedDispatchTotal,
+		ManagedDispatchDuration:   managedDispatchDuration,
+		ManagedMachinesActive:     managedMachinesActive,
+		DBPoolTotalConns:          dbPoolTotal,
+		DBPoolIdleConns:           dbPoolIdle,
+		DBPoolAcquiredConns:       dbPoolAcquired,
+		DBPoolMaxConns:            dbPoolMax,
+		HTTPRequestDuration:       httpRequestDuration,
+		HTTPInflightRequests:      httpInflightRequests,
+		WebhookBacklogDepth:       webhookBacklogDepth,
+		ClickHouseExporterPending: clickhouseExporterPending,
 	}
 
 	slog.Info("prometheus metrics enabled")

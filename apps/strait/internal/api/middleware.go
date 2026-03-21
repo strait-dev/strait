@@ -242,6 +242,22 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) requestMetrics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.metrics == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		s.metrics.HTTPInflightRequests.Add(r.Context(), 1)
+		start := time.Now()
+		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+		duration := time.Since(start).Seconds()
+		s.metrics.HTTPRequestDuration.Record(r.Context(), duration)
+		s.metrics.HTTPInflightRequests.Add(r.Context(), -1)
+	})
+}
+
 func apiKeyIDFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(ctxAPIKeyIDKey).(string); ok {
 		return v
