@@ -19,9 +19,14 @@ processors:
   batch:
     timeout: 5s
     send_batch_size: 1000
+  resource/loki:
+    attributes:
+      - action: insert
+        key: loki.resource.labels
+        value: service.name, deployment.environment.name
 
 exporters:
-  # ClickHouse Cloud for traces, logs, and metrics storage
+  # ClickHouse Cloud for traces and metrics storage
   clickhouse:
     endpoint: ${env:CLICKHOUSE_ENDPOINT}
     username: ${env:CLICKHOUSE_USER}
@@ -29,7 +34,6 @@ exporters:
     database: default
     ttl: 90d
     traces_table_name: otel_traces
-    logs_table_name: otel_logs
     metrics_table_name: otel_metrics
     timeout: 10s
     retry_on_failure:
@@ -43,6 +47,17 @@ exporters:
     endpoint: ${env:GRAFANA_REMOTE_WRITE_URL}
     auth:
       authenticator: basicauth/grafana
+
+  # Grafana Cloud Loki for log aggregation and search
+  loki:
+    endpoint: ${env:GRAFANA_LOKI_URL}
+    auth:
+      authenticator: basicauth/grafana
+    default_labels_enabled:
+      exporter: false
+      job: true
+      instance: true
+      level: true
 
 extensions:
   basicauth/grafana:
@@ -63,5 +78,5 @@ service:
       exporters: [clickhouse, prometheusremotewrite]
     logs:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [clickhouse]
+      processors: [batch, resource/loki]
+      exporters: [loki]

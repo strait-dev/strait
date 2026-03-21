@@ -8,6 +8,7 @@ primary_region = "iad"
   # Secrets set via `fly secrets set`:
   # CLICKHOUSE_ENDPOINT, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD
   # GRAFANA_REMOTE_WRITE_URL, GRAFANA_REMOTE_WRITE_USERNAME, GRAFANA_CLOUD_TOKEN
+  # GRAFANA_LOKI_URL
 
 [http_service]
   internal_port = 4318
