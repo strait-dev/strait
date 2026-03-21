@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"encoding/csv"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -210,6 +211,85 @@ func TestExportPDF_NoSubscription(t *testing.T) {
 
 	if !strings.HasPrefix(string(data), "%PDF-") {
 		t.Errorf("expected PDF output to start with %%PDF-, got %q", string(data[:20]))
+	}
+}
+
+func TestMicroToUSDString_NegativeValue(t *testing.T) {
+	got := microToUSDString(-1500000)
+	if got != "-1.500000" {
+		t.Errorf("microToUSDString(-1500000) = %s, want -1.500000", got)
+	}
+}
+
+func TestExportCSV_VerifyAllColumns(t *testing.T) {
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{
+			{
+				ProjectID:        "proj-test",
+				PeriodDate:       time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
+				RunsCount:        100,
+				ComputeCostMicro: 10000000,
+				AITokensTotal:    5000,
+				AICostMicro:      3000000,
+			},
+		},
+	}
+	period := ExportPeriod{
+		From: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := ExportCSV(context.Background(), store, "org-1", period)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reader := csv.NewReader(strings.NewReader(string(data)))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("failed to parse CSV: %v", err)
+	}
+
+	if len(records) != 2 {
+		t.Fatalf("expected 2 rows (header + 1 data), got %d", len(records))
+	}
+
+	// Verify total_usd = compute + AI
+	if records[1][6] != "13.000000" {
+		t.Errorf("expected total_usd 13.000000 (10+3), got %s", records[1][6])
+	}
+}
+
+func TestExportPDF_LargeDataSet(t *testing.T) {
+	// Test with many records to ensure multi-page PDF works
+	var records []UsageRecord
+	for i := 0; i < 100; i++ {
+		records = append(records, UsageRecord{
+			ProjectID:        fmt.Sprintf("proj-%d", i%5),
+			PeriodDate:       time.Date(2026, 1, 1+(i%28), 0, 0, 0, 0, time.UTC),
+			RunsCount:        int64(i * 10),
+			ComputeCostMicro: int64(i * 100000),
+			AITokensTotal:    int64(i * 50),
+			AICostMicro:      int64(i * 50000),
+		})
+	}
+	store := &mockExportStore{usageRecords: records}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := ExportPDF(context.Background(), store, "org-1", period)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Errorf("expected PDF header")
+	}
+	// Large dataset should produce a substantial PDF
+	if len(data) < 1000 {
+		t.Errorf("expected large PDF, got only %d bytes", len(data))
 	}
 }
 

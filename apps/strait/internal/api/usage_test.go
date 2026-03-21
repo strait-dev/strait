@@ -1304,3 +1304,110 @@ func TestExportUsage_InvalidFormat(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestExportUsage_CSV_ExplicitFormat(t *testing.T) {
+	t.Parallel()
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=csv", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/csv" {
+		t.Errorf("expected text/csv, got %s", ct)
+	}
+	if cd := w.Header().Get("Content-Disposition"); cd != "attachment; filename=usage_org-1.csv" {
+		t.Errorf("expected .csv filename, got %s", cd)
+	}
+}
+
+func TestExportUsage_MissingOrgID(t *testing.T) {
+	t.Parallel()
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodGet, "/v1/usage/export?from=2026-01-01&to=2026-01-31", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExportUsage_MissingDateRange(t *testing.T) {
+	t.Parallel()
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExportUsage_APIKey_CrossTenantForbidden(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		projectOrgMap: map[string]string{"proj-1": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	req := apiKeyRequest(http.MethodGet, "/v1/usage/export?org_id=org-B&from=2026-01-01&to=2026-01-31&format=csv", "", "proj-1")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExportUsage_APIKey_SameTenantAllowed(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		projectOrgMap: map[string]string{"proj-1": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	req := apiKeyRequest(http.MethodGet, "/v1/usage/export?org_id=org-A&from=2026-01-01&to=2026-01-31&format=pdf", "", "proj-1")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExportUsage_NotConfigured(t *testing.T) {
+	t.Parallel()
+	srv := newUsageTestServer(t, nil, nil)
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExportUsage_InvalidDateRange(t *testing.T) {
+	t.Parallel()
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
+	// to before from
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-02-01&to=2026-01-01", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for reversed date range, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExportUsage_PDF_ResponseBody(t *testing.T) {
+	t.Parallel()
+	pdfContent := []byte("%PDF-1.4 test pdf with more content for size check")
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{
+		exportPDFData: pdfContent,
+	})
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=pdf", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if w.Body.Len() != len(pdfContent) {
+		t.Errorf("expected body length %d, got %d", len(pdfContent), w.Body.Len())
+	}
+}
