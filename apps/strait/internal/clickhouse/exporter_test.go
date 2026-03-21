@@ -131,6 +131,36 @@ func TestExporter_InsertBatch_UnknownType_Warns(t *testing.T) {
 	}
 }
 
+func TestExporter_EnqueuesWebhookDeliveryEvent(t *testing.T) {
+	t.Parallel()
+
+	exporter := NewExporter(&Client{}, ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	now := time.Now()
+	exporter.Enqueue(WebhookDeliveryEventRecord{
+		DeliveryID:     "del-1",
+		RunID:          "run-1",
+		JobID:          "job-1",
+		ProjectID:      "proj-1",
+		WebhookURL:     "https://example.com/hook",
+		Status:         "delivered",
+		Attempts:       1,
+		LastStatusCode: 200,
+		DurationMs:     150,
+		EventType:      "run_webhook",
+		CreatedAt:      now,
+		DeliveredAt:    &now,
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
+	}
+}
+
 func TestExporter_NilExporter_NoPanic(t *testing.T) {
 	t.Parallel()
 

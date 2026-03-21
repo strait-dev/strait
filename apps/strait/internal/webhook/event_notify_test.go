@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/domain"
 )
 
@@ -618,6 +619,114 @@ func TestWorker_PayloadTooLarge_DeadLettersWithoutHTTPCall(t *testing.T) {
 	if !strings.Contains(updated.LastError, "payload too large") {
 		t.Fatalf("expected payload too large error, got %q", updated.LastError)
 	}
+}
+
+func TestWithChExporter_EnqueuesOnDelivery(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute, // won't auto-flush during test
+	}, slog.Default())
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-ch-1",
+		RunID:       "run-ch-1",
+		JobID:       "job-ch-1",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-ch-1"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
+	worker.processBatch(context.Background())
+
+	if exporter.PendingCount() != 1 {
+		t.Fatalf("expected 1 pending ClickHouse record, got %d", exporter.PendingCount())
+	}
+}
+
+func TestWithChExporter_EnqueuesOnFailure(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-ch-fail",
+		RunID:       "run-ch-fail",
+		JobID:       "job-ch-fail",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-ch-fail"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
+	worker.processBatch(context.Background())
+
+	if exporter.PendingCount() != 1 {
+		t.Fatalf("expected 1 pending ClickHouse record after failure, got %d", exporter.PendingCount())
+	}
+}
+
+func TestWithChExporter_NilExporter_NoPanic(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-nil-ch",
+		RunID:       "run-nil-ch",
+		JobID:       "job-nil-ch",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-nil-ch"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	// No WithChExporter option -- should not panic
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
 }
 
 func TestPow(t *testing.T) {

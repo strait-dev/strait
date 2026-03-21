@@ -117,6 +117,28 @@ CREATE TABLE IF NOT EXISTS job_metadata (
 ORDER BY (project_id, job_id)
 `
 
+// WebhookDeliveryEventsTable is the DDL for the webhook_delivery_events ClickHouse table.
+const WebhookDeliveryEventsTable = `
+CREATE TABLE IF NOT EXISTS webhook_delivery_events (
+    delivery_id String,
+    run_id String,
+    job_id String,
+    project_id String,
+    webhook_url String,
+    status LowCardinality(String),
+    attempts UInt8,
+    last_status_code UInt16,
+    duration_ms UInt64,
+    event_type LowCardinality(String),
+    created_at DateTime64(3),
+    delivered_at Nullable(DateTime64(3)),
+    inserted_at DateTime64(3) DEFAULT now64(3)
+) ENGINE = MergeTree()
+PARTITION BY toDate(inserted_at)
+ORDER BY (project_id, webhook_url, created_at)
+TTL inserted_at + INTERVAL 365 DAY
+`
+
 // schemaAlterations contains ALTER TABLE statements for adding columns to
 // existing tables. Each statement uses ADD COLUMN IF NOT EXISTS so they are
 // safe to run repeatedly.
@@ -151,6 +173,7 @@ func CreateSchema(ctx context.Context, c *Client) error {
 		{"run_usage_events", RunUsageEventsTable},
 		{"workflow_approval_events", WorkflowApprovalEventsTable},
 		{"job_metadata", JobMetadataTable},
+		{"webhook_delivery_events", WebhookDeliveryEventsTable},
 	}
 
 	for _, t := range tables {

@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/domain"
 	"strait/internal/telemetry"
 
@@ -52,6 +53,7 @@ type DeliveryWorker struct {
 	defaultRetryPolicy string
 	circuitBreaker     WebhookCircuitBreaker
 	metrics            *telemetry.Metrics
+	chExporter         *clickhouse.Exporter
 	maxPayloadBytes    int64
 	stop               chan struct{}
 	done               chan struct{}
@@ -91,6 +93,12 @@ func WithCircuitBreaker(circuitBreaker WebhookCircuitBreaker) DeliveryWorkerOpti
 func WithMetrics(metrics *telemetry.Metrics) DeliveryWorkerOption {
 	return func(w *DeliveryWorker) {
 		w.metrics = metrics
+	}
+}
+
+func WithChExporter(exporter *clickhouse.Exporter) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		w.chExporter = exporter
 	}
 }
 
@@ -296,6 +304,37 @@ func (n *DeliveryWorker) processBatch(ctx context.Context) {
 	}
 }
 
+// enqueueDeliveryEvent sends a WebhookDeliveryEventRecord to the ClickHouse exporter.
+func (n *DeliveryWorker) enqueueDeliveryEvent(d *domain.WebhookDelivery, durationMs uint64, eventType string) {
+	if n.chExporter == nil {
+		return
+	}
+	var statusCode uint16
+	if d.LastStatusCode != nil && *d.LastStatusCode > 0 {
+		statusCode = uint16(*d.LastStatusCode) //nolint:gosec // HTTP status codes fit in uint16
+	}
+	var deliveredAt *time.Time
+	if d.DeliveredAt != nil {
+		t := *d.DeliveredAt
+		deliveredAt = &t
+	}
+	rec := clickhouse.WebhookDeliveryEventRecord{
+		DeliveryID:     d.ID,
+		RunID:          d.RunID,
+		JobID:          d.JobID,
+		ProjectID:      "", // WebhookDelivery does not carry project_id; left empty.
+		WebhookURL:     d.WebhookURL,
+		Status:         d.Status,
+		Attempts:       uint8(min(d.Attempts, 255)), //nolint:gosec // clamped to uint8 range
+		LastStatusCode: statusCode,
+		DurationMs:     durationMs,
+		EventType:      eventType,
+		CreatedAt:      d.CreatedAt,
+		DeliveredAt:    deliveredAt,
+	}
+	n.chExporter.Enqueue(rec)
+}
+
 // attemptDelivery makes one HTTP request for a delivery.
 func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookDelivery) {
 	start := time.Now()
@@ -320,6 +359,16 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		if n.metrics != nil {
 			n.metrics.WebhookDeliveryDuration.Record(ctx, time.Since(start).Seconds())
 		}
+	}()
+
+	// Enqueue ClickHouse record after every delivery attempt (success or failure).
+	defer func() {
+		durationMs := uint64(max(time.Since(start).Milliseconds(), 0))
+		eventType := "run_webhook"
+		if d.EventTriggerID != "" {
+			eventType = "event_trigger_notify"
+		}
+		n.enqueueDeliveryEvent(d, durationMs, eventType)
 	}()
 
 	if n.circuitBreaker != nil {

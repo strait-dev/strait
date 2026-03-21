@@ -97,6 +97,22 @@ type JobMetadataRecord struct {
 	Slug      string
 }
 
+// WebhookDeliveryEventRecord maps to the webhook_delivery_events ClickHouse table.
+type WebhookDeliveryEventRecord struct {
+	DeliveryID     string
+	RunID          string
+	JobID          string
+	ProjectID      string
+	WebhookURL     string
+	Status         string
+	Attempts       uint8
+	LastStatusCode uint16
+	DurationMs     uint64
+	EventType      string
+	CreatedAt      time.Time
+	DeliveredAt    *time.Time
+}
+
 // maxFlushRetries is the maximum number of consecutive flush failures before
 // a batch is dropped to prevent unbounded growth.
 const maxFlushRetries = 2
@@ -272,6 +288,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	var runUsage []RunUsageEventRecord
 	var approvals []WorkflowApprovalEventRecord
 	var jobMeta []JobMetadataRecord
+	var webhookDeliveries []WebhookDeliveryEventRecord
 
 	for _, rec := range batch {
 		switch r := rec.(type) {
@@ -287,6 +304,8 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			approvals = append(approvals, r)
 		case JobMetadataRecord:
 			jobMeta = append(jobMeta, r)
+		case WebhookDeliveryEventRecord:
+			webhookDeliveries = append(webhookDeliveries, r)
 		default:
 			e.logger.Warn("clickhouse exporter: unknown record type", "type", fmt.Sprintf("%T", rec))
 		}
@@ -323,6 +342,11 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			errs = append(errs, fmt.Errorf("job_metadata: %w", err))
 		}
 	}
+	if len(webhookDeliveries) > 0 {
+		if err := e.insertWebhookDeliveryEvents(ctx, webhookDeliveries); err != nil {
+			errs = append(errs, fmt.Errorf("webhook_delivery_events: %w", err))
+		}
+	}
 
 	if len(errs) > 0 {
 		msgs := make([]string, len(errs))
@@ -339,6 +363,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 		"run_usage", len(runUsage),
 		"approvals", len(approvals),
 		"job_metadata", len(jobMeta),
+		"webhook_deliveries", len(webhookDeliveries),
 	)
 	return nil
 }
@@ -426,6 +451,21 @@ func (e *Exporter) insertJobMetadata(ctx context.Context, records []JobMetadataR
 	for i, r := range records {
 		placeholders[i] = row
 		args = append(args, r.JobID, r.ProjectID, r.Slug)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func (e *Exporter) insertWebhookDeliveryEvents(ctx context.Context, records []WebhookDeliveryEventRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO webhook_delivery_events (delivery_id, run_id, job_id, project_id, webhook_url, status, attempts, last_status_code, duration_ms, event_type, created_at, delivered_at) VALUES "
+	placeholders := make([]string, len(records))
+	args := make([]any, 0, len(records)*12)
+
+	for i, r := range records {
+		placeholders[i] = row
+		args = append(args, r.DeliveryID, r.RunID, r.JobID, r.ProjectID, r.WebhookURL,
+			r.Status, r.Attempts, r.LastStatusCode, r.DurationMs, r.EventType, r.CreatedAt, r.DeliveredAt)
 	}
 
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
