@@ -88,6 +88,12 @@ type Metrics struct {
 	// Operational depth gauges.
 	WebhookBacklogDepth       metric.Int64Gauge
 	ClickHouseExporterPending metric.Int64Gauge
+
+	// Run lifecycle metrics.
+	RunDuration metric.Float64Histogram
+
+	// Scheduler drift metrics.
+	CronDrift metric.Float64Histogram
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -563,6 +569,18 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Number of records buffered in ClickHouse exporter"),
 		metric.WithUnit("1"),
 	)
+	runDuration, _ := meter.Float64Histogram(
+		"strait.run.duration",
+		metric.WithDescription("Total run execution duration from start to finish"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
+	)
+	cronDrift, _ := meter.Float64Histogram(
+		"strait.scheduler.cron_drift",
+		metric.WithDescription("Delta between expected cron fire time and actual fire time"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2, 5, 10, 30, 60),
+	)
 
 	m := &Metrics{
 		RunTransitions:            runTransitions,
@@ -619,6 +637,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		HTTPInflightRequests:      httpInflightRequests,
 		WebhookBacklogDepth:       webhookBacklogDepth,
 		ClickHouseExporterPending: clickhouseExporterPending,
+		RunDuration:               runDuration,
+		CronDrift:                 cronDrift,
 	}
 
 	slog.Info("prometheus metrics enabled")

@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 
+	"strait/internal/domain"
 	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -26,7 +27,29 @@ func MetricsSubscriber(m *telemetry.Metrics) RunEventSubscriber {
 			m.SnoozeTotal.Add(ctx, 1)
 		}
 
+		// Record run duration on terminal events.
+		if isTerminalStatus(event.ToStatus) && event.Run != nil {
+			if event.Run.StartedAt != nil && event.Run.FinishedAt != nil {
+				dur := event.Run.FinishedAt.Sub(*event.Run.StartedAt).Seconds()
+				if dur > 0 {
+					m.RunDuration.Record(ctx, dur, metric.WithAttributes(
+						attribute.String("status", string(event.ToStatus)),
+					))
+				}
+			}
+		}
+
 		// Latency anomaly detection stays in handleSuccess — it requires a
 		// DB call (GetJobHealthStats) that events intentionally don't carry.
+	}
+}
+
+func isTerminalStatus(s domain.RunStatus) bool {
+	switch s {
+	case domain.StatusCompleted, domain.StatusFailed,
+		domain.StatusTimedOut, domain.StatusSystemFailed:
+		return true
+	default:
+		return false
 	}
 }
