@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
@@ -148,6 +149,9 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 
 	// Direct publish for sub-millisecond SSE delivery (CDC is the catch-all).
 	s.publishTriggerStatusChange(r.Context(), trigger)
+
+	// Enqueue ClickHouse analytics for received event trigger.
+	s.enqueueEventTriggerRecord(trigger, domain.EventTriggerStatusReceived)
 
 	// Record metrics.
 	if s.metrics != nil {
@@ -369,6 +373,31 @@ func (s *Server) handleGetEventTriggerStats(w http.ResponseWriter, r *http.Reque
 	respondJSON(w, http.StatusOK, stats)
 }
 
+// enqueueEventTriggerRecord sends an EventTriggerEventRecord to ClickHouse.
+func (s *Server) enqueueEventTriggerRecord(trigger *domain.EventTrigger, status string) {
+	if s.chExporter == nil || trigger == nil {
+		return
+	}
+	var waitDurationMs uint64
+	var receivedAt *time.Time
+	if trigger.ReceivedAt != nil {
+		t := *trigger.ReceivedAt
+		receivedAt = &t
+		waitDurationMs = uint64(max(trigger.ReceivedAt.Sub(trigger.RequestedAt).Milliseconds(), 0))
+	}
+	s.chExporter.Enqueue(clickhouse.EventTriggerEventRecord{
+		TriggerID:      trigger.ID,
+		EventKey:       trigger.EventKey,
+		ProjectID:      trigger.ProjectID,
+		SourceType:     trigger.SourceType,
+		Status:         status,
+		TimeoutSecs:    uint32(max(trigger.TimeoutSecs, 0)), //nolint:gosec // timeout is always non-negative
+		WaitDurationMs: waitDurationMs,
+		CreatedAt:      trigger.RequestedAt,
+		ReceivedAt:     receivedAt,
+	})
+}
+
 // senderIdentity returns a string identifying who is making the current request.
 func senderIdentity(ctx context.Context) string {
 	if pid := projectIDFromContext(ctx); pid != "" {
@@ -421,7 +450,7 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 	// Atomically mark all triggers as received in a single transaction.
 	resolvedIDs, err := s.store.BatchReceiveEventTriggers(ctx, triggerIDs, req.Payload, now, sentBy)
 	if err != nil {
-		slog.Error("batch receive failed", "prefix", prefix, "error", err)
+		slog.Error("batch receive failed", "prefix", prefix, "project_id", projectID, "trigger_count", len(triggerIDs), "error", err)
 	}
 
 	resolved := make([]domain.EventTrigger, 0, len(resolvedIDs))
@@ -434,7 +463,7 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 
 		// Resume each source outside the transaction.
 		if err := s.resumeEventSource(ctx, trigger); err != nil {
-			slog.Error("failed to resume event source by prefix", "trigger_id", trigger.ID, "error", err)
+			slog.Error("failed to resume event source by prefix", "trigger_id", trigger.ID, "project_id", trigger.ProjectID, "event_key", trigger.EventKey, "error", err)
 		}
 
 		// Direct publish for sub-millisecond SSE delivery.
@@ -443,7 +472,10 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 		resolved = append(resolved, *trigger)
 	}
 
-	// Record metrics for each resolved trigger.
+	// Record metrics and ClickHouse analytics for each resolved trigger.
+	for i := range resolved {
+		s.enqueueEventTriggerRecord(&resolved[i], domain.EventTriggerStatusReceived)
+	}
 	if s.metrics != nil {
 		for _, t := range resolved {
 			attrs := metric.WithAttributes(

@@ -59,6 +59,8 @@
               "guides/security",
               "guides/deployment",
               "guides/performance-tuning",
+              "guides/load-testing",
+              "guides/capacity-planning",
               "guides/job-dependencies",
               "guides/debug-bundles",
               "guides/job-groups",

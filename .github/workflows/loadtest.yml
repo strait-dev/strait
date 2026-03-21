@@ -99,6 +99,99 @@ jobs:
             apps/strait/vegeta-${{ matrix.domain }}-summary.md
 
   # ---------------------------------------------------------------------------
+  # Quick validation — capacity framework smoke test
+  # ---------------------------------------------------------------------------
+  quick-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    name: "capacity / Quick Validation"
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: strait
+          POSTGRES_PASSWORD: strait
+          POSTGRES_DB: strait
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U strait"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: apps/strait/go.sum
+
+      - name: Build test job images
+        working-directory: loadtest-jobs
+        run: make build
+
+      - name: Start Strait
+        working-directory: apps/strait
+        env:
+          DATABASE_URL: postgres://strait:strait@localhost:5432/strait?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+          INTERNAL_SECRET: ci-loadtest-secret-that-is-32chars
+          JWT_SIGNING_KEY: ci-jwt-key-that-is-at-least-32chars
+          ALLOW_PRIVATE_ENDPOINTS: "true"
+          RATE_LIMIT_REQUESTS: "100000"
+          TRIGGER_RATE_LIMIT_REQUESTS: "100000"
+        run: |
+          go run ./cmd/strait --mode all &
+          sleep 10
+          curl -sf http://localhost:8080/health
+
+      - name: Run quick validation
+        working-directory: apps/strait
+        env:
+          LOADTEST_QUICK: "true"
+          LOADTEST_STRAIT_URL: http://localhost:8080
+          LOADTEST_INTERNAL_SECRET: ci-loadtest-secret-that-is-32chars
+          LOADTEST_DATABASE_URL: postgres://strait:strait@localhost:5432/strait?sslmode=disable
+          LOADTEST_REDIS_URL: redis://localhost:6379
+        run: |
+          set -o pipefail
+          go test -json -tags=loadtest \
+            -run "TestQuickValidation|TestTestServerEndpoints|TestErrorScenarios" \
+            -timeout=18m -count=1 \
+            ./internal/loadtest/... 2>&1 | tee quick-validation.jsonl
+
+      - name: Generate summary
+        if: always()
+        working-directory: apps/strait
+        run: go run ./test/loadtest/cmd/summary -input quick-validation.jsonl -output quick-validation-summary.md -suite "quick-validation"
+
+      - name: Publish summary
+        if: always()
+        working-directory: apps/strait
+        run: cat quick-validation-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-validation
+          if-no-files-found: ignore
+          path: |
+            apps/strait/quick-validation.jsonl
+            apps/strait/quick-validation-summary.md
+
+  # ---------------------------------------------------------------------------
   # Integration load tests — split into two parallel jobs
   # ---------------------------------------------------------------------------
   integration-queue-store:

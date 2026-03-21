@@ -35,8 +35,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Port != 8080 {
 		t.Fatalf("Port = %d, want %d", cfg.Port, 8080)
 	}
-	if cfg.WorkerConcurrency != 10 {
-		t.Fatalf("WorkerConcurrency = %d, want %d", cfg.WorkerConcurrency, 10)
+	if cfg.WorkerConcurrency != 25 {
+		t.Fatalf("WorkerConcurrency = %d, want %d", cfg.WorkerConcurrency, 25)
 	}
 	if cfg.LogLevel != "info" {
 		t.Fatalf("LogLevel = %q, want %q", cfg.LogLevel, "info")
@@ -59,11 +59,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.WebhookMaxPayloadBytes != int64(1<<20) {
 		t.Fatalf("WebhookMaxPayloadBytes = %d, want %d", cfg.WebhookMaxPayloadBytes, int64(1<<20))
 	}
-	if cfg.DBMaxConns != 25 {
-		t.Fatalf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 25)
+	if cfg.DBMaxConns != 50 {
+		t.Fatalf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 50)
 	}
-	if cfg.DBMinConns != 5 {
-		t.Fatalf("DBMinConns = %d, want %d", cfg.DBMinConns, 5)
+	if cfg.DBMinConns != 10 {
+		t.Fatalf("DBMinConns = %d, want %d", cfg.DBMinConns, 10)
 	}
 	if cfg.DBMaxConnLifetime != 30*time.Minute {
 		t.Fatalf("DBMaxConnLifetime = %v, want %v", cfg.DBMaxConnLifetime, 30*time.Minute)
@@ -255,6 +255,39 @@ func TestLoad_ValidConfig(t *testing.T) {
 	}
 	if cfg.RedisURL != "redis://localhost:6379" {
 		t.Fatalf("RedisURL = %q, want redis://localhost:6379", cfg.RedisURL)
+	}
+}
+
+func TestLoad_WebhookConcurrencyDefault(t *testing.T) {
+	viper.Reset()
+	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("INTERNAL_SECRET", "test-secret")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.WebhookConcurrency != 50 {
+		t.Errorf("WebhookConcurrency = %d, want 50", cfg.WebhookConcurrency)
+	}
+}
+
+func TestLoad_WebhookConcurrencyFromEnv(t *testing.T) {
+	viper.Reset()
+	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "WEBHOOK_CONCURRENCY")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("INTERNAL_SECRET", "test-secret")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("WEBHOOK_CONCURRENCY", "100")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.WebhookConcurrency != 100 {
+		t.Errorf("WebhookConcurrency = %d, want 100", cfg.WebhookConcurrency)
 	}
 }
 

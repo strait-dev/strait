@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/domain"
 )
 
@@ -620,6 +621,114 @@ func TestWorker_PayloadTooLarge_DeadLettersWithoutHTTPCall(t *testing.T) {
 	}
 }
 
+func TestWithChExporter_EnqueuesOnDelivery(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute, // won't auto-flush during test
+	}, slog.Default())
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-ch-1",
+		RunID:       "run-ch-1",
+		JobID:       "job-ch-1",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-ch-1"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
+	worker.processBatch(context.Background())
+
+	if exporter.PendingCount() != 1 {
+		t.Fatalf("expected 1 pending ClickHouse record, got %d", exporter.PendingCount())
+	}
+}
+
+func TestWithChExporter_EnqueuesOnFailure(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-ch-fail",
+		RunID:       "run-ch-fail",
+		JobID:       "job-ch-fail",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-ch-fail"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
+	worker.processBatch(context.Background())
+
+	if exporter.PendingCount() != 1 {
+		t.Fatalf("expected 1 pending ClickHouse record after failure, got %d", exporter.PendingCount())
+	}
+}
+
+func TestWithChExporter_NilExporter_NoPanic(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-nil-ch",
+		RunID:       "run-nil-ch",
+		JobID:       "job-nil-ch",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-nil-ch"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	// No WithChExporter option -- should not panic
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+}
+
 func TestPow(t *testing.T) {
 	t.Parallel()
 
@@ -897,5 +1006,145 @@ func TestAttemptDelivery_DifferentDeliveriesHaveDifferentKeys(t *testing.T) {
 	defer mu.Unlock()
 	if len(receivedKeys) != 2 {
 		t.Fatalf("expected 2 unique idempotency keys, got %d", len(receivedKeys))
+	}
+}
+
+func TestDeliveryWorker_DefaultConcurrency50(t *testing.T) {
+	t.Parallel()
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+	if worker.concurrency != 50 {
+		t.Errorf("default concurrency = %d, want 50", worker.concurrency)
+	}
+}
+
+func TestDeliveryWorker_ConcurrencyFromOption(t *testing.T) {
+	t.Parallel()
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(100))
+	if worker.concurrency != 100 {
+		t.Errorf("concurrency = %d, want 100", worker.concurrency)
+	}
+}
+
+func TestDeliveryWorker_ConcurrencyZeroKeepsDefault(t *testing.T) {
+	t.Parallel()
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(0))
+	if worker.concurrency != 50 {
+		t.Errorf("concurrency = %d, want 50 (default)", worker.concurrency)
+	}
+}
+
+func TestDeliveryWorker_TieredTimeout_InitialAttempt(t *testing.T) {
+	t.Parallel()
+
+	// Server that takes 7 seconds to respond (longer than 5s initial timeout).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(7 * time.Second)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	d := &domain.WebhookDelivery{
+		ID:          "d-timeout-1",
+		WebhookURL:  srv.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0, // Will become 1 in attemptDelivery.
+		MaxAttempts: 3,
+	}
+
+	start := time.Now()
+	worker.attemptDelivery(context.Background(), d)
+	elapsed := time.Since(start)
+
+	// Should timeout around 5s, not 10s.
+	if elapsed > 6*time.Second {
+		t.Errorf("initial attempt took %v, expected ~5s timeout", elapsed)
+	}
+	if d.Status == domain.WebhookStatusDelivered {
+		t.Error("expected delivery to fail due to timeout")
+	}
+}
+
+func TestDeliveryWorker_TieredTimeout_RetryAttempt(t *testing.T) {
+	t.Parallel()
+
+	// Server that takes 7 seconds to respond (passes 5s but within 15s retry timeout).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(7 * time.Second)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	d := &domain.WebhookDelivery{
+		ID:          "d-timeout-2",
+		WebhookURL:  srv.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    1, // Will become 2 in attemptDelivery (retry).
+		MaxAttempts: 3,
+	}
+
+	start := time.Now()
+	worker.attemptDelivery(context.Background(), d)
+	elapsed := time.Since(start)
+
+	// Should succeed because retry timeout is 15s and server responds in 7s.
+	if elapsed < 6*time.Second {
+		t.Errorf("retry attempt returned too fast: %v", elapsed)
+	}
+	if d.Status != domain.WebhookStatusDelivered {
+		t.Errorf("expected delivery to succeed on retry timeout, got status %s", d.Status)
+	}
+}
+
+func TestDeliveryWorker_ConcurrentDeliveries50(t *testing.T) {
+	t.Parallel()
+
+	var maxConcurrent atomic.Int64
+	var currentConcurrent atomic.Int64
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		cur := currentConcurrent.Add(1)
+		for {
+			old := maxConcurrent.Load()
+			if cur <= old || maxConcurrent.CompareAndSwap(old, cur) {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+		currentConcurrent.Add(-1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	const total = 60
+	ms := &mockDeliveryStore{
+		listPendingFn: func(_ context.Context) ([]domain.WebhookDelivery, error) {
+			deliveries := make([]domain.WebhookDelivery, 0, total)
+			for i := range total {
+				deliveries = append(deliveries, domain.WebhookDelivery{
+					ID:          fmt.Sprintf("d-%d", i),
+					WebhookURL:  srv.URL,
+					Status:      domain.WebhookStatusPending,
+					MaxAttempts: 1,
+				})
+			}
+			return deliveries, nil
+		},
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(total))
+	worker.processBatch(context.Background())
+
+	peak := maxConcurrent.Load()
+	if peak < 10 {
+		t.Errorf("peak concurrency = %d, expected higher with 60 deliveries", peak)
 	}
 }

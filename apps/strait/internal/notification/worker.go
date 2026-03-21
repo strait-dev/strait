@@ -11,15 +11,19 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // Worker polls for pending notification deliveries and dispatches them.
 type Worker struct {
-	store    store.NotificationStore
-	senders  map[string]ChannelSender
-	ticker   *time.Ticker
-	done     chan struct{}
-	stopOnce sync.Once
+	store             store.NotificationStore
+	senders           map[string]ChannelSender
+	ticker            *time.Ticker
+	done              chan struct{}
+	stopOnce          sync.Once
+	deliveriesCounter metric.Int64Counter
 }
 
 const deliveryLeaseDuration = 2 * time.Minute
@@ -42,6 +46,12 @@ func (w *Worker) RegisterSender(channelType string, sender ChannelSender) {
 	w.senders[channelType] = sender
 }
 
+// WithDeliveriesCounter attaches an OTel counter for tracking delivery outcomes.
+func (w *Worker) WithDeliveriesCounter(c metric.Int64Counter) *Worker {
+	w.deliveriesCounter = c
+	return w
+}
+
 // Start begins the background polling loop.
 func (w *Worker) Start(ctx context.Context) {
 	w.ticker = time.NewTicker(30 * time.Second)
@@ -59,6 +69,11 @@ func (w *Worker) Stop() {
 }
 
 func (w *Worker) run(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("notification worker panic recovered", "panic", r)
+		}
+	}()
 	// Process once immediately on start.
 	w.process(ctx)
 
@@ -130,12 +145,18 @@ func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) e
 			next := time.Now().Add(backoff)
 			d.NextRetryAt = &next
 		}
+		if w.deliveriesCounter != nil {
+			w.deliveriesCounter.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+		}
 	} else {
 		d.Status = "delivered"
 		d.LastError = ""
 		d.NextRetryAt = nil
 		now := time.Now()
 		d.DeliveredAt = &now
+		if w.deliveriesCounter != nil {
+			w.deliveriesCounter.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "success")))
+		}
 	}
 
 	return w.finishClaim(ctx, d)

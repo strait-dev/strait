@@ -13,6 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 const ctxProjectIDKey contextKey = "project_id"
@@ -252,6 +254,23 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 		default:
 			slog.Info("request", attrs...)
 		}
+	})
+}
+
+func (s *Server) requestMetrics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.metrics == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		s.metrics.HTTPInflightRequests.Add(r.Context(), 1)
+		start := time.Now()
+		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+		duration := time.Since(start).Seconds()
+		s.metrics.HTTPRequestDuration.Record(context.Background(), duration,
+			otelmetric.WithAttributes(attribute.Int("status", ww.Status())))
+		s.metrics.HTTPInflightRequests.Add(context.Background(), -1)
 	})
 }
 

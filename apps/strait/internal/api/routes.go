@@ -30,6 +30,7 @@ func (s *Server) routes() chi.Router {
 	r.Use(chimw.RealIP)
 	r.Use(otelchi.Middleware("strait", otelchi.WithChiRoutes(r)))
 	r.Use(s.requestLogger)
+	r.Use(s.requestMetrics)
 	sentryHandler := sentryhttp.New(sentryhttp.Options{
 		Repanic:         true,
 		WaitForDelivery: false,
@@ -298,6 +299,7 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/stats", s.handleStats)
 
 		r.Route("/analytics", func(r chi.Router) {
+			// Community analytics (Postgres-backed, always available)
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/performance", s.handleGetPerformanceAnalytics)
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs", s.handleGetCostAnalytics)
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/trends", s.handleGetCostTrends)
@@ -305,6 +307,56 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/compute", s.handleGetComputeCostAnalytics)
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/approvals", s.handleGetApprovalStats)
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/cost-insights", s.handleGetCostInsights)
+
+			// Cloud-only analytics (ClickHouse-backed, requires Strait Cloud)
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireCloudEdition)
+				r.Use(s.requirePermission(domain.ScopeStatsRead))
+
+				r.Route("/runs", func(r chi.Router) {
+					r.Get("/timeline", s.handleRunTimeline)
+					r.Get("/duration-distribution", s.handleRunDurationDistribution)
+					r.Get("/failure-reasons", s.handleRunFailureReasons)
+					r.Get("/summary", s.handleRunSummary)
+					r.Get("/by-trigger", s.handleRunsByTrigger)
+				})
+
+				r.Route("/jobs", func(r chi.Router) {
+					r.Get("/comparison", s.handleJobComparison)
+					r.Get("/reliability", s.handleJobReliability)
+					r.Get("/by-version", s.handleRunsByVersion)
+					r.Get("/cost-ranking", s.handleJobCostRanking)
+					r.Get("/top-failing", s.handleTopFailingJobs)
+					r.Get("/{jobID}/history", s.handleJobHistory)
+				})
+
+				r.Route("/tags", func(r chi.Router) {
+					r.Get("/summary", s.handleTagSummary)
+					r.Get("/top-failing", s.handleTopFailingTags)
+					r.Get("/cost", s.handleTagCost)
+				})
+
+				r.Route("/workflows", func(r chi.Router) {
+					r.Get("/completion-rates", s.handleWorkflowCompletionRates)
+					r.Get("/summary", s.handleWorkflowAnalyticsSummary)
+					r.Get("/{workflowID}/step-durations", s.handleWorkflowStepDurations)
+				})
+
+				r.Route("/webhooks", func(r chi.Router) {
+					r.Get("/delivery-stats", s.handleWebhookDeliveryStats)
+					r.Get("/endpoint-health", s.handleWebhookEndpointHealth)
+					r.Get("/top-failing", s.handleTopFailingWebhooks)
+				})
+
+				r.Route("/events", func(r chi.Router) {
+					r.Get("/volume", s.handleEventVolume)
+					r.Get("/latency", s.handleEventLatency)
+				})
+
+				r.Get("/costs/forecast", s.handleCostForecast)
+				r.Get("/costs/by-trigger", s.handleCostByTrigger)
+				r.Get("/costs/by-machine", s.handleCostByMachine)
+			})
 		})
 
 		r.Route("/roles", func(r chi.Router) {
@@ -390,7 +442,10 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/subscriptions/{subID}", s.handleDeleteEventSubscription)
 			})
 		})
-		r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/events/dispatch", s.handleDispatchEvent)
+		r.With(
+			s.requirePermission(domain.ScopeJobsWrite),
+			rateLimit(triggerRateLimitRequests, triggerRateLimitWindow),
+		).Post("/events/dispatch", s.handleDispatchEvent)
 
 		r.Route("/events", func(r chi.Router) {
 			r.Get("/", s.handleListEventTriggers)

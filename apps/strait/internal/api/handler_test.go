@@ -47,10 +47,11 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 		p = pub
 	}
 	srv := NewServer(ServerDeps{
-		Config: cfg,
-		Store:  s,
-		Queue:  q,
-		PubSub: p,
+		Config:  cfg,
+		Store:   s,
+		Queue:   q,
+		PubSub:  p,
+		Edition: domain.EditionCloud,
 	})
 	t.Cleanup(srv.Close)
 	return srv
@@ -116,6 +117,53 @@ func TestHandleHealth(t *testing.T) {
 	}
 	if resp["status"] != "ok" {
 		t.Fatalf("expected status=ok, got %q", resp["status"])
+	}
+}
+
+func TestHandleHealth_EditionField(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		edition domain.Edition
+		want    string
+	}{
+		{"community", domain.EditionCommunity, "community"},
+		{"cloud", domain.EditionCloud, "cloud"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				InternalSecret:      "test-secret",
+				MaxBulkTriggerItems: 500,
+				JWTSigningKey:       "01234567890123456789012345678901",
+			}
+			srv := NewServer(ServerDeps{
+				Config:  cfg,
+				Store:   &mockAPIStore{},
+				Queue:   &mockQueue{},
+				Edition: tt.edition,
+			})
+			t.Cleanup(srv.Close)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/health", nil)
+			srv.ServeHTTP(w, r)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", w.Code)
+			}
+
+			var resp map[string]string
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			if resp["edition"] != tt.want {
+				t.Errorf("expected edition=%q, got %q", tt.want, resp["edition"])
+			}
+		})
 	}
 }
 

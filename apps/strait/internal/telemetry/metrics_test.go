@@ -12,7 +12,7 @@ import (
 
 func TestInitMetrics(t *testing.T) {
 	t.Parallel()
-	metrics, handler, shutdown, err := InitMetrics("test-service")
+	metrics, handler, shutdown, err := InitMetrics("test-service", "test")
 	if err != nil {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
 			t.Skipf("OTel schema URL conflict (known issue): %v", err)
@@ -58,9 +58,28 @@ func TestInitMetrics(t *testing.T) {
 	}
 }
 
+func TestInitMetrics_EmptyEnvironment(t *testing.T) {
+	t.Parallel()
+	metrics, handler, shutdown, err := InitMetrics("test-service", "")
+	if err != nil {
+		if strings.Contains(err.Error(), "conflicting Schema URL") {
+			t.Skipf("OTel schema URL conflict: %v", err)
+		}
+		t.Fatalf("InitMetrics() error = %v", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
+	if metrics == nil {
+		t.Fatal("metrics is nil")
+	}
+	if handler == nil {
+		t.Fatal("handler is nil")
+	}
+}
+
 func TestInitMetrics_ShutdownIdempotent(t *testing.T) {
 	t.Parallel()
-	_, _, shutdown, err := InitMetrics("test-service")
+	_, _, shutdown, err := InitMetrics("test-service", "test")
 	if err != nil {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
 			t.Skipf("OTel schema URL conflict: %v", err)

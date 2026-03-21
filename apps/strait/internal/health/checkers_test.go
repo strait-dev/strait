@@ -124,6 +124,50 @@ func TestNewSchedulerChecker(t *testing.T) {
 	}
 }
 
+type mockRedisPinger struct {
+	err error
+}
+
+func (m *mockRedisPinger) Ping(_ context.Context) error { return m.err }
+
+func TestNewRedisChecker(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		pingErr     error
+		wantErr     bool
+		wantErrPart string
+	}{
+		{name: "healthy redis", pingErr: nil},
+		{name: "redis down", pingErr: errors.New("connection refused"), wantErr: true, wantErrPart: "redis ping failed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			checker := NewRedisChecker(&mockRedisPinger{err: tt.pingErr})
+			err := checker.Check(context.Background())
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
+					t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErrPart)
+				}
+				// Redis checker should be non-critical.
+				if IsCritical(checker) {
+					t.Fatal("expected redis checker to be non-critical")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected nil, got %v", err)
+			}
+		})
+	}
+}
+
 func TestNewQueueDepthChecker(t *testing.T) {
 	t.Parallel()
 

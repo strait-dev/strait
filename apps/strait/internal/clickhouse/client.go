@@ -7,7 +7,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
+
+	_ "github.com/ClickHouse/clickhouse-go/v2" // registers "clickhouse" database/sql driver
 )
 
 // Client wraps a ClickHouse connection pool with health checks and graceful shutdown.
@@ -38,7 +41,12 @@ func New(cfg Config, logger *slog.Logger) (*Client, error) {
 		logger = slog.Default()
 	}
 
-	db, err := sql.Open("clickhouse", cfg.URL)
+	connURL, err := buildConnURL(cfg.URL, cfg.Database)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: %w", err)
+	}
+
+	db, err := sql.Open("clickhouse", connURL)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: open connection: %w", err)
 	}
@@ -82,6 +90,23 @@ func (c *Client) DB() *sql.DB {
 	return c.db
 }
 
+// buildConnURL appends the database name as a query parameter if not already present.
+func buildConnURL(rawURL, database string) (string, error) {
+	if database == "" {
+		return rawURL, nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse URL: %w", err)
+	}
+	q := u.Query()
+	if q.Get("database") == "" {
+		q.Set("database", database)
+		u.RawQuery = q.Encode()
+	}
+	return u.String(), nil
+}
+
 // Exec executes a query without returning rows.
 func (c *Client) Exec(ctx context.Context, query string, args ...any) error {
 	if c == nil || c.db == nil {
@@ -89,4 +114,17 @@ func (c *Client) Exec(ctx context.Context, query string, args ...any) error {
 	}
 	_, err := c.db.ExecContext(ctx, query, args...)
 	return err
+}
+
+// Query executes a query that returns rows.
+func (c *Client) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if c == nil || c.db == nil {
+		return nil, fmt.Errorf("clickhouse: client is nil")
+	}
+	return c.db.QueryContext(ctx, query, args...)
+}
+
+// QueryRow executes a query that returns at most one row.
+func (c *Client) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
+	return c.db.QueryRowContext(ctx, query, args...)
 }

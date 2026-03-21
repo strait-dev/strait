@@ -3945,6 +3945,447 @@ paths:
         '200':
           description: Cost outlier insights
 
+  /v1/analytics/runs/timeline:
+    get:
+      tags:
+        - Analytics
+      summary: Run status timeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: bucket
+          in: query
+          schema:
+            type: string
+            enum: [hour, day]
+            default: day
+      responses:
+        '200':
+          description: Timeline of run status counts
+
+  /v1/analytics/runs/duration-distribution:
+    get:
+      tags:
+        - Analytics
+      summary: Run duration distribution
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Duration distribution buckets
+
+  /v1/analytics/runs/failure-reasons:
+    get:
+      tags:
+        - Analytics
+      summary: Top run failure reasons
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Top failure reasons
+
+  /v1/analytics/runs/summary:
+    get:
+      tags:
+        - Analytics
+      summary: Run analytics summary
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Aggregate run summary
+
+  /v1/analytics/runs/by-trigger:
+    get:
+      tags:
+        - Analytics
+      summary: Runs grouped by trigger type
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Runs by trigger type
+
+  /v1/analytics/jobs/{jobID}/history:
+    get:
+      tags:
+        - Analytics
+      summary: Job run history timeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobID
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: bucket
+          in: query
+          schema:
+            type: string
+            enum: [hour, day]
+            default: day
+      responses:
+        '200':
+          description: Job history buckets
+
+  /v1/analytics/jobs/comparison:
+    get:
+      tags:
+        - Analytics
+      summary: Compare metrics across jobs
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: job_ids
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Comma-separated job IDs
+      responses:
+        '200':
+          description: Job comparison data
+
+  /v1/analytics/jobs/reliability:
+    get:
+      tags:
+        - Analytics
+      summary: Job reliability ranking
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Jobs ranked by reliability
+
+  /v1/analytics/jobs/by-version:
+    get:
+      tags:
+        - Analytics
+      summary: Runs grouped by job version
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: job_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Runs by version
+
+  /v1/analytics/jobs/cost-ranking:
+    get:
+      tags:
+        - Analytics
+      summary: Jobs ranked by cost
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Job cost ranking
+
+  /v1/analytics/jobs/top-failing:
+    get:
+      tags:
+        - Analytics
+      summary: Top failing jobs
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Top failing jobs
+
+  /v1/analytics/tags/summary:
+    get:
+      tags:
+        - Analytics
+      summary: Tag analytics summary
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Tag summary data
+
+  /v1/analytics/tags/top-failing:
+    get:
+      tags:
+        - Analytics
+      summary: Top failing tags
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Tags ranked by failure
+
+  /v1/analytics/tags/cost:
+    get:
+      tags:
+        - Analytics
+      summary: Cost by tag
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Cost grouped by tag
+
+  /v1/analytics/workflows/{workflowID}/step-durations:
+    get:
+      tags:
+        - Analytics
+      summary: Workflow step duration stats
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workflowID
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Step duration statistics
+
+  /v1/analytics/workflows/completion-rates:
+    get:
+      tags:
+        - Analytics
+      summary: Workflow completion rate timeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: bucket
+          in: query
+          schema:
+            type: string
+            enum: [hour, day]
+            default: day
+      responses:
+        '200':
+          description: Workflow completion rates
+
+  /v1/analytics/workflows/summary:
+    get:
+      tags:
+        - Analytics
+      summary: Workflow analytics summary
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Aggregate workflow summary
+
+  /v1/analytics/webhooks/delivery-stats:
+    get:
+      tags:
+        - Analytics
+      summary: Webhook delivery statistics
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Delivery stats per endpoint
+
+  /v1/analytics/webhooks/endpoint-health:
+    get:
+      tags:
+        - Analytics
+      summary: Webhook endpoint health timeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: bucket
+          in: query
+          schema:
+            type: string
+            enum: [hour, day]
+            default: day
+      responses:
+        '200':
+          description: Endpoint health over time
+
+  /v1/analytics/webhooks/top-failing:
+    get:
+      tags:
+        - Analytics
+      summary: Top failing webhook endpoints
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Endpoints ranked by failure
+
+  /v1/analytics/events/volume:
+    get:
+      tags:
+        - Analytics
+      summary: Event trigger volume timeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - name: bucket
+          in: query
+          schema:
+            type: string
+            enum: [hour, day]
+            default: day
+      responses:
+        '200':
+          description: Event volume over time
+
+  /v1/analytics/events/latency:
+    get:
+      tags:
+        - Analytics
+      summary: Event trigger latency statistics
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Latency percentiles
+
+  /v1/analytics/costs/forecast:
+    get:
+      tags:
+        - Analytics
+      summary: Cost forecast
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Projected cost forecast
+
+  /v1/analytics/costs/by-trigger:
+    get:
+      tags:
+        - Analytics
+      summary: Cost breakdown by trigger type
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Cost grouped by trigger
+
+  /v1/analytics/costs/by-machine:
+    get:
+      tags:
+        - Analytics
+      summary: Cost breakdown by machine preset
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Cost grouped by machine
+
   /v1/webhook-deliveries:
     get:
       tags:
@@ -5856,6 +6297,24 @@ components:
       type: http
       scheme: bearer
       description: JWT run token issued by the trigger response.
+
+  parameters:
+    FromParam:
+      name: from
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+      description: Start of time range (RFC3339)
+    ToParam:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+      description: End of time range (RFC3339)
 
   schemas:
     CurrentUsageResponse:
