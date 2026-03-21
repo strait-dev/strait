@@ -380,9 +380,22 @@ const (
 	ErrorCodeForbidden       = "forbidden"
 )
 
+// AnalyticsStore is the subset of analytics query methods that can be backed
+// by either Postgres (store.Queries) or ClickHouse (clickhouse.AnalyticsStore).
+type AnalyticsStore interface {
+	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
+	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
+	GetCostTrends(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error)
+	GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
+	GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
+	GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
+	GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
+}
+
 type Server struct {
 	router             chi.Router
 	store              APIStore
+	analyticsStore     AnalyticsStore
 	queue              queue.Queue
 	pubsub             pubsub.Publisher
 	config             *config.Config
@@ -406,6 +419,14 @@ type Server struct {
 	containerRuntime   compute.ContainerRuntime
 }
 
+// analytics returns the ClickHouse analytics store when available, falling back to Postgres.
+func (s *Server) analytics() AnalyticsStore {
+	if s.analyticsStore != nil {
+		return s.analyticsStore
+	}
+	return s.store
+}
+
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
 type Encryptor interface {
 	Encrypt(plaintext []byte) ([]byte, error)
@@ -416,6 +437,7 @@ type Encryptor interface {
 type ServerDeps struct {
 	Config           *config.Config
 	Store            APIStore
+	AnalyticsStore   AnalyticsStore // Optional: ClickHouse-backed analytics queries.
 	Queue            queue.Queue
 	PubSub           pubsub.Publisher
 	MetricsHandler   http.Handler
@@ -453,6 +475,7 @@ func NewServer(deps ServerDeps) *Server {
 
 	srv := &Server{
 		store:              deps.Store,
+		analyticsStore:     deps.AnalyticsStore,
 		queue:              deps.Queue,
 		pubsub:             deps.PubSub,
 		config:             deps.Config,

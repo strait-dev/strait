@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"strait/internal/store"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // PgHealthQuerier provides live Postgres data that cannot be served from ClickHouse
@@ -391,6 +393,42 @@ func (s *AnalyticsStore) GetCostOutliers(ctx context.Context, projectID string, 
 	}
 
 	return outliers, nil
+}
+
+// PgHealthAdapter implements PgHealthQuerier by running simple count queries
+// against a Postgres connection pool.
+type PgHealthAdapter struct {
+	pool *pgxpool.Pool
+}
+
+// NewPgHealthAdapter creates a PgHealthQuerier backed by a pgx connection pool.
+func NewPgHealthAdapter(pool *pgxpool.Pool) *PgHealthAdapter {
+	return &PgHealthAdapter{pool: pool}
+}
+
+func (a *PgHealthAdapter) CountJobs(ctx context.Context, projectID string) (total, active int, err error) {
+	err = a.pool.QueryRow(ctx,
+		`SELECT
+			(SELECT COUNT(*) FROM jobs WHERE project_id = $1),
+			(SELECT COUNT(*) FROM jobs WHERE project_id = $1 AND enabled = true)`,
+		projectID,
+	).Scan(&total, &active)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count jobs: %w", err)
+	}
+	return total, active, nil
+}
+
+func (a *PgHealthAdapter) QueueDepth(ctx context.Context, projectID string) (int, error) {
+	var depth int
+	err := a.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM job_runs WHERE project_id = $1 AND status = 'queued'`,
+		projectID,
+	).Scan(&depth)
+	if err != nil {
+		return 0, fmt.Errorf("queue depth: %w", err)
+	}
+	return depth, nil
 }
 
 // GetApprovalStats returns aggregate approval statistics from ClickHouse.
