@@ -110,7 +110,8 @@ const FeatureBentoGrid = () => (
 
             {/* Content */}
             <div className="p-5 sm:p-6">
-              <p className="text-muted-foreground text-xs uppercase">
+              <p className="flex items-center gap-1.5 text-muted-foreground text-xs uppercase">
+                <span className="inline-block size-1.5 rounded-full bg-primary" />
                 {feature.subtitle}
               </p>
               <h3 className="mt-1 font-semibold text-foreground text-lg">

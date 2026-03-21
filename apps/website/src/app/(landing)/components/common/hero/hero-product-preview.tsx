@@ -68,7 +68,7 @@ const HeroProductPreview = () => {
               aria-selected={activeTab === i}
               className={`rounded-md px-3 py-1.5 font-medium text-xs transition-colors ${
                 activeTab === i
-                  ? "bg-foreground/10 text-foreground"
+                  ? "bg-primary/15 text-primary"
                   : "text-muted-foreground/60 hover:text-muted-foreground"
               }`}
               id={`hero-preview-tab-${tab.id}`}

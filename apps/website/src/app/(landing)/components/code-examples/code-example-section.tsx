@@ -191,7 +191,7 @@ const CodeExampleSection = () => {
   );
 
   return (
-    <section className="bg-muted/30 py-20 sm:py-28">
+    <section className="bg-muted/30 py-24 sm:py-32">
       <Shell variant="wide">
         <Reveal variant="blur">
           <div className="mb-14 max-w-3xl">
@@ -240,7 +240,7 @@ const CodeExampleSection = () => {
           >
             <div
               aria-labelledby={`code-tab-${String(activeTab)}`}
-              className="p-5 sm:p-6"
+              className="bg-[#282c34] p-5 sm:p-6"
               id={`code-tabpanel-${String(activeTab)}`}
               role="tabpanel"
             >

@@ -29,7 +29,7 @@ const PAIN_POINTS = [
 const ProblemSection = () => (
   <section
     aria-label="The problem with background job systems"
-    className="bg-muted/30 py-20 sm:py-28"
+    className="bg-muted/30 py-16 sm:py-20"
   >
     <Shell variant="wide">
       <Reveal variant="blur">
@@ -47,7 +47,7 @@ const ProblemSection = () => (
       <StaggerGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {PAIN_POINTS.map((point) => (
           <StaggerItem key={point.before}>
-            <div className="rounded-xl border border-border/40 bg-card p-5 sm:p-6">
+            <div className="rounded-xl border border-border/40 border-l-2 border-l-primary bg-card p-5 sm:p-6">
               <p className="text-muted-foreground/50 text-sm leading-relaxed line-through decoration-destructive/40">
                 {point.before}
               </p>

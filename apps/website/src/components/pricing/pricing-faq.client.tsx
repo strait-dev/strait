@@ -34,7 +34,7 @@ const PricingFaqClient = ({
   const sectionId = useId();
 
   return (
-    <section className="bg-background py-20 sm:py-28" id={sectionId}>
+    <section className="bg-background py-16 sm:py-20" id={sectionId}>
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         {/* Section Header - kicker pattern */}
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">

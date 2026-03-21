@@ -23,9 +23,9 @@ const CTA = ({
   return (
     <section
       aria-labelledby={headingId}
-      className="relative overflow-hidden border-border/40 border-y py-20 sm:py-28"
+      className="relative overflow-hidden border-border/40 border-y py-24 sm:py-32"
     >
-      <div className="absolute inset-0 -z-10 bg-primary/[0.03]" />
+      <div className="absolute inset-0 -z-10 bg-primary/10" />
 
       <Shell className="relative z-10" variant="wide">
         <div className="max-w-3xl">
