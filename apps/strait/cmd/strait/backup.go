@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/cli/styles"
+
 	"github.com/spf13/cobra"
 )
 
@@ -89,12 +91,12 @@ Requires pg_dump to be installed and available in PATH.`,
 				return fmt.Errorf("pg_dump failed: %w", err)
 			}
 
-			fmt.Fprintf(os.Stderr, "backup written to %s\n", output)
+			fmt.Fprintln(os.Stderr, styles.Success("Backup written to "+styles.FilePath(output)))
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "output file path (default: timestamped filename)")
+	cmd.Flags().StringVar(&output, "output", "", "output file path (default: timestamped filename)")
 	cmd.Flags().StringVar(&databaseURL, "database-url", "", "PostgreSQL connection string (default: DATABASE_URL env)")
 	cmd.Flags().StringVar(&format, "format", "plain", "dump format: plain, custom, directory, tar")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "pass --verbose to pg_dump")
@@ -209,7 +211,7 @@ func restoreWithPsql(dsn, input string, verbose bool) error {
 		return fmt.Errorf("psql restore failed: %w", err)
 	}
 
-	fmt.Fprintln(os.Stderr, "restore complete")
+	fmt.Fprintln(os.Stderr, styles.Success("Restore complete"))
 	return nil
 }
 
@@ -238,6 +240,6 @@ func restoreWithPgRestore(dsn, input string, clean, verbose bool) error {
 		return fmt.Errorf("pg_restore failed: %w", err)
 	}
 
-	fmt.Fprintln(os.Stderr, "restore complete")
+	fmt.Fprintln(os.Stderr, styles.Success("Restore complete"))
 	return nil
 }

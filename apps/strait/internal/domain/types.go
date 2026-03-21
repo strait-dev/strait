@@ -772,6 +772,9 @@ type DeploymentVersion struct {
 	Manifest               json.RawMessage         `json:"manifest,omitempty"`
 	Checksum               string                  `json:"checksum,omitempty"`
 	Status                 DeploymentVersionStatus `json:"status"`
+	Strategy               DeploymentStrategy      `json:"strategy"`
+	CanaryPercent          *int                    `json:"canary_percent,omitempty"`
+	CanaryDuration         *time.Duration          `json:"canary_duration,omitempty"`
 	FinalizedAt            *time.Time              `json:"finalized_at,omitempty"`
 	PromotedAt             *time.Time              `json:"promoted_at,omitempty"`
 	RollbackFromDeployment string                  `json:"rollback_from_deployment_id,omitempty"`
@@ -1248,4 +1251,22 @@ type EventTrigger struct {
 	NotifyStatus      string          `json:"notify_status,omitempty"` // pending, sent, failed
 	TriggerType       string          `json:"trigger_type,omitempty"`  // "event" (default) or "sleep"
 	SentBy            string          `json:"sent_by,omitempty"`       // who resolved the trigger (API key ID, "internal", or "auto-emit")
+}
+
+// DeploymentStrategy defines the rollout strategy for a deployment version.
+type DeploymentStrategy string
+
+const (
+	DeploymentStrategyDirect DeploymentStrategy = "direct"
+	DeploymentStrategyCanary DeploymentStrategy = "canary"
+)
+
+// IsValid returns true if the deployment strategy is a known value.
+func (s DeploymentStrategy) IsValid() bool {
+	switch s {
+	case DeploymentStrategyDirect, DeploymentStrategyCanary:
+		return true
+	default:
+		return false
+	}
 }

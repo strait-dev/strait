@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc/pool"
@@ -35,6 +36,11 @@ func newLogsCommand(state *appState) *cobra.Command {
 		Use:   "logs",
 		Short: "View run logs/events",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Auto-enable NDJSON in non-TTY environments for pipeline-friendly output.
+			if outputFmt == "" && !stdoutIsTTY() {
+				outputFmt = "ndjson"
+			}
+
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
@@ -196,6 +202,26 @@ func printGroupedLogs(state *appState, rows []map[string]any) error {
 		groups[slug] = append(groups[slug], row)
 	}
 
+	if isTTYRich(state) {
+		for _, slug := range order {
+			events := groups[slug]
+			levelCounts := make(map[string]int)
+			for _, e := range events {
+				l, _ := e["level"].(string)
+				if l == "" {
+					l = "unknown"
+				}
+				levelCounts[l]++
+			}
+			fmt.Fprintf(os.Stderr, "  %s  %d event(s)  %v\n",
+				styles.Bold.Render(slug),
+				len(events),
+				levelCounts,
+			)
+		}
+		return nil
+	}
+
 	summary := make([]map[string]any, 0, len(groups))
 	for _, slug := range order {
 		events := groups[slug]
@@ -213,7 +239,6 @@ func printGroupedLogs(state *appState, rows []map[string]any) error {
 			"levels":       levelCounts,
 		})
 	}
-
 	return printData(state, summary)
 }
 
@@ -265,6 +290,13 @@ func printLogRows(state *appState, rows []map[string]any, group bool, outputFmt 
 		}
 		return nil
 	}
+	if isTTYRich(state) {
+		for i, row := range rows {
+			if level, ok := row["level"].(string); ok && level != "" {
+				rows[i]["level"] = styles.LogLevel(level)
+			}
+		}
+	}
 	return printData(state, rows)
 }
 
@@ -285,7 +317,7 @@ func matchesLogRow(row map[string]any, level, eventType, search string, sinceTim
 	}
 	if level != "" {
 		rowLevel, _ := row["level"].(string)
-		if rowLevel != level {
+		if !strings.EqualFold(rowLevel, level) {
 			return false
 		}
 	}
@@ -369,10 +401,16 @@ func renderFollowLogRow(state *appState, outputFmt string, row map[string]any) e
 		return json.NewEncoder(os.Stdout).Encode(row)
 	}
 
-	timestamp := logRowTimestamp(row).Format(time.RFC3339)
+	ts := logRowTimestamp(row)
 	level, _ := row["level"].(string)
 	eventType, _ := row["type"].(string)
 	message, _ := row["message"].(string)
-	_, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n", timestamp, level, eventType, message)
+
+	if isTTYRich(state) {
+		_, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n", styles.Timestamp(ts), styles.LogLevel(level), eventType, message)
+		return err
+	}
+
+	_, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n", ts.Format(time.RFC3339), level, eventType, message)
 	return err
 }

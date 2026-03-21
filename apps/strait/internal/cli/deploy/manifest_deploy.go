@@ -14,11 +14,14 @@ import (
 
 // ManifestDeployOptions configures a manifest-based deployment.
 type ManifestDeployOptions struct {
-	ConfigPath  string
-	Environment string
-	ArtifactURI string
-	DryRun      bool
-	OutDir      string
+	ConfigPath     string
+	Environment    string
+	ArtifactURI    string
+	DryRun         bool
+	OutDir         string
+	Strategy       string
+	CanaryPercent  int
+	CanaryDuration string
 }
 
 // DeployManifest runs the create + finalize deployment flow using manifests.
@@ -34,6 +37,9 @@ func DeployManifest(ctx context.Context, cli *client.Client, opts ManifestDeploy
 			return fmt.Errorf("encode manifest: %w", encErr)
 		}
 		fmt.Println(string(encoded))
+		if opts.Strategy == "canary" {
+			fmt.Fprintf(os.Stderr, "[dry-run] canary strategy: %d%% traffic for %s\n", opts.CanaryPercent, opts.CanaryDuration)
+		}
 		return nil
 	}
 
@@ -71,12 +77,15 @@ func CreateManifestDeployment(ctx context.Context, cli *client.Client, opts Mani
 	}
 
 	deployment, err := cli.CreateDeploymentVersion(ctx, client.CreateDeploymentVersionRequest{
-		ProjectID:   manifest.ProjectID,
-		Environment: env,
-		Runtime:     manifest.Runtime,
-		Manifest:    manifest,
-		Checksum:    manifest.Checksum,
-		ArtifactURI: strings.TrimSpace(opts.ArtifactURI),
+		ProjectID:      manifest.ProjectID,
+		Environment:    env,
+		Runtime:        manifest.Runtime,
+		Manifest:       manifest,
+		Checksum:       manifest.Checksum,
+		ArtifactURI:    strings.TrimSpace(opts.ArtifactURI),
+		Strategy:       opts.Strategy,
+		CanaryPercent:  opts.CanaryPercent,
+		CanaryDuration: opts.CanaryDuration,
 	})
 	if err != nil {
 		return nil, nil, "", nil, fmt.Errorf("create deployment: %w", err)

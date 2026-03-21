@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
+	"strait/internal/cli/styles"
 	"strait/internal/domain"
 
 	"github.com/spf13/cobra"
@@ -49,6 +51,10 @@ func newWaitQueueCommand(state *appState) *cobra.Command {
 				}
 
 				if stats.Queued == 0 && stats.Delayed == 0 {
+					if isTTYRich(state) {
+						fmt.Fprintln(os.Stderr, styles.Success("Queue is empty"))
+						return nil
+					}
 					return printData(state, map[string]any{
 						"empty":     true,
 						"queued":    stats.Queued,
@@ -106,6 +112,10 @@ func newWaitRunCommand(state *appState) *cobra.Command {
 				}
 
 				if run.Status == expected {
+					if isTTYRich(state) {
+						fmt.Fprintln(os.Stderr, styles.Success("Run "+styles.Bold.Render(run.ID)+" reached status "+string(run.Status)))
+						return nil
+					}
 					return printData(state, map[string]any{
 						"id":     run.ID,
 						"status": run.Status,

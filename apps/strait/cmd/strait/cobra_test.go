@@ -260,22 +260,14 @@ func TestCICommand_HasSubcommands(t *testing.T) {
 	assertSubcommands(t, ci, expected)
 }
 
-func TestDevCommand_HasOnlyStatusSubcommand(t *testing.T) {
+func TestDevCommand_HasSubcommands(t *testing.T) {
 	t.Parallel()
 
 	cmd := newRootCommand()
 	dev := findSubcommand(t, cmd, "dev")
 
-	expected := []string{"status"}
+	expected := []string{"status", "test", "tunnel"}
 	assertSubcommands(t, dev, expected)
-
-	for _, unexpected := range []string{"test", "tunnel"} {
-		for _, sub := range dev.Commands() {
-			if sub.Name() == unexpected {
-				t.Fatalf("dev should not expose %q", unexpected)
-			}
-		}
-	}
 }
 
 func TestDebugCommand_HasSubcommands(t *testing.T) {

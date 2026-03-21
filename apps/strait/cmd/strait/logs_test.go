@@ -87,6 +87,33 @@ func TestMatchesLogRow_LevelFilter(t *testing.T) {
 	}
 }
 
+func TestMatchesLogRow_LevelFilter_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	row := map[string]any{
+		"timestamp": time.Now(),
+		"level":     "ERROR",
+		"type":      "log",
+		"message":   "something broke",
+	}
+	if !matchesLogRow(row, "error", "", "", time.Time{}) {
+		t.Fatal("expected case-insensitive level match: ERROR should match --level=error")
+	}
+	if !matchesLogRow(row, "Error", "", "", time.Time{}) {
+		t.Fatal("expected case-insensitive level match: ERROR should match --level=Error")
+	}
+
+	row2 := map[string]any{
+		"timestamp": time.Now(),
+		"level":     "info",
+		"type":      "log",
+		"message":   "all good",
+	}
+	if !matchesLogRow(row2, "INFO", "", "", time.Time{}) {
+		t.Fatal("expected case-insensitive level match: info should match --level=INFO")
+	}
+}
+
 func TestMatchesLogRow_CombinedFilters(t *testing.T) {
 	t.Parallel()
 

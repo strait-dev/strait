@@ -243,6 +243,11 @@ type mockAPIStore struct {
 	deleteNotificationChannelFn          func(ctx context.Context, id, projectID string) error
 	createNotificationDeliveryFn         func(ctx context.Context, d *domain.NotificationDelivery) error
 	listNotificationDeliveriesFn         func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
+	createDeviceCodeFn                   func(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error
+	getDeviceCodeByDeviceCodeFn          func(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
+	approveDeviceCodeFn                  func(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error
+	exchangeDeviceCodeFn                 func(ctx context.Context, deviceCode string) (string, error)
+	cleanupExpiredDeviceCodesFn          func(ctx context.Context) (int64, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -2021,4 +2026,39 @@ func (m *mockAPIStore) ListNotificationDeliveries(ctx context.Context, projectID
 		return m.listNotificationDeliveriesFn(ctx, projectID, limit, cursor)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) CreateDeviceCode(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error {
+	if m.createDeviceCodeFn != nil {
+		return m.createDeviceCodeFn(ctx, deviceCode, userCode, projectID, scopes, expiresAt)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error) {
+	if m.getDeviceCodeByDeviceCodeFn != nil {
+		return m.getDeviceCodeByDeviceCodeFn(ctx, deviceCode)
+	}
+	return nil, store.ErrDeviceCodeNotFound
+}
+
+func (m *mockAPIStore) ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error {
+	if m.approveDeviceCodeFn != nil {
+		return m.approveDeviceCodeFn(ctx, deviceCode, apiKeyID, rawAPIKey)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ExchangeDeviceCode(ctx context.Context, deviceCode string) (string, error) {
+	if m.exchangeDeviceCodeFn != nil {
+		return m.exchangeDeviceCodeFn(ctx, deviceCode)
+	}
+	return "", nil
+}
+
+func (m *mockAPIStore) CleanupExpiredDeviceCodes(ctx context.Context) (int64, error) {
+	if m.cleanupExpiredDeviceCodesFn != nil {
+		return m.cleanupExpiredDeviceCodesFn(ctx)
+	}
+	return 0, nil
 }

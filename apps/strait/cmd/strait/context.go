@@ -7,6 +7,7 @@ import (
 	cliauth "strait/internal/cli/auth"
 	cliconfig "strait/internal/cli/config"
 	"strait/internal/cli/output"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -69,6 +70,10 @@ func newContextCreateCommand(state *appState) *cobra.Command {
 				}
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Created context "+styles.Bold.Render(name)))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"name":    name,
 				"server":  ctx.Server,
@@ -106,6 +111,10 @@ func newContextUseCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Switched to context "+styles.Bold.Render(name)))
+				return nil
+			}
 			return printData(state, map[string]any{"active_context": name})
 		},
 	}
@@ -123,6 +132,24 @@ func newContextListCommand(state *appState) *cobra.Command {
 				cfg = &cliconfig.File{}
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Contexts", len(cfg.Contexts)))
+				for name, ctx := range cfg.Contexts {
+					marker := "  "
+					displayName := name
+					if cfg.ActiveContext == name {
+						marker = "* "
+						displayName = styles.SelectedStyle.Render(name)
+					}
+					fmt.Fprintf(os.Stderr, "  %s%s  server=%s  project=%s\n",
+						marker,
+						displayName,
+						styles.MutedStyle.Render(ctx.Server),
+						styles.MutedStyle.Render(ctx.Project),
+					)
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(cfg.Contexts))
 			for name, ctx := range cfg.Contexts {
 				rows = append(rows, map[string]any{
@@ -133,7 +160,6 @@ func newContextListCommand(state *appState) *cobra.Command {
 					"format":  ctx.Format,
 				})
 			}
-
 			return printData(state, rows)
 		},
 	}
@@ -148,10 +174,23 @@ func newContextCurrentCommand(state *appState) *cobra.Command {
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := state.config
 			if cfg == nil || cfg.ActiveContext == "" {
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.Info("No active context"))
+					return nil
+				}
 				return printData(state, map[string]any{"active_context": ""})
 			}
 
 			ctx := cfg.Contexts[cfg.ActiveContext]
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.DetailBox("Current Context", []string{
+					styles.DetailLine("Name", styles.Bold.Render(cfg.ActiveContext)),
+					styles.DetailLine("Server", ctx.Server),
+					styles.DetailLine("Project", ctx.Project),
+					styles.DetailLine("Format", ctx.Format),
+				}))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"name":    cfg.ActiveContext,
 				"server":  ctx.Server,

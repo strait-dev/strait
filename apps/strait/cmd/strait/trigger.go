@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -62,7 +63,11 @@ func newTriggerCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if err := printData(state, resp); err != nil {
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Triggered "+styles.Bold.Render(args[0])))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Run", resp.ID))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Status", styles.StatusBadge("queued")))
+			} else if err := printData(state, resp); err != nil {
 				return err
 			}
 

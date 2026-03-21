@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"time"
+
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -61,6 +64,10 @@ status. Use --dry-run to preview what would be removed.`,
 			}
 
 			if len(candidates) == 0 {
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.Info("No runs matched cleanup criteria"))
+					return nil
+				}
 				return printData(state, map[string]any{
 					"message":  "no runs matched cleanup criteria",
 					"cutoff":   cutoff.Format(time.RFC3339),
@@ -69,6 +76,10 @@ status. Use --dry-run to preview what would be removed.`,
 			}
 
 			if dryRun {
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.Info(fmt.Sprintf("Would delete %d run(s)", len(candidates))))
+					return nil
+				}
 				rows := make([]map[string]any, 0, len(candidates))
 				for _, id := range candidates {
 					rows = append(rows, map[string]any{
@@ -97,6 +108,10 @@ status. Use --dry-run to preview what would be removed.`,
 				}
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Cleaned up %d run(s)", len(results))))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"cleaned": len(results),
 				"results": results,

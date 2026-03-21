@@ -59,6 +59,92 @@ paths:
                     type: string
                     example: ok
 
+  /v1/cli/auth/device-code:
+    post:
+      tags:
+        - CLI Auth
+      summary: Request a device code for CLI authentication
+      description: Initiates the device authorization flow. Returns a device code and user code for browser-based approval.
+      security: []
+      responses:
+        '200':
+          description: Device code created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_code:
+                    type: string
+                  user_code:
+                    type: string
+                  verification_url:
+                    type: string
+                  expires_in:
+                    type: integer
+                  interval:
+                    type: integer
+
+  /v1/cli/auth/token:
+    post:
+      tags:
+        - CLI Auth
+      summary: Exchange device code for API token
+      description: Polls for approval status. Returns the API key once the user approves via browser.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - device_code
+                - grant_type
+              properties:
+                device_code:
+                  type: string
+                grant_type:
+                  type: string
+                  enum: [device_code]
+      responses:
+        '200':
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_key:
+                    type: string
+                  project_id:
+                    type: string
+        '400':
+          description: Authorization pending, expired, or already used
+
+  /v1/cli/device-codes/approve:
+    post:
+      tags:
+        - CLI Auth
+      summary: Approve a device code
+      description: Called by the web app to approve a pending device code and create an API key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_code
+              properties:
+                user_code:
+                  type: string
+                project_id:
+                  type: string
+      responses:
+        '200':
+          description: Device code approved
+
   /health/ready:
     get:
       tags:

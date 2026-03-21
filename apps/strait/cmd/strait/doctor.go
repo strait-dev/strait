@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"strait/internal/cli/styles"
+
 	"github.com/sourcegraph/conc/pool"
 	"github.com/spf13/cobra"
 )
@@ -363,25 +365,7 @@ authentication, and environment variables to diagnose common issues.`,
 				return enc.Encode(checks)
 			}
 
-			// Table output
-			rows := make([]map[string]any, 0, len(checks))
-			for _, c := range checks {
-				row := map[string]any{
-					"check":   c.Check,
-					"status":  c.Status,
-					"message": c.Message,
-				}
-				if c.Fix != "" {
-					row["fix"] = c.Fix
-				}
-				rows = append(rows, row)
-			}
-
-			if err := printData(state, rows); err != nil {
-				return err
-			}
-
-			// Summary line
+			// Summary counts
 			passed, warned, failed := 0, 0, 0
 			for _, c := range checks {
 				switch c.Status {
@@ -393,7 +377,36 @@ authentication, and environment variables to diagnose common issues.`,
 					failed++
 				}
 			}
-			fmt.Fprintf(os.Stderr, "\n%d passed, %d warnings, %d failed\n", passed, warned, failed)
+
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr)
+				for _, c := range checks {
+					badge := styles.StatusBadge(c.Status)
+					fmt.Fprintf(os.Stderr, "%s  %s  %s\n", badge, c.Check, c.Message)
+					if c.Fix != "" && c.Status != "pass" {
+						fmt.Fprintf(os.Stderr, "     %s\n", styles.MutedStyle.Render(c.Fix))
+					}
+				}
+				fmt.Fprintln(os.Stderr)
+				fmt.Fprintln(os.Stderr, styles.Summary(passed, warned, failed))
+			} else {
+				rows := make([]map[string]any, 0, len(checks))
+				for _, c := range checks {
+					row := map[string]any{
+						"check":   c.Check,
+						"status":  c.Status,
+						"message": c.Message,
+					}
+					if c.Fix != "" {
+						row["fix"] = c.Fix
+					}
+					rows = append(rows, row)
+				}
+				if err := printData(state, rows); err != nil {
+					return err
+				}
+				fmt.Fprintf(os.Stderr, "\n%d passed, %d warnings, %d failed\n", passed, warned, failed)
+			}
 
 			if failed > 0 {
 				return fmt.Errorf("doctor found %d failing check(s)", failed)

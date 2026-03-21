@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,5 +122,79 @@ func TestDeployCommand_ConfigWithoutJobDeploysAll(t *testing.T) {
 	// but NOT a "not found in config" error
 	if err != nil && strings.Contains(err.Error(), "not found in config") {
 		t.Fatalf("should not get 'not found in config' for existing job: %v", err)
+	}
+}
+
+func TestDeploy_CanaryFlags_Exist(t *testing.T) {
+	t.Parallel()
+
+	state := &appState{opts: &rootOptions{}}
+	cmd := newDeployCommand(state)
+
+	flags := []string{"strategy", "canary-percent", "canary-duration"}
+	for _, name := range flags {
+		f := cmd.Flags().Lookup(name)
+		if f == nil {
+			t.Fatalf("expected flag --%s to be registered", name)
+		}
+	}
+}
+
+func TestDeploy_CanaryRequiresPercent(t *testing.T) {
+	t.Parallel()
+
+	state := &appState{opts: &rootOptions{serverURL: "http://localhost:9999", apiKey: "k"}}
+	cmd := newDeployCommand(state)
+	cmd.SetArgs([]string{"--job", "my-job", "--strategy", "canary", "--image", "img:latest"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when --strategy=canary without --canary-percent")
+	}
+	if !strings.Contains(err.Error(), "--canary-percent") {
+		t.Fatalf("expected --canary-percent error, got: %v", err)
+	}
+}
+
+func TestDeploy_CanaryPercentRange(t *testing.T) {
+	t.Parallel()
+
+	invalid := []int{0, 100, -1}
+	for _, pct := range invalid {
+		t.Run(fmt.Sprintf("percent_%d", pct), func(t *testing.T) {
+			t.Parallel()
+
+			state := &appState{opts: &rootOptions{serverURL: "http://localhost:9999", apiKey: "k"}}
+			cmd := newDeployCommand(state)
+			cmd.SetArgs([]string{
+				"--job", "my-job",
+				"--strategy", "canary",
+				"--canary-percent", fmt.Sprintf("%d", pct),
+				"--image", "img:latest",
+			})
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected error for canary-percent=%d", pct)
+			}
+			if !strings.Contains(err.Error(), "--canary-percent") {
+				t.Fatalf("expected --canary-percent range error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeploy_DirectDefault(t *testing.T) {
+	t.Parallel()
+
+	state := &appState{opts: &rootOptions{}}
+	cmd := newDeployCommand(state)
+
+	f := cmd.Flags().Lookup("strategy")
+	if f == nil {
+		t.Fatal("expected --strategy flag to be registered")
+	}
+	if f.DefValue != "direct" {
+		t.Fatalf("expected --strategy default to be 'direct', got %q", f.DefValue)
 	}
 }

@@ -5,12 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
 	cliauth "strait/internal/cli/auth"
+	"strait/internal/cli/client"
 	cliconfig "strait/internal/cli/config"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -19,6 +23,7 @@ import (
 func newLoginCommand(state *appState) *cobra.Command {
 	var apiKey string
 	var withToken bool
+	var token string
 	var contextName string
 	var server string
 	var browser bool
@@ -26,7 +31,11 @@ func newLoginCommand(state *appState) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate with an API key",
+		Short: "Authenticate with the Strait API",
+		Long: `Authenticate with the Strait API using browser-based device code flow or a direct API key.
+
+By default, opens a browser for device code authorization. Use --token to provide
+an API key directly, or --with-token to read one from stdin.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			targetContext := contextName
 			if targetContext == "" {
@@ -41,8 +50,40 @@ func newLoginCommand(state *appState) *cobra.Command {
 				targetServer = state.opts.serverURL
 			}
 
-			useBrowser := browser && !noBrowser
-			if useBrowser && apiKey == "" && !withToken {
+			// Merge --token into apiKey for unified handling.
+			if token != "" && apiKey == "" {
+				apiKey = token
+			}
+
+			// Direct token mode: --token or --api-key or --with-token provided.
+			if apiKey != "" || withToken {
+				return loginWithAPIKey(cmd, state, apiKey, withToken, targetContext, targetServer)
+			}
+
+			// Non-TTY without explicit token: error with guidance.
+			if !term.IsTerminal(syscall.Stdin) {
+				return fmt.Errorf("non-interactive terminal detected; use --token <api-key> or pipe a key via --with-token")
+			}
+
+			// Browser-based device code flow (default for interactive terminals).
+			useDeviceFlow := !noBrowser
+			if useDeviceFlow {
+				err := loginWithDeviceCode(cmd, state, targetContext, targetServer)
+				if err == nil {
+					return nil
+				}
+				// If device code flow fails, fall back to manual key entry
+				// unless --browser was explicitly set (user expected it to work).
+				if browser {
+					return err
+				}
+				fmt.Fprintf(os.Stderr, "Device code login unavailable: %v\n", err)
+				fmt.Fprintln(os.Stderr, "Falling back to manual API key entry.")
+			}
+
+			// Legacy browser-open flow or manual entry fallback.
+			useLegacyBrowser := browser && !noBrowser
+			if useLegacyBrowser {
 				dashURL := cliauth.DashboardURL(targetServer)
 				if dashURL != "" {
 					keysURL := dashURL + "/settings/api-keys"
@@ -54,52 +95,169 @@ func newLoginCommand(state *appState) *cobra.Command {
 				}
 			}
 
-			resolvedKey, err := resolveAPIKeyInput(apiKey, withToken)
-			if err != nil {
-				return err
-			}
-
-			if err := cliauth.ValidateAPIKey(cmd.Context(), targetServer, resolvedKey, state.opts.timeout); err != nil {
-				return err
-			}
-
-			if err := cliauth.SaveAPIKey(targetContext, resolvedKey); err != nil {
-				return fmt.Errorf("save api key: %w", err)
-			}
-
-			cfg, path, err := loadConfigForWrite(state)
-			if err != nil {
-				return err
-			}
-			if cfg.Contexts == nil {
-				cfg.Contexts = make(map[string]cliconfig.Context)
-			}
-			ctx := cfg.Contexts[targetContext]
-			if targetServer != "" {
-				ctx.Server = targetServer
-			}
-			cfg.Contexts[targetContext] = ctx
-			cfg.ActiveContext = targetContext
-			if err := cliconfig.Save(path, cfg); err != nil {
-				return err
-			}
-
-			return printData(state, map[string]any{
-				"authenticated": true,
-				"context":       targetContext,
-				"server":        targetServer,
-			})
+			return loginWithAPIKey(cmd, state, "", false, targetContext, targetServer)
 		},
 	}
 
-	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key (deprecated, use --token)")
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "read API key from stdin")
+	cmd.Flags().StringVar(&token, "token", "", "API key for direct authentication")
 	cmd.Flags().StringVar(&contextName, "context", "", "context to save API key under")
 	cmd.Flags().StringVar(&server, "server", "", "server URL to validate against")
 	cmd.Flags().BoolVar(&browser, "browser", false, "open the dashboard API key page in your browser")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "do not open browser")
 
 	return cmd
+}
+
+// loginWithDeviceCode performs the OAuth device code authorization flow.
+func loginWithDeviceCode(cmd *cobra.Command, state *appState, targetContext, targetServer string) error {
+	c, err := client.New(targetServer, "", state.opts.timeout)
+	if err != nil {
+		return fmt.Errorf("create client: %w", err)
+	}
+
+	resp, err := c.RequestDeviceCode(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("request device code: %w", err)
+	}
+
+	// Validate the verification URL before showing or opening it.
+	verifURL, parseErr := url.Parse(resp.VerificationURL)
+	if parseErr != nil || (verifURL.Scheme != "http" && verifURL.Scheme != "https") || verifURL.Host == "" {
+		return fmt.Errorf("server returned invalid verification URL: %q", resp.VerificationURL)
+	}
+	// Verify the verification URL host matches the server we connected to.
+	serverURL, _ := url.Parse(targetServer)
+	if serverURL != nil && verifURL.Host != serverURL.Host &&
+		verifURL.Host != strings.Replace(serverURL.Host, "api.", "app.", 1) &&
+		verifURL.Host != strings.Replace(serverURL.Host, ":8080", ":5173", 1) {
+		fmt.Fprintf(os.Stderr, "warning: verification URL host %q does not match server %q\n", verifURL.Host, serverURL.Host)
+	}
+
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintf(os.Stderr, "Your one-time code: %s\n", resp.UserCode)
+	fmt.Fprintf(os.Stderr, "Open this URL to authenticate: %s\n", resp.VerificationURL)
+	fmt.Fprintln(os.Stderr, "")
+
+	// Try to open the browser automatically.
+	if err := openBrowser(resp.VerificationURL); err != nil {
+		fmt.Fprintf(os.Stderr, "Could not open browser automatically. Visit the URL above.\n")
+	} else {
+		fmt.Fprintln(os.Stderr, "Waiting for browser authorization...")
+	}
+
+	// Poll with progress indicator.
+	ctx := cmd.Context()
+	interval := resp.Interval
+	if interval <= 0 {
+		interval = 5
+	}
+
+	// Start a goroutine to print dots as a progress indicator.
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				fmt.Fprint(os.Stderr, ".")
+			}
+		}
+	}()
+
+	tokenResp, err := c.PollDeviceToken(ctx, resp.DeviceCode, interval, resp.ExpiresIn)
+	close(done)
+	fmt.Fprintln(os.Stderr, "") // newline after dots
+
+	if err != nil {
+		if strings.Contains(err.Error(), "expired") {
+			fmt.Fprintln(os.Stderr, "Authorization timed out. You can try again or use --token <api-key> instead.")
+		}
+		return fmt.Errorf("device code authorization: %w", err)
+	}
+
+	if err := cliauth.SaveAPIKey(targetContext, tokenResp.APIKey); err != nil {
+		return fmt.Errorf("save api key: %w", err)
+	}
+
+	cfg, cfgPath, err := loadConfigForWrite(state)
+	if err != nil {
+		return err
+	}
+	if cfg.Contexts == nil {
+		cfg.Contexts = make(map[string]cliconfig.Context)
+	}
+	cfgCtx := cfg.Contexts[targetContext]
+	if targetServer != "" {
+		cfgCtx.Server = targetServer
+	}
+	if tokenResp.ProjectID != "" {
+		cfgCtx.Project = tokenResp.ProjectID
+	}
+	cfg.Contexts[targetContext] = cfgCtx
+	cfg.ActiveContext = targetContext
+	if err := cliconfig.Save(cfgPath, cfg); err != nil {
+		return err
+	}
+
+	if isTTYRich(state) {
+		fmt.Fprintln(os.Stderr, styles.Success("Authenticated via device code"))
+		fmt.Fprintln(os.Stderr, styles.KeyValue("Context", targetContext))
+		return nil
+	}
+	return printData(state, map[string]any{
+		"authenticated": true,
+		"context":       targetContext,
+		"server":        targetServer,
+	})
+}
+
+// loginWithAPIKey handles direct API key authentication (--token, --api-key, --with-token, or manual entry).
+func loginWithAPIKey(cmd *cobra.Command, state *appState, apiKey string, withToken bool, targetContext, targetServer string) error {
+	resolvedKey, err := resolveAPIKeyInput(apiKey, withToken)
+	if err != nil {
+		return err
+	}
+
+	if err := cliauth.ValidateAPIKey(cmd.Context(), targetServer, resolvedKey, state.opts.timeout); err != nil {
+		return err
+	}
+
+	if err := cliauth.SaveAPIKey(targetContext, resolvedKey); err != nil {
+		return fmt.Errorf("save api key: %w", err)
+	}
+
+	cfg, cfgPath, err := loadConfigForWrite(state)
+	if err != nil {
+		return err
+	}
+	if cfg.Contexts == nil {
+		cfg.Contexts = make(map[string]cliconfig.Context)
+	}
+	cfgCtx := cfg.Contexts[targetContext]
+	if targetServer != "" {
+		cfgCtx.Server = targetServer
+	}
+	cfg.Contexts[targetContext] = cfgCtx
+	cfg.ActiveContext = targetContext
+	if err := cliconfig.Save(cfgPath, cfg); err != nil {
+		return err
+	}
+
+	if isTTYRich(state) {
+		fmt.Fprintln(os.Stderr, styles.Success("Authenticated successfully"))
+		fmt.Fprintln(os.Stderr, styles.KeyValue("Context", targetContext))
+		return nil
+	}
+	return printData(state, map[string]any{
+		"authenticated": true,
+		"context":       targetContext,
+		"server":        targetServer,
+	})
 }
 
 func newLogoutCommand(state *appState) *cobra.Command {
@@ -121,6 +279,10 @@ func newLogoutCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("delete api key: %w", err)
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Info("Logged out from context "+styles.Bold.Render(targetContext)))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"logged_out": true,
 				"context":    targetContext,
@@ -150,6 +312,17 @@ func newAuthCommand(state *appState) *cobra.Command {
 
 			_, err := cliauth.LoadAPIKey(targetContext)
 			authed := err == nil
+
+			if isTTYRich(state) {
+				if authed {
+					fmt.Fprintln(os.Stderr, styles.Success("Authenticated"))
+				} else {
+					fmt.Fprintln(os.Stderr, styles.Warn("Not authenticated"))
+				}
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Context", targetContext))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Server", state.opts.serverURL))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"authenticated": authed,
 				"context":       targetContext,
