@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 	"syscall"
@@ -118,6 +119,19 @@ func loginWithDeviceCode(cmd *cobra.Command, state *appState, targetContext, tar
 	resp, err := c.RequestDeviceCode(cmd.Context())
 	if err != nil {
 		return fmt.Errorf("request device code: %w", err)
+	}
+
+	// Validate the verification URL before showing or opening it.
+	verifURL, parseErr := url.Parse(resp.VerificationURL)
+	if parseErr != nil || (verifURL.Scheme != "http" && verifURL.Scheme != "https") || verifURL.Host == "" {
+		return fmt.Errorf("server returned invalid verification URL: %q", resp.VerificationURL)
+	}
+	// Verify the verification URL host matches the server we connected to.
+	serverURL, _ := url.Parse(targetServer)
+	if serverURL != nil && verifURL.Host != serverURL.Host &&
+		verifURL.Host != strings.Replace(serverURL.Host, "api.", "app.", 1) &&
+		verifURL.Host != strings.Replace(serverURL.Host, ":8080", ":5173", 1) {
+		fmt.Fprintf(os.Stderr, "warning: verification URL host %q does not match server %q\n", verifURL.Host, serverURL.Host)
 	}
 
 	fmt.Fprintln(os.Stderr, "")

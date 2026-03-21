@@ -48,8 +48,17 @@ func newDevCommand(state *appState) *cobra.Command {
 
 			setEnvIfEmpty("DATABASE_URL", "postgres://strait:strait@localhost:5432/strait?sslmode=disable")
 			setEnvIfEmpty("REDIS_URL", "redis://localhost:6379")
-			setEnvIfEmpty("INTERNAL_SECRET", "strait-dev-internal-secret-0123456789")
-			setEnvIfEmpty("JWT_SIGNING_KEY", "strait-dev-jwt-signing-key-0123456789")
+
+			// Use hardcoded dev secrets only for local development.
+			// These are intentionally weak and must never be used in production.
+			if os.Getenv("INTERNAL_SECRET") == "" {
+				_ = os.Setenv("INTERNAL_SECRET", "strait-dev-internal-secret-0123456789")
+				fmt.Fprintln(os.Stderr, "warning: using default dev INTERNAL_SECRET (not for production)")
+			}
+			if os.Getenv("JWT_SIGNING_KEY") == "" {
+				_ = os.Setenv("JWT_SIGNING_KEY", "strait-dev-jwt-signing-key-0123456789")
+				fmt.Fprintln(os.Stderr, "warning: using default dev JWT_SIGNING_KEY (not for production)")
+			}
 			_ = os.Setenv("LOG_LEVEL", "debug")
 			_ = os.Setenv("PORT", strconv.Itoa(port))
 

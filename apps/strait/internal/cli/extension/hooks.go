@@ -86,6 +86,23 @@ func ExecuteHooks(ctx context.Context, hook string, hctx HookContext, pluginDir 
 }
 
 func runHook(ctx context.Context, binPath string, stdinData []byte, timeout time.Duration) error {
+	// Verify the hook binary is not world-writable (prevents trivial tampering).
+	info, statErr := os.Stat(binPath)
+	if statErr != nil {
+		return fmt.Errorf("stat hook binary: %w", statErr)
+	}
+	if info.Mode()&0o002 != 0 {
+		return fmt.Errorf("refusing to execute hook %q: file is world-writable (mode %s)", binPath, info.Mode())
+	}
+	// Reject symlinks to prevent redirect-to-attacker-binary attacks.
+	linkInfo, lstatErr := os.Lstat(binPath)
+	if lstatErr != nil {
+		return fmt.Errorf("lstat hook binary: %w", lstatErr)
+	}
+	if linkInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to execute hook %q: file is a symlink", binPath)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

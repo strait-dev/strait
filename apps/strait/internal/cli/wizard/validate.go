@@ -2,8 +2,10 @@ package wizard
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -39,7 +41,8 @@ func ValidateSlug(slug string) error {
 	return nil
 }
 
-// ValidateEndpoint checks that an endpoint URL is valid HTTP/HTTPS.
+// ValidateEndpoint checks that an endpoint URL is valid HTTP/HTTPS and does not
+// point to internal/metadata IP addresses.
 func ValidateEndpoint(endpoint string) error {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
@@ -58,7 +61,45 @@ func ValidateEndpoint(endpoint string) error {
 	if parsed.Host == "" {
 		return fmt.Errorf("endpoint URL must have a host")
 	}
+
+	// Block well-known metadata and internal hostnames.
+	hostname := parsed.Hostname()
+	if isBlockedHost(hostname) {
+		return fmt.Errorf("endpoint URL must not point to internal or metadata addresses")
+	}
+
+	// Resolve hostname and block private/link-local IPs.
+	if ip := net.ParseIP(hostname); ip != nil {
+		if isPrivateIP(ip) {
+			return fmt.Errorf("endpoint URL must not point to private IP addresses")
+		}
+	}
+
 	return nil
+}
+
+// isBlockedHost returns true for well-known cloud metadata and internal hostnames.
+func isBlockedHost(hostname string) bool {
+	blocked := []string{
+		"metadata.google.internal",
+		"metadata.google.com",
+		"169.254.169.254",
+	}
+	return slices.Contains(blocked, strings.ToLower(hostname))
+}
+
+// isPrivateIP returns true for loopback, link-local, private (RFC 1918), and
+// CGNAT (100.64.0.0/10) addresses.
+func isPrivateIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+	// CGNAT range: 100.64.0.0/10
+	cgnat := net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)}
+	if cgnat.Contains(ip) {
+		return true
+	}
+	return ip.IsPrivate()
 }
 
 // ValidateRuntime checks that a runtime is one of the known values.

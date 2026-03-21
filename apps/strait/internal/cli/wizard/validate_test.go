@@ -87,14 +87,20 @@ func TestValidateEndpoint(t *testing.T) {
 		input   string
 		wantErr string
 	}{
-		{name: "valid http", input: "http://localhost:3000", wantErr: ""},
 		{name: "valid https", input: "https://api.example.com/jobs/process", wantErr: ""},
-		{name: "valid with path", input: "http://localhost:3000/jobs/payment", wantErr: ""},
+		{name: "valid http external", input: "http://worker.example.com:3000/jobs/payment", wantErr: ""},
 		{name: "empty", input: "", wantErr: "required"},
 		{name: "no scheme", input: "example.com", wantErr: "http or https"},
 		{name: "ftp scheme", input: "ftp://example.com", wantErr: "http or https"},
 		{name: "javascript injection", input: "javascript:alert(1)", wantErr: "http or https"},
 		{name: "too long", input: "https://example.com/" + strings.Repeat("a", 2030), wantErr: "at most 2048"},
+		{name: "loopback IP", input: "http://127.0.0.1:3000", wantErr: "private"},
+		{name: "private 10.x", input: "http://10.0.0.1/internal", wantErr: "private"},
+		{name: "private 192.168", input: "http://192.168.1.1/api", wantErr: "private"},
+		{name: "link-local", input: "http://169.254.1.1/path", wantErr: "private"},
+		{name: "metadata endpoint", input: "http://169.254.169.254/latest/meta-data/", wantErr: "internal or metadata"},
+		{name: "CGNAT", input: "http://100.64.0.1/service", wantErr: "private"},
+		{name: "google metadata host", input: "http://metadata.google.internal/computeMetadata", wantErr: "internal or metadata"},
 	}
 
 	for _, tc := range tests {
