@@ -37,26 +37,30 @@ exporters:
       max_interval: 30s
       max_elapsed_time: 300s
 
-  # Grafana Cloud for real-time dashboards
+  # Grafana Cloud for real-time dashboards (uses Prometheus instance ID)
   prometheusremotewrite:
     endpoint: ${env:GRAFANA_REMOTE_WRITE_URL}
     auth:
       authenticator: basicauth/grafana
 
-  # Grafana Cloud Loki for log aggregation and search
+  # Grafana Cloud Loki for log aggregation and search (uses Loki instance ID)
   otlphttp/loki:
     endpoint: ${env:GRAFANA_LOKI_URL}
     auth:
-      authenticator: basicauth/grafana
+      authenticator: basicauth/loki
 
 extensions:
   basicauth/grafana:
     client_auth:
       username: ${env:GRAFANA_REMOTE_WRITE_USERNAME}
       password: ${env:GRAFANA_CLOUD_TOKEN}
+  basicauth/loki:
+    client_auth:
+      username: ${env:GRAFANA_LOKI_USERNAME}
+      password: ${env:GRAFANA_CLOUD_TOKEN}
 
 service:
-  extensions: [basicauth/grafana]
+  extensions: [basicauth/grafana, basicauth/loki]
   pipelines:
     traces:
       receivers: [otlp]
