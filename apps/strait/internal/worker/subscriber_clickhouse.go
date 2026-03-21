@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -73,6 +74,16 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, usa
 		// Currently these fields are not available on the event struct; they would
 		// need to be populated from the managed execution path or a store lookup.
 
+		var tagsJSON string
+		if len(run.Tags) > 0 {
+			if b, err := json.Marshal(run.Tags); err == nil {
+				tagsJSON = string(b)
+			}
+		}
+		if tagsJSON == "" {
+			tagsJSON = "{}"
+		}
+
 		exporter.Enqueue(clickhouse.RunAnalyticsRecord{
 			RunID:         run.ID,
 			JobID:         run.JobID,
@@ -84,6 +95,8 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, usa
 			DurationMs:    durationMs,
 			QueueWaitMs:   queueWaitMs,
 			TriggeredBy:   run.TriggeredBy,
+			Tags:          tagsJSON,
+			JobVersionID:  run.JobVersionID,
 			CreatedAt:     time.Now(),
 			StartedAt:     run.StartedAt,
 			FinishedAt:    run.FinishedAt,

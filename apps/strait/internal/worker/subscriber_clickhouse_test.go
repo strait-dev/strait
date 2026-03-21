@@ -84,14 +84,16 @@ func TestClickHouseSubscriber_TerminalEvent_EnqueuesRecord(t *testing.T) {
 	sub(context.Background(), RunLifecycleEvent{
 		Type: EventCompleted,
 		Run: &domain.JobRun{
-			ID:          "run-1",
-			JobID:       "job-1",
-			ProjectID:   "proj-1",
-			Status:      domain.StatusCompleted,
-			Attempt:     1,
-			StartedAt:   &started,
-			FinishedAt:  &now,
-			TriggeredBy: "manual",
+			ID:           "run-1",
+			JobID:        "job-1",
+			ProjectID:    "proj-1",
+			Status:       domain.StatusCompleted,
+			Attempt:      1,
+			StartedAt:    &started,
+			FinishedAt:   &now,
+			TriggeredBy:  "manual",
+			Tags:         map[string]string{"env": "prod", "team": "backend"},
+			JobVersionID: "ver-abc",
 		},
 		Job: &domain.Job{
 			ExecutionMode: "http",
@@ -102,6 +104,61 @@ func TestClickHouseSubscriber_TerminalEvent_EnqueuesRecord(t *testing.T) {
 
 	if exporter.PendingCount() != 1 {
 		t.Errorf("expected 1 pending for terminal event, got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_TagsAndVersionPopulated(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	now := time.Now()
+	started := now.Add(-2 * time.Second)
+
+	sub := ClickHouseSubscriber(exporter, nil)
+
+	// With tags and version
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run: &domain.JobRun{
+			ID:           "run-tags",
+			JobID:        "job-1",
+			ProjectID:    "proj-1",
+			Status:       domain.StatusCompleted,
+			StartedAt:    &started,
+			FinishedAt:   &now,
+			Tags:         map[string]string{"env": "staging"},
+			JobVersionID: "ver-123",
+		},
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_EmptyTags(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	sub := ClickHouseSubscriber(exporter, nil)
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run: &domain.JobRun{
+			ID:        "run-no-tags",
+			JobID:     "job-1",
+			ProjectID: "proj-1",
+			Status:    domain.StatusCompleted,
+		},
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
 	}
 }
 

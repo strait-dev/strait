@@ -46,6 +46,8 @@ type RunAnalyticsRecord struct {
 	CostMicrousd        int64
 	ComputeCostMicrousd int64
 	TriggeredBy         string
+	Tags                string // JSON-encoded tags map
+	JobVersionID        string
 	CreatedAt           time.Time
 	StartedAt           *time.Time
 	FinishedAt          *time.Time
@@ -356,16 +358,16 @@ func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord
 }
 
 func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalyticsRecord) error {
-	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO run_analytics (run_id, job_id, project_id, status, execution_mode, machine_preset, attempt, duration_ms, queue_wait_ms, cost_microusd, compute_cost_microusd, triggered_by, created_at, started_at, finished_at) VALUES "
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO run_analytics (run_id, job_id, project_id, status, execution_mode, machine_preset, attempt, duration_ms, queue_wait_ms, cost_microusd, compute_cost_microusd, triggered_by, tags, job_version_id, created_at, started_at, finished_at) VALUES "
 	placeholders := make([]string, len(records))
-	args := make([]any, 0, len(records)*15)
+	args := make([]any, 0, len(records)*17)
 
 	for i, r := range records {
 		placeholders[i] = row
 		args = append(args, r.RunID, r.JobID, r.ProjectID, r.Status, r.ExecutionMode, r.MachinePreset,
 			r.Attempt, r.DurationMs, r.QueueWaitMs, r.CostMicrousd, r.ComputeCostMicrousd, r.TriggeredBy,
-			r.CreatedAt, r.StartedAt, r.FinishedAt)
+			r.Tags, r.JobVersionID, r.CreatedAt, r.StartedAt, r.FinishedAt)
 	}
 
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)

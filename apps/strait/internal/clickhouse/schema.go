@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS run_analytics (
     cost_microusd Int64,
     compute_cost_microusd Int64,
     triggered_by LowCardinality(String),
+    tags String DEFAULT '{}',
+    job_version_id String DEFAULT '',
     created_at DateTime64(3),
     started_at Nullable(DateTime64(3)),
     finished_at Nullable(DateTime64(3)),
@@ -115,7 +117,25 @@ CREATE TABLE IF NOT EXISTS job_metadata (
 ORDER BY (project_id, job_id)
 `
 
+// schemaAlterations contains ALTER TABLE statements for adding columns to
+// existing tables. Each statement uses ADD COLUMN IF NOT EXISTS so they are
+// safe to run repeatedly.
+var schemaAlterations = []struct {
+	table string
+	ddl   string
+}{
+	{
+		"run_analytics",
+		"ALTER TABLE run_analytics ADD COLUMN IF NOT EXISTS tags String DEFAULT '{}'",
+	},
+	{
+		"run_analytics",
+		"ALTER TABLE run_analytics ADD COLUMN IF NOT EXISTS job_version_id String DEFAULT ''",
+	},
+}
+
 // CreateSchema creates all ClickHouse tables. Idempotent (IF NOT EXISTS).
+// It also applies schema alterations for columns added after initial table creation.
 func CreateSchema(ctx context.Context, c *Client) error {
 	if c == nil {
 		return nil
@@ -136,6 +156,13 @@ func CreateSchema(ctx context.Context, c *Client) error {
 	for _, t := range tables {
 		if err := c.Exec(ctx, t.ddl); err != nil {
 			return fmt.Errorf("create table %s: %w", t.name, err)
+		}
+	}
+
+	// Apply column additions to existing tables.
+	for _, alt := range schemaAlterations {
+		if err := c.Exec(ctx, alt.ddl); err != nil {
+			return fmt.Errorf("alter table %s: %w", alt.table, err)
 		}
 	}
 
