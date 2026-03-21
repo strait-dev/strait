@@ -96,6 +96,16 @@ func newJobsVersionsCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				for _, v := range versions {
+					fmt.Fprintf(os.Stderr, "  %s  v%-4d  %s\n",
+						styles.MutedStyle.Render(v.ID),
+						v.Version,
+						styles.MutedStyle.Render(v.CreatedAt.Format("2006-01-02 15:04:05")),
+					)
+				}
+				return nil
+			}
 			return printData(state, versions)
 		},
 	}
@@ -149,6 +159,33 @@ func newJobsDescribeCommand(state *appState) *cobra.Command {
 			payload := map[string]any{
 				"job":         job,
 				"recent_runs": recent,
+			}
+			if isTTYRich(state) {
+				lines := []string{
+					styles.DetailLine("ID", job.ID),
+					styles.DetailLine("Name", job.Name),
+					styles.DetailLine("Slug", job.Slug),
+					styles.DetailLine("Enabled", styles.Enabled(job.Enabled)),
+					styles.DetailLine("Endpoint", job.EndpointURL),
+					styles.DetailLine("Cron", job.Cron),
+					styles.DetailLine("Timeout", fmt.Sprintf("%ds", job.TimeoutSecs)),
+					styles.DetailLine("Max Retry", fmt.Sprintf("%d", job.MaxAttempts)),
+					styles.DetailLine("Version", fmt.Sprintf("%d", job.Version)),
+				}
+				fmt.Fprint(os.Stderr, styles.DetailBox("Job Details", lines))
+				if len(recent) > 0 {
+					fmt.Fprintln(os.Stderr)
+					fmt.Fprintln(os.Stderr, styles.SectionHeader("Recent Runs", len(recent)))
+					for _, r := range recent {
+						status, _ := r["status"].(string)
+						id, _ := r["id"].(string)
+						attempt, _ := r["attempt"].(int)
+						triggeredBy, _ := r["triggeredBy"].(string)
+						fmt.Fprintf(os.Stderr, "  %s  %s  attempt=%d  by=%s\n",
+							styles.StatusBadge(status), id, attempt, triggeredBy)
+					}
+				}
+				return nil
 			}
 			return printData(state, payload)
 		},
@@ -320,6 +357,10 @@ func runInteractiveJobEdit(ctx context.Context, cli *client.Client, state *appSt
 	}
 
 	if updated == original {
+		if isTTYRich(state) {
+			fmt.Fprintln(os.Stderr, styles.Info("No changes detected"))
+			return nil
+		}
 		return printData(state, map[string]any{"updated": false, "reason": "no changes"})
 	}
 
@@ -339,6 +380,10 @@ func runInteractiveJobEdit(ctx context.Context, cli *client.Client, state *appSt
 		return err
 	}
 
+	if isTTYRich(state) {
+		fmt.Fprintln(os.Stderr, styles.Success("Updated job "+styles.Bold.Render(patched.ID)+" (version "+fmt.Sprintf("%d", patched.Version)+")"))
+		return nil
+	}
 	return printData(state, patched)
 }
 
@@ -376,6 +421,22 @@ func newJobsListCommand(state *appState) *cobra.Command {
 				})
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Jobs", len(jobs)))
+				for _, job := range jobs {
+					cron := job.Cron
+					if cron == "" {
+						cron = "--"
+					}
+					fmt.Fprintf(os.Stderr, "  %s  %-20s  cron=%s  %s\n",
+						styles.Enabled(job.Enabled),
+						styles.Bold.Render(job.Slug),
+						styles.MutedStyle.Render(cron),
+						styles.MutedStyle.Render(job.ID),
+					)
+				}
+				return nil
+			}
 			return printData(state, rows)
 		},
 	}
@@ -450,6 +511,11 @@ func newJobsCreateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Created job "+styles.Bold.Render(job.Slug)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("ID", job.ID))
+				return nil
+			}
 			return printData(state, job)
 		},
 	}
@@ -520,6 +586,10 @@ func newJobsTriggerBulkCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Triggered %d runs (%d total)", resp.Created, resp.Total)))
+				return nil
+			}
 			return printData(state, resp)
 		},
 	}

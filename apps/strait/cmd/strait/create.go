@@ -198,6 +198,11 @@ When run without --name or --json in a TTY, an interactive wizard guides you thr
 				if err != nil {
 					return err
 				}
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.Success("Created workflow "+styles.Bold.Render(wf.Slug)))
+					fmt.Fprintln(os.Stderr, styles.KeyValue("ID", wf.ID))
+					return nil
+				}
 				return printData(state, wf)
 			}
 
@@ -275,6 +280,14 @@ When run without --name or --json in a TTY, an interactive wizard guides you thr
 			wf, err := cli.CreateWorkflow(cmd.Context(), req)
 			if err != nil {
 				return err
+			}
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Created workflow "+styles.Bold.Render(wf.Slug)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("ID", wf.ID))
+				if len(req.Steps) > 0 {
+					fmt.Fprintln(os.Stderr, styles.KeyValue("Steps", fmt.Sprintf("%d", len(req.Steps))))
+				}
+				return nil
 			}
 			return printData(state, wf)
 		},
