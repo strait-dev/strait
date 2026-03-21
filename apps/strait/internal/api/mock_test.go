@@ -78,12 +78,15 @@ type mockAPIStore struct {
 	deleteWebhookSubscriptionFn          func(ctx context.Context, id string) error
 	createAPIKeyFn                       func(ctx context.Context, key *domain.APIKey) error
 	listAPIKeysByProjectFn               func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
+	listAPIKeysByOrgFn                   func(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 	revokeAPIKeyFn                       func(ctx context.Context, id string) error
 	listJobVersionsByJobFn               func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
 	getAPIKeyByHashFn                    func(ctx context.Context, keyHash string) (*domain.APIKey, error)
 	getAPIKeyByIDFn                      func(ctx context.Context, id string) (*domain.APIKey, error)
 	markAPIKeyRotatedFn                  func(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	touchAPIKeyLastUsedFn                func(ctx context.Context, id string) error
+	listRunsByOrgFn                      func(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	listJobsByOrgFn                      func(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	updateHeartbeatFn                    func(ctx context.Context, id string) error
 	batchUpdateHeartbeatFn               func(ctx context.Context, ids []string) error
 	queueStatsFn                         func(ctx context.Context) (*store.QueueStats, error)
@@ -236,6 +239,10 @@ type mockAPIStore struct {
 	markJobRunsPausedByWorkflowRunFn     func(ctx context.Context, workflowRunID string) (int64, error)
 	requeuePausedJobRunsFn               func(ctx context.Context, workflowRunID string) (int64, error)
 	updateProjectDefaultRegionFn         func(ctx context.Context, projectID, defaultRegion string) error
+	createProjectFn                      func(ctx context.Context, project *domain.Project) error
+	getProjectFn                         func(ctx context.Context, id string) (*domain.Project, error)
+	listProjectsByOrgFn                  func(ctx context.Context, orgID string) ([]domain.Project, error)
+	deleteProjectFn                      func(ctx context.Context, id string) error
 	createNotificationChannelFn          func(ctx context.Context, ch *domain.NotificationChannel) error
 	getNotificationChannelFn             func(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error)
 	listNotificationChannelsFn           func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
@@ -700,6 +707,27 @@ func (m *mockAPIStore) CreateAPIKey(ctx context.Context, key *domain.APIKey) err
 func (m *mockAPIStore) ListAPIKeysByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error) {
 	if m.listAPIKeysByProjectFn != nil {
 		return m.listAPIKeysByProjectFn(ctx, projectID, limit, cursor)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListAPIKeysByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.APIKey, error) {
+	if m.listAPIKeysByOrgFn != nil {
+		return m.listAPIKeysByOrgFn(ctx, orgID, limit, cursor)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListRunsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	if m.listRunsByOrgFn != nil {
+		return m.listRunsByOrgFn(ctx, orgID, limit, cursor)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListJobsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error) {
+	if m.listJobsByOrgFn != nil {
+		return m.listJobsByOrgFn(ctx, orgID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -1933,6 +1961,34 @@ func (m *mockAPIStore) RequeuePausedJobRuns(ctx context.Context, workflowRunID s
 func (m *mockAPIStore) UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error {
 	if m.updateProjectDefaultRegionFn != nil {
 		return m.updateProjectDefaultRegionFn(ctx, projectID, defaultRegion)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) CreateProject(ctx context.Context, project *domain.Project) error {
+	if m.createProjectFn != nil {
+		return m.createProjectFn(ctx, project)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetProject(ctx context.Context, id string) (*domain.Project, error) {
+	if m.getProjectFn != nil {
+		return m.getProjectFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListProjectsByOrg(ctx context.Context, orgID string) ([]domain.Project, error) {
+	if m.listProjectsByOrgFn != nil {
+		return m.listProjectsByOrgFn(ctx, orgID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteProject(ctx context.Context, id string) error {
+	if m.deleteProjectFn != nil {
+		return m.deleteProjectFn(ctx, id)
 	}
 	return nil
 }

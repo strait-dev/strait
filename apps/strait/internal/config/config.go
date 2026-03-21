@@ -157,6 +157,20 @@ type Config struct {
 	OTLPMetricEndpoint string `mapstructure:"OTLP_METRIC_ENDPOINT"`
 	OTLPMetricEnabled  bool   `mapstructure:"OTLP_METRIC_ENABLED"`
 
+	// Polar billing integration
+	PolarAccessToken          string `mapstructure:"POLAR_ACCESS_TOKEN"`
+	PolarWebhookSecret        string `mapstructure:"POLAR_WEBHOOK_SECRET"`
+	PolarServer               string `mapstructure:"POLAR_SERVER"`
+	PolarStarterMonthlyID     string `mapstructure:"POLAR_STARTER_MONTHLY_ID"`
+	PolarStarterYearlyID      string `mapstructure:"POLAR_STARTER_YEARLY_ID"`
+	PolarProMonthlyID         string `mapstructure:"POLAR_PRO_MONTHLY_ID"`
+	PolarProYearlyID          string `mapstructure:"POLAR_PRO_YEARLY_ID"`
+	BillingEnforcementEnabled bool   `mapstructure:"BILLING_ENFORCEMENT_ENABLED"`
+
+	// Resend email integration
+	ResendAPIKey    string `mapstructure:"RESEND_API_KEY"`
+	ResendFromEmail string `mapstructure:"RESEND_FROM_EMAIL"`
+
 	// Sentry error tracking
 	SentryDSN         string `mapstructure:"SENTRY_DSN"`
 	SentryEnvironment string `mapstructure:"SENTRY_ENVIRONMENT"`
@@ -254,6 +268,9 @@ func setDefaults() {
 	viper.SetDefault("CLICKHOUSE_FLUSH_INTERVAL", 5*time.Second)
 	viper.SetDefault("CLICKHOUSE_EXPORT_ENABLED", false)
 	viper.SetDefault("OTLP_METRIC_ENABLED", false)
+	viper.SetDefault("BILLING_ENFORCEMENT_ENABLED", false)
+	viper.SetDefault("RESEND_API_KEY", "")
+	viper.SetDefault("RESEND_FROM_EMAIL", "noreply@strait.dev")
 	viper.SetDefault("SENTRY_DSN", "")
 	viper.SetDefault("SENTRY_ENVIRONMENT", "development")
 	viper.SetDefault("STRAIT_EDITION", "community")
@@ -296,6 +313,8 @@ func BindEnv() error {
 		"CLICKHOUSE_ENABLED", "CLICKHOUSE_URL", "CLICKHOUSE_DATABASE",
 		"CLICKHOUSE_BATCH_SIZE", "CLICKHOUSE_FLUSH_INTERVAL", "CLICKHOUSE_EXPORT_ENABLED",
 		"OTLP_METRIC_ENDPOINT", "OTLP_METRIC_ENABLED",
+		"BILLING_ENFORCEMENT_ENABLED",
+		"RESEND_API_KEY", "RESEND_FROM_EMAIL",
 		"SENTRY_DSN", "SENTRY_ENVIRONMENT",
 		"STRAIT_EDITION",
 	}
@@ -400,6 +419,8 @@ func Load() (*Config, error) {
 	cfg.ClickHouseExportEnabled = viper.GetBool("CLICKHOUSE_EXPORT_ENABLED")
 	cfg.OTLPMetricEndpoint = viper.GetString("OTLP_METRIC_ENDPOINT")
 	cfg.OTLPMetricEnabled = viper.GetBool("OTLP_METRIC_ENABLED")
+	cfg.ResendAPIKey = viper.GetString("RESEND_API_KEY")
+	cfg.ResendFromEmail = viper.GetString("RESEND_FROM_EMAIL")
 	cfg.SentryDSN = viper.GetString("SENTRY_DSN")
 	cfg.SentryEnvironment = viper.GetString("SENTRY_ENVIRONMENT")
 	cfg.Edition = viper.GetString("STRAIT_EDITION")

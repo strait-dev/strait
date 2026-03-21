@@ -69,6 +69,8 @@ export type OperationPathParamsById = {
   "getV1AnalyticsWorkflowsByWorkflowIDStepDurations": { "workflowID": string };
   "getV1AnalyticsWorkflowsCompletionRates": undefined;
   "getV1AnalyticsWorkflowsSummary": undefined;
+  "getV1AnomalyConfig": undefined;
+  "putV1AnomalyConfig": undefined;
   "getV1ApiKeys": undefined;
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": { "keyID": string };
@@ -80,11 +82,13 @@ export type OperationPathParamsById = {
   "postV1CliAuthDeviceCode": undefined;
   "postV1CliAuthToken": undefined;
   "postV1CliDeviceCodesApprove": undefined;
+  "getV1CostEstimate": undefined;
   "getV1Deployments": undefined;
   "postV1Deployments": undefined;
   "postV1DeploymentsByDeploymentIDFinalize": { "deploymentID": string };
   "postV1DeploymentsByDeploymentIDPromote": { "deploymentID": string };
   "postV1DeploymentsByDeploymentIDRollback": { "deploymentID": string };
+  "getV1DowngradePreview": undefined;
   "getV1Environments": undefined;
   "postV1Environments": undefined;
   "deleteV1EnvironmentsByEnvID": { "envID": string };
@@ -149,8 +153,19 @@ export type OperationPathParamsById = {
   "getV1NotificationChannelsByChannelID": { "channelID": string };
   "patchV1NotificationChannelsByChannelID": { "channelID": string };
   "getV1NotificationDeliveries": undefined;
+  "getV1OrganizationsByOrgIDJobs": { "orgID": string };
+  "getV1OrganizationsByOrgIDRuns": { "orgID": string };
+  "getV1ProjectBudget": undefined;
+  "putV1ProjectBudget": undefined;
+  "getV1Projects": undefined;
+  "postV1Projects": undefined;
+  "deleteV1ProjectsByProjectID": { "projectID": string };
+  "getV1ProjectsByProjectID": { "projectID": string };
   "getV1ProjectsByProjectIDSettings": { "projectID": string };
   "putV1ProjectsByProjectIDSettings": { "projectID": string };
+  "getV1Referrals": undefined;
+  "postV1Referrals": undefined;
+  "postV1ReferralsActivate": undefined;
   "getV1Regions": undefined;
   "getV1ResourcePolicies": undefined;
   "postV1ResourcePolicies": undefined;
@@ -193,10 +208,18 @@ export type OperationPathParamsById = {
   "postV1Secrets": undefined;
   "deleteV1SecretsBySecretID": { "secretID": string };
   "postV1SeedRoles": undefined;
+  "getV1SpendingLimit": undefined;
+  "putV1SpendingLimit": undefined;
   "getV1Stats": undefined;
   "getV1TagPolicies": undefined;
   "postV1TagPolicies": undefined;
   "deleteV1TagPoliciesByPolicyID": { "policyID": string };
+  "getV1UsageAnomalies": undefined;
+  "getV1UsageCurrent": undefined;
+  "getV1UsageExport": undefined;
+  "getV1UsageForecast": undefined;
+  "getV1UsageHistory": undefined;
+  "getV1UsageProjects": undefined;
   "getV1WebhookDeliveries": undefined;
   "postV1WebhookDeliveriesByDeliveryIDRetry": { "deliveryID": string };
   "getV1WebhooksDeliveries": undefined;
@@ -309,6 +332,8 @@ export type OperationQueryParamsById = {
   "getV1AnalyticsWorkflowsByWorkflowIDStepDurations": { "from": string; "to": string };
   "getV1AnalyticsWorkflowsCompletionRates": { "from": string; "to": string; "bucket"?: "hour" | "day" };
   "getV1AnalyticsWorkflowsSummary": { "from": string; "to": string };
+  "getV1AnomalyConfig": { "org_id": string };
+  "putV1AnomalyConfig": { "org_id": string };
   "getV1ApiKeys": { "project_id": string };
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": undefined;
@@ -320,11 +345,13 @@ export type OperationQueryParamsById = {
   "postV1CliAuthDeviceCode": undefined;
   "postV1CliAuthToken": undefined;
   "postV1CliDeviceCodesApprove": undefined;
+  "getV1CostEstimate": { "preset": string; "timeout_secs": number; "org_id"?: string };
   "getV1Deployments": { "project_id": string; "environment"?: string; "limit"?: number; "cursor"?: string };
   "postV1Deployments": undefined;
   "postV1DeploymentsByDeploymentIDFinalize": undefined;
   "postV1DeploymentsByDeploymentIDPromote": undefined;
   "postV1DeploymentsByDeploymentIDRollback": undefined;
+  "getV1DowngradePreview": { "org_id": string; "target_tier": string };
   "getV1Environments": { "project_id": string };
   "postV1Environments": undefined;
   "deleteV1EnvironmentsByEnvID": undefined;
@@ -389,8 +416,19 @@ export type OperationQueryParamsById = {
   "getV1NotificationChannelsByChannelID": undefined;
   "patchV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationDeliveries": { "limit"?: number; "cursor"?: string };
+  "getV1OrganizationsByOrgIDJobs": { "limit"?: number; "cursor"?: string };
+  "getV1OrganizationsByOrgIDRuns": { "limit"?: number; "cursor"?: string };
+  "getV1ProjectBudget": { "project_id": string };
+  "putV1ProjectBudget": undefined;
+  "getV1Projects": { "org_id": string };
+  "postV1Projects": undefined;
+  "deleteV1ProjectsByProjectID": undefined;
+  "getV1ProjectsByProjectID": undefined;
   "getV1ProjectsByProjectIDSettings": undefined;
   "putV1ProjectsByProjectIDSettings": undefined;
+  "getV1Referrals": { "org_id": string };
+  "postV1Referrals": undefined;
+  "postV1ReferralsActivate": undefined;
   "getV1Regions": undefined;
   "getV1ResourcePolicies": { "project_id": string; "user_id"?: string; "limit"?: number; "cursor"?: string };
   "postV1ResourcePolicies": undefined;
@@ -433,10 +471,18 @@ export type OperationQueryParamsById = {
   "postV1Secrets": undefined;
   "deleteV1SecretsBySecretID": undefined;
   "postV1SeedRoles": undefined;
+  "getV1SpendingLimit": { "org_id": string };
+  "putV1SpendingLimit": { "org_id": string };
   "getV1Stats": undefined;
   "getV1TagPolicies": { "project_id": string; "user_id"?: string; "resource_type"?: string; "limit"?: number; "cursor"?: string };
   "postV1TagPolicies": undefined;
   "deleteV1TagPoliciesByPolicyID": undefined;
+  "getV1UsageAnomalies": { "org_id": string };
+  "getV1UsageCurrent": { "org_id": string };
+  "getV1UsageExport": { "org_id": string; "from": string; "to": string };
+  "getV1UsageForecast": { "org_id": string };
+  "getV1UsageHistory": { "org_id": string; "from": string; "to": string };
+  "getV1UsageProjects": { "org_id": string; "from": string; "to": string };
   "getV1WebhookDeliveries": { "project_id": string; "status"?: string; "limit"?: number };
   "postV1WebhookDeliveriesByDeliveryIDRetry": undefined;
   "getV1WebhooksDeliveries": { "project_id": string; "status"?: "pending" | "delivered" | "failed" | "dead"; "limit"?: number; "cursor"?: string };
@@ -549,6 +595,8 @@ export type OperationHeaderParamsById = {
   "getV1AnalyticsWorkflowsByWorkflowIDStepDurations": undefined;
   "getV1AnalyticsWorkflowsCompletionRates": undefined;
   "getV1AnalyticsWorkflowsSummary": undefined;
+  "getV1AnomalyConfig": undefined;
+  "putV1AnomalyConfig": undefined;
   "getV1ApiKeys": undefined;
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": undefined;
@@ -560,11 +608,13 @@ export type OperationHeaderParamsById = {
   "postV1CliAuthDeviceCode": undefined;
   "postV1CliAuthToken": undefined;
   "postV1CliDeviceCodesApprove": undefined;
+  "getV1CostEstimate": undefined;
   "getV1Deployments": undefined;
   "postV1Deployments": undefined;
   "postV1DeploymentsByDeploymentIDFinalize": undefined;
   "postV1DeploymentsByDeploymentIDPromote": undefined;
   "postV1DeploymentsByDeploymentIDRollback": undefined;
+  "getV1DowngradePreview": undefined;
   "getV1Environments": undefined;
   "postV1Environments": undefined;
   "deleteV1EnvironmentsByEnvID": undefined;
@@ -629,8 +679,19 @@ export type OperationHeaderParamsById = {
   "getV1NotificationChannelsByChannelID": undefined;
   "patchV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationDeliveries": undefined;
+  "getV1OrganizationsByOrgIDJobs": undefined;
+  "getV1OrganizationsByOrgIDRuns": undefined;
+  "getV1ProjectBudget": undefined;
+  "putV1ProjectBudget": undefined;
+  "getV1Projects": undefined;
+  "postV1Projects": undefined;
+  "deleteV1ProjectsByProjectID": undefined;
+  "getV1ProjectsByProjectID": undefined;
   "getV1ProjectsByProjectIDSettings": undefined;
   "putV1ProjectsByProjectIDSettings": undefined;
+  "getV1Referrals": undefined;
+  "postV1Referrals": undefined;
+  "postV1ReferralsActivate": undefined;
   "getV1Regions": undefined;
   "getV1ResourcePolicies": undefined;
   "postV1ResourcePolicies": undefined;
@@ -673,10 +734,18 @@ export type OperationHeaderParamsById = {
   "postV1Secrets": undefined;
   "deleteV1SecretsBySecretID": undefined;
   "postV1SeedRoles": undefined;
+  "getV1SpendingLimit": undefined;
+  "putV1SpendingLimit": undefined;
   "getV1Stats": undefined;
   "getV1TagPolicies": undefined;
   "postV1TagPolicies": undefined;
   "deleteV1TagPoliciesByPolicyID": undefined;
+  "getV1UsageAnomalies": undefined;
+  "getV1UsageCurrent": undefined;
+  "getV1UsageExport": undefined;
+  "getV1UsageForecast": undefined;
+  "getV1UsageHistory": undefined;
+  "getV1UsageProjects": undefined;
   "getV1WebhookDeliveries": undefined;
   "postV1WebhookDeliveriesByDeliveryIDRetry": undefined;
   "getV1WebhooksDeliveries": undefined;
@@ -785,12 +854,12 @@ export const generatedOperationMetadataById = {
   "getV1AnalyticsCosts": { functionName: "listCosts", domainName: "analytics", domainMethodName: "listCosts", pathParamNames: [], summary: "Cost analytics" },
   "getV1AnalyticsCostsByMachine": { functionName: "getByMachine", domainName: "analytics", domainMethodName: "getByMachine", pathParamNames: [], summary: "Cost breakdown by machine preset" },
   "getV1AnalyticsCostsByTrigger": { functionName: "getByTrigger", domainName: "analytics", domainMethodName: "getByTrigger", pathParamNames: [], summary: "Cost breakdown by trigger type" },
-  "getV1AnalyticsCostsForecast": { functionName: "getForecast", domainName: "analytics", domainMethodName: "getForecast", pathParamNames: [], summary: "Cost forecast" },
+  "getV1AnalyticsCostsForecast": { functionName: "getForecastGet", domainName: "analytics", domainMethodName: "getForecastGet", pathParamNames: [], summary: "Cost forecast" },
   "getV1AnalyticsCostsTop": { functionName: "getTop", domainName: "analytics", domainMethodName: "getTop", pathParamNames: [], summary: "Top cost items" },
   "getV1AnalyticsCostsTrends": { functionName: "listTrends", domainName: "analytics", domainMethodName: "listTrends", pathParamNames: [], summary: "Cost trends over time" },
   "getV1AnalyticsEventsLatency": { functionName: "getLatency", domainName: "analytics", domainMethodName: "getLatency", pathParamNames: [], summary: "Event trigger latency statistics" },
   "getV1AnalyticsEventsVolume": { functionName: "getVolume", domainName: "analytics", domainMethodName: "getVolume", pathParamNames: [], summary: "Event trigger volume timeline" },
-  "getV1AnalyticsJobsByJobIDHistory": { functionName: "getHistory", domainName: "analytics", domainMethodName: "getHistory", pathParamNames: ["jobID"], summary: "Job run history timeline" },
+  "getV1AnalyticsJobsByJobIDHistory": { functionName: "getHistoryByJobID", domainName: "analytics", domainMethodName: "getHistoryByJobId", pathParamNames: ["jobID"], summary: "Job run history timeline" },
   "getV1AnalyticsJobsByVersion": { functionName: "getByVersion", domainName: "analytics", domainMethodName: "getByVersion", pathParamNames: [], summary: "Runs grouped by job version" },
   "getV1AnalyticsJobsComparison": { functionName: "getComparison", domainName: "analytics", domainMethodName: "getComparison", pathParamNames: [], summary: "Compare metrics across jobs" },
   "getV1AnalyticsJobsCostRanking": { functionName: "getCostRanking", domainName: "analytics", domainMethodName: "getCostRanking", pathParamNames: [], summary: "Jobs ranked by cost" },
@@ -811,6 +880,8 @@ export const generatedOperationMetadataById = {
   "getV1AnalyticsWorkflowsByWorkflowIDStepDurations": { functionName: "listStepDurations", domainName: "analytics", domainMethodName: "listStepDurations", pathParamNames: ["workflowID"], summary: "Workflow step duration stats" },
   "getV1AnalyticsWorkflowsCompletionRates": { functionName: "listCompletionRates", domainName: "analytics", domainMethodName: "listCompletionRates", pathParamNames: [], summary: "Workflow completion rate timeline" },
   "getV1AnalyticsWorkflowsSummary": { functionName: "getSummaryGetV1AnalyticsWorkflowsSummary", domainName: "analytics", domainMethodName: "getSummaryGetV1AnalyticsWorkflowsSummary", pathParamNames: [], summary: "Workflow analytics summary" },
+  "getV1AnomalyConfig": { functionName: "listAnomalyConfig", domainName: "usage", domainMethodName: "listAnomalyConfig", pathParamNames: [], summary: "Get anomaly detection thresholds" },
+  "putV1AnomalyConfig": { functionName: "upsertAnomalyConfig", domainName: "usage", domainMethodName: "upsertAnomalyConfig", pathParamNames: [], summary: "Update anomaly detection thresholds" },
   "getV1ApiKeys": { functionName: "listApiKeys", domainName: "apiKeys", domainMethodName: "list", pathParamNames: [], summary: "List API keys" },
   "postV1ApiKeys": { functionName: "createApiKey", domainName: "apiKeys", domainMethodName: "create", pathParamNames: [], summary: "Create an API key" },
   "deleteV1ApiKeysByKeyID": { functionName: "deleteApiKey", domainName: "apiKeys", domainMethodName: "delete", pathParamNames: ["keyID"], summary: "Revoke an API key" },
@@ -822,11 +893,13 @@ export const generatedOperationMetadataById = {
   "postV1CliAuthDeviceCode": { functionName: "deviceCodeAuth", domainName: "cliAuth", domainMethodName: "deviceCodeAuth", pathParamNames: [], summary: "Request a device code for CLI authentication" },
   "postV1CliAuthToken": { functionName: "tokenAuth", domainName: "cliAuth", domainMethodName: "tokenAuth", pathParamNames: [], summary: "Exchange device code for API token" },
   "postV1CliDeviceCodesApprove": { functionName: "approveDeviceCode", domainName: "cliAuth", domainMethodName: "approveDeviceCode", pathParamNames: [], summary: "Approve a device code" },
+  "getV1CostEstimate": { functionName: "listCostEstimate", domainName: "usage", domainMethodName: "listCostEstimate", pathParamNames: [], summary: "Get compute cost estimate" },
   "getV1Deployments": { functionName: "listDeployments", domainName: "deployments", domainMethodName: "list", pathParamNames: [], summary: "List deployment versions" },
   "postV1Deployments": { functionName: "createDeployment", domainName: "deployments", domainMethodName: "create", pathParamNames: [], summary: "Create deployment version" },
   "postV1DeploymentsByDeploymentIDFinalize": { functionName: "finalizeDeployment", domainName: "deployments", domainMethodName: "finalize", pathParamNames: ["deploymentID"], summary: "Finalize deployment version" },
   "postV1DeploymentsByDeploymentIDPromote": { functionName: "promoteDeployment", domainName: "deployments", domainMethodName: "promote", pathParamNames: ["deploymentID"], summary: "Promote deployment version" },
   "postV1DeploymentsByDeploymentIDRollback": { functionName: "rollbackDeployment", domainName: "deployments", domainMethodName: "rollback", pathParamNames: ["deploymentID"], summary: "Rollback deployment to selected version" },
+  "getV1DowngradePreview": { functionName: "listDowngradePreview", domainName: "usage", domainMethodName: "listDowngradePreview", pathParamNames: [], summary: "Preview downgrade impact" },
   "getV1Environments": { functionName: "listEnvironments", domainName: "environments", domainMethodName: "list", pathParamNames: [], summary: "List environments" },
   "postV1Environments": { functionName: "createEnvironment", domainName: "environments", domainMethodName: "create", pathParamNames: [], summary: "Create an environment" },
   "deleteV1EnvironmentsByEnvID": { functionName: "deleteEnvironment", domainName: "environments", domainMethodName: "delete", pathParamNames: ["envID"], summary: "Delete an environment" },
@@ -891,8 +964,19 @@ export const generatedOperationMetadataById = {
   "getV1NotificationChannelsByChannelID": { functionName: "getNotificationChannel", domainName: "notificationChannels", domainMethodName: "get", pathParamNames: ["channelID"], summary: "Get a notification channel" },
   "patchV1NotificationChannelsByChannelID": { functionName: "updateNotificationChannel", domainName: "notificationChannels", domainMethodName: "update", pathParamNames: ["channelID"], summary: "Update a notification channel" },
   "getV1NotificationDeliveries": { functionName: "listNotificationDeliveries", domainName: "notificationChannels", domainMethodName: "listNotificationDeliveries", pathParamNames: [], summary: "List notification deliveries" },
+  "getV1OrganizationsByOrgIDJobs": { functionName: "listJobsByOrgID", domainName: "organizations", domainMethodName: "listJobsByOrgId", pathParamNames: ["orgID"], summary: "List jobs across all projects in an organization" },
+  "getV1OrganizationsByOrgIDRuns": { functionName: "listRunsByOrgID", domainName: "organizations", domainMethodName: "listRunsByOrgId", pathParamNames: ["orgID"], summary: "List runs across all projects in an organization" },
+  "getV1ProjectBudget": { functionName: "listProjectBudget", domainName: "usage", domainMethodName: "listProjectBudget", pathParamNames: [], summary: "Get project budget" },
+  "putV1ProjectBudget": { functionName: "upsertProjectBudget", domainName: "usage", domainMethodName: "upsertProjectBudget", pathParamNames: [], summary: "Set project budget" },
+  "getV1Projects": { functionName: "listProjects", domainName: "projects", domainMethodName: "list", pathParamNames: [], summary: "List projects by organization" },
+  "postV1Projects": { functionName: "createProject", domainName: "projects", domainMethodName: "create", pathParamNames: [], summary: "Create a project" },
+  "deleteV1ProjectsByProjectID": { functionName: "deleteProject", domainName: "projects", domainMethodName: "delete", pathParamNames: ["projectID"], summary: "Delete a project" },
+  "getV1ProjectsByProjectID": { functionName: "getProject", domainName: "projects", domainMethodName: "get", pathParamNames: ["projectID"], summary: "Get a project" },
   "getV1ProjectsByProjectIDSettings": { functionName: "listSettings", domainName: "projects", domainMethodName: "listSettings", pathParamNames: ["projectID"], summary: "Get project settings" },
   "putV1ProjectsByProjectIDSettings": { functionName: "upsertSetting", domainName: "projects", domainMethodName: "upsertSetting", pathParamNames: ["projectID"], summary: "Update project settings" },
+  "getV1Referrals": { functionName: "listReferrals", domainName: "referrals", domainMethodName: "list", pathParamNames: [], summary: "List referrals" },
+  "postV1Referrals": { functionName: "createReferral", domainName: "referrals", domainMethodName: "create", pathParamNames: [], summary: "Create referral code" },
+  "postV1ReferralsActivate": { functionName: "activateReferral", domainName: "referrals", domainMethodName: "activate", pathParamNames: [], summary: "Activate referral code" },
   "getV1Regions": { functionName: "listRegions", domainName: "regions", domainMethodName: "list", pathParamNames: [], summary: "List available regions" },
   "getV1ResourcePolicies": { functionName: "listResourcePolicies", domainName: "rbac", domainMethodName: "listResourcePolicies", pathParamNames: [], summary: "List resource policies" },
   "postV1ResourcePolicies": { functionName: "createResourcePolicy", domainName: "rbac", domainMethodName: "createResourcePolicy", pathParamNames: [], summary: "Create resource policy" },
@@ -935,10 +1019,18 @@ export const generatedOperationMetadataById = {
   "postV1Secrets": { functionName: "createSecret", domainName: "secrets", domainMethodName: "create", pathParamNames: [], summary: "Create a secret" },
   "deleteV1SecretsBySecretID": { functionName: "deleteSecret", domainName: "secrets", domainMethodName: "delete", pathParamNames: ["secretID"], summary: "Delete a secret" },
   "postV1SeedRoles": { functionName: "createSeedRole", domainName: "rbac", domainMethodName: "createSeedRole", pathParamNames: [], summary: "Seed system roles" },
+  "getV1SpendingLimit": { functionName: "listSpendingLimit", domainName: "usage", domainMethodName: "listSpendingLimit", pathParamNames: [], summary: "Get spending limit" },
+  "putV1SpendingLimit": { functionName: "upsertSpendingLimit", domainName: "usage", domainMethodName: "upsertSpendingLimit", pathParamNames: [], summary: "Update spending limit" },
   "getV1Stats": { functionName: "listStats", domainName: "stats", domainMethodName: "list", pathParamNames: [], summary: "Queue statistics" },
   "getV1TagPolicies": { functionName: "listTagPolicies", domainName: "rbac", domainMethodName: "listTagPolicies", pathParamNames: [], summary: "List tag policies" },
   "postV1TagPolicies": { functionName: "createTagPolicy", domainName: "rbac", domainMethodName: "createTagPolicy", pathParamNames: [], summary: "Create tag policy" },
   "deleteV1TagPoliciesByPolicyID": { functionName: "deleteTagPolicy", domainName: "rbac", domainMethodName: "deleteTagPolicy", pathParamNames: ["policyID"], summary: "Delete tag policy" },
+  "getV1UsageAnomalies": { functionName: "listAnomalies", domainName: "usage", domainMethodName: "listAnomalies", pathParamNames: [], summary: "Get anomaly alerts" },
+  "getV1UsageCurrent": { functionName: "getCurrent", domainName: "usage", domainMethodName: "getCurrent", pathParamNames: [], summary: "Get current billing usage" },
+  "getV1UsageExport": { functionName: "getExportGet", domainName: "usage", domainMethodName: "getExportGet", pathParamNames: [], summary: "Export usage as CSV" },
+  "getV1UsageForecast": { functionName: "getForecast", domainName: "usage", domainMethodName: "getForecast", pathParamNames: [], summary: "Get usage forecast" },
+  "getV1UsageHistory": { functionName: "getHistory", domainName: "usage", domainMethodName: "getHistory", pathParamNames: [], summary: "Get usage history" },
+  "getV1UsageProjects": { functionName: "listProjectsGet", domainName: "usage", domainMethodName: "listProjectsGet", pathParamNames: [], summary: "Get per-project cost allocation" },
   "getV1WebhookDeliveries": { functionName: "listWebhookDeliveries", domainName: "other", domainMethodName: "listWebhookDeliveries", pathParamNames: [], summary: "List webhook deliveries" },
   "postV1WebhookDeliveriesByDeliveryIDRetry": { functionName: "retryWebhookDelivery", domainName: "webhooks", domainMethodName: "retryDelivery", pathParamNames: ["deliveryID"], summary: "Retry a failed webhook delivery" },
   "getV1WebhooksDeliveries": { functionName: "listDeliveries", domainName: "webhooks", domainMethodName: "listDeliveries", pathParamNames: [], summary: "List webhook deliveries" },

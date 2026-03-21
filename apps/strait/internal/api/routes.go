@@ -77,6 +77,11 @@ func (s *Server) routes() chi.Router {
 		r.Handle("/metrics", s.metricsHandler)
 	}
 
+	// Polar billing webhook (HMAC-verified, no API key auth).
+	if s.polarWebhook != nil {
+		r.Post("/api/webhooks/polar", s.polarWebhook.ServeHTTP)
+	}
+
 	// CLI device authorization endpoints (no auth required).
 	r.Route("/v1/cli/auth", func(r chi.Router) {
 		r.Use(rateLimit(10, time.Minute))
@@ -101,6 +106,14 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleRunStream)
 	})
 
+	// Org-scoped cross-project query routes.
+	r.Route("/v1/organizations/{orgID}", func(r chi.Router) {
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(chimw.Timeout(requestTimeout))
+		r.Get("/runs", s.handleListOrgRuns)
+		r.Get("/jobs", s.handleListOrgJobs)
+	})
+
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(s.projectContextMiddleware)
@@ -114,9 +127,39 @@ func (s *Server) routes() chi.Router {
 
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/regions", s.handleListRegions)
 
-		r.Route("/projects/{projectID}/settings", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetProjectSettings)
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/", s.handleUpdateProjectSettings)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/current", s.handleGetCurrentUsage)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/history", s.handleGetUsageHistory)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/forecast", s.handleGetUsageForecast)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/projects", s.handleGetProjectCosts)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/anomalies", s.handleGetAnomalyAlerts)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/export", s.handleExportUsage)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/spending-limit", s.handleGetSpendingLimit)
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/spending-limit", s.handleUpdateSpendingLimit)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/cost-estimate", s.handleGetCostEstimate)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/downgrade-preview", s.handleGetDowngradePreview)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/project-budget", s.handleGetProjectBudget)
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/project-budget", s.handleUpdateProjectBudget)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/anomaly-config", s.handleGetAnomalyConfig)
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/anomaly-config", s.handleUpdateAnomalyConfig)
+		r.Route("/referrals", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", s.handleCreateReferralCode)
+			r.With(s.requirePermission(domain.ScopeProjectsManage), rateLimit(5, time.Minute)).Post("/activate", s.handleActivateReferral)
+			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleListReferrals)
+		})
+
+		r.Route("/projects", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", s.handleCreateProject)
+			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleListProjects)
+
+			r.Route("/{projectID}", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleGetProject)
+				r.With(s.requirePermission(domain.ScopeProjectsManage)).Delete("/", s.handleDeleteProject)
+
+				r.Route("/settings", func(r chi.Router) {
+					r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetProjectSettings)
+					r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/", s.handleUpdateProjectSettings)
+				})
+			})
 		})
 
 		r.Route("/jobs", func(r chi.Router) {

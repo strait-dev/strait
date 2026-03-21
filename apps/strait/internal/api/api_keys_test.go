@@ -585,3 +585,171 @@ func TestProjectIDFromContext(t *testing.T) {
 		t.Fatalf("expected empty string for missing context value, got %q", got)
 	}
 }
+
+func TestCreateAPIKey_OrgScoped_Success(t *testing.T) {
+	t.Parallel()
+	var captured *domain.APIKey
+	ms := &mockAPIStore{
+		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
+			captured = key
+			key.ID = "key-org-1"
+			key.CreatedAt = time.Now().UTC()
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	body := `{"project_id":"proj-1","org_id":"org-1","name":"Org key","scopes":["jobs:read"]}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if captured == nil {
+		t.Fatal("expected captured key")
+	}
+	if captured.OrgID != "org-1" {
+		t.Fatalf("expected org_id org-1, got %q", captured.OrgID)
+	}
+	if captured.ProjectID != "proj-1" {
+		t.Fatalf("expected project_id proj-1, got %q", captured.ProjectID)
+	}
+}
+
+func TestCreateAPIKey_OrgScoped_RequiresInternalSecret(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+
+	// Using a non-internal-secret auth (no X-Internal-Secret, no valid API key)
+	req := httptest.NewRequest(http.MethodPost, "/v1/api-keys/", strings.NewReader(`{"project_id":"proj-1","org_id":"org-1","name":"Org key"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOrgScopedKey_CanAccessAllProjectsInOrg(t *testing.T) {
+	t.Parallel()
+	rawKey := "strait_" + strings.Repeat("cc", 32)
+	wantHash := hashAPIKey(rawKey)
+
+	ms := &mockAPIStore{
+		getAPIKeyByHashFn: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
+			if keyHash != wantHash {
+				t.Fatalf("expected hash %q, got %q", wantHash, keyHash)
+			}
+			return &domain.APIKey{ID: "key-org-1", ProjectID: "proj-1", OrgID: "org-1"}, nil
+		},
+		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		listRunsByOrgFn: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			if orgID != "org-1" {
+				t.Fatalf("expected orgID org-1, got %q", orgID)
+			}
+			return []domain.JobRun{
+				{ID: "run-1", ProjectID: "proj-1", CreatedAt: time.Now().UTC()},
+				{ID: "run-2", ProjectID: "proj-2", CreatedAt: time.Now().UTC()},
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/org-1/runs", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var runs []domain.JobRun
+	decodePaginatedList(t, w.Body.Bytes(), &runs)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(runs))
+	}
+}
+
+func TestOrgScopedKey_CannotAccessOtherOrg(t *testing.T) {
+	t.Parallel()
+	rawKey := "strait_" + strings.Repeat("dd", 32)
+
+	ms := &mockAPIStore{
+		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-org-1", ProjectID: "proj-1", OrgID: "org-1"}, nil
+		},
+		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/org-other/runs", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	ms := &mockAPIStore{
+		listAPIKeysByOrgFn: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.APIKey, error) {
+			if orgID != "org-1" {
+				t.Fatalf("expected org-1, got %q", orgID)
+			}
+			return []domain.APIKey{
+				{ID: "key-1", ProjectID: "proj-1", OrgID: "org-1", Name: "first", KeyPrefix: "strait_aaa", CreatedAt: now},
+				{ID: "key-2", ProjectID: "proj-2", OrgID: "org-1", Name: "second", KeyPrefix: "strait_bbb", CreatedAt: now},
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/api-keys/?org_id=org-1", "", "proj-1"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp []domain.APIKey
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
+	if len(resp) != 2 {
+		t.Fatalf("expected 2 keys, got %d", len(resp))
+	}
+	if resp[0].OrgID != "org-1" {
+		t.Fatalf("expected org_id org-1 on key, got %q", resp[0].OrgID)
+	}
+}
+
+func TestOrgScopedKey_RevokeWorks(t *testing.T) {
+	t.Parallel()
+	var revokedID string
+	ms := &mockAPIStore{
+		revokeAPIKeyFn: func(_ context.Context, id string) error {
+			revokedID = id
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/api-keys/key-org-1", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if revokedID != "key-org-1" {
+		t.Fatalf("expected revoke id key-org-1, got %q", revokedID)
+	}
+}

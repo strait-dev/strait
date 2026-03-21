@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/compute"
 	"strait/internal/config"
@@ -65,7 +66,16 @@ type APIStore interface {
 	RBACStore
 	LogDrainStore
 	EventSourceStore
+	ProjectStore
 	NotificationChannelStore
+}
+
+// ProjectStore handles project CRUD operations.
+type ProjectStore interface {
+	CreateProject(ctx context.Context, project *domain.Project) error
+	GetProject(ctx context.Context, id string) (*domain.Project, error)
+	ListProjectsByOrg(ctx context.Context, orgID string) ([]domain.Project, error)
+	DeleteProject(ctx context.Context, id string) error
 }
 
 // JobStore handles job CRUD, groups, environments, secrets, and dependencies.
@@ -284,11 +294,14 @@ type EventTriggerStore interface {
 type AuthStore interface {
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	ListAPIKeysByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
+	ListAPIKeysByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 	RevokeAPIKey(ctx context.Context, id string) error
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
 	GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error)
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
+	ListRunsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListJobsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	CreateDeviceCode(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error
 	GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
 	ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error
@@ -462,6 +475,10 @@ type Server struct {
 	rateLimiter        *ratelimit.RedisRateLimiter
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
+	polarWebhook       http.Handler
+	billingEnforcer    BillingEnforcer
+	usageService       UsageService
+	referralService    ReferralService
 	chExporter         *clickhouse.Exporter
 	edition            domain.Edition
 }
@@ -471,19 +488,50 @@ func (s *Server) analytics() AnalyticsStore {
 	if s.analyticsStore != nil {
 		return s.analyticsStore
 	}
-	// The concrete type behind s.store (e.g. *store.Queries) implements
-	// AnalyticsStore as well, but the APIStore interface does not promise
-	// those methods. Use a type assertion so the fallback still works.
 	if as, ok := s.store.(AnalyticsStore); ok {
 		return as
 	}
-	return s.analyticsStore // nil -- callers guard with s.analyticsStore != nil
+	return s.analyticsStore
 }
 
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
 type Encryptor interface {
 	Encrypt(plaintext []byte) ([]byte, error)
 	Decrypt(ciphertext []byte) ([]byte, error)
+}
+
+// BillingEnforcer checks org-level billing limits.
+type BillingEnforcer interface {
+	CheckProjectLimit(ctx context.Context, orgID string) error
+	CheckMemberLimit(ctx context.Context, orgID string) error
+	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
+	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
+}
+
+// UsageService provides org usage data for the billing dashboard.
+type UsageService interface {
+	GetCurrentUsage(ctx context.Context, orgID string) (*billing.CurrentUsageResponse, error)
+	GetUsageHistory(ctx context.Context, orgID string, from, to time.Time) ([]billing.UsageHistoryEntry, error)
+	GetUsageForecast(ctx context.Context, orgID string) (*billing.UsageForecastResponse, error)
+	GetProjectCosts(ctx context.Context, orgID string, from, to time.Time) ([]billing.ProjectCostEntry, error)
+	ExportUsageCSV(ctx context.Context, orgID string, from, to time.Time) ([]byte, error)
+	ExportUsagePDF(ctx context.Context, orgID string, from, to time.Time) ([]byte, error)
+	GetSpendingLimit(ctx context.Context, orgID string) (*billing.SpendingLimitResponse, error)
+	SetSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
+	PreviewDowngrade(ctx context.Context, orgID string, targetTier domain.PlanTier) (*billing.DowngradeImpact, error)
+	DetectAnomalies(ctx context.Context, orgID string) ([]billing.AnomalyAlert, error)
+	GetProjectBudget(ctx context.Context, projectID string) (*billing.ProjectBudgetResponse, error)
+	SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error
+	GetAnomalyConfig(ctx context.Context, orgID string) (*billing.AnomalyConfigResponse, error)
+	SetAnomalyConfig(ctx context.Context, orgID string, warning, critical float64) error
+}
+
+// ReferralService handles referral code management.
+type ReferralService interface {
+	GenerateCode(ctx context.Context, orgID string) (*billing.Referral, error)
+	ActivateReferral(ctx context.Context, code, referredOrgID, referredEmail string) (*billing.Referral, error)
+	ListReferrals(ctx context.Context, orgID string) ([]billing.Referral, error)
+	AutoActivateReferral(ctx context.Context, orgID string) error
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -505,6 +553,10 @@ type ServerDeps struct {
 	RedisClient      *redis.Client            // Optional: enables per-project/key rate limiting.
 	Encryptor        Encryptor                // Optional: enables event source signature encryption.
 	ContainerRuntime compute.ContainerRuntime // Optional: enables managed container stop on cancel.
+	PolarWebhook     http.Handler             // Optional: Polar billing webhook handler.
+	BillingEnforcer  BillingEnforcer          // Optional: enables billing limit checks on project create.
+	UsageService     UsageService             // Optional: enables usage endpoint.
+	ReferralService  ReferralService          // Optional: enables referral endpoints.
 	CHExporter       *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
 	Edition          domain.Edition           // Edition controls feature gating (community vs cloud).
 }
@@ -551,6 +603,10 @@ func NewServer(deps ServerDeps) *Server {
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
+		polarWebhook:       deps.PolarWebhook,
+		billingEnforcer:    deps.BillingEnforcer,
+		usageService:       deps.UsageService,
+		referralService:    deps.ReferralService,
 		chExporter:         deps.CHExporter,
 		edition:            deps.Edition,
 	}

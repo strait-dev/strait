@@ -50,15 +50,19 @@ const (
 	ChannelTypeSlack   = "slack"
 	ChannelTypeDiscord = "discord"
 	ChannelTypeWebhook = "webhook"
-	ChannelTypeEmail   = "email" // not yet supported (no email sender implemented)
+	ChannelTypeEmail   = "email"
 )
 
 const (
-	NotificationEventApprovalRequested = "approval.requested"
-	NotificationEventApprovalReminder  = "approval.reminder"
-	NotificationEventApprovalExpired   = "approval.expired"
-	NotificationEventApprovalCompleted = "approval.completed"
-	NotificationEventBudgetThreshold   = "budget.threshold_reached"
+	NotificationEventApprovalRequested    = "approval.requested"
+	NotificationEventApprovalReminder     = "approval.reminder"
+	NotificationEventApprovalExpired      = "approval.expired"
+	NotificationEventApprovalCompleted    = "approval.completed"
+	NotificationEventBudgetThreshold      = "budget.threshold_reached"
+	NotificationEventCostAnomaly          = "cost.anomaly_detected"
+	NotificationEventSpendingLimitWarning = "spending.limit_warning"
+	NotificationEventSpendingLimitReached = "spending.limit_reached"
+	NotificationEventRunLimitApproaching  = "runs.limit_approaching"
 )
 
 // NotificationChannel represents a configured notification destination for a project.
@@ -133,6 +137,15 @@ const (
 	EventProgress    EventType = "progress"
 )
 
+// Project represents a project in the Go service database.
+type Project struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // ProjectRole defines a named set of permissions within a project.
 type ProjectRole struct {
 	ID           string    `json:"id"`
@@ -188,14 +201,17 @@ var SystemRolePermissions = map[string][]string{
 		ScopeRunsRead, ScopeRunsWrite,
 		ScopeWorkflowsRead, ScopeWorkflowsWrite, ScopeWorkflowsTrigger,
 		ScopeSecretsRead, ScopeStatsRead, ScopeRBACManage,
+		ScopeProjectsRead, ScopeProjectsWrite,
 	},
 	"viewer": {
 		ScopeJobsRead, ScopeRunsRead, ScopeWorkflowsRead, ScopeStatsRead,
+		ScopeProjectsRead,
 	},
 	"triggerer": {
 		ScopeJobsRead, ScopeJobsTrigger,
 		ScopeRunsRead,
 		ScopeWorkflowsRead, ScopeWorkflowsTrigger,
+		ScopeProjectsRead,
 	},
 }
 
@@ -666,10 +682,11 @@ type WebhookSubscription struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// APIKey represents a per-project API key for authentication.
+// APIKey represents a per-project or org-scoped API key for authentication.
 type APIKey struct {
 	ID                   string     `json:"id"`
 	ProjectID            string     `json:"project_id"`
+	OrgID                string     `json:"org_id,omitempty"`
 	Name                 string     `json:"name"`
 	KeyHash              string     `json:"-"`
 	KeyPrefix            string     `json:"key_prefix"`

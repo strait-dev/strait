@@ -91,7 +91,8 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		job_runs, job_secrets, job_dependencies, jobs, job_groups,
 		environments, endpoint_circuit_state, project_quotas,
 		run_checkpoints, run_outputs, run_tool_calls, run_usage,
-		pricing_catalog, run_compute_usage, job_preset_recommendations
+		pricing_catalog, run_compute_usage, job_preset_recommendations,
+		projects, organization_subscriptions, usage_records, referrals
 		CASCADE`)
 	if err != nil {
 		return fmt.Errorf("clean tables: %w", err)
