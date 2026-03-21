@@ -12,6 +12,61 @@ import (
 	"github.com/google/uuid"
 )
 
+// validateImageURI rejects image URIs with shell metacharacters.
+func validateImageURI(uri string) error {
+	if uri == "" {
+		return fmt.Errorf("image URI is required")
+	}
+	for _, c := range uri {
+		if !isDockerSafeChar(c) {
+			return fmt.Errorf("image URI contains invalid character: %q", c)
+		}
+	}
+	return nil
+}
+
+func isDockerSafeChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' ||
+		c == ':' || c == '/' || c == '@'
+}
+
+// validateEnvKey rejects env var keys with special characters.
+func validateEnvKey(key string) error {
+	if key == "" {
+		return fmt.Errorf("env key must not be empty")
+	}
+	for _, c := range key {
+		if !isEnvKeySafeChar(c) {
+			return fmt.Errorf("env key contains invalid character: %q", c)
+		}
+	}
+	return nil
+}
+
+func isEnvKeySafeChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') || c == '_'
+}
+
+// validateLabelKey rejects label keys with shell metacharacters.
+func validateLabelKey(key string) error {
+	if key == "" {
+		return fmt.Errorf("label key must not be empty")
+	}
+	for _, c := range key {
+		if !isLabelKeySafeChar(c) {
+			return fmt.Errorf("label key contains invalid character: %q", c)
+		}
+	}
+	return nil
+}
+
+func isLabelKeySafeChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_'
+}
+
 // DockerRuntime implements ContainerRuntime using the local Docker Engine.
 // Intended for development and testing, not production.
 type DockerRuntime struct{}
@@ -25,8 +80,18 @@ func NewDockerRuntime() *DockerRuntime {
 // containers created here use `docker run -d` (detached) so the caller can
 // separately Wait().
 func (d *DockerRuntime) Create(ctx context.Context, req RunRequest) (string, error) {
-	if req.ImageURI == "" {
-		return "", NewFatalError(422, "image_uri is required", nil)
+	if err := validateImageURI(req.ImageURI); err != nil {
+		return "", NewFatalError(422, err.Error(), nil)
+	}
+	for k := range req.Env {
+		if err := validateEnvKey(k); err != nil {
+			return "", NewFatalError(422, err.Error(), nil)
+		}
+	}
+	for k := range req.Labels {
+		if err := validateLabelKey(k); err != nil {
+			return "", NewFatalError(422, err.Error(), nil)
+		}
 	}
 
 	containerName := fmt.Sprintf("strait-%s", uuid.Must(uuid.NewV7()).String()[:8])
@@ -100,8 +165,18 @@ func (d *DockerRuntime) Wait(ctx context.Context, containerName string, timeoutS
 
 // Run creates and runs a Docker container, waits for it to exit, and returns the result.
 func (d *DockerRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
-	if req.ImageURI == "" {
-		return nil, NewFatalError(422, "image_uri is required", nil)
+	if err := validateImageURI(req.ImageURI); err != nil {
+		return nil, NewFatalError(422, err.Error(), nil)
+	}
+	for k := range req.Env {
+		if err := validateEnvKey(k); err != nil {
+			return nil, NewFatalError(422, err.Error(), nil)
+		}
+	}
+	for k := range req.Labels {
+		if err := validateLabelKey(k); err != nil {
+			return nil, NewFatalError(422, err.Error(), nil)
+		}
 	}
 
 	containerName := fmt.Sprintf("strait-%s", uuid.Must(uuid.NewV7()).String()[:8])

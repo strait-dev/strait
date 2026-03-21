@@ -142,12 +142,12 @@ func formatOffset(d time.Duration) string {
 func timelineMarker(eventType string) string {
 	switch eventType {
 	case "state_change":
-		return "◆"
+		return styles.Blue.Render("◆")
 	case "error":
-		return "✗"
+		return styles.Red.Render("✗")
 	case "progress":
-		return "▶"
+		return styles.Green.Render("▶")
 	default:
-		return "●"
+		return styles.MutedStyle.Render("●")
 	}
 }

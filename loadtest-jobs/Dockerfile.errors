@@ -1,0 +1,11 @@
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir requests
+
+COPY python/error_scenarios.py /app/
+
+WORKDIR /app
+
+# Set ERROR_SCENARIO env var to choose failure mode.
+# Example: ERROR_SCENARIO=oom
+ENTRYPOINT ["python", "/app/error_scenarios.py"]

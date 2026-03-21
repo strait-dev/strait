@@ -26,7 +26,7 @@ func (s *Server) handleGetPerformanceAnalytics(w http.ResponseWriter, r *http.Re
 
 	span.SetAttributes(attribute.Int("period_hours", periodHours))
 
-	analytics, err := s.store.GetPerformanceAnalytics(ctx, projectID, periodHours)
+	analytics, err := s.analytics().GetPerformanceAnalytics(ctx, projectID, periodHours)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get analytics")
 		return

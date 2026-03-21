@@ -1,0 +1,667 @@
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"testing"
+	"time"
+
+	"strait/internal/clickhouse"
+	"strait/internal/domain"
+)
+
+// mockEventLister implements EventLister for testing.
+type mockEventLister struct {
+	events []domain.RunEvent
+	err    error
+	called bool
+}
+
+func (m *mockEventLister) ListEvents(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
+	m.called = true
+	return m.events, m.err
+}
+
+func TestClickHouseSubscriber_NilExporter(t *testing.T) {
+	t.Parallel()
+	sub := ClickHouseSubscriber(nil, nil)
+	// Should not panic.
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1"},
+	})
+}
+
+func TestClickHouseSubscriber_NonTerminalEvent(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	sub := ClickHouseSubscriber(exporter, nil)
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventSnoozed,
+		Run:  &domain.JobRun{ID: "run-1"},
+	})
+
+	if exporter.PendingCount() != 0 {
+		t.Errorf("expected 0 pending for non-terminal event, got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_NilRun(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	sub := ClickHouseSubscriber(exporter, nil)
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  nil,
+	})
+
+	if exporter.PendingCount() != 0 {
+		t.Errorf("expected 0 pending for nil run, got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_TerminalEvent_EnqueuesRecord(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	now := time.Now()
+	started := now.Add(-5 * time.Second)
+
+	sub := ClickHouseSubscriber(exporter, nil)
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run: &domain.JobRun{
+			ID:           "run-1",
+			JobID:        "job-1",
+			ProjectID:    "proj-1",
+			Status:       domain.StatusCompleted,
+			Attempt:      1,
+			StartedAt:    &started,
+			FinishedAt:   &now,
+			TriggeredBy:  "manual",
+			Tags:         map[string]string{"env": "prod", "team": "backend"},
+			JobVersionID: "ver-abc",
+		},
+		Job: &domain.Job{
+			ExecutionMode: "http",
+			MachinePreset: "standard",
+		},
+		QueueWait: 200 * time.Millisecond,
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending for terminal event, got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_TagsAndVersionPopulated(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	now := time.Now()
+	started := now.Add(-2 * time.Second)
+
+	sub := ClickHouseSubscriber(exporter, nil)
+
+	// With tags and version
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run: &domain.JobRun{
+			ID:           "run-tags",
+			JobID:        "job-1",
+			ProjectID:    "proj-1",
+			Status:       domain.StatusCompleted,
+			StartedAt:    &started,
+			FinishedAt:   &now,
+			Tags:         map[string]string{"env": "staging"},
+			JobVersionID: "ver-123",
+		},
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_EmptyTags(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	sub := ClickHouseSubscriber(exporter, nil)
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run: &domain.JobRun{
+			ID:        "run-no-tags",
+			JobID:     "job-1",
+			ProjectID: "proj-1",
+			Status:    domain.StatusCompleted,
+		},
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_AllTerminalTypes(t *testing.T) {
+	t.Parallel()
+	terminalTypes := []RunEventType{EventCompleted, EventTimedOut, EventDeadLettered, EventSystemFailed}
+
+	for _, et := range terminalTypes {
+		t.Run(string(et), func(t *testing.T) {
+			t.Parallel()
+			exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+				Enabled:   true,
+				BatchSize: 100,
+			}, slog.Default())
+
+			sub := ClickHouseSubscriber(exporter, nil)
+			sub(context.Background(), RunLifecycleEvent{
+				Type: et,
+				Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
+			})
+
+			if exporter.PendingCount() != 1 {
+				t.Errorf("expected 1 pending for %s, got %d", et, exporter.PendingCount())
+			}
+		})
+	}
+}
+
+func TestClickHouseSubscriber_EnqueuesRunEvents(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	now := time.Now()
+	lister := &mockEventLister{
+		events: []domain.RunEvent{
+			{ID: "evt-1", RunID: "run-1", Type: "log", Level: "info", Message: "hello", CreatedAt: now},
+			{ID: "evt-2", RunID: "run-1", Type: "log", Level: "error", Message: "boom", CreatedAt: now},
+		},
+	}
+
+	sub := ClickHouseSubscriber(exporter, lister)
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1", JobID: "job-1"},
+	})
+
+	// Wait for the background goroutine to finish.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		// 1 analytics record + 2 event records = 3
+		if exporter.PendingCount() >= 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if exporter.PendingCount() != 3 {
+		t.Errorf("expected 3 pending (1 analytics + 2 events), got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_NilEventLister(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	sub := ClickHouseSubscriber(exporter, nil)
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
+	})
+
+	// Only the analytics record should be enqueued (no event lister).
+	time.Sleep(50 * time.Millisecond)
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending (analytics only), got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_EventListError(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	lister := &mockEventLister{
+		err: errors.New("db error"),
+	}
+
+	sub := ClickHouseSubscriber(exporter, lister)
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
+	})
+
+	// Wait for goroutine to finish.
+	time.Sleep(50 * time.Millisecond)
+
+	// Only the analytics record should be present; event fetch failed.
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending (analytics only, event fetch failed), got %d", exporter.PendingCount())
+	}
+}
+
+func TestRunEventsFromDomain(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	run := &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+	}
+	events := []domain.RunEvent{
+		{
+			ID:        "evt-1",
+			RunID:     "run-1",
+			Type:      "log",
+			Level:     "info",
+			Message:   "hello",
+			Data:      json.RawMessage(`{"key":"val"}`),
+			CreatedAt: now,
+		},
+		{
+			ID:        "evt-2",
+			RunID:     "run-1",
+			Type:      "error",
+			Level:     "error",
+			Message:   "boom",
+			Data:      nil,
+			CreatedAt: now,
+		},
+	}
+
+	records := runEventsFromDomain(run, events)
+
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
+	}
+
+	r := records[0]
+	if r.EventID != "evt-1" || r.RunID != "run-1" || r.ProjectID != "proj-1" || r.JobID != "job-1" {
+		t.Errorf("record 0 IDs mismatch: %+v", r)
+	}
+	if r.EventType != "log" || r.Level != "info" || r.Message != "hello" {
+		t.Errorf("record 0 fields mismatch: %+v", r)
+	}
+	if r.Metadata != `{"key":"val"}` {
+		t.Errorf("record 0 metadata = %q, want %q", r.Metadata, `{"key":"val"}`)
+	}
+
+	r2 := records[1]
+	if r2.Metadata != "" {
+		t.Errorf("record 1 metadata = %q, want empty", r2.Metadata)
+	}
+}
+
+func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	// Use a slow lister that blocks until cancelled to fill the semaphore.
+	cancelCtx, cancelAll := context.WithCancel(context.Background())
+	defer cancelAll()
+
+	slowLister := &blockingEventLister{
+		cancel: cancelCtx,
+		events: []domain.RunEvent{{ID: "evt-1", RunID: "run-1"}},
+	}
+
+	sub := ClickHouseSubscriber(exporter, slowLister)
+
+	// Fill the semaphore by launching maxConcurrentEventFetches goroutines.
+	for i := range maxConcurrentEventFetches {
+		sub(context.Background(), RunLifecycleEvent{
+			Type: EventCompleted,
+			Run:  &domain.JobRun{ID: "run-fill-" + string(rune('A'+i)), ProjectID: "proj-1"},
+		})
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Next call should block (waiting for semaphore), not return instantly.
+	start := time.Now()
+	done := make(chan struct{})
+	go func() {
+		sub(context.Background(), RunLifecycleEvent{
+			Type: EventCompleted,
+			Run:  &domain.JobRun{ID: "run-blocked", ProjectID: "proj-1"},
+		})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		elapsed := time.Since(start)
+		// Should have waited at least a bit (the 5s timeout), not returned instantly.
+		if elapsed < 100*time.Millisecond {
+			t.Errorf("subscriber returned too quickly (%v), expected to wait on semaphore", elapsed)
+		}
+	case <-time.After(10 * time.Second):
+		// The 5-second timeout should have fired by now.
+		t.Fatal("subscriber did not return within expected timeout")
+	}
+
+	// Clean up all blocked goroutines.
+	cancelAll()
+	time.Sleep(100 * time.Millisecond)
+}
+
+// blockingEventLister blocks ListEvents until its cancel context is done.
+type blockingEventLister struct {
+	cancel context.Context
+	events []domain.RunEvent
+}
+
+func (b *blockingEventLister) ListEvents(ctx context.Context, _ string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
+	select {
+	case <-b.cancel.Done():
+		return nil, b.cancel.Err()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// mockUsageLister implements UsageLister for testing.
+type mockUsageLister struct {
+	usage  []domain.RunUsage
+	err    error
+	called bool
+}
+
+func (m *mockUsageLister) ListRunUsage(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunUsage, error) {
+	m.called = true
+	return m.usage, m.err
+}
+
+func TestClickHouseSubscriber_EnqueuesRunUsage(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	now := time.Now()
+	usageLister := &mockUsageLister{
+		usage: []domain.RunUsage{
+			{ID: "u-1", RunID: "run-1", Provider: "openai", Model: "gpt-4", PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, CostMicrousd: 5000, CreatedAt: now},
+			{ID: "u-2", RunID: "run-1", Provider: "anthropic", Model: "claude-3", PromptTokens: 200, CompletionTokens: 100, TotalTokens: 300, CostMicrousd: 8000, CreatedAt: now},
+		},
+	}
+
+	sub := ClickHouseSubscriber(exporter, nil, ClickHouseSubscriberDeps{UsageLister: usageLister})
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1", JobID: "job-1"},
+	})
+
+	// Wait for the background goroutine to finish.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		// 1 analytics record + 2 usage records = 3
+		if exporter.PendingCount() >= 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if exporter.PendingCount() != 3 {
+		t.Errorf("expected 3 pending (1 analytics + 2 usage), got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_UsageListError(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	usageLister := &mockUsageLister{
+		err: errors.New("usage db error"),
+	}
+
+	sub := ClickHouseSubscriber(exporter, nil, ClickHouseSubscriberDeps{UsageLister: usageLister})
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
+	})
+
+	// Wait for goroutine to finish.
+	time.Sleep(100 * time.Millisecond)
+
+	// Only the analytics record should be present; usage fetch failed.
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending (analytics only, usage fetch failed), got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_EmptyUsage(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	usageLister := &mockUsageLister{
+		usage: []domain.RunUsage{},
+	}
+
+	sub := ClickHouseSubscriber(exporter, nil, ClickHouseSubscriberDeps{UsageLister: usageLister})
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
+	})
+
+	// Wait for goroutine to finish.
+	time.Sleep(100 * time.Millisecond)
+
+	// Only the analytics record, no usage records.
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending (analytics only, empty usage), got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_NilUsageLister(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	// Pass no usage lister (variadic empty).
+	sub := ClickHouseSubscriber(exporter, nil)
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
+	})
+
+	time.Sleep(50 * time.Millisecond)
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending (analytics only, nil usage lister), got %d", exporter.PendingCount())
+	}
+}
+
+// mockComputeUsageLister implements ComputeUsageLister for testing.
+type mockComputeUsageLister struct {
+	usage  []domain.RunComputeUsage
+	err    error
+	called bool
+}
+
+func (m *mockComputeUsageLister) ListRunComputeUsage(_ context.Context, _ string) ([]domain.RunComputeUsage, error) {
+	m.called = true
+	return m.usage, m.err
+}
+
+func TestClickHouseSubscriber_EnqueuesComputeUsage(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	now := time.Now()
+	started := now.Add(-10 * time.Second)
+	computeLister := &mockComputeUsageLister{
+		usage: []domain.RunComputeUsage{
+			{
+				ID:            "cu-1",
+				RunID:         "run-1",
+				ProjectID:     "proj-1",
+				JobID:         "job-1",
+				MachinePreset: "micro",
+				MachineID:     "machine-abc",
+				DurationSecs:  10.5,
+				CostMicrousd:  2000,
+				StartedAt:     &started,
+				FinishedAt:    &now,
+			},
+		},
+	}
+
+	sub := ClickHouseSubscriber(exporter, nil, ClickHouseSubscriberDeps{
+		ComputeUsageLister: computeLister,
+	})
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1", JobID: "job-1"},
+	})
+
+	// Wait for the background goroutine to finish.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		// 1 analytics record + 1 compute usage record = 2
+		if exporter.PendingCount() >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if exporter.PendingCount() != 2 {
+		t.Errorf("expected 2 pending (1 analytics + 1 compute usage), got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_ComputeUsageListError(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	computeLister := &mockComputeUsageLister{
+		err: errors.New("compute db error"),
+	}
+
+	sub := ClickHouseSubscriber(exporter, nil, ClickHouseSubscriberDeps{
+		ComputeUsageLister: computeLister,
+	})
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Only the analytics record; compute usage fetch failed.
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending (analytics only, compute usage fetch failed), got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriber_ComputeUsageNilTimestamps(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	computeLister := &mockComputeUsageLister{
+		usage: []domain.RunComputeUsage{
+			{
+				ID:            "cu-1",
+				RunID:         "run-1",
+				ProjectID:     "proj-1",
+				MachinePreset: "micro",
+				DurationSecs:  5.0,
+				CostMicrousd:  1000,
+				StartedAt:     nil,
+				FinishedAt:    nil,
+			},
+		},
+	}
+
+	sub := ClickHouseSubscriber(exporter, nil, ClickHouseSubscriberDeps{
+		ComputeUsageLister: computeLister,
+	})
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if exporter.PendingCount() >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if exporter.PendingCount() != 2 {
+		t.Errorf("expected 2 pending (1 analytics + 1 compute usage with nil timestamps), got %d", exporter.PendingCount())
+	}
+}
+
+func TestIsTerminalEvent(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		eventType RunEventType
+		want      bool
+	}{
+		{EventCompleted, true},
+		{EventTimedOut, true},
+		{EventDeadLettered, true},
+		{EventSystemFailed, true},
+		{EventSnoozed, false},
+		{EventRetried, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.eventType), func(t *testing.T) {
+			t.Parallel()
+			if got := isTerminalEvent(tt.eventType); got != tt.want {
+				t.Errorf("isTerminalEvent(%s) = %v, want %v", tt.eventType, got, tt.want)
+			}
+		})
+	}
+}

@@ -34,7 +34,11 @@ const SDK_TABS = [
     install: "go get github.com/straitdev/strait-go",
   },
   { value: "rust", label: "Rust", install: "cargo add strait-sdk" },
-  { value: "cli", label: "CLI", install: "npm install -g @strait/cli" },
+  {
+    value: "cli",
+    label: "CLI",
+    install: "cd apps/strait && go install ./cmd/strait",
+  },
 ] as const;
 
 const CODE_EXAMPLES: Record<string, string> = {

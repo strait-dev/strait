@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -288,6 +289,11 @@ type AuthStore interface {
 	GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error)
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
+	CreateDeviceCode(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error
+	GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
+	ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error
+	ExchangeDeviceCode(ctx context.Context, deviceCode string) (string, error)
+	CleanupExpiredDeviceCodes(ctx context.Context) (int64, error)
 }
 
 // RBACStore handles role-based access control.
@@ -380,9 +386,61 @@ const (
 	ErrorCodeForbidden       = "forbidden"
 )
 
+// AnalyticsStore is the subset of analytics query methods that can be backed
+// by either Postgres (store.Queries) or ClickHouse (clickhouse.AnalyticsStore).
+type AnalyticsStore interface {
+	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
+	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
+	GetCostTrends(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error)
+	GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
+	GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
+	GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
+	GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
+
+	// Run analytics
+	GetRunTimeline(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.RunTimelineBucket, error)
+	GetRunDurationDistribution(ctx context.Context, projectID string, from, to time.Time) ([]store.RunDurationBucket, error)
+	GetRunFailureReasons(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.RunFailureReason, error)
+	GetRunSummary(ctx context.Context, projectID string, from, to time.Time) (*store.RunSummary, error)
+	GetRunsByTrigger(ctx context.Context, projectID string, from, to time.Time) ([]store.RunsByTrigger, error)
+
+	// Job analytics
+	GetJobHistory(ctx context.Context, projectID, jobID string, from, to time.Time, bucket string) ([]store.JobHistoryBucket, error)
+	GetJobComparison(ctx context.Context, projectID string, jobIDs []string, from, to time.Time) ([]store.JobComparison, error)
+	GetJobReliability(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobReliability, error)
+	GetRunsByVersion(ctx context.Context, projectID, jobID string, from, to time.Time) ([]store.RunsByVersion, error)
+	GetJobCostRanking(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobCostRanking, error)
+	GetTopFailingJobs(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingJob, error)
+
+	// Tag analytics
+	GetTagSummary(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TagSummary, error)
+	GetTopFailingTags(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingTag, error)
+	GetTagCost(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TagCost, error)
+
+	// Workflow analytics
+	GetWorkflowStepDurations(ctx context.Context, projectID, workflowID string, from, to time.Time) ([]store.StepDuration, error)
+	GetWorkflowCompletionRates(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.WorkflowCompletionBucket, error)
+	GetWorkflowSummary(ctx context.Context, projectID string, from, to time.Time) (*store.WorkflowSummary, error)
+
+	// Webhook analytics
+	GetWebhookDeliveryStats(ctx context.Context, projectID string, from, to time.Time) ([]store.WebhookEndpointStats, error)
+	GetWebhookEndpointHealth(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.WebhookHealthBucket, error)
+	GetTopFailingWebhooks(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingEndpoint, error)
+
+	// Event analytics
+	GetEventVolume(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.EventVolumeBucket, error)
+	GetEventLatency(ctx context.Context, projectID string, from, to time.Time) (*store.EventLatencyStats, error)
+
+	// Cost analytics (new)
+	GetCostForecast(ctx context.Context, projectID string, from, to time.Time) (*store.CostForecast, error)
+	GetCostByTrigger(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByTrigger, error)
+	GetCostByMachine(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByMachine, error)
+}
+
 type Server struct {
 	router             chi.Router
 	store              APIStore
+	analyticsStore     AnalyticsStore
 	queue              queue.Queue
 	pubsub             pubsub.Publisher
 	config             *config.Config
@@ -404,6 +462,22 @@ type Server struct {
 	rateLimiter        *ratelimit.RedisRateLimiter
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
+	chExporter         *clickhouse.Exporter
+	edition            domain.Edition
+}
+
+// analytics returns the ClickHouse analytics store when available, falling back to Postgres.
+func (s *Server) analytics() AnalyticsStore {
+	if s.analyticsStore != nil {
+		return s.analyticsStore
+	}
+	// The concrete type behind s.store (e.g. *store.Queries) implements
+	// AnalyticsStore as well, but the APIStore interface does not promise
+	// those methods. Use a type assertion so the fallback still works.
+	if as, ok := s.store.(AnalyticsStore); ok {
+		return as
+	}
+	return s.analyticsStore // nil -- callers guard with s.analyticsStore != nil
 }
 
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
@@ -416,6 +490,7 @@ type Encryptor interface {
 type ServerDeps struct {
 	Config           *config.Config
 	Store            APIStore
+	AnalyticsStore   AnalyticsStore // Optional: ClickHouse-backed analytics queries.
 	Queue            queue.Queue
 	PubSub           pubsub.Publisher
 	MetricsHandler   http.Handler
@@ -430,6 +505,8 @@ type ServerDeps struct {
 	RedisClient      *redis.Client            // Optional: enables per-project/key rate limiting.
 	Encryptor        Encryptor                // Optional: enables event source signature encryption.
 	ContainerRuntime compute.ContainerRuntime // Optional: enables managed container stop on cancel.
+	CHExporter       *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
+	Edition          domain.Edition           // Edition controls feature gating (community vs cloud).
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -453,6 +530,7 @@ func NewServer(deps ServerDeps) *Server {
 
 	srv := &Server{
 		store:              deps.Store,
+		analyticsStore:     deps.AnalyticsStore,
 		queue:              deps.Queue,
 		pubsub:             deps.PubSub,
 		config:             deps.Config,
@@ -473,6 +551,8 @@ func NewServer(deps ServerDeps) *Server {
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
+		chExporter:         deps.CHExporter,
+		edition:            deps.Edition,
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
@@ -529,7 +609,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	respondJSON(w, http.StatusOK, map[string]string{
+		"status":  "ok",
+		"edition": string(s.edition),
+	})
 }
 
 func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {

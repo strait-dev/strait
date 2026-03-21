@@ -25,7 +25,7 @@ func (s *Server) handleGetCostAnalytics(w http.ResponseWriter, r *http.Request) 
 		attribute.String("to", to.Format(time.RFC3339)),
 	)
 
-	analytics, err := s.store.GetCostAnalytics(ctx, projectID, from, to)
+	analytics, err := s.analytics().GetCostAnalytics(ctx, projectID, from, to)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get cost analytics")
 		return
@@ -50,7 +50,7 @@ func (s *Server) handleGetCostTrends(w http.ResponseWriter, r *http.Request) {
 		attribute.String("to", to.Format(time.RFC3339)),
 	)
 
-	trends, err := s.store.GetCostTrends(ctx, projectID, from, to)
+	trends, err := s.analytics().GetCostTrends(ctx, projectID, from, to)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get cost trends")
 		return
@@ -86,7 +86,7 @@ func (s *Server) handleGetTopCosts(w http.ResponseWriter, r *http.Request) {
 		attribute.Int("limit", limit),
 	)
 
-	items, err := s.store.GetTopCosts(ctx, projectID, from, to, limit)
+	items, err := s.analytics().GetTopCosts(ctx, projectID, from, to, limit)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get top costs")
 		return
@@ -111,7 +111,7 @@ func (s *Server) handleGetComputeCostAnalytics(w http.ResponseWriter, r *http.Re
 		attribute.String("to", to.Format(time.RFC3339)),
 	)
 
-	analytics, err := s.store.GetComputeCostAnalytics(ctx, projectID, from, to)
+	analytics, err := s.analytics().GetComputeCostAnalytics(ctx, projectID, from, to)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get compute cost analytics")
 		return

@@ -93,6 +93,31 @@ type mockAPIStore struct {
 	getTopCostsFn                        func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
 	getComputeCostAnalyticsFn            func(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
 	aggregateCostStatsHourlyFn           func(ctx context.Context, hour time.Time) error
+	getRunTimelineFn                     func(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.RunTimelineBucket, error)
+	getRunDurationDistributionFn         func(ctx context.Context, projectID string, from, to time.Time) ([]store.RunDurationBucket, error)
+	getRunFailureReasonsFn               func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.RunFailureReason, error)
+	getRunSummaryFn                      func(ctx context.Context, projectID string, from, to time.Time) (*store.RunSummary, error)
+	getRunsByTriggerFn                   func(ctx context.Context, projectID string, from, to time.Time) ([]store.RunsByTrigger, error)
+	getJobHistoryFn                      func(ctx context.Context, projectID, jobID string, from, to time.Time, bucket string) ([]store.JobHistoryBucket, error)
+	getJobComparisonFn                   func(ctx context.Context, projectID string, jobIDs []string, from, to time.Time) ([]store.JobComparison, error)
+	getJobReliabilityFn                  func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobReliability, error)
+	getRunsByVersionFn                   func(ctx context.Context, projectID, jobID string, from, to time.Time) ([]store.RunsByVersion, error)
+	getJobCostRankingFn                  func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobCostRanking, error)
+	getTopFailingJobsFn                  func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingJob, error)
+	getTagSummaryFn                      func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TagSummary, error)
+	getTopFailingTagsFn                  func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingTag, error)
+	getTagCostFn                         func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TagCost, error)
+	getWorkflowStepDurationsFn           func(ctx context.Context, projectID, workflowID string, from, to time.Time) ([]store.StepDuration, error)
+	getWorkflowCompletionRatesFn         func(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.WorkflowCompletionBucket, error)
+	getWorkflowSummaryFn                 func(ctx context.Context, projectID string, from, to time.Time) (*store.WorkflowSummary, error)
+	getWebhookDeliveryStatsFn            func(ctx context.Context, projectID string, from, to time.Time) ([]store.WebhookEndpointStats, error)
+	getWebhookEndpointHealthFn           func(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.WebhookHealthBucket, error)
+	getTopFailingWebhooksFn              func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingEndpoint, error)
+	getEventVolumeFn                     func(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.EventVolumeBucket, error)
+	getEventLatencyFn                    func(ctx context.Context, projectID string, from, to time.Time) (*store.EventLatencyStats, error)
+	getCostForecastFn                    func(ctx context.Context, projectID string, from, to time.Time) (*store.CostForecast, error)
+	getCostByTriggerFn                   func(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByTrigger, error)
+	getCostByMachineFn                   func(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByMachine, error)
 	createWorkflowFn                     func(ctx context.Context, w *domain.Workflow) error
 	getWorkflowFn                        func(ctx context.Context, id string) (*domain.Workflow, error)
 	getWorkflowBySlugFn                  func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
@@ -218,6 +243,11 @@ type mockAPIStore struct {
 	deleteNotificationChannelFn          func(ctx context.Context, id, projectID string) error
 	createNotificationDeliveryFn         func(ctx context.Context, d *domain.NotificationDelivery) error
 	listNotificationDeliveriesFn         func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
+	createDeviceCodeFn                   func(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error
+	getDeviceCodeByDeviceCodeFn          func(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
+	approveDeviceCodeFn                  func(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error
+	exchangeDeviceCodeFn                 func(ctx context.Context, deviceCode string) (string, error)
+	cleanupExpiredDeviceCodesFn          func(ctx context.Context) (int64, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -795,6 +825,181 @@ func (m *mockAPIStore) AggregateCostStatsHourly(ctx context.Context, hour time.T
 		return m.aggregateCostStatsHourlyFn(ctx, hour)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) GetRunTimeline(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.RunTimelineBucket, error) {
+	if m.getRunTimelineFn != nil {
+		return m.getRunTimelineFn(ctx, projectID, from, to, bucket)
+	}
+	return []store.RunTimelineBucket{}, nil
+}
+
+func (m *mockAPIStore) GetRunDurationDistribution(ctx context.Context, projectID string, from, to time.Time) ([]store.RunDurationBucket, error) {
+	if m.getRunDurationDistributionFn != nil {
+		return m.getRunDurationDistributionFn(ctx, projectID, from, to)
+	}
+	return []store.RunDurationBucket{}, nil
+}
+
+func (m *mockAPIStore) GetRunFailureReasons(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.RunFailureReason, error) {
+	if m.getRunFailureReasonsFn != nil {
+		return m.getRunFailureReasonsFn(ctx, projectID, from, to, limit)
+	}
+	return []store.RunFailureReason{}, nil
+}
+
+func (m *mockAPIStore) GetRunSummary(ctx context.Context, projectID string, from, to time.Time) (*store.RunSummary, error) {
+	if m.getRunSummaryFn != nil {
+		return m.getRunSummaryFn(ctx, projectID, from, to)
+	}
+	return &store.RunSummary{}, nil
+}
+
+func (m *mockAPIStore) GetRunsByTrigger(ctx context.Context, projectID string, from, to time.Time) ([]store.RunsByTrigger, error) {
+	if m.getRunsByTriggerFn != nil {
+		return m.getRunsByTriggerFn(ctx, projectID, from, to)
+	}
+	return []store.RunsByTrigger{}, nil
+}
+
+func (m *mockAPIStore) GetJobHistory(ctx context.Context, projectID, jobID string, from, to time.Time, bucket string) ([]store.JobHistoryBucket, error) {
+	if m.getJobHistoryFn != nil {
+		return m.getJobHistoryFn(ctx, projectID, jobID, from, to, bucket)
+	}
+	return []store.JobHistoryBucket{}, nil
+}
+
+func (m *mockAPIStore) GetJobComparison(ctx context.Context, projectID string, jobIDs []string, from, to time.Time) ([]store.JobComparison, error) {
+	if m.getJobComparisonFn != nil {
+		return m.getJobComparisonFn(ctx, projectID, jobIDs, from, to)
+	}
+	return []store.JobComparison{}, nil
+}
+
+func (m *mockAPIStore) GetJobReliability(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobReliability, error) {
+	if m.getJobReliabilityFn != nil {
+		return m.getJobReliabilityFn(ctx, projectID, from, to, limit)
+	}
+	return []store.JobReliability{}, nil
+}
+
+func (m *mockAPIStore) GetRunsByVersion(ctx context.Context, projectID, jobID string, from, to time.Time) ([]store.RunsByVersion, error) {
+	if m.getRunsByVersionFn != nil {
+		return m.getRunsByVersionFn(ctx, projectID, jobID, from, to)
+	}
+	return []store.RunsByVersion{}, nil
+}
+
+func (m *mockAPIStore) GetJobCostRanking(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobCostRanking, error) {
+	if m.getJobCostRankingFn != nil {
+		return m.getJobCostRankingFn(ctx, projectID, from, to, limit)
+	}
+	return []store.JobCostRanking{}, nil
+}
+
+func (m *mockAPIStore) GetTopFailingJobs(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingJob, error) {
+	if m.getTopFailingJobsFn != nil {
+		return m.getTopFailingJobsFn(ctx, projectID, from, to, limit)
+	}
+	return []store.TopFailingJob{}, nil
+}
+
+func (m *mockAPIStore) GetTagSummary(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TagSummary, error) {
+	if m.getTagSummaryFn != nil {
+		return m.getTagSummaryFn(ctx, projectID, from, to, limit)
+	}
+	return []store.TagSummary{}, nil
+}
+
+func (m *mockAPIStore) GetTopFailingTags(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingTag, error) {
+	if m.getTopFailingTagsFn != nil {
+		return m.getTopFailingTagsFn(ctx, projectID, from, to, limit)
+	}
+	return []store.TopFailingTag{}, nil
+}
+
+func (m *mockAPIStore) GetTagCost(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TagCost, error) {
+	if m.getTagCostFn != nil {
+		return m.getTagCostFn(ctx, projectID, from, to, limit)
+	}
+	return []store.TagCost{}, nil
+}
+
+func (m *mockAPIStore) GetWorkflowStepDurations(ctx context.Context, projectID, workflowID string, from, to time.Time) ([]store.StepDuration, error) {
+	if m.getWorkflowStepDurationsFn != nil {
+		return m.getWorkflowStepDurationsFn(ctx, projectID, workflowID, from, to)
+	}
+	return []store.StepDuration{}, nil
+}
+
+func (m *mockAPIStore) GetWorkflowCompletionRates(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.WorkflowCompletionBucket, error) {
+	if m.getWorkflowCompletionRatesFn != nil {
+		return m.getWorkflowCompletionRatesFn(ctx, projectID, from, to, bucket)
+	}
+	return []store.WorkflowCompletionBucket{}, nil
+}
+
+func (m *mockAPIStore) GetWorkflowSummary(ctx context.Context, projectID string, from, to time.Time) (*store.WorkflowSummary, error) {
+	if m.getWorkflowSummaryFn != nil {
+		return m.getWorkflowSummaryFn(ctx, projectID, from, to)
+	}
+	return &store.WorkflowSummary{}, nil
+}
+
+func (m *mockAPIStore) GetWebhookDeliveryStats(ctx context.Context, projectID string, from, to time.Time) ([]store.WebhookEndpointStats, error) {
+	if m.getWebhookDeliveryStatsFn != nil {
+		return m.getWebhookDeliveryStatsFn(ctx, projectID, from, to)
+	}
+	return []store.WebhookEndpointStats{}, nil
+}
+
+func (m *mockAPIStore) GetWebhookEndpointHealth(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.WebhookHealthBucket, error) {
+	if m.getWebhookEndpointHealthFn != nil {
+		return m.getWebhookEndpointHealthFn(ctx, projectID, from, to, bucket)
+	}
+	return []store.WebhookHealthBucket{}, nil
+}
+
+func (m *mockAPIStore) GetTopFailingWebhooks(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingEndpoint, error) {
+	if m.getTopFailingWebhooksFn != nil {
+		return m.getTopFailingWebhooksFn(ctx, projectID, from, to, limit)
+	}
+	return []store.TopFailingEndpoint{}, nil
+}
+
+func (m *mockAPIStore) GetEventVolume(ctx context.Context, projectID string, from, to time.Time, bucket string) ([]store.EventVolumeBucket, error) {
+	if m.getEventVolumeFn != nil {
+		return m.getEventVolumeFn(ctx, projectID, from, to, bucket)
+	}
+	return []store.EventVolumeBucket{}, nil
+}
+
+func (m *mockAPIStore) GetEventLatency(ctx context.Context, projectID string, from, to time.Time) (*store.EventLatencyStats, error) {
+	if m.getEventLatencyFn != nil {
+		return m.getEventLatencyFn(ctx, projectID, from, to)
+	}
+	return &store.EventLatencyStats{}, nil
+}
+
+func (m *mockAPIStore) GetCostForecast(ctx context.Context, projectID string, from, to time.Time) (*store.CostForecast, error) {
+	if m.getCostForecastFn != nil {
+		return m.getCostForecastFn(ctx, projectID, from, to)
+	}
+	return &store.CostForecast{}, nil
+}
+
+func (m *mockAPIStore) GetCostByTrigger(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByTrigger, error) {
+	if m.getCostByTriggerFn != nil {
+		return m.getCostByTriggerFn(ctx, projectID, from, to)
+	}
+	return []store.CostByTrigger{}, nil
+}
+
+func (m *mockAPIStore) GetCostByMachine(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByMachine, error) {
+	if m.getCostByMachineFn != nil {
+		return m.getCostByMachineFn(ctx, projectID, from, to)
+	}
+	return []store.CostByMachine{}, nil
 }
 
 func (m *mockAPIStore) CreateWorkflow(ctx context.Context, w *domain.Workflow) error {
@@ -1821,4 +2026,39 @@ func (m *mockAPIStore) ListNotificationDeliveries(ctx context.Context, projectID
 		return m.listNotificationDeliveriesFn(ctx, projectID, limit, cursor)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) CreateDeviceCode(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error {
+	if m.createDeviceCodeFn != nil {
+		return m.createDeviceCodeFn(ctx, deviceCode, userCode, projectID, scopes, expiresAt)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error) {
+	if m.getDeviceCodeByDeviceCodeFn != nil {
+		return m.getDeviceCodeByDeviceCodeFn(ctx, deviceCode)
+	}
+	return nil, store.ErrDeviceCodeNotFound
+}
+
+func (m *mockAPIStore) ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error {
+	if m.approveDeviceCodeFn != nil {
+		return m.approveDeviceCodeFn(ctx, deviceCode, apiKeyID, rawAPIKey)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ExchangeDeviceCode(ctx context.Context, deviceCode string) (string, error) {
+	if m.exchangeDeviceCodeFn != nil {
+		return m.exchangeDeviceCodeFn(ctx, deviceCode)
+	}
+	return "", nil
+}
+
+func (m *mockAPIStore) CleanupExpiredDeviceCodes(ctx context.Context) (int64, error) {
+	if m.cleanupExpiredDeviceCodesFn != nil {
+		return m.cleanupExpiredDeviceCodesFn(ctx)
+	}
+	return 0, nil
 }

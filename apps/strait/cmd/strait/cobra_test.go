@@ -21,6 +21,8 @@ func TestRootCommand_HasExpectedSubcommands(t *testing.T) {
 		"db", "run", "send", "secrets", "fixtures",
 		"check", "cleanup", "extension", "listen", "drain",
 		"trace", "upgrade", "backup", "profile",
+		"deploy", "project", "build", "doctor", "open",
+		"status", "debug", "create", "ci", "perf", "team", "audit",
 	}
 
 	subs := make(map[string]bool)
@@ -109,7 +111,7 @@ func TestRunsCommand_HasSubcommands(t *testing.T) {
 	cmd := newRootCommand()
 	runs := findSubcommand(t, cmd, "runs")
 
-	expected := []string{"list", "get", "cancel", "logs", "watch", "replay"}
+	expected := []string{"list", "get", "cancel", "logs", "watch", "replay", "last", "diff"}
 	assertSubcommands(t, runs, expected)
 }
 
@@ -152,7 +154,7 @@ func TestWorkflowsCommand_HasSubcommands(t *testing.T) {
 	cmd := newRootCommand()
 	wf := findSubcommand(t, cmd, "workflows")
 
-	expected := []string{"list", "get", "create", "trigger", "delete"}
+	expected := []string{"list", "get", "create", "trigger", "delete", "visualize"}
 	assertSubcommands(t, wf, expected)
 }
 
@@ -182,6 +184,149 @@ func TestCIMode_Flag(t *testing.T) {
 	}
 }
 
+func TestDeployCommand_HasSubcommands(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	deploy := findSubcommand(t, cmd, "deploy")
+
+	expected := []string{"create", "finalize", "promote", "rollback", "list", "preview"}
+	assertSubcommands(t, deploy, expected)
+}
+
+func TestBuildCommand_Flags(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	build := findSubcommand(t, cmd, "build")
+
+	for _, name := range []string{"config", "out-dir", "dry-run", "json"} {
+		if build.Flags().Lookup(name) == nil {
+			t.Errorf("build missing --%s flag", name)
+		}
+	}
+}
+
+func TestDoctorCommand_Flags(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	doctor := findSubcommand(t, cmd, "doctor")
+
+	for _, name := range []string{"verbose", "json", "fix", "check-endpoints", "check-manifests"} {
+		if doctor.Flags().Lookup(name) == nil {
+			t.Errorf("doctor missing --%s flag", name)
+		}
+	}
+}
+
+func TestCreateCommand_HasSubcommands(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	create := findSubcommand(t, cmd, "create")
+
+	expected := []string{"job", "workflow"}
+	assertSubcommands(t, create, expected)
+}
+
+func TestSecretsCommand_HasSubcommands(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	secrets := findSubcommand(t, cmd, "secrets")
+
+	expected := []string{"list", "create", "delete", "local"}
+	assertSubcommands(t, secrets, expected)
+}
+
+func TestTeamCommand_HasSubcommands(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	team := findSubcommand(t, cmd, "team")
+
+	expected := []string{"list", "add", "remove", "roles"}
+	assertSubcommands(t, team, expected)
+}
+
+func TestCICommand_HasSubcommands(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	ci := findSubcommand(t, cmd, "ci")
+
+	expected := []string{"setup", "check"}
+	assertSubcommands(t, ci, expected)
+}
+
+func TestDevCommand_HasSubcommands(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	dev := findSubcommand(t, cmd, "dev")
+
+	expected := []string{"status", "test", "tunnel"}
+	assertSubcommands(t, dev, expected)
+}
+
+func TestDebugCommand_HasSubcommands(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	debug := findSubcommand(t, cmd, "debug")
+
+	expected := []string{"bundle"}
+	assertSubcommands(t, debug, expected)
+}
+
+func TestPerfCommand_Flags(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	perf := findSubcommand(t, cmd, "perf")
+
+	for _, name := range []string{"project", "period", "json"} {
+		if perf.Flags().Lookup(name) == nil {
+			t.Errorf("perf missing --%s flag", name)
+		}
+	}
+	if err := perf.Args(perf, []string{"job-slug"}); err == nil {
+		t.Fatal("perf should reject positional job arguments")
+	}
+}
+
+func TestAuditCommand_Flags(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	audit := findSubcommand(t, cmd, "audit")
+
+	for _, name := range []string{"project", "actor-id", "resource-type", "resource-id", "limit", "from", "to", "order"} {
+		if audit.Flags().Lookup(name) == nil {
+			t.Errorf("audit missing --%s flag", name)
+		}
+	}
+}
+
+func TestTeamAddCommand_UsesUserAndRoleIDs(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	team := findSubcommand(t, cmd, "team")
+	add := findSubcommand(t, team, "add")
+
+	if add.Use != "add <user-id>" {
+		t.Fatalf("unexpected usage: %s", add.Use)
+	}
+	if add.Flags().Lookup("role-id") == nil {
+		t.Fatal("team add missing --role-id flag")
+	}
+	if add.Flags().Lookup("role") != nil {
+		t.Fatal("team add should not expose deprecated --role flag")
+	}
+}
+
 // Test helpers.
 
 func findSubcommand(t *testing.T, parent interface{ Commands() []*cobra.Command }, name string) *cobra.Command {
@@ -195,6 +340,20 @@ func findSubcommand(t *testing.T, parent interface{ Commands() []*cobra.Command 
 	return nil
 }
 
+func TestWorkflowsTriggerCommand_HasProjectFlag(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	wf := findSubcommand(t, cmd, "workflows")
+	trigger := findSubcommand(t, wf, "trigger")
+
+	for _, name := range []string{"project", "payload", "payload-file"} {
+		if trigger.Flags().Lookup(name) == nil {
+			t.Errorf("workflows trigger missing --%s flag", name)
+		}
+	}
+}
+
 func assertSubcommands(t *testing.T, parent interface{ Commands() []*cobra.Command }, expected []string) {
 	t.Helper()
 	subs := make(map[string]bool)
@@ -205,5 +364,23 @@ func assertSubcommands(t *testing.T, parent interface{ Commands() []*cobra.Comma
 		if !subs[name] {
 			t.Errorf("missing subcommand: %s", name)
 		}
+	}
+}
+
+func TestRunsDiffCommand_Flags(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	runs := findSubcommand(t, cmd, "runs")
+	diff := findSubcommand(t, runs, "diff")
+
+	for _, name := range []string{"show-payload", "show-events", "event-limit"} {
+		if diff.Flags().Lookup(name) == nil {
+			t.Errorf("runs diff missing --%s flag", name)
+		}
+	}
+
+	if diff.Flags().Lookup("json") != nil {
+		t.Error("runs diff should not have --json flag (removed)")
 	}
 }

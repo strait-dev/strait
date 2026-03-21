@@ -53,6 +53,18 @@ bun run test
 bun run build
 ```
 
+## Self-Hosting
+
+Run Strait on your own infrastructure in under a minute:
+
+```bash
+git clone https://github.com/leonardomso/strait.git
+cd strait
+docker compose -f docker-compose.self-host.yml up -d
+```
+
+This starts Strait, PostgreSQL, Redis, Prometheus, and Grafana. See [docs/self-hosting.md](docs/self-hosting.md) for configuration, production hardening, and the edition comparison.
+
 ## Key Features
 
 - **13-State FSM** — Robust lifecycle management with queued, executing, completed, failed, timed_out, dead_letter

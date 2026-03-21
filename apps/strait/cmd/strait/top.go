@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"time"
 
+	"strait/internal/cli/styles"
 	"strait/internal/domain"
 
 	"github.com/spf13/cobra"
@@ -52,6 +54,7 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			ttyMode := isTTYRich(state)
 			return runTopLoop(cmd, watch, interval, func() error {
 				sampledAt := time.Now().UTC().Format(time.RFC3339)
 				rows := make([]map[string]any, 0)
@@ -60,6 +63,13 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 					stats, err := cli.Stats(cmd.Context())
 					if err != nil {
 						return err
+					}
+					if ttyMode {
+						fmt.Fprintln(os.Stderr, styles.SectionHeader("Queue", -1))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Queued", fmt.Sprintf("%d", stats.Queued)))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Executing", fmt.Sprintf("%d", stats.Executing)))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Delayed", fmt.Sprintf("%d", stats.Delayed)))
+						return nil
 					}
 					rows = append(rows,
 						map[string]any{"metric": "queued", "value": stats.Queued, "scope": "global", "sampled_at": sampledAt},
@@ -75,6 +85,16 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 					counts := map[string]int{}
 					for _, run := range runs {
 						counts[string(run.Status)]++
+					}
+
+					if ttyMode {
+						fmt.Fprintln(os.Stderr, styles.SectionHeader("Queue ("+projectID+")", -1))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Queued", fmt.Sprintf("%d", counts["queued"])))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Executing", fmt.Sprintf("%d", counts["executing"])))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Delayed", fmt.Sprintf("%d", counts["delayed"])))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Waiting", fmt.Sprintf("%d", counts["waiting"])))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Failed", fmt.Sprintf("%d", counts["failed"]+counts["timed_out"]+counts["crashed"]+counts["system_failed"])))
+						return nil
 					}
 
 					rows = append(rows,
@@ -114,7 +134,8 @@ func newTopJobsCommand(state *appState) *cobra.Command {
 			if limit <= 0 {
 				return fmt.Errorf("limit must be greater than zero")
 			}
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
@@ -192,6 +213,20 @@ func newTopJobsCommand(state *appState) *cobra.Command {
 					rows = rows[:limit]
 				}
 
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.SectionHeader("Job Activity", len(rows)))
+					for _, r := range rows {
+						fmt.Fprintf(os.Stderr, "  %s  %s  active=%d  failed=%d  total=%d\n",
+							styles.Enabled(r.Enabled),
+							styles.Bold.Render(r.Slug),
+							r.Active,
+							r.Failed,
+							r.Total,
+						)
+					}
+					return nil
+				}
+
 				sampledAt := time.Now().UTC().Format(time.RFC3339)
 				out := make([]map[string]any, 0, len(rows))
 				for _, r := range rows {
@@ -206,7 +241,6 @@ func newTopJobsCommand(state *appState) *cobra.Command {
 						"sampled_at":   sampledAt,
 					})
 				}
-
 				return printData(state, out)
 			})
 		},

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"gopkg.in/yaml.v3"
 
@@ -38,7 +39,8 @@ func newExportCommand(state *appState) *cobra.Command {
 		Args:      cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resource := strings.ToLower(strings.TrimSpace(args[0]))
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
@@ -94,6 +96,12 @@ func newExportCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				for _, p := range paths {
+					fmt.Fprintln(os.Stderr, styles.Success("Exported "+styles.FilePath(p)))
+				}
+				return nil
+			}
 			return printData(state, map[string]any{
 				"resource":   resource,
 				"output_dir": outputDir,

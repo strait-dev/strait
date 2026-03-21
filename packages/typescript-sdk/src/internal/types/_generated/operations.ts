@@ -41,9 +41,34 @@ export type OperationPathParamsById = {
   "getV1AnalyticsCompute": undefined;
   "getV1AnalyticsCostInsights": undefined;
   "getV1AnalyticsCosts": undefined;
+  "getV1AnalyticsCostsByMachine": undefined;
+  "getV1AnalyticsCostsByTrigger": undefined;
+  "getV1AnalyticsCostsForecast": undefined;
   "getV1AnalyticsCostsTop": undefined;
   "getV1AnalyticsCostsTrends": undefined;
+  "getV1AnalyticsEventsLatency": undefined;
+  "getV1AnalyticsEventsVolume": undefined;
+  "getV1AnalyticsJobsByJobIDHistory": { "jobID": string };
+  "getV1AnalyticsJobsByVersion": undefined;
+  "getV1AnalyticsJobsComparison": undefined;
+  "getV1AnalyticsJobsCostRanking": undefined;
+  "getV1AnalyticsJobsReliability": undefined;
+  "getV1AnalyticsJobsTopFailing": undefined;
   "getV1AnalyticsPerformance": undefined;
+  "getV1AnalyticsRunsByTrigger": undefined;
+  "getV1AnalyticsRunsDurationDistribution": undefined;
+  "getV1AnalyticsRunsFailureReasons": undefined;
+  "getV1AnalyticsRunsSummary": undefined;
+  "getV1AnalyticsRunsTimeline": undefined;
+  "getV1AnalyticsTagsCost": undefined;
+  "getV1AnalyticsTagsSummary": undefined;
+  "getV1AnalyticsTagsTopFailing": undefined;
+  "getV1AnalyticsWebhooksDeliveryStats": undefined;
+  "getV1AnalyticsWebhooksEndpointHealth": undefined;
+  "getV1AnalyticsWebhooksTopFailing": undefined;
+  "getV1AnalyticsWorkflowsByWorkflowIDStepDurations": { "workflowID": string };
+  "getV1AnalyticsWorkflowsCompletionRates": undefined;
+  "getV1AnalyticsWorkflowsSummary": undefined;
   "getV1ApiKeys": undefined;
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": { "keyID": string };
@@ -52,6 +77,9 @@ export type OperationPathParamsById = {
   "getV1AuditEventsExport": undefined;
   "getV1BatchOperations": undefined;
   "getV1BatchOperationsByBatchID": { "batchID": string };
+  "postV1CliAuthDeviceCode": undefined;
+  "postV1CliAuthToken": undefined;
+  "postV1CliDeviceCodesApprove": undefined;
   "getV1Deployments": undefined;
   "postV1Deployments": undefined;
   "postV1DeploymentsByDeploymentIDFinalize": { "deploymentID": string };
@@ -253,9 +281,34 @@ export type OperationQueryParamsById = {
   "getV1AnalyticsCompute": { "from": string; "to": string };
   "getV1AnalyticsCostInsights": { "from": string; "to": string; "threshold"?: number };
   "getV1AnalyticsCosts": { "from": string; "to": string };
+  "getV1AnalyticsCostsByMachine": { "from": string; "to": string };
+  "getV1AnalyticsCostsByTrigger": { "from": string; "to": string };
+  "getV1AnalyticsCostsForecast": { "from": string; "to": string };
   "getV1AnalyticsCostsTop": { "from": string; "to": string; "limit"?: number };
   "getV1AnalyticsCostsTrends": { "from": string; "to": string };
+  "getV1AnalyticsEventsLatency": { "from": string; "to": string };
+  "getV1AnalyticsEventsVolume": { "from": string; "to": string; "bucket"?: "hour" | "day" };
+  "getV1AnalyticsJobsByJobIDHistory": { "from": string; "to": string; "bucket"?: "hour" | "day" };
+  "getV1AnalyticsJobsByVersion": { "from": string; "to": string; "job_id": string };
+  "getV1AnalyticsJobsComparison": { "from": string; "to": string; "job_ids": string };
+  "getV1AnalyticsJobsCostRanking": { "from": string; "to": string; "limit"?: number };
+  "getV1AnalyticsJobsReliability": { "from": string; "to": string; "limit"?: number };
+  "getV1AnalyticsJobsTopFailing": { "from": string; "to": string; "limit"?: number };
   "getV1AnalyticsPerformance": { "period_hours"?: number };
+  "getV1AnalyticsRunsByTrigger": { "from": string; "to": string };
+  "getV1AnalyticsRunsDurationDistribution": { "from": string; "to": string };
+  "getV1AnalyticsRunsFailureReasons": { "from": string; "to": string; "limit"?: number };
+  "getV1AnalyticsRunsSummary": { "from": string; "to": string };
+  "getV1AnalyticsRunsTimeline": { "from": string; "to": string; "bucket"?: "hour" | "day" };
+  "getV1AnalyticsTagsCost": { "from": string; "to": string; "limit"?: number };
+  "getV1AnalyticsTagsSummary": { "from": string; "to": string; "limit"?: number };
+  "getV1AnalyticsTagsTopFailing": { "from": string; "to": string; "limit"?: number };
+  "getV1AnalyticsWebhooksDeliveryStats": { "from": string; "to": string };
+  "getV1AnalyticsWebhooksEndpointHealth": { "from": string; "to": string; "bucket"?: "hour" | "day" };
+  "getV1AnalyticsWebhooksTopFailing": { "from": string; "to": string; "limit"?: number };
+  "getV1AnalyticsWorkflowsByWorkflowIDStepDurations": { "from": string; "to": string };
+  "getV1AnalyticsWorkflowsCompletionRates": { "from": string; "to": string; "bucket"?: "hour" | "day" };
+  "getV1AnalyticsWorkflowsSummary": { "from": string; "to": string };
   "getV1ApiKeys": { "project_id": string };
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": undefined;
@@ -264,6 +317,9 @@ export type OperationQueryParamsById = {
   "getV1AuditEventsExport": { "from": string; "to": string; "format"?: "json" | "csv" | "ndjson" };
   "getV1BatchOperations": { "project_id": string; "limit"?: number; "cursor"?: string };
   "getV1BatchOperationsByBatchID": { "project_id": string };
+  "postV1CliAuthDeviceCode": undefined;
+  "postV1CliAuthToken": undefined;
+  "postV1CliDeviceCodesApprove": undefined;
   "getV1Deployments": { "project_id": string; "environment"?: string; "limit"?: number; "cursor"?: string };
   "postV1Deployments": undefined;
   "postV1DeploymentsByDeploymentIDFinalize": undefined;
@@ -332,7 +388,7 @@ export type OperationQueryParamsById = {
   "deleteV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationChannelsByChannelID": undefined;
   "patchV1NotificationChannelsByChannelID": undefined;
-  "getV1NotificationDeliveries": { "project_id": string; "limit"?: number; "cursor"?: string };
+  "getV1NotificationDeliveries": { "limit"?: number; "cursor"?: string };
   "getV1ProjectsByProjectIDSettings": undefined;
   "putV1ProjectsByProjectIDSettings": undefined;
   "getV1Regions": undefined;
@@ -465,9 +521,34 @@ export type OperationHeaderParamsById = {
   "getV1AnalyticsCompute": undefined;
   "getV1AnalyticsCostInsights": undefined;
   "getV1AnalyticsCosts": undefined;
+  "getV1AnalyticsCostsByMachine": undefined;
+  "getV1AnalyticsCostsByTrigger": undefined;
+  "getV1AnalyticsCostsForecast": undefined;
   "getV1AnalyticsCostsTop": undefined;
   "getV1AnalyticsCostsTrends": undefined;
+  "getV1AnalyticsEventsLatency": undefined;
+  "getV1AnalyticsEventsVolume": undefined;
+  "getV1AnalyticsJobsByJobIDHistory": undefined;
+  "getV1AnalyticsJobsByVersion": undefined;
+  "getV1AnalyticsJobsComparison": undefined;
+  "getV1AnalyticsJobsCostRanking": undefined;
+  "getV1AnalyticsJobsReliability": undefined;
+  "getV1AnalyticsJobsTopFailing": undefined;
   "getV1AnalyticsPerformance": undefined;
+  "getV1AnalyticsRunsByTrigger": undefined;
+  "getV1AnalyticsRunsDurationDistribution": undefined;
+  "getV1AnalyticsRunsFailureReasons": undefined;
+  "getV1AnalyticsRunsSummary": undefined;
+  "getV1AnalyticsRunsTimeline": undefined;
+  "getV1AnalyticsTagsCost": undefined;
+  "getV1AnalyticsTagsSummary": undefined;
+  "getV1AnalyticsTagsTopFailing": undefined;
+  "getV1AnalyticsWebhooksDeliveryStats": undefined;
+  "getV1AnalyticsWebhooksEndpointHealth": undefined;
+  "getV1AnalyticsWebhooksTopFailing": undefined;
+  "getV1AnalyticsWorkflowsByWorkflowIDStepDurations": undefined;
+  "getV1AnalyticsWorkflowsCompletionRates": undefined;
+  "getV1AnalyticsWorkflowsSummary": undefined;
   "getV1ApiKeys": undefined;
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": undefined;
@@ -476,6 +557,9 @@ export type OperationHeaderParamsById = {
   "getV1AuditEventsExport": undefined;
   "getV1BatchOperations": undefined;
   "getV1BatchOperationsByBatchID": undefined;
+  "postV1CliAuthDeviceCode": undefined;
+  "postV1CliAuthToken": undefined;
+  "postV1CliDeviceCodesApprove": undefined;
   "getV1Deployments": undefined;
   "postV1Deployments": undefined;
   "postV1DeploymentsByDeploymentIDFinalize": undefined;
@@ -699,9 +783,34 @@ export const generatedOperationMetadataById = {
   "getV1AnalyticsCompute": { functionName: "getCompute", domainName: "analytics", domainMethodName: "getCompute", pathParamNames: [], summary: "Compute cost analytics" },
   "getV1AnalyticsCostInsights": { functionName: "listCostInsights", domainName: "analytics", domainMethodName: "listCostInsights", pathParamNames: [], summary: "Cost optimization insights" },
   "getV1AnalyticsCosts": { functionName: "listCosts", domainName: "analytics", domainMethodName: "listCosts", pathParamNames: [], summary: "Cost analytics" },
+  "getV1AnalyticsCostsByMachine": { functionName: "getByMachine", domainName: "analytics", domainMethodName: "getByMachine", pathParamNames: [], summary: "Cost breakdown by machine preset" },
+  "getV1AnalyticsCostsByTrigger": { functionName: "getByTrigger", domainName: "analytics", domainMethodName: "getByTrigger", pathParamNames: [], summary: "Cost breakdown by trigger type" },
+  "getV1AnalyticsCostsForecast": { functionName: "getForecast", domainName: "analytics", domainMethodName: "getForecast", pathParamNames: [], summary: "Cost forecast" },
   "getV1AnalyticsCostsTop": { functionName: "getTop", domainName: "analytics", domainMethodName: "getTop", pathParamNames: [], summary: "Top cost items" },
   "getV1AnalyticsCostsTrends": { functionName: "listTrends", domainName: "analytics", domainMethodName: "listTrends", pathParamNames: [], summary: "Cost trends over time" },
+  "getV1AnalyticsEventsLatency": { functionName: "getLatency", domainName: "analytics", domainMethodName: "getLatency", pathParamNames: [], summary: "Event trigger latency statistics" },
+  "getV1AnalyticsEventsVolume": { functionName: "getVolume", domainName: "analytics", domainMethodName: "getVolume", pathParamNames: [], summary: "Event trigger volume timeline" },
+  "getV1AnalyticsJobsByJobIDHistory": { functionName: "getHistory", domainName: "analytics", domainMethodName: "getHistory", pathParamNames: ["jobID"], summary: "Job run history timeline" },
+  "getV1AnalyticsJobsByVersion": { functionName: "getByVersion", domainName: "analytics", domainMethodName: "getByVersion", pathParamNames: [], summary: "Runs grouped by job version" },
+  "getV1AnalyticsJobsComparison": { functionName: "getComparison", domainName: "analytics", domainMethodName: "getComparison", pathParamNames: [], summary: "Compare metrics across jobs" },
+  "getV1AnalyticsJobsCostRanking": { functionName: "getCostRanking", domainName: "analytics", domainMethodName: "getCostRanking", pathParamNames: [], summary: "Jobs ranked by cost" },
+  "getV1AnalyticsJobsReliability": { functionName: "getReliability", domainName: "analytics", domainMethodName: "getReliability", pathParamNames: [], summary: "Job reliability ranking" },
+  "getV1AnalyticsJobsTopFailing": { functionName: "getTopFailing", domainName: "analytics", domainMethodName: "getTopFailing", pathParamNames: [], summary: "Top failing jobs" },
   "getV1AnalyticsPerformance": { functionName: "getPerformance", domainName: "analytics", domainMethodName: "getPerformance", pathParamNames: [], summary: "Performance analytics" },
+  "getV1AnalyticsRunsByTrigger": { functionName: "getByTriggerGet", domainName: "analytics", domainMethodName: "getByTriggerGet", pathParamNames: [], summary: "Runs grouped by trigger type" },
+  "getV1AnalyticsRunsDurationDistribution": { functionName: "getDurationDistribution", domainName: "analytics", domainMethodName: "getDurationDistribution", pathParamNames: [], summary: "Run duration distribution" },
+  "getV1AnalyticsRunsFailureReasons": { functionName: "listFailureReasons", domainName: "analytics", domainMethodName: "listFailureReasons", pathParamNames: [], summary: "Top run failure reasons" },
+  "getV1AnalyticsRunsSummary": { functionName: "getSummary", domainName: "analytics", domainMethodName: "getSummary", pathParamNames: [], summary: "Run analytics summary" },
+  "getV1AnalyticsRunsTimeline": { functionName: "getTimeline", domainName: "analytics", domainMethodName: "getTimeline", pathParamNames: [], summary: "Run status timeline" },
+  "getV1AnalyticsTagsCost": { functionName: "getCost", domainName: "analytics", domainMethodName: "getCost", pathParamNames: [], summary: "Cost by tag" },
+  "getV1AnalyticsTagsSummary": { functionName: "getSummaryGet", domainName: "analytics", domainMethodName: "getSummaryGet", pathParamNames: [], summary: "Tag analytics summary" },
+  "getV1AnalyticsTagsTopFailing": { functionName: "getTopFailingGet", domainName: "analytics", domainMethodName: "getTopFailingGet", pathParamNames: [], summary: "Top failing tags" },
+  "getV1AnalyticsWebhooksDeliveryStats": { functionName: "listDeliveryStats", domainName: "analytics", domainMethodName: "listDeliveryStats", pathParamNames: [], summary: "Webhook delivery statistics" },
+  "getV1AnalyticsWebhooksEndpointHealth": { functionName: "getEndpointHealth", domainName: "analytics", domainMethodName: "getEndpointHealth", pathParamNames: [], summary: "Webhook endpoint health timeline" },
+  "getV1AnalyticsWebhooksTopFailing": { functionName: "getTopFailingGetV1AnalyticsWebhooksTopFailing", domainName: "analytics", domainMethodName: "getTopFailingGetV1AnalyticsWebhooksTopFailing", pathParamNames: [], summary: "Top failing webhook endpoints" },
+  "getV1AnalyticsWorkflowsByWorkflowIDStepDurations": { functionName: "listStepDurations", domainName: "analytics", domainMethodName: "listStepDurations", pathParamNames: ["workflowID"], summary: "Workflow step duration stats" },
+  "getV1AnalyticsWorkflowsCompletionRates": { functionName: "listCompletionRates", domainName: "analytics", domainMethodName: "listCompletionRates", pathParamNames: [], summary: "Workflow completion rate timeline" },
+  "getV1AnalyticsWorkflowsSummary": { functionName: "getSummaryGetV1AnalyticsWorkflowsSummary", domainName: "analytics", domainMethodName: "getSummaryGetV1AnalyticsWorkflowsSummary", pathParamNames: [], summary: "Workflow analytics summary" },
   "getV1ApiKeys": { functionName: "listApiKeys", domainName: "apiKeys", domainMethodName: "list", pathParamNames: [], summary: "List API keys" },
   "postV1ApiKeys": { functionName: "createApiKey", domainName: "apiKeys", domainMethodName: "create", pathParamNames: [], summary: "Create an API key" },
   "deleteV1ApiKeysByKeyID": { functionName: "deleteApiKey", domainName: "apiKeys", domainMethodName: "delete", pathParamNames: ["keyID"], summary: "Revoke an API key" },
@@ -710,6 +819,9 @@ export const generatedOperationMetadataById = {
   "getV1AuditEventsExport": { functionName: "getExport", domainName: "rbac", domainMethodName: "getExport", pathParamNames: [], summary: "Export audit events in CSV, JSON, or NDJSON format" },
   "getV1BatchOperations": { functionName: "listBatchOperations", domainName: "batchOperations", domainMethodName: "list", pathParamNames: [], summary: "List batch operations" },
   "getV1BatchOperationsByBatchID": { functionName: "getBatchOperation", domainName: "batchOperations", domainMethodName: "get", pathParamNames: ["batchID"], summary: "Get a batch operation" },
+  "postV1CliAuthDeviceCode": { functionName: "deviceCodeAuth", domainName: "cliAuth", domainMethodName: "deviceCodeAuth", pathParamNames: [], summary: "Request a device code for CLI authentication" },
+  "postV1CliAuthToken": { functionName: "tokenAuth", domainName: "cliAuth", domainMethodName: "tokenAuth", pathParamNames: [], summary: "Exchange device code for API token" },
+  "postV1CliDeviceCodesApprove": { functionName: "approveDeviceCode", domainName: "cliAuth", domainMethodName: "approveDeviceCode", pathParamNames: [], summary: "Approve a device code" },
   "getV1Deployments": { functionName: "listDeployments", domainName: "deployments", domainMethodName: "list", pathParamNames: [], summary: "List deployment versions" },
   "postV1Deployments": { functionName: "createDeployment", domainName: "deployments", domainMethodName: "create", pathParamNames: [], summary: "Create deployment version" },
   "postV1DeploymentsByDeploymentIDFinalize": { functionName: "finalizeDeployment", domainName: "deployments", domainMethodName: "finalize", pathParamNames: ["deploymentID"], summary: "Finalize deployment version" },
@@ -854,7 +966,7 @@ export const generatedOperationMetadataById = {
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefReplaySubtree": { functionName: "replaySubtreeStep", domainName: "workflowRuns", domainMethodName: "replaySubtreeStep", pathParamNames: ["workflowRunID","stepRef"], summary: "Replay a step subtree" },
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefRetry": { functionName: "retryStep", domainName: "workflowRuns", domainMethodName: "retryStep", pathParamNames: ["workflowRunID","stepRef"], summary: "Retry a single workflow step" },
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefSkip": { functionName: "skipStep", domainName: "workflowRuns", domainMethodName: "skipStep", pathParamNames: ["workflowRunID","stepRef"], summary: "Skip a step" },
-  "getV1WorkflowRunsByWorkflowRunIDTimeline": { functionName: "getTimeline", domainName: "workflows", domainMethodName: "getTimeline", pathParamNames: ["workflowRunID"], summary: "Get workflow run timeline for Gantt chart rendering" },
+  "getV1WorkflowRunsByWorkflowRunIDTimeline": { functionName: "getTimelineByWorkflowRunID", domainName: "workflows", domainMethodName: "getTimelineByWorkflowRunId", pathParamNames: ["workflowRunID"], summary: "Get workflow run timeline for Gantt chart rendering" },
   "postV1WorkflowRunsBulkCancel": { functionName: "bulkCancelWorkflowRun", domainName: "workflowRuns", domainMethodName: "bulkCancel", pathParamNames: [], summary: "Bulk cancel workflow runs" },
   "postV1WorkflowRunsBulkReplay": { functionName: "bulkReplayWorkflowRun", domainName: "workflowRuns", domainMethodName: "bulkReplay", pathParamNames: [], summary: "Bulk replay workflow runs" },
   "getV1Workflows": { functionName: "listWorkflows", domainName: "workflows", domainMethodName: "list", pathParamNames: [], summary: "List workflows" },

@@ -27,7 +27,8 @@ Deduplicates by run ID so each run appears only once (or when status changes).`,
   strait listen --project proj_1 --status executing
   strait listen --interval 3s`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
@@ -60,7 +61,7 @@ Deduplicates by run ID so each run appears only once (or when status changes).`,
 					if !known || lastStatus != currentStatus {
 						seen[run.ID] = currentStatus
 						ts := run.CreatedAt.UTC().Format(time.RFC3339)
-						statusStr := styles.Status(currentStatus)
+						statusStr := styles.StatusBadge(currentStatus)
 						fmt.Fprintf(os.Stdout, "%s  %s  %s  attempt=%d  triggered_by=%s\n",
 							ts, run.ID, statusStr, run.Attempt, run.TriggeredBy)
 					}

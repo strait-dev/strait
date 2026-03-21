@@ -56,6 +56,12 @@ func newRootCommand() *cobra.Command {
 				return err
 			}
 
+			if loaded.IsLocal && loaded.Exists {
+				if fields := cliconfig.HasSensitiveLocalFields(loaded.Data); len(fields) > 0 {
+					fmt.Fprintln(os.Stderr, styles.Warn("local config "+loaded.Path+" overrides: "+strings.Join(fields, ", ")))
+				}
+			}
+
 			resolved := cliconfig.Resolve(cliconfig.ResolveInput{
 				Flags: map[string]string{
 					"server":  opts.serverURL,
@@ -195,6 +201,16 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newProfileCommand(state))
 	cmd.AddCommand(newDeployCommand(state))
 	cmd.AddCommand(newProjectCommand(state))
+	cmd.AddCommand(newBuildCommand(state))
+	cmd.AddCommand(newDoctorCommand(state))
+	cmd.AddCommand(newOpenCommand(state))
+	cmd.AddCommand(newStatusCommand(state))
+	cmd.AddCommand(newDebugCommand(state))
+	cmd.AddCommand(newCreateCommand(state))
+	cmd.AddCommand(newCICommand(state))
+	cmd.AddCommand(newPerfCommand(state))
+	cmd.AddCommand(newTeamCommand(state))
+	cmd.AddCommand(newAuditCommand(state))
 
 	rawArgs := os.Args[1:]
 	configPath := extractConfigPath(rawArgs)
@@ -282,6 +298,19 @@ func normalizeLegacyArgs(args []string) []string {
 		"upgrade":       {},
 		"backup":        {},
 		"profile":       {},
+		"deploy":        {},
+		"project":       {},
+		"build":         {},
+		"doctor":        {},
+		"open":          {},
+		"status":        {},
+		"debug":         {},
+		"create":        {},
+		"ci":            {},
+		"perf":          {},
+		"team":          {},
+		"audit":         {},
+		"triggers":      {},
 	}
 
 	first := args[0]
@@ -379,13 +408,25 @@ func newVersionCommand(state *appState) *cobra.Command {
 				return enc.Encode(info)
 			}
 
-			fmt.Printf("version: %s\n", info["version"])
-			fmt.Printf("commit: %s\n", info["commit"])
-			fmt.Printf("date: %s\n", info["date"])
-			fmt.Printf("go: %s\n", info["go"])
-			fmt.Printf("os/arch: %s\n", info["os_arch"])
-			if checkServer {
-				fmt.Printf("server: %s\n", info["server"])
+			if isTTYRich(state) {
+				fmt.Println(styles.TitleStyle.Render("Strait CLI"))
+				fmt.Println(styles.KeyValue("Version", info["version"]))
+				fmt.Println(styles.KeyValue("Commit", info["commit"]))
+				fmt.Println(styles.KeyValue("Date", info["date"]))
+				fmt.Println(styles.KeyValue("Go", info["go"]))
+				fmt.Println(styles.KeyValue("OS/Arch", info["os_arch"]))
+				if checkServer {
+					fmt.Println(styles.KeyValue("Server", info["server"]))
+				}
+			} else {
+				fmt.Printf("version: %s\n", info["version"])
+				fmt.Printf("commit: %s\n", info["commit"])
+				fmt.Printf("date: %s\n", info["date"])
+				fmt.Printf("go: %s\n", info["go"])
+				fmt.Printf("os/arch: %s\n", info["os_arch"])
+				if checkServer {
+					fmt.Printf("server: %s\n", info["server"])
+				}
 			}
 
 			if checkUpdate {

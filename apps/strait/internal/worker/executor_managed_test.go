@@ -89,7 +89,7 @@ func (m *mockContainerRuntime) GetLogs(ctx context.Context, machineID string, li
 }
 
 func newManagedTestExecutor(store *mockExecutorStore, runtime compute.ContainerRuntime, opts ...func(*Executor)) *Executor {
-	metrics, _, _, _ := telemetry.InitMetrics("test-managed")
+	metrics, _, _, _ := telemetry.InitMetrics("test-managed", "test")
 	e := &Executor{
 		store:            store,
 		containerRuntime: runtime,

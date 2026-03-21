@@ -138,6 +138,38 @@ func (q *Queries) ListRunComputeUsageByProject(ctx context.Context, projectID st
 	return usages, rows.Err()
 }
 
+// ListRunComputeUsage returns committed compute usage records for a specific run.
+func (q *Queries) ListRunComputeUsage(ctx context.Context, runID string) ([]domain.RunComputeUsage, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunComputeUsage")
+	defer span.End()
+
+	query := `
+		SELECT id, run_id, project_id, job_id, machine_preset, machine_id, duration_secs, cost_microusd, started_at, finished_at, created_at
+		FROM run_compute_usage
+		WHERE run_id = $1 AND status = 'committed'
+		ORDER BY created_at ASC`
+
+	rows, err := q.db.Query(ctx, query, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list run compute usage: %w", err)
+	}
+	defer rows.Close()
+
+	var usages []domain.RunComputeUsage
+	for rows.Next() {
+		var u domain.RunComputeUsage
+		if err := rows.Scan(
+			&u.ID, &u.RunID, &u.ProjectID, &u.JobID, &u.MachinePreset, &u.MachineID,
+			&u.DurationSecs, &u.CostMicrousd, &u.StartedAt, &u.FinishedAt, &u.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan run compute usage: %w", err)
+		}
+		usages = append(usages, u)
+	}
+
+	return usages, rows.Err()
+}
+
 // ProjectComputeQuota is a lightweight projection for budget monitoring.
 type ProjectComputeQuota struct {
 	ProjectID                     string

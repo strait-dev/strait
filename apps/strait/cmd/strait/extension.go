@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"strait/internal/cli/extension"
+	"strait/internal/cli/styles"
+
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +27,9 @@ They are invoked as subcommands: strait extension run <name> [args...]`,
 
 	cmd.AddCommand(newExtensionListCommand(state))
 	cmd.AddCommand(newExtensionRunCommand())
+	cmd.AddCommand(newExtensionInstallCommand())
+	cmd.AddCommand(newExtensionCreateCommand())
+	cmd.AddCommand(newExtensionRemoveCommand())
 
 	return cmd
 }
@@ -84,6 +90,67 @@ func newExtensionRunCommand() *cobra.Command {
 type extensionInfo struct {
 	name string
 	path string
+}
+
+func newExtensionInstallCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "install <source>",
+		Short: "Install an extension from a GitHub URL or local path",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			source := args[0]
+			if err := extension.Install(cmd.Context(), source); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stderr, styles.Success("Installed extension from "+source))
+			return nil
+		},
+	}
+	return cmd
+}
+
+func newExtensionCreateCommand() *cobra.Command {
+	var outDir string
+
+	cmd := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Scaffold a new extension project",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := args[0]
+			dir := outDir
+			if dir == "" {
+				dir = "."
+			}
+			if err := extension.Scaffold(name, dir); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stderr, styles.Success("Scaffolded extension "+styles.Bold.Render(name)+" in "+styles.FilePath(dir+"/"+name)))
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&outDir, "dir", ".", "parent directory for the new extension")
+
+	return cmd
+}
+
+func newExtensionRemoveCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove an installed extension",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := args[0]
+			dir := extension.ExtensionsDir()
+			if err := extension.Remove(dir, name); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stderr, styles.Success("Removed extension "+styles.Bold.Render(name)))
+			return nil
+		},
+	}
+	return cmd
 }
 
 func discoverExtensions() []extensionInfo {

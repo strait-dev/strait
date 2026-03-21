@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/telemetry"
@@ -142,6 +143,7 @@ type Reaper struct {
 	retentionEnabled      bool
 	workflowCallback      WorkflowCallback
 	machineDestroyer      MachineDestroyer
+	chExporter            *clickhouse.Exporter
 	metrics               *telemetry.Metrics
 	logger                *slog.Logger
 	stalledAction         string
@@ -257,6 +259,12 @@ func (r *Reaper) WithAdvisoryLocker(locker AdvisoryLocker) *Reaper {
 // WithMachineDestroyer sets the container runtime for orphaned machine cleanup.
 func (r *Reaper) WithMachineDestroyer(d MachineDestroyer) *Reaper {
 	r.machineDestroyer = d
+	return r
+}
+
+// WithChExporter attaches the ClickHouse exporter for event trigger timeout analytics.
+func (r *Reaper) WithChExporter(e *clickhouse.Exporter) *Reaper {
+	r.chExporter = e
 	return r
 }
 
@@ -678,6 +686,20 @@ func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
 		if err := r.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusTimedOut, nil, nil, "event trigger timed out"); err != nil {
 			slog.Error("failed to mark event trigger timed out", "trigger_id", trigger.ID, "error", err)
 			continue
+		}
+
+		if r.chExporter != nil {
+			waitDurationMs := uint64(max(now.Sub(trigger.RequestedAt).Milliseconds(), 0))
+			r.chExporter.Enqueue(clickhouse.EventTriggerEventRecord{
+				TriggerID:      trigger.ID,
+				EventKey:       trigger.EventKey,
+				ProjectID:      trigger.ProjectID,
+				SourceType:     trigger.SourceType,
+				Status:         domain.EventTriggerStatusTimedOut,
+				TimeoutSecs:    uint32(max(trigger.TimeoutSecs, 0)), //nolint:gosec // timeout is always non-negative
+				WaitDurationMs: waitDurationMs,
+				CreatedAt:      trigger.RequestedAt,
+			})
 		}
 
 		if r.metrics != nil {

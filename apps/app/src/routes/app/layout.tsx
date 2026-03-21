@@ -44,7 +44,7 @@ const appSearchSchema = z.object({
   checkout_success: z.coerce.boolean().optional(),
 });
 
-export const Route = createFileRoute("/app")({
+export const Route = createFileRoute("/app/layout")({
   validateSearch: zodValidator(appSearchSchema),
   beforeLoad: async ({ context, location }) => {
     if (!context.isAuthenticated) {

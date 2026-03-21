@@ -44,6 +44,17 @@ func stdoutIsTTY() bool {
 	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
+// isTTYRich returns true when styled/rich output should be used.
+// False when an explicit machine-readable format is requested (json, yaml, csv, etc.)
+// or when stdout is not a TTY (piped).
+func isTTYRich(state *appState) bool {
+	if !stdoutIsTTY() {
+		return false
+	}
+	f := state.opts.outputFormat
+	return f == "" || f == "table"
+}
+
 func newAPIClient(state *appState) (*client.Client, error) {
 	return client.New(state.opts.serverURL, state.opts.apiKey, state.opts.timeout)
 }

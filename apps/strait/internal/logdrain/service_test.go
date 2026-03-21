@@ -118,6 +118,33 @@ func TestDrainRunEvents(t *testing.T) {
 			wantErr:    true,
 			errContain: "502",
 		},
+		{
+			name:   "header auth blocks protected headers",
+			status: http.StatusOK,
+			drain: domain.LogDrain{
+				AuthType: "header",
+				AuthConfig: map[string]string{
+					"X-Custom":          "allowed",
+					"Host":              "evil.com",
+					"Content-Type":      "text/plain",
+					"Content-Length":    "999",
+					"Transfer-Encoding": "chunked",
+					"Connection":        "keep-alive",
+				},
+			},
+			checkReq: func(t *testing.T, r *http.Request, _ []byte) {
+				t.Helper()
+				if got := r.Header.Get("X-Custom"); got != "allowed" {
+					t.Errorf("X-Custom = %q, want allowed", got)
+				}
+				if got := r.Header.Get("Content-Type"); got != "application/json" {
+					t.Errorf("Content-Type = %q, want application/json (should not be overridden)", got)
+				}
+				if r.Host == "evil.com" {
+					t.Error("Host header was overridden to evil.com — should be blocked")
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

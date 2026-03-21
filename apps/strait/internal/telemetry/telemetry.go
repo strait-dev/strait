@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -16,24 +18,39 @@ import (
 // Init sets up OpenTelemetry tracing with an OTLP HTTP exporter.
 // Returns a shutdown function that should be deferred.
 // If endpoint is empty, tracing is disabled (noop).
-func Init(ctx context.Context, serviceName, endpoint string) (func(context.Context) error, error) {
+func Init(ctx context.Context, serviceName, endpoint, environment string) (func(context.Context) error, error) {
 	if endpoint == "" {
 		slog.Info("otel tracing disabled (no endpoint configured)")
 		return func(context.Context) error { return nil }, nil
 	}
 
-	exporter, err := otlptracehttp.New(ctx,
-		otlptracehttp.WithEndpointURL(endpoint),
-	)
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("parse otel trace endpoint: %w", err)
+	}
+	opts := []otlptracehttp.Option{
+		otlptracehttp.WithEndpoint(u.Host),
+	}
+	if u.Scheme == "http" {
+		opts = append(opts, otlptracehttp.WithInsecure())
+	}
+	exporter, err := otlptracehttp.New(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create otlp exporter: %w", err)
+	}
+
+	attrs := []attribute.KeyValue{
+		semconv.ServiceName(serviceName),
+	}
+	if environment != "" {
+		attrs = append(attrs, semconv.DeploymentEnvironmentName(environment))
 	}
 
 	res, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName(serviceName),
+			attrs...,
 		),
 	)
 	if err != nil {

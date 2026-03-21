@@ -9,12 +9,12 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AppLayoutRouteImport } from './routes/app/layout'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as InvitationIdRouteImport } from './routes/invitation/$id'
 import { Route as AppUpgradeRouteImport } from './routes/app/upgrade'
+import { Route as AppLayoutRouteImport } from './routes/app/layout'
 import { Route as AppDashboardRouteImport } from './routes/app/dashboard'
 import { Route as authVerifyEmailRouteImport } from './routes/(auth)/verify-email'
 import { Route as authTwoFactorRouteImport } from './routes/(auth)/two-factor'
@@ -24,6 +24,7 @@ import { Route as authResetPasswordRouteImport } from './routes/(auth)/reset-pas
 import { Route as authMagicLinkRouteImport } from './routes/(auth)/magic-link'
 import { Route as authLoginRouteImport } from './routes/(auth)/login'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
+import { Route as authDeviceRouteImport } from './routes/(auth)/device'
 import { Route as AppWorkflowsIndexRouteImport } from './routes/app/workflows/index'
 import { Route as AppWebhooksIndexRouteImport } from './routes/app/webhooks/index'
 import { Route as AppSettingsIndexRouteImport } from './routes/app/settings/index'
@@ -40,11 +41,6 @@ import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
-const AppLayoutRoute = AppLayoutRouteImport.update({
-  id: '/app',
-  path: '/app',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -56,9 +52,9 @@ const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/',
+  path: '/app/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const InvitationIdRoute = InvitationIdRouteImport.update({
   id: '/invitation/$id',
@@ -66,14 +62,19 @@ const InvitationIdRoute = InvitationIdRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppUpgradeRoute = AppUpgradeRouteImport.update({
-  id: '/upgrade',
-  path: '/upgrade',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/upgrade',
+  path: '/app/upgrade',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppLayoutRoute = AppLayoutRouteImport.update({
+  id: '/app/layout',
+  path: '/app/layout',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/dashboard',
+  path: '/app/dashboard',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const authVerifyEmailRoute = authVerifyEmailRouteImport.update({
   id: '/(auth)/verify-email',
@@ -115,75 +116,80 @@ const authForgotPasswordRoute = authForgotPasswordRouteImport.update({
   path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const authDeviceRoute = authDeviceRouteImport.update({
+  id: '/(auth)/device',
+  path: '/device',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppWorkflowsIndexRoute = AppWorkflowsIndexRouteImport.update({
-  id: '/workflows/',
-  path: '/workflows/',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/workflows/',
+  path: '/app/workflows/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppWebhooksIndexRoute = AppWebhooksIndexRouteImport.update({
-  id: '/webhooks/',
-  path: '/webhooks/',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/webhooks/',
+  path: '/app/webhooks/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
-  id: '/settings/',
-  path: '/settings/',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/settings/',
+  path: '/app/settings/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppSchedulesIndexRoute = AppSchedulesIndexRouteImport.update({
-  id: '/schedules/',
-  path: '/schedules/',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/schedules/',
+  path: '/app/schedules/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppRunsIndexRoute = AppRunsIndexRouteImport.update({
-  id: '/runs/',
-  path: '/runs/',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/runs/',
+  path: '/app/runs/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppLogsIndexRoute = AppLogsIndexRouteImport.update({
-  id: '/logs/',
-  path: '/logs/',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/logs/',
+  path: '/app/logs/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppJobsIndexRoute = AppJobsIndexRouteImport.update({
-  id: '/jobs/',
-  path: '/jobs/',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/jobs/',
+  path: '/app/jobs/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppEventsIndexRoute = AppEventsIndexRouteImport.update({
-  id: '/events/',
-  path: '/events/',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/events/',
+  path: '/app/events/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppDlqIndexRoute = AppDlqIndexRouteImport.update({
-  id: '/dlq/',
-  path: '/dlq/',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/dlq/',
+  path: '/app/dlq/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
-  id: '/workflows/$id',
-  path: '/workflows/$id',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/workflows/$id',
+  path: '/app/workflows/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppSchedulesIdRoute = AppSchedulesIdRouteImport.update({
-  id: '/schedules/$id',
-  path: '/schedules/$id',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/schedules/$id',
+  path: '/app/schedules/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppRunsIdRoute = AppRunsIdRouteImport.update({
-  id: '/runs/$id',
-  path: '/runs/$id',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/runs/$id',
+  path: '/app/runs/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppOrgIdRoute = AppOrgIdRouteImport.update({
-  id: '/org/$id',
-  path: '/org/$id',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/org/$id',
+  path: '/app/org/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppJobsIdRoute = AppJobsIdRouteImport.update({
-  id: '/jobs/$id',
-  path: '/jobs/$id',
-  getParentRoute: () => AppLayoutRoute,
+  id: '/app/jobs/$id',
+  path: '/app/jobs/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
@@ -193,7 +199,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/app': typeof AppLayoutRouteWithChildren
+  '/device': typeof authDeviceRoute
   '/forgot-password': typeof authForgotPasswordRoute
   '/login': typeof authLoginRoute
   '/magic-link': typeof authMagicLinkRoute
@@ -203,6 +209,7 @@ export interface FileRoutesByFullPath {
   '/two-factor': typeof authTwoFactorRoute
   '/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/layout': typeof AppLayoutRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
@@ -225,6 +232,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/device': typeof authDeviceRoute
   '/forgot-password': typeof authForgotPasswordRoute
   '/login': typeof authLoginRoute
   '/magic-link': typeof authMagicLinkRoute
@@ -234,6 +242,7 @@ export interface FileRoutesByTo {
   '/two-factor': typeof authTwoFactorRoute
   '/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/layout': typeof AppLayoutRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app': typeof AppIndexRoute
@@ -257,7 +266,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/app': typeof AppLayoutRouteWithChildren
+  '/(auth)/device': typeof authDeviceRoute
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
   '/(auth)/login': typeof authLoginRoute
   '/(auth)/magic-link': typeof authMagicLinkRoute
@@ -267,6 +276,7 @@ export interface FileRoutesById {
   '/(auth)/two-factor': typeof authTwoFactorRoute
   '/(auth)/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/layout': typeof AppLayoutRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
@@ -291,7 +301,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/app'
+    | '/device'
     | '/forgot-password'
     | '/login'
     | '/magic-link'
@@ -301,6 +311,7 @@ export interface FileRouteTypes {
     | '/two-factor'
     | '/verify-email'
     | '/app/dashboard'
+    | '/app/layout'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app/'
@@ -323,6 +334,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/device'
     | '/forgot-password'
     | '/login'
     | '/magic-link'
@@ -332,6 +344,7 @@ export interface FileRouteTypes {
     | '/two-factor'
     | '/verify-email'
     | '/app/dashboard'
+    | '/app/layout'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app'
@@ -354,7 +367,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/app'
+    | '/(auth)/device'
     | '/(auth)/forgot-password'
     | '/(auth)/login'
     | '/(auth)/magic-link'
@@ -364,6 +377,7 @@ export interface FileRouteTypes {
     | '/(auth)/two-factor'
     | '/(auth)/verify-email'
     | '/app/dashboard'
+    | '/app/layout'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app/'
@@ -387,7 +401,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AppLayoutRoute: typeof AppLayoutRouteWithChildren
+  authDeviceRoute: typeof authDeviceRoute
   authForgotPasswordRoute: typeof authForgotPasswordRoute
   authLoginRoute: typeof authLoginRoute
   authMagicLinkRoute: typeof authMagicLinkRoute
@@ -396,20 +410,31 @@ export interface RootRouteChildren {
   authSsoRoute: typeof authSsoRoute
   authTwoFactorRoute: typeof authTwoFactorRoute
   authVerifyEmailRoute: typeof authVerifyEmailRoute
+  AppDashboardRoute: typeof AppDashboardRoute
+  AppLayoutRoute: typeof AppLayoutRoute
+  AppUpgradeRoute: typeof AppUpgradeRoute
   InvitationIdRoute: typeof InvitationIdRoute
+  AppIndexRoute: typeof AppIndexRoute
   OnboardingIndexRoute: typeof OnboardingIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  AppJobsIdRoute: typeof AppJobsIdRoute
+  AppOrgIdRoute: typeof AppOrgIdRoute
+  AppRunsIdRoute: typeof AppRunsIdRoute
+  AppSchedulesIdRoute: typeof AppSchedulesIdRoute
+  AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
+  AppDlqIndexRoute: typeof AppDlqIndexRoute
+  AppEventsIndexRoute: typeof AppEventsIndexRoute
+  AppJobsIndexRoute: typeof AppJobsIndexRoute
+  AppLogsIndexRoute: typeof AppLogsIndexRoute
+  AppRunsIndexRoute: typeof AppRunsIndexRoute
+  AppSchedulesIndexRoute: typeof AppSchedulesIndexRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+  AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
+  AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/app': {
-      id: '/app'
-      path: '/app'
-      fullPath: '/app'
-      preLoaderRoute: typeof AppLayoutRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -426,10 +451,10 @@ declare module '@tanstack/react-router' {
     }
     '/app/': {
       id: '/app/'
-      path: '/'
+      path: '/app'
       fullPath: '/app/'
       preLoaderRoute: typeof AppIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/invitation/$id': {
       id: '/invitation/$id'
@@ -440,17 +465,24 @@ declare module '@tanstack/react-router' {
     }
     '/app/upgrade': {
       id: '/app/upgrade'
-      path: '/upgrade'
+      path: '/app/upgrade'
       fullPath: '/app/upgrade'
       preLoaderRoute: typeof AppUpgradeRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/layout': {
+      id: '/app/layout'
+      path: '/app/layout'
+      fullPath: '/app/layout'
+      preLoaderRoute: typeof AppLayoutRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/app/dashboard': {
       id: '/app/dashboard'
-      path: '/dashboard'
+      path: '/app/dashboard'
       fullPath: '/app/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/(auth)/verify-email': {
       id: '/(auth)/verify-email'
@@ -508,103 +540,110 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/(auth)/device': {
+      id: '/(auth)/device'
+      path: '/device'
+      fullPath: '/device'
+      preLoaderRoute: typeof authDeviceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/workflows/': {
       id: '/app/workflows/'
-      path: '/workflows'
+      path: '/app/workflows'
       fullPath: '/app/workflows/'
       preLoaderRoute: typeof AppWorkflowsIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/webhooks/': {
       id: '/app/webhooks/'
-      path: '/webhooks'
+      path: '/app/webhooks'
       fullPath: '/app/webhooks/'
       preLoaderRoute: typeof AppWebhooksIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/settings/': {
       id: '/app/settings/'
-      path: '/settings'
+      path: '/app/settings'
       fullPath: '/app/settings/'
       preLoaderRoute: typeof AppSettingsIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/schedules/': {
       id: '/app/schedules/'
-      path: '/schedules'
+      path: '/app/schedules'
       fullPath: '/app/schedules/'
       preLoaderRoute: typeof AppSchedulesIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/runs/': {
       id: '/app/runs/'
-      path: '/runs'
+      path: '/app/runs'
       fullPath: '/app/runs/'
       preLoaderRoute: typeof AppRunsIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/logs/': {
       id: '/app/logs/'
-      path: '/logs'
+      path: '/app/logs'
       fullPath: '/app/logs/'
       preLoaderRoute: typeof AppLogsIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/jobs/': {
       id: '/app/jobs/'
-      path: '/jobs'
+      path: '/app/jobs'
       fullPath: '/app/jobs/'
       preLoaderRoute: typeof AppJobsIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/events/': {
       id: '/app/events/'
-      path: '/events'
+      path: '/app/events'
       fullPath: '/app/events/'
       preLoaderRoute: typeof AppEventsIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/dlq/': {
       id: '/app/dlq/'
-      path: '/dlq'
+      path: '/app/dlq'
       fullPath: '/app/dlq/'
       preLoaderRoute: typeof AppDlqIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/workflows/$id': {
       id: '/app/workflows/$id'
-      path: '/workflows/$id'
+      path: '/app/workflows/$id'
       fullPath: '/app/workflows/$id'
       preLoaderRoute: typeof AppWorkflowsIdRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/schedules/$id': {
       id: '/app/schedules/$id'
-      path: '/schedules/$id'
+      path: '/app/schedules/$id'
       fullPath: '/app/schedules/$id'
       preLoaderRoute: typeof AppSchedulesIdRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/runs/$id': {
       id: '/app/runs/$id'
-      path: '/runs/$id'
+      path: '/app/runs/$id'
       fullPath: '/app/runs/$id'
       preLoaderRoute: typeof AppRunsIdRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/org/$id': {
       id: '/app/org/$id'
-      path: '/org/$id'
+      path: '/app/org/$id'
       fullPath: '/app/org/$id'
       preLoaderRoute: typeof AppOrgIdRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/app/jobs/$id': {
       id: '/app/jobs/$id'
-      path: '/jobs/$id'
+      path: '/app/jobs/$id'
       fullPath: '/app/jobs/$id'
       preLoaderRoute: typeof AppJobsIdRouteImport
-      parentRoute: typeof AppLayoutRoute
+      parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -616,30 +655,24 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface AppLayoutRouteChildren {
-  AppDashboardRoute: typeof AppDashboardRoute
-  AppUpgradeRoute: typeof AppUpgradeRoute
-  AppIndexRoute: typeof AppIndexRoute
-  AppJobsIdRoute: typeof AppJobsIdRoute
-  AppOrgIdRoute: typeof AppOrgIdRoute
-  AppRunsIdRoute: typeof AppRunsIdRoute
-  AppSchedulesIdRoute: typeof AppSchedulesIdRoute
-  AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
-  AppDlqIndexRoute: typeof AppDlqIndexRoute
-  AppEventsIndexRoute: typeof AppEventsIndexRoute
-  AppJobsIndexRoute: typeof AppJobsIndexRoute
-  AppLogsIndexRoute: typeof AppLogsIndexRoute
-  AppRunsIndexRoute: typeof AppRunsIndexRoute
-  AppSchedulesIndexRoute: typeof AppSchedulesIndexRoute
-  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
-  AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
-  AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
-}
-
-const AppLayoutRouteChildren: AppLayoutRouteChildren = {
+const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
+  authDeviceRoute: authDeviceRoute,
+  authForgotPasswordRoute: authForgotPasswordRoute,
+  authLoginRoute: authLoginRoute,
+  authMagicLinkRoute: authMagicLinkRoute,
+  authResetPasswordRoute: authResetPasswordRoute,
+  authSignupRoute: authSignupRoute,
+  authSsoRoute: authSsoRoute,
+  authTwoFactorRoute: authTwoFactorRoute,
+  authVerifyEmailRoute: authVerifyEmailRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppLayoutRoute: AppLayoutRoute,
   AppUpgradeRoute: AppUpgradeRoute,
+  InvitationIdRoute: InvitationIdRoute,
   AppIndexRoute: AppIndexRoute,
+  OnboardingIndexRoute: OnboardingIndexRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
   AppJobsIdRoute: AppJobsIdRoute,
   AppOrgIdRoute: AppOrgIdRoute,
   AppRunsIdRoute: AppRunsIdRoute,
@@ -655,35 +688,6 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppWebhooksIndexRoute: AppWebhooksIndexRoute,
   AppWorkflowsIndexRoute: AppWorkflowsIndexRoute,
 }
-
-const AppLayoutRouteWithChildren = AppLayoutRoute._addFileChildren(
-  AppLayoutRouteChildren,
-)
-
-const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AppLayoutRoute: AppLayoutRouteWithChildren,
-  authForgotPasswordRoute: authForgotPasswordRoute,
-  authLoginRoute: authLoginRoute,
-  authMagicLinkRoute: authMagicLinkRoute,
-  authResetPasswordRoute: authResetPasswordRoute,
-  authSignupRoute: authSignupRoute,
-  authSsoRoute: authSsoRoute,
-  authTwoFactorRoute: authTwoFactorRoute,
-  authVerifyEmailRoute: authVerifyEmailRoute,
-  InvitationIdRoute: InvitationIdRoute,
-  OnboardingIndexRoute: OnboardingIndexRoute,
-  ApiAuthSplatRoute: ApiAuthSplatRoute,
-}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

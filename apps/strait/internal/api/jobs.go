@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -256,6 +257,8 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, "failed to create job")
 		return
 	}
+
+	s.enqueueJobMetadata(job)
 
 	respondJSON(w, http.StatusCreated, job)
 }
@@ -528,7 +531,22 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.enqueueJobMetadata(job)
+
 	respondJSON(w, http.StatusOK, job)
+}
+
+// enqueueJobMetadata sends a job metadata record to the ClickHouse exporter
+// so the job_metadata table stays in sync with Postgres.
+func (s *Server) enqueueJobMetadata(job *domain.Job) {
+	if s.chExporter == nil || job == nil {
+		return
+	}
+	s.chExporter.Enqueue(clickhouse.JobMetadataRecord{
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Slug:      job.Slug,
+	})
 }
 
 func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
