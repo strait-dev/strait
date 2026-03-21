@@ -15,7 +15,7 @@ import (
 // mockAnomalyMonitorStore implements AnomalyMonitorStore with function callbacks
 // for key methods and zero-value stubs for the rest of billing.Store.
 type mockAnomalyMonitorStore struct {
-	listOrgsWithPendingDowngradeFn    func(ctx context.Context) ([]billing.OrgSubscription, error)
+	listAllSubscribedOrgIDsFn         func(ctx context.Context) ([]string, error)
 	getOrgSubscriptionFn              func(ctx context.Context, orgID string) (*billing.OrgSubscription, error)
 	getOrgUsageForPeriodFn            func(ctx context.Context, orgID string, from, to time.Time) ([]billing.UsageRecord, error)
 	listProjectsByOrgFn               func(ctx context.Context, orgID string) ([]string, error)
@@ -25,9 +25,9 @@ type mockAnomalyMonitorStore struct {
 
 // Key methods with callbacks.
 
-func (m *mockAnomalyMonitorStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]billing.OrgSubscription, error) {
-	if m.listOrgsWithPendingDowngradeFn != nil {
-		return m.listOrgsWithPendingDowngradeFn(ctx)
+func (m *mockAnomalyMonitorStore) ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error) {
+	if m.listAllSubscribedOrgIDsFn != nil {
+		return m.listAllSubscribedOrgIDsFn(ctx)
 	}
 	return nil, nil
 }
@@ -86,6 +86,9 @@ func (m *mockAnomalyMonitorStore) SetPendingPlanTier(context.Context, string, st
 }
 func (m *mockAnomalyMonitorStore) ClearPendingPlanTier(context.Context, string) error  { return nil }
 func (m *mockAnomalyMonitorStore) ApplyPendingDowngrade(context.Context, string) error { return nil }
+func (m *mockAnomalyMonitorStore) ListOrgsWithPendingDowngrade(context.Context) ([]billing.OrgSubscription, error) {
+	return nil, nil
+}
 func (m *mockAnomalyMonitorStore) GetProjectOrgID(context.Context, string) (string, error) {
 	return "", nil
 }
@@ -96,6 +99,9 @@ func (m *mockAnomalyMonitorStore) CountProjectsByOrg(context.Context, string) (i
 	return 0, nil
 }
 func (m *mockAnomalyMonitorStore) CountMembersByOrg(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (m *mockAnomalyMonitorStore) CountOrgsByUser(context.Context, string) (int, error) {
 	return 0, nil
 }
 func (m *mockAnomalyMonitorStore) CountExecutingRunsByOrg(context.Context, string) (int, error) {
@@ -129,6 +135,24 @@ func (m *mockAnomalyMonitorStore) GetProjectPeriodSpend(_ context.Context, _ str
 	return 0, nil
 }
 func (m *mockAnomalyMonitorStore) UpdateAnomalyThresholds(context.Context, string, float64, float64) error {
+	return nil
+}
+
+// mockCooldown implements AnomalyCooldown for testing.
+type mockCooldown struct {
+	cooled map[string]bool
+}
+
+func newMockCooldown() *mockCooldown {
+	return &mockCooldown{cooled: make(map[string]bool)}
+}
+
+func (c *mockCooldown) InCooldown(_ context.Context, orgID string) (bool, error) {
+	return c.cooled[orgID], nil
+}
+
+func (c *mockCooldown) SetCooldown(_ context.Context, orgID string) error {
+	c.cooled[orgID] = true
 	return nil
 }
 
@@ -174,8 +198,8 @@ func TestAnomalyMonitor_SpikeDetected_AlertFires(t *testing.T) {
 
 	var deliveries []*domain.NotificationDelivery
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
-			return []billing.OrgSubscription{{OrgID: "org-1"}}, nil
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
 		},
 		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 			return defaultOrgSub("org-1"), nil
@@ -211,8 +235,8 @@ func TestAnomalyMonitor_NoSpike_NoAlert(t *testing.T) {
 
 	deliveryCalled := false
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
-			return []billing.OrgSubscription{{OrgID: "org-1"}}, nil
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
 		},
 		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 			return defaultOrgSub("org-1"), nil
@@ -235,13 +259,13 @@ func TestAnomalyMonitor_NoSpike_NoAlert(t *testing.T) {
 	}
 }
 
-func TestAnomalyMonitor_CooldownWindow_Dedup(t *testing.T) {
+func TestAnomalyMonitor_Cooldown_SkipsRecentlyAlerted(t *testing.T) {
 	t.Parallel()
 
-	var deliveries []*domain.NotificationDelivery
+	var deliveryCount int
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
-			return []billing.OrgSubscription{{OrgID: "org-1"}}, nil
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
 		},
 		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 			return defaultOrgSub("org-1"), nil
@@ -255,34 +279,133 @@ func TestAnomalyMonitor_CooldownWindow_Dedup(t *testing.T) {
 		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
 			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
 		},
-		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
-			deliveries = append(deliveries, d)
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCount++
 			return nil
 		},
 	}
 
-	am := NewAnomalyMonitor(s, time.Minute)
-	am.check(context.Background())
-	am.check(context.Background()) // second check in same 4h block
+	cd := newMockCooldown()
+	am := NewAnomalyMonitor(s, time.Minute).WithCooldown(cd)
 
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery (dedup), got %d", len(deliveries))
+	// First check fires alert and sets cooldown.
+	am.check(context.Background())
+	// Second check should skip because cooldown is active.
+	am.check(context.Background())
+
+	if deliveryCount != 1 {
+		t.Fatalf("expected 1 delivery (cooldown should dedup), got %d", deliveryCount)
 	}
 }
 
-func TestAnomalyMonitor_AfterCooldown_AlertsAgain(t *testing.T) {
+func TestAnomalyMonitor_Cooldown_AlertsAfter4Hours(t *testing.T) {
 	t.Parallel()
 
-	var deliveries []*domain.NotificationDelivery
+	var deliveryCount int
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
-			return []billing.OrgSubscription{{OrgID: "org-1"}}, nil
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
 		},
 		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 			return defaultOrgSub("org-1"), nil
 		},
 		getOrgUsageForPeriodFn: func(_ context.Context, orgID string, _, _ time.Time) ([]billing.UsageRecord, error) {
 			return buildSpikeUsage(orgID, "proj-1", 1000, 5000), nil
+		},
+		listProjectsByOrgFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"proj-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCount++
+			return nil
+		},
+	}
+
+	cd := newMockCooldown()
+	am := NewAnomalyMonitor(s, time.Minute).WithCooldown(cd)
+
+	// First check fires alert.
+	am.check(context.Background())
+
+	// Simulate cooldown expiry by clearing it.
+	cd.cooled = make(map[string]bool)
+
+	// Second check should fire again after cooldown expires.
+	am.check(context.Background())
+
+	if deliveryCount != 2 {
+		t.Fatalf("expected 2 deliveries (after cooldown expiry), got %d", deliveryCount)
+	}
+}
+
+func TestAnomalyMonitor_CooldownKey_PerOrg(t *testing.T) {
+	t.Parallel()
+
+	var deliveries []*domain.NotificationDelivery
+	s := &mockAnomalyMonitorStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1", "org-2"}, nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, orgID string) (*billing.OrgSubscription, error) {
+			return defaultOrgSub(orgID), nil
+		},
+		getOrgUsageForPeriodFn: func(_ context.Context, orgID string, _, _ time.Time) ([]billing.UsageRecord, error) {
+			return buildSpikeUsage(orgID, "proj-"+orgID, 1000, 5000), nil
+		},
+		listProjectsByOrgFn: func(_ context.Context, orgID string) ([]string, error) {
+			return []string{"proj-" + orgID}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, projectID string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-" + projectID, ProjectID: projectID}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	cd := newMockCooldown()
+	am := NewAnomalyMonitor(s, time.Minute).WithCooldown(cd)
+
+	// First check: both orgs alert.
+	am.check(context.Background())
+	if len(deliveries) != 2 {
+		t.Fatalf("expected 2 deliveries (one per org), got %d", len(deliveries))
+	}
+
+	// Second check: both should be in cooldown.
+	am.check(context.Background())
+	if len(deliveries) != 2 {
+		t.Fatalf("expected still 2 deliveries (both in cooldown), got %d", len(deliveries))
+	}
+
+	// Clear cooldown for org-1 only.
+	delete(cd.cooled, "org-1")
+
+	// Third check: only org-1 should fire.
+	am.check(context.Background())
+	if len(deliveries) != 3 {
+		t.Fatalf("expected 3 deliveries (org-1 re-alerted), got %d", len(deliveries))
+	}
+}
+
+func TestAnomalyMonitor_WarningAt3x(t *testing.T) {
+	t.Parallel()
+
+	var deliveries []*domain.NotificationDelivery
+	s := &mockAnomalyMonitorStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+			return defaultOrgSub("org-1"), nil
+		},
+		getOrgUsageForPeriodFn: func(_ context.Context, orgID string, _, _ time.Time) ([]billing.UsageRecord, error) {
+			// Exactly 3x spike -- should trigger warning.
+			return buildSpikeUsage(orgID, "proj-1", 1000, 3000), nil
 		},
 		listProjectsByOrgFn: func(_ context.Context, _ string) ([]string, error) {
 			return []string{"proj-1"}, nil
@@ -299,15 +422,78 @@ func TestAnomalyMonitor_AfterCooldown_AlertsAgain(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
 
-	// Simulate new cooldown block by clearing the alerted map.
-	am.alertedMu.Lock()
-	am.alerted = make(map[string]bool)
-	am.alertedMu.Unlock()
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery at 3x spike (warning), got %d", len(deliveries))
+	}
 
+	var payload map[string]any
+	if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
+		t.Fatalf("failed to unmarshal payload: %v", err)
+	}
+	if payload["severity"] != string(billing.AnomalySeverityWarning) {
+		t.Errorf("expected severity warning, got %v", payload["severity"])
+	}
+}
+
+func TestAnomalyMonitor_ZeroAverage_Skipped(t *testing.T) {
+	t.Parallel()
+
+	deliveryCalled := false
+	s := &mockAnomalyMonitorStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+			return defaultOrgSub("org-1"), nil
+		},
+		getOrgUsageForPeriodFn: func(_ context.Context, orgID string, _, _ time.Time) ([]billing.UsageRecord, error) {
+			// 7 days of zero spend + today has spend. avg7d = 0, so no ratio.
+			return buildSpikeUsage(orgID, "proj-1", 0, 5000), nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCalled = true
+			return nil
+		},
+	}
+
+	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
 
-	if len(deliveries) != 2 {
-		t.Fatalf("expected 2 deliveries (new cooldown block), got %d", len(deliveries))
+	if deliveryCalled {
+		t.Fatal("expected no delivery when 7-day average is zero")
+	}
+}
+
+func TestAnomalyMonitor_NoHistorySkipped(t *testing.T) {
+	t.Parallel()
+
+	deliveryCalled := false
+	s := &mockAnomalyMonitorStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+			return defaultOrgSub("org-1"), nil
+		},
+		getOrgUsageForPeriodFn: func(_ context.Context, _ string, _, _ time.Time) ([]billing.UsageRecord, error) {
+			// Only today's data, no 7-day history.
+			now := time.Now().UTC()
+			today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+			return []billing.UsageRecord{
+				{OrgID: "org-1", ProjectID: "proj-1", PeriodDate: today, ComputeCostMicro: 5000},
+			}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCalled = true
+			return nil
+		},
+	}
+
+	am := NewAnomalyMonitor(s, time.Minute)
+	am.check(context.Background())
+
+	if deliveryCalled {
+		t.Fatal("expected no delivery when there is no 7-day history")
 	}
 }
 
@@ -316,7 +502,7 @@ func TestAnomalyMonitor_NoOrgsWithActivity_NoOp(t *testing.T) {
 
 	deliveryCalled := false
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
 			return nil, nil
 		},
 		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
@@ -337,7 +523,7 @@ func TestAnomalyMonitor_StoreError_LogsContinues(t *testing.T) {
 	t.Parallel()
 
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -352,11 +538,8 @@ func TestAnomalyMonitor_MultipleOrgs_IndependentAlerts(t *testing.T) {
 
 	var deliveries []*domain.NotificationDelivery
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
-			return []billing.OrgSubscription{
-				{OrgID: "org-1"},
-				{OrgID: "org-2"},
-			}, nil
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1", "org-2"}, nil
 		},
 		getOrgSubscriptionFn: func(_ context.Context, orgID string) (*billing.OrgSubscription, error) {
 			return defaultOrgSub(orgID), nil
@@ -427,7 +610,7 @@ func TestAnomalyMonitor_Run_ChecksOnInterval(t *testing.T) {
 
 	var checkCount atomic.Int32
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
 			checkCount.Add(1)
 			return nil, nil
 		},
@@ -451,8 +634,8 @@ func TestAnomalyMonitor_NotificationDeliveryCreated(t *testing.T) {
 
 	var deliveries []*domain.NotificationDelivery
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
-			return []billing.OrgSubscription{{OrgID: "org-1"}}, nil
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
 		},
 		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 			return defaultOrgSub("org-1"), nil
@@ -517,8 +700,8 @@ func TestAnomalyMonitor_CustomThresholds_Used(t *testing.T) {
 
 	var deliveries []*domain.NotificationDelivery
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
-			return []billing.OrgSubscription{{OrgID: "org-1"}}, nil
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
 		},
 		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 			return &billing.OrgSubscription{
@@ -556,8 +739,8 @@ func TestAnomalyMonitor_NoChannels_StillLogs(t *testing.T) {
 
 	deliveryCalled := false
 	s := &mockAnomalyMonitorStore{
-		listOrgsWithPendingDowngradeFn: func(context.Context) ([]billing.OrgSubscription, error) {
-			return []billing.OrgSubscription{{OrgID: "org-1"}}, nil
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
 		},
 		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 			return defaultOrgSub("org-1"), nil

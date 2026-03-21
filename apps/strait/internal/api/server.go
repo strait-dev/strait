@@ -455,8 +455,9 @@ type UsageService interface {
 // ReferralService handles referral code management.
 type ReferralService interface {
 	GenerateCode(ctx context.Context, orgID string) (*billing.Referral, error)
-	ActivateReferral(ctx context.Context, code string, referredOrgID string) (*billing.Referral, error)
+	ActivateReferral(ctx context.Context, code, referredOrgID, referredEmail string) (*billing.Referral, error)
 	ListReferrals(ctx context.Context, orgID string) ([]billing.Referral, error)
+	AutoActivateReferral(ctx context.Context, orgID string) error
 }
 
 // ServerDeps holds all dependencies required to construct a Server.

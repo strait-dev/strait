@@ -539,6 +539,7 @@ func (s *Server) handleActivateReferral(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		Code          string `json:"code"`
 		ReferredOrgID string `json:"referred_org_id"`
+		ReferredEmail string `json:"referred_email"`
 	}
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -554,7 +555,7 @@ func (s *Server) handleActivateReferral(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	referral, err := s.referralService.ActivateReferral(r.Context(), req.Code, req.ReferredOrgID)
+	referral, err := s.referralService.ActivateReferral(r.Context(), req.Code, req.ReferredOrgID, req.ReferredEmail)
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return

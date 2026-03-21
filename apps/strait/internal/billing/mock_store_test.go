@@ -232,3 +232,13 @@ func (m *mockBillingStore) GetProjectPeriodSpend(_ context.Context, _ string, _ 
 func (m *mockBillingStore) UpdateAnomalyThresholds(_ context.Context, _ string, _, _ float64) error {
 	return nil
 }
+
+func (m *mockBillingStore) ListAllSubscribedOrgIDs(_ context.Context) ([]string, error) {
+	var ids []string
+	for _, sub := range m.subscriptions {
+		if sub.Status == "active" {
+			ids = append(ids, sub.OrgID)
+		}
+	}
+	return ids, nil
+}

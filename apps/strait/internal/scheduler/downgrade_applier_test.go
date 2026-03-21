@@ -119,6 +119,12 @@ func (m *mockEnforcerStore) GetProjectPeriodSpend(_ context.Context, _ string, _
 func (m *mockEnforcerStore) UpdateAnomalyThresholds(_ context.Context, _ string, _, _ float64) error {
 	return nil
 }
+func (m *mockEnforcerStore) CountOrgsByUser(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+func (m *mockEnforcerStore) ListAllSubscribedOrgIDs(_ context.Context) ([]string, error) {
+	return nil, nil
+}
 
 func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 	t.Parallel()

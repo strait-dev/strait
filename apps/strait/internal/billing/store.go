@@ -77,4 +77,7 @@ type Store interface {
 
 	// Anomaly thresholds
 	UpdateAnomalyThresholds(ctx context.Context, orgID string, warning, critical float64) error
+
+	// Org listing
+	ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
 }

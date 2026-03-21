@@ -2,6 +2,7 @@ package billing
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -12,6 +13,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"strait/internal/domain"
 )
 
 // signStandardWebhook creates Standard Webhooks headers for a test request.
@@ -43,7 +46,7 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	body := []byte(`{"type":"subscription.created","data":{}}`)
 
@@ -110,7 +113,7 @@ func TestWebhookHandler_SubscriptionCreated(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := PolarWebhookPayload{
 		Type: "subscription.created",
@@ -161,7 +164,7 @@ func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 		},
 	}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := PolarWebhookPayload{
 		Type: "subscription.revoked",
@@ -208,7 +211,7 @@ func TestWebhookHandler_UnknownEventType(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("", "", "", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := PolarWebhookPayload{
 		Type: "some.unknown.event",
@@ -234,7 +237,7 @@ func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("starter-id", "", "", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := PolarWebhookPayload{
 		Type: "subscription.created",
@@ -283,7 +286,7 @@ func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 		},
 	}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	// Re-deliver the same subscription.created webhook.
 	payload := PolarWebhookPayload{
@@ -339,7 +342,7 @@ func TestWebhook_UpdatedRefreshesPeriodDates(t *testing.T) {
 		},
 	}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	newStart := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
 	newEnd := time.Date(2025, 2, 28, 0, 0, 0, 0, time.UTC)
@@ -393,7 +396,7 @@ func TestWebhook_DowngradeDeferred(t *testing.T) {
 		},
 	}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	// Update from pro to starter (downgrade).
 	payload := PolarWebhookPayload{
@@ -445,7 +448,7 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 		},
 	}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	// Update from starter to pro (upgrade).
 	payload := PolarWebhookPayload{
@@ -505,7 +508,7 @@ func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
 		},
 	}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := PolarWebhookPayload{
 		Type: "subscription.updated",
@@ -551,7 +554,7 @@ func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
 		},
 	}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	now := time.Now()
 	payload := PolarWebhookPayload{
@@ -598,7 +601,7 @@ func TestWebhook_CanceledWithNoPriorSubscription(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := PolarWebhookPayload{
 		Type: "subscription.canceled",
@@ -636,4 +639,379 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// mockAuditStore records audit events for test assertions.
+type mockAuditStore struct {
+	events []*domain.AuditEvent
+}
+
+func (m *mockAuditStore) CreateAuditEvent(_ context.Context, event *domain.AuditEvent) error {
+	m.events = append(m.events, event)
+	return nil
+}
+
+func TestWebhook_SubscriptionCreated_CreatesAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	audit := &mockAuditStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.created",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_audit",
+			ProductID:  "pro-id",
+			CustomerID: "cust_audit",
+			Metadata:   map[string]string{"org_id": "org_audit"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if len(audit.events) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
+	}
+	if audit.events[0].Action != "subscription.created" {
+		t.Errorf("action = %q, want subscription.created", audit.events[0].Action)
+	}
+}
+
+func TestWebhook_SubscriptionCreated_AuditDetails_ContainsPlanTier(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	audit := &mockAuditStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.created",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_details",
+			ProductID:  "pro-id",
+			CustomerID: "cust_details",
+			Metadata:   map[string]string{"org_id": "org_details"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if len(audit.events) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
+	}
+
+	var details map[string]string
+	if err := json.Unmarshal(audit.events[0].Details, &details); err != nil {
+		t.Fatalf("failed to unmarshal details: %v", err)
+	}
+	if details["plan_tier"] != "pro" {
+		t.Errorf("plan_tier = %q, want pro", details["plan_tier"])
+	}
+	if details["polar_subscription_id"] != "sub_details" {
+		t.Errorf("polar_subscription_id = %q, want sub_details", details["polar_subscription_id"])
+	}
+}
+
+func TestWebhook_SubscriptionUpdated_Upgrade_AuditHasPreviousTier(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_upgrade_audit": {
+				OrgID:    "org_upgrade_audit",
+				PlanTier: "starter",
+				Status:   "active",
+			},
+		},
+	}
+	audit := &mockAuditStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.updated",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_upgrade_audit",
+			ProductID:  "pro-id",
+			CustomerID: "cust_upgrade_audit",
+			Metadata:   map[string]string{"org_id": "org_upgrade_audit"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if len(audit.events) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
+	}
+
+	var details map[string]string
+	if err := json.Unmarshal(audit.events[0].Details, &details); err != nil {
+		t.Fatalf("failed to unmarshal details: %v", err)
+	}
+	if details["previous_tier"] != "starter" {
+		t.Errorf("previous_tier = %q, want starter", details["previous_tier"])
+	}
+	if details["plan_tier"] != "pro" {
+		t.Errorf("plan_tier = %q, want pro", details["plan_tier"])
+	}
+}
+
+func TestWebhook_SubscriptionUpdated_Downgrade_AuditHasPendingTier(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_down_audit": {
+				OrgID:    "org_down_audit",
+				PlanTier: "pro",
+				Status:   "active",
+			},
+		},
+	}
+	audit := &mockAuditStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.updated",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_down_audit",
+			ProductID:  "starter-id",
+			CustomerID: "cust_down_audit",
+			Metadata:   map[string]string{"org_id": "org_down_audit"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if len(audit.events) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
+	}
+
+	var details map[string]string
+	if err := json.Unmarshal(audit.events[0].Details, &details); err != nil {
+		t.Fatalf("failed to unmarshal details: %v", err)
+	}
+	if details["pending_plan_tier"] != "starter" {
+		t.Errorf("pending_plan_tier = %q, want starter", details["pending_plan_tier"])
+	}
+	if details["previous_tier"] != "pro" {
+		t.Errorf("previous_tier = %q, want pro", details["previous_tier"])
+	}
+}
+
+func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_cancel_audit": {
+				OrgID:    "org_cancel_audit",
+				PlanTier: "pro",
+				Status:   "active",
+			},
+		},
+	}
+	audit := &mockAuditStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+
+	now := time.Now()
+	payload := PolarWebhookPayload{
+		Type: "subscription.canceled",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_cancel_audit",
+			ProductID:  "pro-id",
+			CustomerID: "cust_cancel_audit",
+			CanceledAt: &now,
+			Metadata:   map[string]string{"org_id": "org_cancel_audit"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if len(audit.events) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
+	}
+	if audit.events[0].Action != "subscription.canceled" {
+		t.Errorf("action = %q, want subscription.canceled", audit.events[0].Action)
+	}
+}
+
+func TestWebhook_SubscriptionRevoked_CreatesAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_revoke_audit": {
+				OrgID:    "org_revoke_audit",
+				PlanTier: "pro",
+				Status:   "active",
+			},
+		},
+	}
+	audit := &mockAuditStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.revoked",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_revoke_audit",
+			ProductID:  "pro-id",
+			CustomerID: "cust_revoke_audit",
+			Metadata:   map[string]string{"org_id": "org_revoke_audit"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if len(audit.events) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
+	}
+	if audit.events[0].Action != "subscription.revoked" {
+		t.Errorf("action = %q, want subscription.revoked", audit.events[0].Action)
+	}
+}
+
+func TestWebhook_AuditStore_Nil_DoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	// Pass nil for auditStore - should not panic.
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.created",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_nil_audit",
+			ProductID:  "pro-id",
+			CustomerID: "cust_nil_audit",
+			Metadata:   map[string]string{"org_id": "org_nil_audit"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestWebhook_AuditEvent_HasCorrectResourceType(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	audit := &mockAuditStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.created",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_restype",
+			ProductID:  "pro-id",
+			CustomerID: "cust_restype",
+			Metadata:   map[string]string{"org_id": "org_restype"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if len(audit.events) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
+	}
+	if audit.events[0].ResourceType != "subscription" {
+		t.Errorf("resource_type = %q, want subscription", audit.events[0].ResourceType)
+	}
+	if audit.events[0].ResourceID != "org_restype" {
+		t.Errorf("resource_id = %q, want org_restype", audit.events[0].ResourceID)
+	}
+	if audit.events[0].ActorType != "system" {
+		t.Errorf("actor_type = %q, want system", audit.events[0].ActorType)
+	}
+	if audit.events[0].ActorID != "polar-webhook" {
+		t.Errorf("actor_id = %q, want polar-webhook", audit.events[0].ActorID)
+	}
 }

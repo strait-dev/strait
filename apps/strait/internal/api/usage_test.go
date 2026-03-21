@@ -159,12 +159,16 @@ func (m *mockReferralService) GenerateCode(_ context.Context, orgID string) (*bi
 	return &billing.Referral{ID: "ref-1", ReferrerOrgID: orgID, ReferralCode: "abc123", Status: "pending"}, nil
 }
 
-func (m *mockReferralService) ActivateReferral(_ context.Context, _ string, referredOrgID string) (*billing.Referral, error) {
+func (m *mockReferralService) ActivateReferral(_ context.Context, _ string, referredOrgID, _ string) (*billing.Referral, error) {
 	return &billing.Referral{ID: "ref-1", ReferredOrgID: referredOrgID, Status: "activated"}, nil
 }
 
 func (m *mockReferralService) ListReferrals(_ context.Context, _ string) ([]billing.Referral, error) {
 	return []billing.Referral{}, nil
+}
+
+func (m *mockReferralService) AutoActivateReferral(_ context.Context, _ string) error {
+	return nil
 }
 
 type usageTestServerOpts struct {

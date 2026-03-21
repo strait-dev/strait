@@ -39,10 +39,12 @@ type Scheduler struct {
 	statsAggregator       *StatsAggregator
 	budgetMonitor         *BudgetMonitor
 	anomalyMonitor        *AnomalyMonitor
+	usageFlusher          *UsageFlusher
 	concurrentReconciler  *ConcurrentReconciler
 	downgradeApplier      *DowngradeApplier
 	costEstimateRefresher *CostEstimateRefresher
 	memoryCleanup         *MemoryCleanup
+	referralExpiry        *ReferralExpiry
 	wg                    conc.WaitGroup
 }
 
@@ -109,6 +111,20 @@ func WithAnomalyMonitor(monitor *AnomalyMonitor) SchedulerOption {
 	}
 }
 
+// WithUsageFlusher sets a usage flusher for periodic usage record materialization.
+func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
+	return func(s *Scheduler) {
+		s.usageFlusher = flusher
+	}
+}
+
+// WithReferralExpiry enables periodic expiration of old referral credits.
+func WithReferralExpiry(expiry *ReferralExpiry) SchedulerOption {
+	return func(s *Scheduler) {
+		s.referralExpiry = expiry
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
@@ -124,6 +140,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.wg.Go(func() { s.budgetMonitor.Run(ctx) })
 	s.wg.Go(func() { s.costEstimateRefresher.Run(ctx) })
 	s.wg.Go(func() { s.memoryCleanup.Run(ctx) })
+	if s.usageFlusher != nil {
+		s.wg.Go(func() { s.usageFlusher.Run(ctx) })
+	}
 	if s.concurrentReconciler != nil {
 		s.wg.Go(func() { s.concurrentReconciler.Run(ctx) })
 	}
@@ -132,6 +151,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.anomalyMonitor != nil {
 		s.wg.Go(func() { s.anomalyMonitor.Run(ctx) })
+	}
+	if s.referralExpiry != nil {
+		s.wg.Go(func() { s.referralExpiry.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

@@ -333,7 +333,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			cfg.PolarStarterMonthlyID, cfg.PolarStarterYearlyID,
 			cfg.PolarProMonthlyID, cfg.PolarProYearlyID,
 		)
-		polarWebhook = billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer)
+		polarWebhook = billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer, queries)
 		slog.Info("polar webhook handler enabled")
 	}
 

@@ -12,6 +12,15 @@ const (
 	// defaultReferralCreditMicro is the credit amount for a successful referral (10 USD).
 	defaultReferralCreditMicro int64 = 10_000_000
 
+	// MaxReferralCreditsPerYear is the maximum referral credits per year (100 USD).
+	MaxReferralCreditsPerYear int64 = 100_000_000
+
+	// ReferralExpiryDays is the number of days before a referral credit expires.
+	ReferralExpiryDays = 90
+
+	// MaxActivatedPerYear is the maximum number of activated referrals per org per year.
+	MaxActivatedPerYear = 10
+
 	// referralCodeLength is the byte length used to generate referral codes (16 hex chars).
 	referralCodeLength = 8
 )
@@ -35,6 +44,7 @@ type Referral struct {
 	Status         ReferralStatus `json:"status"`
 	CreditMicrousd int64          `json:"credit_microusd"`
 	ActivatedAt    *time.Time     `json:"activated_at,omitempty"`
+	ExpiresAt      *time.Time     `json:"expires_at,omitempty"`
 	CreatedAt      time.Time      `json:"created_at"`
 }
 
@@ -43,7 +53,10 @@ type ReferralStore interface {
 	CreateReferral(ctx context.Context, referral *Referral) error
 	GetReferralByCode(ctx context.Context, code string) (*Referral, error)
 	ListReferralsByOrg(ctx context.Context, orgID string) ([]Referral, error)
-	ActivateReferral(ctx context.Context, code string, referredOrgID string) error
+	ActivateReferral(ctx context.Context, code, referredOrgID, referredEmail string, expiresAt time.Time) error
+	CountActivatedReferralsInYear(ctx context.Context, orgID string) (int, error)
+	GetPendingReferralByReferredOrg(ctx context.Context, referredOrgID string) (*Referral, error)
+	ExpireOldReferrals(ctx context.Context) (int64, error)
 }
 
 // ReferralService handles referral code generation and activation.
@@ -58,6 +71,14 @@ func NewReferralService(store ReferralStore) *ReferralService {
 
 // GenerateCode creates a new referral code for the given org.
 func (s *ReferralService) GenerateCode(ctx context.Context, orgID string) (*Referral, error) {
+	count, err := s.store.CountActivatedReferralsInYear(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("counting activated referrals: %w", err)
+	}
+	if count >= MaxActivatedPerYear {
+		return nil, fmt.Errorf("yearly referral cap reached")
+	}
+
 	code, err := generateReferralCode()
 	if err != nil {
 		return nil, fmt.Errorf("generating referral code: %w", err)
@@ -79,7 +100,7 @@ func (s *ReferralService) GenerateCode(ctx context.Context, orgID string) (*Refe
 }
 
 // ActivateReferral marks a referral as activated by the referred org.
-func (s *ReferralService) ActivateReferral(ctx context.Context, code string, referredOrgID string) (*Referral, error) {
+func (s *ReferralService) ActivateReferral(ctx context.Context, code, referredOrgID, referredEmail string) (*Referral, error) {
 	referral, err := s.store.GetReferralByCode(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("looking up referral code: %w", err)
@@ -93,16 +114,47 @@ func (s *ReferralService) ActivateReferral(ctx context.Context, code string, ref
 		return nil, fmt.Errorf("cannot use own referral code")
 	}
 
-	if err := s.store.ActivateReferral(ctx, code, referredOrgID); err != nil {
+	now := time.Now().UTC()
+	expiresAt := now.AddDate(0, 0, ReferralExpiryDays)
+
+	if err := s.store.ActivateReferral(ctx, code, referredOrgID, referredEmail, expiresAt); err != nil {
 		return nil, fmt.Errorf("activating referral: %w", err)
 	}
 
 	referral.Status = ReferralStatusActivated
 	referral.ReferredOrgID = referredOrgID
-	now := time.Now().UTC()
+	referral.ReferredEmail = referredEmail
 	referral.ActivatedAt = &now
+	referral.ExpiresAt = &expiresAt
 
 	return referral, nil
+}
+
+// CountActivatedInYear returns the number of activated referrals in the last year for an org.
+func (s *ReferralService) CountActivatedInYear(ctx context.Context, orgID string) (int, error) {
+	return s.store.CountActivatedReferralsInYear(ctx, orgID)
+}
+
+// AutoActivateReferral looks for a pending referral where referred_org_id matches
+// the given org and activates it. This is called after the first project is created.
+// If no pending referral exists, it returns nil (no-op).
+func (s *ReferralService) AutoActivateReferral(ctx context.Context, orgID string) error {
+	referral, err := s.store.GetPendingReferralByReferredOrg(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("looking up pending referral for org %s: %w", orgID, err)
+	}
+	if referral == nil {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	expiresAt := now.AddDate(0, 0, ReferralExpiryDays)
+
+	if err := s.store.ActivateReferral(ctx, referral.ReferralCode, orgID, referral.ReferredEmail, expiresAt); err != nil {
+		return fmt.Errorf("auto-activating referral %s: %w", referral.ReferralCode, err)
+	}
+
+	return nil
 }
 
 // ListReferrals returns all referrals for an org.

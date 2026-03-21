@@ -704,13 +704,14 @@ func (s *PgStore) ListReferralsByOrg(ctx context.Context, orgID string) ([]Refer
 	return referrals, rows.Err()
 }
 
-func (s *PgStore) ActivateReferral(ctx context.Context, code string, referredOrgID string) error {
+func (s *PgStore) ActivateReferral(ctx context.Context, code, referredOrgID, referredEmail string, expiresAt time.Time) error {
 	now := time.Now()
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE referrals
-		SET status = 'activated', referred_org_id = $2, activated_at = $3
+		SET status = 'activated', referred_org_id = $2, referred_email = $3,
+			activated_at = $4, expires_at = $5
 		WHERE referral_code = $1 AND status = 'pending'
-	`, code, referredOrgID, now)
+	`, code, referredOrgID, referredEmail, now, expiresAt)
 	if err != nil {
 		return fmt.Errorf("activating referral: %w", err)
 	}
@@ -718,6 +719,63 @@ func (s *PgStore) ActivateReferral(ctx context.Context, code string, referredOrg
 		return fmt.Errorf("referral not found or already activated")
 	}
 	return nil
+}
+
+func (s *PgStore) CountActivatedReferralsInYear(ctx context.Context, orgID string) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM referrals
+		WHERE referrer_org_id = $1
+		  AND status = 'activated'
+		  AND activated_at > NOW() - INTERVAL '1 year'
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting activated referrals in year: %w", err)
+	}
+	return count, nil
+}
+
+func (s *PgStore) GetPendingReferralByReferredOrg(ctx context.Context, referredOrgID string) (*Referral, error) {
+	var r Referral
+	var referredEmailP, rOrgID *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, referrer_org_id, referral_code, referred_email, referred_org_id,
+			status, credit_microusd, activated_at, created_at
+		FROM referrals
+		WHERE referred_org_id = $1 AND status = 'pending'
+		LIMIT 1
+	`, referredOrgID).Scan(
+		&r.ID, &r.ReferrerOrgID, &r.ReferralCode, &referredEmailP, &rOrgID,
+		&r.Status, &r.CreditMicrousd, &r.ActivatedAt, &r.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting pending referral by referred org: %w", err)
+	}
+	if rOrgID != nil {
+		r.ReferredOrgID = *rOrgID
+	}
+	if referredEmailP != nil {
+		r.ReferredEmail = *referredEmailP
+	}
+	return &r, nil
+}
+
+func (s *PgStore) ExpireOldReferrals(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE referrals
+		SET status = 'expired'
+		WHERE status = 'activated'
+		  AND expires_at IS NOT NULL
+		  AND expires_at < NOW()
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("expiring old referrals: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (s *PgStore) GetProjectBudget(ctx context.Context, projectID string) (int64, string, error) {
@@ -777,6 +835,29 @@ func (s *PgStore) UpdateAnomalyThresholds(ctx context.Context, orgID string, war
 		return ErrSubscriptionNotFound
 	}
 	return nil
+}
+
+func (s *PgStore) ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT org_id
+		FROM organization_subscriptions
+		WHERE status = 'active'
+		ORDER BY org_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("listing subscribed org IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scanning subscribed org ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func scanUsageRecords(rows pgx.Rows) ([]UsageRecord, error) {

@@ -65,6 +65,18 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		slog.Error("failed to seed system roles for project", "project_id", project.ID, "error", err)
 	}
 
+	// Auto-activate referral on first project creation.
+	if s.referralService != nil {
+		projects, listErr := s.store.ListProjectsByOrg(r.Context(), req.OrgID)
+		if listErr != nil {
+			slog.Warn("failed to count projects for referral auto-activation", "org_id", req.OrgID, "error", listErr)
+		} else if len(projects) == 1 {
+			if activateErr := s.referralService.AutoActivateReferral(r.Context(), req.OrgID); activateErr != nil {
+				slog.Warn("failed to auto-activate referral", "org_id", req.OrgID, "error", activateErr)
+			}
+		}
+	}
+
 	respondJSON(w, http.StatusCreated, project)
 }
 

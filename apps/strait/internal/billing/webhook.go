@@ -23,6 +23,11 @@ var (
 	ErrUnknownProduct   = errors.New("unknown polar product ID")
 )
 
+// AuditStore is the subset of store operations needed for audit logging.
+type AuditStore interface {
+	CreateAuditEvent(ctx context.Context, event *domain.AuditEvent) error
+}
+
 // WebhookHandler handles incoming Polar webhook events.
 type WebhookHandler struct {
 	store        Store
@@ -30,17 +35,20 @@ type WebhookHandler struct {
 	secret       string
 	logger       *slog.Logger
 	enforcer     *Enforcer
+	auditStore   AuditStore
 }
 
 // NewWebhookHandler creates a new Polar webhook handler.
 // The enforcer is optional; when non-nil, org caches are invalidated on plan changes.
-func NewWebhookHandler(store Store, mapping *PolarMapping, secret string, logger *slog.Logger, enforcer *Enforcer) *WebhookHandler {
+// The auditStore is optional; when non-nil, audit events are recorded for plan changes.
+func NewWebhookHandler(store Store, mapping *PolarMapping, secret string, logger *slog.Logger, enforcer *Enforcer, auditStore AuditStore) *WebhookHandler {
 	return &WebhookHandler{
 		store:        store,
 		polarMapping: mapping,
 		secret:       secret,
 		logger:       logger,
 		enforcer:     enforcer,
+		auditStore:   auditStore,
 	}
 }
 
@@ -221,6 +229,11 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		h.enforcer.InvalidateOrgCache(orgID)
 	}
 
+	h.logAuditEvent(ctx, "subscription.created", orgID, map[string]string{
+		"plan_tier":              string(tier),
+		"polar_subscription_id": sub.ID,
+	})
+
 	h.logger.Info("subscription created",
 		"org_id", orgID,
 		"plan_tier", tier,
@@ -282,12 +295,25 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 				return fmt.Errorf("updating subscription period: %w", err)
 			}
 		}
+		h.logAuditEvent(ctx, "subscription.updated", orgID, map[string]string{
+			"plan_tier":              existing.PlanTier,
+			"pending_plan_tier":      string(tier),
+			"previous_tier":          existing.PlanTier,
+			"polar_subscription_id":  sub.ID,
+		})
+
 		h.logger.Info("subscription downgrade deferred",
 			"org_id", orgID,
 			"current_tier", existing.PlanTier,
 			"pending_tier", tier,
 		)
 		return nil
+	}
+
+	// Capture previous tier before the update mutates the subscription.
+	previousTier := ""
+	if existing != nil {
+		previousTier = existing.PlanTier
 	}
 
 	// Upgrade or same-tier update: apply immediately with period dates.
@@ -318,6 +344,10 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 			if h.enforcer != nil {
 				h.enforcer.InvalidateOrgCache(orgID)
 			}
+			h.logAuditEvent(ctx, "subscription.updated", orgID, map[string]string{
+				"plan_tier":              string(tier),
+				"polar_subscription_id":  sub.ID,
+			})
 			h.logger.Info("subscription updated (created via fallback)",
 				"org_id", orgID,
 				"plan_tier", tier,
@@ -331,6 +361,15 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 	if h.enforcer != nil {
 		h.enforcer.InvalidateOrgCache(orgID)
 	}
+
+	auditDetails := map[string]string{
+		"plan_tier":              string(tier),
+		"polar_subscription_id":  sub.ID,
+	}
+	if previousTier != "" && previousTier != string(tier) {
+		auditDetails["previous_tier"] = previousTier
+	}
+	h.logAuditEvent(ctx, "subscription.updated", orgID, auditDetails)
 
 	h.logger.Info("subscription updated",
 		"org_id", orgID,
@@ -378,6 +417,11 @@ func (h *WebhookHandler) handleSubscriptionCanceled(ctx context.Context, data js
 		h.enforcer.InvalidateOrgCache(orgID)
 	}
 
+	h.logAuditEvent(ctx, "subscription.canceled", orgID, map[string]string{
+		"plan_tier":              existing.PlanTier,
+		"polar_subscription_id": sub.ID,
+	})
+
 	h.logger.Info("subscription canceled",
 		"org_id", orgID,
 		"plan_tier", existing.PlanTier,
@@ -410,6 +454,11 @@ func (h *WebhookHandler) handleSubscriptionRevoked(ctx context.Context, data jso
 		h.enforcer.InvalidateOrgCache(orgID)
 	}
 
+	h.logAuditEvent(ctx, "subscription.revoked", orgID, map[string]string{
+		"plan_tier":              string(domain.PlanFree),
+		"polar_subscription_id": sub.ID,
+	})
+
 	h.logger.Info("subscription revoked, downgraded to free",
 		"org_id", orgID,
 	)
@@ -427,4 +476,31 @@ func (h *WebhookHandler) resolveOrgID(sub PolarSubscriptionData) string {
 		}
 	}
 	return ""
+}
+
+// logAuditEvent records an audit event if the audit store is configured.
+// Errors are logged but do not fail the webhook handler.
+func (h *WebhookHandler) logAuditEvent(ctx context.Context, action, orgID string, details map[string]string) {
+	if h.auditStore == nil {
+		return
+	}
+
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		h.logger.Error("failed to marshal audit details", "error", err)
+		return
+	}
+
+	ev := &domain.AuditEvent{
+		ActorType:    "system",
+		ActorID:      "polar-webhook",
+		Action:       action,
+		ResourceType: "subscription",
+		ResourceID:   orgID,
+		Details:      detailsJSON,
+	}
+
+	if err := h.auditStore.CreateAuditEvent(ctx, ev); err != nil {
+		h.logger.Error("failed to create audit event", "action", action, "org_id", orgID, "error", err)
+	}
 }
