@@ -378,7 +378,7 @@ authentication, and environment variables to diagnose common issues.`,
 				}
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr)
 				for _, c := range checks {
 					badge := styles.StatusBadge(c.Status)

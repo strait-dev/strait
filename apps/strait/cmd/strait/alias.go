@@ -57,7 +57,7 @@ func newAliasSetCommand(state *appState) *cobra.Command {
 			if err := cliconfig.Save(path, cfg); err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Set alias "+styles.Bold.Render(args[0])+" -> "+args[1]))
 				return nil
 			}
@@ -86,7 +86,7 @@ func newAliasListCommand(state *appState) *cobra.Command {
 			sort.Strings(keys)
 			for _, k := range keys {
 				expansion := cfg.Aliases[k]
-				if stdoutIsTTY() && state.opts.outputFormat == "" {
+				if isTTYRich(state) {
 					expansion = styles.MutedStyle.Render(expansion)
 				}
 				rows = append(rows, map[string]any{"alias": styles.Bold.Render(k), "expansion": expansion})
@@ -118,7 +118,7 @@ func newAliasDeleteCommand(state *appState) *cobra.Command {
 			if err := cliconfig.Save(path, cfg); err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Deleted alias "+styles.Bold.Render(args[0])))
 				return nil
 			}

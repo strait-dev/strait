@@ -408,7 +408,7 @@ func newVersionCommand(state *appState) *cobra.Command {
 				return enc.Encode(info)
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Println(styles.TitleStyle.Render("Strait CLI"))
 				fmt.Println(styles.KeyValue("Version", info["version"]))
 				fmt.Println(styles.KeyValue("Commit", info["commit"]))

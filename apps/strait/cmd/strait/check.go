@@ -93,7 +93,7 @@ acyclicity, and optionally checks endpoint URL reachability.`,
 				results = append(results, manifestResult(item, checks))
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				for _, r := range results {
 					source, _ := r["source"].(string)
 					kind, _ := r["kind"].(string)

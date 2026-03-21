@@ -70,7 +70,7 @@ func newSendCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("send failed with status %d", resp.StatusCode)
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Sent event %s (status %d)", styles.Bold.Render(eventType), resp.StatusCode)))
 				return nil
 			}

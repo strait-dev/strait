@@ -70,7 +70,7 @@ func newContextCreateCommand(state *appState) *cobra.Command {
 				}
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Created context "+styles.Bold.Render(name)))
 				return nil
 			}
@@ -111,7 +111,7 @@ func newContextUseCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Switched to context "+styles.Bold.Render(name)))
 				return nil
 			}
@@ -135,7 +135,7 @@ func newContextListCommand(state *appState) *cobra.Command {
 			rows := make([]map[string]any, 0, len(cfg.Contexts))
 			for name, ctx := range cfg.Contexts {
 				displayName := name
-				if stdoutIsTTY() && state.opts.outputFormat == "" && cfg.ActiveContext == name {
+				if isTTYRich(state) && cfg.ActiveContext == name {
 					displayName = styles.SelectedStyle.Render(name + " *")
 				}
 				rows = append(rows, map[string]any{

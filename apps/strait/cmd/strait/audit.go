@@ -69,7 +69,7 @@ func newAuditCommand(state *appState) *cobra.Command {
 			rows := make([]map[string]any, 0, len(events))
 			for _, e := range events {
 				action := e.Action
-				if stdoutIsTTY() && state.opts.outputFormat == "" {
+				if isTTYRich(state) {
 					action = colorAuditAction(e.Action)
 				}
 				rows = append(rows, map[string]any{

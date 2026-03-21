@@ -68,7 +68,7 @@ and writes it to the output directory.`,
 				return fmt.Errorf("write manifest: %w", err)
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Build complete"))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("Config", configPath))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("Output", styles.FilePath(target)))

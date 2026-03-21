@@ -80,7 +80,7 @@ func newDiagnoseCommand(state *appState) *cobra.Command {
 				checks = trimmed
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				for _, c := range checks {
 					name, _ := c["check"].(string)
 					ok, _ := c["ok"].(bool)

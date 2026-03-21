@@ -54,7 +54,7 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			ttyMode := stdoutIsTTY() && state.opts.outputFormat == ""
+			ttyMode := isTTYRich(state)
 			return runTopLoop(cmd, watch, interval, func() error {
 				sampledAt := time.Now().UTC().Format(time.RFC3339)
 				rows := make([]map[string]any, 0)

@@ -96,7 +96,7 @@ func newExportCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				for _, p := range paths {
 					fmt.Fprintln(os.Stderr, styles.Success("Exported "+styles.FilePath(p)))
 				}

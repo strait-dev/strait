@@ -62,7 +62,7 @@ func newJobsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Deleted job "+styles.Bold.Render(jobID)))
 				return nil
 			}
@@ -232,7 +232,7 @@ func newJobsEditCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Updated job "+styles.Bold.Render(job.ID)+" (version "+fmt.Sprintf("%d", job.Version)+")"))
 				return nil
 			}
@@ -404,7 +404,7 @@ func newJobsGetCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				lines := []string{
 					styles.DetailLine("ID", job.ID),
 					styles.DetailLine("Name", job.Name),
@@ -581,7 +581,7 @@ func newJobsTriggerCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Info("Triggered run "+styles.Bold.Render(resp.ID)))
 				return nil
 			}

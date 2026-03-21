@@ -204,7 +204,7 @@ func loginWithDeviceCode(cmd *cobra.Command, state *appState, targetContext, tar
 		return err
 	}
 
-	if stdoutIsTTY() && state.opts.outputFormat == "" {
+	if isTTYRich(state) {
 		fmt.Fprintln(os.Stderr, styles.Success("Authenticated via device code"))
 		fmt.Fprintln(os.Stderr, styles.KeyValue("Context", targetContext))
 		return nil
@@ -248,7 +248,7 @@ func loginWithAPIKey(cmd *cobra.Command, state *appState, apiKey string, withTok
 		return err
 	}
 
-	if stdoutIsTTY() && state.opts.outputFormat == "" {
+	if isTTYRich(state) {
 		fmt.Fprintln(os.Stderr, styles.Success("Authenticated successfully"))
 		fmt.Fprintln(os.Stderr, styles.KeyValue("Context", targetContext))
 		return nil
@@ -279,7 +279,7 @@ func newLogoutCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("delete api key: %w", err)
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Info("Logged out from context "+styles.Bold.Render(targetContext)))
 				return nil
 			}

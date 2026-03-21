@@ -57,7 +57,7 @@ func newAPIKeysCreateCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Created API key "+styles.Bold.Render(created.Name)))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("Key", created.Key))
 				fmt.Fprintln(os.Stderr, styles.MutedStyle.Render("  Store this key securely; it will not be shown again."))
@@ -95,7 +95,7 @@ func newAPIKeysListCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				rows := make([]map[string]any, 0, len(keys))
 				for _, k := range keys {
 					rows = append(rows, map[string]any{
@@ -129,7 +129,7 @@ func newAPIKeysRevokeCommand(state *appState) *cobra.Command {
 			if err := cli.RevokeAPIKey(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Revoked API key "+styles.Bold.Render(args[0])))
 				return nil
 			}
@@ -173,7 +173,7 @@ The command returns the newly issued key and keeps the old key valid until the g
 				return fmt.Errorf("failed to rotate key: %w", err)
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Rotated API key "+styles.Bold.Render(args[0])))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("Grace Period", fmt.Sprintf("%d minutes", gracePeriodMinutes)))
 				return nil

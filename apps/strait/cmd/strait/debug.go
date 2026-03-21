@@ -113,7 +113,7 @@ func newDebugBundleCommand(state *appState) *cobra.Command {
 			}
 
 			absPath, _ := filepath.Abs(outputPath)
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Debug bundle created"))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("Path", styles.FilePath(absPath)))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("Run", runID))

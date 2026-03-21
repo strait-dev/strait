@@ -54,7 +54,7 @@ func newTriggersListCommand(state *appState) *cobra.Command {
 			rows := make([]map[string]any, 0, len(triggers))
 			for _, t := range triggers {
 				status := t.Status
-				if stdoutIsTTY() && state.opts.outputFormat == "" {
+				if isTTYRich(state) {
 					status = styles.StatusBadge(t.Status)
 				}
 				rows = append(rows, map[string]any{
@@ -142,7 +142,7 @@ func newTriggersSendCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Sent event to trigger "+styles.Bold.Render(trigger.EventKey)))
 				return nil
 			}

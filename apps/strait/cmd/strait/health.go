@@ -26,7 +26,7 @@ func newHealthCommand(state *appState) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if stdoutIsTTY() && state.opts.outputFormat == "" {
+				if isTTYRich(state) {
 					if status.Status == "ok" || status.Status == "healthy" {
 						fmt.Fprintln(os.Stderr, styles.Success("Server is ready"))
 					} else {
@@ -41,7 +41,7 @@ func newHealthCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				if status.Status == "ok" || status.Status == "healthy" {
 					fmt.Fprintln(os.Stderr, styles.Success("Server is healthy"))
 				} else {

@@ -100,7 +100,7 @@ status. Use --dry-run to preview what would be removed.`,
 				}
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Cleaned up %d run(s)", len(results))))
 				return nil
 			}

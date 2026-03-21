@@ -47,7 +47,7 @@ Exits 0 when executing count reaches 0, exits 1 on timeout.`,
 				}
 
 				if stats.Executing == 0 {
-					if stdoutIsTTY() && state.opts.outputFormat == "" {
+					if isTTYRich(state) {
 						fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Drained after %d poll(s)", attempt)))
 						return nil
 					}

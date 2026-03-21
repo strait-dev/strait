@@ -64,7 +64,7 @@ func newSecretsListCommand(state *appState) *cobra.Command {
 			rows := make([]map[string]any, 0, len(secrets))
 			for _, s := range secrets {
 				env := s.Environment
-				if stdoutIsTTY() && state.opts.outputFormat == "" {
+				if isTTYRich(state) {
 					env = styles.MutedStyle.Render(s.Environment)
 				}
 				rows = append(rows, map[string]any{
@@ -132,7 +132,7 @@ func newSecretsCreateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Created secret "+styles.Bold.Render(secret.SecretKey)))
 				return nil
 			}
@@ -178,7 +178,7 @@ func newSecretsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Deleted secret "+styles.Bold.Render(args[0])))
 				return nil
 			}

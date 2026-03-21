@@ -34,7 +34,7 @@ func newEventsCommand(state *appState) *cobra.Command {
 			rows := make([]map[string]any, 0, len(events))
 			for _, event := range events {
 				lvl := event.Level
-				if stdoutIsTTY() && state.opts.outputFormat == "" {
+				if isTTYRich(state) {
 					lvl = styles.LogLevel(event.Level)
 				}
 				rows = append(rows, map[string]any{

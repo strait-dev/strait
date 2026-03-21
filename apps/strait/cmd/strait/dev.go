@@ -138,7 +138,7 @@ func newDevStatusCommand(state *appState) *cobra.Command {
 				checks = append(checks, diagnoseCheck("api client", false, err.Error(), "set valid --server and --api-key for status checks"))
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				for _, c := range checks {
 					name, _ := c["check"].(string)
 					ok, _ := c["ok"].(bool)

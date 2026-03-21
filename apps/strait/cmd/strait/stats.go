@@ -22,7 +22,7 @@ func newStatsCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.SectionHeader("Queue Statistics", -1))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("Queued", fmt.Sprintf("%d", stats.Queued)))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("Executing", fmt.Sprintf("%d", stats.Executing)))

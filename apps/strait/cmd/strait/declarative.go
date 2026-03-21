@@ -54,7 +54,7 @@ func newValidateCommand(state *appState) *cobra.Command {
 					return fmt.Errorf("%s#%d: %w", item.Source, item.Index, err)
 				}
 				kind := item.Data.Kind
-				if stdoutIsTTY() && state.opts.outputFormat == "" {
+				if isTTYRich(state) {
 					kind = styles.ResourceKind(item.Data.Kind)
 				}
 				rows = append(rows, map[string]any{
@@ -106,7 +106,7 @@ func newApplyCommand(state *appState) *cobra.Command {
 			}
 
 			rows := make([]map[string]any, 0, len(manifests))
-			ttyMode := stdoutIsTTY() && state.opts.outputFormat == ""
+			ttyMode := isTTYRich(state)
 			for _, item := range manifests {
 				if dryRun {
 					action := "dry-run"
@@ -166,7 +166,7 @@ func newDiffCommand(state *appState) *cobra.Command {
 			}
 
 			rows := make([]map[string]any, 0, len(manifests))
-			ttyMode := stdoutIsTTY() && state.opts.outputFormat == ""
+			ttyMode := isTTYRich(state)
 			for _, item := range manifests {
 				if err := validateManifest(item.Data); err != nil {
 					return fmt.Errorf("%s#%d: %w", item.Source, item.Index, err)

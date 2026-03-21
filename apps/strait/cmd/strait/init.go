@@ -193,7 +193,7 @@ In non-interactive mode (--yes), all values come from flags.`,
 				{"path": ".gitignore", "status": gitignoreStatus},
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Initialized project "+styles.Bold.Render(name)))
 				for _, f := range files {
 					fmt.Fprintln(os.Stderr, styles.KeyValue(f["status"].(string), styles.FilePath(f["path"].(string))))

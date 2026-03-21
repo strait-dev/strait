@@ -147,7 +147,7 @@ func newWorkflowsGetCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				lines := []string{
 					styles.DetailLine("ID", wf.ID),
 					styles.DetailLine("Name", wf.Name),
@@ -312,7 +312,7 @@ func newWorkflowsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Deleted workflow "+styles.Bold.Render(workflowID)))
 				return nil
 			}
@@ -409,7 +409,7 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Info("Triggered workflow run "+styles.Bold.Render(run.ID)))
 				return nil
 			}

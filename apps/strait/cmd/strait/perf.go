@@ -59,7 +59,7 @@ health summary, and the slowest jobs over a fixed analysis window.`,
 				})
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				successRate := fmt.Sprintf("%.1f%%", analytics.HealthSummary.SuccessRate*100)
 				if analytics.HealthSummary.SuccessRate >= 0.95 {
 					successRate = styles.Green.Render(successRate)

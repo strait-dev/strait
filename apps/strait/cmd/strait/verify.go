@@ -36,7 +36,7 @@ func newVerifyCommand(state *appState) *cobra.Command {
 				checks = append(checks, map[string]any{"check": "auth/jobs list", "ok": err == nil, "detail": errDetail(err)})
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				for _, c := range checks {
 					name, _ := c["check"].(string)
 					ok, _ := c["ok"].(bool)

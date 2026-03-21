@@ -134,7 +134,7 @@ func newWorkflowRunsGetCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				lines := []string{
 					styles.DetailLine("Status", styles.StatusBadge(string(run.Status))),
 					styles.DetailLine("ID", run.ID),
@@ -168,7 +168,7 @@ func newWorkflowRunsCancelCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Canceled workflow run "+styles.Bold.Render(args[0])))
 				return nil
 			}

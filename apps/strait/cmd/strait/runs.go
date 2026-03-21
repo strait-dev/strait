@@ -100,7 +100,7 @@ func newRunsGetCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				lines := []string{
 					styles.DetailLine("Status", styles.StatusBadge(string(run.Status))),
 					styles.DetailLine("ID", run.ID),
@@ -181,18 +181,18 @@ func newRunsCancelCommand(state *appState) *cobra.Command {
 				run, cancelErr := cli.CancelRun(cmd.Context(), id)
 				if cancelErr != nil {
 					results = append(results, map[string]any{"id": id, "canceled": false, "error": cancelErr.Error()})
-					if stdoutIsTTY() && state.opts.outputFormat == "" {
+					if isTTYRich(state) {
 						fmt.Fprintln(os.Stderr, styles.Err("Failed to cancel "+id+": "+cancelErr.Error()))
 					}
 					continue
 				}
 				results = append(results, map[string]any{"id": id, "canceled": true, "status": run.Status})
-				if stdoutIsTTY() && state.opts.outputFormat == "" {
+				if isTTYRich(state) {
 					fmt.Fprintln(os.Stderr, styles.Success("Canceled run "+styles.Bold.Render(id)))
 				}
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				return nil
 			}
 			return printData(state, results)
@@ -275,7 +275,7 @@ func newRunsWatchCommand(state *appState) *cobra.Command {
 				return err
 			}
 			ctx := cmd.Context()
-			ttyMode := stdoutIsTTY() && state.opts.outputFormat == ""
+			ttyMode := isTTYRich(state)
 
 			deadline := time.Now().Add(timeout)
 			for {
@@ -397,7 +397,7 @@ func newRunsReplayCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Info("Replayed as run "+styles.Bold.Render(triggered.ID)))
 			} else if err := printData(state, triggered); err != nil {
 				return err

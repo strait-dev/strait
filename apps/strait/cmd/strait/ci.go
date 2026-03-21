@@ -78,7 +78,7 @@ Supported providers: github, gitlab, generic.`,
 				return fmt.Errorf("write %s: %w", outputPath, err)
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Generated CI config for "+styles.Bold.Render(provider)))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("File", styles.FilePath(outputPath)))
 				return nil
@@ -123,7 +123,7 @@ func newCICheckCommand(state *appState) *cobra.Command {
 				checks = append(checks, diagnoseCheck("api client", false, err.Error(), "check --server and --api-key"))
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				for _, c := range checks {
 					name, _ := c["check"].(string)
 					ok, _ := c["ok"].(bool)

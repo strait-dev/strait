@@ -271,7 +271,7 @@ func printLogRows(state *appState, rows []map[string]any, group bool, outputFmt 
 		}
 		return nil
 	}
-	if stdoutIsTTY() && state.opts.outputFormat == "" {
+	if isTTYRich(state) {
 		for i, row := range rows {
 			if level, ok := row["level"].(string); ok && level != "" {
 				rows[i]["level"] = styles.LogLevel(level)
@@ -387,7 +387,7 @@ func renderFollowLogRow(state *appState, outputFmt string, row map[string]any) e
 	eventType, _ := row["type"].(string)
 	message, _ := row["message"].(string)
 
-	if stdoutIsTTY() && state.opts.outputFormat == "" {
+	if isTTYRich(state) {
 		_, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n", styles.Timestamp(ts), styles.LogLevel(level), eventType, message)
 		return err
 	}

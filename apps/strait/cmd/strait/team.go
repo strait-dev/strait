@@ -93,7 +93,7 @@ func newTeamAddCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Added member "+styles.Bold.Render(args[0])))
 				return nil
 			}
@@ -127,7 +127,7 @@ func newTeamRemoveCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Removed member "+styles.Bold.Render(args[0])))
 				return nil
 			}

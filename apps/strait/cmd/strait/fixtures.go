@@ -83,7 +83,7 @@ func newFixturesCreateCommand(state *appState) *cobra.Command {
 				return triggerErr
 			}
 
-			if stdoutIsTTY() && state.opts.outputFormat == "" {
+			if isTTYRich(state) {
 				fmt.Fprintln(os.Stderr, styles.Success("Created fixture (template="+template+")"))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("Job", job.ID))
 				fmt.Fprintln(os.Stderr, styles.KeyValue("Run", run.ID))
