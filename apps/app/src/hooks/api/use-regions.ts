@@ -30,7 +30,8 @@ export const fetchProjectSettings = createServerFn({ method: "GET" })
   .inputValidator((data: { projectId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
     return await runWithSentryReport(
@@ -42,7 +43,8 @@ export const updateProjectSettingsFn = createServerFn({ method: "POST" })
   .inputValidator((data: { projectId: string; default_region: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
     return await runWithSentryReport(

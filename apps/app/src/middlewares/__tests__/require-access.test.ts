@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/auth.server", () => ({
   authPool: { query: vi.fn() },
@@ -16,9 +16,7 @@ describe("requireOrgAccess", () => {
 
   it("passes when member row exists", async () => {
     mockQuery.mockResolvedValue({ rowCount: 1 });
-    await expect(
-      requireOrgAccess("user-1", "org-1")
-    ).resolves.toBeUndefined();
+    await expect(requireOrgAccess("user-1", "org-1")).resolves.toBeUndefined();
   });
 
   it("throws Forbidden when user is not a member", async () => {
@@ -86,15 +84,15 @@ describe("requireProjectAccess", () => {
   });
 
   it("throws when activeOrganizationId is empty", async () => {
-    await expect(
-      requireProjectAccess("user-1", "proj-1", "")
-    ).rejects.toThrow("Forbidden");
+    await expect(requireProjectAccess("user-1", "proj-1", "")).rejects.toThrow(
+      "Forbidden"
+    );
   });
 
   it("throws when projectId is empty", async () => {
-    await expect(
-      requireProjectAccess("user-1", "", "org-1")
-    ).rejects.toThrow("Forbidden");
+    await expect(requireProjectAccess("user-1", "", "org-1")).rejects.toThrow(
+      "Forbidden"
+    );
   });
 
   it("handles database errors gracefully", async () => {

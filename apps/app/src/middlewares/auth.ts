@@ -25,9 +25,8 @@ export const authMiddleware = createMiddleware().server(async ({ next }) => {
         updatedAt: session.user.updatedAt,
       },
       session: session.session,
-      activeOrganizationId: (
-        session.session as Record<string, unknown>
-      ).activeOrganizationId as string | undefined,
+      activeOrganizationId: (session.session as Record<string, unknown>)
+        .activeOrganizationId as string | undefined,
     },
   });
 });

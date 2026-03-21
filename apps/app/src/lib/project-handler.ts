@@ -5,7 +5,10 @@ import type { Project } from "@/hooks/api/types";
 import { auth, authPool } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import { requireOrgAccess, requireProjectAccess } from "@/middlewares/require-access";
+import {
+  requireOrgAccess,
+  requireProjectAccess,
+} from "@/middlewares/require-access";
 
 /**
  * Ensures the project table exists in the auth database.
@@ -115,7 +118,8 @@ export const getProjectServerFn = createServerFn({ method: "GET" })
   .handler(async ({ context, data }) => {
     await ensureProjectTable();
 
-    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
 
     if (activeOrgId) {
       const result = await authPool.query<Project>(
@@ -144,7 +148,8 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
     if (activeOrgId) {
       await requireOrgAccess(context.user.id, activeOrgId);
     }
@@ -175,7 +180,8 @@ export const setActiveProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
     const headers = getRequestHeaders();

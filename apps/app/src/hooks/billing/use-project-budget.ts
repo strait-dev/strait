@@ -29,7 +29,8 @@ const getProjectBudgetServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: GetBudgetInput) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
     return await runWithFallback(
@@ -57,7 +58,8 @@ const setProjectBudgetServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: SetBudgetInput) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const activeOrgId = (context as Record<string, unknown>).activeOrganizationId as string | undefined;
+    const activeOrgId = (context as Record<string, unknown>)
+      .activeOrganizationId as string | undefined;
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
     return await runWithSentryReport(
