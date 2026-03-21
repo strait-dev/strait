@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"gopkg.in/yaml.v3"
 
@@ -95,6 +96,12 @@ func newExportCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				for _, p := range paths {
+					fmt.Fprintln(os.Stderr, styles.Success("Exported "+styles.FilePath(p)))
+				}
+				return nil
+			}
 			return printData(state, map[string]any{
 				"resource":   resource,
 				"output_dir": outputDir,

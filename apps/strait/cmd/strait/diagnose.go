@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/cli/styles"
+
 	"github.com/spf13/cobra"
 )
 
@@ -78,7 +80,22 @@ func newDiagnoseCommand(state *appState) *cobra.Command {
 				checks = trimmed
 			}
 
-			if err := printData(state, checks); err != nil {
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				for _, c := range checks {
+					name, _ := c["check"].(string)
+					ok, _ := c["ok"].(bool)
+					detail, _ := c["detail"].(string)
+					fix, _ := c["fix"].(string)
+					if ok {
+						fmt.Fprintf(os.Stderr, "  %s %s: %s\n", styles.StatusBadge("ok"), name, detail)
+					} else {
+						fmt.Fprintf(os.Stderr, "  %s %s: %s\n", styles.StatusBadge("fail"), name, detail)
+						if fix != "" {
+							fmt.Fprintf(os.Stderr, "      fix: %s\n", styles.MutedStyle.Render(fix))
+						}
+					}
+				}
+			} else if err := printData(state, checks); err != nil {
 				return err
 			}
 

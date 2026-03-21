@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"strait/internal/cli/extension"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -101,7 +102,7 @@ func newExtensionInstallCommand() *cobra.Command {
 			if err := extension.Install(cmd.Context(), source); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Extension source %q validated successfully.\n", source)
+			fmt.Fprintln(os.Stderr, styles.Success("Installed extension from "+source))
 			return nil
 		},
 	}
@@ -115,7 +116,7 @@ func newExtensionCreateCommand() *cobra.Command {
 		Use:   "create <name>",
 		Short: "Scaffold a new extension project",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			dir := outDir
 			if dir == "" {
@@ -124,7 +125,7 @@ func newExtensionCreateCommand() *cobra.Command {
 			if err := extension.Scaffold(name, dir); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Extension %q scaffolded in %s/%s\n", name, dir, name)
+			fmt.Fprintln(os.Stderr, styles.Success("Scaffolded extension "+styles.Bold.Render(name)+" in "+styles.FilePath(dir+"/"+name)))
 			return nil
 		},
 	}
@@ -139,13 +140,13 @@ func newExtensionRemoveCommand() *cobra.Command {
 		Use:   "remove <name>",
 		Short: "Remove an installed extension",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			dir := extension.ExtensionsDir()
 			if err := extension.Remove(dir, name); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Extension %q removed.\n", name)
+			fmt.Fprintln(os.Stderr, styles.Success("Removed extension "+styles.Bold.Render(name)))
 			return nil
 		},
 	}

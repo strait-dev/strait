@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -52,9 +53,13 @@ func newValidateCommand(state *appState) *cobra.Command {
 				if err := validateManifest(item.Data); err != nil {
 					return fmt.Errorf("%s#%d: %w", item.Source, item.Index, err)
 				}
+				kind := item.Data.Kind
+				if stdoutIsTTY() && state.opts.outputFormat == "" {
+					kind = styles.ResourceKind(item.Data.Kind)
+				}
 				rows = append(rows, map[string]any{
 					"source": item.Source,
-					"kind":   item.Data.Kind,
+					"kind":   kind,
 					"name":   item.Data.Metadata.Name,
 					"valid":  true,
 				})
@@ -101,9 +106,15 @@ func newApplyCommand(state *appState) *cobra.Command {
 			}
 
 			rows := make([]map[string]any, 0, len(manifests))
+			ttyMode := stdoutIsTTY() && state.opts.outputFormat == ""
 			for _, item := range manifests {
 				if dryRun {
-					rows = append(rows, map[string]any{"action": "dry-run", "kind": item.Data.Kind, "name": item.Data.Metadata.Name})
+					action := "dry-run"
+					kind := item.Data.Kind
+					if ttyMode {
+						kind = styles.ResourceKind(item.Data.Kind)
+					}
+					rows = append(rows, map[string]any{"action": action, "kind": kind, "name": item.Data.Metadata.Name})
 					continue
 				}
 
@@ -111,9 +122,19 @@ func newApplyCommand(state *appState) *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("apply %s/%s: %w", item.Data.Kind, item.Data.Metadata.Name, err)
 				}
+				if ttyMode {
+					action, _ := result["action"].(string)
+					kind, _ := result["kind"].(string)
+					name, _ := result["name"].(string)
+					badge := styles.StatusBadge("ok")
+					fmt.Fprintf(os.Stderr, "  %s %s %s/%s\n", badge, action, styles.ResourceKind(kind), name)
+				}
 				rows = append(rows, result)
 			}
 
+			if ttyMode {
+				return nil
+			}
 			return printData(state, rows)
 		},
 	}
@@ -145,6 +166,7 @@ func newDiffCommand(state *appState) *cobra.Command {
 			}
 
 			rows := make([]map[string]any, 0, len(manifests))
+			ttyMode := stdoutIsTTY() && state.opts.outputFormat == ""
 			for _, item := range manifests {
 				if err := validateManifest(item.Data); err != nil {
 					return fmt.Errorf("%s#%d: %w", item.Source, item.Index, err)
@@ -153,8 +175,12 @@ func newDiffCommand(state *appState) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				kind := item.Data.Kind
+				if ttyMode {
+					kind = styles.ResourceKind(item.Data.Kind)
+				}
 				rows = append(rows, map[string]any{
-					"kind":   item.Data.Kind,
+					"kind":   kind,
 					"name":   item.Data.Metadata.Name,
 					"action": action,
 				})

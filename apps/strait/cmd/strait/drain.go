@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"time"
+
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -44,6 +47,10 @@ Exits 0 when executing count reaches 0, exits 1 on timeout.`,
 				}
 
 				if stats.Executing == 0 {
+					if stdoutIsTTY() && state.opts.outputFormat == "" {
+						fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Drained after %d poll(s)", attempt)))
+						return nil
+					}
 					return printData(state, map[string]any{
 						"drained":   true,
 						"queued":    stats.Queued,

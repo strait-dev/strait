@@ -62,6 +62,10 @@ func newJobsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Deleted job "+styles.Bold.Render(jobID)))
+				return nil
+			}
 			return printData(state, map[string]any{"deleted": true, "id": jobID})
 		},
 	}
@@ -228,6 +232,10 @@ func newJobsEditCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Updated job "+styles.Bold.Render(job.ID)+" (version "+fmt.Sprintf("%d", job.Version)+")"))
+				return nil
+			}
 			return printData(state, job)
 		},
 	}
@@ -396,6 +404,21 @@ func newJobsGetCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				lines := []string{
+					styles.DetailLine("ID", job.ID),
+					styles.DetailLine("Name", job.Name),
+					styles.DetailLine("Slug", job.Slug),
+					styles.DetailLine("Enabled", styles.Enabled(job.Enabled)),
+					styles.DetailLine("Endpoint", job.EndpointURL),
+					styles.DetailLine("Cron", job.Cron),
+					styles.DetailLine("Timeout", fmt.Sprintf("%ds", job.TimeoutSecs)),
+					styles.DetailLine("Max Retry", fmt.Sprintf("%d", job.MaxAttempts)),
+					styles.DetailLine("Version", fmt.Sprintf("%d", job.Version)),
+				}
+				fmt.Fprint(os.Stderr, styles.DetailBox("Job", lines))
+				return nil
+			}
 			return printData(state, job)
 		},
 	}
@@ -558,6 +581,10 @@ func newJobsTriggerCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Info("Triggered run "+styles.Bold.Render(resp.ID)))
+				return nil
+			}
 			return printData(state, resp)
 		},
 	}

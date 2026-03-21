@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/cli/styles"
+
 	"github.com/spf13/cobra"
 )
 
@@ -89,7 +91,7 @@ Requires pg_dump to be installed and available in PATH.`,
 				return fmt.Errorf("pg_dump failed: %w", err)
 			}
 
-			fmt.Fprintf(os.Stderr, "backup written to %s\n", output)
+			fmt.Fprintln(os.Stderr, styles.Success("Backup written to "+styles.FilePath(output)))
 			return nil
 		},
 	}
@@ -209,7 +211,7 @@ func restoreWithPsql(dsn, input string, verbose bool) error {
 		return fmt.Errorf("psql restore failed: %w", err)
 	}
 
-	fmt.Fprintln(os.Stderr, "restore complete")
+	fmt.Fprintln(os.Stderr, styles.Success("Restore complete"))
 	return nil
 }
 
@@ -238,6 +240,6 @@ func restoreWithPgRestore(dsn, input string, clean, verbose bool) error {
 		return fmt.Errorf("pg_restore failed: %w", err)
 	}
 
-	fmt.Fprintln(os.Stderr, "restore complete")
+	fmt.Fprintln(os.Stderr, styles.Success("Restore complete"))
 	return nil
 }

@@ -14,6 +14,7 @@ import (
 	cliauth "strait/internal/cli/auth"
 	"strait/internal/cli/client"
 	cliconfig "strait/internal/cli/config"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -203,6 +204,11 @@ func loginWithDeviceCode(cmd *cobra.Command, state *appState, targetContext, tar
 		return err
 	}
 
+	if stdoutIsTTY() && state.opts.outputFormat == "" {
+		fmt.Fprintln(os.Stderr, styles.Success("Authenticated via device code"))
+		fmt.Fprintln(os.Stderr, styles.KeyValue("Context", targetContext))
+		return nil
+	}
 	return printData(state, map[string]any{
 		"authenticated": true,
 		"context":       targetContext,
@@ -242,6 +248,11 @@ func loginWithAPIKey(cmd *cobra.Command, state *appState, apiKey string, withTok
 		return err
 	}
 
+	if stdoutIsTTY() && state.opts.outputFormat == "" {
+		fmt.Fprintln(os.Stderr, styles.Success("Authenticated successfully"))
+		fmt.Fprintln(os.Stderr, styles.KeyValue("Context", targetContext))
+		return nil
+	}
 	return printData(state, map[string]any{
 		"authenticated": true,
 		"context":       targetContext,
@@ -268,6 +279,10 @@ func newLogoutCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("delete api key: %w", err)
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Info("Logged out from context "+styles.Bold.Render(targetContext)))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"logged_out": true,
 				"context":    targetContext,

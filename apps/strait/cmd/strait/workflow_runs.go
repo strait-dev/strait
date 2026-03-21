@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"time"
+
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -131,6 +134,19 @@ func newWorkflowRunsGetCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				lines := []string{
+					styles.DetailLine("Status", styles.StatusBadge(string(run.Status))),
+					styles.DetailLine("ID", run.ID),
+					styles.DetailLine("Workflow", run.WorkflowID),
+					styles.DetailLine("Created", styles.TimestampFull(run.CreatedAt)),
+				}
+				if run.FinishedAt != nil {
+					lines = append(lines, styles.DetailLine("Finished", styles.TimestampFull(*run.FinishedAt)))
+				}
+				fmt.Fprint(os.Stderr, styles.DetailBox("Workflow Run", lines))
+				return nil
+			}
 			return printData(state, run)
 		},
 	}
@@ -151,6 +167,10 @@ func newWorkflowRunsCancelCommand(state *appState) *cobra.Command {
 			run, err := cli.CancelWorkflowRun(cmd.Context(), args[0])
 			if err != nil {
 				return err
+			}
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Canceled workflow run "+styles.Bold.Render(args[0])))
+				return nil
 			}
 			return printData(state, run)
 		},

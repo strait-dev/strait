@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/cli/styles"
+
 	"github.com/spf13/cobra"
 )
 
@@ -80,7 +82,7 @@ goroutine, allocs, block, mutex, and threadcreate profiles.`,
 				return fmt.Errorf("failed to write profile data: %w", err)
 			}
 
-			fmt.Fprintf(os.Stderr, "profile written to %s (%d bytes)\n", output, n)
+			fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Profile written to %s (%d bytes)", styles.FilePath(output), n)))
 
 			if kind == "cpu" {
 				fmt.Fprintf(os.Stderr, "analyze with: go tool pprof %s\n", output)

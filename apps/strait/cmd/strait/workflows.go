@@ -147,6 +147,18 @@ func newWorkflowsGetCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				lines := []string{
+					styles.DetailLine("ID", wf.ID),
+					styles.DetailLine("Name", wf.Name),
+					styles.DetailLine("Slug", wf.Slug),
+					styles.DetailLine("Enabled", styles.Enabled(wf.Enabled)),
+					styles.DetailLine("Version", fmt.Sprintf("%d", wf.Version)),
+					styles.DetailLine("Steps", fmt.Sprintf("%d", len(wf.Steps))),
+				}
+				fmt.Fprint(os.Stderr, styles.DetailBox("Workflow", lines))
+				return nil
+			}
 			return printData(state, wf)
 		},
 	}
@@ -300,6 +312,10 @@ func newWorkflowsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Deleted workflow "+styles.Bold.Render(workflowID)))
+				return nil
+			}
 			return printData(state, map[string]any{"deleted": true, "id": workflowID})
 		},
 	}
@@ -392,6 +408,10 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 			run, err := cli.TriggerWorkflow(cmd.Context(), workflowID, req)
 			if err != nil {
 				return err
+			}
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Info("Triggered workflow run "+styles.Bold.Render(run.ID)))
+				return nil
 			}
 			return printData(state, run)
 		},

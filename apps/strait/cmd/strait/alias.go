@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
 	cliconfig "strait/internal/cli/config"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -55,6 +57,10 @@ func newAliasSetCommand(state *appState) *cobra.Command {
 			if err := cliconfig.Save(path, cfg); err != nil {
 				return err
 			}
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Set alias "+styles.Bold.Render(args[0])+" -> "+args[1]))
+				return nil
+			}
 			return printData(state, map[string]any{"alias": args[0], "expansion": args[1]})
 		},
 	}
@@ -79,7 +85,11 @@ func newAliasListCommand(state *appState) *cobra.Command {
 			rows := make([]map[string]any, 0, len(keys))
 			sort.Strings(keys)
 			for _, k := range keys {
-				rows = append(rows, map[string]any{"alias": k, "expansion": cfg.Aliases[k]})
+				expansion := cfg.Aliases[k]
+				if stdoutIsTTY() && state.opts.outputFormat == "" {
+					expansion = styles.MutedStyle.Render(expansion)
+				}
+				rows = append(rows, map[string]any{"alias": styles.Bold.Render(k), "expansion": expansion})
 			}
 			return printData(state, rows)
 		},
@@ -107,6 +117,10 @@ func newAliasDeleteCommand(state *appState) *cobra.Command {
 			delete(cfg.Aliases, args[0])
 			if err := cliconfig.Save(path, cfg); err != nil {
 				return err
+			}
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Deleted alias "+styles.Bold.Render(args[0])))
+				return nil
 			}
 			return printData(state, map[string]any{"deleted": args[0], "ok": true})
 		},

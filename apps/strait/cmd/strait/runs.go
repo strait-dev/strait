@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -99,6 +100,27 @@ func newRunsGetCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				lines := []string{
+					styles.DetailLine("Status", styles.StatusBadge(string(run.Status))),
+					styles.DetailLine("ID", run.ID),
+					styles.DetailLine("Job", run.JobID),
+					styles.DetailLine("Attempt", fmt.Sprintf("%d", run.Attempt)),
+					styles.DetailLine("Triggered", run.TriggeredBy),
+					styles.DetailLine("Created", styles.TimestampFull(run.CreatedAt)),
+				}
+				if run.StartedAt != nil {
+					lines = append(lines, styles.DetailLine("Started", styles.TimestampFull(*run.StartedAt)))
+				}
+				if run.FinishedAt != nil {
+					lines = append(lines, styles.DetailLine("Finished", styles.TimestampFull(*run.FinishedAt)))
+				}
+				if run.Error != "" {
+					lines = append(lines, styles.DetailLine("Error", styles.Red.Render(run.Error)))
+				}
+				fmt.Fprint(os.Stderr, styles.DetailBox("Run", lines))
+				return nil
+			}
 			return printData(state, run)
 		},
 	}
@@ -159,11 +181,20 @@ func newRunsCancelCommand(state *appState) *cobra.Command {
 				run, cancelErr := cli.CancelRun(cmd.Context(), id)
 				if cancelErr != nil {
 					results = append(results, map[string]any{"id": id, "canceled": false, "error": cancelErr.Error()})
+					if stdoutIsTTY() && state.opts.outputFormat == "" {
+						fmt.Fprintln(os.Stderr, styles.Err("Failed to cancel "+id+": "+cancelErr.Error()))
+					}
 					continue
 				}
 				results = append(results, map[string]any{"id": id, "canceled": true, "status": run.Status})
+				if stdoutIsTTY() && state.opts.outputFormat == "" {
+					fmt.Fprintln(os.Stderr, styles.Success("Canceled run "+styles.Bold.Render(id)))
+				}
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				return nil
+			}
 			return printData(state, results)
 		},
 	}
@@ -244,6 +275,7 @@ func newRunsWatchCommand(state *appState) *cobra.Command {
 				return err
 			}
 			ctx := cmd.Context()
+			ttyMode := stdoutIsTTY() && state.opts.outputFormat == ""
 
 			deadline := time.Now().Add(timeout)
 			for {
@@ -252,7 +284,10 @@ func newRunsWatchCommand(state *appState) *cobra.Command {
 					return err
 				}
 
-				if err := printData(state, map[string]any{
+				if ttyMode {
+					fmt.Fprintf(os.Stderr, "\r%s %s  attempt=%d",
+						styles.StatusBadge(string(run.Status)), run.ID, run.Attempt)
+				} else if err := printData(state, map[string]any{
 					"id":      run.ID,
 					"status":  run.Status,
 					"attempt": run.Attempt,
@@ -261,6 +296,14 @@ func newRunsWatchCommand(state *appState) *cobra.Command {
 				}
 
 				if run.Status.IsTerminal() {
+					if ttyMode {
+						fmt.Fprintln(os.Stderr)
+						if run.Status == domain.StatusCompleted {
+							fmt.Fprintln(os.Stderr, styles.Success("Run completed"))
+						} else {
+							fmt.Fprintln(os.Stderr, styles.Err("Run reached terminal status "+string(run.Status)))
+						}
+					}
 					if run.Status == domain.StatusCompleted {
 						return nil
 					}
@@ -268,6 +311,9 @@ func newRunsWatchCommand(state *appState) *cobra.Command {
 				}
 
 				if timeout > 0 && time.Now().After(deadline) {
+					if ttyMode {
+						fmt.Fprintln(os.Stderr)
+					}
 					return fmt.Errorf("watch timeout reached")
 				}
 
@@ -351,7 +397,9 @@ func newRunsReplayCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if err := printData(state, triggered); err != nil {
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Info("Replayed as run "+styles.Bold.Render(triggered.ID)))
+			} else if err := printData(state, triggered); err != nil {
 				return err
 			}
 

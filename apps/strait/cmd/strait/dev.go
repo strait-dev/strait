@@ -14,6 +14,7 @@ import (
 
 	"strait/internal/cli/devtest"
 	climanifest "strait/internal/cli/manifest"
+	"strait/internal/cli/styles"
 	"strait/internal/cli/tunnel"
 
 	"github.com/spf13/cobra"
@@ -137,7 +138,18 @@ func newDevStatusCommand(state *appState) *cobra.Command {
 				checks = append(checks, diagnoseCheck("api client", false, err.Error(), "set valid --server and --api-key for status checks"))
 			}
 
-			if err := printData(state, checks); err != nil {
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				for _, c := range checks {
+					name, _ := c["check"].(string)
+					ok, _ := c["ok"].(bool)
+					detail, _ := c["detail"].(string)
+					if ok {
+						fmt.Fprintf(os.Stderr, "  %s %s: %s\n", styles.StatusBadge("ok"), name, detail)
+					} else {
+						fmt.Fprintf(os.Stderr, "  %s %s: %s\n", styles.StatusBadge("fail"), name, detail)
+					}
+				}
+			} else if err := printData(state, checks); err != nil {
 				return err
 			}
 

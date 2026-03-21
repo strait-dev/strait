@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"strait/internal/cli/styles"
 	"strait/internal/cli/wizard"
 
 	"gopkg.in/yaml.v3"
@@ -190,6 +191,14 @@ In non-interactive mode (--yes), all values come from flags.`,
 				{"path": configPath, "status": "created"},
 				{"path": ".strait.yaml", "status": configStatus},
 				{"path": ".gitignore", "status": gitignoreStatus},
+			}
+
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Initialized project "+styles.Bold.Render(name)))
+				for _, f := range files {
+					fmt.Fprintln(os.Stderr, styles.KeyValue(f["status"].(string), styles.FilePath(f["path"].(string))))
+				}
+				return nil
 			}
 
 			return printData(state, map[string]any{

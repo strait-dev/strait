@@ -7,6 +7,7 @@ import (
 	cliauth "strait/internal/cli/auth"
 	cliconfig "strait/internal/cli/config"
 	"strait/internal/cli/output"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -69,6 +70,10 @@ func newContextCreateCommand(state *appState) *cobra.Command {
 				}
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Created context "+styles.Bold.Render(name)))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"name":    name,
 				"server":  ctx.Server,
@@ -106,6 +111,10 @@ func newContextUseCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Switched to context "+styles.Bold.Render(name)))
+				return nil
+			}
 			return printData(state, map[string]any{"active_context": name})
 		},
 	}
@@ -125,8 +134,12 @@ func newContextListCommand(state *appState) *cobra.Command {
 
 			rows := make([]map[string]any, 0, len(cfg.Contexts))
 			for name, ctx := range cfg.Contexts {
+				displayName := name
+				if stdoutIsTTY() && state.opts.outputFormat == "" && cfg.ActiveContext == name {
+					displayName = styles.SelectedStyle.Render(name + " *")
+				}
 				rows = append(rows, map[string]any{
-					"name":    name,
+					"name":    displayName,
 					"active":  cfg.ActiveContext == name,
 					"server":  ctx.Server,
 					"project": ctx.Project,

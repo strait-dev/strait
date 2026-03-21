@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -34,7 +36,18 @@ func newVerifyCommand(state *appState) *cobra.Command {
 				checks = append(checks, map[string]any{"check": "auth/jobs list", "ok": err == nil, "detail": errDetail(err)})
 			}
 
-			if err := printData(state, checks); err != nil {
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				for _, c := range checks {
+					name, _ := c["check"].(string)
+					ok, _ := c["ok"].(bool)
+					detail, _ := c["detail"].(string)
+					if ok {
+						fmt.Fprintf(os.Stderr, "  %s %s: %s\n", styles.StatusBadge("ok"), name, detail)
+					} else {
+						fmt.Fprintf(os.Stderr, "  %s %s: %s\n", styles.StatusBadge("fail"), name, detail)
+					}
+				}
+			} else if err := printData(state, checks); err != nil {
 				return err
 			}
 

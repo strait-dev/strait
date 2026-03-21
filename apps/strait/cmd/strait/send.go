@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -67,6 +70,10 @@ func newSendCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("send failed with status %d", resp.StatusCode)
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Sent event %s (status %d)", styles.Bold.Render(eventType), resp.StatusCode)))
+				return nil
+			}
 			return printData(state, map[string]any{"sent": true, "type": eventType, "status": resp.StatusCode})
 		},
 	}

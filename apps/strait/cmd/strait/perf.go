@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
+
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -56,6 +59,27 @@ health summary, and the slowest jobs over a fixed analysis window.`,
 				})
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				successRate := fmt.Sprintf("%.1f%%", analytics.HealthSummary.SuccessRate*100)
+				if analytics.HealthSummary.SuccessRate >= 0.95 {
+					successRate = styles.Green.Render(successRate)
+				} else if analytics.HealthSummary.SuccessRate >= 0.80 {
+					successRate = styles.Yellow.Render(successRate)
+				} else {
+					successRate = styles.Red.Render(successRate)
+				}
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Throughput", -1))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Completed", fmt.Sprintf("%d", analytics.Throughput.Completed)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Failed", fmt.Sprintf("%d", analytics.Throughput.Failed)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Timed Out", fmt.Sprintf("%d", analytics.Throughput.TimedOut)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Canceled", fmt.Sprintf("%d", analytics.Throughput.Canceled)))
+				fmt.Fprintln(os.Stderr)
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Health", -1))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Success Rate", successRate))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Avg Duration", fmt.Sprintf("%.2fs", analytics.HealthSummary.AvgDurationSecs)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Queue Depth", fmt.Sprintf("%d", analytics.HealthSummary.QueueDepth)))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"throughput": map[string]any{
 					"completed":    analytics.Throughput.Completed,

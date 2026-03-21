@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -62,7 +63,9 @@ func newTriggerCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if err := printData(state, resp); err != nil {
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Info("Triggered run "+styles.Bold.Render(resp.ID)))
+			} else if err := printData(state, resp); err != nil {
 				return err
 			}
 

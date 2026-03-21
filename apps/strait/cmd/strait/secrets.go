@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/cli/client"
 	cliconfig "strait/internal/cli/config"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 	"github.com/zalando/go-keyring"
@@ -62,10 +63,14 @@ func newSecretsListCommand(state *appState) *cobra.Command {
 
 			rows := make([]map[string]any, 0, len(secrets))
 			for _, s := range secrets {
+				env := s.Environment
+				if stdoutIsTTY() && state.opts.outputFormat == "" {
+					env = styles.MutedStyle.Render(s.Environment)
+				}
 				rows = append(rows, map[string]any{
 					"id":          s.ID,
 					"key":         s.SecretKey,
-					"environment": s.Environment,
+					"environment": env,
 					"value":       "***",
 					"created_at":  s.CreatedAt,
 				})
@@ -127,6 +132,10 @@ func newSecretsCreateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Created secret "+styles.Bold.Render(secret.SecretKey)))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"id":          secret.ID,
 				"key":         secret.SecretKey,
@@ -169,6 +178,10 @@ func newSecretsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Deleted secret "+styles.Bold.Render(args[0])))
+				return nil
+			}
 			return printData(state, map[string]any{"id": args[0], "deleted": true})
 		},
 	}

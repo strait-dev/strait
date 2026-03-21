@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"strait/internal/cli/ci"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -77,6 +78,11 @@ Supported providers: github, gitlab, generic.`,
 				return fmt.Errorf("write %s: %w", outputPath, err)
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success("Generated CI config for "+styles.Bold.Render(provider)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("File", styles.FilePath(outputPath)))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"provider": provider,
 				"file":     outputPath,
@@ -117,7 +123,18 @@ func newCICheckCommand(state *appState) *cobra.Command {
 				checks = append(checks, diagnoseCheck("api client", false, err.Error(), "check --server and --api-key"))
 			}
 
-			if err := printData(state, checks); err != nil {
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				for _, c := range checks {
+					name, _ := c["check"].(string)
+					ok, _ := c["ok"].(bool)
+					detail, _ := c["detail"].(string)
+					if ok {
+						fmt.Fprintf(os.Stderr, "  %s %s: %s\n", styles.StatusBadge("ok"), name, detail)
+					} else {
+						fmt.Fprintf(os.Stderr, "  %s %s: %s\n", styles.StatusBadge("fail"), name, detail)
+					}
+				}
+			} else if err := printData(state, checks); err != nil {
 				return err
 			}
 

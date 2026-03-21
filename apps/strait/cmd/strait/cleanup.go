@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"time"
+
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -97,6 +100,10 @@ status. Use --dry-run to preview what would be removed.`,
 				}
 			}
 
+			if stdoutIsTTY() && state.opts.outputFormat == "" {
+				fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Cleaned up %d run(s)", len(results))))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"cleaned": len(results),
 				"results": results,

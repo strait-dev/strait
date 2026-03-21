@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"time"
 
+	"strait/internal/cli/styles"
 	"strait/internal/domain"
 
 	"github.com/spf13/cobra"
@@ -52,6 +54,7 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			ttyMode := stdoutIsTTY() && state.opts.outputFormat == ""
 			return runTopLoop(cmd, watch, interval, func() error {
 				sampledAt := time.Now().UTC().Format(time.RFC3339)
 				rows := make([]map[string]any, 0)
@@ -60,6 +63,13 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 					stats, err := cli.Stats(cmd.Context())
 					if err != nil {
 						return err
+					}
+					if ttyMode {
+						fmt.Fprintln(os.Stderr, styles.SectionHeader("Queue", -1))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Queued", fmt.Sprintf("%d", stats.Queued)))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Executing", fmt.Sprintf("%d", stats.Executing)))
+						fmt.Fprintln(os.Stderr, styles.KeyValue("Delayed", fmt.Sprintf("%d", stats.Delayed)))
+						return nil
 					}
 					rows = append(rows,
 						map[string]any{"metric": "queued", "value": stats.Queued, "scope": "global", "sampled_at": sampledAt},
