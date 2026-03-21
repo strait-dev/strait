@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	climanifest "strait/internal/cli/manifest"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -67,6 +68,15 @@ and writes it to the output directory.`,
 				return fmt.Errorf("write manifest: %w", err)
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Build complete"))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Config", configPath))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Output", styles.FilePath(target)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Checksum", m.Checksum))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Jobs", fmt.Sprintf("%d", len(m.Jobs))))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Workflows", fmt.Sprintf("%d", len(m.Workflows))))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"config":    configPath,
 				"output":    target,

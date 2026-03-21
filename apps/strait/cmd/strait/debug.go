@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"time"
 
+	"strait/internal/cli/styles"
+
 	"github.com/spf13/cobra"
 )
 
@@ -111,6 +113,12 @@ func newDebugBundleCommand(state *appState) *cobra.Command {
 			}
 
 			absPath, _ := filepath.Abs(outputPath)
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Debug bundle created"))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Path", styles.FilePath(absPath)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Run", runID))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"bundle": absPath,
 				"run_id": runID,

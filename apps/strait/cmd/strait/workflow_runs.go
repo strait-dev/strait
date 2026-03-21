@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"time"
+
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -37,6 +40,7 @@ func newWorkflowRunsWatchCommand(state *appState) *cobra.Command {
 			}
 			ctx := cmd.Context()
 
+			ttyMode := isTTYRich(state)
 			deadline := time.Now().Add(timeout)
 			for {
 				run, err := cli.GetWorkflowRun(ctx, args[0])
@@ -49,15 +53,28 @@ func newWorkflowRunsWatchCommand(state *appState) *cobra.Command {
 					return err
 				}
 
-				payload := map[string]any{
-					"run":   run,
-					"steps": steps,
-				}
-				if err := printData(state, payload); err != nil {
-					return err
+				if ttyMode {
+					fmt.Fprintf(os.Stderr, "\r%s %s  steps=%d",
+						styles.StatusBadge(string(run.Status)), run.ID, len(steps))
+				} else {
+					payload := map[string]any{
+						"run":   run,
+						"steps": steps,
+					}
+					if err := printData(state, payload); err != nil {
+						return err
+					}
 				}
 
 				if run.Status.IsTerminal() {
+					if ttyMode {
+						fmt.Fprintln(os.Stderr)
+						if run.Status == "completed" {
+							fmt.Fprintln(os.Stderr, styles.Success("Workflow run completed"))
+						} else {
+							fmt.Fprintln(os.Stderr, styles.Err("Workflow run terminal status "+string(run.Status)))
+						}
+					}
 					if run.Status == "completed" {
 						return nil
 					}
@@ -106,6 +123,18 @@ func newWorkflowRunsListCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Workflow Runs", len(runs)))
+				for _, r := range runs {
+					fmt.Fprintf(os.Stderr, "  %s  %s  workflow=%s  %s\n",
+						styles.StatusBadge(string(r.Status)),
+						r.ID,
+						styles.MutedStyle.Render(r.WorkflowID),
+						styles.RelativeTime(r.CreatedAt),
+					)
+				}
+				return nil
+			}
 			return printData(state, runs)
 		},
 	}
@@ -131,6 +160,19 @@ func newWorkflowRunsGetCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if isTTYRich(state) {
+				lines := []string{
+					styles.DetailLine("Status", styles.StatusBadge(string(run.Status))),
+					styles.DetailLine("ID", run.ID),
+					styles.DetailLine("Workflow", run.WorkflowID),
+					styles.DetailLine("Created", styles.TimestampFull(run.CreatedAt)),
+				}
+				if run.FinishedAt != nil {
+					lines = append(lines, styles.DetailLine("Finished", styles.TimestampFull(*run.FinishedAt)))
+				}
+				fmt.Fprint(os.Stderr, styles.DetailBox("Workflow Run", lines))
+				return nil
+			}
 			return printData(state, run)
 		},
 	}
@@ -152,6 +194,10 @@ func newWorkflowRunsCancelCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Canceled workflow run "+styles.Bold.Render(args[0])))
+				return nil
+			}
 			return printData(state, run)
 		},
 	}
@@ -172,6 +218,18 @@ func newWorkflowRunsStepsCommand(state *appState) *cobra.Command {
 			steps, err := cli.ListWorkflowStepRuns(cmd.Context(), args[0])
 			if err != nil {
 				return err
+			}
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Step Runs", len(steps)))
+				for _, s := range steps {
+					fmt.Fprintf(os.Stderr, "  %s  %-16s  attempt=%d  %s\n",
+						styles.StatusBadge(string(s.Status)),
+						styles.Bold.Render(s.StepRef),
+						s.Attempt,
+						styles.MutedStyle.Render(s.ID),
+					)
+				}
+				return nil
 			}
 			return printData(state, steps)
 		},

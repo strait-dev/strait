@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -55,6 +57,12 @@ func newAPIKeysCreateCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Created API key "+styles.Bold.Render(created.Name)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Key", created.Key))
+				fmt.Fprintln(os.Stderr, styles.MutedStyle.Render("  Store this key securely; it will not be shown again."))
+				return nil
+			}
 			return printData(state, created)
 		},
 	}
@@ -87,6 +95,17 @@ func newAPIKeysListCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("API Keys", len(keys)))
+				for _, k := range keys {
+					fmt.Fprintf(os.Stderr, "  %s  %s  %s\n",
+						styles.Bold.Render(k.Name),
+						styles.MutedStyle.Render(k.KeyPrefix),
+						styles.MutedStyle.Render(strings.Join(k.Scopes, ",")),
+					)
+				}
+				return nil
+			}
 			return printData(state, keys)
 		},
 	}
@@ -108,6 +127,10 @@ func newAPIKeysRevokeCommand(state *appState) *cobra.Command {
 			}
 			if err := cli.RevokeAPIKey(cmd.Context(), args[0]); err != nil {
 				return err
+			}
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Revoked API key "+styles.Bold.Render(args[0])))
+				return nil
 			}
 			return printData(state, map[string]any{"revoked": true, "id": args[0]})
 		},
@@ -149,6 +172,11 @@ The command returns the newly issued key and keeps the old key valid until the g
 				return fmt.Errorf("failed to rotate key: %w", err)
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Rotated API key "+styles.Bold.Render(args[0])))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Grace Period", fmt.Sprintf("%d minutes", gracePeriodMinutes)))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"rotated": true,
 				"result":  resp,

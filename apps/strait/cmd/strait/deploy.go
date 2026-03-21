@@ -7,26 +7,30 @@ import (
 	"strait/internal/cli/client"
 	"strait/internal/cli/deploy"
 	"strait/internal/cli/styles"
+	"strait/internal/domain"
 
 	"github.com/spf13/cobra"
 )
 
 func newDeployCommand(state *appState) *cobra.Command {
 	var (
-		jobSlug      string
-		imageURI     string
-		dockerfile   string
-		registry     string
-		tag          string
-		buildArgs    []string
-		push         bool
-		preset       string
-		region       string
-		dryRun       bool
-		cacheEnabled bool
-		configPath   string
-		env          string
-		artifactURI  string
+		jobSlug        string
+		imageURI       string
+		dockerfile     string
+		registry       string
+		tag            string
+		buildArgs      []string
+		push           bool
+		preset         string
+		region         string
+		dryRun         bool
+		cacheEnabled   bool
+		configPath     string
+		env            string
+		artifactURI    string
+		strategy       string
+		canaryPercent  int
+		canaryDuration string
 	)
 
 	cmd := &cobra.Command{
@@ -39,13 +43,27 @@ func newDeployCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			// Validate deployment strategy.
+			resolvedStrategy := domain.DeploymentStrategy(strategy)
+			if !resolvedStrategy.IsValid() {
+				return fmt.Errorf("invalid deployment strategy: %q (valid: direct, canary)", strategy)
+			}
+			if resolvedStrategy == domain.DeploymentStrategyCanary {
+				if canaryPercent < 1 || canaryPercent > 99 {
+					return fmt.Errorf("--canary-percent must be between 1 and 99 (got %d)", canaryPercent)
+				}
+			}
+
 			// Manifest-based deploy: --config provided and no --job
 			if configPath != "" && jobSlug == "" {
 				return deploy.DeployManifest(cmd.Context(), cli, deploy.ManifestDeployOptions{
-					ConfigPath:  configPath,
-					Environment: env,
-					ArtifactURI: artifactURI,
-					DryRun:      dryRun,
+					ConfigPath:     configPath,
+					Environment:    env,
+					ArtifactURI:    artifactURI,
+					DryRun:         dryRun,
+					Strategy:       strategy,
+					CanaryPercent:  canaryPercent,
+					CanaryDuration: canaryDuration,
 				})
 			}
 
@@ -103,12 +121,12 @@ func newDeployCommand(state *appState) *cobra.Command {
 						CacheEnabled: cacheEnabled,
 					}
 
-					fmt.Fprintf(os.Stderr, "deploying %s...\n", jobCfg.Slug)
+					fmt.Fprintln(os.Stderr, styles.Info("Deploying "+jobCfg.Slug+"..."))
 					if deployErr := deploy.DeployJob(cmd.Context(), cli, opts); deployErr != nil {
 						return fmt.Errorf("deploy %s: %w", jobCfg.Slug, deployErr)
 					}
 					if !dryRun {
-						fmt.Fprintf(os.Stderr, "deployed %s successfully\n", jobCfg.Slug)
+						fmt.Fprintln(os.Stderr, styles.Success("Deployed "+jobCfg.Slug))
 					}
 				}
 				return nil
@@ -138,7 +156,7 @@ func newDeployCommand(state *appState) *cobra.Command {
 			}
 
 			if !dryRun {
-				fmt.Fprintf(os.Stderr, "deployed %s successfully\n", jobSlug)
+				fmt.Fprintln(os.Stderr, styles.Success("Deployed "+jobSlug))
 			}
 			return nil
 		},
@@ -158,6 +176,9 @@ func newDeployCommand(state *appState) *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "path to config file for manifest/multi-job deploy")
 	cmd.Flags().StringVar(&env, "env", "", "deployment environment (default: production)")
 	cmd.Flags().StringVar(&artifactURI, "artifact-uri", "", "pre-built artifact URI override")
+	cmd.Flags().StringVar(&strategy, "strategy", "direct", "deployment strategy (direct, canary)")
+	cmd.Flags().IntVar(&canaryPercent, "canary-percent", 0, "percentage of traffic for canary (1-99)")
+	cmd.Flags().StringVar(&canaryDuration, "canary-duration", "", "duration to run canary before full rollout (e.g. 10m, 1h)")
 
 	cmd.AddCommand(newDeployPromoteCommand(state))
 	cmd.AddCommand(newDeployRollbackCommand(state))
@@ -201,6 +222,10 @@ func newDeployCreateCommand(state *appState) *cobra.Command {
 			}
 
 			if dryRun {
+				if isTTYRich(state) {
+					fmt.Fprintln(os.Stderr, styles.Info("Dry run: manifest preview"))
+					return nil
+				}
 				return printData(state, manifest)
 			}
 
@@ -208,6 +233,13 @@ func newDeployCreateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Created deployment "+styles.Bold.Render(deployment.ID)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Environment", resolvedEnv))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Checksum", manifest.Checksum))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Status", deployment.Status))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"deployment_id": deployment.ID,
 				"project_id":    manifest.ProjectID,
@@ -250,6 +282,10 @@ func newDeployFinalizeCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Finalized deployment "+styles.Bold.Render(args[0])))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"deployment_id": args[0],
 				"project_id":    resolvedProject,
@@ -281,7 +317,7 @@ func newDeployPromoteCommand(state *appState) *cobra.Command {
 			}
 
 			if dryRun {
-				fmt.Fprintf(os.Stderr, "[dry-run] would promote deployment %s to %s\n", args[0], env)
+				fmt.Fprintln(os.Stderr, styles.Info("[dry-run] would promote deployment "+args[0]+" to "+env))
 				return nil
 			}
 
@@ -297,6 +333,10 @@ func newDeployPromoteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Promoted deployment "+styles.Bold.Render(args[0])+" to "+env))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"promoted":    true,
 				"deployment":  args[0],
@@ -332,7 +372,7 @@ func newDeployRollbackCommand(state *appState) *cobra.Command {
 			}
 
 			if dryRun {
-				fmt.Fprintf(os.Stderr, "[dry-run] would rollback to deployment %s in %s\n", toID, env)
+				fmt.Fprintln(os.Stderr, styles.Info("[dry-run] would rollback to deployment "+toID+" in "+env))
 				return nil
 			}
 
@@ -348,6 +388,10 @@ func newDeployRollbackCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Rolled back to deployment "+styles.Bold.Render(toID)+" in "+env))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"rolled_back": true,
 				"deployment":  toID,
@@ -387,17 +431,29 @@ func newDeployListCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Deployments", len(deps)))
+				for _, dep := range deps {
+					fmt.Fprintf(os.Stderr, "  %s  %s  %s  %s  %s\n",
+						styles.Bold.Render(dep.ID),
+						dep.Environment,
+						styles.StatusBadge(dep.Status),
+						styles.MutedStyle.Render(dep.Checksum),
+						styles.RelativeTime(dep.CreatedAt),
+					)
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(deps))
 			for _, dep := range deps {
 				rows = append(rows, map[string]any{
 					"id":          dep.ID,
 					"environment": dep.Environment,
-					"status":      styles.Status(dep.Status),
+					"status":      dep.Status,
 					"checksum":    dep.Checksum,
 					"created_at":  dep.CreatedAt,
 				})
 			}
-
 			return printData(state, rows)
 		},
 	}

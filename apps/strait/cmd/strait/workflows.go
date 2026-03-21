@@ -81,6 +81,33 @@ func newWorkflowsDescribeCommand(state *appState) *cobra.Command {
 				"steps": steps,
 			}
 
+			if isTTYRich(state) {
+				lines := []string{
+					styles.DetailLine("ID", wf.ID),
+					styles.DetailLine("Name", wf.Name),
+					styles.DetailLine("Slug", wf.Slug),
+					styles.DetailLine("Description", wf.Description),
+					styles.DetailLine("Enabled", styles.Enabled(wf.Enabled)),
+					styles.DetailLine("Version", fmt.Sprintf("%d", wf.Version)),
+					styles.DetailLine("Steps", fmt.Sprintf("%d", len(wf.Steps))),
+				}
+				fmt.Fprint(os.Stderr, styles.DetailBox("Workflow Details", lines))
+				if len(steps) > 0 {
+					fmt.Fprintln(os.Stderr)
+					fmt.Fprintln(os.Stderr, styles.SectionHeader("Steps", len(steps)))
+					for _, s := range steps {
+						ref := s["step_ref"]
+						deps := s["depends_on"]
+						onFail := s["on_failure"]
+						fmt.Fprintf(os.Stderr, "  %s  deps=%s  on_failure=%s\n",
+							styles.Bold.Render(fmt.Sprintf("%v", ref)),
+							styles.MutedStyle.Render(fmt.Sprintf("%v", deps)),
+							styles.MutedStyle.Render(fmt.Sprintf("%v", onFail)),
+						)
+					}
+				}
+				return nil
+			}
 			return printData(state, payload)
 		},
 	}
@@ -119,6 +146,17 @@ func newWorkflowsListCommand(state *appState) *cobra.Command {
 					"enabled": styles.Enabled(wf.Enabled),
 				})
 			}
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Workflows", len(workflows)))
+				for _, wf := range workflows {
+					fmt.Fprintf(os.Stderr, "  %s  %-20s  %s\n",
+						styles.Enabled(wf.Enabled),
+						styles.Bold.Render(wf.Slug),
+						styles.MutedStyle.Render(wf.ID),
+					)
+				}
+				return nil
+			}
 			return printData(state, rows)
 		},
 	}
@@ -146,6 +184,18 @@ func newWorkflowsGetCommand(state *appState) *cobra.Command {
 			wf, err := cli.GetWorkflow(cmd.Context(), workflowID)
 			if err != nil {
 				return err
+			}
+			if isTTYRich(state) {
+				lines := []string{
+					styles.DetailLine("ID", wf.ID),
+					styles.DetailLine("Name", wf.Name),
+					styles.DetailLine("Slug", wf.Slug),
+					styles.DetailLine("Enabled", styles.Enabled(wf.Enabled)),
+					styles.DetailLine("Version", fmt.Sprintf("%d", wf.Version)),
+					styles.DetailLine("Steps", fmt.Sprintf("%d", len(wf.Steps))),
+				}
+				fmt.Fprint(os.Stderr, styles.DetailBox("Workflow", lines))
+				return nil
 			}
 			return printData(state, wf)
 		},
@@ -193,6 +243,11 @@ func newWorkflowsCreateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Created workflow "+styles.Bold.Render(wf.Slug)))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("ID", wf.ID))
+				return nil
+			}
 			return printData(state, wf)
 		},
 	}
@@ -261,6 +316,10 @@ func newWorkflowsUpdateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Updated workflow "+styles.Bold.Render(wf.Slug)))
+				return nil
+			}
 			return printData(state, wf)
 		},
 	}
@@ -300,6 +359,10 @@ func newWorkflowsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Deleted workflow "+styles.Bold.Render(workflowID)))
+				return nil
+			}
 			return printData(state, map[string]any{"deleted": true, "id": workflowID})
 		},
 	}
@@ -340,6 +403,17 @@ func newWorkflowsRunsCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Workflow Runs", len(runs)))
+				for _, r := range runs {
+					fmt.Fprintf(os.Stderr, "  %s  %s  %s\n",
+						styles.StatusBadge(string(r.Status)),
+						r.ID,
+						styles.RelativeTime(r.CreatedAt),
+					)
+				}
+				return nil
+			}
 			return printData(state, runs)
 		},
 	}
@@ -392,6 +466,10 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 			run, err := cli.TriggerWorkflow(cmd.Context(), workflowID, req)
 			if err != nil {
 				return err
+			}
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Info("Triggered workflow run "+styles.Bold.Render(run.ID)))
+				return nil
 			}
 			return printData(state, run)
 		},

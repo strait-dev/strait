@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -80,6 +83,12 @@ func newFixturesCreateCommand(state *appState) *cobra.Command {
 				return triggerErr
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Created fixture (template="+template+")"))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Job", job.ID))
+				fmt.Fprintln(os.Stderr, styles.KeyValue("Run", run.ID))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"template": template,
 				"job_id":   job.ID,

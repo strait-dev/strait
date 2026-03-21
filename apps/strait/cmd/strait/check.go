@@ -6,8 +6,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
+
+	"strait/internal/cli/styles"
 
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
@@ -90,7 +93,28 @@ acyclicity, and optionally checks endpoint URL reachability.`,
 				results = append(results, manifestResult(item, checks))
 			}
 
-			if err := printData(state, results); err != nil {
+			if isTTYRich(state) {
+				for _, r := range results {
+					source, _ := r["source"].(string)
+					kind, _ := r["kind"].(string)
+					name, _ := r["name"].(string)
+					fmt.Fprintf(os.Stderr, "%s %s/%s (%s)\n",
+						styles.SectionHeader(source, -1),
+						styles.ResourceKind(kind), name, source)
+					if checks, ok := r["checks"].([]map[string]any); ok {
+						for _, c := range checks {
+							checkName, _ := c["check"].(string)
+							ok, _ := c["ok"].(bool)
+							detail, _ := c["detail"].(string)
+							if ok {
+								fmt.Fprintf(os.Stderr, "  %s %s\n", styles.StatusBadge("ok"), checkName)
+							} else {
+								fmt.Fprintf(os.Stderr, "  %s %s: %s\n", styles.StatusBadge("fail"), checkName, detail)
+							}
+						}
+					}
+				}
+			} else if err := printData(state, results); err != nil {
 				return err
 			}
 

@@ -13,12 +13,15 @@ import (
 )
 
 type createDeploymentVersionRequest struct {
-	ProjectID   string `json:"project_id" validate:"required"`
-	Environment string `json:"environment" validate:"required"`
-	Runtime     string `json:"runtime" validate:"required"`
-	ArtifactURI string `json:"artifact_uri" validate:"required,url"`
-	Manifest    any    `json:"manifest"`
-	Checksum    string `json:"checksum"`
+	ProjectID      string `json:"project_id" validate:"required"`
+	Environment    string `json:"environment" validate:"required"`
+	Runtime        string `json:"runtime" validate:"required"`
+	ArtifactURI    string `json:"artifact_uri" validate:"required,url"`
+	Manifest       any    `json:"manifest"`
+	Checksum       string `json:"checksum"`
+	Strategy       string `json:"strategy"`
+	CanaryPercent  *int   `json:"canary_percent"`
+	CanaryDuration string `json:"canary_duration"`
 }
 
 type deploymentVersionMutationRequest struct {
@@ -54,18 +57,47 @@ func (s *Server) handleCreateDeploymentVersion(w http.ResponseWriter, r *http.Re
 		req.Runtime = "node"
 	}
 
+	strategy := domain.DeploymentStrategyDirect
+	if req.Strategy != "" {
+		strategy = domain.DeploymentStrategy(req.Strategy)
+		if !strategy.IsValid() {
+			respondError(w, r, http.StatusBadRequest, "invalid strategy: must be \"direct\" or \"canary\"")
+			return
+		}
+	}
+
+	if strategy == domain.DeploymentStrategyCanary {
+		if req.CanaryPercent == nil || *req.CanaryPercent < 1 || *req.CanaryPercent > 99 {
+			respondError(w, r, http.StatusBadRequest, "canary strategy requires canary_percent between 1 and 99")
+			return
+		}
+	}
+
+	var canaryDuration *time.Duration
+	if req.CanaryDuration != "" {
+		d, parseErr := time.ParseDuration(req.CanaryDuration)
+		if parseErr != nil {
+			respondError(w, r, http.StatusBadRequest, "invalid canary_duration: must be a valid Go duration string")
+			return
+		}
+		canaryDuration = &d
+	}
+
 	manifest := marshalRaw(req.Manifest)
 
 	deployment := &domain.DeploymentVersion{
-		ProjectID:   req.ProjectID,
-		Environment: req.Environment,
-		Runtime:     req.Runtime,
-		ArtifactURI: req.ArtifactURI,
-		Manifest:    manifest,
-		Checksum:    req.Checksum,
-		Status:      status,
-		CreatedBy:   actorFromContext(r.Context()),
-		UpdatedBy:   actorFromContext(r.Context()),
+		ProjectID:      req.ProjectID,
+		Environment:    req.Environment,
+		Runtime:        req.Runtime,
+		ArtifactURI:    req.ArtifactURI,
+		Manifest:       manifest,
+		Checksum:       req.Checksum,
+		Status:         status,
+		Strategy:       strategy,
+		CanaryPercent:  req.CanaryPercent,
+		CanaryDuration: canaryDuration,
+		CreatedBy:      actorFromContext(r.Context()),
+		UpdatedBy:      actorFromContext(r.Context()),
 	}
 
 	if err := s.store.CreateDeploymentVersion(r.Context(), deployment); err != nil {
