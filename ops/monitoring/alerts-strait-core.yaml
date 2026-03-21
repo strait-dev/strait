@@ -1,0 +1,139 @@
+groups:
+  - name: strait-core
+    interval: 30s
+    rules:
+      # Dispatch health
+      - alert: StraitHighDispatchErrorRate
+        expr: sum(rate(strait_dispatch_errors_total[5m])) / clamp_min(sum(rate(strait_run_transitions_total[5m])), 1) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dispatch error rate exceeds 10%"
+          description: "More than 10% of dispatches are failing. Check target endpoints and network."
+
+      - alert: StraitDispatchLatencyHigh
+        expr: histogram_quantile(0.95, rate(strait_dispatch_duration_bucket[5m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 dispatch latency exceeds 5s"
+          description: "Target endpoints are responding slowly. Check downstream health."
+
+      # Queue health
+      - alert: StraitQueueDepthHigh
+        expr: strait_queue_depth > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue depth exceeds 1000"
+          description: "Jobs are accumulating faster than workers can process them."
+
+      - alert: StraitDLQNotEmpty
+        expr: strait_dlq_depth > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dead letter queue has items"
+          description: "Failed jobs are in the DLQ. Investigate and replay or discard."
+
+      # Worker pool health
+      - alert: StraitPoolTasksDropped
+        expr: rate(strait_pool_dropped_tasks_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Worker pool is dropping tasks"
+          description: "Pool is stopped or saturated. Check shutdown behavior and concurrency."
+
+      - alert: StraitPoolSaturated
+        expr: strait_pool_waiting_tasks > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker pool has many waiting tasks"
+          description: "Tasks are queuing in-process. Consider increasing WORKER_CONCURRENCY."
+
+      # Webhook health
+      - alert: StraitWebhookDeliveryFailures
+        expr: sum(rate(strait_webhook_deliveries_total{status="failed"}[10m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Webhook deliveries failing"
+          description: "Webhook delivery failures are elevated. Check endpoint health and circuit breaker state."
+
+      - alert: StraitWebhookCircuitOpen
+        expr: strait_webhook_circuit_breaker_state == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Webhook circuit breaker is open"
+          description: "An endpoint's circuit breaker tripped. Deliveries are being short-circuited."
+
+      # Workflow health
+      - alert: StraitWorkflowStalledRuns
+        expr: rate(strait_workflow_stalled_runs_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stalled workflow runs detected"
+          description: "The reaper found workflows stuck in an intermediate state."
+
+      # Managed execution
+      - alert: StraitManagedMachinesSaturated
+        expr: strait_managed_machines_active > 8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Managed machines approaching limit"
+          description: "Active managed machines near MAX_CONCURRENT_MACHINES. Check for stuck containers."
+
+      # DB pool health
+      - alert: StraitDBPoolExhausted
+        expr: strait_db_pool_acquired_conns / clamp_min(strait_db_pool_max_conns, 1) > 0.9
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DB pool >90% utilized"
+          description: "Connection pool is nearly exhausted. Check slow queries and pool configuration."
+
+      # Cron/scheduler health
+      - alert: StraitCronTriggerFailures
+        expr: sum(rate(strait_scheduler_cron_triggers_total{status="error"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cron trigger failures detected"
+          description: "Scheduled triggers are failing. Check database connectivity and job definitions."
+
+      # Shutdown anomaly
+      - alert: StraitUnexpectedShutdowns
+        expr: sum(rate(strait_shutdown_total{reason!="signal"}[1h])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Unexpected shutdown detected"
+          description: "A worker shut down for a non-signal reason. Check logs for panics or fatal errors."
+
+      # Event triggers
+      - alert: StraitEventTriggersTimingOut
+        expr: sum(rate(strait_event_triggers_timed_out_total[10m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Event triggers are timing out"
+          description: "Events are not being received before their timeout. Check event producers."
