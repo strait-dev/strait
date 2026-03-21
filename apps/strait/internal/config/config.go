@@ -160,6 +160,9 @@ type Config struct {
 	// Sentry error tracking
 	SentryDSN         string `mapstructure:"SENTRY_DSN"`
 	SentryEnvironment string `mapstructure:"SENTRY_ENVIRONMENT"`
+
+	// Edition controls feature gating (community vs cloud)
+	Edition string `mapstructure:"STRAIT_EDITION"`
 }
 
 func setDefaults() {
@@ -253,6 +256,7 @@ func setDefaults() {
 	viper.SetDefault("OTLP_METRIC_ENABLED", false)
 	viper.SetDefault("SENTRY_DSN", "")
 	viper.SetDefault("SENTRY_ENVIRONMENT", "development")
+	viper.SetDefault("STRAIT_EDITION", "community")
 }
 
 func BindEnv() error {
@@ -293,6 +297,7 @@ func BindEnv() error {
 		"CLICKHOUSE_BATCH_SIZE", "CLICKHOUSE_FLUSH_INTERVAL", "CLICKHOUSE_EXPORT_ENABLED",
 		"OTLP_METRIC_ENDPOINT", "OTLP_METRIC_ENABLED",
 		"SENTRY_DSN", "SENTRY_ENVIRONMENT",
+		"STRAIT_EDITION",
 	}
 
 	for _, key := range keys {
@@ -397,6 +402,7 @@ func Load() (*Config, error) {
 	cfg.OTLPMetricEnabled = viper.GetBool("OTLP_METRIC_ENABLED")
 	cfg.SentryDSN = viper.GetString("SENTRY_DSN")
 	cfg.SentryEnvironment = viper.GetString("SENTRY_ENVIRONMENT")
+	cfg.Edition = viper.GetString("STRAIT_EDITION")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")
@@ -470,6 +476,12 @@ func Load() (*Config, error) {
 			return nil, &domain.ConfigError{Field: "FLY_APP_NAME", Message: "is required when COMPUTE_RUNTIME=fly"}
 		}
 	}
+	if cfg.Edition == string(domain.EditionCommunity) && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
+		slog.Warn("community edition does not support managed execution; overriding COMPUTE_RUNTIME to none",
+			"configured", cfg.ComputeRuntime)
+		cfg.ComputeRuntime = "none"
+	}
+
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return nil, &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
 	}

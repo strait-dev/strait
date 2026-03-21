@@ -165,7 +165,9 @@
     "NGROK_AUTHTOKEN",
 
     "TURBO_TEAM",
-    "TURBO_TOKEN"
+    "TURBO_TOKEN",
+
+    "STRAIT_EDITION"
   ],
   "tasks": {
     "build": {
