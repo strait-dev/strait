@@ -21,7 +21,7 @@ processors:
     send_batch_size: 1000
 
 exporters:
-  # ClickHouse Cloud for traces and metrics storage
+  # ClickHouse Cloud for trace storage (metrics go to Grafana Cloud only)
   clickhouse:
     endpoint: ${env:CLICKHOUSE_ENDPOINT}
     username: ${env:CLICKHOUSE_USER}
@@ -29,7 +29,6 @@ exporters:
     database: default
     ttl: 2160h
     traces_table_name: otel_traces
-    metrics_table_name: otel_metrics
     timeout: 10s
     retry_on_failure:
       enabled: true
@@ -69,7 +68,7 @@ service:
     metrics:
       receivers: [otlp, prometheus]
       processors: [batch]
-      exporters: [clickhouse, prometheusremotewrite]
+      exporters: [prometheusremotewrite]
     logs:
       receivers: [otlp]
       processors: [batch]
