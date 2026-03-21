@@ -115,3 +115,16 @@ func (c *Client) Exec(ctx context.Context, query string, args ...any) error {
 	_, err := c.db.ExecContext(ctx, query, args...)
 	return err
 }
+
+// Query executes a query that returns rows.
+func (c *Client) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if c == nil || c.db == nil {
+		return nil, fmt.Errorf("clickhouse: client is nil")
+	}
+	return c.db.QueryContext(ctx, query, args...)
+}
+
+// QueryRow executes a query that returns at most one row.
+func (c *Client) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
+	return c.db.QueryRowContext(ctx, query, args...)
+}
