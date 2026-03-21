@@ -97,6 +97,36 @@ type JobMetadataRecord struct {
 	Slug      string
 }
 
+// WorkflowRunAnalyticsRecord maps to the workflow_run_analytics ClickHouse table.
+type WorkflowRunAnalyticsRecord struct {
+	WorkflowRunID string
+	WorkflowID    string
+	ProjectID     string
+	Status        string
+	TriggeredBy   string
+	StepCount     uint16
+	DurationMs    uint64
+	CreatedAt     time.Time
+	StartedAt     *time.Time
+	FinishedAt    *time.Time
+}
+
+// WorkflowStepAnalyticsRecord maps to the workflow_step_analytics ClickHouse table.
+type WorkflowStepAnalyticsRecord struct {
+	StepRunID     string
+	WorkflowRunID string
+	WorkflowID    string
+	ProjectID     string
+	StepRef       string
+	Status        string
+	DurationMs    uint64
+	Attempt       uint8
+	Error         string
+	CreatedAt     time.Time
+	StartedAt     *time.Time
+	FinishedAt    *time.Time
+}
+
 // WebhookDeliveryEventRecord maps to the webhook_delivery_events ClickHouse table.
 type WebhookDeliveryEventRecord struct {
 	DeliveryID     string
@@ -289,6 +319,8 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	var approvals []WorkflowApprovalEventRecord
 	var jobMeta []JobMetadataRecord
 	var webhookDeliveries []WebhookDeliveryEventRecord
+	var workflowRuns []WorkflowRunAnalyticsRecord
+	var workflowSteps []WorkflowStepAnalyticsRecord
 
 	for _, rec := range batch {
 		switch r := rec.(type) {
@@ -306,6 +338,10 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			jobMeta = append(jobMeta, r)
 		case WebhookDeliveryEventRecord:
 			webhookDeliveries = append(webhookDeliveries, r)
+		case WorkflowRunAnalyticsRecord:
+			workflowRuns = append(workflowRuns, r)
+		case WorkflowStepAnalyticsRecord:
+			workflowSteps = append(workflowSteps, r)
 		default:
 			e.logger.Warn("clickhouse exporter: unknown record type", "type", fmt.Sprintf("%T", rec))
 		}
@@ -347,6 +383,16 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			errs = append(errs, fmt.Errorf("webhook_delivery_events: %w", err))
 		}
 	}
+	if len(workflowRuns) > 0 {
+		if err := e.insertWorkflowRunAnalytics(ctx, workflowRuns); err != nil {
+			errs = append(errs, fmt.Errorf("workflow_run_analytics: %w", err))
+		}
+	}
+	if len(workflowSteps) > 0 {
+		if err := e.insertWorkflowStepAnalytics(ctx, workflowSteps); err != nil {
+			errs = append(errs, fmt.Errorf("workflow_step_analytics: %w", err))
+		}
+	}
 
 	if len(errs) > 0 {
 		msgs := make([]string, len(errs))
@@ -364,6 +410,8 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 		"approvals", len(approvals),
 		"job_metadata", len(jobMeta),
 		"webhook_deliveries", len(webhookDeliveries),
+		"workflow_runs", len(workflowRuns),
+		"workflow_steps", len(workflowSteps),
 	)
 	return nil
 }
@@ -451,6 +499,36 @@ func (e *Exporter) insertJobMetadata(ctx context.Context, records []JobMetadataR
 	for i, r := range records {
 		placeholders[i] = row
 		args = append(args, r.JobID, r.ProjectID, r.Slug)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func (e *Exporter) insertWorkflowRunAnalytics(ctx context.Context, records []WorkflowRunAnalyticsRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO workflow_run_analytics (workflow_run_id, workflow_id, project_id, status, triggered_by, step_count, duration_ms, created_at, started_at, finished_at) VALUES "
+	placeholders := make([]string, len(records))
+	args := make([]any, 0, len(records)*10)
+
+	for i, r := range records {
+		placeholders[i] = row
+		args = append(args, r.WorkflowRunID, r.WorkflowID, r.ProjectID, r.Status, r.TriggeredBy,
+			r.StepCount, r.DurationMs, r.CreatedAt, r.StartedAt, r.FinishedAt)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func (e *Exporter) insertWorkflowStepAnalytics(ctx context.Context, records []WorkflowStepAnalyticsRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO workflow_step_analytics (step_run_id, workflow_run_id, workflow_id, project_id, step_ref, status, duration_ms, attempt, error, created_at, started_at, finished_at) VALUES "
+	placeholders := make([]string, len(records))
+	args := make([]any, 0, len(records)*12)
+
+	for i, r := range records {
+		placeholders[i] = row
+		args = append(args, r.StepRunID, r.WorkflowRunID, r.WorkflowID, r.ProjectID, r.StepRef,
+			r.Status, r.DurationMs, r.Attempt, r.Error, r.CreatedAt, r.StartedAt, r.FinishedAt)
 	}
 
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/domain"
 )
 
@@ -36,6 +37,30 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 		if err := s.pubsub.Publish(ctx, fmt.Sprintf("workflow:%s:runs", run.WorkflowID), payload); err != nil {
 			slog.Warn("failed to publish workflow hook", "workflow_id", run.WorkflowID, "error", err)
 		}
+	}
+
+	// Enqueue ClickHouse workflow run analytics on terminal status transitions.
+	if to.IsTerminal() && s.chExporter != nil {
+		var durationMs uint64
+		if run.StartedAt != nil {
+			finishedAt := time.Now()
+			if run.FinishedAt != nil {
+				finishedAt = *run.FinishedAt
+			}
+			durationMs = uint64(max(finishedAt.Sub(*run.StartedAt).Milliseconds(), 0))
+		}
+		s.chExporter.Enqueue(clickhouse.WorkflowRunAnalyticsRecord{
+			WorkflowRunID: run.ID,
+			WorkflowID:    run.WorkflowID,
+			ProjectID:     run.ProjectID,
+			Status:        string(to),
+			TriggeredBy:   run.TriggeredBy,
+			StepCount:     0, // Step count is not readily available here.
+			DurationMs:    durationMs,
+			CreatedAt:     run.CreatedAt,
+			StartedAt:     run.StartedAt,
+			FinishedAt:    run.FinishedAt,
+		})
 	}
 
 	// Enqueue webhook deliveries for matching subscriptions (non-fatal).

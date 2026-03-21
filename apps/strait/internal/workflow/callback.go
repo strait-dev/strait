@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/domain"
 	storepkg "strait/internal/store"
 	"strait/internal/telemetry"
@@ -16,10 +17,11 @@ import (
 )
 
 type StepCallback struct {
-	store   CallbackStore
-	engine  *WorkflowEngine
-	logger  *slog.Logger
-	metrics *telemetry.Metrics
+	store      CallbackStore
+	engine     *WorkflowEngine
+	logger     *slog.Logger
+	metrics    *telemetry.Metrics
+	chExporter *clickhouse.Exporter
 }
 
 type CallbackStore interface {
@@ -133,6 +135,12 @@ func (s *StepCallback) loadStepDefinitions(ctx context.Context, wfRun *domain.Wo
 
 func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {
 	s.metrics = m
+	return s
+}
+
+// WithChExporter attaches the ClickHouse exporter for step analytics.
+func (s *StepCallback) WithChExporter(e *clickhouse.Exporter) *StepCallback {
+	s.chExporter = e
 	return s
 }
 
@@ -259,6 +267,9 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	if stepErr, ok := fields["error"].(string); ok {
 		stepRun.Error = stepErr
 	}
+
+	// Enqueue step analytics to ClickHouse.
+	s.enqueueStepAnalytics(stepRun, wc)
 
 	// Check if step retry is needed before handling failure
 	if stepStatus == domain.StepFailed {
@@ -517,6 +528,35 @@ func (s *StepCallback) recordDecision(ctx context.Context, stepRun *domain.Workf
 	}); err != nil {
 		slog.Warn("failed to record step decision", "step_run_id", stepRun.ID, "error", err)
 	}
+}
+
+// enqueueStepAnalytics sends a WorkflowStepAnalyticsRecord to ClickHouse.
+func (s *StepCallback) enqueueStepAnalytics(stepRun *domain.WorkflowStepRun, wc *wfCtx) {
+	if s.chExporter == nil || stepRun == nil || wc == nil || wc.run == nil {
+		return
+	}
+	var durationMs uint64
+	if stepRun.StartedAt != nil {
+		finishedAt := time.Now()
+		if stepRun.FinishedAt != nil {
+			finishedAt = *stepRun.FinishedAt
+		}
+		durationMs = uint64(max(finishedAt.Sub(*stepRun.StartedAt).Milliseconds(), 0))
+	}
+	s.chExporter.Enqueue(clickhouse.WorkflowStepAnalyticsRecord{
+		StepRunID:     stepRun.ID,
+		WorkflowRunID: stepRun.WorkflowRunID,
+		WorkflowID:    wc.run.WorkflowID,
+		ProjectID:     wc.run.ProjectID,
+		StepRef:       stepRun.StepRef,
+		Status:        string(stepRun.Status),
+		DurationMs:    durationMs,
+		Attempt:       uint8(min(stepRun.Attempt, 255)), //nolint:gosec // clamped to uint8 range
+		Error:         stepRun.Error,
+		CreatedAt:     stepRun.CreatedAt,
+		StartedAt:     stepRun.StartedAt,
+		FinishedAt:    stepRun.FinishedAt,
+	})
 }
 
 func (s *StepCallback) tryReleaseDependencyRuns(ctx context.Context, run *domain.JobRun) {

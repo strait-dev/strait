@@ -131,6 +131,64 @@ func TestExporter_InsertBatch_UnknownType_Warns(t *testing.T) {
 	}
 }
 
+func TestExporter_EnqueuesWorkflowRunAnalytics(t *testing.T) {
+	t.Parallel()
+
+	exporter := NewExporter(&Client{}, ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	now := time.Now()
+	exporter.Enqueue(WorkflowRunAnalyticsRecord{
+		WorkflowRunID: "wfr-1",
+		WorkflowID:    "wf-1",
+		ProjectID:     "proj-1",
+		Status:        "completed",
+		TriggeredBy:   "api",
+		StepCount:     3,
+		DurationMs:    5000,
+		CreatedAt:     now,
+		StartedAt:     &now,
+		FinishedAt:    &now,
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
+	}
+}
+
+func TestExporter_EnqueuesWorkflowStepAnalytics(t *testing.T) {
+	t.Parallel()
+
+	exporter := NewExporter(&Client{}, ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	now := time.Now()
+	exporter.Enqueue(WorkflowStepAnalyticsRecord{
+		StepRunID:     "sr-1",
+		WorkflowRunID: "wfr-1",
+		WorkflowID:    "wf-1",
+		ProjectID:     "proj-1",
+		StepRef:       "step-a",
+		Status:        "completed",
+		DurationMs:    1200,
+		Attempt:       1,
+		Error:         "",
+		CreatedAt:     now,
+		StartedAt:     &now,
+		FinishedAt:    &now,
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
+	}
+}
+
 func TestExporter_EnqueuesWebhookDeliveryEvent(t *testing.T) {
 	t.Parallel()
 

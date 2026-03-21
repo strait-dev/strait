@@ -117,6 +117,48 @@ CREATE TABLE IF NOT EXISTS job_metadata (
 ORDER BY (project_id, job_id)
 `
 
+// WorkflowRunAnalyticsTable is the DDL for the workflow_run_analytics ClickHouse table.
+const WorkflowRunAnalyticsTable = `
+CREATE TABLE IF NOT EXISTS workflow_run_analytics (
+    workflow_run_id String,
+    workflow_id String,
+    project_id String,
+    status LowCardinality(String),
+    triggered_by LowCardinality(String),
+    step_count UInt16,
+    duration_ms UInt64,
+    created_at DateTime64(3),
+    started_at Nullable(DateTime64(3)),
+    finished_at Nullable(DateTime64(3)),
+    inserted_at DateTime64(3) DEFAULT now64(3)
+) ENGINE = MergeTree()
+PARTITION BY toDate(inserted_at)
+ORDER BY (project_id, workflow_id, created_at)
+TTL inserted_at + INTERVAL 365 DAY
+`
+
+// WorkflowStepAnalyticsTable is the DDL for the workflow_step_analytics ClickHouse table.
+const WorkflowStepAnalyticsTable = `
+CREATE TABLE IF NOT EXISTS workflow_step_analytics (
+    step_run_id String,
+    workflow_run_id String,
+    workflow_id String,
+    project_id String,
+    step_ref String,
+    status LowCardinality(String),
+    duration_ms UInt64,
+    attempt UInt8,
+    error String DEFAULT '',
+    created_at DateTime64(3),
+    started_at Nullable(DateTime64(3)),
+    finished_at Nullable(DateTime64(3)),
+    inserted_at DateTime64(3) DEFAULT now64(3)
+) ENGINE = MergeTree()
+PARTITION BY toDate(inserted_at)
+ORDER BY (project_id, workflow_id, workflow_run_id, created_at)
+TTL inserted_at + INTERVAL 365 DAY
+`
+
 // WebhookDeliveryEventsTable is the DDL for the webhook_delivery_events ClickHouse table.
 const WebhookDeliveryEventsTable = `
 CREATE TABLE IF NOT EXISTS webhook_delivery_events (
@@ -174,6 +216,8 @@ func CreateSchema(ctx context.Context, c *Client) error {
 		{"workflow_approval_events", WorkflowApprovalEventsTable},
 		{"job_metadata", JobMetadataTable},
 		{"webhook_delivery_events", WebhookDeliveryEventsTable},
+		{"workflow_run_analytics", WorkflowRunAnalyticsTable},
+		{"workflow_step_analytics", WorkflowStepAnalyticsTable},
 	}
 
 	for _, t := range tables {
