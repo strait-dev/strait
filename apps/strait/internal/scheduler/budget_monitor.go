@@ -31,6 +31,16 @@ type SpendingLimitStore interface {
 	SumOrgPeriodSpend(ctx context.Context, orgID string, from time.Time) (int64, error)
 	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
 	ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error)
+	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
+}
+
+// RunLimitStore defines the store operations for daily run limit notifications.
+type RunLimitStore interface {
+	ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
+	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
+	ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error)
 	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 }
 
@@ -38,6 +48,8 @@ type SpendingLimitStore interface {
 type BudgetMonitor struct {
 	store         BudgetMonitorStore
 	spendingStore SpendingLimitStore
+	runLimitStore RunLimitStore
+	enforcer      *billing.Enforcer
 	enqueuer      BudgetMonitorWebhookEnqueuer
 	interval      time.Duration
 	logger        *slog.Logger
@@ -68,6 +80,13 @@ func (bm *BudgetMonitor) WithSpendingLimitStore(s SpendingLimitStore) *BudgetMon
 	return bm
 }
 
+// WithRunLimitNotifications enables proactive 80% daily run limit notifications.
+func (bm *BudgetMonitor) WithRunLimitNotifications(s RunLimitStore, enforcer *billing.Enforcer) *BudgetMonitor {
+	bm.runLimitStore = s
+	bm.enforcer = enforcer
+	return bm
+}
+
 // Run starts the budget monitoring loop. Blocks until ctx is canceled.
 func (bm *BudgetMonitor) Run(ctx context.Context) {
 	ticker := time.NewTicker(bm.interval)
@@ -78,7 +97,7 @@ func (bm *BudgetMonitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			bm.check(ctx)
+			bm.check(context.WithoutCancel(ctx))
 		}
 	}
 }
@@ -168,6 +187,11 @@ func (bm *BudgetMonitor) check(ctx context.Context) {
 	if bm.spendingStore != nil {
 		bm.checkSpendingLimits(ctx, today)
 	}
+
+	// Check 80% daily run limit and fire proactive notifications.
+	if bm.runLimitStore != nil && bm.enforcer != nil {
+		bm.checkRunLimitWarnings(ctx, today)
+	}
 }
 
 // sendBudgetNotification sends budget threshold alerts via notification channels.
@@ -207,6 +231,11 @@ func (bm *BudgetMonitor) sendBudgetNotification(ctx context.Context, projectID s
 	}
 }
 
+// checkSpendingLimits checks org-level spending limits and fires notifications.
+// NOTE: The alerted map check has a small TOCTOU window — two concurrent callers
+// could both pass the !alerted check before either sets the key. This is acceptable
+// because (1) the scheduler runs as a single instance with advisory locks, and
+// (2) worst case is 2 identical notifications on the same day, which is harmless.
 func (bm *BudgetMonitor) checkSpendingLimits(ctx context.Context, today string) {
 	orgIDs, err := bm.spendingStore.ListAllSubscribedOrgIDs(ctx)
 	if err != nil {
@@ -293,15 +322,16 @@ func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID str
 
 	isLimitReached := eventType == domain.NotificationEventSpendingLimitReached
 
-	for _, projectID := range projectIDs {
-		channels, chErr := bm.spendingStore.ListEnabledNotificationChannels(ctx, projectID)
-		if chErr != nil {
-			bm.logger.Warn("budget monitor: failed to list notification channels",
-				"project_id", projectID, "error", chErr)
-			continue
-		}
+	// Bulk-fetch all channels for all projects in one query (eliminates N+1).
+	channelsByProject, chBulkErr := bm.spendingStore.ListEnabledNotificationChannelsByProjectIDs(ctx, projectIDs)
+	if chBulkErr != nil {
+		bm.logger.Warn("budget monitor: failed to bulk-list notification channels",
+			"org_id", orgID, "error", chBulkErr)
+		return
+	}
 
-		for _, ch := range channels {
+	for _, projectID := range projectIDs {
+		for _, ch := range channelsByProject[projectID] {
 			// At 80%: only webhook channels. At 100%: webhook + email channels.
 			if !isLimitReached && ch.ChannelType == domain.ChannelTypeEmail {
 				continue
@@ -318,6 +348,77 @@ func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID str
 			if err := bm.spendingStore.CreateNotificationDelivery(ctx, d); err != nil {
 				bm.logger.Warn("budget monitor: failed to create spending notification delivery",
 					"channel_id", ch.ID, "project_id", projectID, "error", err)
+			}
+		}
+	}
+}
+
+// checkRunLimitWarnings checks if any org has hit 80% of its daily run limit
+// and sends a proactive notification so users aren't surprised by a hard block.
+func (bm *BudgetMonitor) checkRunLimitWarnings(ctx context.Context, today string) {
+	orgIDs, err := bm.runLimitStore.ListAllSubscribedOrgIDs(ctx)
+	if err != nil {
+		bm.logger.Warn("budget monitor: failed to list orgs for run limit check", "error", err)
+		return
+	}
+
+	for _, orgID := range orgIDs {
+		alertKey := fmt.Sprintf("runlimit:%s:80:%s", orgID, today)
+
+		bm.alertedMu.Lock()
+		if bm.alerted[alertKey] {
+			bm.alertedMu.Unlock()
+			continue
+		}
+		bm.alertedMu.Unlock()
+
+		warning, warnErr := bm.enforcer.Check80PercentDailyRunWarning(ctx, orgID)
+		if warnErr != nil {
+			continue
+		}
+		if !warning {
+			continue
+		}
+
+		bm.alertedMu.Lock()
+		bm.alerted[alertKey] = true
+		bm.alertedMu.Unlock()
+
+		// Send notifications via org's project channels.
+		projectIDs, projErr := bm.runLimitStore.ListProjectsByOrg(ctx, orgID)
+		if projErr != nil {
+			continue
+		}
+
+		payload, _ := json.Marshal(map[string]any{
+			"event":     domain.NotificationEventRunLimitApproaching,
+			"org_id":    orgID,
+			"threshold": 80,
+			"timestamp": time.Now().UTC(),
+		})
+
+		// Bulk-fetch all channels for all projects in one query (eliminates N+1).
+		channelsByProject, chBulkErr := bm.runLimitStore.ListEnabledNotificationChannelsByProjectIDs(ctx, projectIDs)
+		if chBulkErr != nil {
+			bm.logger.Warn("budget monitor: failed to bulk-list notification channels",
+				"org_id", orgID, "error", chBulkErr)
+			continue
+		}
+
+		for _, projectID := range projectIDs {
+			for _, ch := range channelsByProject[projectID] {
+				d := &domain.NotificationDelivery{
+					ChannelID:   ch.ID,
+					ProjectID:   projectID,
+					EventType:   domain.NotificationEventRunLimitApproaching,
+					Payload:     payload,
+					Status:      "pending",
+					MaxAttempts: 3,
+				}
+				if err := bm.runLimitStore.CreateNotificationDelivery(ctx, d); err != nil {
+					bm.logger.Warn("budget monitor: failed to create run limit notification",
+						"channel_id", ch.ID, "project_id", projectID, "error", err)
+				}
 			}
 		}
 	}

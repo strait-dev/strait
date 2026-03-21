@@ -70,6 +70,9 @@ func NewReferralService(store ReferralStore) *ReferralService {
 }
 
 // GenerateCode creates a new referral code for the given org.
+// NOTE: The count-then-create pattern has a small TOCTOU window where concurrent
+// calls could exceed MaxActivatedPerYear. The risk is low because code generation
+// is a manual user action. A full fix requires transactional store operations.
 func (s *ReferralService) GenerateCode(ctx context.Context, orgID string) (*Referral, error) {
 	count, err := s.store.CountActivatedReferralsInYear(ctx, orgID)
 	if err != nil {

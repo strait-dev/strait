@@ -13,6 +13,7 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useEffect, useRef } from "react";
 import * as z from "zod";
+import PaymentStatusBanner from "@/components/billing/payment-status-banner";
 import UpgradeNudgeBanner from "@/components/billing/upgrade-nudge-banner";
 import ErrorComponent from "@/components/common/error-component";
 import HeaderBreadcrumb from "@/components/common/header-breadcrumb";
@@ -206,7 +207,8 @@ function RouteComponent() {
           className="flex flex-1 flex-col gap-4 bg-background pt-0"
           vaul-drawer-wrapper=""
         >
-          <div className="px-4 pt-2">
+          <div className="space-y-2 px-4 pt-2">
+            <PaymentStatusBanner />
             <UpgradeNudgeBanner />
           </div>
           <Outlet />

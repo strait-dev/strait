@@ -81,7 +81,7 @@ func (e *EmailSender) Send(ctx context.Context, channel *domain.NotificationChan
 }
 
 // subjectForEvent returns a human-readable email subject for the event type.
-func subjectForEvent(eventType string, payload json.RawMessage) string {
+func subjectForEvent(eventType string, _ json.RawMessage) string {
 	switch eventType {
 	case domain.NotificationEventSpendingLimitWarning:
 		return "Spending limit warning - 80% reached"

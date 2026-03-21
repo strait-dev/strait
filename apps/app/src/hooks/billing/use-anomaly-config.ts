@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import {
   apiEffect,
@@ -50,7 +51,17 @@ type SetConfigInput = {
 };
 
 const setAnomalyConfigServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: SetConfigInput) => data)
+  .inputValidator((data: SetConfigInput) =>
+    z
+      .object({
+        warningThreshold: z.number().gt(1),
+        criticalThreshold: z.number().gt(1),
+      })
+      .refine((d) => d.criticalThreshold > d.warningThreshold, {
+        message: "Critical threshold must be greater than warning threshold",
+      })
+      .parse(data)
+  )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
     const orgId = getOrgIdFromSession(

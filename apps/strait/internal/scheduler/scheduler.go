@@ -139,32 +139,32 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 
 	s.cron.Start()
-	s.wg.Go(func() { s.poller.Run(ctx) })
-	s.wg.Go(func() { s.reaper.Run(ctx) })
-	s.wg.Go(func() { s.indexMaintainer.Run(ctx) })
-	s.wg.Go(func() { s.debouncePoller.Run(ctx) })
-	s.wg.Go(func() { s.batchFlusher.Run(ctx) })
-	s.wg.Go(func() { s.statsAggregator.Run(ctx) })
-	s.wg.Go(func() { s.budgetMonitor.Run(ctx) })
-	s.wg.Go(func() { s.costEstimateRefresher.Run(ctx) })
-	s.wg.Go(func() { s.memoryCleanup.Run(ctx) })
+	safeGo(&s.wg, "poller", func() { s.poller.Run(ctx) })
+	safeGo(&s.wg, "reaper", func() { s.reaper.Run(ctx) })
+	safeGo(&s.wg, "index_maintainer", func() { s.indexMaintainer.Run(ctx) })
+	safeGo(&s.wg, "debounce_poller", func() { s.debouncePoller.Run(ctx) })
+	safeGo(&s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
+	safeGo(&s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
+	safeGo(&s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
+	safeGo(&s.wg, "cost_estimate_refresher", func() { s.costEstimateRefresher.Run(ctx) })
+	safeGo(&s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
 	if s.usageFlusher != nil {
-		s.wg.Go(func() { s.usageFlusher.Run(ctx) })
+		safeGo(&s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })
 	}
 	if s.concurrentReconciler != nil {
-		s.wg.Go(func() { s.concurrentReconciler.Run(ctx) })
+		safeGo(&s.wg, "concurrent_reconciler", func() { s.concurrentReconciler.Run(ctx) })
 	}
 	if s.downgradeApplier != nil {
-		s.wg.Go(func() { s.downgradeApplier.Run(ctx) })
+		safeGo(&s.wg, "downgrade_applier", func() { s.downgradeApplier.Run(ctx) })
 	}
 	if s.anomalyMonitor != nil {
-		s.wg.Go(func() { s.anomalyMonitor.Run(ctx) })
+		safeGo(&s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
 	}
 	if s.referralExpiry != nil {
-		s.wg.Go(func() { s.referralExpiry.Run(ctx) })
+		safeGo(&s.wg, "referral_expiry", func() { s.referralExpiry.Run(ctx) })
 	}
 	if s.gracePeriodEnforcer != nil {
-		s.wg.Go(func() { s.gracePeriodEnforcer.Run(ctx) })
+		safeGo(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

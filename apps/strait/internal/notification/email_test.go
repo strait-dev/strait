@@ -99,9 +99,9 @@ func TestEmailSender_FormatsBillingAlertBody(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		eventType string
-		payload   map[string]any
+		name          string
+		eventType     string
+		payload       map[string]any
 		wantInSubject string
 		wantInBody    string
 	}{

@@ -252,6 +252,8 @@ export const generatedOperationSchemas = {
   "getV1NotificationChannelsByChannelID": { response: Schema.suspend(() => componentSchemas["NotificationChannel"] ?? Schema.Unknown) },
   "patchV1NotificationChannelsByChannelID": { request: Schema.suspend(() => componentSchemas["UpdateNotificationChannelRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["NotificationChannel"] ?? Schema.Unknown) },
   "getV1NotificationDeliveries": { response: Schema.Array(Schema.suspend(() => componentSchemas["NotificationDelivery"] ?? Schema.Unknown)) },
+  "getV1OrganizationsByOrgIDJobs": {},
+  "getV1OrganizationsByOrgIDRuns": {},
   "getV1ProjectBudget": {},
   "putV1ProjectBudget": { request: Schema.Struct({ "project_id": Schema.optional(Schema.String), "budget_microusd": Schema.optional(Schema.Number.pipe(Schema.int())), "action": Schema.optional(Schema.String) }) },
   "getV1Projects": { response: Schema.Array(Schema.suspend(() => componentSchemas["Project"] ?? Schema.Unknown)) },

@@ -41,6 +41,8 @@ export type RawOrgUsageData = {
   };
   usage: RawOrgUsageDimensions;
   alerts: UsageAlert[];
+  payment_status?: string;
+  grace_period_end?: string;
 };
 
 export type OrgUsageData = Omit<RawOrgUsageData, "usage"> & {

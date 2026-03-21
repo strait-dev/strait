@@ -11,11 +11,13 @@ import (
 
 // CurrentUsageResponse is the response for GET /v1/usage/current.
 type CurrentUsageResponse struct {
-	OrgID  string          `json:"org_id"`
-	Plan   string          `json:"plan"`
-	Period PeriodInfo      `json:"period"`
-	Usage  UsageDimensions `json:"usage"`
-	Alerts []UsageAlert    `json:"alerts,omitempty"`
+	OrgID          string          `json:"org_id"`
+	Plan           string          `json:"plan"`
+	Period         PeriodInfo      `json:"period"`
+	Usage          UsageDimensions `json:"usage"`
+	Alerts         []UsageAlert    `json:"alerts,omitempty"`
+	PaymentStatus  string          `json:"payment_status,omitempty"`
+	GracePeriodEnd *string         `json:"grace_period_end,omitempty"`
 }
 
 // PeriodInfo describes the billing period.
@@ -197,6 +199,15 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 
 	// Add alerts for dimensions approaching limits
 	resp.Alerts = s.buildAlerts(resp.Usage)
+
+	// Surface payment status to the frontend for banners.
+	if sub != nil && sub.PaymentStatus != "" && sub.PaymentStatus != "ok" {
+		resp.PaymentStatus = sub.PaymentStatus
+		if sub.GracePeriodEnd != nil {
+			formatted := sub.GracePeriodEnd.Format(time.RFC3339)
+			resp.GracePeriodEnd = &formatted
+		}
+	}
 
 	return resp, nil
 }

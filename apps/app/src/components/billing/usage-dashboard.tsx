@@ -200,6 +200,43 @@ const UsageDashboard = () => {
         />
       </div>
 
+      {/* Transitional message when in-flight runs exceed new plan limit */}
+      {usage.usage.concurrent_runs.limit > 0 &&
+        usage.usage.concurrent_runs.used >
+          usage.usage.concurrent_runs.limit && (
+          <div className="rounded-lg border border-border bg-muted/50 px-4 py-2">
+            <p className="text-muted-foreground text-sm">
+              {usage.usage.concurrent_runs.used -
+                usage.usage.concurrent_runs.limit}{" "}
+              runs finishing from previous plan. New runs will start once slots
+              free up.
+            </p>
+          </div>
+        )}
+
+      {/* Estimated bill card */}
+      {totalCost > 0 && (
+        <Card>
+          <CardContent className="flex items-center justify-between p-4">
+            <div>
+              <p className="text-muted-foreground text-xs">
+                Estimated Bill This Month
+              </p>
+              <p className="font-medium text-foreground text-lg tabular-nums">
+                {formatMicroUsd(totalCost)}
+              </p>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Based on usage through{" "}
+              {new Date().toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Daily Runs Line Chart */}
       {history && history.length > 0 && (
         <Card>

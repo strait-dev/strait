@@ -29,14 +29,15 @@ const getProjectCostsServerFn = createServerFn({ method: "GET" })
     }
 
     const now = new Date();
-    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    const fromDate = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+    const toDate = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
 
     return await runWithSentryReport(
       apiEffect<ProjectCostEntry[]>("/v1/usage/projects", {
         params: {
           org_id: orgId,
-          from: from.toISOString().split("T")[0],
-          to: now.toISOString().split("T")[0],
+          from: fromDate,
+          to: toDate,
         },
       })
     );

@@ -31,6 +31,8 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 			COALESCE(anomaly_threshold_warning, 3.0),
 			COALESCE(anomaly_threshold_critical, 10.0),
 			grace_period_end, COALESCE(payment_status, 'ok'),
+			override_daily_run_limit, override_concurrent_run_limit,
+			COALESCE(enforcement_mode, 'enforce'),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE org_id = $1
@@ -41,6 +43,8 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 		&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 		&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
 		&sub.GracePeriodEnd, &sub.PaymentStatus,
+		&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
+		&sub.EnforcementMode,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -69,7 +73,7 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 			current_period_end = EXCLUDED.current_period_end,
 			spending_limit_microusd = organization_subscriptions.spending_limit_microusd,
 			limit_action = organization_subscriptions.limit_action,
-			pending_plan_tier = NULL,
+			pending_plan_tier = COALESCE(organization_subscriptions.pending_plan_tier, NULL),
 			canceled_at = EXCLUDED.canceled_at,
 			updated_at = NOW()
 	`, sub.ID, sub.OrgID, sub.PlanTier,
@@ -132,6 +136,30 @@ func (s *PgStore) SetPendingPlanTier(ctx context.Context, orgID, tier string) er
 	return nil
 }
 
+// SetPendingDowngrade atomically sets pending_plan_tier and updates period dates
+// in a single UPDATE. This replaces the two-step SetPendingPlanTier + UpdateOrgSubscriptionFull
+// pattern in the webhook handler to prevent partial state on failure.
+func (s *PgStore) SetPendingDowngrade(ctx context.Context, orgID, pendingTier string, periodStart, periodEnd *time.Time) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET pending_plan_tier = $2,
+		    current_period_start = $3,
+		    current_period_end = $4,
+		    updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, pendingTier, periodStart, periodEnd)
+	if err != nil {
+		return fmt.Errorf("setting pending downgrade: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSubscriptionNotFound
+	}
+	return nil
+}
+
+// Pool returns the underlying connection pool for transactional operations.
+func (s *PgStore) Pool() *pgxpool.Pool { return s.pool }
+
 func (s *PgStore) ClearPendingPlanTier(ctx context.Context, orgID string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE organization_subscriptions
@@ -172,11 +200,14 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			COALESCE(anomaly_threshold_warning, 3.0),
 			COALESCE(anomaly_threshold_critical, 10.0),
 			grace_period_end, COALESCE(payment_status, 'ok'),
+			override_daily_run_limit, override_concurrent_run_limit,
+			COALESCE(enforcement_mode, 'enforce'),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE pending_plan_tier IS NOT NULL
 		  AND current_period_end IS NOT NULL
 		  AND current_period_end < NOW()
+		LIMIT 10000
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("listing orgs with pending downgrade: %w", err)
@@ -193,6 +224,8 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
+			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
+			&sub.EnforcementMode,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pending downgrade: %w", err)
@@ -327,6 +360,38 @@ func (s *PgStore) CountExecutingRunsByOrg(ctx context.Context, orgID string) (in
 		return 0, fmt.Errorf("counting executing runs by org: %w", err)
 	}
 	return count, nil
+}
+
+// BulkCountExecutingRunsByOrg counts executing runs for multiple orgs in a single
+// query, returning a map of orgID -> count. Orgs with zero executing runs are
+// included with count 0 if they appear in the input slice.
+func (s *PgStore) BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []string) (map[string]int, error) {
+	if len(orgIDs) == 0 {
+		return map[string]int{}, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT p.org_id, COUNT(jr.id)::int
+		FROM job_runs jr
+		JOIN projects p ON p.id = jr.project_id
+		WHERE p.org_id = ANY($1)
+		  AND jr.status = 'executing'
+		GROUP BY p.org_id
+	`, orgIDs)
+	if err != nil {
+		return nil, fmt.Errorf("bulk counting executing runs by org: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int, len(orgIDs))
+	for rows.Next() {
+		var orgID string
+		var count int
+		if err := rows.Scan(&orgID, &count); err != nil {
+			return nil, fmt.Errorf("scanning bulk executing run count: %w", err)
+		}
+		result[orgID] = count
+	}
+	return result, rows.Err()
 }
 
 func (s *PgStore) CountAIModelCallsByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error) {
@@ -754,7 +819,7 @@ func (s *PgStore) GetPendingReferralByReferredOrg(ctx context.Context, referredO
 		&r.Status, &r.CreditMicrousd, &r.ActivatedAt, &r.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // intentional: nil,nil means "no pending referral found"
 	}
 	if err != nil {
 		return nil, fmt.Errorf("getting pending referral by referred org: %w", err)
@@ -847,6 +912,7 @@ func (s *PgStore) ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
 		FROM organization_subscriptions
 		WHERE status = 'active'
 		ORDER BY org_id
+		LIMIT 50000
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("listing subscribed org IDs: %w", err)
@@ -887,10 +953,13 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 			COALESCE(anomaly_threshold_warning, 3.0),
 			COALESCE(anomaly_threshold_critical, 10.0),
 			grace_period_end, COALESCE(payment_status, 'ok'),
+			override_daily_run_limit, override_concurrent_run_limit,
+			COALESCE(enforcement_mode, 'enforce'),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE payment_status = 'grace'
 		  AND grace_period_end < NOW()
+		LIMIT 10000
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("listing orgs in grace period: %w", err)
@@ -907,6 +976,8 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
+			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
+			&sub.EnforcementMode,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning grace period org: %w", err)

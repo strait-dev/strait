@@ -54,14 +54,15 @@ const (
 )
 
 const (
-	NotificationEventApprovalRequested = "approval.requested"
-	NotificationEventApprovalReminder  = "approval.reminder"
-	NotificationEventApprovalExpired   = "approval.expired"
-	NotificationEventApprovalCompleted = "approval.completed"
+	NotificationEventApprovalRequested    = "approval.requested"
+	NotificationEventApprovalReminder     = "approval.reminder"
+	NotificationEventApprovalExpired      = "approval.expired"
+	NotificationEventApprovalCompleted    = "approval.completed"
 	NotificationEventBudgetThreshold      = "budget.threshold_reached"
 	NotificationEventCostAnomaly          = "cost.anomaly_detected"
 	NotificationEventSpendingLimitWarning = "spending.limit_warning"
 	NotificationEventSpendingLimitReached = "spending.limit_reached"
+	NotificationEventRunLimitApproaching  = "runs.limit_approaching"
 )
 
 // NotificationChannel represents a configured notification destination for a project.

@@ -36,15 +36,19 @@ function estimateStraitCost(
   let recommendedPlan = "Free";
   let planCost = 0;
 
+  // Plan thresholds based on actual plan limits:
+  // Free: 5K runs/day (~150K/mo), 3 members, no compute credit
+  // Starter: 25K runs/day (~750K/mo), 10 members, $19.99 compute credit
+  // Pro: 100K runs/day (~3M/mo), 25 members, $49.99 compute credit
   if (
-    runsPerMonth > 150_000 ||
+    runsPerMonth > 750_000 ||
     monthlyComputeCost > 19.99 ||
     _teamMembers > 10
   ) {
     recommendedPlan = "Pro";
     planCost = 49.99;
   } else if (
-    runsPerMonth > 5000 ||
+    runsPerMonth > 150_000 ||
     monthlyComputeCost > 0 ||
     _teamMembers > 3
   ) {

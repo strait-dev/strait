@@ -125,6 +125,8 @@ export type OperationPathParamsById = {
   "getV1NotificationChannelsByChannelID": { "channelID": string };
   "patchV1NotificationChannelsByChannelID": { "channelID": string };
   "getV1NotificationDeliveries": undefined;
+  "getV1OrganizationsByOrgIDJobs": { "orgID": string };
+  "getV1OrganizationsByOrgIDRuns": { "orgID": string };
   "getV1ProjectBudget": undefined;
   "putV1ProjectBudget": undefined;
   "getV1Projects": undefined;
@@ -358,6 +360,8 @@ export type OperationQueryParamsById = {
   "getV1NotificationChannelsByChannelID": undefined;
   "patchV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationDeliveries": { "limit"?: number; "cursor"?: string };
+  "getV1OrganizationsByOrgIDJobs": { "limit"?: number; "cursor"?: string };
+  "getV1OrganizationsByOrgIDRuns": { "limit"?: number; "cursor"?: string };
   "getV1ProjectBudget": { "project_id": string };
   "putV1ProjectBudget": undefined;
   "getV1Projects": { "org_id": string };
@@ -591,6 +595,8 @@ export type OperationHeaderParamsById = {
   "getV1NotificationChannelsByChannelID": undefined;
   "patchV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationDeliveries": undefined;
+  "getV1OrganizationsByOrgIDJobs": undefined;
+  "getV1OrganizationsByOrgIDRuns": undefined;
   "getV1ProjectBudget": undefined;
   "putV1ProjectBudget": undefined;
   "getV1Projects": undefined;
@@ -846,6 +852,8 @@ export const generatedOperationMetadataById = {
   "getV1NotificationChannelsByChannelID": { functionName: "getNotificationChannel", domainName: "notificationChannels", domainMethodName: "get", pathParamNames: ["channelID"], summary: "Get a notification channel" },
   "patchV1NotificationChannelsByChannelID": { functionName: "updateNotificationChannel", domainName: "notificationChannels", domainMethodName: "update", pathParamNames: ["channelID"], summary: "Update a notification channel" },
   "getV1NotificationDeliveries": { functionName: "listNotificationDeliveries", domainName: "notificationChannels", domainMethodName: "listNotificationDeliveries", pathParamNames: [], summary: "List notification deliveries" },
+  "getV1OrganizationsByOrgIDJobs": { functionName: "listJobsByOrgID", domainName: "organizations", domainMethodName: "listJobsByOrgId", pathParamNames: ["orgID"], summary: "List jobs across all projects in an organization" },
+  "getV1OrganizationsByOrgIDRuns": { functionName: "listRunsByOrgID", domainName: "organizations", domainMethodName: "listRunsByOrgId", pathParamNames: ["orgID"], summary: "List runs across all projects in an organization" },
   "getV1ProjectBudget": { functionName: "listProjectBudget", domainName: "usage", domainMethodName: "listProjectBudget", pathParamNames: [], summary: "Get project budget" },
   "putV1ProjectBudget": { functionName: "upsertProjectBudget", domainName: "usage", domainMethodName: "upsertProjectBudget", pathParamNames: [], summary: "Set project budget" },
   "getV1Projects": { functionName: "listProjects", domainName: "projects", domainMethodName: "list", pathParamNames: [], summary: "List projects by organization" },

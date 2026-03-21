@@ -7,24 +7,27 @@ import (
 
 // OrgSubscription represents an organization's subscription state.
 type OrgSubscription struct {
-	ID                       string
-	OrgID                    string
-	PlanTier                 string
-	PolarSubscriptionID      *string
-	PolarCustomerID          *string
-	Status                   string
-	CurrentPeriodStart       *time.Time
-	CurrentPeriodEnd         *time.Time
-	SpendingLimitMicrousd    int64
-	LimitAction              string
-	PendingPlanTier          *string
-	CanceledAt               *time.Time
-	AnomalyThresholdWarning  float64
-	AnomalyThresholdCritical float64
-	GracePeriodEnd           *time.Time
-	PaymentStatus            string // "ok", "grace", "restricted"
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
+	ID                         string
+	OrgID                      string
+	PlanTier                   string
+	PolarSubscriptionID        *string
+	PolarCustomerID            *string
+	Status                     string
+	CurrentPeriodStart         *time.Time
+	CurrentPeriodEnd           *time.Time
+	SpendingLimitMicrousd      int64
+	LimitAction                string
+	PendingPlanTier            *string
+	CanceledAt                 *time.Time
+	AnomalyThresholdWarning    float64
+	AnomalyThresholdCritical   float64
+	GracePeriodEnd             *time.Time
+	PaymentStatus              string // "ok", "grace", "restricted"
+	OverrideDailyRunLimit      *int
+	OverrideConcurrentRunLimit *int
+	EnforcementMode            string // "enforce" (default), "warn", "disabled"
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
 }
 
 // UsageRecord represents a daily usage aggregate per org and project.
@@ -50,6 +53,7 @@ type Store interface {
 	UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error
 	UpdateSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
 	SetPendingPlanTier(ctx context.Context, orgID, tier string) error
+	SetPendingDowngrade(ctx context.Context, orgID, pendingTier string, periodStart, periodEnd *time.Time) error
 	ClearPendingPlanTier(ctx context.Context, orgID string) error
 	ApplyPendingDowngrade(ctx context.Context, orgID string) error
 	ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscription, error)
@@ -62,6 +66,7 @@ type Store interface {
 	CountMembersByOrg(ctx context.Context, orgID string) (int, error)
 	CountOrgsByUser(ctx context.Context, userID string) (int, error)
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
+	BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []string) (map[string]int, error)
 	CountAIModelCallsByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error)
 	SetProjectOrgID(ctx context.Context, projectID, orgID string) error
 

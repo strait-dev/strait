@@ -11,11 +11,27 @@ import (
 
 type mockGraceEnforcerStore struct {
 	graceOrgs        []billing.OrgSubscription
+	freshSubs        map[string]*billing.OrgSubscription
 	listErr          error
 	updatedStatuses  map[string]string
 	updatedPlans     map[string]string
 	updateStatusErrs map[string]error
 	updatePlanErrs   map[string]error
+}
+
+func (m *mockGraceEnforcerStore) GetOrgSubscription(_ context.Context, orgID string) (*billing.OrgSubscription, error) {
+	if m.freshSubs != nil {
+		if sub, ok := m.freshSubs[orgID]; ok {
+			return sub, nil
+		}
+	}
+	// Default: return the sub from graceOrgs with matching OrgID.
+	for i := range m.graceOrgs {
+		if m.graceOrgs[i].OrgID == orgID {
+			return &m.graceOrgs[i], nil
+		}
+	}
+	return nil, fmt.Errorf("subscription not found")
 }
 
 func (m *mockGraceEnforcerStore) ListOrgsInGracePeriod(_ context.Context) ([]billing.OrgSubscription, error) {

@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
@@ -26,7 +27,13 @@ type DowngradePreviewInput = {
 };
 
 const getDowngradePreviewServerFn = createServerFn({ method: "GET" })
-  .inputValidator((data: DowngradePreviewInput) => data)
+  .inputValidator((data: DowngradePreviewInput) =>
+    z
+      .object({
+        targetTier: z.enum(["free", "starter", "pro", "enterprise"]),
+      })
+      .parse(data)
+  )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
     const orgId = getOrgIdFromSession(

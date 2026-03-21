@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import {
   apiEffect,
@@ -72,7 +73,9 @@ type ActivateInput = {
 };
 
 const activateReferralServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: ActivateInput) => data)
+  .inputValidator((data: ActivateInput) =>
+    z.object({ code: z.string().min(1).max(100) }).parse(data)
+  )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
     const orgId = getOrgIdFromSession(

@@ -93,12 +93,17 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify webhook signature when a secret is configured.
+	// In production, the secret MUST be set via POLAR_WEBHOOK_SECRET.
+	// An empty secret bypasses verification (logged as warning on each request).
 	if h.secret != "" {
 		if !h.verifySignature(body, r) {
 			h.logger.Warn("invalid polar webhook signature")
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
 			return
 		}
+	} else {
+		h.logger.Warn("polar webhook secret not configured — signature verification skipped")
 	}
 
 	var payload PolarWebhookPayload
@@ -234,7 +239,7 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 	}
 
 	h.logAuditEvent(ctx, "subscription.created", orgID, map[string]string{
-		"plan_tier":              string(tier),
+		"plan_tier":             string(tier),
 		"polar_subscription_id": sub.ID,
 	})
 
@@ -246,6 +251,11 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 	return nil
 }
 
+// handleSubscriptionUpdated processes plan changes. NOTE: concurrent webhooks for
+// the same org can cause TOCTOU issues (read-check-write on payment status and plan
+// tier). Polar delivers webhooks in order per subscription, so the practical risk
+// is low. A full fix requires transactional store operations (BeginTx + conditional
+// UPDATEs). See review finding #2.
 func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data json.RawMessage) error {
 	var sub PolarSubscriptionData
 	if err := json.Unmarshal(data, &sub); err != nil {
@@ -335,10 +345,10 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 			}
 		}
 		h.logAuditEvent(ctx, "subscription.updated", orgID, map[string]string{
-			"plan_tier":              existing.PlanTier,
-			"pending_plan_tier":      string(tier),
-			"previous_tier":          existing.PlanTier,
-			"polar_subscription_id":  sub.ID,
+			"plan_tier":             existing.PlanTier,
+			"pending_plan_tier":     string(tier),
+			"previous_tier":         existing.PlanTier,
+			"polar_subscription_id": sub.ID,
 		})
 
 		h.logger.Info("subscription downgrade deferred",
@@ -384,8 +394,8 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 				h.enforcer.InvalidateOrgCache(orgID)
 			}
 			h.logAuditEvent(ctx, "subscription.updated", orgID, map[string]string{
-				"plan_tier":              string(tier),
-				"polar_subscription_id":  sub.ID,
+				"plan_tier":             string(tier),
+				"polar_subscription_id": sub.ID,
 			})
 			h.logger.Info("subscription updated (created via fallback)",
 				"org_id", orgID,
@@ -402,8 +412,8 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 	}
 
 	auditDetails := map[string]string{
-		"plan_tier":              string(tier),
-		"polar_subscription_id":  sub.ID,
+		"plan_tier":             string(tier),
+		"polar_subscription_id": sub.ID,
 	}
 	if previousTier != "" && previousTier != string(tier) {
 		auditDetails["previous_tier"] = previousTier
@@ -446,9 +456,11 @@ func (h *WebhookHandler) handleSubscriptionCanceled(ctx context.Context, data js
 	}
 
 	// Queue a downgrade to free at period end so paid quotas don't persist indefinitely.
-	if err := h.store.SetPendingPlanTier(ctx, orgID, string(domain.PlanFree)); err != nil {
-		if !errors.Is(err, ErrSubscriptionNotFound) {
-			return fmt.Errorf("setting pending free tier on cancellation: %w", err)
+	if existing.PlanTier != string(domain.PlanFree) {
+		if err := h.store.SetPendingPlanTier(ctx, orgID, string(domain.PlanFree)); err != nil {
+			if !errors.Is(err, ErrSubscriptionNotFound) {
+				return fmt.Errorf("setting pending free tier on cancellation: %w", err)
+			}
 		}
 	}
 
@@ -457,14 +469,20 @@ func (h *WebhookHandler) handleSubscriptionCanceled(ctx context.Context, data js
 	}
 
 	h.logAuditEvent(ctx, "subscription.canceled", orgID, map[string]string{
-		"plan_tier":              existing.PlanTier,
+		"plan_tier":             existing.PlanTier,
 		"polar_subscription_id": sub.ID,
 	})
 
-	h.logger.Info("subscription canceled",
-		"org_id", orgID,
-		"plan_tier", existing.PlanTier,
-	)
+	if existing.PlanTier == string(domain.PlanFree) {
+		h.logger.Info("subscription canceled (org already on free tier)",
+			"org_id", orgID,
+		)
+	} else {
+		h.logger.Info("subscription canceled",
+			"org_id", orgID,
+			"plan_tier", existing.PlanTier,
+		)
+	}
 	return nil
 }
 
@@ -494,7 +512,7 @@ func (h *WebhookHandler) handleSubscriptionRevoked(ctx context.Context, data jso
 	}
 
 	h.logAuditEvent(ctx, "subscription.revoked", orgID, map[string]string{
-		"plan_tier":              string(domain.PlanFree),
+		"plan_tier":             string(domain.PlanFree),
 		"polar_subscription_id": sub.ID,
 	})
 

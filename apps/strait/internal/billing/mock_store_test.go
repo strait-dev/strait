@@ -114,6 +114,17 @@ func (m *mockBillingStore) SetPendingPlanTier(_ context.Context, orgID, tier str
 	return ErrSubscriptionNotFound
 }
 
+func (m *mockBillingStore) SetPendingDowngrade(_ context.Context, orgID, pendingTier string, _, _ *time.Time) error {
+	m.lastPendingTier = pendingTier
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok {
+			sub.PendingPlanTier = &pendingTier
+			return nil
+		}
+	}
+	return ErrSubscriptionNotFound
+}
+
 func (m *mockBillingStore) ClearPendingPlanTier(_ context.Context, orgID string) error {
 	m.lastClearedPending = orgID
 	if m.subscriptions != nil {
@@ -188,6 +199,16 @@ func (m *mockBillingStore) CountExecutingRunsByOrg(_ context.Context, orgID stri
 		return m.executingRuns[orgID], nil
 	}
 	return 0, nil
+}
+
+func (m *mockBillingStore) BulkCountExecutingRunsByOrg(_ context.Context, orgIDs []string) (map[string]int, error) {
+	result := make(map[string]int, len(orgIDs))
+	for _, orgID := range orgIDs {
+		if m.executingRuns != nil {
+			result[orgID] = m.executingRuns[orgID]
+		}
+	}
+	return result, nil
 }
 
 func (m *mockBillingStore) CountAIModelCallsByOrg(_ context.Context, orgID string, _, _ time.Time) (int64, error) {

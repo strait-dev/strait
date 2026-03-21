@@ -570,6 +570,20 @@ func (m *mockSpendingLimitStore) ListEnabledNotificationChannels(ctx context.Con
 	return nil, nil
 }
 
+func (m *mockSpendingLimitStore) ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+	result := make(map[string][]domain.NotificationChannel)
+	for _, pid := range projectIDs {
+		channels, err := m.ListEnabledNotificationChannels(ctx, pid)
+		if err != nil {
+			return nil, err
+		}
+		if len(channels) > 0 {
+			result[pid] = channels
+		}
+	}
+	return result, nil
+}
+
 func (m *mockSpendingLimitStore) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
 	if m.createNotificationDeliveryFn != nil {
 		return m.createNotificationDeliveryFn(ctx, d)

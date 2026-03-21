@@ -65,6 +65,9 @@ func (m *mockEnforcerStore) UpdateSpendingLimit(_ context.Context, _ string, _ i
 	return nil
 }
 func (m *mockEnforcerStore) SetPendingPlanTier(_ context.Context, _, _ string) error { return nil }
+func (m *mockEnforcerStore) SetPendingDowngrade(_ context.Context, _, _ string, _, _ *time.Time) error {
+	return nil
+}
 func (m *mockEnforcerStore) ClearPendingPlanTier(_ context.Context, _ string) error  { return nil }
 func (m *mockEnforcerStore) ApplyPendingDowngrade(_ context.Context, _ string) error { return nil }
 func (m *mockEnforcerStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]billing.OrgSubscription, error) {
@@ -87,6 +90,9 @@ func (m *mockEnforcerStore) CountMembersByOrg(_ context.Context, _ string) (int,
 }
 func (m *mockEnforcerStore) CountExecutingRunsByOrg(_ context.Context, _ string) (int, error) {
 	return 0, nil
+}
+func (m *mockEnforcerStore) BulkCountExecutingRunsByOrg(_ context.Context, orgIDs []string) (map[string]int, error) {
+	return make(map[string]int, len(orgIDs)), nil
 }
 func (m *mockEnforcerStore) CountAIModelCallsByOrg(_ context.Context, _ string, _, _ time.Time) (int64, error) {
 	return 0, nil

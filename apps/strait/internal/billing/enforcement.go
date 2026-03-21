@@ -15,6 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -45,22 +46,30 @@ func (e *LimitError) Error() string {
 
 // Enforcer checks org-level billing limits before allowing operations.
 type Enforcer struct {
-	store    Store
-	rdb      redis.Cmdable
-	logger   *slog.Logger
-	metrics  *telemetry.Metrics
-	orgCache sync.Map // orgID -> cachedOrgLimits
-	cacheTTL time.Duration
+	store       Store
+	rdb         redis.Cmdable
+	logger      *slog.Logger
+	metrics     *telemetry.Metrics
+	orgCache    sync.Map // orgID -> cachedOrgLimits
+	limitsGroup singleflight.Group
+	cacheTTL    time.Duration
 }
 
 type cachedOrgLimits struct {
-	tier      domain.PlanTier
-	limits    OrgPlanLimits
-	expiresAt time.Time
+	tier            domain.PlanTier
+	limits          OrgPlanLimits
+	enforcementMode string
+	expiresAt       time.Time
 }
 
-// NewEnforcer creates a billing enforcer.
+// NewEnforcer creates a billing enforcer. Panics if store is nil.
 func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...EnforcerOption) *Enforcer {
+	if store == nil {
+		panic("billing.NewEnforcer: store must not be nil")
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
 	e := &Enforcer{
 		store:    store,
 		rdb:      rdb,
@@ -89,7 +98,9 @@ func (e *Enforcer) InvalidateOrgCache(orgID string) {
 }
 
 // PurgeExpiredCache removes expired entries from the org cache.
-// Should be called periodically (e.g., every 10 minutes) from the scheduler.
+// Note: Expired entries are also skipped on read in GetOrgPlanLimits, so
+// stale entries only waste memory for orgs that are never queried again.
+// Call this periodically (e.g., every 10 minutes) if memory growth is a concern.
 func (e *Enforcer) PurgeExpiredCache() {
 	now := time.Now()
 	e.orgCache.Range(func(key, value any) bool {
@@ -99,6 +110,34 @@ func (e *Enforcer) PurgeExpiredCache() {
 		}
 		return true
 	})
+}
+
+// getEnforcementMode returns the enforcement mode for an org from cache.
+// Falls back to "enforce" if not cached.
+func (e *Enforcer) getEnforcementMode(orgID string) string {
+	if entry, ok := e.orgCache.Load(orgID); ok {
+		cached := entry.(*cachedOrgLimits)
+		if time.Now().Before(cached.expiresAt) && cached.enforcementMode != "" {
+			return cached.enforcementMode
+		}
+	}
+	return "enforce"
+}
+
+// checkEnforcementMode returns true if enforcement is disabled or warn-only for
+// the given org. Call this after GetOrgPlanLimits (which populates the cache).
+func (e *Enforcer) checkEnforcementMode(orgID, checkType string) (skip bool) {
+	mode := e.getEnforcementMode(orgID)
+	switch mode {
+	case "disabled":
+		return true
+	case "warn":
+		e.logger.Warn("soft limit warning (enforcement_mode=warn)",
+			"org_id", orgID, "check", checkType)
+		return true
+	default:
+		return false
+	}
 }
 
 // GetOrgPlanLimits returns plan limits for an org, with caching.
@@ -114,64 +153,99 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (OrgPlanL
 		}
 	}
 
-	sub, err := e.store.GetOrgSubscription(ctx, orgID)
-	if err != nil {
-		if errors.Is(err, ErrSubscriptionNotFound) {
-			limits := GetPlanLimits(domain.PlanFree)
-			e.orgCache.Store(orgID, &cachedOrgLimits{
-				tier:      domain.PlanFree,
-				limits:    limits,
-				expiresAt: time.Now().Add(e.cacheTTL),
-			})
-			return limits, nil
+	// Coalesce concurrent cache misses via singleflight to prevent
+	// thundering herd on the DB when cache expires under load.
+	result, err, _ := e.limitsGroup.Do(orgID, func() (any, error) {
+		// Double-check cache inside singleflight (another goroutine may have populated it).
+		if entry, ok := e.orgCache.Load(orgID); ok {
+			cached := entry.(*cachedOrgLimits)
+			if time.Now().Before(cached.expiresAt) {
+				return cached.limits, nil
+			}
 		}
-		return OrgPlanLimits{}, fmt.Errorf("getting org subscription: %w", err)
+
+		sub, err := e.store.GetOrgSubscription(ctx, orgID)
+		if err != nil {
+			if errors.Is(err, ErrSubscriptionNotFound) {
+				limits := GetPlanLimits(domain.PlanFree)
+				e.orgCache.Store(orgID, &cachedOrgLimits{
+					tier:            domain.PlanFree,
+					limits:          limits,
+					enforcementMode: "enforce",
+					expiresAt:       time.Now().Add(e.cacheTTL),
+				})
+				return limits, nil
+			}
+			return OrgPlanLimits{}, fmt.Errorf("getting org subscription: %w", err)
+		}
+
+		return sub, nil
+	})
+	if err != nil {
+		return OrgPlanLimits{}, err
 	}
+
+	// If singleflight returned cached limits directly, return them.
+	if limits, ok := result.(OrgPlanLimits); ok {
+		return limits, nil
+	}
+
+	// Otherwise, result is the OrgSubscription — build limits from it.
+	sub := result.(*OrgSubscription)
 
 	tier := domain.PlanTier(sub.PlanTier)
 	limits := GetPlanLimits(tier)
+
+	// Apply per-org overrides from support.
+	if sub.OverrideDailyRunLimit != nil {
+		limits.MaxRunsPerDay = int64(*sub.OverrideDailyRunLimit)
+	}
+	if sub.OverrideConcurrentRunLimit != nil {
+		limits.MaxConcurrentRuns = *sub.OverrideConcurrentRunLimit
+	}
+
 	e.orgCache.Store(orgID, &cachedOrgLimits{
-		tier:      tier,
-		limits:    limits,
-		expiresAt: time.Now().Add(e.cacheTTL),
+		tier:            tier,
+		limits:          limits,
+		enforcementMode: sub.EnforcementMode,
+		expiresAt:       time.Now().Add(e.cacheTTL),
 	})
 	return limits, nil
 }
 
-// checkPaymentStatus checks the org's payment/grace status and returns an error
-// if the org should be blocked, or nil if the run should be allowed (including
-// during an active grace period). The second return value indicates whether the
-// caller should skip further limit checks (true when in active grace).
-func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) (error, bool) {
+// checkPaymentStatus checks the org's payment/grace status. Returns
+// (true, nil) if the caller should skip further limit checks (active grace),
+// (false, nil) if normal enforcement should continue, or (false, err) if blocked.
+func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) (bool, error) {
 	sub, err := e.store.GetOrgSubscription(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, ErrSubscriptionNotFound) {
-			return nil, false // free tier, no payment status
+			return false, nil // free tier, no payment status
 		}
 		e.logger.Warn("failed to get org subscription for payment check", "org_id", orgID, "error", err)
-		return nil, false // fail open
+		return false, nil // fail open
 	}
 
 	switch sub.PaymentStatus {
 	case "restricted":
-		return &LimitError{
+		return false, &LimitError{
 			Code:    "payment_restricted",
 			Message: "Your account is restricted due to failed payment. Please update your payment method.",
 			Plan:    sub.PlanTier,
-		}, false
+		}
 	case "grace":
 		if sub.GracePeriodEnd != nil && time.Now().Before(*sub.GracePeriodEnd) {
 			// Active grace period: allow the run, skip further limit checks.
-			return nil, true
+			return true, nil
 		}
 		// Grace period has expired.
-		return &LimitError{
+		return false, &LimitError{
 			Code:    "grace_period_expired",
 			Message: "Your payment grace period has expired. Please update your payment method.",
 			Plan:    sub.PlanTier,
-		}, false
+		}
 	default:
-		return nil, false
+		return false, nil
 	}
 }
 
@@ -182,7 +256,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 		return nil
 	}
 
-	if err, skipLimits := e.checkPaymentStatus(ctx, orgID); err != nil {
+	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
 		return err
 	} else if skipLimits {
 		return nil
@@ -191,7 +265,12 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for run check", "org_id", orgID, "error", err)
+		e.recordFailOpen(ctx, "daily_run", "db_error")
 		return nil // fail open
+	}
+
+	if e.checkEnforcementMode(orgID, "daily_run") {
+		return nil
 	}
 
 	if limits.MaxRunsPerDay == -1 {
@@ -202,6 +281,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	count, err := e.rdb.Incr(ctx, key).Result()
 	if err != nil {
 		e.logger.Warn("failed to increment org run counter", "org_id", orgID, "error", err)
+		e.recordFailOpen(ctx, "daily_run", "redis_error")
 		return nil // fail open
 	}
 
@@ -240,14 +320,97 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 	}
 }
 
+// CheckManagedRunLimit checks if a free-tier org has exceeded its monthly managed
+// execution cap. Paid plans use compute credits instead, so this only applies when
+// FreeManagedRunsPerMonth > 0. Uses Redis INCR with monthly TTL.
+func (e *Enforcer) CheckManagedRunLimit(ctx context.Context, orgID string) error {
+	if orgID == "" || e.rdb == nil {
+		return nil
+	}
+
+	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+		return err
+	} else if skipLimits {
+		return nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for managed run check", "org_id", orgID, "error", err)
+		return nil
+	}
+
+	if limits.FreeManagedRunsPerMonth <= 0 {
+		return nil // paid plan or unlimited
+	}
+
+	key := fmt.Sprintf("strait:org_managed_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01"))
+	count, err := e.rdb.Incr(ctx, key).Result()
+	if err != nil {
+		e.logger.Warn("failed to increment managed run counter", "org_id", orgID, "error", err)
+		e.recordFailOpen(ctx, "managed_run", "redis_error")
+		return nil // fail open
+	}
+
+	// Set TTL on first increment (35 days covers any month + buffer).
+	if count == 1 {
+		if err := e.rdb.Expire(ctx, key, 35*24*time.Hour).Err(); err != nil {
+			e.logger.Warn("failed to set TTL on managed run counter", "org_id", orgID, "error", err)
+		}
+	}
+
+	if count > int64(limits.FreeManagedRunsPerMonth) {
+		if err := e.rdb.Decr(ctx, key).Err(); err != nil {
+			e.logger.Warn("failed to rollback managed run counter", "org_id", orgID, "error", err)
+		}
+		e.recordRejection(ctx, "managed_run_limit", limits.PlanTier)
+		return &LimitError{
+			Code:         "managed_run_limit_exceeded",
+			Message:      fmt.Sprintf("Your free plan allows %d managed runs per month. Upgrade for unlimited managed execution.", limits.FreeManagedRunsPerMonth),
+			CurrentUsage: count - 1,
+			Limit:        int64(limits.FreeManagedRunsPerMonth),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
+}
+
+// DecrManagedRunCount decrements the monthly managed run counter (for rollback on failure).
+func (e *Enforcer) DecrManagedRunCount(ctx context.Context, orgID string) {
+	if orgID == "" || e.rdb == nil {
+		return
+	}
+	key := fmt.Sprintf("strait:org_managed_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01"))
+	if err := e.rdb.Decr(ctx, key).Err(); err != nil {
+		e.logger.Warn("failed to decrement managed run counter", "org_id", orgID, "error", err)
+	}
+}
+
+// concurrentCheckScript is a Lua script that atomically increments the counter
+// and checks the limit. Returns the new count if under limit, or -1 if at/over.
+// KEYS[1] = counter key, ARGV[1] = max limit, ARGV[2] = TTL seconds.
+var concurrentCheckScript = redis.NewScript(`
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[2])
+end
+if count > tonumber(ARGV[1]) then
+  redis.call('DECR', KEYS[1])
+  return -1
+end
+return count
+`)
+
 // CheckConcurrentRunLimit checks if the org has exceeded its concurrent run limit.
-// Uses Redis INCR for atomic counting. Call DecrConcurrentRunCount when the run finishes.
+// Uses a Lua script for atomic increment+check. Call DecrConcurrentRunCount when the run finishes.
 func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) error {
 	if orgID == "" || e.rdb == nil {
 		return nil
 	}
 
-	if err, skipLimits := e.checkPaymentStatus(ctx, orgID); err != nil {
+	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
 		return err
 	} else if skipLimits {
 		return nil
@@ -264,29 +427,23 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 	}
 
 	key := fmt.Sprintf("strait:org_concurrent:%s", orgID)
-	count, err := e.rdb.Incr(ctx, key).Result()
+	result, err := concurrentCheckScript.Run(ctx, e.rdb, []string{key},
+		limits.MaxConcurrentRuns,
+		int(concurrentCounterTTL.Seconds()),
+	).Int64()
 	if err != nil {
-		e.logger.Warn("failed to increment concurrent run counter", "org_id", orgID, "error", err)
+		e.logger.Warn("failed to run concurrent check script", "org_id", orgID, "error", err)
 		return nil // fail open
 	}
 
-	// Set TTL for self-healing (in case decrements are missed).
-	if count == 1 {
-		if err := e.rdb.Expire(ctx, key, concurrentCounterTTL).Err(); err != nil {
-			e.logger.Warn("failed to set TTL on concurrent run counter", "org_id", orgID, "error", err)
-		}
-	}
-
-	if count > int64(limits.MaxConcurrentRuns) {
-		// Over limit: roll back the increment.
-		if err := e.rdb.Decr(ctx, key).Err(); err != nil {
-			e.logger.Warn("failed to rollback concurrent run counter", "org_id", orgID, "error", err)
-		}
+	if result == -1 {
+		// Script returned -1 meaning at/over limit (DECR already called).
+		currentCount, _ := e.rdb.Get(ctx, key).Int64()
 		e.recordRejection(ctx, "concurrent_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "org_concurrent_run_limit_exceeded",
-			Message:      fmt.Sprintf("Your %s plan allows %d concurrent runs. Currently running: %d.", limits.DisplayName, limits.MaxConcurrentRuns, count-1),
-			CurrentUsage: count - 1,
+			Message:      fmt.Sprintf("Your %s plan allows %d concurrent runs. Currently running: %d.", limits.DisplayName, limits.MaxConcurrentRuns, currentCount),
+			CurrentUsage: currentCount,
 			Limit:        int64(limits.MaxConcurrentRuns),
 			Plan:         string(limits.PlanTier),
 			UpgradeURL:   "/upgrade",
@@ -452,6 +609,7 @@ func (e *Enforcer) GetActiveProjectOrgID(ctx context.Context, projectID string) 
 // ExecutingRunCounter provides ground-truth executing run counts from the database.
 type ExecutingRunCounter interface {
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
+	BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []string) (map[string]int, error)
 	ListOrgsWithExecutingRuns(ctx context.Context) ([]string, error)
 }
 
@@ -508,14 +666,20 @@ func (e *Enforcer) ReconcileAllConcurrentCounts(ctx context.Context, counter Exe
 		}
 	}
 
-	// Reconcile each org in the union.
+	// Bulk-fetch actual executing run counts for all orgs in one query.
+	orgIDs := make([]string, 0, len(orgs))
 	for orgID := range orgs {
-		actual, countErr := counter.CountExecutingRunsByOrg(ctx, orgID)
-		if countErr != nil {
-			e.logger.Warn("failed to count executing runs for reconciliation",
-				"org_id", orgID, "error", countErr)
-			continue
-		}
+		orgIDs = append(orgIDs, orgID)
+	}
+
+	counts, bulkErr := counter.BulkCountExecutingRunsByOrg(ctx, orgIDs)
+	if bulkErr != nil {
+		return fmt.Errorf("bulk counting executing runs for reconciliation: %w", bulkErr)
+	}
+
+	// Reconcile each org — orgs not in the counts map have 0 executing runs.
+	for _, orgID := range orgIDs {
+		actual := counts[orgID] // defaults to 0 if not in map
 		if err := e.ReconcileConcurrentRunCount(ctx, orgID, actual); err != nil {
 			e.logger.Warn("failed to reconcile concurrent count",
 				"org_id", orgID, "error", err)
@@ -556,6 +720,19 @@ func (e *Enforcer) recordRejection(ctx context.Context, reason string, planTier 
 		metric.WithAttributes(
 			attribute.String("reason", reason),
 			attribute.String("plan_tier", string(planTier)),
+		),
+	)
+}
+
+// recordFailOpen increments the fail-open Prometheus counter for ops visibility.
+func (e *Enforcer) recordFailOpen(ctx context.Context, checkType, errorType string) {
+	if e.metrics == nil || e.metrics.EnforcementFailOpen == nil {
+		return
+	}
+	e.metrics.EnforcementFailOpen.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String("check_type", checkType),
+			attribute.String("error_type", errorType),
 		),
 	)
 }

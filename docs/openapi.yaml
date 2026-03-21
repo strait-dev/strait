@@ -5702,6 +5702,56 @@ paths:
                 items:
                   $ref: '#/components/schemas/NotificationDelivery'
 
+  /v1/organizations/{orgID}/runs:
+    get:
+      tags:
+        - Organizations
+      summary: List runs across all projects in an organization
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orgID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of runs across the organization
+
+  /v1/organizations/{orgID}/jobs:
+    get:
+      tags:
+        - Organizations
+      summary: List jobs across all projects in an organization
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orgID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of jobs across the organization
+
 components:
   securitySchemes:
     ApiKeyAuth:

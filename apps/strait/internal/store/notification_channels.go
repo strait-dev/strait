@@ -158,6 +158,49 @@ func (q *Queries) ListEnabledNotificationChannels(ctx context.Context, projectID
 	return channels, nil
 }
 
+// ListEnabledNotificationChannelsByProjectIDs fetches all enabled channels for
+// multiple projects in a single query, returning them grouped by project_id.
+// This eliminates N+1 queries in notification dispatch loops.
+func (q *Queries) ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEnabledNotificationChannelsByProjectIDs")
+	defer span.End()
+
+	if len(projectIDs) == 0 {
+		return map[string][]domain.NotificationChannel{}, nil
+	}
+
+	query := `
+		SELECT id, project_id, channel_type, name, config, enabled, created_at, updated_at
+		FROM notification_channels
+		WHERE project_id = ANY($1) AND enabled = true
+		ORDER BY project_id, created_at DESC`
+
+	rows, err := q.db.Query(ctx, query, projectIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled channels by project IDs: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string][]domain.NotificationChannel, len(projectIDs))
+	for rows.Next() {
+		var ch domain.NotificationChannel
+		if err := rows.Scan(
+			&ch.ID, &ch.ProjectID, &ch.ChannelType, &ch.Name,
+			&ch.Config, &ch.Enabled, &ch.CreatedAt, &ch.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("list enabled channels by project IDs scan: %w", err)
+		}
+		ch.Config = q.decryptNotificationConfig(ch.ID, ch.Config)
+		result[ch.ProjectID] = append(result[ch.ProjectID], ch)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list enabled channels by project IDs rows: %w", err)
+	}
+
+	return result, nil
+}
+
 func (q *Queries) UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateNotificationChannel")
 	defer span.End()

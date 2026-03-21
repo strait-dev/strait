@@ -262,8 +262,8 @@ func TestExportCSV_VerifyAllColumns(t *testing.T) {
 
 func TestExportPDF_LargeDataSet(t *testing.T) {
 	// Test with many records to ensure multi-page PDF works
-	var records []UsageRecord
-	for i := 0; i < 100; i++ {
+	records := make([]UsageRecord, 0, 100)
+	for i := range 100 {
 		records = append(records, UsageRecord{
 			ProjectID:        fmt.Sprintf("proj-%d", i%5),
 			PeriodDate:       time.Date(2026, 1, 1+(i%28), 0, 0, 0, 0, time.UTC),

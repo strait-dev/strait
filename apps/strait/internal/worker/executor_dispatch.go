@@ -348,6 +348,14 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
 			}
+			if err := e.billingEnforcer.CheckManagedRunLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org managed run limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+				e.handleSystemFailure(ctx, run, err.Error())
+				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
+				return
+			}
 			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org concurrent run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)

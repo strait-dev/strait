@@ -276,6 +276,19 @@ func (m *mockExecutingRunCounter) CountExecutingRunsByOrg(_ context.Context, org
 	return m.orgCounts[orgID], nil
 }
 
+func (m *mockExecutingRunCounter) BulkCountExecutingRunsByOrg(_ context.Context, orgIDs []string) (map[string]int, error) {
+	result := make(map[string]int, len(orgIDs))
+	for _, orgID := range orgIDs {
+		if m.countErr != nil {
+			if err, ok := m.countErr[orgID]; ok {
+				return nil, err
+			}
+		}
+		result[orgID] = m.orgCounts[orgID]
+	}
+	return result, nil
+}
+
 func (m *mockExecutingRunCounter) ListOrgsWithExecutingRuns(_ context.Context) ([]string, error) {
 	if m.listErr != nil {
 		return nil, m.listErr
@@ -377,30 +390,21 @@ func TestReconcileAll_HandlesDBAndRedisUnion(t *testing.T) {
 	}
 }
 
-func TestReconcileAll_ContinuesOnSingleOrgError(t *testing.T) {
+func TestReconcileAll_BulkQueryError_ReturnsError(t *testing.T) {
 	t.Parallel()
-	enforcer, _, mr := setupEnforcer(t)
+	enforcer, _, _ := setupEnforcer(t)
 	ctx := context.Background()
 
 	counter := &mockExecutingRunCounter{
 		orgCounts: map[string]int{"org-Y": 2},
 		listOrgs:  []string{"org-X", "org-Y"},
-		countErr:  map[string]error{"org-X": errors.New("db error")},
+		// BulkCountExecutingRunsByOrg will fail for org-X, returning error for entire batch.
+		countErr: map[string]error{"org-X": errors.New("db error")},
 	}
 
-	if err := enforcer.ReconcileAllConcurrentCounts(ctx, counter); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// org-Y should still be reconciled.
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer rdb.Close()
-	val, err := rdb.Get(ctx, "strait:org_concurrent:org-Y").Int64()
-	if err != nil {
-		t.Fatalf("key for org-Y should exist: %v", err)
-	}
-	if val != 2 {
-		t.Errorf("org-Y counter = %d, want 2", val)
+	err := enforcer.ReconcileAllConcurrentCounts(ctx, counter)
+	if err == nil {
+		t.Fatal("expected error from bulk count, got nil")
 	}
 }
 

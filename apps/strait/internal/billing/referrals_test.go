@@ -203,7 +203,7 @@ func TestGenerateCode_AtYearlyCap_ReturnsError(t *testing.T) {
 	svc := NewReferralService(store)
 
 	// Create and activate MaxActivatedPerYear referrals.
-	for i := 0; i < MaxActivatedPerYear; i++ {
+	for i := range MaxActivatedPerYear {
 		ref, err := svc.GenerateCode(context.Background(), "org-1")
 		if err != nil {
 			t.Fatalf("unexpected error generating code %d: %v", i, err)
@@ -229,7 +229,7 @@ func TestGenerateCode_BelowCap_Succeeds(t *testing.T) {
 	svc := NewReferralService(store)
 
 	// Create and activate 9 referrals.
-	for i := 0; i < MaxActivatedPerYear-1; i++ {
+	for i := range MaxActivatedPerYear - 1 {
 		ref, err := svc.GenerateCode(context.Background(), "org-1")
 		if err != nil {
 			t.Fatalf("unexpected error generating code %d: %v", i, err)

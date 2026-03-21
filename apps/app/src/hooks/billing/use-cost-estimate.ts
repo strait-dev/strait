@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
@@ -30,7 +31,14 @@ type CostEstimateInput = {
 };
 
 const getCostEstimateServerFn = createServerFn({ method: "GET" })
-  .inputValidator((data: CostEstimateInput) => data)
+  .inputValidator((data: CostEstimateInput) =>
+    z
+      .object({
+        preset: z.string().min(1),
+        timeoutSecs: z.number().int().positive(),
+      })
+      .parse(data)
+  )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
     const orgId = getOrgIdFromSession(

@@ -654,6 +654,41 @@ func (q *Queries) CountExecutingRunsByOrg(ctx context.Context, orgID string) (in
 	return count, nil
 }
 
+// BulkCountExecutingRunsByOrg counts executing runs for multiple orgs in a single
+// query, returning a map of orgID -> count.
+func (q *Queries) BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []string) (map[string]int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkCountExecutingRunsByOrg")
+	defer span.End()
+
+	if len(orgIDs) == 0 {
+		return map[string]int{}, nil
+	}
+
+	rows, err := q.db.Query(ctx, `
+		SELECT p.org_id, COUNT(jr.id)::int
+		FROM job_runs jr
+		JOIN projects p ON p.id = jr.project_id
+		WHERE p.org_id = ANY($1)
+		  AND jr.status = 'executing'
+		GROUP BY p.org_id
+	`, orgIDs)
+	if err != nil {
+		return nil, fmt.Errorf("bulk count executing runs by org: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int, len(orgIDs))
+	for rows.Next() {
+		var orgID string
+		var count int
+		if err := rows.Scan(&orgID, &count); err != nil {
+			return nil, fmt.Errorf("scanning bulk executing run count: %w", err)
+		}
+		result[orgID] = count
+	}
+	return result, rows.Err()
+}
+
 // ListOrgsWithExecutingRuns returns distinct org IDs that have at least one executing run.
 func (q *Queries) ListOrgsWithExecutingRuns(ctx context.Context) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListOrgsWithExecutingRuns")

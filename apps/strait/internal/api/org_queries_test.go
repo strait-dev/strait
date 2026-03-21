@@ -145,7 +145,7 @@ func TestListOrgRuns_Pagination_Works(t *testing.T) {
 			// First call: return limit+1 items to indicate has_more.
 			if cursor == nil {
 				runs := make([]domain.JobRun, 0, limit)
-				for i := 0; i < limit; i++ {
+				for i := range limit {
 					runs = append(runs, domain.JobRun{
 						ID:        "run-" + string(rune('A'+i)),
 						ProjectID: "proj-1",

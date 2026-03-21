@@ -15,6 +15,7 @@ import (
 type AnomalyMonitorStore interface {
 	billing.Store
 	ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error)
 	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 }
 
@@ -26,12 +27,16 @@ type AnomalyCooldown interface {
 	SetCooldown(ctx context.Context, orgID string) error
 }
 
+// Advisory lock ID for the anomaly monitor (arbitrary unique constant).
+const anomalyMonitorLockID int64 = 900_100_003
+
 // AnomalyMonitor periodically runs anomaly detection and fires notifications.
 type AnomalyMonitor struct {
-	store    AnomalyMonitorStore
-	cooldown AnomalyCooldown
-	interval time.Duration
-	logger   *slog.Logger
+	store          AnomalyMonitorStore
+	cooldown       AnomalyCooldown
+	advisoryLocker AdvisoryLocker
+	interval       time.Duration
+	logger         *slog.Logger
 }
 
 // NewAnomalyMonitor creates a new anomaly monitor.
@@ -52,6 +57,12 @@ func (am *AnomalyMonitor) WithCooldown(c AnomalyCooldown) *AnomalyMonitor {
 	return am
 }
 
+// WithAdvisoryLocker enables distributed single-leader anomaly detection.
+func (am *AnomalyMonitor) WithAdvisoryLocker(locker AdvisoryLocker) *AnomalyMonitor {
+	am.advisoryLocker = locker
+	return am
+}
+
 // Run starts the anomaly monitoring loop. Blocks until ctx is canceled.
 func (am *AnomalyMonitor) Run(ctx context.Context) {
 	ticker := time.NewTicker(am.interval)
@@ -62,12 +73,28 @@ func (am *AnomalyMonitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			am.check(ctx)
+			am.check(context.WithoutCancel(ctx))
 		}
 	}
 }
 
 func (am *AnomalyMonitor) check(ctx context.Context) {
+	if am.advisoryLocker != nil {
+		acquired, err := am.advisoryLocker.TryAdvisoryLock(ctx, anomalyMonitorLockID)
+		if err != nil {
+			am.logger.Warn("anomaly monitor: failed to acquire advisory lock", "error", err)
+			return
+		}
+		if !acquired {
+			return
+		}
+		defer func() {
+			if relErr := am.advisoryLocker.ReleaseAdvisoryLock(ctx, anomalyMonitorLockID); relErr != nil {
+				am.logger.Warn("anomaly monitor: failed to release advisory lock", "error", relErr)
+			}
+		}()
+	}
+
 	orgIDs, err := am.store.ListAllSubscribedOrgIDs(ctx)
 	if err != nil {
 		am.logger.Warn("anomaly monitor: failed to list subscribed orgs", "error", err)
@@ -160,15 +187,24 @@ func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID str
 	// Send email for high (5x+) and critical (10x+) spikes in addition to all channels.
 	isHighOrCritical := alert.Severity == billing.AnomalySeverityHigh || alert.Severity == billing.AnomalySeverityCritical
 
-	for _, projectID := range projectIDs {
-		channels, chErr := am.store.ListEnabledNotificationChannels(ctx, projectID)
-		if chErr != nil {
-			am.logger.Warn("anomaly monitor: failed to list notification channels",
-				"project_id", projectID, "error", chErr)
-			continue
-		}
+	// Bulk-fetch all channels for all projects in one query (eliminates N+1).
+	channelsByProject, chErr := am.store.ListEnabledNotificationChannelsByProjectIDs(ctx, projectIDs)
+	if chErr != nil {
+		am.logger.Warn("anomaly monitor: failed to bulk-list notification channels",
+			"org_id", orgID, "error", chErr)
+		return
+	}
 
-		for _, ch := range channels {
+	// Deduplicate channels across projects to prevent sending the same
+	// notification to a channel that's enabled on multiple projects.
+	seen := make(map[string]bool)
+	for _, projectID := range projectIDs {
+		for _, ch := range channelsByProject[projectID] {
+			if seen[ch.ID] {
+				continue
+			}
+			seen[ch.ID] = true
+
 			// Email channels only fire for high/critical spikes (5x+).
 			if ch.ChannelType == domain.ChannelTypeEmail && !isHighOrCritical {
 				continue
@@ -218,7 +254,7 @@ func (r *RedisCooldown) InCooldown(ctx context.Context, orgID string) (bool, err
 	val, err := r.client.Get(ctx, cooldownKey(orgID))
 	if err != nil {
 		// Treat "key not found" as not in cooldown.
-		return false, nil
+		return false, nil //nolint:nilerr // intentional: Redis key-not-found means no cooldown
 	}
 	return val != "", nil
 }

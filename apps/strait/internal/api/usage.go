@@ -108,6 +108,13 @@ func (s *Server) handleGetCurrentUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Strip internal payment fields for non-internal callers (API keys, OIDC).
+	// Only internal-secret callers (frontend app) should see payment status.
+	if scopesFromContext(r.Context()) != nil {
+		usage.PaymentStatus = ""
+		usage.GracePeriodEnd = nil
+	}
+
 	respondJSON(w, http.StatusOK, usage)
 }
 

@@ -60,6 +60,20 @@ func (m *mockAnomalyMonitorStore) ListEnabledNotificationChannels(ctx context.Co
 	return nil, nil
 }
 
+func (m *mockAnomalyMonitorStore) ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+	result := make(map[string][]domain.NotificationChannel)
+	for _, pid := range projectIDs {
+		channels, err := m.ListEnabledNotificationChannels(ctx, pid)
+		if err != nil {
+			return nil, err
+		}
+		if len(channels) > 0 {
+			result[pid] = channels
+		}
+	}
+	return result, nil
+}
+
 func (m *mockAnomalyMonitorStore) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
 	if m.createNotificationDeliveryFn != nil {
 		return m.createNotificationDeliveryFn(ctx, d)
@@ -84,6 +98,9 @@ func (m *mockAnomalyMonitorStore) UpdateSpendingLimit(context.Context, string, i
 func (m *mockAnomalyMonitorStore) SetPendingPlanTier(context.Context, string, string) error {
 	return nil
 }
+func (m *mockAnomalyMonitorStore) SetPendingDowngrade(context.Context, string, string, *time.Time, *time.Time) error {
+	return nil
+}
 func (m *mockAnomalyMonitorStore) ClearPendingPlanTier(context.Context, string) error  { return nil }
 func (m *mockAnomalyMonitorStore) ApplyPendingDowngrade(context.Context, string) error { return nil }
 func (m *mockAnomalyMonitorStore) ListOrgsWithPendingDowngrade(context.Context) ([]billing.OrgSubscription, error) {
@@ -106,6 +123,9 @@ func (m *mockAnomalyMonitorStore) CountOrgsByUser(context.Context, string) (int,
 }
 func (m *mockAnomalyMonitorStore) CountExecutingRunsByOrg(context.Context, string) (int, error) {
 	return 0, nil
+}
+func (m *mockAnomalyMonitorStore) BulkCountExecutingRunsByOrg(_ context.Context, orgIDs []string) (map[string]int, error) {
+	return make(map[string]int, len(orgIDs)), nil
 }
 func (m *mockAnomalyMonitorStore) CountAIModelCallsByOrg(_ context.Context, _ string, _, _ time.Time) (int64, error) {
 	return 0, nil
