@@ -95,6 +95,12 @@ describe("requireProjectAccess", () => {
     );
   });
 
+  it("throws when activeOrganizationId is undefined", async () => {
+    await expect(
+      requireProjectAccess("user-1", "proj-1", undefined)
+    ).rejects.toThrow("Forbidden");
+  });
+
   it("handles database errors gracefully", async () => {
     mockQuery.mockRejectedValue(new Error("connection refused"));
     await expect(

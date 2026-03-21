@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import {
   apiEffect,
@@ -26,7 +27,9 @@ type GetBudgetInput = {
 };
 
 const getProjectBudgetServerFn = createServerFn({ method: "GET" })
-  .inputValidator((data: GetBudgetInput) => data)
+  .inputValidator((data: GetBudgetInput) =>
+    z.object({ projectId: z.string().min(1) }).parse(data)
+  )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const activeOrgId = (context as Record<string, unknown>)
@@ -55,7 +58,13 @@ type SetBudgetInput = {
 };
 
 const setProjectBudgetServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: SetBudgetInput) => data)
+  .inputValidator((data: SetBudgetInput) =>
+    z.object({
+      projectId: z.string().min(1),
+      budgetMicrousd: z.number(),
+      action: z.string(),
+    }).parse(data)
+  )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const activeOrgId = (context as Record<string, unknown>)

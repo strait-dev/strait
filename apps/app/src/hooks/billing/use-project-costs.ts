@@ -13,6 +13,8 @@ export type ProjectCostEntry = {
   compute_microusd: number;
   ai_microusd: number;
   total_microusd: number;
+  monthly_budget_microusd?: number;
+  budget_action?: string;
 };
 
 const getProjectCostsServerFn = createServerFn({ method: "GET" })

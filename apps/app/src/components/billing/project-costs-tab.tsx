@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "@strait/ui/components/table";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -53,6 +53,11 @@ const ProjectCostsTab = () => {
       total: acc.total + c.total_microusd,
     }),
     { runs: 0, compute: 0, ai: 0, total: 0 }
+  );
+
+  const sortedCosts = useMemo(
+    () => [...(costs ?? [])].sort((a, b) => b.total_microusd - a.total_microusd),
+    [costs]
   );
 
   if (isEmpty) {
@@ -96,9 +101,7 @@ const ProjectCostsTab = () => {
               width="100%"
             >
               <BarChart
-                data={[...costs].sort(
-                  (a, b) => b.total_microusd - a.total_microusd
-                )}
+                data={sortedCosts}
                 layout="vertical"
               >
                 <CartesianGrid
@@ -164,10 +167,8 @@ const ProjectCostsTab = () => {
             </TableHeader>
             <TableBody>
               {costs.map((entry) => {
-                const budget = (entry as ProjectCostWithBudget)
-                  .monthly_budget_microusd;
-                const budgetAction = (entry as ProjectCostWithBudget)
-                  .budget_action;
+                const budget = entry.monthly_budget_microusd;
+                const budgetAction = entry.budget_action;
                 const hasBudget = budget !== undefined && budget > 0;
                 const budgetPct = hasBudget
                   ? Math.min((entry.total_microusd / budget) * 100, 100)
@@ -251,17 +252,6 @@ const ProjectCostsTab = () => {
       )}
     </div>
   );
-};
-
-type ProjectCostWithBudget = {
-  project_id: string;
-  name: string;
-  runs: number;
-  compute_microusd: number;
-  ai_microusd: number;
-  total_microusd: number;
-  monthly_budget_microusd?: number;
-  budget_action?: string;
 };
 
 export default ProjectCostsTab;

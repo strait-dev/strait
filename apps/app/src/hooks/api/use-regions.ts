@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import z from "zod/v4";
 import type {
   PaginatedResponse,
   ProjectSettings,
@@ -27,7 +28,9 @@ export const fetchRegions = createServerFn({ method: "GET" })
   });
 
 export const fetchProjectSettings = createServerFn({ method: "GET" })
-  .inputValidator((data: { projectId: string }) => data)
+  .inputValidator((data: { projectId: string }) =>
+    z.object({ projectId: z.string().min(1) }).parse(data)
+  )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const activeOrgId = (context as Record<string, unknown>)
@@ -40,7 +43,9 @@ export const fetchProjectSettings = createServerFn({ method: "GET" })
   });
 
 export const updateProjectSettingsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { projectId: string; default_region: string }) => data)
+  .inputValidator((data: { projectId: string; default_region: string }) =>
+    z.object({ projectId: z.string().min(1), default_region: z.string().min(1) }).parse(data)
+  )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const activeOrgId = (context as Record<string, unknown>)
