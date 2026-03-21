@@ -40,11 +40,10 @@ import {
   PlayActionIcon,
   SearchIcon,
 } from "@/lib/icons";
+import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
-const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
-
-const searchSchema = z.object({
+export const searchSchema = z.object({
   query: z.string().optional(),
   status: z.array(z.string()).optional(),
   page: z.number().optional().default(1),
@@ -192,7 +191,7 @@ function JobsPage() {
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            {STATUS_OPTIONS.map((status) => (
+            {ENABLED_STATUS_OPTIONS.map((status) => (
               <DropdownMenuCheckboxItem
                 checked={selectedStatuses.includes(status)}
                 key={status}

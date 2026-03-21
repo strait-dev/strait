@@ -13,43 +13,10 @@ import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import type { EventTrigger } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
+import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
-const STATUS_STYLES: Record<
-  string,
-  { dot: string; label: string; badge: string }
-> = {
-  pending: {
-    dot: "bg-chart-3",
-    label: "Pending",
-    badge: "bg-chart-3/10 text-chart-3 border-chart-3/20",
-  },
-  received: {
-    dot: "bg-chart-2",
-    label: "Received",
-    badge: "bg-chart-2/10 text-chart-2 border-chart-2/20",
-  },
-  expired: {
-    dot: "bg-chart-5",
-    label: "Expired",
-    badge: "bg-chart-5/10 text-chart-5 border-chart-5/20",
-  },
-  failed: {
-    dot: "bg-destructive",
-    label: "Failed",
-    badge: "bg-destructive/10 text-destructive border-destructive/20",
-  },
-  canceled: {
-    dot: "bg-muted-foreground",
-    label: "Canceled",
-    badge:
-      "bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20",
-  },
-};
-
-const EVENT_STATUSES = Object.keys(STATUS_STYLES);
-
-const searchSchema = z.object({
+export const searchSchema = z.object({
   status: z.string().optional(),
   page: z.number().optional().default(1),
 });
@@ -104,7 +71,7 @@ function EventsPage() {
           All
         </Button>
         {EVENT_STATUSES.map((status) => {
-          const style = STATUS_STYLES[status];
+          const style = EVENT_STATUS_STYLES[status];
           const active = search.status === status;
           return (
             <Button
@@ -153,7 +120,7 @@ function EventsPage() {
 }
 
 function EventRow({ event }: { event: EventTrigger }) {
-  const style = STATUS_STYLES[event.status] ?? STATUS_STYLES.pending;
+  const style = EVENT_STATUS_STYLES[event.status] ?? EVENT_STATUS_STYLES.pending;
 
   return (
     <div className="relative flex items-start gap-3 py-2.5 pl-0">

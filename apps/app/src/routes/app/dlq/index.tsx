@@ -43,16 +43,10 @@ import {
   SearchIcon,
   TrashIcon,
 } from "@/lib/icons";
+import { DLQ_ERROR_TYPES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
-const ERROR_TYPE_OPTIONS = [
-  "timeout",
-  "connection",
-  "validation",
-  "internal",
-] as const;
-
-const searchSchema = z.object({
+export const searchSchema = z.object({
   query: z.string().optional(),
   errorType: z.array(z.string()).optional(),
   page: z.number().optional().default(1),
@@ -204,7 +198,7 @@ function DlqPage() {
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            {ERROR_TYPE_OPTIONS.map((errorType) => (
+            {DLQ_ERROR_TYPES.map((errorType) => (
               <DropdownMenuCheckboxItem
                 checked={selectedErrorTypes.includes(errorType)}
                 key={errorType}

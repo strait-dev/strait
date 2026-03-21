@@ -40,35 +40,8 @@ import {
   LinkSquareIcon,
   SearchIcon,
 } from "@/lib/icons";
+import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
-
-// --- Status styling ---
-
-const STATUS_STYLES: Record<string, { dot: string; badge: string }> = {
-  pending: {
-    dot: "bg-chart-3",
-    badge: "bg-chart-3/10 text-chart-3 border-chart-3/20",
-  },
-  received: {
-    dot: "bg-info",
-    badge: "bg-info/10 text-info border-info/20",
-  },
-  expired: {
-    dot: "bg-warning",
-    badge: "bg-warning/10 text-warning border-warning/20",
-  },
-  failed: {
-    dot: "bg-destructive",
-    badge: "bg-destructive/10 text-destructive border-destructive/20",
-  },
-  canceled: {
-    dot: "bg-muted-foreground",
-    badge:
-      "bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20",
-  },
-};
-
-const STATUS_OPTIONS = ["pending", "received", "expired", "failed", "canceled"];
 
 // --- Columns ---
 
@@ -77,7 +50,7 @@ const logColumns: ColumnDef<EventTrigger>[] = [
     accessorKey: "status",
     header: "Status",
     cell: ({ row }) => {
-      const style = STATUS_STYLES[row.original.status] ?? STATUS_STYLES.pending;
+      const style = EVENT_STATUS_STYLES[row.original.status] ?? EVENT_STATUS_STYLES.pending;
       return (
         <div className="flex items-center gap-2">
           <span className={cn("size-2 shrink-0 rounded-full", style.dot)} />
@@ -155,7 +128,7 @@ const logColumns: ColumnDef<EventTrigger>[] = [
 
 // --- Route ---
 
-const searchSchema = z.object({
+export const searchSchema = z.object({
   query: z.string().optional(),
   statuses: z.array(z.string()).optional(),
   page: z.number().optional().default(1),
@@ -282,8 +255,8 @@ function LogsPage() {
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-36">
-            {STATUS_OPTIONS.map((status) => {
-              const style = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
+            {EVENT_STATUSES.map((status) => {
+              const style = EVENT_STATUS_STYLES[status] ?? EVENT_STATUS_STYLES.pending;
               return (
                 <DropdownMenuCheckboxItem
                   checked={selectedStatuses.includes(status)}
@@ -347,7 +320,7 @@ function ExpandedEventDetail({
     return null;
   }
 
-  const style = STATUS_STYLES[event.status] ?? STATUS_STYLES.pending;
+  const style = EVENT_STATUS_STYLES[event.status] ?? EVENT_STATUS_STYLES.pending;
 
   return (
     <div className="rounded-lg border bg-card p-4">
