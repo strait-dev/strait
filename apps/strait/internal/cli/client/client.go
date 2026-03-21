@@ -9,17 +9,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
 )
 
 type Client struct {
-	baseURL string
-	apiKey  string
-	http    *http.Client
+	baseURL    string
+	apiKey     string
+	http       *http.Client
+	streamHTTP *http.Client
 }
 
 func New(baseURL, apiKey string, timeout time.Duration) (*Client, error) {
@@ -40,9 +43,10 @@ func New(baseURL, apiKey string, timeout time.Duration) (*Client, error) {
 	}
 
 	return &Client{
-		baseURL: parsed.String(),
-		apiKey:  strings.TrimSpace(apiKey),
-		http:    &http.Client{Timeout: timeout},
+		baseURL:    parsed.String(),
+		apiKey:     strings.TrimSpace(apiKey),
+		http:       &http.Client{Timeout: timeout},
+		streamHTTP: &http.Client{Timeout: 0},
 	}, nil
 }
 
@@ -65,6 +69,47 @@ func (c *Client) doListJSON(ctx context.Context, endpoint string, query url.Valu
 		return err
 	}
 	return json.Unmarshal(envelope.Data, out)
+}
+
+// doListAllJSON auto-paginates a list endpoint by following next_cursor,
+// accumulating all pages and unmarshaling the combined data into out.
+func (c *Client) doListAllJSON(ctx context.Context, endpoint string, query url.Values, out any) error {
+	const maxPages = 100
+
+	q := url.Values{}
+	maps.Copy(q, query)
+	q.Set("limit", "100")
+
+	var allData []json.RawMessage
+	var pages int
+	for range maxPages {
+		var envelope paginatedResponse
+		if err := c.doJSON(ctx, http.MethodGet, endpoint, q, nil, &envelope); err != nil {
+			return err
+		}
+
+		var items []json.RawMessage
+		if err := json.Unmarshal(envelope.Data, &items); err != nil {
+			return fmt.Errorf("decode paginated data: %w", err)
+		}
+		allData = append(allData, items...)
+		pages++
+
+		if !envelope.HasMore || envelope.NextCursor == nil {
+			break
+		}
+		q.Set("cursor", *envelope.NextCursor)
+	}
+
+	if pages >= maxPages {
+		fmt.Fprintf(os.Stderr, "warning: results truncated at %d items (pagination limit reached)\n", len(allData))
+	}
+
+	merged, err := json.Marshal(allData)
+	if err != nil {
+		return fmt.Errorf("merge paginated data: %w", err)
+	}
+	return json.Unmarshal(merged, out)
 }
 
 func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string, query url.Values, body any, headers map[string]string, out any) error {

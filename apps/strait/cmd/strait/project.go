@@ -34,7 +34,8 @@ func newProjectExportCommand(state *appState) *cobra.Command {
 		Short: "Export a project as a GitOps YAML bundle",
 		Long:  "Exports all jobs, workflows, environments, and webhook subscriptions from a project into a single YAML bundle file.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}
@@ -123,7 +124,8 @@ func newProjectImportCommand(state *appState) *cobra.Command {
 		Short: "Import a GitOps YAML bundle into a project",
 		Long:  "Reads a YAML bundle file and creates or updates resources in the target project. Use --dry-run to preview changes without applying them.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}

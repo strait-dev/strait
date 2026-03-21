@@ -27,7 +27,8 @@ status. Use --dry-run to preview what would be removed.`,
   strait cleanup --runs-older-than 720h --yes
   strait cleanup --runs-older-than 168h --status failed --yes`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID, err := requireProjectID(state, projectID)
+			var err error
+			projectID, err = requireProjectID(state, projectID)
 			if err != nil {
 				return err
 			}

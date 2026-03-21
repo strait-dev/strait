@@ -101,6 +101,7 @@ func TestValidateAPIKey_HTTPResponses(t *testing.T) {
 		wantErr    bool
 	}{
 		{name: "valid api key", statusCode: http.StatusOK, wantErr: false},
+		{name: "forbidden means valid key", statusCode: http.StatusForbidden, wantErr: false},
 		{name: "unauthorized", statusCode: http.StatusUnauthorized, wantErr: true},
 		{name: "server error", statusCode: http.StatusInternalServerError, wantErr: true},
 	}
@@ -129,6 +130,38 @@ func TestValidateAPIKey_HTTPResponses(t *testing.T) {
 			}
 			if !tt.wantErr && err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateAPIKey_ErrorMessages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		statusCode int
+		wantMsg    string
+	}{
+		{name: "401 returns invalid or revoked", statusCode: http.StatusUnauthorized, wantMsg: "api key is invalid or revoked"},
+		{name: "500 returns validation failed with status", statusCode: http.StatusInternalServerError, wantMsg: "api key validation failed with status 500"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.statusCode)
+			}))
+			defer srv.Close()
+
+			err := ValidateAPIKey(t.Context(), srv.URL, "test-key", time.Second)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantMsg) {
+				t.Fatalf("expected error containing %q, got %q", tt.wantMsg, err.Error())
 			}
 		})
 	}
