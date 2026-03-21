@@ -106,6 +106,29 @@ const ReferralProgram = () => {
                 <p className="text-muted-foreground text-xs">
                   Share your link: https://strait.dev/r/{referralData.code}
                 </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => {
+                      const shareText = `I'm using Strait for job orchestration. Use my referral code ${referralData.code} to get $10 in compute credits!`;
+                      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(`https://strait.dev/r/${referralData.code}`)}`;
+                      window.open(twitterUrl, "_blank", "noopener,noreferrer");
+                    }}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Share on Twitter
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(`https://strait.dev/r/${referralData.code}`)}`;
+                      window.open(linkedinUrl, "_blank", "noopener,noreferrer");
+                    }}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Share on LinkedIn
+                  </Button>
+                </div>
               </div>
             ) : (
               <Button

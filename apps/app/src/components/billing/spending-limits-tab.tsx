@@ -1,16 +1,39 @@
 import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { Input } from "@strait/ui/components/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@strait/ui/components/select";
+import { toast } from "@strait/ui/components/toast/index";
 import { useQuery } from "@tanstack/react-query";
-import { spendingLimitQueryOptions } from "@/hooks/billing/use-spending-limit";
+import { useState } from "react";
+import {
+  spendingLimitQueryOptions,
+  useUpdateSpendingLimit,
+} from "@/hooks/billing/use-spending-limit";
 import { capitalize } from "@/lib/format";
+
+const MICRO_USD = 1_000_000;
+
+const PRESET_AMOUNTS = [0, 25, 50, 100, 250, 500];
 
 const SpendingLimitsTab = () => {
   const { data: spending } = useQuery(spendingLimitQueryOptions());
+  const updateLimit = useUpdateSpendingLimit();
+
+  const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
+  const [customAmount, setCustomAmount] = useState("");
+  const [action, setAction] = useState("reject");
 
   if (!spending) {
     return (
@@ -29,6 +52,48 @@ const SpendingLimitsTab = () => {
     spending.spending_limit_usd > 0
       ? (spending.current_spend_usd / spending.spending_limit_usd) * 100
       : 0;
+
+  const getResolvedAmount = (): number | null => {
+    if (selectedAmount !== null) {
+      return selectedAmount;
+    }
+    if (customAmount) {
+      return Number(customAmount);
+    }
+    return null;
+  };
+
+  const resolvedAmount = getResolvedAmount();
+
+  const handlePresetClick = (amount: number) => {
+    setSelectedAmount(amount);
+    setCustomAmount("");
+  };
+
+  const handleCustomChange = (value: string) => {
+    setCustomAmount(value);
+    setSelectedAmount(null);
+  };
+
+  const handleSave = () => {
+    if (resolvedAmount === null || Number.isNaN(resolvedAmount)) {
+      return;
+    }
+
+    updateLimit.mutate(
+      { limitMicrousd: resolvedAmount * MICRO_USD, action },
+      {
+        onSuccess: () => {
+          toast.success("Spending limit updated");
+          setSelectedAmount(null);
+          setCustomAmount("");
+        },
+        onError: () => {
+          toast.error("Failed to update spending limit");
+        },
+      }
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -84,6 +149,80 @@ const SpendingLimitsTab = () => {
               </p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-medium text-sm">
+            Set Spending Limit
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Preset buttons */}
+          <div>
+            <p className="mb-2 text-muted-foreground text-xs">
+              Choose a preset
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {PRESET_AMOUNTS.map((amount) => (
+                <Button
+                  key={amount}
+                  onClick={() => handlePresetClick(amount)}
+                  size="sm"
+                  variant={selectedAmount === amount ? "default" : "outline"}
+                >
+                  ${amount}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom input */}
+          <div>
+            <p className="mb-2 text-muted-foreground text-xs">
+              Or enter a custom amount
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground text-sm">$</span>
+              <Input
+                className="max-w-[160px]"
+                min={0}
+                onChange={(e) => handleCustomChange(e.target.value)}
+                placeholder="Custom amount"
+                type="number"
+                value={customAmount}
+              />
+            </div>
+          </div>
+
+          {/* Action toggle */}
+          <div>
+            <p className="mb-2 text-muted-foreground text-xs">
+              When limit is reached
+            </p>
+            <Select onValueChange={(v) => { if (v) { setAction(v); } }} value={action}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="reject">Reject new runs</SelectItem>
+                <SelectItem value="notify">Notify only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Save button */}
+          <Button
+            disabled={
+              resolvedAmount === null ||
+              Number.isNaN(resolvedAmount) ||
+              updateLimit.isPending
+            }
+            onClick={handleSave}
+          >
+            {updateLimit.isPending ? "Saving..." : "Save Spending Limit"}
+          </Button>
         </CardContent>
       </Card>
     </div>

@@ -1,7 +1,16 @@
-import { queryOptions } from "@tanstack/react-query";
+import {
+  queryOptions,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
-import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
+import {
+  apiEffect,
+  runWithFallback,
+  runWithSentryReport,
+} from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
 
@@ -43,3 +52,52 @@ export const spendingLimitQueryOptions = () =>
     queryFn: () => getSpendingLimitServerFn(),
     refetchInterval: 60_000,
   });
+
+type UpdateSpendingLimitInput = {
+  limitMicrousd: number;
+  action: string;
+};
+
+const updateSpendingLimitServerFn = createServerFn({ method: "POST" })
+  .inputValidator((data: UpdateSpendingLimitInput) =>
+    z
+      .object({
+        limitMicrousd: z.number().min(0),
+        action: z.string().min(1),
+      })
+      .parse(data)
+  )
+  .middleware([authMiddleware])
+  .handler(async ({ data, context }) => {
+    const orgId = getOrgIdFromSession(
+      context.session as Record<string, unknown>
+    );
+
+    if (!orgId) {
+      throw new Error("No active organization");
+    }
+
+    return await runWithSentryReport(
+      apiEffect<{ status: string }>("/v1/spending-limit", {
+        method: "PUT",
+        body: {
+          org_id: orgId,
+          limit_microusd: data.limitMicrousd,
+          action: data.action,
+        },
+      })
+    );
+  });
+
+export const useUpdateSpendingLimit = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { limitMicrousd: number; action: string }) =>
+      updateSpendingLimitServerFn({ data: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.billing.spendingLimit.queryKey,
+      });
+    },
+  });
+};

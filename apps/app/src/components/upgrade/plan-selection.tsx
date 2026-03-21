@@ -15,6 +15,7 @@ import { useCallback } from "react";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { CheckIcon, StarIcon } from "@/lib/icons";
 import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
+import PricingCalculator from "@/components/upgrade/pricing-calculator";
 
 const MONTHS_IN_A_YEAR = 12;
 const CENTS_TO_DOLLARS = 100;
@@ -544,6 +545,9 @@ export const PlanSelection = ({
           />
         ))}
       </div>
+
+      {/* Pricing Calculator */}
+      <PricingCalculator />
 
       {/* No surprise bills callout */}
       <div className="mx-auto max-w-xl rounded-custom border border-border bg-muted/30 p-4 text-center">

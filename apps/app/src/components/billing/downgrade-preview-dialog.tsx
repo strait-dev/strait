@@ -1,5 +1,6 @@
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
+import { Checkbox } from "@strait/ui/components/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -18,6 +19,7 @@ import {
   TableRow,
 } from "@strait/ui/components/table";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   type DowngradePreview,
   downgradePreviewQueryOptions,
@@ -46,10 +48,14 @@ const DowngradePreviewContent = ({
   isLoading: isPreviewLoading,
   preview,
   hasIssues,
+  checkedActions,
+  onToggleAction,
 }: {
   isLoading: boolean;
   preview: DowngradePreview | null | undefined;
   hasIssues: boolean | undefined;
+  checkedActions: Record<string, boolean>;
+  onToggleAction: (resource: string, checked: boolean) => void;
 }) => {
   if (isPreviewLoading) {
     return (
@@ -69,8 +75,30 @@ const DowngradePreviewContent = ({
     );
   }
 
+  const manualActions = (preview.manual_actions ?? []).filter(
+    (i) => i.action !== "ok"
+  );
+
   return (
     <div className="space-y-4 py-2">
+      {preview.effective_date ? (
+        <div className="rounded-md border bg-muted/50 p-3">
+          <p className="text-muted-foreground text-sm">
+            Effective date:{" "}
+            <span className="font-medium text-foreground">
+              {new Date(preview.effective_date).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </span>
+          </p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Your current plan will remain active until this date.
+          </p>
+        </div>
+      ) : null}
+
       {hasIssues ? (
         <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3">
           <p className="text-sm text-yellow-800">
@@ -107,6 +135,41 @@ const DowngradePreviewContent = ({
           ))}
         </TableBody>
       </Table>
+
+      {manualActions.length > 0 ? (
+        <div className="space-y-3">
+          <p className="font-medium text-sm">
+            Required actions before downgrade
+          </p>
+          {manualActions.map((action) => {
+            const checkboxId = `downgrade-action-${action.resource}`;
+            return (
+              <div
+                className="flex items-start gap-3 rounded-md border p-3 transition-colors hover:bg-muted/50"
+                key={action.resource}
+              >
+                <Checkbox
+                  checked={!!checkedActions[action.resource]}
+                  id={checkboxId}
+                  onCheckedChange={(checked) =>
+                    onToggleAction(action.resource, !!checked)
+                  }
+                />
+                <div>
+                  <label className="text-sm" htmlFor={checkboxId}>
+                    {action.action === "reduce" ? "Reduce" : "Remove"}{" "}
+                    {action.resource.toLowerCase()}
+                  </label>
+                  <p className="text-muted-foreground text-xs">
+                    Current: {action.current.toLocaleString()} / New limit:{" "}
+                    {action.limit.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -123,7 +186,22 @@ const DowngradePreviewDialog = ({
     enabled: open && !!targetTier,
   });
 
+  const [checkedActions, setCheckedActions] = useState<
+    Record<string, boolean>
+  >({});
+
   const hasIssues = preview?.impacts?.some((i) => i.action !== "ok");
+
+  const manualActions = (preview?.manual_actions ?? []).filter(
+    (i) => i.action !== "ok"
+  );
+  const allChecked =
+    manualActions.length === 0 ||
+    manualActions.every((a) => checkedActions[a.resource]);
+
+  const handleToggleAction = (resource: string, checked: boolean) => {
+    setCheckedActions((prev) => ({ ...prev, [resource]: checked }));
+  };
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -136,8 +214,10 @@ const DowngradePreviewDialog = ({
         </DialogHeader>
 
         <DowngradePreviewContent
+          checkedActions={checkedActions}
           hasIssues={hasIssues}
           isLoading={isPreviewLoading}
+          onToggleAction={handleToggleAction}
           preview={preview}
         />
 
@@ -146,7 +226,7 @@ const DowngradePreviewDialog = ({
             Cancel
           </DialogClose>
           <Button
-            disabled={isLoading || isPreviewLoading}
+            disabled={isLoading || isPreviewLoading || !allChecked}
             onClick={onConfirm}
             variant="default"
           >

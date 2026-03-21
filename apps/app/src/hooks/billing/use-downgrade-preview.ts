@@ -16,6 +16,9 @@ export type DowngradePreview = {
   current_plan: string;
   target_plan: string;
   impacts: DowngradeImpact[];
+  effective_date?: string;
+  manual_actions?: DowngradeImpact[];
+  auto_disabled?: DowngradeImpact[];
 };
 
 type DowngradePreviewInput = {
