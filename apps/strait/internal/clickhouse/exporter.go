@@ -97,6 +97,19 @@ type JobMetadataRecord struct {
 	Slug      string
 }
 
+// EventTriggerEventRecord maps to the event_trigger_events ClickHouse table.
+type EventTriggerEventRecord struct {
+	TriggerID      string
+	EventKey       string
+	ProjectID      string
+	SourceType     string
+	Status         string
+	TimeoutSecs    uint32
+	WaitDurationMs uint64
+	CreatedAt      time.Time
+	ReceivedAt     *time.Time
+}
+
 // WorkflowRunAnalyticsRecord maps to the workflow_run_analytics ClickHouse table.
 type WorkflowRunAnalyticsRecord struct {
 	WorkflowRunID string
@@ -321,6 +334,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	var webhookDeliveries []WebhookDeliveryEventRecord
 	var workflowRuns []WorkflowRunAnalyticsRecord
 	var workflowSteps []WorkflowStepAnalyticsRecord
+	var eventTriggers []EventTriggerEventRecord
 
 	for _, rec := range batch {
 		switch r := rec.(type) {
@@ -342,6 +356,8 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			workflowRuns = append(workflowRuns, r)
 		case WorkflowStepAnalyticsRecord:
 			workflowSteps = append(workflowSteps, r)
+		case EventTriggerEventRecord:
+			eventTriggers = append(eventTriggers, r)
 		default:
 			e.logger.Warn("clickhouse exporter: unknown record type", "type", fmt.Sprintf("%T", rec))
 		}
@@ -393,6 +409,11 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			errs = append(errs, fmt.Errorf("workflow_step_analytics: %w", err))
 		}
 	}
+	if len(eventTriggers) > 0 {
+		if err := e.insertEventTriggerEvents(ctx, eventTriggers); err != nil {
+			errs = append(errs, fmt.Errorf("event_trigger_events: %w", err))
+		}
+	}
 
 	if len(errs) > 0 {
 		msgs := make([]string, len(errs))
@@ -412,6 +433,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 		"webhook_deliveries", len(webhookDeliveries),
 		"workflow_runs", len(workflowRuns),
 		"workflow_steps", len(workflowSteps),
+		"event_triggers", len(eventTriggers),
 	)
 	return nil
 }
@@ -499,6 +521,21 @@ func (e *Exporter) insertJobMetadata(ctx context.Context, records []JobMetadataR
 	for i, r := range records {
 		placeholders[i] = row
 		args = append(args, r.JobID, r.ProjectID, r.Slug)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func (e *Exporter) insertEventTriggerEvents(ctx context.Context, records []EventTriggerEventRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO event_trigger_events (trigger_id, event_key, project_id, source_type, status, timeout_secs, wait_duration_ms, created_at, received_at) VALUES "
+	placeholders := make([]string, len(records))
+	args := make([]any, 0, len(records)*9)
+
+	for i, r := range records {
+		placeholders[i] = row
+		args = append(args, r.TriggerID, r.EventKey, r.ProjectID, r.SourceType,
+			r.Status, r.TimeoutSecs, r.WaitDurationMs, r.CreatedAt, r.ReceivedAt)
 	}
 
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)

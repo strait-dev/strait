@@ -599,6 +599,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
 			scheduler.WithSchedulerMetrics(metrics),
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
+			scheduler.WithChExporter(chExporter),
 		)
 		if err := sched.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)

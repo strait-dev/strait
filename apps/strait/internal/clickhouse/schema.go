@@ -117,6 +117,25 @@ CREATE TABLE IF NOT EXISTS job_metadata (
 ORDER BY (project_id, job_id)
 `
 
+// EventTriggerEventsTable is the DDL for the event_trigger_events ClickHouse table.
+const EventTriggerEventsTable = `
+CREATE TABLE IF NOT EXISTS event_trigger_events (
+    trigger_id String,
+    event_key String,
+    project_id String,
+    source_type LowCardinality(String),
+    status LowCardinality(String),
+    timeout_secs UInt32,
+    wait_duration_ms UInt64,
+    created_at DateTime64(3),
+    received_at Nullable(DateTime64(3)),
+    inserted_at DateTime64(3) DEFAULT now64(3)
+) ENGINE = MergeTree()
+PARTITION BY toDate(inserted_at)
+ORDER BY (project_id, event_key, created_at)
+TTL inserted_at + INTERVAL 365 DAY
+`
+
 // WorkflowRunAnalyticsTable is the DDL for the workflow_run_analytics ClickHouse table.
 const WorkflowRunAnalyticsTable = `
 CREATE TABLE IF NOT EXISTS workflow_run_analytics (
@@ -218,6 +237,7 @@ func CreateSchema(ctx context.Context, c *Client) error {
 		{"webhook_delivery_events", WebhookDeliveryEventsTable},
 		{"workflow_run_analytics", WorkflowRunAnalyticsTable},
 		{"workflow_step_analytics", WorkflowStepAnalyticsTable},
+		{"event_trigger_events", EventTriggerEventsTable},
 	}
 
 	for _, t := range tables {

@@ -309,6 +309,17 @@ func runServe(ctx context.Context, modeOverride string) error {
 			)
 			metrics.EventTriggersCreated.Add(context.Background(), 1, attrs)
 		}
+		if chExporter != nil {
+			chExporter.Enqueue(clickhouse.EventTriggerEventRecord{
+				TriggerID:   trigger.ID,
+				EventKey:    trigger.EventKey,
+				ProjectID:   trigger.ProjectID,
+				SourceType:  trigger.SourceType,
+				Status:      domain.EventTriggerStatusWaiting,
+				TimeoutSecs: uint32(max(trigger.TimeoutSecs, 0)), //nolint:gosec // timeout is always non-negative
+				CreatedAt:   trigger.RequestedAt,
+			})
+		}
 		eventNotifier.NotifyAsyncWithContext(ctx, trigger)
 	}
 

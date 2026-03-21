@@ -131,6 +131,33 @@ func TestExporter_InsertBatch_UnknownType_Warns(t *testing.T) {
 	}
 }
 
+func TestExporter_EnqueuesEventTriggerEvent(t *testing.T) {
+	t.Parallel()
+
+	exporter := NewExporter(&Client{}, ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	now := time.Now()
+	exporter.Enqueue(EventTriggerEventRecord{
+		TriggerID:      "trig-1",
+		EventKey:       "my-event-key",
+		ProjectID:      "proj-1",
+		SourceType:     "workflow_step",
+		Status:         "received",
+		TimeoutSecs:    300,
+		WaitDurationMs: 1500,
+		CreatedAt:      now,
+		ReceivedAt:     &now,
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
+	}
+}
+
 func TestExporter_EnqueuesWorkflowRunAnalytics(t *testing.T) {
 	t.Parallel()
 
