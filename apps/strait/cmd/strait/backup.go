@@ -94,7 +94,7 @@ Requires pg_dump to be installed and available in PATH.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "output file path (default: timestamped filename)")
+	cmd.Flags().StringVar(&output, "output", "", "output file path (default: timestamped filename)")
 	cmd.Flags().StringVar(&databaseURL, "database-url", "", "PostgreSQL connection string (default: DATABASE_URL env)")
 	cmd.Flags().StringVar(&format, "format", "plain", "dump format: plain, custom, directory, tar")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "pass --verbose to pg_dump")

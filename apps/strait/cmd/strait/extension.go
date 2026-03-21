@@ -129,7 +129,7 @@ func newExtensionCreateCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&outDir, "output-dir", "o", ".", "Parent directory for the new extension")
+	cmd.Flags().StringVar(&outDir, "dir", ".", "parent directory for the new extension")
 
 	return cmd
 }

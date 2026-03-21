@@ -90,7 +90,7 @@ goroutine, allocs, block, mutex, and threadcreate profiles.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "output file path (default: <type>-<timestamp>.prof)")
+	cmd.Flags().StringVar(&output, "output", "", "output file path (default: <type>-<timestamp>.prof)")
 	cmd.Flags().DurationVar(&duration, "duration", 30*time.Second, "profile duration (for CPU profiles)")
 	cmd.Flags().StringVar(&kind, "type", "cpu", "profile type: cpu, heap, goroutine, allocs, block, mutex, threadcreate")
 
