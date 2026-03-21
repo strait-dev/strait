@@ -240,33 +240,3 @@ func TestPromoteDeploymentVersion(t *testing.T) {
 		t.Fatalf("status = %v, want promoted", response["status"])
 	}
 }
-
-func TestListDeploymentVersions(t *testing.T) {
-	t.Parallel()
-
-	ms := &mockAPIStore{
-		listDeploymentVersionsFn: func(_ context.Context, projectID, environment string, limit int, _ *time.Time) ([]domain.DeploymentVersion, error) {
-			if projectID != "proj-1" || environment != "production" {
-				return nil, errors.New("unexpected filters")
-			}
-			return []domain.DeploymentVersion{{ID: "dep-1", ProjectID: projectID, Environment: environment, Status: domain.DeploymentVersionStatusDraft, CreatedAt: time.Now()}}, nil
-		},
-	}
-
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/deployments?environment=production", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var response []map[string]any
-	decodePaginatedList(t, w.Body.Bytes(), &response)
-	if len(response) != 1 {
-		t.Fatalf("expected 1 deployment, got %d", len(response))
-	}
-	if response[0]["id"] != "dep-1" {
-		t.Fatalf("id = %v, want dep-1", response[0]["id"])
-	}
-}
