@@ -30,11 +30,10 @@ import (
 // the current version is marked backwards_compatible.
 func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*domain.Job, error) {
 	// Check job cache first.
-	cacheKey := run.JobID
 	var current *domain.Job
-	if entry, ok := e.jobCache.Load(cacheKey); ok {
-		if cached := entry.(*cachedJob); time.Now().Before(cached.expiresAt) {
-			current = cached.job
+	if e.jobCache != nil {
+		if cached, err := e.jobCache.Get(ctx, run.JobID); err == nil {
+			current = cached
 		}
 	}
 
@@ -44,8 +43,8 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		if err != nil {
 			return nil, fmt.Errorf("load current job: %w", err)
 		}
-		if e.jobCacheTTL > 0 {
-			e.jobCache.Store(cacheKey, &cachedJob{job: current, expiresAt: time.Now().Add(e.jobCacheTTL)})
+		if e.jobCache != nil {
+			_ = e.jobCache.Set(ctx, run.JobID, current)
 		}
 	}
 

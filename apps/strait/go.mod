@@ -11,6 +11,8 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cristalhq/aconfig v0.19.0
+	github.com/eko/gocache/lib/v4 v4.2.3
+	github.com/eko/gocache/store/go_cache/v4 v4.2.4
 	github.com/exaring/otelpgx v0.10.0
 	github.com/gdamore/tcell/v2 v2.13.8
 	github.com/getsentry/sentry-go v0.43.0
@@ -26,6 +28,7 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/muesli/termenv v0.16.0
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/resend/resend-go/v2 v2.28.0
@@ -175,6 +178,7 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	golang.org/x/exp v0.0.0-20251209150349-8475f28825e9 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/telemetry"
 
+	"github.com/eko/gocache/lib/v4/cache"
+	gocachestore "github.com/eko/gocache/store/go_cache/v4"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -50,7 +52,7 @@ type Enforcer struct {
 	rdb         redis.Cmdable
 	logger      *slog.Logger
 	metrics     *telemetry.Metrics
-	orgCache    sync.Map // orgID -> cachedOrgLimits
+	orgCache    *cache.Cache[*cachedOrgLimits]
 	limitsGroup singleflight.Group
 	cacheTTL    time.Duration
 }
@@ -59,7 +61,6 @@ type cachedOrgLimits struct {
 	tier            domain.PlanTier
 	limits          OrgPlanLimits
 	enforcementMode string
-	expiresAt       time.Time
 }
 
 // NewEnforcer creates a billing enforcer. Panics if store is nil.
@@ -70,11 +71,16 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 	if logger == nil {
 		logger = slog.Default()
 	}
+	cacheTTL := 5 * time.Minute
+	gc := gocache.New(cacheTTL, 2*cacheTTL)
+	orgCache := cache.New[*cachedOrgLimits](gocachestore.NewGoCache(gc))
+
 	e := &Enforcer{
 		store:    store,
 		rdb:      rdb,
 		logger:   logger,
-		cacheTTL: 5 * time.Minute,
+		orgCache: orgCache,
+		cacheTTL: cacheTTL,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -94,30 +100,14 @@ func WithMetrics(m *telemetry.Metrics) EnforcerOption {
 
 // InvalidateOrgCache removes cached plan limits for an org (call on plan change).
 func (e *Enforcer) InvalidateOrgCache(orgID string) {
-	e.orgCache.Delete(orgID)
-}
-
-// PurgeExpiredCache removes expired entries from the org cache.
-// Note: Expired entries are also skipped on read in GetOrgPlanLimits, so
-// stale entries only waste memory for orgs that are never queried again.
-// Call this periodically (e.g., every 10 minutes) if memory growth is a concern.
-func (e *Enforcer) PurgeExpiredCache() {
-	now := time.Now()
-	e.orgCache.Range(func(key, value any) bool {
-		cached := value.(*cachedOrgLimits)
-		if now.After(cached.expiresAt) {
-			e.orgCache.Delete(key)
-		}
-		return true
-	})
+	_ = e.orgCache.Delete(context.Background(), orgID)
 }
 
 // getEnforcementMode returns the enforcement mode for an org from cache.
 // Falls back to "enforce" if not cached.
 func (e *Enforcer) getEnforcementMode(orgID string) string {
-	if entry, ok := e.orgCache.Load(orgID); ok {
-		cached := entry.(*cachedOrgLimits)
-		if time.Now().Before(cached.expiresAt) && cached.enforcementMode != "" {
+	if cached, err := e.orgCache.Get(context.Background(), orgID); err == nil {
+		if cached.enforcementMode != "" {
 			return cached.enforcementMode
 		}
 	}
@@ -146,33 +136,26 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (OrgPlanL
 		return GetPlanLimits(domain.PlanFree), nil
 	}
 
-	if entry, ok := e.orgCache.Load(orgID); ok {
-		cached := entry.(*cachedOrgLimits)
-		if time.Now().Before(cached.expiresAt) {
-			return cached.limits, nil
-		}
+	if cached, err := e.orgCache.Get(ctx, orgID); err == nil {
+		return cached.limits, nil
 	}
 
 	// Coalesce concurrent cache misses via singleflight to prevent
 	// thundering herd on the DB when cache expires under load.
 	result, err, _ := e.limitsGroup.Do(orgID, func() (any, error) {
 		// Double-check cache inside singleflight (another goroutine may have populated it).
-		if entry, ok := e.orgCache.Load(orgID); ok {
-			cached := entry.(*cachedOrgLimits)
-			if time.Now().Before(cached.expiresAt) {
-				return cached.limits, nil
-			}
+		if cached, err := e.orgCache.Get(ctx, orgID); err == nil {
+			return cached.limits, nil
 		}
 
 		sub, err := e.store.GetOrgSubscription(ctx, orgID)
 		if err != nil {
 			if errors.Is(err, ErrSubscriptionNotFound) {
 				limits := GetPlanLimits(domain.PlanFree)
-				e.orgCache.Store(orgID, &cachedOrgLimits{
+				_ = e.orgCache.Set(ctx, orgID, &cachedOrgLimits{
 					tier:            domain.PlanFree,
 					limits:          limits,
 					enforcementMode: "enforce",
-					expiresAt:       time.Now().Add(e.cacheTTL),
 				})
 				return limits, nil
 			}
@@ -204,11 +187,10 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (OrgPlanL
 		limits.MaxConcurrentRuns = *sub.OverrideConcurrentRunLimit
 	}
 
-	e.orgCache.Store(orgID, &cachedOrgLimits{
+	_ = e.orgCache.Set(ctx, orgID, &cachedOrgLimits{
 		tier:            tier,
 		limits:          limits,
 		enforcementMode: sub.EnforcementMode,
-		expiresAt:       time.Now().Add(e.cacheTTL),
 	})
 	return limits, nil
 }

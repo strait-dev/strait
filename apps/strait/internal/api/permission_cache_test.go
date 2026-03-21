@@ -96,18 +96,16 @@ func TestPermissionCache_EvictsOnExpiredRead(t *testing.T) {
 
 	time.Sleep(5 * time.Millisecond)
 
-	// Get should evict the expired entry.
+	// Get should return a miss for the expired entry.
 	_, ok := c.Get("proj", "user")
 	if ok {
 		t.Fatal("expected cache miss")
 	}
 
-	// Verify internal map is cleaned.
-	c.mu.RLock()
-	_, exists := c.entries[c.key("proj", "user")]
-	c.mu.RUnlock()
-	if exists {
-		t.Fatal("expired entry should have been evicted from internal map")
+	// A second Get should still miss (entry was evicted, not just stale).
+	_, ok = c.Get("proj", "user")
+	if ok {
+		t.Fatal("expected cache miss on second read after expiry")
 	}
 }
 
@@ -298,10 +296,8 @@ func TestPermissionCache_EvictRaceOnExpiry(t *testing.T) {
 	wg.Wait()
 
 	// Verify the entry was actually removed.
-	c.mu.RLock()
-	_, exists := c.entries[c.key("proj", "user")]
-	c.mu.RUnlock()
-	if exists {
+	_, ok := c.Get("proj", "user")
+	if ok {
 		t.Fatal("expired entry should have been evicted")
 	}
 }

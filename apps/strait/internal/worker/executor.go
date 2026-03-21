@@ -19,7 +19,10 @@ import (
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
+	"github.com/eko/gocache/lib/v4/cache"
+	gocachestore "github.com/eko/gocache/store/go_cache/v4"
 	"github.com/getsentry/sentry-go"
+	gocache "github.com/patrickmn/go-cache"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -74,11 +77,6 @@ type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 }
 
-type cachedJob struct {
-	job       *domain.Job
-	expiresAt time.Time
-}
-
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
 	pool                     *Pool
@@ -107,8 +105,7 @@ type Executor struct {
 	eventCh                  chan runEventEnvelope
 	maxDequeueBatchSize      int
 	defaultJobMaxConcurrency int
-	jobCache                 sync.Map
-	jobCacheTTL              time.Duration
+	jobCache                 *cache.Cache[*domain.Job]
 	memoryPressureThreshold  float64
 	maxSnoozeCount           int
 	dequeueStrategy          string
@@ -223,6 +220,12 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		}
 	}
 
+	var jobCache *cache.Cache[*domain.Job]
+	if cfg.JobCacheTTL > 0 {
+		gc := gocache.New(cfg.JobCacheTTL, 2*cfg.JobCacheTTL)
+		jobCache = cache.New[*domain.Job](gocachestore.NewGoCache(gc))
+	}
+
 	return &Executor{
 		pool:                     cfg.Pool,
 		concurrencyLimit:         cfg.ConcurrencyLimit,
@@ -245,7 +248,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		eventCh:                  make(chan runEventEnvelope, 256),
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
-		jobCacheTTL:              cfg.JobCacheTTL,
+		jobCache:                 jobCache,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		dequeueStrategy:          cfg.DequeueStrategy,
