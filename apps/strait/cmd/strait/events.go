@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 
+	"strait/internal/cli/styles"
+
 	"github.com/spf13/cobra"
 )
 
@@ -31,11 +33,15 @@ func newEventsCommand(state *appState) *cobra.Command {
 
 			rows := make([]map[string]any, 0, len(events))
 			for _, event := range events {
+				lvl := event.Level
+				if isTTYRich(state) {
+					lvl = styles.LogLevel(event.Level)
+				}
 				rows = append(rows, map[string]any{
 					"id":        event.ID,
 					"run_id":    event.RunID,
 					"timestamp": event.CreatedAt,
-					"level":     event.Level,
+					"level":     lvl,
 					"type":      event.Type,
 					"message":   event.Message,
 				})

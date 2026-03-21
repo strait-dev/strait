@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -45,6 +47,17 @@ func newTeamListCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Team Members", len(members)))
+				for _, m := range members {
+					fmt.Fprintf(os.Stderr, "  %s  role=%s  granted_by=%s\n",
+						styles.Bold.Render(m.UserID),
+						m.RoleID,
+						styles.MutedStyle.Render(m.GrantedBy),
+					)
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(members))
 			for _, m := range members {
 				rows = append(rows, map[string]any{
@@ -56,7 +69,6 @@ func newTeamListCommand(state *appState) *cobra.Command {
 					"created_at": m.CreatedAt,
 				})
 			}
-
 			return printData(state, rows)
 		},
 	}
@@ -91,6 +103,10 @@ func newTeamAddCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Added member "+styles.Bold.Render(args[0])))
+				return nil
+			}
 			return printData(state, member)
 		},
 	}
@@ -121,6 +137,10 @@ func newTeamRemoveCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Removed member "+styles.Bold.Render(args[0])))
+				return nil
+			}
 			return printData(state, map[string]any{"id": args[0], "removed": true})
 		},
 	}
@@ -153,6 +173,17 @@ func newTeamRolesCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Roles", len(roles)))
+				for _, r := range roles {
+					perms := fmt.Sprintf("%v", r.Permissions)
+					fmt.Fprintf(os.Stderr, "  %s  %s\n",
+						styles.Bold.Render(r.Name),
+						styles.MutedStyle.Render(perms),
+					)
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(roles))
 			for _, r := range roles {
 				rows = append(rows, map[string]any{
@@ -167,7 +198,6 @@ func newTeamRolesCommand(state *appState) *cobra.Command {
 					"updated_at":     r.UpdatedAt,
 				})
 			}
-
 			return printData(state, rows)
 		},
 	}

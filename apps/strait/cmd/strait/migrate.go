@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"strait/internal/cli/styles"
 	"strait/migrations"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -58,8 +59,8 @@ func newMigrateCreateCommand() *cobra.Command {
 				return err
 			}
 
-			fmt.Printf("created %s\n", upPath)
-			fmt.Printf("created %s\n", downPath)
+			fmt.Fprintln(os.Stderr, styles.Success("Created "+styles.FilePath(upPath)))
+			fmt.Fprintln(os.Stderr, styles.Success("Created "+styles.FilePath(downPath)))
 			return nil
 		},
 	}
@@ -83,7 +84,7 @@ func newMigrateUpCommand() *cobra.Command {
 				if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 					return fmt.Errorf("apply migrations: %w", err)
 				}
-				fmt.Println("migrations up complete")
+				fmt.Fprintln(os.Stderr, styles.Success("Migrations up complete"))
 				return nil
 			}
 
@@ -94,7 +95,7 @@ func newMigrateUpCommand() *cobra.Command {
 			if err := m.Steps(count); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 				return fmt.Errorf("apply migrations: %w", err)
 			}
-			fmt.Printf("applied %d migration(s)\n", count)
+			fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Applied %d migration(s)", count)))
 			return nil
 		},
 	}
@@ -128,7 +129,7 @@ func newMigrateDownCommand(state *appState) *cobra.Command {
 			if err := m.Steps(-count); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 				return fmt.Errorf("rollback migrations: %w", err)
 			}
-			fmt.Printf("rolled back %d migration(s)\n", count)
+			fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Rolled back %d migration(s)", count)))
 			return nil
 		},
 	}

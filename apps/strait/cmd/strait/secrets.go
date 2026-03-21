@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/cli/client"
 	cliconfig "strait/internal/cli/config"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 	"github.com/zalando/go-keyring"
@@ -60,6 +61,17 @@ func newSecretsListCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Secrets", len(secrets)))
+				for _, s := range secrets {
+					fmt.Fprintf(os.Stderr, "  %s  %s  %s\n",
+						styles.Bold.Render(s.SecretKey),
+						styles.MutedStyle.Render(s.Environment),
+						styles.RelativeTime(s.CreatedAt),
+					)
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(secrets))
 			for _, s := range secrets {
 				rows = append(rows, map[string]any{
@@ -70,7 +82,6 @@ func newSecretsListCommand(state *appState) *cobra.Command {
 					"created_at":  s.CreatedAt,
 				})
 			}
-
 			return printData(state, rows)
 		},
 	}
@@ -127,6 +138,10 @@ func newSecretsCreateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Created secret "+styles.Bold.Render(secret.SecretKey)))
+				return nil
+			}
 			return printData(state, map[string]any{
 				"id":          secret.ID,
 				"key":         secret.SecretKey,
@@ -169,6 +184,10 @@ func newSecretsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Deleted secret "+styles.Bold.Render(args[0])))
+				return nil
+			}
 			return printData(state, map[string]any{"id": args[0], "deleted": true})
 		},
 	}
@@ -235,6 +254,10 @@ func newSecretsLocalCreateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Stored local secret "+styles.Bold.Render(name)))
+				return nil
+			}
 			return printData(state, map[string]any{"project": projectID, "name": name, "stored": true})
 		},
 	}
@@ -266,11 +289,18 @@ func newSecretsLocalListCommand(state *appState) *cobra.Command {
 
 			names := append([]string(nil), cfg.Secrets[projectID]...)
 			sort.Strings(names)
+
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.SectionHeader("Local Secrets", len(names)))
+				for _, name := range names {
+					fmt.Fprintf(os.Stderr, "  %s\n", styles.Bold.Render(name))
+				}
+				return nil
+			}
 			rows := make([]map[string]any, 0, len(names))
 			for _, name := range names {
 				rows = append(rows, map[string]any{"project": projectID, "name": name})
 			}
-
 			return printData(state, rows)
 		},
 	}
@@ -320,6 +350,10 @@ func newSecretsLocalDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success("Deleted local secret "+styles.Bold.Render(name)))
+				return nil
+			}
 			return printData(state, map[string]any{"project": projectID, "name": name, "deleted": true})
 		},
 	}

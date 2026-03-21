@@ -15,10 +15,17 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// deploymentVersionColumns is the shared column list used by all deployment version queries.
+const deploymentVersionColumns = `id, project_id, environment, runtime, artifact_uri, manifest, checksum, status,
+			strategy, canary_percent, EXTRACT(EPOCH FROM canary_duration) * 1000000,
+			finalized_at, promoted_at, rollback_from_deployment_id, created_by, updated_by, created_at, updated_at`
+
 func scanDeploymentVersion(scanner dbscan.Scanner) (*domain.DeploymentVersion, error) {
 	var deployment domain.DeploymentVersion
 	var manifest []byte
 	var checksum *string
+	var strategy string
+	var canaryDurationUs *float64
 	var rollbackFromDeploymentID *string
 	var createdBy *string
 	var updatedBy *string
@@ -32,6 +39,9 @@ func scanDeploymentVersion(scanner dbscan.Scanner) (*domain.DeploymentVersion, e
 		&manifest,
 		&checksum,
 		&deployment.Status,
+		&strategy,
+		&deployment.CanaryPercent,
+		&canaryDurationUs,
 		&deployment.FinalizedAt,
 		&deployment.PromotedAt,
 		&rollbackFromDeploymentID,
@@ -44,6 +54,11 @@ func scanDeploymentVersion(scanner dbscan.Scanner) (*domain.DeploymentVersion, e
 		return nil, err
 	}
 
+	deployment.Strategy = domain.DeploymentStrategy(strategy)
+	if canaryDurationUs != nil {
+		d := time.Duration(*canaryDurationUs * float64(time.Microsecond))
+		deployment.CanaryDuration = &d
+	}
 	if len(manifest) > 0 {
 		deployment.Manifest = json.RawMessage(manifest)
 	}
@@ -76,6 +91,9 @@ func (q *Queries) CreateDeploymentVersion(ctx context.Context, deployment *domai
 	if !deployment.Status.IsValid() {
 		return fmt.Errorf("create deployment version: invalid status %q", deployment.Status)
 	}
+	if deployment.Strategy == "" {
+		deployment.Strategy = domain.DeploymentStrategyDirect
+	}
 
 	query := `
 		INSERT INTO deployment_versions (
@@ -87,15 +105,24 @@ func (q *Queries) CreateDeploymentVersion(ctx context.Context, deployment *domai
 			manifest,
 			checksum,
 			status,
+			strategy,
+			canary_percent,
+			canary_duration,
 			created_by,
 			updated_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, make_interval(secs => $11), $12, $13)
 		RETURNING created_at, updated_at`
 
 	manifest := deployment.Manifest
 	if len(manifest) == 0 {
 		manifest = json.RawMessage(`{}`)
+	}
+
+	var canaryDurationSecs *float64
+	if deployment.CanaryDuration != nil {
+		secs := deployment.CanaryDuration.Seconds()
+		canaryDurationSecs = &secs
 	}
 
 	err := q.db.QueryRow(
@@ -109,6 +136,9 @@ func (q *Queries) CreateDeploymentVersion(ctx context.Context, deployment *domai
 		manifest,
 		deployment.Checksum,
 		string(deployment.Status),
+		string(deployment.Strategy),
+		deployment.CanaryPercent,
+		canaryDurationSecs,
 		deployment.CreatedBy,
 		deployment.UpdatedBy,
 	).Scan(&deployment.CreatedAt, &deployment.UpdatedAt)
@@ -124,8 +154,7 @@ func (q *Queries) GetDeploymentVersion(ctx context.Context, deploymentID, projec
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, environment, runtime, artifact_uri, manifest, checksum, status,
-			finalized_at, promoted_at, rollback_from_deployment_id, created_by, updated_by, created_at, updated_at
+		SELECT ` + deploymentVersionColumns + `
 		FROM deployment_versions
 		WHERE id = $1 AND project_id = $2`
 
@@ -149,8 +178,7 @@ func (q *Queries) ListDeploymentVersions(ctx context.Context, projectID, environ
 	}
 
 	query := `
-		SELECT id, project_id, environment, runtime, artifact_uri, manifest, checksum, status,
-			finalized_at, promoted_at, rollback_from_deployment_id, created_by, updated_by, created_at, updated_at
+		SELECT ` + deploymentVersionColumns + `
 		FROM deployment_versions
 		WHERE project_id = $1
 			AND ($2 = '' OR environment = $2)
@@ -190,8 +218,7 @@ func (q *Queries) FinalizeDeploymentVersion(ctx context.Context, deploymentID, p
 			updated_by = COALESCE(NULLIF($3, ''), updated_by),
 			updated_at = NOW()
 		WHERE id = $1 AND project_id = $2
-		RETURNING id, project_id, environment, runtime, artifact_uri, manifest, checksum, status,
-			finalized_at, promoted_at, rollback_from_deployment_id, created_by, updated_by, created_at, updated_at`
+		RETURNING ` + deploymentVersionColumns
 
 	deployment, err := scanDeploymentVersion(
 		q.db.QueryRow(ctx, query, deploymentID, projectID, updatedBy),
@@ -265,8 +292,7 @@ func (q *Queries) promoteDeploymentVersion(ctx context.Context, deploymentID, pr
 					ELSE rollback_from_deployment_id
 				END
 			WHERE id = $1 AND project_id = $2 AND environment = $3
-			RETURNING id, project_id, environment, runtime, artifact_uri, manifest, checksum, status,
-				finalized_at, promoted_at, rollback_from_deployment_id, created_by, updated_by, created_at, updated_at`
+			RETURNING ` + deploymentVersionColumns
 
 		rollbackFromID := ""
 		if previousPromotedID != nil {

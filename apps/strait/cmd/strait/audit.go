@@ -1,9 +1,11 @@
 package main
 
 import (
+	"strings"
 	"time"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -66,11 +68,15 @@ func newAuditCommand(state *appState) *cobra.Command {
 
 			rows := make([]map[string]any, 0, len(events))
 			for _, e := range events {
+				action := e.Action
+				if isTTYRich(state) {
+					action = colorAuditAction(e.Action)
+				}
 				rows = append(rows, map[string]any{
 					"id":            e.ID,
 					"actor_id":      e.ActorID,
 					"actor_type":    e.ActorType,
-					"action":        e.Action,
+					"action":        action,
 					"resource_type": e.ResourceType,
 					"resource_id":   e.ResourceID,
 					"details":       e.Details,
@@ -92,6 +98,20 @@ func newAuditCommand(state *appState) *cobra.Command {
 	cmd.Flags().StringVar(&order, "order", "desc", "sort order (asc or desc)")
 
 	return cmd
+}
+
+func colorAuditAction(action string) string {
+	lower := strings.ToLower(action)
+	switch {
+	case strings.HasPrefix(lower, "create"):
+		return styles.Green.Render(action)
+	case strings.HasPrefix(lower, "delete"), strings.HasPrefix(lower, "revoke"):
+		return styles.Red.Render(action)
+	case strings.HasPrefix(lower, "update"), strings.HasPrefix(lower, "rotate"):
+		return styles.Yellow.Render(action)
+	default:
+		return action
+	}
 }
 
 func parseAuditTime(raw string) (time.Time, error) {

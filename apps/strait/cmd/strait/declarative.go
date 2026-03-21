@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"strait/internal/cli/client"
+	"strait/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -47,11 +48,29 @@ func newValidateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			rows := make([]map[string]any, 0, len(manifests))
+			if len(manifests) == 0 {
+				return fmt.Errorf("no manifests found")
+			}
+
 			for _, item := range manifests {
 				if err := validateManifest(item.Data); err != nil {
 					return fmt.Errorf("%s#%d: %w", item.Source, item.Index, err)
 				}
+			}
+
+			if isTTYRich(state) {
+				fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Validated %d manifest(s)", len(manifests))))
+				for _, item := range manifests {
+					fmt.Fprintf(os.Stderr, "  %s %s %s\n",
+						styles.StatusBadge("ok"),
+						styles.ResourceKind(item.Data.Kind),
+						item.Data.Metadata.Name,
+					)
+				}
+				return nil
+			}
+			rows := make([]map[string]any, 0, len(manifests))
+			for _, item := range manifests {
 				rows = append(rows, map[string]any{
 					"source": item.Source,
 					"kind":   item.Data.Kind,
@@ -59,11 +78,6 @@ func newValidateCommand(state *appState) *cobra.Command {
 					"valid":  true,
 				})
 			}
-
-			if len(rows) == 0 {
-				return fmt.Errorf("no manifests found")
-			}
-
 			return printData(state, rows)
 		},
 	}
@@ -100,6 +114,16 @@ func newApplyCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			ttyMode := isTTYRich(state)
+
+			if dryRun && ttyMode {
+				fmt.Fprintln(os.Stderr, styles.Info(fmt.Sprintf("Dry run: %d manifest(s)", len(manifests))))
+				for _, item := range manifests {
+					fmt.Fprintf(os.Stderr, "  %s %s\n", styles.ResourceKind(item.Data.Kind), item.Data.Metadata.Name)
+				}
+				return nil
+			}
+
 			rows := make([]map[string]any, 0, len(manifests))
 			for _, item := range manifests {
 				if dryRun {
@@ -111,9 +135,19 @@ func newApplyCommand(state *appState) *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("apply %s/%s: %w", item.Data.Kind, item.Data.Metadata.Name, err)
 				}
+				if ttyMode {
+					action, _ := result["action"].(string)
+					kind, _ := result["kind"].(string)
+					name, _ := result["name"].(string)
+					badge := styles.StatusBadge("ok")
+					fmt.Fprintf(os.Stderr, "  %s %s %s/%s\n", badge, action, styles.ResourceKind(kind), name)
+				}
 				rows = append(rows, result)
 			}
 
+			if ttyMode {
+				return nil
+			}
 			return printData(state, rows)
 		},
 	}
@@ -144,6 +178,7 @@ func newDiffCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			ttyMode := isTTYRich(state)
 			rows := make([]map[string]any, 0, len(manifests))
 			for _, item := range manifests {
 				if err := validateManifest(item.Data); err != nil {
@@ -153,13 +188,24 @@ func newDiffCommand(state *appState) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				rows = append(rows, map[string]any{
-					"kind":   item.Data.Kind,
-					"name":   item.Data.Metadata.Name,
-					"action": action,
-				})
+				if ttyMode {
+					fmt.Fprintf(os.Stderr, "  %s %s %s\n",
+						action,
+						styles.ResourceKind(item.Data.Kind),
+						item.Data.Metadata.Name,
+					)
+				} else {
+					rows = append(rows, map[string]any{
+						"kind":   item.Data.Kind,
+						"name":   item.Data.Metadata.Name,
+						"action": action,
+					})
+				}
 			}
 
+			if ttyMode {
+				return nil
+			}
 			return printData(state, rows)
 		},
 	}

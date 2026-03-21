@@ -52,6 +52,9 @@ export type OperationPathParamsById = {
   "getV1AuditEventsExport": undefined;
   "getV1BatchOperations": undefined;
   "getV1BatchOperationsByBatchID": { "batchID": string };
+  "postV1CliAuthDeviceCode": undefined;
+  "postV1CliAuthToken": undefined;
+  "postV1CliDeviceCodesApprove": undefined;
   "getV1Deployments": undefined;
   "postV1Deployments": undefined;
   "postV1DeploymentsByDeploymentIDFinalize": { "deploymentID": string };
@@ -264,6 +267,9 @@ export type OperationQueryParamsById = {
   "getV1AuditEventsExport": { "from": string; "to": string; "format"?: "json" | "csv" | "ndjson" };
   "getV1BatchOperations": { "project_id": string; "limit"?: number; "cursor"?: string };
   "getV1BatchOperationsByBatchID": { "project_id": string };
+  "postV1CliAuthDeviceCode": undefined;
+  "postV1CliAuthToken": undefined;
+  "postV1CliDeviceCodesApprove": undefined;
   "getV1Deployments": { "project_id": string; "environment"?: string; "limit"?: number; "cursor"?: string };
   "postV1Deployments": undefined;
   "postV1DeploymentsByDeploymentIDFinalize": undefined;
@@ -332,7 +338,7 @@ export type OperationQueryParamsById = {
   "deleteV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationChannelsByChannelID": undefined;
   "patchV1NotificationChannelsByChannelID": undefined;
-  "getV1NotificationDeliveries": { "project_id": string; "limit"?: number; "cursor"?: string };
+  "getV1NotificationDeliveries": { "limit"?: number; "cursor"?: string };
   "getV1ProjectsByProjectIDSettings": undefined;
   "putV1ProjectsByProjectIDSettings": undefined;
   "getV1Regions": undefined;
@@ -476,6 +482,9 @@ export type OperationHeaderParamsById = {
   "getV1AuditEventsExport": undefined;
   "getV1BatchOperations": undefined;
   "getV1BatchOperationsByBatchID": undefined;
+  "postV1CliAuthDeviceCode": undefined;
+  "postV1CliAuthToken": undefined;
+  "postV1CliDeviceCodesApprove": undefined;
   "getV1Deployments": undefined;
   "postV1Deployments": undefined;
   "postV1DeploymentsByDeploymentIDFinalize": undefined;
@@ -710,6 +719,9 @@ export const generatedOperationMetadataById = {
   "getV1AuditEventsExport": { functionName: "getExport", domainName: "rbac", domainMethodName: "getExport", pathParamNames: [], summary: "Export audit events in CSV, JSON, or NDJSON format" },
   "getV1BatchOperations": { functionName: "listBatchOperations", domainName: "batchOperations", domainMethodName: "list", pathParamNames: [], summary: "List batch operations" },
   "getV1BatchOperationsByBatchID": { functionName: "getBatchOperation", domainName: "batchOperations", domainMethodName: "get", pathParamNames: ["batchID"], summary: "Get a batch operation" },
+  "postV1CliAuthDeviceCode": { functionName: "deviceCodeAuth", domainName: "cliAuth", domainMethodName: "deviceCodeAuth", pathParamNames: [], summary: "Request a device code for CLI authentication" },
+  "postV1CliAuthToken": { functionName: "tokenAuth", domainName: "cliAuth", domainMethodName: "tokenAuth", pathParamNames: [], summary: "Exchange device code for API token" },
+  "postV1CliDeviceCodesApprove": { functionName: "approveDeviceCode", domainName: "cliAuth", domainMethodName: "approveDeviceCode", pathParamNames: [], summary: "Approve a device code" },
   "getV1Deployments": { functionName: "listDeployments", domainName: "deployments", domainMethodName: "list", pathParamNames: [], summary: "List deployment versions" },
   "postV1Deployments": { functionName: "createDeployment", domainName: "deployments", domainMethodName: "create", pathParamNames: [], summary: "Create deployment version" },
   "postV1DeploymentsByDeploymentIDFinalize": { functionName: "finalizeDeployment", domainName: "deployments", domainMethodName: "finalize", pathParamNames: ["deploymentID"], summary: "Finalize deployment version" },
