@@ -191,7 +191,7 @@ const CodeExampleSection = () => {
   );
 
   return (
-    <section className="py-20 sm:py-28">
+    <section className="bg-muted/30 py-20 sm:py-28">
       <Shell variant="wide">
         <Reveal variant="blur">
           <div className="mb-14 max-w-3xl">

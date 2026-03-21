@@ -87,7 +87,7 @@ const HeroProductPreview = () => {
       {/* Tab content */}
       <div
         aria-labelledby={`hero-preview-tab-${currentTab.id}`}
-        className="h-[340px] overflow-hidden"
+        className="h-[420px] overflow-hidden"
         id={`hero-preview-${currentTab.id}`}
         role="tabpanel"
       >

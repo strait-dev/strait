@@ -82,7 +82,8 @@ const FeatureBentoGrid = () => (
     <Shell variant="wide">
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
-          Write code as if failures don&apos;t exist.
+          Write code as if{" "}
+          <span className="text-primary">failures don&apos;t exist</span>.
         </h2>
         <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
           Strait handles retries, state, scaling, and observability so you can
