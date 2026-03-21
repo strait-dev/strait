@@ -50,9 +50,10 @@ const Footer = () => {
                 <span className="sr-only">{siteConfig.name}</span>
                 <Image
                   alt={siteConfig.logo.alt}
-                  className="h-8 w-auto"
+                  className="h-8"
                   height={siteConfig.logo.height}
                   src={siteConfig.logo.src}
+                  style={{ width: "auto", height: "auto" }}
                   width={siteConfig.logo.width}
                 />
               </Link>
