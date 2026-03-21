@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
-
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // InitLogBridge creates an slog handler that exports log records via OTLP to
@@ -23,9 +23,17 @@ func InitLogBridge(ctx context.Context, serviceName, endpoint, environment strin
 		return nil, noop, nil
 	}
 
-	exporter, err := otlploghttp.New(ctx,
-		otlploghttp.WithEndpointURL(endpoint),
-	)
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse otel log endpoint: %w", err)
+	}
+	opts := []otlploghttp.Option{
+		otlploghttp.WithEndpoint(u.Host),
+	}
+	if u.Scheme == "http" {
+		opts = append(opts, otlploghttp.WithInsecure())
+	}
+	exporter, err := otlploghttp.New(ctx, opts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create otlp log exporter: %w", err)
 	}

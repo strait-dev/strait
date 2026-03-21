@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -23,9 +24,17 @@ func Init(ctx context.Context, serviceName, endpoint, environment string) (func(
 		return func(context.Context) error { return nil }, nil
 	}
 
-	exporter, err := otlptracehttp.New(ctx,
-		otlptracehttp.WithEndpointURL(endpoint),
-	)
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("parse otel trace endpoint: %w", err)
+	}
+	opts := []otlptracehttp.Option{
+		otlptracehttp.WithEndpoint(u.Host),
+	}
+	if u.Scheme == "http" {
+		opts = append(opts, otlptracehttp.WithInsecure())
+	}
+	exporter, err := otlptracehttp.New(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create otlp exporter: %w", err)
 	}
