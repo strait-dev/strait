@@ -25,13 +25,25 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchUsageExportCsv } from "@/hooks/billing/use-usage-export";
+import {
+  fetchUsageExportCsv,
+  fetchUsageExportPdf,
+} from "@/hooks/billing/use-usage-export";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
 import { formatMicroUsd } from "@/lib/format";
 import { ActivityIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
 import ChartEmptyState from "../dashboard/chart-empty-state";
 import ChartTooltip from "../dashboard/chart-tooltip";
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const LABEL_MAP = {
   compute_cost_microusd: {
@@ -55,25 +67,33 @@ const UsageHistoryTab = () => {
 
   const isEmpty = !history || history.length === 0;
 
-  const exportMutation = useMutation({
+  const currentPeriod = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  };
+
+  const csvExport = useMutation({
     mutationFn: async () => {
-      const now = new Date();
-      const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const period = currentPeriod();
       const csv = await fetchUsageExportCsv(period);
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `usage-${period}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      triggerDownload(new Blob([csv], { type: "text/csv" }), `usage-${period}.csv`);
     },
-    onSuccess: () => {
-      toast.success("CSV exported successfully");
+    onSuccess: () => toast.success("CSV exported successfully"),
+    onError: () => toast.error("Failed to export CSV"),
+  });
+
+  const pdfExport = useMutation({
+    mutationFn: async () => {
+      const period = currentPeriod();
+      const base64 = await fetchUsageExportPdf(period);
+      if (!base64) {
+        return;
+      }
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      triggerDownload(new Blob([bytes], { type: "application/pdf" }), `usage-${period}.pdf`);
     },
-    onError: () => {
-      toast.error("Failed to export usage data");
-    },
+    onSuccess: () => toast.success("PDF exported successfully"),
+    onError: () => toast.error("Failed to export PDF"),
   });
 
   return (
@@ -108,12 +128,20 @@ const UsageHistoryTab = () => {
               </div>
             )}
             <Button
-              disabled={isEmpty || exportMutation.isPending}
-              onClick={() => exportMutation.mutate()}
+              disabled={isEmpty || csvExport.isPending}
+              onClick={() => csvExport.mutate()}
               size="sm"
               variant="outline"
             >
-              {exportMutation.isPending ? "Exporting..." : "Download CSV"}
+              {csvExport.isPending ? "Exporting..." : "Download CSV"}
+            </Button>
+            <Button
+              disabled={isEmpty || pdfExport.isPending}
+              onClick={() => pdfExport.mutate()}
+              size="sm"
+              variant="outline"
+            >
+              {pdfExport.isPending ? "Exporting..." : "Download PDF"}
             </Button>
           </div>
         </CardHeader>

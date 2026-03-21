@@ -18,7 +18,7 @@ export type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   params?: Record<string, string | number | boolean | undefined>;
-  responseType?: "json" | "text";
+  responseType?: "json" | "text" | "arraybuffer";
 };
 
 /** Resolve the active project ID from the current session. */
@@ -113,6 +113,10 @@ export async function apiRequest<T>(
 
   if (responseType === "text") {
     return response.text() as Promise<T>;
+  }
+
+  if (responseType === "arraybuffer") {
+    return response.arrayBuffer() as Promise<T>;
   }
 
   return response.json() as Promise<T>;

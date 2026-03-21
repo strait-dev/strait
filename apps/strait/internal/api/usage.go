@@ -38,10 +38,13 @@ func (s *Server) validateCallerOrgAccess(ctx context.Context, orgID string) erro
 // this runs for ALL callers including internal-secret, because project-scoped
 // endpoints must always verify ownership.
 func (s *Server) validateProjectBelongsToCallerOrg(ctx context.Context, targetProjectID string) error {
+	callerProjectID := projectIDFromContext(ctx)
 	if s.billingEnforcer == nil {
+		if callerProjectID != "" {
+			return fmt.Errorf("ownership validation unavailable: billing enforcer not configured")
+		}
 		return nil
 	}
-	callerProjectID := projectIDFromContext(ctx)
 	if callerProjectID == "" {
 		return fmt.Errorf("no project context")
 	}
@@ -323,17 +326,39 @@ func (s *Server) handleExportUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	csvData, err := s.usageService.ExportUsageCSV(r.Context(), orgID, from, to)
-	if err != nil {
-		slog.Error("failed to export usage", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to export usage")
-		return
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "csv"
 	}
 
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=usage_%s.csv", orgID))
-	w.WriteHeader(http.StatusOK)
-	w.Write(csvData) //nolint:errcheck,gosec // best-effort response write
+	switch format {
+	case "csv":
+		csvData, err := s.usageService.ExportUsageCSV(r.Context(), orgID, from, to)
+		if err != nil {
+			slog.Error("failed to export usage", "error", err)
+			respondError(w, r, http.StatusInternalServerError, "failed to export usage")
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=usage_%s.csv", orgID))
+		w.WriteHeader(http.StatusOK)
+		w.Write(csvData) //nolint:errcheck,gosec // best-effort response write
+
+	case "pdf":
+		pdfData, err := s.usageService.ExportUsagePDF(r.Context(), orgID, from, to)
+		if err != nil {
+			slog.Error("failed to export usage PDF", "error", err)
+			respondError(w, r, http.StatusInternalServerError, "failed to export usage")
+			return
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=usage_%s.pdf", orgID))
+		w.WriteHeader(http.StatusOK)
+		w.Write(pdfData) //nolint:errcheck,gosec // best-effort response write
+
+	default:
+		respondError(w, r, http.StatusBadRequest, "unsupported format, use csv or pdf")
+	}
 }
 
 func (s *Server) handleGetAnomalyAlerts(w http.ResponseWriter, r *http.Request) {

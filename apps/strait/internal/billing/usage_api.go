@@ -308,6 +308,11 @@ func (s *UsageService) ExportUsageCSV(ctx context.Context, orgID string, from, t
 	return ExportCSV(ctx, s.store, orgID, ExportPeriod{From: from, To: to})
 }
 
+// ExportUsagePDF delegates to the PDF export module.
+func (s *UsageService) ExportUsagePDF(ctx context.Context, orgID string, from, to time.Time) ([]byte, error) {
+	return ExportPDF(ctx, s.store, orgID, ExportPeriod{From: from, To: to})
+}
+
 // GetSpendingLimit returns the current spending limit and overage info for an org.
 func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*SpendingLimitResponse, error) {
 	sub, err := s.store.GetOrgSubscription(ctx, orgID)

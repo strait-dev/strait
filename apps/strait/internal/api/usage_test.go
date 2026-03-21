@@ -49,6 +49,7 @@ type mockUsageService struct {
 	usageHistory    []billing.UsageHistoryEntry
 	anomalyAlerts   []billing.AnomalyAlert
 	exportData      []byte
+	exportPDFData   []byte
 	forecast        *billing.UsageForecastResponse
 	downgrade       *billing.DowngradeImpact
 	currentUsageErr error
@@ -94,6 +95,13 @@ func (m *mockUsageService) ExportUsageCSV(_ context.Context, _ string, _, _ time
 		return m.exportData, nil
 	}
 	return []byte("date,project,runs\n"), nil
+}
+
+func (m *mockUsageService) ExportUsagePDF(_ context.Context, _ string, _, _ time.Time) ([]byte, error) {
+	if m.exportPDFData != nil {
+		return m.exportPDFData, nil
+	}
+	return []byte("%PDF-1.4 mock"), nil
 }
 
 func (m *mockUsageService) GetSpendingLimit(_ context.Context, orgID string) (*billing.SpendingLimitResponse, error) {
@@ -1207,6 +1215,91 @@ func TestUpdateProjectBudget_MissingBody_BadRequest(t *testing.T) {
 	req := authedRequest(http.MethodPut, "/v1/project-budget", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestProjectBudget_NilEnforcer_WithProjectContext_Forbidden(t *testing.T) {
+	t.Parallel()
+	// Server with nil billing enforcer
+	srv := newUsageTestServer(t, nil, &mockUsageService{})
+	// Internal secret caller WITH project context
+	req := internalSecretRequestWithProject(http.MethodGet, "/v1/project-budget?project_id=proj-A", "", "proj-caller")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when enforcer is nil but caller has project context, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestProjectBudget_NilEnforcer_NoProjectContext_Forbidden(t *testing.T) {
+	t.Parallel()
+	// Server with nil billing enforcer
+	srv := newUsageTestServer(t, nil, &mockUsageService{})
+	// Internal secret caller without explicit X-Project-Id header.
+	// The auth middleware extracts project_id from query params as fallback,
+	// so the caller ends up with project context from the query string.
+	// With nil enforcer + project context, the guard returns an error.
+	req := authedRequest(http.MethodGet, "/v1/project-budget?project_id=proj-A", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when enforcer is nil (query param sets project context), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExportUsage_PDF_Format(t *testing.T) {
+	enforcer := &mockBillingEnforcer{}
+	usageSvc := &mockUsageService{
+		exportPDFData: []byte("%PDF-1.4 test content"),
+	}
+	srv := newUsageTestServer(t, enforcer, usageSvc)
+
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=pdf", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/pdf" {
+		t.Errorf("expected Content-Type application/pdf, got %s", ct)
+	}
+	if cd := w.Header().Get("Content-Disposition"); cd != "attachment; filename=usage_org-1.pdf" {
+		t.Errorf("expected Content-Disposition with .pdf filename, got %s", cd)
+	}
+	if !strings.HasPrefix(w.Body.String(), "%PDF-") {
+		t.Errorf("expected response body to start with %%PDF-, got %q", w.Body.String()[:20])
+	}
+}
+
+func TestExportUsage_DefaultFormat_CSV(t *testing.T) {
+	enforcer := &mockBillingEnforcer{}
+	usageSvc := &mockUsageService{}
+	srv := newUsageTestServer(t, enforcer, usageSvc)
+
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/csv" {
+		t.Errorf("expected Content-Type text/csv, got %s", ct)
+	}
+}
+
+func TestExportUsage_InvalidFormat(t *testing.T) {
+	enforcer := &mockBillingEnforcer{}
+	usageSvc := &mockUsageService{}
+	srv := newUsageTestServer(t, enforcer, usageSvc)
+
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=xml", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}

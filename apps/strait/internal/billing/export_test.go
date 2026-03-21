@@ -117,6 +117,102 @@ func TestExportCSV_WithRecords(t *testing.T) {
 	}
 }
 
+func TestExportPDF_Empty(t *testing.T) {
+	store := &mockExportStore{}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := ExportPDF(context.Background(), store, "org-1", period)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Errorf("expected PDF output to start with %%PDF-, got %q", string(data[:20]))
+	}
+	if len(data) < 100 {
+		t.Errorf("expected non-trivial PDF output, got %d bytes", len(data))
+	}
+}
+
+func TestExportPDF_WithRecords(t *testing.T) {
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{
+			{
+				ProjectID:        "proj-a",
+				PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+				RunsCount:        42,
+				ComputeCostMicro: 5000000,
+				AITokensTotal:    1000,
+				AICostMicro:      2000000,
+			},
+			{
+				ProjectID:        "proj-b",
+				PeriodDate:       time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC),
+				RunsCount:        10,
+				ComputeCostMicro: 1000000,
+				AITokensTotal:    500,
+				AICostMicro:      500000,
+			},
+		},
+	}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := ExportPDF(context.Background(), store, "org-1", period)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Errorf("expected PDF output to start with %%PDF-, got %q", string(data[:20]))
+	}
+
+	// PDF with records should be larger than an empty one.
+	emptyStore := &mockExportStore{}
+	emptyData, err := ExportPDF(context.Background(), emptyStore, "org-1", period)
+	if err != nil {
+		t.Fatalf("unexpected error generating empty PDF: %v", err)
+	}
+	if len(data) <= len(emptyData) {
+		t.Errorf("expected PDF with records (%d bytes) to be larger than empty PDF (%d bytes)", len(data), len(emptyData))
+	}
+}
+
+func TestExportPDF_NoSubscription(t *testing.T) {
+	// mockExportStore embeds mockBillingStore which returns ErrSubscriptionNotFound
+	// by default, so the PDF should still generate with "free" as the plan tier.
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{
+			{
+				ProjectID:        "proj-a",
+				PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+				RunsCount:        5,
+				ComputeCostMicro: 100000,
+				AITokensTotal:    50,
+				AICostMicro:      50000,
+			},
+		},
+	}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := ExportPDF(context.Background(), store, "org-no-sub", period)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Errorf("expected PDF output to start with %%PDF-, got %q", string(data[:20]))
+	}
+}
+
 func TestMicroToUSDString(t *testing.T) {
 	tests := []struct {
 		input    int64

@@ -440,6 +440,7 @@ type UsageService interface {
 	GetUsageForecast(ctx context.Context, orgID string) (*billing.UsageForecastResponse, error)
 	GetProjectCosts(ctx context.Context, orgID string, from, to time.Time) ([]billing.ProjectCostEntry, error)
 	ExportUsageCSV(ctx context.Context, orgID string, from, to time.Time) ([]byte, error)
+	ExportUsagePDF(ctx context.Context, orgID string, from, to time.Time) ([]byte, error)
 	GetSpendingLimit(ctx context.Context, orgID string) (*billing.SpendingLimitResponse, error)
 	SetSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
 	PreviewDowngrade(ctx context.Context, orgID string, targetTier domain.PlanTier) (*billing.DowngradeImpact, error)
