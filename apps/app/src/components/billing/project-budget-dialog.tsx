@@ -17,8 +17,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@strait/ui/components/select";
-import { useState } from "react";
-import { useSetProjectBudget } from "@/hooks/billing/use-project-budget";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import {
+  projectBudgetQueryOptions,
+  useSetProjectBudget,
+} from "@/hooks/billing/use-project-budget";
 
 type ProjectBudgetDialogProps = {
   open: boolean;
@@ -37,11 +41,23 @@ export function ProjectBudgetDialog({
   currentBudgetMicro,
   currentAction,
 }: ProjectBudgetDialogProps) {
+  const { data: budgetData } = useQuery({
+    ...projectBudgetQueryOptions(projectId),
+    enabled: open,
+  });
+  const liveBudgetMicro = budgetData?.monthly_budget_microusd ?? currentBudgetMicro;
+  const liveBudgetAction = budgetData?.budget_action ?? currentAction;
+
   const initialBudget =
-    currentBudgetMicro > 0 ? String(currentBudgetMicro / 1_000_000) : "";
+    liveBudgetMicro > 0 ? String(liveBudgetMicro / 1_000_000) : "";
   const [budgetUsd, setBudgetUsd] = useState(initialBudget);
-  const [action, setAction] = useState(currentAction || "notify");
+  const [action, setAction] = useState(liveBudgetAction || "notify");
   const mutation = useSetProjectBudget();
+
+  useEffect(() => {
+    setBudgetUsd(liveBudgetMicro > 0 ? String(liveBudgetMicro / 1_000_000) : "");
+    setAction(liveBudgetAction || "notify");
+  }, [liveBudgetMicro, liveBudgetAction]);
 
   const handleSave = () => {
     if (!budgetUsd) {

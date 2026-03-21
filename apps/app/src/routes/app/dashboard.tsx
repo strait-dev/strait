@@ -28,6 +28,7 @@ import {
   statsQueryOptions as statsQueryOptionsFn,
 } from "@/hooks/api/use-dashboard";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { projectBudgetQueryOptions } from "@/hooks/billing/use-project-budget";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { formatMicroUsd } from "@/lib/format";
 import {
@@ -186,17 +187,17 @@ function DashboardContent({
 
 function ProjectCostCard({ activeProjectId }: { activeProjectId: string }) {
   const { data: costs } = useQuery(projectCostsQueryOptions());
+  const { data: budget } = useQuery(projectBudgetQueryOptions(activeProjectId));
   const project = costs?.find((c) => c.project_id === activeProjectId);
 
   if (!project) {
     return null;
   }
 
-  const budget = (project as { monthly_budget_microusd?: number })
-    .monthly_budget_microusd;
-  const hasBudget = budget !== undefined && budget > 0;
+  const budgetMicro = budget?.monthly_budget_microusd;
+  const hasBudget = budgetMicro !== undefined && budgetMicro > 0;
   const budgetPct = hasBudget
-    ? Math.min((project.total_microusd / budget) * 100, 100)
+    ? Math.min((project.total_microusd / budgetMicro) * 100, 100)
     : 0;
 
   return (
@@ -234,7 +235,7 @@ function ProjectCostCard({ activeProjectId }: { activeProjectId: string }) {
           <div className="mt-3">
             <div className="mb-1 flex items-center justify-between">
               <p className="text-muted-foreground text-xs">
-                Budget: {formatMicroUsd(budget)}
+                Budget: {formatMicroUsd(budgetMicro ?? 0)}
               </p>
               <p className="text-muted-foreground text-xs tabular-nums">
                 {budgetPct.toFixed(0)}%
