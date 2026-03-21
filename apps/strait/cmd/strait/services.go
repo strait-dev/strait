@@ -476,7 +476,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		exec.Subscribe(worker.MetricsSubscriber(metrics))
 	}
 	if pub != nil {
-		exec.Subscribe(worker.PubSubSubscriber(pub))
+		if metrics != nil {
+			exec.Subscribe(worker.PubSubSubscriber(pub, metrics.PubSubPublishErrors))
+		} else {
+			exec.Subscribe(worker.PubSubSubscriber(pub))
+		}
 	}
 	if chExporter != nil {
 		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries))

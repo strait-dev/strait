@@ -104,6 +104,9 @@ type Metrics struct {
 
 	// Log drain metrics.
 	LogDrainEventsTotal metric.Int64Counter
+
+	// Pub/sub metrics.
+	PubSubPublishErrors metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -612,6 +615,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total log drain events by status"),
 		metric.WithUnit("1"),
 	)
+	pubsubPublishErrors, _ := meter.Int64Counter(
+		"strait_pubsub_publish_errors_total",
+		metric.WithDescription("Total pub/sub publish failures"),
+		metric.WithUnit("1"),
+	)
 
 	m := &Metrics{
 		RunTransitions:              runTransitions,
@@ -674,6 +682,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		ClickHouseFlushFailures:     clickhouseFlushFailures,
 		NotificationDeliveriesTotal: notificationDeliveriesTotal,
 		LogDrainEventsTotal:         logDrainEventsTotal,
+		PubSubPublishErrors:         pubsubPublishErrors,
 	}
 
 	slog.Info("prometheus metrics enabled")

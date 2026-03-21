@@ -8,10 +8,16 @@ import (
 	"time"
 
 	"strait/internal/pubsub"
+
+	"go.opentelemetry.io/otel/metric"
 )
 
 // PubSubSubscriber publishes run lifecycle events to Redis pub/sub channels.
-func PubSubSubscriber(pub pubsub.Publisher) RunEventSubscriber {
+func PubSubSubscriber(pub pubsub.Publisher, errorCounter ...metric.Int64Counter) RunEventSubscriber {
+	var errCounter metric.Int64Counter
+	if len(errorCounter) > 0 {
+		errCounter = errorCounter[0]
+	}
 	return func(ctx context.Context, event RunLifecycleEvent) {
 		if event.Run == nil {
 			return
@@ -42,6 +48,9 @@ func PubSubSubscriber(pub pubsub.Publisher) RunEventSubscriber {
 				"channel", channel,
 				"error", err,
 			)
+			if errCounter != nil {
+				errCounter.Add(ctx, 1)
+			}
 		}
 	}
 }
