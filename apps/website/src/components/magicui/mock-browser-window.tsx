@@ -17,7 +17,7 @@ const MockBrowserWindow = ({
 }: MockBrowserWindowProps) => (
   <div
     className={cn(
-      "overflow-hidden rounded-2xl border border-border/60 bg-card",
+      "overflow-hidden rounded-2xl border border-border/60 bg-muted/40",
       className
     )}
   >

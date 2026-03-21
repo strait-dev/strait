@@ -85,12 +85,15 @@ const LandingPage = () => {
       <Suspense fallback={null}>
         <FeatureBentoGrid />
       </Suspense>
+      <div className="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
       <Suspense fallback={null}>
         <CodeExampleSection />
       </Suspense>
+      <div className="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
       <Suspense fallback={null}>
         <ComparisonSection />
       </Suspense>
+      <div className="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
       <PricingTeaser />
       <Suspense fallback={null}>
         <PricingComparison />
