@@ -1,142 +1,169 @@
-"use client";
-
-import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
+import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
-import Link from "next/link";
-import { useState } from "react";
-
+import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
-import MockBrowserWindow from "@/components/magicui/mock-browser-window.tsx";
-import TerminalAnimation from "@/components/magicui/terminal-animation.tsx";
-import { dashboardHref } from "@/lib/urls.ts";
 
-const WITHOUT_CODE = `// redis-queue.js
-const queue = new Bull('process-order');
-queue.process(async (job) => {
-  // custom retry logic...
-  // manual error handling...
-  // ad-hoc workflow state...
-  // scattered observability...
-});
+// Homepage shows the 3 most recognizable competitors; full list lives in compare/data.ts
+const COMPETITORS = ["Strait", "Trigger.dev", "Inngest", "Temporal"] as const;
 
-// cron-service.js
-cron.schedule('*/5 * * * *', checkStuckJobs);
+const ROWS = [
+  {
+    feature: "Language SDKs",
+    values: [
+      "5 (TS, Py, Go, Rb, Rust)",
+      "1 (TypeScript)",
+      "4 (TS, Py, Go, Kt)",
+      "7 (Go, Java, PHP, Py, TS, .NET, Rb)",
+    ],
+  },
+  {
+    feature: "Self-hosting",
+    values: ["Simple", "Docker/K8s", "Available", "Complex"],
+  },
+  {
+    feature: "AI cost tracking",
+    values: ["Built-in per-run budgets", "No", "Limited", "No"],
+  },
+  {
+    feature: "License",
+    values: ["Apache 2.0", "Apache 2.0", "SSPL (server)", "MIT"],
+  },
+  {
+    feature: "Execution model",
+    values: [
+      "Containers with warm pools",
+      "Serverless",
+      "Serverless",
+      "Bring your own",
+    ],
+  },
+  {
+    feature: "Workflow approvals",
+    values: [
+      "Built-in gates",
+      "wait.forToken()",
+      "waitForEvent()",
+      "Via Signals",
+    ],
+  },
+] as const;
 
-// webhook-handler.js
-app.post('/webhook', customRetryWrapper(handler));
-
-// monitoring.js
-setupCustomMetrics(prometheus, redis, postgres);`;
-
-const WITH_CODE = `// workflow.ts
-await strait.jobs.create({
-  name: "process-order",
-  workflowId: "checkout-flow",
-  retries: 3,
-  backoff: "exponential",
-  budget: "$12/run",
-})
-
-// That's it. Retries, DLQ, events,
-// health scoring, and streaming are built in.`;
-
-const METRICS = [
-  { label: "Lines of infra code", without: 2400, with: 120, unit: "" },
-  { label: "Systems to monitor", without: 5, with: 1, unit: "" },
-  { label: "MTTR", without: 45, with: 3, unit: "min" },
-];
-
-const ComparisonSection = () => {
-  const [showStrait, setShowStrait] = useState(false);
-
-  return (
-    <section className="border-border/40 border-y py-20 sm:py-28">
-      <Shell variant="wide">
+const ComparisonSection = () => (
+  <section className="border-border/40 border-y py-16 sm:py-20">
+    <Shell variant="wide">
+      <Reveal variant="blur">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
-            <span className="text-foreground">
-              2,400 lines of glue vs. 10 lines of Strait.
-            </span>{" "}
-            <span className="text-muted-foreground">
-              Toggle to see what your infra looks like before and after.
-            </span>
+            How Strait compares.
           </h2>
+          <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
+            More SDKs, simpler self-hosting, and AI cost tracking that
+            competitors don&apos;t offer.
+          </p>
         </div>
+      </Reveal>
 
-        {/* Toggle */}
-        <div className="mb-8 flex items-center justify-center gap-2">
-          <button
-            className={`rounded-full px-4 py-2 font-medium text-sm transition-colors ${
-              showStrait
-                ? "bg-muted text-muted-foreground"
-                : "bg-foreground text-background"
-            }`}
-            onClick={() => setShowStrait(false)}
-            type="button"
-          >
-            Without Strait
-          </button>
-          <button
-            className={`rounded-full px-4 py-2 font-medium text-sm transition-colors ${
-              showStrait
-                ? "bg-foreground text-background"
-                : "bg-muted text-muted-foreground"
-            }`}
-            onClick={() => setShowStrait(true)}
-            type="button"
-          >
-            With Strait
-          </button>
+      {/* Desktop table */}
+      <Reveal className="hidden md:block" delay={0.1} spring>
+        <div className="overflow-hidden rounded-2xl border border-border/40">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-border/40 border-b bg-muted/30">
+                <th
+                  className="px-6 py-4 text-left font-medium text-muted-foreground"
+                  scope="col"
+                >
+                  Feature
+                </th>
+                {COMPETITORS.map((name, i) => (
+                  <th
+                    className={`px-6 py-4 text-left font-semibold ${
+                      i === 0 ? "bg-primary/5 text-primary" : "text-foreground"
+                    }`}
+                    key={name}
+                    scope="col"
+                  >
+                    {name}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {ROWS.map((row) => (
+                <tr
+                  className="border-border/40 border-b transition-colors last:border-b-0 hover:bg-muted/20"
+                  key={row.feature}
+                >
+                  <th
+                    className="px-6 py-4 text-left font-medium text-foreground"
+                    scope="row"
+                  >
+                    {row.feature}
+                  </th>
+                  {row.values.map((value, i) => (
+                    <td
+                      className={`px-6 py-4 ${
+                        i === 0
+                          ? "bg-primary/5 font-medium text-foreground"
+                          : "text-muted-foreground"
+                      }`}
+                      key={`${row.feature}-${COMPETITORS[i]}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {i === 0 && (
+                          <HugeiconsIcon
+                            className="size-4 shrink-0 text-primary"
+                            icon={CheckmarkCircle02Icon}
+                          />
+                        )}
+                        {value}
+                      </div>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+      </Reveal>
 
-        {/* Code comparison */}
-        <MockBrowserWindow url={showStrait ? "workflow.ts" : "infrastructure/"}>
-          {showStrait ? (
-            <div className="p-6">
-              <TerminalAnimation
-                className="text-success/80 leading-relaxed"
-                code={WITH_CODE}
-                typingSpeed={25}
-              />
-            </div>
-          ) : (
-            <pre className="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
-              <code className="text-muted-foreground/70">{WITHOUT_CODE}</code>
-            </pre>
-          )}
-        </MockBrowserWindow>
-
-        {/* Metrics */}
-        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {METRICS.map((metric) => {
-            const value = showStrait ? metric.with : metric.without;
-            return (
-              <div
-                className="rounded-xl border border-border/60 bg-card p-5 text-center"
-                key={metric.label}
-              >
-                <p className="font-semibold text-3xl text-foreground tabular-nums transition-opacity duration-300">
-                  {value}
-                  {metric.unit}
-                </p>
-                <p className="mt-1 text-muted-foreground text-sm">
-                  {metric.label}
-                </p>
+      {/* Mobile cards */}
+      <div className="flex flex-col gap-6 md:hidden">
+        {COMPETITORS.slice(1).map((competitor) => (
+          <Reveal key={competitor} spring>
+            <div className="rounded-2xl border border-border/40 bg-card/50 p-5">
+              <h3 className="mb-4 font-semibold text-foreground">
+                Strait vs. {competitor}
+              </h3>
+              <div className="flex flex-col gap-3">
+                {ROWS.map((row) => {
+                  const competitorIdx = COMPETITORS.indexOf(competitor);
+                  return (
+                    <div
+                      className="flex min-w-0 items-start justify-between gap-4 text-sm"
+                      key={`${competitor}-${row.feature}`}
+                    >
+                      <span className="shrink-0 text-muted-foreground">
+                        {row.feature}
+                      </span>
+                      <div className="min-w-0 text-right">
+                        <div className="truncate font-medium text-primary">
+                          {row.values[0]}
+                        </div>
+                        <div className="truncate text-muted-foreground/60 text-xs">
+                          vs. {row.values[competitorIdx]}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-10 flex justify-center">
-          <Button render={<Link href={dashboardHref("/login")} />}>
-            Try it free
-            <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
-          </Button>
-        </div>
-      </Shell>
-    </section>
-  );
-};
+            </div>
+          </Reveal>
+        ))}
+      </div>
+    </Shell>
+  </section>
+);
 
 export default ComparisonSection;

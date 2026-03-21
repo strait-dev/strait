@@ -1,195 +1,220 @@
-import { PLANS } from "@strait/billing/products";
+import { PLAN_KEYS, PLANS } from "@strait/billing/products";
+
+import { dashboardHref } from "@/lib/urls.ts";
 
 import PricingComparisonClient from "./pricing-comparison.client.tsx";
 import type {
   PlanKey,
+  PlanSummary,
   PricingComparisonClientProps,
   PricingComparisonHeader,
   PricingSection,
   PricingSectionRow,
 } from "./pricing-comparison.types.ts";
 
-type FeatureRowDefinition =
-  | {
-      label: string;
-      category: string;
-      type: "text";
-      match: (feature: string) => boolean;
-      format?: (value: string) => string;
-      hidden?: boolean;
-    }
-  | {
-      label: string;
-      category: string;
-      type: "boolean";
-      match: (feature: string) => boolean;
-      hidden?: boolean;
-    };
-
-const plansOrder: PlanKey[] = ["personal", "pro"];
-
-const normalizeFeatures = (features: readonly string[]): string[] =>
-  features.map((feature) => feature.trim());
-
-const planDefinitions = {
-  personal: {
-    name: PLANS.personal.name,
-    highlight: false,
-    monthlyPrice: PLANS.personal.prices.monthly,
-    yearlyPrice: PLANS.personal.prices.yearly,
-    features: normalizeFeatures(PLANS.personal.features),
-  },
-  pro: {
-    name: PLANS.pro.name,
-    highlight: true,
-    monthlyPrice: PLANS.pro.prices.monthly,
-    yearlyPrice: PLANS.pro.prices.yearly,
-    features: normalizeFeatures(PLANS.pro.features),
-  },
-} satisfies Record<
-  PlanKey,
-  {
-    name: string;
-    highlight: boolean;
-    monthlyPrice: number;
-    yearlyPrice: number;
-    features: string[];
+function formatLimit(value: number | null): string {
+  if (value === null) {
+    return "Unlimited";
   }
->;
+  return value.toLocaleString("en-US");
+}
 
-const contains = (keyword: string) => (feature: string) =>
-  feature.toLowerCase().includes(keyword);
+function formatRbac(value: "none" | "basic" | "full"): string {
+  if (value === "none") {
+    return "None";
+  }
+  if (value === "basic") {
+    return "Basic";
+  }
+  return "Full";
+}
 
-const FEATURE_ROWS: FeatureRowDefinition[] = [
-  {
-    label: "Sessions per month",
-    category: "Writing & AI",
-    type: "text",
-    match: (feature) => feature.toLowerCase().includes("sessions/month"),
-  },
-  {
-    label: "Messages per session",
-    category: "Writing & AI",
-    type: "text",
-    match: contains("messages per session"),
-  },
-  {
-    label: "Style profiles",
-    category: "Writing & AI",
-    type: "text",
-    match: (feature) => feature.toLowerCase().includes("style profile"),
-  },
-  {
-    label: "Workspaces",
-    category: "Organization",
-    type: "text",
-    match: (feature) => feature.toLowerCase().includes("workspace"),
-  },
-  {
-    label: "Languages",
-    category: "Organization",
-    type: "text",
-    match: (feature) => feature.toLowerCase().includes("language"),
-  },
-  {
-    label: "Support",
-    category: "Support",
-    type: "text",
-    match: contains("support"),
-  },
-  {
-    label: "Early access",
-    category: "Support",
-    type: "boolean",
-    match: contains("early access"),
-  },
-];
+function supportLevel(key: PlanKey): string {
+  switch (key) {
+    case "free":
+      return "Community";
+    case "starter":
+      return "Email";
+    case "pro":
+      return "Priority";
+    case "enterprise":
+      return "Dedicated";
+    default:
+      return "Community";
+  }
+}
 
-const buildPricingData = (
-  header: PricingComparisonHeader
-): PricingComparisonClientProps => {
-  const plans = plansOrder.map((key) => ({
-    key,
-    name: planDefinitions[key].name,
-    highlight: planDefinitions[key].highlight,
-    prices: {
-      monthly: planDefinitions[key].monthlyPrice,
-      yearly: planDefinitions[key].yearlyPrice,
+function buildSections(): PricingSection[] {
+  const keys = PLAN_KEYS as readonly PlanKey[];
+
+  const row = (
+    label: string,
+    type: "text" | "boolean",
+    getter: (key: PlanKey) => string | boolean | null,
+    tooltip?: string
+  ): PricingSectionRow => ({
+    label,
+    type,
+    values: Object.fromEntries(keys.map((k) => [k, getter(k)])) as Record<
+      PlanKey,
+      string | boolean | null
+    >,
+    ...(tooltip ? { tooltip } : {}),
+  });
+
+  return [
+    {
+      name: "Scale",
+      rows: [
+        row(
+          "Organizations",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.organizations),
+          "Separate billing entities. Each org has its own subscription, members, and projects."
+        ),
+        row(
+          "Projects per org",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.projectsPerOrg),
+          "Logical groupings for your jobs and workflows within an organization."
+        ),
+        row(
+          "Members per org",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.membersPerOrg),
+          "Team members who can access the organization's projects and resources."
+        ),
+        row(
+          "Runs per day",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.runsPerDay),
+          "Maximum number of job executions across all projects in a 24-hour window."
+        ),
+        row(
+          "Concurrent runs",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.concurrentRuns),
+          "How many jobs can execute simultaneously across the organization."
+        ),
+        row(
+          "Retention",
+          "text",
+          (k) => {
+            const days = PLANS[k].limits.retentionDays;
+            if (days === null) {
+              return "Custom";
+            }
+            return `${days} days`;
+          },
+          "How long job logs, run history, and execution data are stored."
+        ),
+        row(
+          "Regions",
+          "text",
+          (k) => PLANS[k].limits.regions,
+          "Geographic locations where your jobs can execute. More regions reduce latency for global teams."
+        ),
+      ],
     },
-    features: planDefinitions[key].features,
-  }));
-
-  const sectionsMap = new Map<string, PricingSectionRow[]>();
-
-  for (const row of FEATURE_ROWS) {
-    const entries = plansOrder.reduce<Record<PlanKey, string | boolean | null>>(
-      (acc, planKey) => {
-        const featureMatch = planDefinitions[planKey].features.find((feature) =>
-          row.match(feature)
-        );
-
-        if (row.type === "text") {
-          acc[planKey] = (() => {
-            if (!featureMatch) {
+    {
+      name: "AI & Compute",
+      rows: [
+        row(
+          "Compute credit",
+          "text",
+          (k) => PLANS[k].computeCredit,
+          "Monthly infrastructure budget for managed execution. Credit equals your subscription price on paid plans."
+        ),
+        row(
+          "Spending limits",
+          "text",
+          (k) => PLANS[k].limits.spendingLimits,
+          "Controls on compute spending. Hard cap prevents overage; configurable lets you set your own threshold."
+        ),
+        row(
+          "Overage per 1,000 runs",
+          "text",
+          (k) => {
+            const cents = PLANS[k].limits.overagePerThousandRuns;
+            if (cents === null) {
               return null;
             }
-            if (row.format) {
-              return row.format(featureMatch);
-            }
-            return featureMatch;
-          })();
-        } else {
-          acc[planKey] = Boolean(featureMatch);
-        }
+            return `$${(cents / 100).toFixed(2)}`;
+          },
+          "Cost per additional 1,000 runs once your included compute credit is exhausted."
+        ),
+      ],
+    },
+    {
+      name: "Governance",
+      rows: [
+        row(
+          "RBAC",
+          "text",
+          (k) => formatRbac(PLANS[k].governance.rbac),
+          "Role-Based Access Control. Basic provides predefined roles; Full allows custom roles and granular permissions."
+        ),
+        row(
+          "Audit logs",
+          "boolean",
+          (k) => PLANS[k].governance.auditLogs,
+          "Immutable log of all actions taken within the organization for compliance and debugging."
+        ),
+        row(
+          "SSO/SAML",
+          "boolean",
+          (k) => PLANS[k].governance.ssoSaml,
+          "Single Sign-On via SAML 2.0 for centralized authentication through your identity provider."
+        ),
+      ],
+    },
+    {
+      name: "Support",
+      rows: [
+        row(
+          "Support level",
+          "text",
+          (k) => supportLevel(k),
+          "How you get help. Community is forum-based. Email is 1-business-day SLA. Priority is 4-hour SLA. Dedicated is a named contact."
+        ),
+      ],
+    },
+  ];
+}
 
-        return acc;
+function buildPlans(): PlanSummary[] {
+  return PLAN_KEYS.map((key) => {
+    const plan = PLANS[key];
+    return {
+      key: key as PlanKey,
+      name: plan.name,
+      highlight: plan.highlighted,
+      badge: plan.badge,
+      prices: plan.prices,
+      cta: {
+        label: plan.cta.label,
+        href:
+          key === "enterprise" ? plan.cta.href : dashboardHref(plan.cta.href),
       },
-      {
-        personal: row.type === "text" ? null : false,
-        pro: row.type === "text" ? null : false,
-      }
-    );
-
-    if (!sectionsMap.has(row.category)) {
-      sectionsMap.set(row.category, []);
-    }
-
-    if (row.hidden) {
-      continue;
-    }
-
-    sectionsMap.get(row.category)?.push({
-      label: row.label,
-      type: row.type,
-      values: entries,
-    });
-  }
-
-  const sections: PricingSection[] = Array.from(sectionsMap.entries())
-    .filter(([, rows]) => rows.length > 0)
-    .map(([name, rows]) => ({
-      name,
-      rows,
-    }));
-
-  return {
-    header,
-    plans,
-    sections,
-  };
-};
+    };
+  });
+}
 
 const PricingComparison = () => {
   const header: PricingComparisonHeader = {
     badge: "Compare",
-    title: "Compare plans in detail",
+    title: "Compare every feature",
     description:
-      "See exactly what changes between Personal and Pro across writing limits, organization, and support.",
+      "All plans include every core feature. Paid tiers add scale, governance, and priority support.",
   };
 
-  const pricingData = buildPricingData(header);
+  const data: PricingComparisonClientProps = {
+    header,
+    plans: buildPlans(),
+    sections: buildSections(),
+  };
 
-  return <PricingComparisonClient {...pricingData} />;
+  return <PricingComparisonClient {...data} />;
 };
 
 export default PricingComparison;

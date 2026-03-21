@@ -59,8 +59,8 @@ function DeviceAuthPage() {
   if (!code) {
     return (
       <AuthLayout
-        title="Device Authorization"
         description="Enter the code shown in your terminal to authorize the CLI."
+        title="Device Authorization"
       >
         <p className="text-center text-muted-foreground text-sm">
           No authorization code provided. Run{" "}
@@ -74,7 +74,9 @@ function DeviceAuthPage() {
   }
 
   async function handleApprove() {
-    if (!code) { return; }
+    if (!code) {
+      return;
+    }
     setStatus("approving");
     setError(null);
 
@@ -92,8 +94,8 @@ function DeviceAuthPage() {
   if (status === "approved") {
     return (
       <AuthLayout
-        title="Device Authorized"
         description="You can close this window and return to your terminal."
+        title="Device Authorized"
       >
         <div className="flex flex-col items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
@@ -123,8 +125,8 @@ function DeviceAuthPage() {
 
   return (
     <AuthLayout
-      title="Authorize CLI"
       description="A device is requesting access to your Strait account."
+      title="Authorize CLI"
     >
       <div className="flex flex-col items-center gap-4">
         <div className="flex flex-col items-center gap-1">

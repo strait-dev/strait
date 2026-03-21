@@ -275,7 +275,7 @@ const PipelineDemo = () => {
     <section className="py-20 sm:py-28" ref={containerRef}>
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
-          <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
+          <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             <span className="text-foreground">See every run, live.</span>{" "}
             <span className="text-muted-foreground">
               Watch retries, approval gates, and fan-out execute step by step.
@@ -317,7 +317,7 @@ const PipelineDemo = () => {
                     key={node.id}
                   >
                     <div
-                      className={`rounded-lg border px-3 py-2 text-center font-medium text-xs transition-all duration-400 sm:px-4 sm:py-2.5 sm:text-sm ${statusColors[status]}`}
+                      className={`rounded-lg border px-3 py-2 text-center font-medium text-xs transition-all duration-150 sm:px-4 sm:py-2.5 sm:text-sm ${statusColors[status]}`}
                     >
                       {node.label}
                       {status === "approval" && (

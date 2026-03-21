@@ -1,9 +1,10 @@
-import { formatPriceWithCents, PLANS } from "@strait/billing/products";
+import { formatPlanPrice, PLANS } from "@strait/billing/products";
 import { Suspense } from "react";
 
 import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
 import { StaticPricingTable } from "@/app/(landing)/components/pricing/static-pricing-table.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import PricingComparison from "@/components/pricing/pricing-comparison.tsx";
 import PricingFaq, {
   PRICING_FAQ_ITEMS,
 } from "@/components/pricing/pricing-faq.tsx";
@@ -19,7 +20,7 @@ import {
 export const metadata = generatePageMetadata({
   title: "Pricing",
   description:
-    "Simple, transparent pricing for production-grade job orchestration. Two plans, no hidden fees, cancel anytime.",
+    "Four plans from free to enterprise. All core features included. Pay only for scale.",
   path: "/pricing",
   keywords: [
     "Strait pricing",
@@ -31,8 +32,8 @@ export const metadata = generatePageMetadata({
 });
 
 export default function PricingPage() {
-  const personalYearly = formatPriceWithCents(PLANS.personal.prices.yearly);
-  const proYearly = formatPriceWithCents(PLANS.pro.prices.yearly);
+  const starterMonthly = formatPlanPrice(PLANS.starter, "yearly");
+  const proMonthly = formatPlanPrice(PLANS.pro, "yearly");
 
   const softwareAppSchema = getSoftwareApplicationSchema();
   const pricingProductsSchema = getPricingProductsSchema();
@@ -52,28 +53,32 @@ export default function PricingPage() {
         <Shell variant="wide">
           <div className="mx-auto max-w-3xl text-center">
             <span className="kicker">Pricing</span>
-            <h1 className="mt-6 text-balance text-4xl leading-[1.12] tracking-tight sm:text-5xl lg:text-6xl">
-              <span className="text-foreground">
-                Simple pricing, built for reliable orchestration.
-              </span>{" "}
-              <span className="text-muted-foreground">
-                Two plans. Pick the one that fits.
-              </span>
+            <h1 className="mt-6 text-balance text-4xl leading-[1.12] sm:text-5xl lg:text-6xl">
+              Simple pricing, built for reliable orchestration.
             </h1>
-            <p className="mt-6 text-pretty text-base text-muted-foreground/70 leading-relaxed sm:text-lg">
-              No hidden fees. Cancel anytime. Everything you need to run jobs,
-              workflows, and operational controls in one platform.
+            <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
+              Start free with all core features. Scale when you are ready.
+            </p>
+            <p className="mt-3 text-pretty text-muted-foreground/70 text-sm leading-relaxed sm:text-base">
+              No hidden fees. Cancel anytime. Self-host or let us run it for
+              you.
             </p>
 
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5">
-              <span className="rounded-full border border-border/60 bg-card px-4 py-1.5 text-muted-foreground text-xs sm:text-sm">
-                Personal from {personalYearly}/mo
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+              <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs sm:px-4 sm:py-1.5 sm:text-sm">
+                Free $0
               </span>
-              <span className="rounded-full border border-border/60 bg-card px-4 py-1.5 text-muted-foreground text-xs sm:text-sm">
-                Pro from {proYearly}/mo
+              <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs sm:px-4 sm:py-1.5 sm:text-sm">
+                Starter from {starterMonthly}/mo
               </span>
-              <span className="rounded-full border border-foreground/10 bg-muted/60 px-4 py-1.5 font-medium text-foreground text-xs sm:text-sm">
-                Save 20% yearly
+              <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs sm:px-4 sm:py-1.5 sm:text-sm">
+                Pro from {proMonthly}/mo
+              </span>
+              <span className="hidden rounded-full border border-border/60 bg-card px-4 py-1.5 text-muted-foreground text-sm sm:inline-flex">
+                Enterprise Custom
+              </span>
+              <span className="rounded-full border border-foreground/10 bg-muted/60 px-3 py-1 font-medium text-foreground text-xs sm:px-4 sm:py-1.5 sm:text-sm">
+                Save ~17% annually
               </span>
             </div>
           </div>
@@ -83,19 +88,19 @@ export default function PricingPage() {
       <section className="pb-20 sm:pb-28">
         <Shell variant="wide">
           <div className="mx-auto max-w-3xl">
-            <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
-              <span className="text-foreground">
-                Pick the plan that matches your workload.
-              </span>{" "}
-              <span className="text-muted-foreground">
-                Both plans include the core job runtime.
-              </span>
+            <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
+              Every plan includes all core features.
             </h2>
+            <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
+              Pay only for scale and governance.
+            </p>
           </div>
 
           <StaticPricingTable />
         </Shell>
       </section>
+
+      <PricingComparison />
 
       <Suspense fallback={null}>
         <PricingFaq />

@@ -18,6 +18,7 @@ const Logo = memo(() => (
       alt={siteConfig.logo.alt}
       className="h-8 w-auto"
       height={siteConfig.logo.height}
+      priority
       src={siteConfig.logo.src}
       width={siteConfig.logo.width}
     />
@@ -56,7 +57,7 @@ const Header = () => {
               <Button
                 render={<Link href={dashboardHref("/login")} />}
                 size="default"
-                variant="ghost"
+                variant="outline"
               >
                 Sign in
               </Button>

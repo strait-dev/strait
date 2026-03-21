@@ -40,7 +40,7 @@ const PageHero = ({
 
       <Shell variant="wide">
         <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
-          <h1 className="mt-6 text-balance text-4xl text-foreground tracking-tight sm:text-5xl lg:text-6xl">
+          <h1 className="mt-6 text-balance text-4xl text-foreground sm:text-5xl lg:text-6xl">
             {title}{" "}
             {highlightedTitle ? (
               <span className="mt-2 block text-foreground sm:mt-0 sm:inline sm:whitespace-nowrap">

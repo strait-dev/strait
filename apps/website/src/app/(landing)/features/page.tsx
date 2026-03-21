@@ -1,17 +1,15 @@
 import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 
+import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
   StaggerGroup,
   StaggerItem,
 } from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
-import FlickeringGrid from "@/components/magicui/flickering-grid.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
-import { dashboardHref } from "@/lib/urls.ts";
 import { FEATURE_PAGES } from "./data.ts";
 
 export const metadata = generatePageMetadata({
@@ -31,7 +29,6 @@ export default function FeaturesPage() {
   return (
     <>
       <section className="relative isolate overflow-hidden pt-32 pb-16 sm:pt-40 sm:pb-20">
-        <div className="orchestration-grid absolute inset-0 -z-10 opacity-[0.08]" />
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_transparent,_var(--background)_70%)]" />
 
         <Shell variant="wide">
@@ -84,30 +81,11 @@ export default function FeaturesPage() {
         </Shell>
       </section>
 
-      <section className="relative border-border/40 border-t bg-primary py-16 sm:py-20">
-        <FlickeringGrid
-          color="rgba(255,255,255,0.6)"
-          flickerChance={0.2}
-          maxOpacity={0.15}
-        />
-        <Shell className="relative z-10 text-center" variant="wide">
-          <h2 className="text-2xl text-primary-foreground tracking-tight sm:text-3xl">
-            Ready to deploy your first workflow?
-          </h2>
-          <p className="mt-4 text-primary-foreground/70">
-            Zero-broker, production-grade from the first run.
-          </p>
-          <div className="mt-8">
-            <Button
-              render={<Link href={dashboardHref("/login")} />}
-              variant="outline"
-            >
-              Get started
-              <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
-            </Button>
-          </div>
-        </Shell>
-      </section>
+      <CTA
+        description="Zero-broker, production-grade from the first run."
+        heading="Ready to deploy your first workflow?"
+        showInstallSnippet={false}
+      />
     </>
   );
 }

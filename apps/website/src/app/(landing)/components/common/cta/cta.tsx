@@ -1,71 +1,83 @@
-"use client";
-
 import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
-import { useRef } from "react";
 
-import SmoothCursor from "@/components/cultui/smooth-cursor.tsx";
-import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
-import Particles from "@/components/magicui/particles.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
-const CTA = () => {
+type CTAProps = {
+  heading?: string;
+  description?: string;
+  showInstallSnippet?: boolean;
+};
+
+const CTA = ({
+  heading = "Run your first job in 5 minutes",
+  description = "Free tier included. No credit card required.",
+  showInstallSnippet = true,
+}: CTAProps) => {
   const headingId = "cta-title";
-  const sectionRef = useRef<HTMLElement>(null);
 
   return (
     <section
       aria-labelledby={headingId}
-      className="relative border-border/40 border-y bg-primary py-20 sm:py-28"
-      ref={sectionRef}
+      className="relative overflow-hidden border-border/40 border-y py-24 sm:py-32"
     >
-      <SmoothCursor containerRef={sectionRef} />
-      <div className="orchestration-grid pointer-events-none absolute inset-0 opacity-[0.12]" />
-      <MeshGradientBg />
-      <Particles
-        className="pointer-events-none absolute inset-0"
-        color="var(--background)"
-        quantity={80}
-        size={0.4}
-        staticity={40}
-      />
+      <div className="absolute inset-0 -z-10 bg-primary/10" />
 
       <Shell className="relative z-10" variant="wide">
-        <div className="flex flex-col items-center text-center">
+        <div className="max-w-3xl">
           <Reveal variant="blur">
             <h2
-              className="max-w-3xl text-balance text-2xl text-primary-foreground leading-[1.1] sm:text-3xl lg:text-4xl"
+              className="text-balance text-2xl leading-[1.1] sm:text-3xl lg:text-4xl"
               id={headingId}
             >
-              Ship your first workflow in 10 minutes.
+              {heading}
             </h2>
           </Reveal>
 
-          <Reveal delay={0.1}>
-            <p className="mt-6 max-w-2xl text-pretty text-base text-primary-foreground/70 leading-relaxed sm:text-lg">
-              Connect your Postgres, define a workflow, and trigger your first
-              run. No broker, no config files, no vendor lock-in.
-            </p>
-          </Reveal>
+          {showInstallSnippet && (
+            <Reveal delay={0.1}>
+              <div className="mt-8 inline-block overflow-hidden rounded-lg border border-border/40 bg-muted/30 px-6 py-3">
+                <pre className="font-mono text-foreground/80 text-sm">
+                  <code>
+                    npm install @strait/ts{" "}
+                    <span className="text-muted-foreground/50">
+                      # or pip, go get, gem, cargo
+                    </span>
+                  </code>
+                </pre>
+              </div>
+            </Reveal>
+          )}
 
-          <Reveal delay={0.2} spring>
-            <div className="mt-10 flex flex-col items-center gap-4">
+          <Reveal delay={showInstallSnippet ? 0.2 : 0.1} spring>
+            <div className="mt-10 flex flex-col gap-4 sm:flex-row">
               <Button
-                className="transition-all duration-300 hover:animate-gradient-shimmer"
                 render={<Link href={dashboardHref("/login")} />}
-                variant="outline"
+                size="default"
+                variant="gradient"
               >
-                Start building free
+                Start Building Free
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
-              <p className="text-primary-foreground/50 text-sm">
-                No credit card required. Runs on your Postgres.
-              </p>
+              <Button
+                render={<Link href="/docs/quickstart" />}
+                size="default"
+                variant="ghost"
+              >
+                Read the Docs
+                <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
+              </Button>
             </div>
+          </Reveal>
+
+          <Reveal delay={showInstallSnippet ? 0.3 : 0.2}>
+            <p className="mt-6 text-muted-foreground/60 text-sm">
+              {description}
+            </p>
           </Reveal>
         </div>
       </Shell>

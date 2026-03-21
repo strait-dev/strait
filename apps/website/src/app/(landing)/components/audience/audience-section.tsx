@@ -77,7 +77,7 @@ const AudienceSection = () => {
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl animate-on-scroll">
           <h2
-            className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl"
+            className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl"
             id={headingId}
           >
             <span className="text-foreground">

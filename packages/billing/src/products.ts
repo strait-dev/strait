@@ -1,43 +1,207 @@
+export type PlanKey = "free" | "starter" | "pro" | "enterprise";
+
 export type Plan = {
   name: string;
   description: string;
-  prices: {
-    monthly: number;
-    yearly: number;
-  };
+  prices: { monthly: number; yearly: number }; // cents. 0=free, -1=custom
+  trial: boolean;
+  creditCardRequired: boolean;
+  computeCredit: string;
   features: string[];
+  limits: {
+    organizations: number | null;
+    projectsPerOrg: number | null;
+    membersPerOrg: number | null;
+    runsPerDay: number | null;
+    concurrentRuns: number | null;
+    retentionDays: number | null;
+    regions: string;
+    spendingLimits: string;
+    overagePerThousandRuns: number | null;
+  };
+  governance: {
+    rbac: "none" | "basic" | "full";
+    auditLogs: boolean;
+    ssoSaml: boolean;
+    aiMessagesPerDay: number | null;
+    aiByok: boolean;
+  };
+  cta: { label: string; href: string };
+  highlighted: boolean;
+  badge?: string;
 };
 
-export const PLANS: Record<"personal" | "pro", Plan> = {
-  personal: {
-    name: "Personal",
-    description: "For individual writers and creators.",
-    prices: {
-      monthly: 1900,
-      yearly: 19000,
-    },
+export const PLAN_KEYS: PlanKey[] = ["free", "starter", "pro", "enterprise"];
+
+export const PLANS: Record<PlanKey, Plan> = {
+  free: {
+    name: "Free",
+    description: "For side projects and experimentation.",
+    prices: { monthly: 0, yearly: 0 },
+    trial: false,
+    creditCardRequired: false,
+    computeCredit: "100 runs/mo (micro, 10s)",
     features: [
-      "AI interview",
-      "Multi-draft generation",
-      "Style guidance",
-      "Export options",
+      "1 organization",
+      "2 projects",
+      "3 members",
+      "5,000 runs/day",
+      "5 concurrent runs",
+      "1-day retention",
+      "Community support",
     ],
+    limits: {
+      organizations: 1,
+      projectsPerOrg: 2,
+      membersPerOrg: 3,
+      runsPerDay: 5000,
+      concurrentRuns: 5,
+      retentionDays: 1,
+      regions: "1 (iad)",
+      spendingLimits: "Hard cap",
+      overagePerThousandRuns: null,
+    },
+    governance: {
+      rbac: "none",
+      auditLogs: false,
+      ssoSaml: false,
+      aiMessagesPerDay: 20,
+      aiByok: false,
+    },
+    cta: { label: "Get started free", href: "/login?redirect=/app/upgrade" },
+    highlighted: false,
+  },
+  starter: {
+    name: "Starter",
+    description: "For small teams shipping to production.",
+    prices: { monthly: 1999, yearly: 19_999 },
+    trial: true,
+    creditCardRequired: true,
+    computeCredit: "$19.99/mo",
+    features: [
+      "2 organizations",
+      "5 projects per org",
+      "10 members per org",
+      "25,000 runs/day",
+      "25 concurrent runs",
+      "7-day retention",
+      "Email support",
+    ],
+    limits: {
+      organizations: 2,
+      projectsPerOrg: 5,
+      membersPerOrg: 10,
+      runsPerDay: 25_000,
+      concurrentRuns: 25,
+      retentionDays: 7,
+      regions: "6",
+      spendingLimits: "Configurable",
+      overagePerThousandRuns: 200,
+    },
+    governance: {
+      rbac: "basic",
+      auditLogs: false,
+      ssoSaml: false,
+      aiMessagesPerDay: 100,
+      aiByok: false,
+    },
+    cta: { label: "Start free trial", href: "/login?redirect=/app/upgrade" },
+    highlighted: false,
+    badge: "14-day trial",
   },
   pro: {
     name: "Pro",
-    description: "For teams and power users who need advanced workflows.",
-    prices: {
-      monthly: 4900,
-      yearly: 49000,
-    },
+    description: "For growing teams that need scale and governance.",
+    prices: { monthly: 4999, yearly: 49_999 },
+    trial: true,
+    creditCardRequired: true,
+    computeCredit: "$49.99/mo",
     features: [
-      "Everything in Personal",
-      "Advanced editing tools",
+      "5 organizations",
+      "15 projects per org",
+      "25 members per org",
+      "100,000 runs/day",
+      "100 concurrent runs",
+      "30-day retention",
       "Priority support",
-      "Higher usage limits",
     ],
+    limits: {
+      organizations: 5,
+      projectsPerOrg: 15,
+      membersPerOrg: 25,
+      runsPerDay: 100_000,
+      concurrentRuns: 100,
+      retentionDays: 30,
+      regions: "All",
+      spendingLimits: "Configurable",
+      overagePerThousandRuns: 200,
+    },
+    governance: {
+      rbac: "full",
+      auditLogs: true,
+      ssoSaml: false,
+      aiMessagesPerDay: 500,
+      aiByok: true,
+    },
+    cta: { label: "Start free trial", href: "/login?redirect=/app/upgrade" },
+    highlighted: true,
+    badge: "Most popular",
+  },
+  enterprise: {
+    name: "Enterprise",
+    description: "For organizations with custom security and compliance needs.",
+    prices: { monthly: -1, yearly: -1 },
+    trial: false,
+    creditCardRequired: false,
+    computeCredit: "Custom",
+    features: [
+      "Unlimited organizations",
+      "Unlimited projects & members",
+      "Unlimited runs",
+      "Unlimited concurrent runs",
+      "90-day retention",
+      "Dedicated support",
+      "SSO/SAML",
+    ],
+    limits: {
+      organizations: null,
+      projectsPerOrg: null,
+      membersPerOrg: null,
+      runsPerDay: null,
+      concurrentRuns: null,
+      retentionDays: 90,
+      regions: "All",
+      spendingLimits: "Custom",
+      overagePerThousandRuns: null,
+    },
+    governance: {
+      rbac: "full",
+      auditLogs: true,
+      ssoSaml: true,
+      aiMessagesPerDay: null,
+      aiByok: true,
+    },
+    cta: { label: "Contact sales", href: "/contact" },
+    highlighted: false,
   },
 };
+
+export function formatPlanPrice(
+  plan: Plan,
+  interval: "monthly" | "yearly"
+): string {
+  const price = plan.prices[interval];
+  if (price === 0) {
+    return "$0";
+  }
+  if (price < 0) {
+    return "Custom";
+  }
+  if (interval === "yearly") {
+    return formatPriceWithCents(Math.round(price / 12));
+  }
+  return formatPriceWithCents(price);
+}
 
 export function formatPrice(cents: number, currency = "USD"): string {
   return new Intl.NumberFormat("en-US", {

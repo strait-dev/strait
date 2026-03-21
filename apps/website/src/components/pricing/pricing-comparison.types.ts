@@ -1,20 +1,19 @@
-export type PlanKey = "personal" | "pro";
+export type PlanKey = "free" | "starter" | "pro" | "enterprise";
 
 export type PlanSummary = {
   key: PlanKey;
   name: string;
   highlight: boolean;
-  prices: {
-    monthly: number;
-    yearly: number;
-  };
-  features: string[];
+  badge?: string;
+  prices: { monthly: number; yearly: number };
+  cta: { label: string; href: string };
 };
 
 export type PricingSectionRow = {
   label: string;
   type: "text" | "boolean";
   values: Record<PlanKey, string | boolean | null>;
+  tooltip?: string;
   hidden?: boolean;
 };
 

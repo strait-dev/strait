@@ -34,16 +34,16 @@ const PricingFaqClient = ({
   const sectionId = useId();
 
   return (
-    <section className="bg-background py-20 sm:py-28" id={sectionId}>
+    <section className="bg-background py-16 sm:py-20" id={sectionId}>
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         {/* Section Header - kicker pattern */}
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">
           <span className="kicker">{badge}</span>
-          <h2 className="text-balance font-semibold text-4xl text-foreground tracking-tight sm:text-5xl lg:text-6xl">
+          <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             {title}
           </h2>
           {description ? (
-            <p className="max-w-2xl text-balance text-lg text-muted-foreground leading-relaxed">
+            <p className="max-w-2xl text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
               {description}
             </p>
           ) : null}
@@ -87,7 +87,7 @@ const PricingFaqClient = ({
             <Button
               className="inline-flex"
               render={<Link href="mailto:leonardomso11@gmail.com" />}
-              size="sm"
+              size="default"
               variant="link"
             >
               Contact our team

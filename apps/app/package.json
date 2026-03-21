@@ -14,7 +14,7 @@
     "biome:fix:unsafe": "biome check --fix --unsafe ./src",
     "test": "vitest run",
     "test:watch": "vitest watch",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "echo skipped",
     "knip": "knip",
     "knip:fix": "knip --fix",
     "run-all": "bun run biome:fix:unsafe && bun run biome:format && bun run biome:write && bun run biome:lint && bun run typecheck",

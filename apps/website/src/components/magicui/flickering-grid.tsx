@@ -1,7 +1,8 @@
 "use client";
 
 import { cn } from "@strait/ui/utils";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useReducedMotion } from "motion/react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 type FlickeringGridProps = {
   squareSize?: number;
@@ -22,7 +23,11 @@ const FlickeringGrid = ({
 }: FlickeringGridProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const dimensionsRef = useRef({ width: 0, height: 0 });
+  const isVisibleRef = useRef(true);
+  const prefersReducedMotion = useReducedMotion();
+  const reducedMotionRef = useRef(prefersReducedMotion);
+  reducedMotionRef.current = prefersReducedMotion;
 
   const memoizedColor = useMemo(() => {
     const match = color.match(/\d+/g);
@@ -77,41 +82,30 @@ const FlickeringGrid = ({
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) {
-      return;
-    }
-    const obs = new ResizeObserver(([entry]) => {
-      if (entry) {
-        setDimensions({
-          width: entry.contentRect.width,
-          height: entry.contentRect.height,
-        });
-      }
-    });
-    obs.observe(container);
-    return () => obs.disconnect();
-  }, []);
-
-  useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || dimensions.width === 0) {
+    if (!(container && canvas)) {
       return;
     }
 
-    setupCanvas(canvas, dimensions.width, dimensions.height);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return;
-    }
-
-    const cols = Math.ceil(dimensions.width / (squareSize + gridGap));
-    const rows = Math.ceil(dimensions.height / (squareSize + gridGap));
-    const opacities: number[][] = Array.from({ length: cols }, () =>
-      Array.from({ length: rows }, () => Math.random() * maxOpacity)
-    );
-
+    let cols = 0;
+    let rows = 0;
+    let opacities: number[][] = [];
     let raf: number;
-    const animate = () => {
+
+    const initGrid = () => {
+      const { width, height } = dimensionsRef.current;
+      if (width === 0) {
+        return;
+      }
+      setupCanvas(canvas, width, height);
+      cols = Math.ceil(width / (squareSize + gridGap));
+      rows = Math.ceil(height / (squareSize + gridGap));
+      opacities = Array.from({ length: cols }, () =>
+        Array.from({ length: rows }, () => Math.random() * maxOpacity)
+      );
+    };
+
+    const updateOpacities = () => {
       for (let i = 0; i < cols; i++) {
         for (let j = 0; j < rows; j++) {
           if (Math.random() < flickerChance * 0.016) {
@@ -122,20 +116,54 @@ const FlickeringGrid = ({
           }
         }
       }
-      drawGrid(ctx, dimensions.width, dimensions.height, opacities);
-      raf = requestAnimationFrame(animate);
     };
+
+    const animate = () => {
+      raf = requestAnimationFrame(animate);
+      if (!isVisibleRef.current || reducedMotionRef.current) {
+        return;
+      }
+      const ctx = canvas.getContext("2d");
+      if (!(ctx && dimensionsRef.current.width > 0)) {
+        return;
+      }
+      updateOpacities();
+      drawGrid(
+        ctx,
+        dimensionsRef.current.width,
+        dimensionsRef.current.height,
+        opacities
+      );
+    };
+
+    const resizeObs = new ResizeObserver(([entry]) => {
+      if (entry) {
+        dimensionsRef.current = {
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        };
+        initGrid();
+      }
+    });
+    resizeObs.observe(container);
+
+    const intersectionObs = new IntersectionObserver(
+      ([entry]) => {
+        isVisibleRef.current = entry?.isIntersecting ?? false;
+      },
+      { threshold: 0 }
+    );
+    intersectionObs.observe(container);
+
+    initGrid();
     raf = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(raf);
-  }, [
-    dimensions,
-    squareSize,
-    gridGap,
-    flickerChance,
-    maxOpacity,
-    setupCanvas,
-    drawGrid,
-  ]);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      resizeObs.disconnect();
+      intersectionObs.disconnect();
+    };
+  }, [squareSize, gridGap, flickerChance, maxOpacity, setupCanvas, drawGrid]);
 
   return (
     <div className={cn("absolute inset-0", className)} ref={containerRef}>

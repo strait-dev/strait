@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@strait/ui/utils";
+import { useReducedMotion } from "motion/react";
 import { useMemo } from "react";
 import { createMap } from "svg-dotted-map";
 
@@ -28,6 +29,8 @@ const DottedMap = ({
   markers = [],
   backgroundColor = "transparent",
 }: DottedMapProps) => {
+  const prefersReducedMotion = useReducedMotion();
+
   const { dots, projectedMarkers } = useMemo(() => {
     const map = createMap({
       height: MAP_HEIGHT,
@@ -72,18 +75,22 @@ const DottedMap = ({
               opacity={0.3}
               r={2.5}
             >
-              <animate
-                attributeName="r"
-                dur="2s"
-                repeatCount="indefinite"
-                values="1.5;4;1.5"
-              />
-              <animate
-                attributeName="opacity"
-                dur="2s"
-                repeatCount="indefinite"
-                values="0.4;0.1;0.4"
-              />
+              {!prefersReducedMotion && (
+                <>
+                  <animate
+                    attributeName="r"
+                    dur="2s"
+                    repeatCount="indefinite"
+                    values="1.5;4;1.5"
+                  />
+                  <animate
+                    attributeName="opacity"
+                    dur="2s"
+                    repeatCount="indefinite"
+                    values="0.4;0.1;0.4"
+                  />
+                </>
+              )}
             </circle>
           </g>
         ))}

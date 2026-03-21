@@ -1,8 +1,8 @@
 "use client";
 
 import { cn } from "@strait/ui/utils";
-import { motion } from "motion/react";
-import { type RefObject, useEffect, useId, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { type RefObject, useEffect, useId, useRef, useState } from "react";
 
 type AnimatedBeamProps = {
   className?: string;
@@ -34,6 +34,9 @@ const AnimatedBeam = ({
   const id = useId();
   const [pathD, setPathD] = useState("");
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });
+  const [isVisible, setIsVisible] = useState(false);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
     const updatePath = () => {
@@ -70,6 +73,19 @@ const AnimatedBeam = ({
     return () => observer.disconnect();
   }, [containerRef, fromRef, toRef, curvature]);
 
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) {
+      return;
+    }
+    const obs = new IntersectionObserver(
+      ([entry]) => setIsVisible(!!entry?.isIntersecting),
+      { threshold: 0.1 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   if (!pathD) {
     return null;
   }
@@ -79,6 +95,7 @@ const AnimatedBeam = ({
       className={cn("pointer-events-none absolute top-0 left-0", className)}
       fill="none"
       height={svgDimensions.height}
+      ref={svgRef}
       width={svgDimensions.width}
     >
       <path
@@ -95,10 +112,11 @@ const AnimatedBeam = ({
       />
       <defs>
         <motion.linearGradient
-          animate={{
-            x1: ["0%", "100%"],
-            x2: ["10%", "110%"],
-          }}
+          animate={
+            isVisible && !prefersReducedMotion
+              ? { x1: ["0%", "100%"], x2: ["10%", "110%"] }
+              : { x1: "0%", x2: "100%" }
+          }
           id={id}
           transition={{
             duration,

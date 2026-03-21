@@ -379,6 +379,10 @@ const HeroDag = () => {
           0%, 100% { opacity: 0.1; transform: scale(1); }
           50% { opacity: 0.5; transform: scale(1.03); }
         }
+        @media (prefers-reduced-motion: reduce) {
+          [style*="dag-pulse"] { animation: none !important; }
+          animateMotion { display: none; }
+        }
       `}</style>
     </div>
   );

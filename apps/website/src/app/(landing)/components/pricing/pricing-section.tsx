@@ -10,7 +10,7 @@ export function PricingSection() {
             <span className="kicker">PRICING</span>
 
             <div className="space-y-3">
-              <h2 className="text-balance font-semibold text-2xl text-foreground tracking-tight sm:text-3xl lg:text-4xl">
+              <h2 className="text-balance font-semibold text-2xl text-foreground sm:text-3xl lg:text-4xl">
                 Choose the plan that fits your needs
               </h2>
               <p className="text-muted-foreground text-sm leading-relaxed sm:text-base">

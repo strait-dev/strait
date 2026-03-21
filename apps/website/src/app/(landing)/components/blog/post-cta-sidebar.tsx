@@ -61,7 +61,7 @@ const PostCtaSidebar = async () => {
           {badge}
         </span>
 
-        <h3 className="mt-4 text-foreground text-lg tracking-tight">{title}</h3>
+        <h3 className="mt-4 text-foreground text-lg">{title}</h3>
 
         <p className="mt-2 text-muted-foreground text-sm leading-relaxed">
           {description}
@@ -70,7 +70,7 @@ const PostCtaSidebar = async () => {
         <Button
           className="mt-6 w-full"
           render={<Link href={dashboardHref(buttonHref)} />}
-          size="sm"
+          size="default"
         >
           {buttonText}
           <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
