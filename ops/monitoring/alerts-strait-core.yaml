@@ -137,3 +137,52 @@ groups:
         annotations:
           summary: "Event triggers are timing out"
           description: "Events are not being received before their timeout. Check event producers."
+
+      # Notification delivery
+      - alert: StraitNotificationDeliveryFailures
+        expr: sum(rate(strait_notification_deliveries_total{status="error"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification delivery failures detected"
+          description: "Notification deliveries are failing. Check channel endpoints and credentials."
+
+      # Log drain
+      - alert: StraitLogDrainExportFailures
+        expr: sum(rate(strait_log_drain_events_total{status="error"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Log drain export failures detected"
+          description: "Log drain events are failing to export. Check drain endpoints."
+
+      # ClickHouse exporter
+      - alert: StraitClickHouseDroppedRecords
+        expr: sum(rate(strait_clickhouse_dropped_records_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ClickHouse exporter dropping records"
+          description: "Records are being dropped after max flush retries. Check ClickHouse connectivity."
+
+      - alert: StraitClickHouseFlushFailures
+        expr: sum(rate(strait_clickhouse_flush_failures_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ClickHouse exporter flush failures"
+          description: "ClickHouse flush operations are failing. Check ClickHouse connectivity and query health."
+
+      # PubSub
+      - alert: StraitPubSubPublishFailures
+        expr: sum(rate(strait_pubsub_publish_errors_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pub/sub publish failures detected"
+          description: "Events are failing to publish to Redis pub/sub. Check Redis connectivity."

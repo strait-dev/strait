@@ -22,6 +22,7 @@ import (
 	"strait/internal/workflow"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/redis/go-redis/v9"
 	concpool "github.com/sourcegraph/conc/pool"
 	otelattr "go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -306,6 +307,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 		_, err := queries.QueueStats(ctx)
 		return err
 	}))
+	if rdb != nil {
+		healthReg.Register(health.NewRedisChecker(redisPingerAdapter{rdb}))
+	}
 
 	var apiEncryptor api.Encryptor
 	if cfg.EncryptionKey != "" {
@@ -330,6 +334,15 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	slog.Info("strait stopped")
 	return nil
+}
+
+// redisPingerAdapter wraps *redis.Client to satisfy health.RedisPinger.
+type redisPingerAdapter struct {
+	rdb *redis.Client
+}
+
+func (r redisPingerAdapter) Ping(ctx context.Context) error {
+	return r.rdb.Ping(ctx).Err()
 }
 
 // setupLogging configures the default slog logger from a level string.

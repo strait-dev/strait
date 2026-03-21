@@ -421,7 +421,7 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 	// Atomically mark all triggers as received in a single transaction.
 	resolvedIDs, err := s.store.BatchReceiveEventTriggers(ctx, triggerIDs, req.Payload, now, sentBy)
 	if err != nil {
-		slog.Error("batch receive failed", "prefix", prefix, "error", err)
+		slog.Error("batch receive failed", "prefix", prefix, "project_id", projectID, "trigger_count", len(triggerIDs), "error", err)
 	}
 
 	resolved := make([]domain.EventTrigger, 0, len(resolvedIDs))
@@ -434,7 +434,7 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 
 		// Resume each source outside the transaction.
 		if err := s.resumeEventSource(ctx, trigger); err != nil {
-			slog.Error("failed to resume event source by prefix", "trigger_id", trigger.ID, "error", err)
+			slog.Error("failed to resume event source by prefix", "trigger_id", trigger.ID, "project_id", trigger.ProjectID, "event_key", trigger.EventKey, "error", err)
 		}
 
 		// Direct publish for sub-millisecond SSE delivery.

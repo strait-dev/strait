@@ -326,7 +326,7 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 		// Evaluate filter.
 		match, err := eventfilter.Eval(sub.FilterExpr, req.Payload)
 		if err != nil {
-			slog.Error("filter eval failed", "subscription_id", sub.ID, "error", err)
+			slog.Error("filter eval failed", "subscription_id", sub.ID, "source_id", source.ID, "project_id", source.ProjectID, "error", err)
 			continue
 		}
 		if !match {
@@ -338,7 +338,7 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 		case "job":
 			job, err := s.store.GetJob(r.Context(), sub.TargetID)
 			if err != nil || !job.Enabled {
-				slog.Error("event dispatch: target job not found or disabled", "target_id", sub.TargetID)
+				slog.Error("event dispatch: target job not found or disabled", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
 			}
 			run := &domain.JobRun{
@@ -351,7 +351,7 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 				JobVersionID: job.VersionID,
 			}
 			if err := s.queue.Enqueue(r.Context(), run); err != nil {
-				slog.Error("event dispatch: enqueue failed", "target_id", sub.TargetID, "error", err)
+				slog.Error("event dispatch: enqueue failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", err)
 				continue
 			}
 			dispatched++
@@ -359,7 +359,7 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 			if s.workflowEngine != nil {
 				_, err := s.workflowEngine.TriggerWorkflow(r.Context(), sub.TargetID, source.ProjectID, req.Payload, "event", nil, nil)
 				if err != nil {
-					slog.Error("event dispatch: workflow trigger failed", "target_id", sub.TargetID, "error", err)
+					slog.Error("event dispatch: workflow trigger failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", err)
 					continue
 				}
 				dispatched++

@@ -29,13 +29,19 @@ func PubSubSubscriber(pub pubsub.Publisher) RunEventSubscriber {
 
 		payload, err := json.Marshal(data)
 		if err != nil {
-			slog.Error("failed to marshal event for pubsub", "error", err)
+			slog.Error("failed to marshal event for pubsub", "run_id", event.Run.ID, "job_id", event.Run.JobID, "error", err)
 			return
 		}
 
 		channel := fmt.Sprintf("run:%s", event.Run.ID)
 		if err := pub.Publish(ctx, channel, payload); err != nil {
-			slog.Error("failed to publish event", "run_id", event.Run.ID, "error", err)
+			slog.Error("failed to publish event",
+				"run_id", event.Run.ID,
+				"job_id", event.Run.JobID,
+				"project_id", event.Run.ProjectID,
+				"channel", channel,
+				"error", err,
+			)
 		}
 	}
 }

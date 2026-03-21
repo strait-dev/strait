@@ -68,6 +68,21 @@ func NewSchedulerChecker(lastTickFn func() time.Time, maxAge time.Duration) Chec
 	})
 }
 
+// RedisPinger is the subset of redis.Client needed for the health check.
+type RedisPinger interface {
+	Ping(ctx context.Context) error
+}
+
+// NewRedisChecker creates a non-critical health checker that pings Redis.
+func NewRedisChecker(pinger RedisPinger) Checker {
+	return NewCriticalChecker("redis", false, func(ctx context.Context) error {
+		if err := pinger.Ping(ctx); err != nil {
+			return fmt.Errorf("redis ping failed: %w", err)
+		}
+		return nil
+	})
+}
+
 func NewQueueDepthChecker(depthFn func(ctx context.Context) (int64, error), threshold int64) Checker {
 	return NewChecker("queue_depth", func(ctx context.Context) error {
 		depth, err := depthFn(ctx)
