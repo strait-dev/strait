@@ -70,3 +70,109 @@ export const DLQ_ERROR_TYPES = [
   "rate_limit",
   "internal",
 ] as const;
+
+// Run status badge configuration (used by StatusBadge component)
+export type RunStatusConfig = {
+  label: string;
+  variant:
+    | "default"
+    | "secondary-light"
+    | "info-light"
+    | "success-light"
+    | "destructive-light"
+    | "warning-light";
+  dotClassName: string;
+};
+
+export const RUN_STATUS_CONFIG: Record<string, RunStatusConfig> = {
+  queued: {
+    label: "Queued",
+    variant: "secondary-light",
+    dotClassName: "bg-muted-foreground",
+  },
+  dequeued: {
+    label: "Dequeued",
+    variant: "secondary-light",
+    dotClassName: "bg-muted-foreground",
+  },
+  executing: {
+    label: "Executing",
+    variant: "info-light",
+    dotClassName: "bg-info animate-pulse",
+  },
+  running: {
+    label: "Running",
+    variant: "info-light",
+    dotClassName: "bg-info animate-pulse",
+  },
+  completed: {
+    label: "Completed",
+    variant: "success-light",
+    dotClassName: "bg-success",
+  },
+  failed: {
+    label: "Failed",
+    variant: "destructive-light",
+    dotClassName: "bg-destructive",
+  },
+  timed_out: {
+    label: "Timed Out",
+    variant: "destructive-light",
+    dotClassName: "bg-destructive",
+  },
+  crashed: {
+    label: "Crashed",
+    variant: "destructive-light",
+    dotClassName: "bg-destructive",
+  },
+  system_failed: {
+    label: "System Failed",
+    variant: "destructive-light",
+    dotClassName: "bg-destructive",
+  },
+  canceled: {
+    label: "Canceled",
+    variant: "secondary-light",
+    dotClassName: "bg-muted-foreground",
+  },
+  expired: {
+    label: "Expired",
+    variant: "secondary-light",
+    dotClassName: "bg-muted-foreground",
+  },
+  dead_letter: {
+    label: "Dead Letter",
+    variant: "destructive-light",
+    dotClassName: "bg-destructive",
+  },
+  replay_staged: {
+    label: "Replay Staged",
+    variant: "warning-light",
+    dotClassName: "bg-warning",
+  },
+  delayed: {
+    label: "Delayed",
+    variant: "warning-light",
+    dotClassName: "bg-warning",
+  },
+  waiting: {
+    label: "Waiting",
+    variant: "warning-light",
+    dotClassName: "bg-warning",
+  },
+  pending: {
+    label: "Pending",
+    variant: "secondary-light",
+    dotClassName: "bg-muted-foreground",
+  },
+  paused: {
+    label: "Paused",
+    variant: "warning-light",
+    dotClassName: "bg-warning",
+  },
+  skipped: {
+    label: "Skipped",
+    variant: "secondary-light",
+    dotClassName: "bg-muted-foreground",
+  },
+};
