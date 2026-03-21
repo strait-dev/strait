@@ -4,6 +4,15 @@ import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
 
+/** Convert a "YYYY-MM" period string to from/to date range params. */
+function periodToDateRange(period: string): { from: string; to: string } {
+  const [year, month] = period.split("-").map(Number);
+  const from = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const to = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return { from, to };
+}
+
 const getUsageExportCsvServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: { period: string }) =>
     z.object({ period: z.string().min(1) }).parse(data)
@@ -16,9 +25,10 @@ const getUsageExportCsvServerFn = createServerFn({ method: "GET" })
     if (!orgId) {
       return "";
     }
+    const { from, to } = periodToDateRange(data.period);
     return await runWithSentryReport(
       apiEffect<string>("/v1/usage/export", {
-        params: { org_id: orgId, period: data.period, format: "csv" },
+        params: { org_id: orgId, from, to, format: "csv" },
         responseType: "text",
       })
     );
@@ -36,13 +46,13 @@ const getUsageExportPdfServerFn = createServerFn({ method: "GET" })
     if (!orgId) {
       return null;
     }
+    const { from, to } = periodToDateRange(data.period);
     const buffer = await runWithSentryReport(
       apiEffect<string>("/v1/usage/export", {
-        params: { org_id: orgId, period: data.period, format: "pdf" },
+        params: { org_id: orgId, from, to, format: "pdf" },
         responseType: "text",
       })
     );
-    // Encode binary response as base64 for serialization across server/client boundary
     return Buffer.from(buffer, "binary").toString("base64");
   });
 

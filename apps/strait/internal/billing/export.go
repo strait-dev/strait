@@ -115,7 +115,7 @@ func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeri
 	pdf.CellFormat(0, 8, "Detail", "", 1, "L", false, 0, "")
 
 	// Table header.
-	colWidths := []float64{25, 35, 20, 30, 25, 25, 25}
+	colWidths := []float64{24, 32, 18, 28, 28, 25, 25}
 	headers := []string{"Date", "Project", "Runs", "Compute ($)", "AI Tokens", "AI Cost ($)", "Total ($)"}
 	pdf.SetFont("Helvetica", "B", 9)
 	for i, h := range headers {
