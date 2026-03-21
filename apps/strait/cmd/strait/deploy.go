@@ -7,26 +7,30 @@ import (
 	"strait/internal/cli/client"
 	"strait/internal/cli/deploy"
 	"strait/internal/cli/styles"
+	"strait/internal/domain"
 
 	"github.com/spf13/cobra"
 )
 
 func newDeployCommand(state *appState) *cobra.Command {
 	var (
-		jobSlug      string
-		imageURI     string
-		dockerfile   string
-		registry     string
-		tag          string
-		buildArgs    []string
-		push         bool
-		preset       string
-		region       string
-		dryRun       bool
-		cacheEnabled bool
-		configPath   string
-		env          string
-		artifactURI  string
+		jobSlug        string
+		imageURI       string
+		dockerfile     string
+		registry       string
+		tag            string
+		buildArgs      []string
+		push           bool
+		preset         string
+		region         string
+		dryRun         bool
+		cacheEnabled   bool
+		configPath     string
+		env            string
+		artifactURI    string
+		strategy       string
+		canaryPercent  int
+		canaryDuration string
 	)
 
 	cmd := &cobra.Command{
@@ -39,13 +43,27 @@ func newDeployCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			// Validate deployment strategy.
+			resolvedStrategy := domain.DeploymentStrategy(strategy)
+			if !resolvedStrategy.IsValid() {
+				return fmt.Errorf("invalid deployment strategy: %q (valid: direct, canary)", strategy)
+			}
+			if resolvedStrategy == domain.DeploymentStrategyCanary {
+				if canaryPercent < 1 || canaryPercent > 99 {
+					return fmt.Errorf("--canary-percent must be between 1 and 99 (got %d)", canaryPercent)
+				}
+			}
+
 			// Manifest-based deploy: --config provided and no --job
 			if configPath != "" && jobSlug == "" {
 				return deploy.DeployManifest(cmd.Context(), cli, deploy.ManifestDeployOptions{
-					ConfigPath:  configPath,
-					Environment: env,
-					ArtifactURI: artifactURI,
-					DryRun:      dryRun,
+					ConfigPath:     configPath,
+					Environment:    env,
+					ArtifactURI:    artifactURI,
+					DryRun:         dryRun,
+					Strategy:       strategy,
+					CanaryPercent:  canaryPercent,
+					CanaryDuration: canaryDuration,
 				})
 			}
 
@@ -158,6 +176,9 @@ func newDeployCommand(state *appState) *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "path to config file for manifest/multi-job deploy")
 	cmd.Flags().StringVar(&env, "env", "", "deployment environment (default: production)")
 	cmd.Flags().StringVar(&artifactURI, "artifact-uri", "", "pre-built artifact URI override")
+	cmd.Flags().StringVar(&strategy, "strategy", "direct", "deployment strategy (direct, canary)")
+	cmd.Flags().IntVar(&canaryPercent, "canary-percent", 0, "percentage of traffic for canary (1-99)")
+	cmd.Flags().StringVar(&canaryDuration, "canary-duration", "", "duration to run canary before full rollout (e.g. 10m, 1h)")
 
 	cmd.AddCommand(newDeployPromoteCommand(state))
 	cmd.AddCommand(newDeployRollbackCommand(state))

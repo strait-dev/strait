@@ -93,3 +93,35 @@ func TestDefaultEventTimeoutSecs(t *testing.T) {
 		t.Fatalf("DefaultEventTimeoutSecs = %d, want 3600", DefaultEventTimeoutSecs)
 	}
 }
+
+func TestDeploymentStrategy_Valid(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		strategy DeploymentStrategy
+		valid    bool
+	}{
+		{DeploymentStrategyDirect, true},
+		{DeploymentStrategyCanary, true},
+	}
+	for _, tc := range tests {
+		if got := tc.strategy.IsValid(); got != tc.valid {
+			t.Fatalf("DeploymentStrategy(%q).IsValid() = %v, want %v", tc.strategy, got, tc.valid)
+		}
+	}
+}
+
+func TestDeploymentStrategy_Invalid(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		strategy DeploymentStrategy
+	}{
+		{DeploymentStrategy("blue-green")},
+		{DeploymentStrategy("")},
+		{DeploymentStrategy("rolling")},
+	}
+	for _, tc := range tests {
+		if tc.strategy.IsValid() {
+			t.Fatalf("DeploymentStrategy(%q).IsValid() = true, want false", tc.strategy)
+		}
+	}
+}

@@ -158,12 +158,15 @@ type QueueStats struct {
 // Deployment types.
 
 type CreateDeploymentVersionRequest struct {
-	ProjectID   string `json:"project_id"`
-	Environment string `json:"environment"`
-	Runtime     string `json:"runtime"`
-	Manifest    any    `json:"manifest,omitempty"`
-	Checksum    string `json:"checksum,omitempty"`
-	ArtifactURI string `json:"artifact_uri"`
+	ProjectID      string `json:"project_id"`
+	Environment    string `json:"environment"`
+	Runtime        string `json:"runtime"`
+	Manifest       any    `json:"manifest,omitempty"`
+	Checksum       string `json:"checksum,omitempty"`
+	ArtifactURI    string `json:"artifact_uri"`
+	Strategy       string `json:"strategy,omitempty"`
+	CanaryPercent  int    `json:"canary_percent,omitempty"`
+	CanaryDuration string `json:"canary_duration,omitempty"`
 }
 
 type DeploymentVersion struct {
