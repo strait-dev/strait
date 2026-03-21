@@ -35,6 +35,11 @@ func newLogsCommand(state *appState) *cobra.Command {
 		Use:   "logs",
 		Short: "View run logs/events",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Auto-enable NDJSON in non-TTY environments for pipeline-friendly output.
+			if outputFmt == "" && !stdoutIsTTY() {
+				outputFmt = "ndjson"
+			}
+
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
@@ -285,7 +290,7 @@ func matchesLogRow(row map[string]any, level, eventType, search string, sinceTim
 	}
 	if level != "" {
 		rowLevel, _ := row["level"].(string)
-		if rowLevel != level {
+		if !strings.EqualFold(rowLevel, level) {
 			return false
 		}
 	}
