@@ -22,6 +22,21 @@ func NewPgStore(pool *pgxpool.Pool) *PgStore {
 	return &PgStore{pool: pool}
 }
 
+// EnsureOrgSubscription creates a free-tier subscription row for an org if one
+// does not already exist. Used for lazy initialization when a project is first
+// created under an org that has no Polar subscription yet.
+func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status)
+		 VALUES (gen_random_uuid()::text, $1, 'free', 'active')
+		 ON CONFLICT (org_id) DO NOTHING`,
+		orgID)
+	if err != nil {
+		return fmt.Errorf("ensure org subscription: %w", err)
+	}
+	return nil
+}
+
 func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
 	var sub OrgSubscription
 	err := s.pool.QueryRow(ctx, `

@@ -6279,6 +6279,17 @@ paths:
         '200':
           description: Paginated list of jobs across the organization
 
+  /v1/plans:
+    get:
+      tags:
+        - Plans
+      summary: List all available plan tiers and their limits
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of plan definitions with limits and features
+
 components:
   securitySchemes:
     ApiKeyAuth:

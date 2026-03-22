@@ -47,6 +47,11 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			respondError(w, r, http.StatusInternalServerError, "failed to check project limit")
 			return
 		}
+
+		// Ensure the org has a subscription row (lazy init for free tier).
+		if err := s.billingEnforcer.EnsureOrgSubscription(r.Context(), req.OrgID); err != nil {
+			slog.Warn("failed to ensure org subscription", "org_id", req.OrgID, "error", err)
+		}
 	}
 
 	project := &domain.Project{

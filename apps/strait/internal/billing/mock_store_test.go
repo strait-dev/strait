@@ -296,3 +296,5 @@ func (m *mockBillingStore) ListAllSubscribedOrgIDs(_ context.Context) ([]string,
 	}
 	return ids, nil
 }
+
+func (m *mockBillingStore) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }

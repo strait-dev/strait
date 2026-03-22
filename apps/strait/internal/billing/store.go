@@ -47,6 +47,7 @@ type UsageRecord struct {
 // Store defines billing data access operations.
 type Store interface {
 	// Organization subscriptions
+	EnsureOrgSubscription(ctx context.Context, orgID string) error
 	GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error)
 	UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error
 	UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error

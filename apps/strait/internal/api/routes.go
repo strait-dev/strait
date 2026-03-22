@@ -130,6 +130,7 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeSecretsWrite)).Delete("/{secretID}", s.handleDeleteSecret)
 		})
 
+		r.Get("/plans", s.handleGetPlans)
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/regions", s.handleListRegions)
 
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/current", s.handleGetCurrentUsage)

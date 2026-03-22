@@ -83,6 +83,7 @@ func (m *mockAnomalyMonitorStore) CreateNotificationDelivery(ctx context.Context
 
 // Stub methods for the rest of billing.Store.
 
+func (m *mockAnomalyMonitorStore) EnsureOrgSubscription(context.Context, string) error { return nil }
 func (m *mockAnomalyMonitorStore) UpsertOrgSubscription(context.Context, *billing.OrgSubscription) error {
 	return nil
 }

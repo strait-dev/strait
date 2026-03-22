@@ -49,6 +49,7 @@ func newTestEnforcer(t *testing.T) *billing.Enforcer {
 // mockEnforcerStore satisfies billing.Store for the enforcer.
 type mockEnforcerStore struct{}
 
+func (m *mockEnforcerStore) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
 func (m *mockEnforcerStore) GetOrgSubscription(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 	return nil, billing.ErrSubscriptionNotFound
 }

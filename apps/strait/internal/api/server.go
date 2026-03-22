@@ -509,6 +509,7 @@ type BillingEnforcer interface {
 	CheckMemberLimit(ctx context.Context, orgID string) error
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
+	EnsureOrgSubscription(ctx context.Context, orgID string) error
 }
 
 // UsageService provides org usage data for the billing dashboard.

@@ -816,3 +816,9 @@ func (e *Enforcer) Check80PercentDailyRunWarning(ctx context.Context, orgID stri
 	threshold := int64(float64(limits.MaxRunsPerDay) * 0.8)
 	return count >= threshold, nil
 }
+
+// EnsureOrgSubscription delegates to the underlying store to lazily
+// initialize a free-tier subscription row for the given org.
+func (e *Enforcer) EnsureOrgSubscription(ctx context.Context, orgID string) error {
+	return e.store.EnsureOrgSubscription(ctx, orgID)
+}
