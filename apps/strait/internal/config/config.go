@@ -161,7 +161,7 @@ type Config struct {
 
 	// Polar billing integration
 	PolarAccessToken          string `env:"POLAR_ACCESS_TOKEN"`
-	PolarWebhookSecret        string `env:"POLAR_WEBHOOK_SECRET"`
+	PolarWebhookSecret        string `env:"POLAR_API_WEBHOOK_SECRET"`
 	PolarServer               string `env:"POLAR_SERVER"`
 	PolarStarterMonthlyID     string `env:"POLAR_STARTER_MONTHLY_ID"`
 	PolarStarterYearlyID      string `env:"POLAR_STARTER_YEARLY_ID"`

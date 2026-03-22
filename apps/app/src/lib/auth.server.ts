@@ -173,10 +173,10 @@ export const auth = betterAuth({
                 returnUrl: process.env.BETTER_AUTH_URL,
               }),
               polarUsage(),
-              ...(process.env.POLAR_WEBHOOK_SECRET
+              ...(process.env.POLAR_APP_WEBHOOK_SECRET
                 ? [
                     webhooks({
-                      secret: process.env.POLAR_WEBHOOK_SECRET,
+                      secret: process.env.POLAR_APP_WEBHOOK_SECRET,
                     }),
                   ]
                 : []),
@@ -198,9 +198,9 @@ export const auth = betterAuth({
               : "My Workspace";
             const slug = `ws-${user.id.slice(0, 8)}`;
 
+            // Server-side call: pass userId directly (no session headers needed).
             const org = await auth.api.createOrganization({
-              body: { name: workspaceName, slug },
-              headers: new Headers(),
+              body: { name: workspaceName, slug, userId: user.id },
             });
 
             if (org) {

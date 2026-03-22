@@ -907,7 +907,7 @@ func TestLoad_StringOverrides(t *testing.T) {
 func TestLoad_PolarBillingFields(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("POLAR_ACCESS_TOKEN", "pat_123")
-	t.Setenv("POLAR_WEBHOOK_SECRET", "whsec_123")
+	t.Setenv("POLAR_API_WEBHOOK_SECRET", "whsec_123")
 	t.Setenv("POLAR_SERVER", "https://polar.sh")
 	t.Setenv("POLAR_STARTER_MONTHLY_ID", "price_starter_m")
 	t.Setenv("POLAR_STARTER_YEARLY_ID", "price_starter_y")
