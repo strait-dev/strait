@@ -12,10 +12,10 @@ import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
 import { cn } from "@strait/ui/utils/index";
 import { formatCurrency } from "@strait/utils/money";
 import { useCallback } from "react";
+import PricingCalculator from "@/components/upgrade/pricing-calculator";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { CheckIcon, StarIcon } from "@/lib/icons";
 import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
-import PricingCalculator from "@/components/upgrade/pricing-calculator";
 
 const MONTHS_IN_A_YEAR = 12;
 const CENTS_TO_DOLLARS = 100;

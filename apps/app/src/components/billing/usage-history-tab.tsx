@@ -76,7 +76,10 @@ const UsageHistoryTab = () => {
     mutationFn: async () => {
       const period = currentPeriod();
       const csv = await fetchUsageExportCsv(period);
-      triggerDownload(new Blob([csv], { type: "text/csv" }), `usage-${period}.csv`);
+      triggerDownload(
+        new Blob([csv], { type: "text/csv" }),
+        `usage-${period}.csv`
+      );
     },
     onSuccess: () => toast.success("CSV exported successfully"),
     onError: () => toast.error("Failed to export CSV"),
@@ -90,7 +93,10 @@ const UsageHistoryTab = () => {
         return;
       }
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-      triggerDownload(new Blob([bytes], { type: "application/pdf" }), `usage-${period}.pdf`);
+      triggerDownload(
+        new Blob([bytes], { type: "application/pdf" }),
+        `usage-${period}.pdf`
+      );
     },
     onSuccess: () => toast.success("PDF exported successfully"),
     onError: () => toast.error("Failed to export PDF"),
