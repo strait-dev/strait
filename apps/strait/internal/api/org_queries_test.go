@@ -17,8 +17,8 @@ func TestListOrgRuns_ReturnsRunsFromAllProjects(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 
-	ms := &mockAPIStore{
-		listRunsByOrgFn: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			if orgID != "org-1" {
 				t.Fatalf("expected org-1, got %q", orgID)
 			}
@@ -59,11 +59,11 @@ func TestListOrgRuns_CrossOrg_Forbidden(t *testing.T) {
 	t.Parallel()
 	rawKey := "strait_" + strings.Repeat("ee", 32)
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-1", OrgID: "org-1"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -88,7 +88,7 @@ func TestListOrgRuns_CrossOrg_Forbidden(t *testing.T) {
 
 func TestListOrgRuns_RequiresAuth(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/org-1/runs", nil)
 
@@ -103,8 +103,8 @@ func TestListOrgJobs_ReturnsJobsFromAllProjects(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 
-	ms := &mockAPIStore{
-		listJobsByOrgFn: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.Job, error) {
+	ms := &APIStoreMock{
+		ListJobsByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.Job, error) {
 			if orgID != "org-1" {
 				t.Fatalf("expected org-1, got %q", orgID)
 			}
@@ -139,8 +139,8 @@ func TestListOrgRuns_Pagination_Works(t *testing.T) {
 	now := time.Now().UTC()
 	callCount := 0
 
-	ms := &mockAPIStore{
-		listRunsByOrgFn: func(_ context.Context, _ string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByOrgFunc: func(_ context.Context, _ string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			callCount++
 			// First call: return limit+1 items to indicate has_more.
 			if cursor == nil {
@@ -188,8 +188,8 @@ func TestListOrgRuns_Pagination_Works(t *testing.T) {
 func TestListOrgRuns_EmptyOrg_ReturnsEmpty(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		listRunsByOrgFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByOrgFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return []domain.JobRun{}, nil
 		},
 	}

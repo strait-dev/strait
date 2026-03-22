@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"strait/internal/debug"
 	"strait/internal/domain"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
@@ -75,6 +76,10 @@ func (s *Server) routes() chi.Router {
 	r.Get("/health/ready", s.handleHealthReady)
 	if s.metricsHandler != nil {
 		r.Handle("/metrics", s.metricsHandler)
+	}
+
+	if s.config.DebugStatsviz {
+		debug.MountDebugRoutes(r)
 	}
 
 	// Polar billing webhook (HMAC-verified, no API key auth).

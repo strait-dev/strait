@@ -49,16 +49,16 @@ func TestHandleSDKWaitForEvent_Success(t *testing.T) {
 	var createdTrigger *domain.EventTrigger
 	var statusFrom, statusTo domain.RunStatus
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
 			statusFrom = from
 			statusTo = to
 			return nil
 		},
-		createEventTriggerFn: func(_ context.Context, trigger *domain.EventTrigger) error {
+		CreateEventTriggerFunc: func(_ context.Context, trigger *domain.EventTrigger) error {
 			createdTrigger = trigger
 			return nil
 		},
@@ -113,8 +113,8 @@ func TestHandleSDKWaitForEvent_Success(t *testing.T) {
 func TestHandleSDKWaitForEvent_RunNotExecuting(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: "run-1", ProjectID: "proj-1", Status: domain.StatusCompleted}, nil
 		},
 	}
@@ -137,7 +137,7 @@ func TestHandleSDKWaitForEvent_RunNotExecuting(t *testing.T) {
 func TestHandleSDKWaitForEvent_MissingEventKey(t *testing.T) {
 	t.Parallel()
 
-	srv := newSDKWaitEventTestServer(t, &mockAPIStore{})
+	srv := newSDKWaitEventTestServer(t, &APIStoreMock{})
 
 	body := `{}`
 	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/wait-for-event", strings.NewReader(body))
@@ -157,14 +157,14 @@ func TestHandleSDKWaitForEvent_DefaultTimeout(t *testing.T) {
 
 	var createdTrigger *domain.EventTrigger
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		createEventTriggerFn: func(_ context.Context, trigger *domain.EventTrigger) error {
+		CreateEventTriggerFunc: func(_ context.Context, trigger *domain.EventTrigger) error {
 			createdTrigger = trigger
 			return nil
 		},
@@ -192,8 +192,8 @@ func TestHandleSDKWaitForEvent_DefaultTimeout(t *testing.T) {
 func TestHandleSDKWaitForEvent_RunNotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, nil
 		},
 	}

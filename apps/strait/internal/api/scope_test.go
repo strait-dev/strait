@@ -15,7 +15,7 @@ import (
 func TestRequirePermission_APIKey_AllowsWildcard(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -36,7 +36,7 @@ func TestRequirePermission_APIKey_AllowsWildcard(t *testing.T) {
 func TestRequirePermission_APIKey_AllowsMatchingScope(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -57,7 +57,7 @@ func TestRequirePermission_APIKey_AllowsMatchingScope(t *testing.T) {
 func TestRequirePermission_APIKey_BlocksMissingScope(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -78,7 +78,7 @@ func TestRequirePermission_APIKey_BlocksMissingScope(t *testing.T) {
 func TestRequirePermission_APIKey_EmptyScopesAllowAll(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -99,7 +99,7 @@ func TestRequirePermission_APIKey_EmptyScopesAllowAll(t *testing.T) {
 func TestRequirePermission_APIKey_NilScopesAllowAll(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -120,7 +120,7 @@ func TestRequirePermission_APIKey_NilScopesAllowAll(t *testing.T) {
 func TestRequirePermission_APIKey_MultipleScopesWithMatch(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeRunsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -143,7 +143,7 @@ func TestRequirePermission_APIKey_MultipleScopesWithMatch(t *testing.T) {
 func TestRequirePermission_InternalSecret_AllowsAll(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -162,7 +162,7 @@ func TestRequirePermission_InternalSecret_AllowsAll(t *testing.T) {
 func TestRequirePermission_InternalSecret_WithActorHeaders(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -188,7 +188,7 @@ func TestRequirePermission_InternalSecret_WithActorHeaders(t *testing.T) {
 func TestRequirePermission_UnknownActorType_Rejected(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -220,8 +220,8 @@ func userCtx(r *http.Request, projectID, userID string) *http.Request {
 func TestRequirePermission_User_WithMatchingPermission(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return []string{domain.ScopeJobsRead, domain.ScopeJobsWrite}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -241,8 +241,8 @@ func TestRequirePermission_User_WithMatchingPermission(t *testing.T) {
 func TestRequirePermission_User_MissingPermission(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return []string{domain.ScopeJobsRead}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -262,8 +262,8 @@ func TestRequirePermission_User_MissingPermission(t *testing.T) {
 func TestRequirePermission_User_NoRole(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return nil, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -283,8 +283,8 @@ func TestRequirePermission_User_NoRole(t *testing.T) {
 func TestRequirePermission_User_DBError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return nil, context.DeadlineExceeded
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -304,7 +304,7 @@ func TestRequirePermission_User_DBError(t *testing.T) {
 func TestRequirePermission_User_MissingProjectContext(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -328,8 +328,8 @@ func TestRequirePermission_User_CacheHit(t *testing.T) {
 	t.Parallel()
 
 	var callCount int32
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		atomic.AddInt32(&callCount, 1)
 		return []string{domain.ScopeJobsRead}, nil
 	}
@@ -367,7 +367,7 @@ func TestRequirePermission_User_CacheHit(t *testing.T) {
 func TestRequirePermission_User_MissingActorID(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -390,8 +390,8 @@ func TestRequirePermission_User_MissingActorID(t *testing.T) {
 func TestRequirePermission_User_WildcardPermission(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return []string{"*"}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -416,8 +416,8 @@ func TestRequirePermission_User_CacheInvalidationReloads(t *testing.T) {
 	t.Parallel()
 
 	var callCount int32
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		atomic.AddInt32(&callCount, 1)
 		return []string{domain.ScopeJobsRead}, nil
 	}
@@ -454,8 +454,8 @@ func TestRequirePermission_User_CacheInvalidationReloads(t *testing.T) {
 func TestRequirePermission_ChainedMiddleware(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return []string{domain.ScopeJobsRead}, nil // Has read but NOT write.
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -482,8 +482,8 @@ func TestRequirePermission_APIKey_WildcardScopeWithUserActorType(t *testing.T) {
 
 	// Even if scopes contain "*" and actor type is "user", the user path fires.
 	// This verifies the middleware correctly dispatches on actor type, not scopes.
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return []string{domain.ScopeJobsRead}, nil // User has read only.
 	}
 	srv := newTestServer(t, ms, nil, nil)

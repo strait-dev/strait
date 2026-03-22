@@ -121,7 +121,7 @@ func TestNewServerWithActorSyncer(t *testing.T) {
 	t.Parallel()
 
 	syncer := &mockActorSyncer{}
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServerWithActorSyncer(t, ms, nil, nil, syncer)
 	if srv == nil {
 		t.Fatal("server should not be nil")
@@ -138,8 +138,8 @@ func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
 	var capturedType string
 	var capturedProjectID string
 
-	ms := &mockAPIStore{}
-	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
+	ms := &APIStoreMock{}
+	ms.QueueStatsFunc = func(ctx context.Context) (*store.QueueStats, error) {
 		// Capture actor/project context set by middleware.
 		capturedActor = actorFromContext(ctx)
 		capturedProjectID = projectIDFromContext(ctx)
@@ -209,16 +209,16 @@ func TestAPIKeyAuth_IgnoresActorHeaders(t *testing.T) {
 	var capturedActor string
 	var capturedType string
 
-	ms := &mockAPIStore{}
-	ms.getAPIKeyByHashFn = func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{}
+	ms.GetAPIKeyByHashFunc = func(_ context.Context, _ string) (*domain.APIKey, error) {
 		return &domain.APIKey{
 			ID:        "key-1",
 			ProjectID: "proj-1",
 			Scopes:    []string{"stats:read"},
 		}, nil
 	}
-	ms.touchAPIKeyLastUsedFn = func(_ context.Context, _ string) error { return nil }
-	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
+	ms.TouchAPIKeyLastUsedFunc = func(_ context.Context, _ string) error { return nil }
+	ms.QueueStatsFunc = func(ctx context.Context) (*store.QueueStats, error) {
 		capturedActor = actorFromContext(ctx)
 		if v, ok := ctx.Value(ctxActorTypeKey).(string); ok {
 			capturedType = v
@@ -255,8 +255,8 @@ func TestInternalSecretAuth_NoActorHeaders(t *testing.T) {
 
 	var capturedActor string
 
-	ms := &mockAPIStore{}
-	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
+	ms := &APIStoreMock{}
+	ms.QueueStatsFunc = func(ctx context.Context) (*store.QueueStats, error) {
 		capturedActor = actorFromContext(ctx)
 		return &store.QueueStats{}, nil
 	}
@@ -282,8 +282,8 @@ func TestInternalSecretAuth_EmptyActorID(t *testing.T) {
 
 	var capturedType string
 
-	ms := &mockAPIStore{}
-	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
+	ms := &APIStoreMock{}
+	ms.QueueStatsFunc = func(ctx context.Context) (*store.QueueStats, error) {
 		if v, ok := ctx.Value(ctxActorTypeKey).(string); ok {
 			capturedType = v
 		}
@@ -310,7 +310,7 @@ func TestInternalSecretAuth_EmptyActorID(t *testing.T) {
 func TestAPIKeyAuth_MissingAuthHeader(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
 	// No Authorization header, no X-Internal-Secret.
@@ -326,7 +326,7 @@ func TestAPIKeyAuth_MissingAuthHeader(t *testing.T) {
 func TestAPIKeyAuth_InvalidBearerPrefix(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
 	r.Header.Set("Authorization", "Bearer invalid_not_strait_prefix")
@@ -342,8 +342,8 @@ func TestAPIKeyAuth_InvalidBearerPrefix(t *testing.T) {
 func TestActorSyncer_NilSyncer(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.queueStatsFn = func(_ context.Context) (*store.QueueStats, error) {
+	ms := &APIStoreMock{}
+	ms.QueueStatsFunc = func(_ context.Context) (*store.QueueStats, error) {
 		return &store.QueueStats{}, nil
 	}
 	// Create server without ActorSyncer (nil).

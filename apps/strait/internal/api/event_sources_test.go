@@ -17,8 +17,8 @@ import (
 
 func TestHandleCreateEventSource_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createEventSourceFn: func(_ context.Context, src *domain.EventSource) error {
+	ms := &APIStoreMock{
+		CreateEventSourceFunc: func(_ context.Context, src *domain.EventSource) error {
 			src.ID = "src-1"
 			src.CreatedAt = time.Now()
 			src.UpdatedAt = time.Now()
@@ -54,7 +54,7 @@ func TestHandleCreateEventSource_Success(t *testing.T) {
 
 func TestHandleCreateEventSource_MissingName(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	body := `{"project_id": "proj-1"}`
 	w := httptest.NewRecorder()
@@ -73,8 +73,8 @@ func TestHandleCreateEventSource_MissingName(t *testing.T) {
 func TestHandleListEventSources_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	ms := &mockAPIStore{
-		listEventSourcesFn: func(_ context.Context, projectID string) ([]domain.EventSource, error) {
+	ms := &APIStoreMock{
+		ListEventSourcesFunc: func(_ context.Context, projectID string) ([]domain.EventSource, error) {
 			return []domain.EventSource{
 				{ID: "src-1", ProjectID: projectID, Name: "src-a", Enabled: true, CreatedAt: now},
 				{ID: "src-2", ProjectID: projectID, Name: "src-b", Enabled: true, CreatedAt: now},
@@ -101,7 +101,7 @@ func TestHandleListEventSources_Success(t *testing.T) {
 
 func TestHandleListEventSources_MissingProjectID(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/event-sources", ""))
@@ -115,8 +115,8 @@ func TestHandleListEventSources_MissingProjectID(t *testing.T) {
 
 func TestHandleGetEventSource_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEventSourceFn: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+	ms := &APIStoreMock{
+		GetEventSourceFunc: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
 			return &domain.EventSource{
 				ID: sourceID, ProjectID: projectID, Name: "deploy-events",
 				Enabled: true, CreatedAt: time.Now(),
@@ -143,8 +143,8 @@ func TestHandleGetEventSource_Success(t *testing.T) {
 
 func TestHandleGetEventSource_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEventSourceFn: func(_ context.Context, _, _ string) (*domain.EventSource, error) {
+	ms := &APIStoreMock{
+		GetEventSourceFunc: func(_ context.Context, _, _ string) (*domain.EventSource, error) {
 			return nil, store.ErrEventSourceNotFound
 		},
 	}
@@ -162,8 +162,8 @@ func TestHandleGetEventSource_NotFound(t *testing.T) {
 
 func TestHandleUpdateEventSource_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		updateEventSourceFn: func(_ context.Context, _, _ string, _ map[string]any) error {
+	ms := &APIStoreMock{
+		UpdateEventSourceFunc: func(_ context.Context, _, _ string, _ map[string]any) error {
 			return nil
 		},
 	}
@@ -180,7 +180,7 @@ func TestHandleUpdateEventSource_Success(t *testing.T) {
 
 func TestHandleUpdateEventSource_EmptyPatch(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/event-sources/src-1", `{}`, "proj-1"))
@@ -197,8 +197,8 @@ func TestHandleUpdateEventSource_EmptyPatch(t *testing.T) {
 
 func TestHandleDeleteEventSource_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		deleteEventSourceFn: func(_ context.Context, _, _ string) error {
+	ms := &APIStoreMock{
+		DeleteEventSourceFunc: func(_ context.Context, _, _ string) error {
 			return nil
 		},
 	}
@@ -214,8 +214,8 @@ func TestHandleDeleteEventSource_Success(t *testing.T) {
 
 func TestHandleDeleteEventSource_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		deleteEventSourceFn: func(_ context.Context, _, _ string) error {
+	ms := &APIStoreMock{
+		DeleteEventSourceFunc: func(_ context.Context, _, _ string) error {
 			return store.ErrEventSourceNotFound
 		},
 	}
@@ -233,8 +233,8 @@ func TestHandleDeleteEventSource_NotFound(t *testing.T) {
 
 func TestHandleSubscribeToEventSource_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createEventSubscriptionFn: func(_ context.Context, sub *domain.EventSubscription) error {
+	ms := &APIStoreMock{
+		CreateEventSubscriptionFunc: func(_ context.Context, sub *domain.EventSubscription) error {
 			sub.ID = "sub-1"
 			sub.CreatedAt = time.Now()
 			return nil
@@ -269,7 +269,7 @@ func TestHandleSubscribeToEventSource_Success(t *testing.T) {
 
 func TestHandleSubscribeToEventSource_MissingTargetType(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	body := `{"target_id": "job-1"}`
 	w := httptest.NewRecorder()
@@ -284,8 +284,8 @@ func TestHandleSubscribeToEventSource_MissingTargetType(t *testing.T) {
 
 func TestHandleListEventSourceSubscriptions_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listEventSubscriptionsBySourceFn: func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
+	ms := &APIStoreMock{
+		ListEventSubscriptionsBySourceFunc: func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
 			return []domain.EventSubscription{
 				{ID: "sub-1", SourceID: sourceID, TargetType: "job", TargetID: "job-1", Enabled: true},
 			}, nil
@@ -313,8 +313,8 @@ func TestHandleListEventSourceSubscriptions_Success(t *testing.T) {
 
 func TestHandleDeleteEventSubscription_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		deleteEventSubscriptionFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		DeleteEventSubscriptionFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}
@@ -330,8 +330,8 @@ func TestHandleDeleteEventSubscription_Success(t *testing.T) {
 
 func TestHandleDeleteEventSubscription_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		deleteEventSubscriptionFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		DeleteEventSubscriptionFunc: func(_ context.Context, _ string) error {
 			return store.ErrEventSubscriptionNotFound
 		},
 	}
@@ -349,13 +349,13 @@ func TestHandleDeleteEventSubscription_NotFound(t *testing.T) {
 
 func TestHandleDispatchEvent_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEventSourceByNameFn: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+	ms := &APIStoreMock{
+		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
 			return &domain.EventSource{
 				ID: "src-1", ProjectID: projectID, Name: name, Enabled: true,
 			}, nil
 		},
-		listEventSubscriptionsBySourceFn: func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
+		ListEventSubscriptionsBySourceFunc: func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
 			return []domain.EventSubscription{
 				{
 					ID: "sub-1", SourceID: sourceID, TargetType: "job", TargetID: "job-1",
@@ -363,7 +363,7 @@ func TestHandleDispatchEvent_Success(t *testing.T) {
 				},
 			}, nil
 		},
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
 				ID: id, Enabled: true, Version: 1, VersionID: "jv-1",
 				ProjectID: "proj-1",
@@ -397,8 +397,8 @@ func TestHandleDispatchEvent_Success(t *testing.T) {
 
 func TestHandleDispatchEvent_SourceNotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEventSourceByNameFn: func(_ context.Context, _, _ string) (*domain.EventSource, error) {
+	ms := &APIStoreMock{
+		GetEventSourceByNameFunc: func(_ context.Context, _, _ string) (*domain.EventSource, error) {
 			return nil, store.ErrEventSourceNotFound
 		},
 	}
@@ -415,8 +415,8 @@ func TestHandleDispatchEvent_SourceNotFound(t *testing.T) {
 
 func TestHandleDispatchEvent_SourceDisabled(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEventSourceByNameFn: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+	ms := &APIStoreMock{
+		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
 			return &domain.EventSource{
 				ID: "src-1", ProjectID: projectID, Name: name, Enabled: false,
 			}, nil
@@ -438,7 +438,7 @@ func TestHandleDispatchEvent_SourceDisabled(t *testing.T) {
 
 func TestHandleDispatchEvent_InvalidBody(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", "not json"))

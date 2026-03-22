@@ -14,8 +14,8 @@ import (
 func TestRBACMutations_CreateRole_EmitsAuditEvent(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.createProjectRoleFn = func(_ context.Context, role *domain.ProjectRole) error {
+	ms := &APIStoreMock{}
+	ms.CreateProjectRoleFunc = func(_ context.Context, role *domain.ProjectRole) error {
 		role.ID = "role-1"
 		return nil
 	}
@@ -24,7 +24,7 @@ func TestRBACMutations_CreateRole_EmitsAuditEvent(t *testing.T) {
 		mu       sync.Mutex
 		captured *domain.AuditEvent
 	)
-	ms.createAuditEventFn = func(_ context.Context, ev *domain.AuditEvent) error {
+	ms.CreateAuditEventFunc = func(_ context.Context, ev *domain.AuditEvent) error {
 		mu.Lock()
 		defer mu.Unlock()
 		clone := *ev
@@ -69,17 +69,17 @@ func TestRBACMutations_CreateRole_EmitsAuditEvent(t *testing.T) {
 func TestRBACMutations_AssignMember_EmitsPermissionGrantedAuditEvent(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
 		return &domain.ProjectRole{ID: id, Name: "admin"}, nil
 	}
-	ms.assignMemberRoleFn = func(_ context.Context, m *domain.ProjectMemberRole) error {
+	ms.AssignMemberRoleFunc = func(_ context.Context, m *domain.ProjectMemberRole) error {
 		m.ID = "member-1"
 		return nil
 	}
 
 	var captured *domain.AuditEvent
-	ms.createAuditEventFn = func(_ context.Context, ev *domain.AuditEvent) error {
+	ms.CreateAuditEventFunc = func(_ context.Context, ev *domain.AuditEvent) error {
 		clone := *ev
 		captured = &clone
 		return nil

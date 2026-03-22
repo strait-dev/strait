@@ -14,15 +14,15 @@ import (
 
 func TestHandleGetCostAnalytics_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostAnalyticsFn: func(_ context.Context, _ string, _, _ time.Time) (*store.CostAnalytics, error) {
+	ms := &AnalyticsStoreMock{
+		GetCostAnalyticsFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.CostAnalytics, error) {
 			return &store.CostAnalytics{
 				ByModel: make([]store.CostByModel, 0),
 				ByJob:   make([]store.CostByJob, 0),
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	now := time.Now().UTC()
 	from := now.Add(-30 * 24 * time.Hour).Format(time.RFC3339)
@@ -35,7 +35,7 @@ func TestHandleGetCostAnalytics_Success(t *testing.T) {
 
 func TestHandleGetCostAnalytics_MissingFrom(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?to=2025-01-01T00:00:00Z", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
@@ -45,7 +45,7 @@ func TestHandleGetCostAnalytics_MissingFrom(t *testing.T) {
 
 func TestHandleGetCostAnalytics_MissingTo(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=2025-01-01T00:00:00Z", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
@@ -55,7 +55,7 @@ func TestHandleGetCostAnalytics_MissingTo(t *testing.T) {
 
 func TestHandleGetCostAnalytics_InvalidFromFormat(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=not-a-date&to=2025-01-01T00:00:00Z", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
@@ -65,7 +65,7 @@ func TestHandleGetCostAnalytics_InvalidFromFormat(t *testing.T) {
 
 func TestHandleGetCostAnalytics_InvalidToFormat(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=2025-01-01T00:00:00Z&to=not-a-date", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
@@ -75,7 +75,7 @@ func TestHandleGetCostAnalytics_InvalidToFormat(t *testing.T) {
 
 func TestHandleGetCostAnalytics_ToBeforeFrom(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=2025-06-01T00:00:00Z&to=2025-01-01T00:00:00Z", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
@@ -85,7 +85,7 @@ func TestHandleGetCostAnalytics_ToBeforeFrom(t *testing.T) {
 
 func TestHandleGetCostAnalytics_ExceedsMaxWindow(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
@@ -98,15 +98,15 @@ func TestHandleGetCostAnalytics_ExceedsMaxWindow(t *testing.T) {
 
 func TestHandleGetCostAnalytics_ExactlyMaxWindow(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostAnalyticsFn: func(_ context.Context, _ string, _, _ time.Time) (*store.CostAnalytics, error) {
+	ms := &AnalyticsStoreMock{
+		GetCostAnalyticsFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.CostAnalytics, error) {
 			return &store.CostAnalytics{
 				ByModel: make([]store.CostByModel, 0),
 				ByJob:   make([]store.CostByJob, 0),
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=2025-01-01T00:00:00Z&to=2025-04-01T00:00:00Z", "", "proj-1"))
 	if w.Code != http.StatusOK {
@@ -116,7 +116,7 @@ func TestHandleGetCostAnalytics_ExactlyMaxWindow(t *testing.T) {
 
 func TestHandleGetCostTrends_ExceedsMaxWindow(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs/trends?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
@@ -126,7 +126,7 @@ func TestHandleGetCostTrends_ExceedsMaxWindow(t *testing.T) {
 
 func TestHandleGetTopCosts_ExceedsMaxWindow(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs/top?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
@@ -136,7 +136,7 @@ func TestHandleGetTopCosts_ExceedsMaxWindow(t *testing.T) {
 
 func TestHandleGetComputeCostAnalytics_ExceedsMaxWindow(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/compute?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
@@ -146,7 +146,7 @@ func TestHandleGetComputeCostAnalytics_ExceedsMaxWindow(t *testing.T) {
 
 func TestHandleGetCostInsights_ExceedsMaxWindow(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/cost-insights?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
@@ -156,12 +156,12 @@ func TestHandleGetCostInsights_ExceedsMaxWindow(t *testing.T) {
 
 func TestHandleGetTopCosts_ValidLimit(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getTopCostsFn: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopCostItem, error) {
+	ms := &AnalyticsStoreMock{
+		GetTopCostsFunc: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopCostItem, error) {
 			return []store.TopCostItem{}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	now := time.Now().UTC()
 	from := now.Add(-7 * 24 * time.Hour).Format(time.RFC3339)
@@ -174,7 +174,7 @@ func TestHandleGetTopCosts_ValidLimit(t *testing.T) {
 
 func TestHandleGetTopCosts_LimitTooHigh(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	now := time.Now().UTC()
 	from := now.Add(-7 * 24 * time.Hour).Format(time.RFC3339)
@@ -187,12 +187,12 @@ func TestHandleGetTopCosts_LimitTooHigh(t *testing.T) {
 
 func TestHandleGetTopCosts_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getTopCostsFn: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopCostItem, error) {
+	ms := &AnalyticsStoreMock{
+		GetTopCostsFunc: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopCostItem, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	now := time.Now().UTC()
 	from := now.Add(-7 * 24 * time.Hour).Format(time.RFC3339)

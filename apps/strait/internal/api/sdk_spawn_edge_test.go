@@ -21,24 +21,25 @@ func TestHandleSDKSpawn_AwaitCompletion_TransitionsParent(t *testing.T) {
 	var statusUpdated atomic.Bool
 	var createdTrigger atomic.Bool
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
 		},
-		getJobBySlugFn: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
+		GetJobBySlugFunc: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-123", ProjectID: projectID, Slug: "child"}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
 			if from == domain.StatusExecuting && to == domain.StatusWaiting {
 				statusUpdated.Store(true)
 			}
 			return nil
 		},
-		createEventTriggerFn: func(_ context.Context, _ *domain.EventTrigger) error {
+		CreateEventTriggerFunc: func(_ context.Context, _ *domain.EventTrigger) error {
 			createdTrigger.Store(true)
 			return nil
 		},
 	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
 	}
@@ -76,18 +77,19 @@ func TestHandleSDKSpawn_NoAwait_DoesNotTransitionParent(t *testing.T) {
 	t.Parallel()
 	var statusUpdated atomic.Bool
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
 		},
-		getJobBySlugFn: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
+		GetJobBySlugFunc: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-123", ProjectID: projectID, Slug: "child"}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			statusUpdated.Store(true)
 			return nil
 		},
 	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
 	}
@@ -109,19 +111,20 @@ func TestHandleSDKSpawn_NoAwait_DoesNotTransitionParent(t *testing.T) {
 
 func TestHandleSDKSpawn_AwaitCompletion_ParentNotExecuting(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			// Parent is already waiting (e.g., from a previous spawn).
 			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusWaiting}, nil
 		},
-		getJobBySlugFn: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
+		GetJobBySlugFunc: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-123", ProjectID: projectID, Slug: "child"}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			t.Error("should not update status when parent is not executing")
 			return nil
 		},
 	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
 	}
@@ -143,8 +146,8 @@ func TestHandleSDKSpawn_AwaitCompletion_ParentNotExecuting(t *testing.T) {
 
 func TestHandleSDKSpawn_CrossProject_RequiresTargetKey(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-source", Status: domain.StatusExecuting}, nil
 		},
 	}
@@ -164,11 +167,11 @@ func TestHandleSDKSpawn_CrossProject_RequiresTargetKey(t *testing.T) {
 
 func TestHandleSDKSpawn_CrossProject_InvalidKey(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-source", Status: domain.StatusExecuting}, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return nil, errors.New("key not found")
 		},
 	}
@@ -188,11 +191,11 @@ func TestHandleSDKSpawn_CrossProject_InvalidKey(t *testing.T) {
 func TestHandleSDKSpawn_CrossProject_RevokedKey(t *testing.T) {
 	t.Parallel()
 	revokedAt := time.Now().Add(-time.Hour)
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-source", Status: domain.StatusExecuting}, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-target", RevokedAt: &revokedAt}, nil
 		},
 	}
@@ -212,11 +215,11 @@ func TestHandleSDKSpawn_CrossProject_RevokedKey(t *testing.T) {
 func TestHandleSDKSpawn_CrossProject_ExpiredKey(t *testing.T) {
 	t.Parallel()
 	expiredAt := time.Now().Add(-time.Hour)
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-source", Status: domain.StatusExecuting}, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-target", ExpiresAt: &expiredAt}, nil
 		},
 	}
@@ -235,11 +238,11 @@ func TestHandleSDKSpawn_CrossProject_ExpiredKey(t *testing.T) {
 
 func TestHandleSDKSpawn_CrossProject_WrongProject(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-source", Status: domain.StatusExecuting}, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			// Key belongs to a different project than specified.
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-other"}, nil
 		},
@@ -259,20 +262,21 @@ func TestHandleSDKSpawn_CrossProject_WrongProject(t *testing.T) {
 
 func TestHandleSDKSpawn_CrossProject_ValidKey(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-source", Status: domain.StatusExecuting}, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-target"}, nil
 		},
-		getJobBySlugFn: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
+		GetJobBySlugFunc: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
 			if projectID != "proj-target" {
 				t.Fatalf("job lookup should use target project, got %s", projectID)
 			}
 			return &domain.Job{ID: "job-target", ProjectID: projectID, Slug: "child"}, nil
 		},
 	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 			if run.ProjectID != "proj-target" {
@@ -296,14 +300,15 @@ func TestHandleSDKSpawn_CrossProject_ValidKey(t *testing.T) {
 
 func TestHandleSDKSpawn_SameProject_NoKeyNeeded(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
 		},
-		getJobBySlugFn: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
+		GetJobBySlugFunc: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-1", ProjectID: projectID, Slug: "child"}, nil
 		},
 	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
 	}
@@ -322,8 +327,8 @@ func TestHandleSDKSpawn_SameProject_NoKeyNeeded(t *testing.T) {
 
 func TestHandleSDKSpawn_ParentRunNotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}

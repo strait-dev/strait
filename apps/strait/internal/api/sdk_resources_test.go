@@ -16,8 +16,8 @@ func TestHandleSDKResources_ValidPayload_InfoLevel(t *testing.T) {
 	t.Parallel()
 
 	var captured atomic.Value
-	store := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	store := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			captured.Store(event)
 			return nil
 		},
@@ -45,8 +45,8 @@ func TestHandleSDKResources_MemoryWarn80(t *testing.T) {
 	t.Parallel()
 
 	var captured atomic.Value
-	store := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	store := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			captured.Store(event)
 			return nil
 		},
@@ -74,8 +74,8 @@ func TestHandleSDKResources_MemoryCritical90(t *testing.T) {
 	t.Parallel()
 
 	var captured atomic.Value
-	store := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	store := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			captured.Store(event)
 			return nil
 		},
@@ -102,7 +102,7 @@ func TestHandleSDKResources_MemoryCritical90(t *testing.T) {
 func TestHandleSDKResources_NegativeMemoryMB(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{"memory_mb":-1}`)
@@ -117,7 +117,7 @@ func TestHandleSDKResources_NegativeMemoryMB(t *testing.T) {
 func TestHandleSDKResources_MemoryPercentOver100(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{"memory_percent":150}`)
@@ -132,7 +132,7 @@ func TestHandleSDKResources_MemoryPercentOver100(t *testing.T) {
 func TestHandleSDKResources_CPUPercentOver100(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{"cpu_percent":200}`)
@@ -147,7 +147,7 @@ func TestHandleSDKResources_CPUPercentOver100(t *testing.T) {
 func TestHandleSDKResources_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{not json`)
@@ -162,8 +162,8 @@ func TestHandleSDKResources_InvalidJSON(t *testing.T) {
 func TestHandleSDKResources_InsertEventFailure(t *testing.T) {
 	t.Parallel()
 
-	store := &mockAPIStore{
-		insertEventFn: func(_ context.Context, _ *domain.RunEvent) error {
+	store := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, _ *domain.RunEvent) error {
 			return errors.New("db down")
 		},
 	}

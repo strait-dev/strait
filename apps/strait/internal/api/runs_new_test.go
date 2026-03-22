@@ -20,8 +20,8 @@ import (
 
 func TestHandleResetIdempotencyKey_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		resetRunIdempotencyKeyFn: func(_ context.Context, runID string) error {
+	ms := &APIStoreMock{
+		ResetRunIdempotencyKeyFunc: func(_ context.Context, runID string) error {
 			if runID != "run-abc" {
 				t.Fatalf("unexpected runID: %s", runID)
 			}
@@ -41,8 +41,8 @@ func TestHandleResetIdempotencyKey_Success(t *testing.T) {
 
 func TestHandleResetIdempotencyKey_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		resetRunIdempotencyKeyFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		ResetRunIdempotencyKeyFunc: func(_ context.Context, _ string) error {
 			return store.ErrRunNotFound
 		},
 	}
@@ -57,14 +57,14 @@ func TestHandleResetIdempotencyKey_NotFound(t *testing.T) {
 func TestHandleRescheduleRun_Success(t *testing.T) {
 	t.Parallel()
 	scheduledAt := time.Now().Add(1 * time.Hour).Truncate(time.Second)
-	ms := &mockAPIStore{
-		rescheduleRunFn: func(_ context.Context, runID string, at time.Time, _ json.RawMessage) error {
+	ms := &APIStoreMock{
+		RescheduleRunFunc: func(_ context.Context, runID string, at time.Time, _ json.RawMessage) error {
 			if runID != "run-r1" {
 				t.Fatalf("unexpected runID: %s", runID)
 			}
 			return nil
 		},
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:          id,
 				JobID:       "job-1",
@@ -88,8 +88,8 @@ func TestHandleRescheduleRun_Success(t *testing.T) {
 
 func TestHandleRescheduleRun_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		rescheduleRunFn: func(_ context.Context, _ string, _ time.Time, _ json.RawMessage) error {
+	ms := &APIStoreMock{
+		RescheduleRunFunc: func(_ context.Context, _ string, _ time.Time, _ json.RawMessage) error {
 			return store.ErrRunNotFound
 		},
 	}
@@ -104,7 +104,7 @@ func TestHandleRescheduleRun_NotFound(t *testing.T) {
 
 func TestHandleRescheduleRun_InvalidBody(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-x/reschedule", ""))
@@ -119,9 +119,12 @@ func TestHandleBulkTrigger_WithTTL(t *testing.T) {
 	var mu sync.Mutex
 	var enqueuedRuns []*domain.JobRun
 
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return testEnabledJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -161,8 +164,8 @@ func TestHandleListRuns_TriggeredByFilter(t *testing.T) {
 	t.Parallel()
 
 	var capturedTriggeredBy *string
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, triggeredBy, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, triggeredBy, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedTriggeredBy = triggeredBy
 			return []domain.JobRun{}, nil
 		},
@@ -185,8 +188,8 @@ func TestHandleListRuns_ExecutionModeFilter_Managed(t *testing.T) {
 	t.Parallel()
 
 	var capturedMode *domain.ExecutionMode
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedMode = em
 			return []domain.JobRun{
 				{ID: "run-managed", ExecutionMode: domain.ExecutionModeManaged, CreatedAt: time.Now()},
@@ -211,8 +214,8 @@ func TestHandleListRuns_ExecutionModeFilter_HTTP(t *testing.T) {
 	t.Parallel()
 
 	var capturedMode *domain.ExecutionMode
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedMode = em
 			return []domain.JobRun{}, nil
 		},
@@ -231,7 +234,7 @@ func TestHandleListRuns_ExecutionModeFilter_HTTP(t *testing.T) {
 func TestHandleListRuns_ExecutionModeFilter_Invalid(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?execution_mode=invalid", "", "proj-1"))
@@ -244,8 +247,8 @@ func TestHandleListRuns_ExecutionModeFilter_NoFilter(t *testing.T) {
 	t.Parallel()
 
 	var capturedMode *domain.ExecutionMode
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedMode = em
 			return []domain.JobRun{}, nil
 		},
@@ -266,8 +269,8 @@ func TestHandleListRuns_ExecutionModeFilter_CombinedWithStatus(t *testing.T) {
 
 	var capturedStatus *domain.RunStatus
 	var capturedMode *domain.ExecutionMode
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, status *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, status *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedStatus = status
 			capturedMode = em
 			return []domain.JobRun{}, nil
@@ -293,9 +296,12 @@ func TestHandleBulkTrigger_WithConcurrencyKey(t *testing.T) {
 	var mu sync.Mutex
 	var enqueuedRuns []*domain.JobRun
 
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return testEnabledJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -328,8 +334,8 @@ func TestHandleBulkTrigger_WithConcurrencyKey(t *testing.T) {
 func TestHandleTrigger_DefaultRunMetadataMerge(t *testing.T) {
 	t.Parallel()
 	var enqueued *domain.JobRun
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
 				ID:                 id,
 				ProjectID:          "proj-1",
@@ -337,6 +343,9 @@ func TestHandleTrigger_DefaultRunMetadataMerge(t *testing.T) {
 				TimeoutSecs:        60,
 				DefaultRunMetadata: map[string]string{"env": "prod", "dependency_key": "default-dep"},
 			}, nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -368,9 +377,12 @@ func TestHandleBulkTrigger_BatchIDSet(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex
 	var enqueuedRuns []*domain.JobRun
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return testEnabledJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -404,8 +416,8 @@ func TestHandleBulkTrigger_BatchIDSet(t *testing.T) {
 func TestHandleCreateJob_MaxConcurrencyPerKey(t *testing.T) {
 	t.Parallel()
 	var created *domain.Job
-	ms := &mockAPIStore{
-		createJobFn: func(_ context.Context, job *domain.Job) error {
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
 			job.ID = "job-new"
 			job.CreatedAt = time.Now()
 			job.UpdatedAt = time.Now()
@@ -524,8 +536,8 @@ func TestHandleCancelRun_ManagedStopsContainer(t *testing.T) {
 		},
 	}
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:            id,
 				JobID:         "job-1",
@@ -535,10 +547,10 @@ func TestHandleCancelRun_ManagedStopsContainer(t *testing.T) {
 				MachineID:     "m-abc-123",
 			}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -564,8 +576,8 @@ func TestHandleCancelRun_StopError(t *testing.T) {
 		},
 	}
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:            id,
 				JobID:         "job-1",
@@ -575,10 +587,10 @@ func TestHandleCancelRun_StopError(t *testing.T) {
 				MachineID:     "m-fail",
 			}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -603,8 +615,8 @@ func TestHandleCancelRun_HTTPRun_NoStopCall(t *testing.T) {
 		},
 	}
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:            id,
 				JobID:         "job-1",
@@ -614,10 +626,10 @@ func TestHandleCancelRun_HTTPRun_NoStopCall(t *testing.T) {
 				MachineID:     "m-http",
 			}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -644,8 +656,8 @@ func TestHandleCancelRun_NoMachineID(t *testing.T) {
 		},
 	}
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:            id,
 				JobID:         "job-1",
@@ -655,10 +667,10 @@ func TestHandleCancelRun_NoMachineID(t *testing.T) {
 				MachineID:     "", // Empty machine ID.
 			}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -719,15 +731,15 @@ func TestHandlePauseRun_ManagedStopsContainer(t *testing.T) {
 	}
 
 	getCalls := 0
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getCalls++
 			if getCalls == 1 {
 				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
 			if from != domain.StatusExecuting || to != domain.StatusPaused {
 				t.Fatalf("unexpected transition %s -> %s", from, to)
 			}
@@ -750,8 +762,8 @@ func TestHandlePauseRun_ManagedStopsContainer(t *testing.T) {
 func TestHandlePauseRun_HTTPRun_Rejected(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 	}
@@ -768,8 +780,8 @@ func TestHandlePauseRun_HTTPRun_Rejected(t *testing.T) {
 func TestHandlePauseRun_AlreadyPaused(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged}, nil
 		},
 	}
@@ -786,8 +798,8 @@ func TestHandlePauseRun_AlreadyPaused(t *testing.T) {
 func TestHandlePauseRun_TerminalRun(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusCompleted, ExecutionMode: domain.ExecutionModeManaged}, nil
 		},
 	}
@@ -805,15 +817,15 @@ func TestHandleResumeRun_RequeuesRun(t *testing.T) {
 	t.Parallel()
 
 	getCalls := 0
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getCalls++
 			if getCalls == 1 {
 				return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged}, nil
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeManaged}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
 			if from != domain.StatusPaused || to != domain.StatusQueued {
 				t.Fatalf("unexpected transition %s -> %s", from, to)
 			}
@@ -833,8 +845,8 @@ func TestHandleResumeRun_RequeuesRun(t *testing.T) {
 func TestHandleResumeRun_NotPaused(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged}, nil
 		},
 	}
@@ -853,15 +865,15 @@ func TestHandleRestartRun_WithPresetOverride(t *testing.T) {
 
 	var capturedMetadata map[string]any
 	getCalls := 0
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getCalls++
 			if getCalls == 1 {
 				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeManaged}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, fields map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, fields map[string]any) error {
 			capturedMetadata = fields
 			return nil
 		},
@@ -890,8 +902,8 @@ func TestHandleRestartRun_WithPresetOverride(t *testing.T) {
 func TestHandleRestartRun_InvalidPreset(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged}, nil
 		},
 	}
@@ -912,15 +924,15 @@ func TestHandleResumeRun_PreservesMachineID(t *testing.T) {
 
 	var capturedFields map[string]any
 	getCalls := 0
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getCalls++
 			if getCalls == 1 {
 				return &domain.JobRun{ID: id, Status: domain.StatusPaused, MachineID: "m-paused", ExecutionMode: domain.ExecutionModeManaged}, nil
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusQueued, MachineID: "m-paused", ExecutionMode: domain.ExecutionModeManaged}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, fields map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, fields map[string]any) error {
 			capturedFields = fields
 			return nil
 		},
@@ -947,11 +959,11 @@ func TestHandlePauseRun_ThenResume_EndToEnd(t *testing.T) {
 		ExecutionMode: domain.ExecutionModeManaged,
 		MachineID:     "m-1",
 	}
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return runState, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
 			if from == domain.StatusExecuting && to == domain.StatusPaused {
 				runState.Status = domain.StatusPaused
 			} else if from == domain.StatusPaused && to == domain.StatusQueued {
@@ -988,8 +1000,8 @@ func TestHandlePauseRun_ThenResume_EndToEnd(t *testing.T) {
 
 func TestHandleResumeRun_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}
@@ -1003,8 +1015,8 @@ func TestHandleResumeRun_NotFound(t *testing.T) {
 
 func TestHandleResumeRun_AlreadyQueued(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusQueued}, nil
 		},
 	}
@@ -1023,15 +1035,15 @@ func TestHandlePauseRun_ContainerStopFails_StillPauses(t *testing.T) {
 
 	var paused bool
 	getCalls := 0
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getCalls++
 			if getCalls == 1 {
 				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
 			if from == domain.StatusExecuting && to == domain.StatusPaused {
 				paused = true
 			}
@@ -1058,8 +1070,8 @@ func TestHandlePauseRun_ContainerStopFails_StillPauses(t *testing.T) {
 
 func TestHandlePauseRun_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}
@@ -1076,15 +1088,15 @@ func TestHandleRestartRun_PausedState_StopsNotCalled(t *testing.T) {
 
 	var stopCalled atomic.Bool
 	getCalls := 0
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getCalls++
 			if getCalls == 1 {
 				return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeManaged}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
 	}
@@ -1112,15 +1124,15 @@ func TestHandleRestartRun_ExecutingState_StopsCalled(t *testing.T) {
 
 	var stopCalled atomic.Bool
 	getCalls := 0
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getCalls++
 			if getCalls == 1 {
 				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeManaged}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
 	}
@@ -1146,8 +1158,8 @@ func TestHandleRestartRun_ExecutingState_StopsCalled(t *testing.T) {
 func TestHandleListRuns_ErrorClassFilter(t *testing.T) {
 	t.Parallel()
 	var capturedErrorClass *string
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, errorClass *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, errorClass *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedErrorClass = errorClass
 			return []domain.JobRun{}, nil
 		},
@@ -1166,8 +1178,8 @@ func TestHandleListRuns_ErrorClassFilter(t *testing.T) {
 func TestHandleListRuns_ErrorClassFilterEmpty(t *testing.T) {
 	t.Parallel()
 	var capturedErrorClass *string
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, errorClass *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, errorClass *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedErrorClass = errorClass
 			return []domain.JobRun{}, nil
 		},
@@ -1185,7 +1197,7 @@ func TestHandleListRuns_ErrorClassFilterEmpty(t *testing.T) {
 
 func TestHandleListRuns_ErrorClassFilterInvalid(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?error_class=invalid_class", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {

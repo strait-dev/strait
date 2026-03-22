@@ -56,6 +56,7 @@ type ProjectContextSetter interface {
 	ClearProjectContext(ctx context.Context) error
 }
 
+//go:generate moq -stub -out mock_apistore_test.go -pkg api . APIStore
 type APIStore interface {
 	JobStore
 	RunStore
@@ -401,6 +402,8 @@ const (
 
 // AnalyticsStore is the subset of analytics query methods that can be backed
 // by either Postgres (store.Queries) or ClickHouse (clickhouse.AnalyticsStore).
+//
+//go:generate moq -stub -out mock_analyticsstore_test.go -pkg api . AnalyticsStore
 type AnalyticsStore interface {
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
 	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)

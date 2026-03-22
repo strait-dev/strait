@@ -15,8 +15,8 @@ import (
 func TestHandleSDKSetState_Success(t *testing.T) {
 	t.Parallel()
 	var captured *domain.RunState
-	ms := &mockAPIStore{
-		upsertRunStateFn: func(_ context.Context, s *domain.RunState) error {
+	ms := &APIStoreMock{
+		UpsertRunStateFunc: func(_ context.Context, s *domain.RunState) error {
 			captured = s
 			return nil
 		},
@@ -44,7 +44,7 @@ func TestHandleSDKSetState_Success(t *testing.T) {
 
 func TestHandleSDKSetState_KeyTooLong(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	longKey := make([]byte, 257)
 	for i := range longKey {
@@ -63,7 +63,7 @@ func TestHandleSDKSetState_KeyTooLong(t *testing.T) {
 
 func TestHandleSDKSetState_ValueTooLarge(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	largeValue := make([]byte, 65537)
 	for i := range largeValue {
@@ -82,7 +82,7 @@ func TestHandleSDKSetState_ValueTooLarge(t *testing.T) {
 
 func TestHandleSDKSetState_MissingKey(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/state", "run-1",
@@ -96,8 +96,8 @@ func TestHandleSDKSetState_MissingKey(t *testing.T) {
 
 func TestHandleSDKGetState_Found(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunStateFn: func(_ context.Context, runID, key string) (*domain.RunState, error) {
+	ms := &APIStoreMock{
+		GetRunStateFunc: func(_ context.Context, runID, key string) (*domain.RunState, error) {
 			return &domain.RunState{RunID: runID, StateKey: key, Value: json.RawMessage(`"hello"`)}, nil
 		},
 	}
@@ -116,8 +116,8 @@ func TestHandleSDKGetState_Found(t *testing.T) {
 
 func TestHandleSDKGetState_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunStateFn: func(context.Context, string, string) (*domain.RunState, error) {
+	ms := &APIStoreMock{
+		GetRunStateFunc: func(context.Context, string, string) (*domain.RunState, error) {
 			return nil, nil
 		},
 	}
@@ -136,8 +136,8 @@ func TestHandleSDKGetState_NotFound(t *testing.T) {
 
 func TestHandleSDKListState(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listRunStateFn: func(context.Context, string) ([]domain.RunState, error) {
+	ms := &APIStoreMock{
+		ListRunStateFunc: func(context.Context, string) ([]domain.RunState, error) {
 			return []domain.RunState{
 				{RunID: "run-1", StateKey: "a", Value: json.RawMessage(`1`)},
 				{RunID: "run-1", StateKey: "b", Value: json.RawMessage(`2`)},
@@ -166,8 +166,8 @@ func TestHandleSDKListState(t *testing.T) {
 func TestHandleSDKDeleteState(t *testing.T) {
 	t.Parallel()
 	var deletedKey string
-	ms := &mockAPIStore{
-		deleteRunStateFn: func(_ context.Context, _, key string) error {
+	ms := &APIStoreMock{
+		DeleteRunStateFunc: func(_ context.Context, _, key string) error {
 			deletedKey = key
 			return nil
 		},

@@ -175,7 +175,7 @@ type usageTestServerOpts struct {
 	enforcer    BillingEnforcer
 	usageSvc    UsageService
 	referralSvc ReferralService
-	store       *mockAPIStore
+	store       *APIStoreMock
 	config      *config.Config
 }
 
@@ -199,10 +199,10 @@ func newUsageTestServerFull(t *testing.T, opts usageTestServerOpts) *Server {
 	}
 	ms := opts.store
 	if ms == nil {
-		ms = &mockAPIStore{}
+		ms = &APIStoreMock{}
 	}
-	if ms.listProjectsByOrgFn == nil {
-		ms.listProjectsByOrgFn = func(_ context.Context, _ string) ([]domain.Project, error) {
+	if ms.ListProjectsByOrgFunc == nil {
+		ms.ListProjectsByOrgFunc = func(_ context.Context, _ string) ([]domain.Project, error) {
 			return nil, nil
 		}
 	}
@@ -258,14 +258,14 @@ func newOIDCUsageTestServer(
 
 	store := opts.store
 	if store == nil {
-		store = &mockAPIStore{}
+		store = &APIStoreMock{}
 	}
-	if store.listProjectsByOrgFn == nil {
-		store.listProjectsByOrgFn = func(_ context.Context, _ string) ([]domain.Project, error) {
+	if store.ListProjectsByOrgFunc == nil {
+		store.ListProjectsByOrgFunc = func(_ context.Context, _ string) ([]domain.Project, error) {
 			return nil, nil
 		}
 	}
-	store.getUserPermissionsFn = getUserPermissions
+	store.GetUserPermissionsFunc = getUserPermissions
 
 	opts.store = store
 	opts.config = &config.Config{

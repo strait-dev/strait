@@ -14,11 +14,11 @@ import (
 
 func TestHandleListRunResources_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
-		listRunResourceSnapshotsFn: func(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+		ListRunResourceSnapshotsFunc: func(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
 			return []domain.RunResourceSnapshot{
 				{ID: "snap-1", RunID: "run-1", CPUPercent: 50.0, MemoryMB: 256},
 			}, nil
@@ -34,8 +34,8 @@ func TestHandleListRunResources_Success(t *testing.T) {
 
 func TestHandleListRunResources_CrossProjectBlocked(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-A"}, nil
 		},
 	}
@@ -49,8 +49,8 @@ func TestHandleListRunResources_CrossProjectBlocked(t *testing.T) {
 
 func TestHandleListRunResources_RunNotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}
@@ -64,11 +64,11 @@ func TestHandleListRunResources_RunNotFound(t *testing.T) {
 
 func TestHandleListRunResources_EmptySnapshots(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
-		listRunResourceSnapshotsFn: func(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+		ListRunResourceSnapshotsFunc: func(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
 			return []domain.RunResourceSnapshot{}, nil
 		},
 	}
@@ -82,7 +82,7 @@ func TestHandleListRunResources_EmptySnapshots(t *testing.T) {
 
 func TestHandleListRunResources_MissingProjectID(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", ""))
@@ -93,8 +93,8 @@ func TestHandleListRunResources_MissingProjectID(t *testing.T) {
 
 func TestHandleListRunResources_InvalidFromParam(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
 	}
@@ -108,8 +108,8 @@ func TestHandleListRunResources_InvalidFromParam(t *testing.T) {
 
 func TestHandleListRunResources_InvalidToParam(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
 	}
@@ -123,8 +123,8 @@ func TestHandleListRunResources_InvalidToParam(t *testing.T) {
 
 func TestHandleListRunResources_InvalidLimit(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
 	}
@@ -141,11 +141,11 @@ func TestHandleListRunResources_InvalidLimit(t *testing.T) {
 func TestHandleListRunResources_LimitCapped(t *testing.T) {
 	t.Parallel()
 	var capturedLimit int
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
-		listRunResourceSnapshotsFn: func(_ context.Context, _ string, _, _ *time.Time, limit int) ([]domain.RunResourceSnapshot, error) {
+		ListRunResourceSnapshotsFunc: func(_ context.Context, _ string, _, _ *time.Time, limit int) ([]domain.RunResourceSnapshot, error) {
 			capturedLimit = limit
 			return []domain.RunResourceSnapshot{}, nil
 		},
@@ -163,11 +163,11 @@ func TestHandleListRunResources_LimitCapped(t *testing.T) {
 
 func TestHandleListRunResources_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
-		listRunResourceSnapshotsFn: func(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+		ListRunResourceSnapshotsFunc: func(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

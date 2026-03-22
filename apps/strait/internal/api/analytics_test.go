@@ -11,8 +11,8 @@ import (
 
 func TestHandleGetPerformanceAnalytics_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getPerformanceAnalyticsFn: func(_ context.Context, _ string, periodHours int) (*store.PerformanceAnalytics, error) {
+	ms := &AnalyticsStoreMock{
+		GetPerformanceAnalyticsFunc: func(_ context.Context, _ string, periodHours int) (*store.PerformanceAnalytics, error) {
 			if periodHours != 24 {
 				t.Fatalf("expected default 24h period, got %d", periodHours)
 			}
@@ -25,7 +25,7 @@ func TestHandleGetPerformanceAnalytics_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/analytics/performance", ""))
 
@@ -36,8 +36,8 @@ func TestHandleGetPerformanceAnalytics_Success(t *testing.T) {
 
 func TestHandleGetPerformanceAnalytics_CustomPeriod(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getPerformanceAnalyticsFn: func(_ context.Context, _ string, periodHours int) (*store.PerformanceAnalytics, error) {
+	ms := &AnalyticsStoreMock{
+		GetPerformanceAnalyticsFunc: func(_ context.Context, _ string, periodHours int) (*store.PerformanceAnalytics, error) {
 			if periodHours != 72 {
 				t.Fatalf("expected 72h period, got %d", periodHours)
 			}
@@ -47,7 +47,7 @@ func TestHandleGetPerformanceAnalytics_CustomPeriod(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/analytics/performance?period_hours=72", ""))
 
@@ -58,7 +58,7 @@ func TestHandleGetPerformanceAnalytics_CustomPeriod(t *testing.T) {
 
 func TestHandleGetPerformanceAnalytics_InvalidPeriod(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/analytics/performance?period_hours=0", ""))
 

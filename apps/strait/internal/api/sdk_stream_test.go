@@ -24,7 +24,7 @@ func TestHandleSDKStreamChunk_PublishesChunk(t *testing.T) {
 			return nil
 		},
 	}
-	srv := newTestServer(t, &mockAPIStore{}, nil, pub)
+	srv := newTestServer(t, &APIStoreMock{}, nil, pub)
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1",
@@ -66,7 +66,7 @@ func TestHandleSDKStreamChunk_DefaultStreamID(t *testing.T) {
 			return nil
 		},
 	}
-	srv := newTestServer(t, &mockAPIStore{}, nil, pub)
+	srv := newTestServer(t, &APIStoreMock{}, nil, pub)
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1",
@@ -85,7 +85,7 @@ func TestHandleSDKStreamChunk_DefaultStreamID(t *testing.T) {
 
 func TestHandleSDKStreamChunk_NoPubSub(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1",
@@ -99,7 +99,7 @@ func TestHandleSDKStreamChunk_NoPubSub(t *testing.T) {
 
 func TestHandleSDKStreamChunk_InvalidBody(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1", "not json")

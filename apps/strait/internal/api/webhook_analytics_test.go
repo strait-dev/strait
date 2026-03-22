@@ -12,14 +12,14 @@ import (
 
 func TestHandleWebhookDeliveryStats_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getWebhookDeliveryStatsFn: func(_ context.Context, _ string, _, _ time.Time) ([]store.WebhookEndpointStats, error) {
+	ms := &AnalyticsStoreMock{
+		GetWebhookDeliveryStatsFunc: func(_ context.Context, _ string, _, _ time.Time) ([]store.WebhookEndpointStats, error) {
 			return []store.WebhookEndpointStats{
 				{URL: "https://example.com/hook", Total: 100, Delivered: 90, Failed: 10, AvgLatencyMs: 200, P95LatencyMs: 800},
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/delivery-stats", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -29,7 +29,7 @@ func TestHandleWebhookDeliveryStats_Success(t *testing.T) {
 
 func TestHandleWebhookDeliveryStats_MissingParams(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/webhooks/delivery-stats", "", "proj-1"))
 	if w.Code != 400 {
@@ -39,12 +39,12 @@ func TestHandleWebhookDeliveryStats_MissingParams(t *testing.T) {
 
 func TestHandleWebhookDeliveryStats_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getWebhookDeliveryStatsFn: func(_ context.Context, _ string, _, _ time.Time) ([]store.WebhookEndpointStats, error) {
+	ms := &AnalyticsStoreMock{
+		GetWebhookDeliveryStatsFunc: func(_ context.Context, _ string, _, _ time.Time) ([]store.WebhookEndpointStats, error) {
 			return nil, errors.New("db error")
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/delivery-stats", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 500 {
@@ -54,15 +54,15 @@ func TestHandleWebhookDeliveryStats_StoreError(t *testing.T) {
 
 func TestHandleWebhookEndpointHealth_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getWebhookEndpointHealthFn: func(_ context.Context, _ string, _, _ time.Time, bucket string) ([]store.WebhookHealthBucket, error) {
+	ms := &AnalyticsStoreMock{
+		GetWebhookEndpointHealthFunc: func(_ context.Context, _ string, _, _ time.Time, bucket string) ([]store.WebhookHealthBucket, error) {
 			if bucket != "day" {
 				t.Fatalf("expected default bucket 'day', got %q", bucket)
 			}
 			return []store.WebhookHealthBucket{}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/endpoint-health", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -72,7 +72,7 @@ func TestHandleWebhookEndpointHealth_Success(t *testing.T) {
 
 func TestHandleWebhookEndpointHealth_InvalidBucket(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/endpoint-health", validFrom(), validTo(), "bucket", "month"), "", "proj-1"))
 	if w.Code != 400 {
@@ -82,14 +82,14 @@ func TestHandleWebhookEndpointHealth_InvalidBucket(t *testing.T) {
 
 func TestHandleTopFailingWebhooks_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getTopFailingWebhooksFn: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopFailingEndpoint, error) {
+	ms := &AnalyticsStoreMock{
+		GetTopFailingWebhooksFunc: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopFailingEndpoint, error) {
 			return []store.TopFailingEndpoint{
 				{URL: "https://example.com/bad", Failed: 20, Total: 30, FailureRate: 0.67},
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/top-failing", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -99,7 +99,7 @@ func TestHandleTopFailingWebhooks_Success(t *testing.T) {
 
 func TestHandleTopFailingWebhooks_InvalidLimit(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/top-failing", validFrom(), validTo(), "limit", "999"), "", "proj-1"))
 	if w.Code != 400 {

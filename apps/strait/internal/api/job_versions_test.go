@@ -30,9 +30,12 @@ func TestTriggerJob_StampsJobVersion(t *testing.T) {
 	t.Parallel()
 	var capturedRun *domain.JobRun
 
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 3), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -61,9 +64,12 @@ func TestTriggerJob_StampsVersionOne(t *testing.T) {
 	t.Parallel()
 	var capturedRun *domain.JobRun
 
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 1), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -92,9 +98,12 @@ func TestTriggerJob_DefaultVersionIfZero(t *testing.T) {
 	t.Parallel()
 	var capturedRun *domain.JobRun
 
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 0), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -123,9 +132,12 @@ func TestBulkTrigger_StampsJobVersion(t *testing.T) {
 	t.Parallel()
 	var capturedRuns []*domain.JobRun
 
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 5), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -157,9 +169,12 @@ func TestBulkTrigger_VersionConsistency(t *testing.T) {
 	t.Parallel()
 	var capturedRuns []*domain.JobRun
 
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 9), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -190,8 +205,8 @@ func TestBulkTrigger_VersionConsistency(t *testing.T) {
 
 func TestCreateJob_ReturnsVersion(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createJobFn: func(_ context.Context, job *domain.Job) error {
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
 			job.ID = "job-123"
 			job.Version = 1
 			job.CreatedAt = time.Now()
@@ -225,11 +240,14 @@ func TestCreateJob_ReturnsVersion(t *testing.T) {
 
 func TestUpdateJob_IncrementsVersion(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 2), nil
 		},
-		updateJobFn: func(_ context.Context, job *domain.Job) error {
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
+		},
+		UpdateJobFunc: func(_ context.Context, job *domain.Job) error {
 			job.Version = 3
 			job.UpdatedAt = time.Now()
 			return nil
@@ -256,8 +274,8 @@ func TestUpdateJob_IncrementsVersion(t *testing.T) {
 
 func TestListJobVersions_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
+	ms := &APIStoreMock{
+		ListJobVersionsByJobFunc: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{
 				{ID: "v3", JobID: jobID, Version: 3, Name: "name-v3", Slug: "slug-v3", EndpointURL: "https://example.com"},
 				{ID: "v2", JobID: jobID, Version: 2, Name: "name-v2", Slug: "slug-v2", EndpointURL: "https://example.com"},
@@ -288,8 +306,8 @@ func TestListJobVersions_Success(t *testing.T) {
 
 func TestListJobVersions_Empty(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
+	ms := &APIStoreMock{
+		ListJobVersionsByJobFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{}, nil
 		},
 	}
@@ -311,8 +329,8 @@ func TestListJobVersions_Empty(t *testing.T) {
 
 func TestListJobVersions_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
+	ms := &APIStoreMock{
+		ListJobVersionsByJobFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return nil, errors.New("boom")
 		},
 	}
@@ -328,9 +346,12 @@ func TestListJobVersions_StoreError(t *testing.T) {
 
 func TestGetJob_IncludesVersion(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 5), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -353,8 +374,8 @@ func TestGetJob_IncludesVersion(t *testing.T) {
 
 func TestListJobs_IncludesVersion(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listJobsFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Job, error) {
+	ms := &APIStoreMock{
+		ListJobsFunc: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return []domain.Job{
 				*makeVersionedJob("job-1", 2),
 				*makeVersionedJob("job-2", 7),
@@ -384,8 +405,8 @@ func TestListJobs_IncludesVersion(t *testing.T) {
 
 func TestGetRun_IncludesJobVersion(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:          id,
 				JobID:       "job-1",
@@ -417,8 +438,8 @@ func TestGetRun_IncludesJobVersion(t *testing.T) {
 
 func TestListRuns_IncludesJobVersion(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return []domain.JobRun{
 				{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusQueued, Attempt: 1, TriggeredBy: domain.TriggerManual, JobVersion: 2},
 				{ID: "run-2", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusQueued, Attempt: 1, TriggeredBy: domain.TriggerManual, JobVersion: 4},
@@ -448,8 +469,8 @@ func TestListRuns_IncludesJobVersion(t *testing.T) {
 
 func TestListJobVersions_ReturnsExpectedVersionNumbers(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
+	ms := &APIStoreMock{
+		ListJobVersionsByJobFunc: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{
 				{ID: "v3", JobID: jobID, Version: 3, Name: "name-v3", Slug: "slug-v3", EndpointURL: "https://example.com"},
 				{ID: "v2", JobID: jobID, Version: 2, Name: "name-v2", Slug: "slug-v2", EndpointURL: "https://example.com"},

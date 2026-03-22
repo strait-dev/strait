@@ -11,8 +11,8 @@ import (
 func TestSDKResourceSnapshot_OOMRisk_InsertsEvent(t *testing.T) {
 	t.Parallel()
 	var insertedEvent *domain.RunEvent
-	ms := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	ms := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			insertedEvent = event
 			return nil
 		},
@@ -41,8 +41,8 @@ func TestSDKResourceSnapshot_OOMRisk_InsertsEvent(t *testing.T) {
 func TestSDKResourceSnapshot_NoOOMRisk_BelowThreshold(t *testing.T) {
 	t.Parallel()
 	eventCalled := false
-	ms := &mockAPIStore{
-		insertEventFn: func(_ context.Context, _ *domain.RunEvent) error {
+	ms := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, _ *domain.RunEvent) error {
 			eventCalled = true
 			return nil
 		},
@@ -65,8 +65,8 @@ func TestSDKResourceSnapshot_NoOOMRisk_BelowThreshold(t *testing.T) {
 func TestSDKResourceSnapshot_NoOOMRisk_ZeroLimit(t *testing.T) {
 	t.Parallel()
 	eventCalled := false
-	ms := &mockAPIStore{
-		insertEventFn: func(_ context.Context, _ *domain.RunEvent) error {
+	ms := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, _ *domain.RunEvent) error {
 			eventCalled = true
 			return nil
 		},

@@ -21,8 +21,8 @@ func approvalStatsURL(from, to string) string {
 
 func TestHandleGetApprovalStats_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getApprovalStatsFn: func(_ context.Context, _ string, _, _ time.Time) (*store.ApprovalStats, error) {
+	ms := &AnalyticsStoreMock{
+		GetApprovalStatsFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.ApprovalStats, error) {
 			return &store.ApprovalStats{
 				TotalRequested:      10,
 				TotalApproved:       7,
@@ -32,7 +32,7 @@ func TestHandleGetApprovalStats_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 
 	from := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	to := time.Now().UTC().Format(time.RFC3339)
@@ -57,7 +57,7 @@ func TestHandleGetApprovalStats_Success(t *testing.T) {
 
 func TestHandleGetApprovalStats_MissingParams(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", "/v1/analytics/approvals", "", "proj-1")
@@ -70,7 +70,7 @@ func TestHandleGetApprovalStats_MissingParams(t *testing.T) {
 
 func TestHandleGetApprovalStats_InvalidTimeRange(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 
 	to := time.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)
 	from := time.Now().UTC().Format(time.RFC3339)
@@ -85,7 +85,7 @@ func TestHandleGetApprovalStats_InvalidTimeRange(t *testing.T) {
 
 func TestHandleGetApprovalStats_TooWideRange(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 
 	from := time.Now().Add(-100 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	to := time.Now().UTC().Format(time.RFC3339)
@@ -100,12 +100,12 @@ func TestHandleGetApprovalStats_TooWideRange(t *testing.T) {
 
 func TestHandleGetApprovalStats_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getApprovalStatsFn: func(_ context.Context, _ string, _, _ time.Time) (*store.ApprovalStats, error) {
+	ms := &AnalyticsStoreMock{
+		GetApprovalStatsFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.ApprovalStats, error) {
 			return nil, errors.New("db error")
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 
 	from := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	to := time.Now().UTC().Format(time.RFC3339)
@@ -120,12 +120,12 @@ func TestHandleGetApprovalStats_StoreError(t *testing.T) {
 
 func TestHandleGetApprovalStats_EmptyResults(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getApprovalStatsFn: func(_ context.Context, _ string, _, _ time.Time) (*store.ApprovalStats, error) {
+	ms := &AnalyticsStoreMock{
+		GetApprovalStatsFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.ApprovalStats, error) {
 			return &store.ApprovalStats{}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 
 	from := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	to := time.Now().UTC().Format(time.RFC3339)
