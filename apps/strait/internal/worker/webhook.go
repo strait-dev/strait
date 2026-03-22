@@ -57,7 +57,7 @@ type WebhookResult struct {
 	Error      string
 }
 
-func newWebhookRetryPolicy(maxAttempts int) retrypolicy.RetryPolicy[WebhookResult] {
+func newWebhookRetryPolicy(maxAttempts int, job *domain.Job, run *domain.JobRun) retrypolicy.RetryPolicy[WebhookResult] {
 	return retrypolicy.NewBuilder[WebhookResult]().
 		WithMaxRetries(maxAttempts-1).
 		WithBackoffFactor(time.Second, 25*time.Second, 5.0).
@@ -66,6 +66,16 @@ func newWebhookRetryPolicy(maxAttempts int) retrypolicy.RetryPolicy[WebhookResul
 				return false
 			}
 			return !result.Delivered
+		}).
+		OnRetry(func(e failsafe.ExecutionEvent[WebhookResult]) {
+			prev := e.LastResult()
+			slog.Warn("webhook delivery failed, retrying",
+				"run_id", run.ID,
+				"url", job.WebhookURL,
+				"status", prev.StatusCode,
+				"error", prev.Error,
+				"attempt", e.Attempts(),
+			)
 		}).
 		ReturnLastFailure().
 		Build()
@@ -87,7 +97,7 @@ func SendWebhookWithRetry(ctx context.Context, job *domain.Job, run *domain.JobR
 		maxAttempts = 3
 	}
 
-	rp := newWebhookRetryPolicy(maxAttempts)
+	rp := newWebhookRetryPolicy(maxAttempts, job, run)
 	return sendWithRetryPolicy(ctx, rp, job, run, func(ctx context.Context) WebhookResult {
 		return sendWebhookOnce(ctx, job, run)
 	})
@@ -106,7 +116,7 @@ func SendWebhookWithClient(ctx context.Context, client *http.Client, job *domain
 		maxAttempts = 3
 	}
 
-	rp := newWebhookRetryPolicy(maxAttempts)
+	rp := newWebhookRetryPolicy(maxAttempts, job, run)
 	return sendWithRetryPolicy(ctx, rp, job, run, func(ctx context.Context) WebhookResult {
 		return sendWebhookOnceWith(ctx, client, job, run)
 	})
