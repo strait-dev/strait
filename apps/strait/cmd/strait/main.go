@@ -208,6 +208,18 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 	}()
 
+	profilingShutdown, err := telemetry.InitProfiling(telemetry.ProfilingConfig{
+		Endpoint:    cfg.PyroscopeEndpoint,
+		AuthToken:   cfg.PyroscopeAuthToken,
+		ServiceName: "strait",
+		Environment: cfg.SentryEnvironment,
+	})
+	if err != nil {
+		slog.Error("failed to init profiling", "error", err)
+	} else {
+		defer profilingShutdown()
+	}
+
 	// Initialize OTel log bridge to export structured logs via OTLP.
 	otelLogger, shutdownLogBridge, err := telemetry.InitLogBridge(ctx, "strait", cfg.OTELEndpoint, cfg.SentryEnvironment)
 	if err != nil {

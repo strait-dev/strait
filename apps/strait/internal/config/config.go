@@ -176,6 +176,10 @@ type Config struct {
 	SentryDSN         string `env:"SENTRY_DSN"`
 	SentryEnvironment string `env:"SENTRY_ENVIRONMENT" default:"development"`
 
+	// Pyroscope continuous profiling
+	PyroscopeEndpoint  string `env:"PYROSCOPE_ENDPOINT"`
+	PyroscopeAuthToken string `env:"PYROSCOPE_AUTH_TOKEN"`
+
 	// Edition controls feature gating (community vs cloud)
 	Edition string `env:"STRAIT_EDITION" default:"community"`
 }
