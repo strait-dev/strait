@@ -23,6 +23,11 @@ import type {
   PlanType,
 } from "@/components/upgrade/plan-selection";
 import { PlanSelection } from "@/components/upgrade/plan-selection";
+import {
+  apiPlansToPricingPlans,
+  apiPlansToComparisonFeatures,
+  getPlansServerFn,
+} from "@/hooks/billing/use-plans";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
@@ -86,7 +91,14 @@ export const Route = createFileRoute("/app/upgrade")({
   validateSearch: zodValidator(upgradeSearchSchema),
   loader: async ({ context }) => {
     const ctx = context as AppRouteContext;
-    await ctx.queryClient.ensureQueryData(subscriptionStateQueryOptions());
+    const [, apiPlans] = await Promise.all([
+      ctx.queryClient.ensureQueryData(subscriptionStateQueryOptions()),
+      getPlansServerFn(),
+    ]);
+    return {
+      pricingPlans: apiPlansToPricingPlans(apiPlans),
+      comparisonFeatures: apiPlansToComparisonFeatures(apiPlans),
+    };
   },
   errorComponent: ErrorComponent,
   component: RouteComponent,
@@ -94,6 +106,7 @@ export const Route = createFileRoute("/app/upgrade")({
 
 function RouteComponent() {
   const search = Route.useSearch();
+  const { pricingPlans, comparisonFeatures } = Route.useLoaderData();
   const { data: subscriptionState } = useSuspenseQuery(
     subscriptionStateQueryOptions()
   );
@@ -248,12 +261,14 @@ function RouteComponent() {
 
         <PlanSelection
           billingInterval={billingInterval}
+          comparisonFeatures={comparisonFeatures}
           currentPlanSlug={currentPlan}
           isLoading={startCheckout.isPending}
           mode="upgrade"
           onBillingIntervalChange={setBillingInterval}
           onPlanChange={setSelectedPlan}
           onStartCheckout={handleStartCheckout}
+          plans={pricingPlans}
           selectedPlan={selectedPlan}
         />
       </div>
