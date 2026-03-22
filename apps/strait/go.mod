@@ -12,7 +12,6 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cristalhq/aconfig v0.19.0
 	github.com/eko/gocache/lib/v4 v4.2.3
-	github.com/eko/gocache/store/go_cache/v4 v4.2.4
 	github.com/exaring/otelpgx v0.10.0
 	github.com/gdamore/tcell/v2 v2.13.8
 	github.com/getsentry/sentry-go v0.43.0
@@ -29,7 +28,6 @@ require (
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/maypok86/otter v1.2.4
 	github.com/muesli/termenv v0.16.0
-	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/resend/resend-go/v2 v2.28.0
