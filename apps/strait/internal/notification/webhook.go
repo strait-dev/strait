@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -101,7 +102,12 @@ func (w *WebhookSender) Send(ctx context.Context, channel *domain.NotificationCh
 	if w.retryPolicy != nil {
 		resp, err = failsafe.With[*http.Response](w.retryPolicy).
 			WithContext(ctx).
-			GetWithExecution(func(_ failsafe.Execution[*http.Response]) (*http.Response, error) {
+			GetWithExecution(func(exec failsafe.Execution[*http.Response]) (*http.Response, error) {
+				// Drain and close body from previous retry attempt to release the connection.
+				if prev := exec.LastResult(); prev != nil && prev.Body != nil {
+					_, _ = io.Copy(io.Discard, prev.Body)
+					_ = prev.Body.Close()
+				}
 				return doOnce()
 			})
 	} else {
