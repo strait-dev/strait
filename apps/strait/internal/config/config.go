@@ -31,6 +31,7 @@ type Config struct {
 	OIDCAudience              string        `env:"OIDC_AUDIENCE"`
 	OIDCPublicKeyPEM          string        `env:"OIDC_PUBLIC_KEY_PEM"`
 	LogLevel                  string        `env:"LOG_LEVEL" default:"info"`
+	LogFormat                 string        `env:"LOG_FORMAT" default:"json"`
 	HeartbeatInterval         time.Duration `env:"HEARTBEAT_INTERVAL" default:"10s"`
 	ReaperInterval            time.Duration `env:"REAPER_INTERVAL" default:"30s"`
 	StaleThreshold            time.Duration `env:"STALE_THRESHOLD" default:"1m"`
