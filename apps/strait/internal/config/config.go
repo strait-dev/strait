@@ -180,6 +180,9 @@ type Config struct {
 	PyroscopeEndpoint  string `env:"PYROSCOPE_ENDPOINT"`
 	PyroscopeAuthToken string `env:"PYROSCOPE_AUTH_TOKEN"`
 
+	// Debug tools
+	DebugStatsviz bool `env:"DEBUG_STATSVIZ" default:"false"`
+
 	// Edition controls feature gating (community vs cloud)
 	Edition string `env:"STRAIT_EDITION" default:"community"`
 }
