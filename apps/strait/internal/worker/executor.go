@@ -19,10 +19,10 @@ import (
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
+	"strait/internal/cache/otterstore"
+
 	"github.com/eko/gocache/lib/v4/cache"
-	gocachestore "github.com/eko/gocache/store/go_cache/v4"
 	"github.com/getsentry/sentry-go"
-	gocache "github.com/patrickmn/go-cache"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -106,6 +106,7 @@ type Executor struct {
 	maxDequeueBatchSize      int
 	defaultJobMaxConcurrency int
 	jobCache                 *cache.Cache[*domain.Job]
+	jobCacheStore            *otterstore.OtterStore
 	memoryPressureThreshold  float64
 	maxSnoozeCount           int
 	dequeueStrategy          string
@@ -221,9 +222,13 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	}
 
 	var jobCache *cache.Cache[*domain.Job]
+	var jobCacheStore *otterstore.OtterStore
 	if cfg.JobCacheTTL > 0 {
-		gc := gocache.New(cfg.JobCacheTTL, 2*cfg.JobCacheTTL)
-		jobCache = cache.New[*domain.Job](gocachestore.NewGoCache(gc))
+		jobCacheStore = otterstore.New(otterstore.Config{
+			DefaultTTL:  cfg.JobCacheTTL,
+			MaxCapacity: 10_000,
+		})
+		jobCache = cache.New[*domain.Job](jobCacheStore)
 	}
 
 	return &Executor{
@@ -249,6 +254,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCache:                 jobCache,
+		jobCacheStore:            jobCacheStore,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		dequeueStrategy:          cfg.DequeueStrategy,
@@ -263,6 +269,13 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
+	}
+}
+
+// CloseCache shuts down the otter cache if one was created.
+func (e *Executor) CloseCache() {
+	if e.jobCacheStore != nil {
+		e.jobCacheStore.Close()
 	}
 }
 

@@ -3405,6 +3405,7 @@ func TestResolveJob_CacheHit(t *testing.T) {
 		PollInterval: time.Hour,
 		JobCacheTTL:  5 * time.Minute,
 	})
+	t.Cleanup(exec.CloseCache)
 
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
 
@@ -3442,18 +3443,20 @@ func TestResolveJob_CacheExpiry(t *testing.T) {
 		},
 	}
 
+	// Otter uses a timer wheel with ~1s granularity for expiration.
 	exec := NewExecutor(ExecutorConfig{
 		Pool:         NewPool(10),
 		Queue:        &mockExecQueue{},
 		Store:        store,
 		PollInterval: time.Hour,
-		JobCacheTTL:  1 * time.Millisecond, // very short TTL
+		JobCacheTTL:  1 * time.Second,
 	})
+	t.Cleanup(exec.CloseCache)
 
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
 
 	_, _ = exec.resolveJobForRun(context.Background(), run)
-	time.Sleep(5 * time.Millisecond) // wait for expiry
+	time.Sleep(3 * time.Second) // wait for expiry
 	_, _ = exec.resolveJobForRun(context.Background(), run)
 
 	if getJobCalls.Load() != 2 {

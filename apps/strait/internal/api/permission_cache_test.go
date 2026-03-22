@@ -35,11 +35,12 @@ func TestPermissionCache_GetSet(t *testing.T) {
 func TestPermissionCache_Expiry(t *testing.T) {
 	t.Parallel()
 
-	c := newPermissionCache(1 * time.Millisecond)
+	// Otter uses a timer wheel with ~1s granularity for expiration.
+	c := newPermissionCache(1 * time.Second)
 	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 
 	_, ok := c.Get("proj", "user")
 	if ok {
@@ -90,11 +91,12 @@ func TestPermissionCache_IsolatesProjects(t *testing.T) {
 func TestPermissionCache_EvictsOnExpiredRead(t *testing.T) {
 	t.Parallel()
 
-	c := newPermissionCache(1 * time.Millisecond)
+	// Otter uses a timer wheel with ~1s granularity for expiration.
+	c := newPermissionCache(1 * time.Second)
 	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 
 	// Get should return a miss for the expired entry.
 	_, ok := c.Get("proj", "user")
@@ -273,11 +275,12 @@ func TestPermissionCache_RLockAllowsConcurrentReads(t *testing.T) {
 func TestPermissionCache_EvictRaceOnExpiry(t *testing.T) {
 	t.Parallel()
 
-	c := newPermissionCache(1 * time.Millisecond)
+	// Otter uses a timer wheel with ~1s granularity for expiration.
+	c := newPermissionCache(1 * time.Second)
 	defer c.Stop()
 
 	c.Set("proj", "user", []string{"*"})
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 
 	// Multiple goroutines race to evict the same expired entry.
 	// This verifies the double-check pattern prevents panics.

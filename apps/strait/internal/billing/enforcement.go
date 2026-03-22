@@ -11,9 +11,9 @@ import (
 	"strait/internal/domain"
 	"strait/internal/telemetry"
 
+	"strait/internal/cache/otterstore"
+
 	"github.com/eko/gocache/lib/v4/cache"
-	gocachestore "github.com/eko/gocache/store/go_cache/v4"
-	gocache "github.com/patrickmn/go-cache"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -72,8 +72,11 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 		logger = slog.Default()
 	}
 	cacheTTL := 5 * time.Minute
-	gc := gocache.New(cacheTTL, 2*cacheTTL)
-	orgCache := cache.New[*cachedOrgLimits](gocachestore.NewGoCache(gc))
+	cacheStore := otterstore.New(otterstore.Config{
+		DefaultTTL:  cacheTTL,
+		MaxCapacity: 1_000,
+	})
+	orgCache := cache.New[*cachedOrgLimits](cacheStore)
 
 	e := &Enforcer{
 		store:    store,

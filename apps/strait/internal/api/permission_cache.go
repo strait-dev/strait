@@ -5,20 +5,22 @@ import (
 	"time"
 
 	"github.com/eko/gocache/lib/v4/cache"
-	gocachestore "github.com/eko/gocache/store/go_cache/v4"
-	gocache "github.com/patrickmn/go-cache"
+	"github.com/maypok86/otter"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+
+	"strait/internal/cache/otterstore"
 )
 
 var metricsCtx = context.Background()
 
 // permissionCache is a short-lived, concurrency-safe cache for user permissions.
 // Avoids hitting the database on every request for the same user+project pair.
-// Backed by go-cache with a background janitor for automatic expiration.
+// Backed by otter (W-TinyLFU) for high hit rates and low GC overhead.
 type permissionCache struct {
-	inner *cache.Cache[[]string]
-	ttl   time.Duration
+	inner    *cache.Cache[[]string]
+	ttl      time.Duration
+	disabled bool // when true (zero TTL), all Gets return miss
 
 	hits      metric.Int64Counter
 	misses    metric.Int64Counter
@@ -33,33 +35,34 @@ func newPermissionCache(ttl time.Duration) *permissionCache {
 	evictions, _ := meter.Int64Counter("strait.permission_cache.evictions_total")
 	entriesUp, _ := meter.Int64UpDownCounter("strait.permission_cache.entries")
 
-	// go-cache treats 0 as "no expiration", so use 1ns as the minimum
-	// to ensure items expire immediately when a zero TTL is configured.
-	gcTTL := ttl
-	if gcTTL <= 0 {
-		gcTTL = time.Nanosecond
-	}
-	gc := gocache.New(gcTTL, max(gcTTL*2, time.Second))
-
 	c := &permissionCache{
-		inner:     cache.New[[]string](gocachestore.NewGoCache(gc)),
 		ttl:       ttl,
+		disabled:  ttl <= 0,
 		hits:      hits,
 		misses:    misses,
 		evictions: evictions,
 		entriesUp: entriesUp,
 	}
 
-	gc.OnEvicted(func(_ string, _ any) {
-		c.evictions.Add(metricsCtx, 1)
-		c.entriesUp.Add(metricsCtx, -1)
+	cacheTTL := ttl
+	if cacheTTL <= 0 {
+		cacheTTL = time.Second // minimum for otter's timer wheel
+	}
+
+	store := otterstore.New(otterstore.Config{
+		DefaultTTL:  cacheTTL,
+		MaxCapacity: 10_000,
+		OnEviction: func(_ string, _ any, _ otter.DeletionCause) {
+			c.evictions.Add(metricsCtx, 1)
+			c.entriesUp.Add(metricsCtx, -1)
+		},
 	})
 
+	c.inner = cache.New[[]string](store)
 	return c
 }
 
 // Stop is a no-op retained for API compatibility.
-// go-cache's janitor goroutine stops when the cache is garbage collected.
 func (c *permissionCache) Stop() {}
 
 func (c *permissionCache) key(projectID, userID string) string {
@@ -71,6 +74,11 @@ func (c *permissionCache) key(projectID, userID string) string {
 // Get returns cached permissions if they exist and haven't expired.
 // Returns (permissions, true) on hit, (nil, false) on miss.
 func (c *permissionCache) Get(projectID, userID string) ([]string, bool) {
+	if c.disabled {
+		c.misses.Add(metricsCtx, 1)
+		return nil, false
+	}
+
 	k := c.key(projectID, userID)
 
 	perms, err := c.inner.Get(metricsCtx, k)

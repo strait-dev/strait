@@ -9,20 +9,25 @@ import (
 
 	"strait/internal/domain"
 
+	"strait/internal/cache/otterstore"
+
 	"github.com/eko/gocache/lib/v4/cache"
-	gocachestore "github.com/eko/gocache/store/go_cache/v4"
-	gocache "github.com/patrickmn/go-cache"
 )
 
-func newTestJobCache(ttl time.Duration) *cache.Cache[*domain.Job] {
-	gc := gocache.New(ttl, 2*ttl)
-	return cache.New[*domain.Job](gocachestore.NewGoCache(gc))
+func newTestJobCache(t *testing.T, ttl time.Duration) *cache.Cache[*domain.Job] {
+	t.Helper()
+	store := otterstore.New(otterstore.Config{
+		DefaultTTL:  ttl,
+		MaxCapacity: 1_000,
+	})
+	t.Cleanup(store.Close)
+	return cache.New[*domain.Job](store)
 }
 
 func TestJobCache_HitAvoidsDatabaseLookup(t *testing.T) {
 	t.Parallel()
 
-	jobCache := newTestJobCache(5 * time.Second)
+	jobCache := newTestJobCache(t, 5*time.Second)
 	ctx := context.Background()
 
 	job := &domain.Job{
@@ -49,7 +54,7 @@ func TestJobCache_HitAvoidsDatabaseLookup(t *testing.T) {
 func TestJobCache_MissReturnsError(t *testing.T) {
 	t.Parallel()
 
-	jobCache := newTestJobCache(5 * time.Second)
+	jobCache := newTestJobCache(t, 5*time.Second)
 	ctx := context.Background()
 
 	_, err := jobCache.Get(ctx, "nonexistent")
@@ -61,7 +66,8 @@ func TestJobCache_MissReturnsError(t *testing.T) {
 func TestJobCache_ExpiresAfterTTL(t *testing.T) {
 	t.Parallel()
 
-	jobCache := newTestJobCache(1 * time.Millisecond)
+	// Otter uses a timer wheel with ~1s granularity, so TTL must be >= 1s.
+	jobCache := newTestJobCache(t, 1*time.Second)
 	ctx := context.Background()
 
 	job := &domain.Job{ID: "job-ttl", Version: 1}
@@ -69,7 +75,7 @@ func TestJobCache_ExpiresAfterTTL(t *testing.T) {
 		t.Fatalf("Set: %v", err)
 	}
 
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 
 	_, err := jobCache.Get(ctx, "job-ttl")
 	if err == nil {
@@ -80,7 +86,7 @@ func TestJobCache_ExpiresAfterTTL(t *testing.T) {
 func TestJobCache_OverwriteUpdatesValue(t *testing.T) {
 	t.Parallel()
 
-	jobCache := newTestJobCache(5 * time.Second)
+	jobCache := newTestJobCache(t, 5*time.Second)
 	ctx := context.Background()
 
 	v1 := &domain.Job{ID: "job-ow", Version: 1, Name: "old-name"}
@@ -101,7 +107,7 @@ func TestJobCache_OverwriteUpdatesValue(t *testing.T) {
 func TestJobCache_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 
-	jobCache := newTestJobCache(5 * time.Second)
+	jobCache := newTestJobCache(t, 5*time.Second)
 	ctx := context.Background()
 
 	const goroutines = 50
@@ -141,7 +147,7 @@ func TestJobCache_ConcurrentAccess(t *testing.T) {
 func TestJobCache_Delete(t *testing.T) {
 	t.Parallel()
 
-	jobCache := newTestJobCache(5 * time.Second)
+	jobCache := newTestJobCache(t, 5*time.Second)
 	ctx := context.Background()
 
 	job := &domain.Job{ID: "job-del", Version: 1}
@@ -160,7 +166,7 @@ func TestJobCache_Delete(t *testing.T) {
 func TestJobCache_MultipleKeys(t *testing.T) {
 	t.Parallel()
 
-	jobCache := newTestJobCache(5 * time.Second)
+	jobCache := newTestJobCache(t, 5*time.Second)
 	ctx := context.Background()
 
 	for i := range 100 {
@@ -233,7 +239,7 @@ func TestJobCache_ResolveJobForRun_CacheHit(t *testing.T) {
 
 	e := &Executor{
 		store:    mockStore,
-		jobCache: newTestJobCache(5 * time.Second),
+		jobCache: newTestJobCache(t, 5*time.Second),
 	}
 
 	ctx := context.Background()
@@ -272,9 +278,10 @@ func TestJobCache_ResolveJobForRun_CacheExpiry(t *testing.T) {
 		},
 	}
 
+	// Otter uses a timer wheel with ~1s granularity for expiration.
 	e := &Executor{
 		store:    mockStore,
-		jobCache: newTestJobCache(1 * time.Millisecond),
+		jobCache: newTestJobCache(t, 1*time.Second),
 	}
 
 	ctx := context.Background()
@@ -286,7 +293,7 @@ func TestJobCache_ResolveJobForRun_CacheExpiry(t *testing.T) {
 		t.Fatalf("DB calls = %d, want 1", dbCalls.Load())
 	}
 
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 
 	// After TTL: cache miss, hits DB again.
 	_, _ = e.resolveJobForRun(ctx, run)
