@@ -25,7 +25,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.8.0
+	github.com/jackc/pgx/v5 v5.9.0
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/muesli/termenv v0.16.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
