@@ -13,6 +13,7 @@ require (
 	github.com/cristalhq/aconfig v0.19.0
 	github.com/eko/gocache/lib/v4 v4.2.3
 	github.com/exaring/otelpgx v0.10.0
+	github.com/failsafe-go/failsafe-go v0.9.6
 	github.com/gdamore/tcell/v2 v2.13.8
 	github.com/getsentry/sentry-go v0.43.0
 	github.com/go-chi/chi/v5 v5.2.5
@@ -74,6 +75,7 @@ require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

@@ -11,32 +11,75 @@ import (
 	stdpath "path"
 	"time"
 
+	"github.com/failsafe-go/failsafe-go"
+	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"go.opentelemetry.io/otel"
 )
 
 // Client is an HTTP client for the Sequin Stream API.
 type Client struct {
-	httpClient   *http.Client
-	baseURL      *url.URL
-	consumerName string
-	apiToken     string
+	httpClient     *http.Client
+	baseURL        *url.URL
+	consumerName   string
+	apiToken       string
+	retryPolicy    failsafe.Policy[*http.Response]
+	circuitBreaker failsafe.Policy[*http.Response]
+}
+
+// ClientOption configures the Client.
+type ClientOption func(*Client)
+
+// WithRetryPolicy sets a custom retry policy for the client.
+func WithRetryPolicy(p failsafe.Policy[*http.Response]) ClientOption {
+	return func(c *Client) { c.retryPolicy = p }
+}
+
+// WithCircuitBreaker sets a custom circuit breaker for the client.
+func WithCircuitBreaker(p failsafe.Policy[*http.Response]) ClientOption {
+	return func(c *Client) { c.circuitBreaker = p }
+}
+
+// isServerErrorOrNetworkFailure returns true for 5xx status codes or network errors.
+func isServerErrorOrNetworkFailure(resp *http.Response, err error) bool {
+	if err != nil {
+		return true
+	}
+	return resp.StatusCode >= 500
 }
 
 // NewClient creates a new Sequin Stream API client.
-func NewClient(baseURL, consumerName, apiToken string) *Client {
+func NewClient(baseURL, consumerName, apiToken string, opts ...ClientOption) *Client {
 	parsedBaseURL, err := url.Parse(baseURL)
 	if err != nil {
 		parsedBaseURL = &url.URL{}
 	}
 
-	return &Client{
+	c := &Client{
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
 		baseURL:      parsedBaseURL,
 		consumerName: consumerName,
 		apiToken:     apiToken,
+		retryPolicy: retrypolicy.NewBuilder[*http.Response]().
+			WithMaxRetries(2).
+			WithBackoff(time.Second, 4*time.Second).
+			HandleIf(isServerErrorOrNetworkFailure).
+			ReturnLastFailure().
+			Build(),
+		circuitBreaker: circuitbreaker.NewBuilder[*http.Response]().
+			WithFailureThresholdPeriod(5, 60*time.Second).
+			WithDelay(30 * time.Second).
+			HandleIf(isServerErrorOrNetworkFailure).
+			Build(),
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
 type receiveRequest struct {
@@ -130,13 +173,13 @@ func (c *Client) Nack(ctx context.Context, ackIDs []string) error {
 
 // doRequest sends an HTTP request to the Sequin Stream API.
 func (c *Client) doRequest(ctx context.Context, method, endpointPath string, body any) (*http.Response, error) {
-	var bodyReader io.Reader
+	var bodyData []byte
 	if body != nil {
-		data, err := json.Marshal(body)
+		var err error
+		bodyData, err = json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("marshal request body: %w", err)
 		}
-		bodyReader = bytes.NewReader(data)
 	}
 
 	endpoint := *c.baseURL
@@ -145,16 +188,48 @@ func (c *Client) doRequest(ctx context.Context, method, endpointPath string, bod
 		return nil, fmt.Errorf("invalid base url")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), bodyReader)
+	buildRequest := func() (*http.Request, error) {
+		var bodyReader io.Reader
+		if bodyData != nil {
+			bodyReader = bytes.NewReader(bodyData)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), bodyReader)
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if c.apiToken != "" {
+			req.Header.Set("Authorization", "Bearer "+c.apiToken)
+		}
+		return req, nil
+	}
+
+	var policies []failsafe.Policy[*http.Response]
+	if c.retryPolicy != nil {
+		policies = append(policies, c.retryPolicy)
+	}
+	if c.circuitBreaker != nil {
+		policies = append(policies, c.circuitBreaker)
+	}
+	if len(policies) > 0 {
+		return failsafe.With[*http.Response](policies...).WithContext(ctx).GetWithExecution(func(exec failsafe.Execution[*http.Response]) (*http.Response, error) {
+			// Drain and close body from previous retry attempt to release the connection.
+			if prev := exec.LastResult(); prev != nil && prev.Body != nil {
+				_, _ = io.Copy(io.Discard, prev.Body)
+				_ = prev.Body.Close()
+			}
+			req, err := buildRequest()
+			if err != nil {
+				return nil, err
+			}
+			return c.httpClient.Do(req)
+		})
+	}
+
+	req, err := buildRequest()
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, err
 	}
-
-	req.Header.Set("Content-Type", "application/json")
-	if c.apiToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	}
-
 	return c.httpClient.Do(req)
 }
 
