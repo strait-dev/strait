@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 
+	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"github.com/jarcoal/httpmock"
 )
 
@@ -322,5 +324,124 @@ func TestWebhookSender_ServerHitCount(t *testing.T) {
 
 	if hits.Load() != 2 {
 		t.Fatalf("server hits = %d, want 2", hits.Load())
+	}
+}
+
+func testRetryPolicy() retrypolicy.RetryPolicy[*http.Response] {
+	return retrypolicy.NewBuilder[*http.Response]().
+		WithMaxRetries(2).
+		WithBackoff(time.Millisecond, 10*time.Millisecond).
+		HandleIf(func(resp *http.Response, err error) bool {
+			if err != nil {
+				return true
+			}
+			return resp.StatusCode >= 500
+		}).
+		Build()
+}
+
+func TestWebhookSender_RetriesOn503(t *testing.T) {
+	t.Parallel()
+	client, transport := newMockClient(t)
+
+	var hits atomic.Int32
+	transport.RegisterResponder("POST", "https://example.com/hook",
+		func(_ *http.Request) (*http.Response, error) {
+			n := hits.Add(1)
+			if n == 1 {
+				return httpmock.NewStringResponse(503, "service unavailable"), nil
+			}
+			return httpmock.NewStringResponse(200, "ok"), nil
+		})
+
+	rp := testRetryPolicy()
+	sender := NewWebhookSender(client, WithWebhookRetryPolicy(rp))
+	ch := newTestChannel("https://example.com/hook", "")
+	del := newTestDelivery("run.completed", json.RawMessage(`{}`))
+
+	err := sender.Send(context.Background(), ch, del)
+	if err != nil {
+		t.Fatalf("expected success after retry, got: %v", err)
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("server hits = %d, want 2", hits.Load())
+	}
+}
+
+func TestWebhookSender_RetriesOn500(t *testing.T) {
+	t.Parallel()
+	client, transport := newMockClient(t)
+
+	var hits atomic.Int32
+	transport.RegisterResponder("POST", "https://example.com/hook",
+		func(_ *http.Request) (*http.Response, error) {
+			n := hits.Add(1)
+			if n == 1 {
+				return httpmock.NewStringResponse(500, "internal server error"), nil
+			}
+			return httpmock.NewStringResponse(200, "ok"), nil
+		})
+
+	rp := testRetryPolicy()
+	sender := NewWebhookSender(client, WithWebhookRetryPolicy(rp))
+	ch := newTestChannel("https://example.com/hook", "")
+	del := newTestDelivery("run.completed", json.RawMessage(`{}`))
+
+	err := sender.Send(context.Background(), ch, del)
+	if err != nil {
+		t.Fatalf("expected success after retry, got: %v", err)
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("server hits = %d, want 2", hits.Load())
+	}
+}
+
+func TestWebhookSender_NoRetryOn400(t *testing.T) {
+	t.Parallel()
+	client, transport := newMockClient(t)
+
+	var hits atomic.Int32
+	transport.RegisterResponder("POST", "https://example.com/hook",
+		func(_ *http.Request) (*http.Response, error) {
+			hits.Add(1)
+			return httpmock.NewStringResponse(400, "bad request"), nil
+		})
+
+	rp := testRetryPolicy()
+	sender := NewWebhookSender(client, WithWebhookRetryPolicy(rp))
+	ch := newTestChannel("https://example.com/hook", "")
+	del := newTestDelivery("run.completed", json.RawMessage(`{}`))
+
+	err := sender.Send(context.Background(), ch, del)
+	if err == nil {
+		t.Fatal("expected error for 400 status")
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("server hits = %d, want 1 (no retry on 4xx)", hits.Load())
+	}
+}
+
+func TestWebhookSender_ExhaustsRetries(t *testing.T) {
+	t.Parallel()
+	client, transport := newMockClient(t)
+
+	var hits atomic.Int32
+	transport.RegisterResponder("POST", "https://example.com/hook",
+		func(_ *http.Request) (*http.Response, error) {
+			hits.Add(1)
+			return httpmock.NewStringResponse(503, "service unavailable"), nil
+		})
+
+	rp := testRetryPolicy()
+	sender := NewWebhookSender(client, WithWebhookRetryPolicy(rp))
+	ch := newTestChannel("https://example.com/hook", "")
+	del := newTestDelivery("run.completed", json.RawMessage(`{}`))
+
+	err := sender.Send(context.Background(), ch, del)
+	if err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+	if hits.Load() != 3 {
+		t.Fatalf("server hits = %d, want 3 (1 initial + 2 retries)", hits.Load())
 	}
 }
