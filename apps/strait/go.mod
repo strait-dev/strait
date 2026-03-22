@@ -26,6 +26,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grafana/pyroscope-go v1.2.7
 	github.com/jackc/pgx/v5 v5.9.0
+	github.com/jarcoal/httpmock v1.4.1
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/maypok86/otter v1.2.4
 	github.com/muesli/termenv v0.16.0
