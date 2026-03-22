@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -137,5 +138,57 @@ func TestTeeHandler_LevelFiltering(t *testing.T) {
 	}
 	if !strings.Contains(infoBuf.String(), "info message") {
 		t.Error("info handler should receive info-level message")
+	}
+}
+
+func TestNewTeeHandler_SingleHandler(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	h := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+
+	tee := NewTeeHandler(h)
+	logger := slog.New(tee)
+
+	logger.Info("single handler test", "k", "v")
+
+	if !strings.Contains(buf.String(), "single handler test") {
+		t.Errorf("single handler did not receive log: %s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "k=v") {
+		t.Errorf("single handler missing attribute: %s", buf.String())
+	}
+}
+
+func TestNewTeeHandler_ConcurrentLogging(t *testing.T) {
+	t.Parallel()
+
+	var buf1, buf2 bytes.Buffer
+	h1 := slog.NewTextHandler(&buf1, &slog.HandlerOptions{Level: slog.LevelInfo})
+	h2 := slog.NewTextHandler(&buf2, &slog.HandlerOptions{Level: slog.LevelInfo})
+
+	tee := NewTeeHandler(h1, h2)
+	logger := slog.New(tee)
+
+	var wg sync.WaitGroup
+	for i := range 100 {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			logger.Info("concurrent log", "goroutine", n)
+		}(i)
+	}
+	wg.Wait()
+
+	out1 := buf1.String()
+	out2 := buf2.String()
+	count1 := strings.Count(out1, "concurrent log")
+	count2 := strings.Count(out2, "concurrent log")
+
+	if count1 != 100 {
+		t.Errorf("handler 1 received %d logs, want 100", count1)
+	}
+	if count2 != 100 {
+		t.Errorf("handler 2 received %d logs, want 100", count2)
 	}
 }
