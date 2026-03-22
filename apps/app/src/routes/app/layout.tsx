@@ -72,8 +72,37 @@ export const Route = createFileRoute("/app/layout")({
       session: sessionData.session,
     };
 
-    if (session.user.onboarded !== true) {
-      throw redirect({ to: "/onboarding" });
+    // Legacy users who signed up before auto-workspace creation may not
+    // have an organization yet. Create one lazily on their next login.
+    if (!session.user.defaultOrganizationId) {
+      try {
+        const { createOrganizationServerFn } = await import(
+          "@/lib/organization-handler"
+        );
+        const workspaceName = session.user.name
+          ? `${session.user.name}'s Workspace`
+          : "My Workspace";
+        const org = await createOrganizationServerFn({
+          data: { name: workspaceName },
+        });
+        if (org) {
+          const { auth } = await import("@/lib/auth.server");
+          await auth.api.updateUser({
+            body: {
+              defaultOrganizationId: org.id,
+              onboarded: true,
+            },
+            headers: new Headers(),
+          });
+          // Refresh session to pick up the new org
+          throw redirect({ to: "/app" });
+        }
+      } catch (err) {
+        if (err instanceof Response || (err as any)?.$$typeof) {
+          throw err;
+        }
+        console.error("Failed to create workspace for legacy user", err);
+      }
     }
 
     return { session };

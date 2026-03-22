@@ -186,6 +186,35 @@ export const auth = betterAuth({
       : []),
   ],
   databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          // Auto-create a workspace (organization) for every new user.
+          // This ensures users always have an org for billing enforcement
+          // and project creation, without requiring an onboarding step.
+          try {
+            const workspaceName = user.name
+              ? `${user.name}'s Workspace`
+              : "My Workspace";
+            const slug = `ws-${user.id.slice(0, 8)}`;
+
+            const org = await auth.api.createOrganization({
+              body: { name: workspaceName, slug },
+              headers: new Headers(),
+            });
+
+            if (org) {
+              await authPool.query(
+                `UPDATE "user" SET "defaultOrganizationId" = $1, "onboarded" = true WHERE id = $2`,
+                [org.id, user.id]
+              );
+            }
+          } catch (err) {
+            console.error("Failed to auto-create workspace for user", user.id, err);
+          }
+        },
+      },
+    },
     session: {
       create: {
         before: async (session) => {
