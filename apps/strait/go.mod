@@ -30,6 +30,7 @@ require (
 	github.com/grafana/pyroscope-go v1.2.7
 	github.com/jackc/pgx/v5 v5.9.0
 	github.com/jarcoal/httpmock v1.4.1
+	github.com/lmittmann/tint v1.1.3
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/maypok86/otter v1.2.4
 	github.com/muesli/termenv v0.16.0
@@ -40,6 +41,8 @@ require (
 	github.com/rivo/tview v0.42.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/samber/lo v1.53.0
+	github.com/samber/oops v1.21.0
+	github.com/samber/slog-multi v1.7.1
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8
 	github.com/spf13/cobra v1.10.1
 	github.com/testcontainers/testcontainers-go v0.40.0
@@ -152,6 +155,7 @@ require (
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
@@ -166,6 +170,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rs/dnscache v0.0.0-20230804202142-fc85eb664529 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
+	github.com/samber/slog-common v0.20.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.6 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
