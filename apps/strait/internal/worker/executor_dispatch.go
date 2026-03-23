@@ -383,6 +383,14 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
 			}
+			if err := e.billingEnforcer.CheckProjectBudgetLimit(ctx, job.ProjectID); err != nil {
+				e.logger.Warn("project budget limit exceeded",
+					"run_id", run.ID, "project_id", job.ProjectID, "org_id", orgID, "error", err)
+				e.billingEnforcer.DecrManagedRunCount(ctx, orgID)
+				e.handleSystemFailure(ctx, run, err.Error())
+				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
+				return
+			}
 		}
 	}
 
