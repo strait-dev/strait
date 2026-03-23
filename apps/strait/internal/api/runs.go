@@ -10,27 +10,36 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+
 	"strait/internal/domain"
 	"strait/internal/store"
-
-	"github.com/go-chi/chi/v5"
 )
 
-func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-	run, err := s.store.GetRun(r.Context(), runID)
-	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
-		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, run)
+// GetRunInput is the typed input for getting a single run.
+type GetRunInput struct {
+	RunID string `path:"runID"`
 }
 
+// GetRunOutput is the typed output for getting a single run.
+type GetRunOutput struct {
+	Body *domain.JobRun
+}
+
+func (s *Server) handleGetRun(ctx context.Context, input *GetRunInput) (*GetRunOutput, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			return nil, huma.Error404NotFound("run not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get run")
+	}
+
+	return &GetRunOutput{Body: run}, nil
+}
+
+// TODO: migrate to TypedHandler -- requires raw *http.Request for bracket
+// notation query param iteration (tags[key]=value, metadata[key]=value).
 func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	projectID := projectIDFromContext(r.Context())
@@ -164,41 +173,46 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
-func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-	run, err := s.store.GetRun(r.Context(), runID)
+// CancelRunInput is the typed input for canceling a run.
+type CancelRunInput struct {
+	RunID string `path:"runID"`
+}
+
+// CancelRunOutput is the typed output for canceling a run.
+type CancelRunOutput struct {
+	Body *domain.JobRun
+}
+
+func (s *Server) handleCancelRun(ctx context.Context, input *CancelRunInput) (*CancelRunOutput, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
 	if run.Status.IsTerminal() {
-		respondError(w, r, http.StatusBadRequest, "run already in terminal state")
-		return
+		return nil, huma.Error400BadRequest("run already in terminal state")
 	}
 
-	if err := s.store.UpdateRunStatus(r.Context(), run.ID, run.Status, domain.StatusCanceled, map[string]any{
+	if err := s.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusCanceled, map[string]any{
 		"finished_at": time.Now(),
 		"error":       "canceled by user",
 	}); err != nil {
-		respondError(w, r, http.StatusConflict, "failed to cancel run")
-		return
+		return nil, huma.Error409Conflict("failed to cancel run")
 	}
 
 	if s.workflowCallback != nil {
 		canceledRun := *run
 		canceledRun.Status = domain.StatusCanceled
 		canceledRun.Error = "canceled by user"
-		if cbErr := s.workflowCallback.OnJobRunTerminal(r.Context(), &canceledRun); cbErr != nil {
+		if cbErr := s.workflowCallback.OnJobRunTerminal(ctx, &canceledRun); cbErr != nil {
 			slog.Error("workflow callback failed", "error", cbErr)
 		}
 	}
 
-	// Stop managed container if running — use detached context so client
+	// Stop managed container if running -- use detached context so client
 	// disconnect doesn't abort the stop, and cap at 10s to avoid blocking
 	// if the Fly API is unresponsive.
 	if s.containerRuntime != nil && run.ExecutionMode == domain.ExecutionModeManaged && run.MachineID != "" {
@@ -210,18 +224,17 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	canceledCount := s.cancelChildRunsRecursive(r.Context(), run.ID)
+	canceledCount := s.cancelChildRunsRecursive(ctx, run.ID)
 	if canceledCount > 0 && s.metrics != nil {
-		s.metrics.ChildCancellationsTotal.Add(r.Context(), canceledCount)
+		s.metrics.ChildCancellationsTotal.Add(ctx, canceledCount)
 	}
 
-	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
+	updatedRun, err := s.store.GetRun(ctx, run.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get updated run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get updated run")
 	}
 
-	respondJSON(w, http.StatusOK, updatedRun)
+	return &CancelRunOutput{Body: updatedRun}, nil
 }
 
 // maxCancelDepth limits recursive child cancellation to prevent runaway traversal.
@@ -278,84 +291,91 @@ func (s *Server) cancelChildRunsRecursive(ctx context.Context, parentRunID strin
 	return total
 }
 
-func (s *Server) handleGetRunDependencyStatus(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-	run, err := s.store.GetRun(r.Context(), runID)
+// GetRunDependencyStatusInput is the typed input for getting run dependency status.
+type GetRunDependencyStatusInput struct {
+	RunID string `path:"runID"`
+}
+
+// GetRunDependencyStatusOutput is the typed output for getting run dependency status.
+type GetRunDependencyStatusOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleGetRunDependencyStatus(ctx context.Context, input *GetRunDependencyStatusInput) (*GetRunDependencyStatusOutput, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
-	deps, err := s.store.ListJobDependencies(r.Context(), run.JobID, 1000, nil)
+	deps, err := s.store.ListJobDependencies(ctx, run.JobID, 1000, nil)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list job dependencies")
-		return
+		return nil, huma.Error500InternalServerError("failed to list job dependencies")
 	}
 
-	satisfied, err := s.store.AreJobDependenciesSatisfied(r.Context(), run)
+	satisfied, err := s.store.AreJobDependenciesSatisfied(ctx, run)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to evaluate dependencies")
-		return
+		return nil, huma.Error500InternalServerError("failed to evaluate dependencies")
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{
+	return &GetRunDependencyStatusOutput{Body: map[string]any{
 		"run_id":                 run.ID,
 		"job_id":                 run.JobID,
 		"status":                 run.Status,
 		"dependencies":           deps,
 		"dependencies_satisfied": satisfied,
-	})
+	}}, nil
 }
 
-func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-	originalRun, err := s.store.GetRun(r.Context(), runID)
+// ReplayRunInput is the typed input for replaying a run.
+type ReplayRunInput struct {
+	RunID          string `path:"runID"`
+	FromCheckpoint string `query:"from_checkpoint"`
+}
+
+// ReplayRunOutput is the typed output for replaying a run.
+type ReplayRunOutput struct {
+	Body *domain.JobRun
+}
+
+func (s *Server) handleReplayRun(ctx context.Context, input *ReplayRunInput) (*ReplayRunOutput, error) {
+	originalRun, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
 	if !isReplayableRunStatus(originalRun.Status) {
-		respondError(w, r, http.StatusBadRequest, "run is not replayable")
-		return
+		return nil, huma.Error400BadRequest("run is not replayable")
 	}
 
-	job, err := s.store.GetJob(r.Context(), originalRun.JobID)
+	job, err := s.store.GetJob(ctx, originalRun.JobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusBadRequest, "job not found for run")
-			return
+			return nil, huma.Error400BadRequest("job not found for run")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 	if !job.Enabled {
-		respondError(w, r, http.StatusBadRequest, "job is disabled")
-		return
+		return nil, huma.Error400BadRequest("job is disabled")
 	}
 
 	payload := originalRun.Payload
 	debugMode := false
 
 	// Checkpoint-based replay: restore from a specific checkpoint sequence
-	if fromCheckpointRaw := r.URL.Query().Get("from_checkpoint"); fromCheckpointRaw != "" {
-		seq, parseErr := strconv.Atoi(fromCheckpointRaw)
+	if input.FromCheckpoint != "" {
+		seq, parseErr := strconv.Atoi(input.FromCheckpoint)
 		if parseErr != nil || seq <= 0 {
-			respondError(w, r, http.StatusBadRequest, "from_checkpoint must be a positive integer")
-			return
+			return nil, huma.Error400BadRequest("from_checkpoint must be a positive integer")
 		}
-		checkpoints, listErr := s.store.ListRunCheckpoints(r.Context(), runID, 1000, nil)
+		checkpoints, listErr := s.store.ListRunCheckpoints(ctx, input.RunID, 1000, nil)
 		if listErr != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to list checkpoints")
-			return
+			return nil, huma.Error500InternalServerError("failed to list checkpoints")
 		}
 		var found bool
 		for _, cp := range checkpoints {
@@ -366,8 +386,7 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !found {
-			respondError(w, r, http.StatusNotFound, "checkpoint not found")
-			return
+			return nil, huma.Error404NotFound("checkpoint not found")
 		}
 		debugMode = true
 	}
@@ -394,126 +413,160 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 		JobVersion:   originalRun.JobVersion,
 		JobVersionID: job.VersionID,
 		Tags:         originalRun.Tags,
-		CreatedBy:    actorFromContext(r.Context()),
+		CreatedBy:    actorFromContext(ctx),
 		ExpiresAt:    &expiresAt,
 		DebugMode:    debugMode,
 	}
 
-	if err := s.queue.Enqueue(r.Context(), replayRun); err != nil {
+	if err := s.queue.Enqueue(ctx, replayRun); err != nil {
 		if errors.Is(err, domain.ErrIdempotencyConflict) {
 			slog.Warn("replay idempotency conflict",
-				"original_run_id", runID,
+				"original_run_id", input.RunID,
 				"replay_run_id", replayRun.ID)
-			respondError(w, r, http.StatusConflict, "idempotency key conflict: a run with this key is already active")
-			return
+			return nil, huma.Error409Conflict("idempotency key conflict: a run with this key is already active")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to enqueue replay run")
-		return
+		return nil, huma.Error500InternalServerError("failed to enqueue replay run")
 	}
 
-	respondJSON(w, http.StatusCreated, replayRun)
+	return &ReplayRunOutput{Body: replayRun}, nil
 }
 
-func (s *Server) handleListDeadLetterRuns(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+// ListDeadLetterRunsInput is the typed input for listing dead letter runs.
+type ListDeadLetterRunsInput struct {
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+
+// ListDeadLetterRunsOutput is the typed output for listing dead letter runs.
+type ListDeadLetterRunsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListDeadLetterRuns(ctx context.Context, input *ListDeadLetterRunsInput) (*ListDeadLetterRunsOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	runs, err := s.store.ListDeadLetterRuns(r.Context(), projectID, limit+1, cursor)
+	runs, err := s.store.ListDeadLetterRuns(ctx, projectID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list dead letter runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list dead letter runs")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.JobRun) string {
+	return &ListDeadLetterRunsOutput{Body: paginatedResult(runs, limit, func(run domain.JobRun) string {
 		return run.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-func (s *Server) handleReplayDeadLetterRun(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-	run, err := s.store.ReplayDeadLetterRun(r.Context(), runID)
+// ReplayDeadLetterRunInput is the typed input for replaying a dead letter run.
+type ReplayDeadLetterRunInput struct {
+	RunID string `path:"runID"`
+}
+
+// ReplayDeadLetterRunOutput is the typed output for replaying a dead letter run.
+type ReplayDeadLetterRunOutput struct {
+	Body *domain.JobRun
+}
+
+func (s *Server) handleReplayDeadLetterRun(ctx context.Context, input *ReplayDeadLetterRunInput) (*ReplayDeadLetterRunOutput, error) {
+	run, err := s.store.ReplayDeadLetterRun(ctx, input.RunID)
 	if err != nil {
 		errMsg := err.Error()
 		switch {
 		case strings.Contains(errMsg, "not found"):
-			respondError(w, r, http.StatusNotFound, "run not found")
+			return nil, huma.Error404NotFound("run not found")
 		case strings.Contains(errMsg, "not dead_letter"):
-			respondError(w, r, http.StatusConflict, "run is not dead_letter")
+			return nil, huma.Error409Conflict("run is not dead_letter")
 		default:
-			respondError(w, r, http.StatusInternalServerError, "failed to replay dead letter run")
+			return nil, huma.Error500InternalServerError("failed to replay dead letter run")
 		}
-		return
 	}
 
-	respondJSON(w, http.StatusOK, run)
+	return &ReplayDeadLetterRunOutput{Body: run}, nil
 }
 
-func (s *Server) handleBulkReplayDeadLetterRuns(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		RunIDs    []string `json:"run_ids"`
-		ProjectID string   `json:"project_id"`
-		Limit     int      `json:"limit"`
-	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+// BulkReplayDeadLetterRunsRequest is the request body for bulk replaying dead letter runs.
+type BulkReplayDeadLetterRunsRequest struct {
+	RunIDs    []string `json:"run_ids"`
+	ProjectID string   `json:"project_id"`
+	Limit     int      `json:"limit"`
+}
+
+// BulkReplayDeadLetterRunsInput is the typed input for bulk replaying dead letter runs.
+type BulkReplayDeadLetterRunsInput struct {
+	Body BulkReplayDeadLetterRunsRequest
+}
+
+// BulkReplayDeadLetterRunsOutput is the typed output for bulk replaying dead letter runs.
+type BulkReplayDeadLetterRunsOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *BulkReplayDeadLetterRunsInput) (*BulkReplayDeadLetterRunsOutput, error) {
+	req := input.Body
 
 	hasRunIDs := len(req.RunIDs) > 0
 	hasProjectID := req.ProjectID != ""
 	if hasRunIDs == hasProjectID {
-		respondError(w, r, http.StatusBadRequest, APIError{
-			Code:    ErrorCodeValidationError,
-			Message: "provide either run_ids or project_id",
-		})
-		return
+		return nil, &typedAPIError{
+			status: http.StatusBadRequest,
+			apiError: APIError{
+				Code:    ErrorCodeValidationError,
+				Message: "provide either run_ids or project_id",
+			},
+		}
 	}
 
 	if hasRunIDs {
 		if len(req.RunIDs) > 500 {
-			respondError(w, r, http.StatusBadRequest, APIError{
-				Code:    ErrorCodeValidationError,
-				Message: "too many run_ids (max 500)",
-			})
-			return
+			return nil, &typedAPIError{
+				status: http.StatusBadRequest,
+				apiError: APIError{
+					Code:    ErrorCodeValidationError,
+					Message: "too many run_ids (max 500)",
+				},
+			}
 		}
 	} else {
 		if req.Limit <= 0 {
 			req.Limit = 100
 		}
 		if req.Limit > 500 {
-			respondError(w, r, http.StatusBadRequest, APIError{
-				Code:    ErrorCodeValidationError,
-				Message: "limit must be <= 500",
-			})
-			return
+			return nil, &typedAPIError{
+				status: http.StatusBadRequest,
+				apiError: APIError{
+					Code:    ErrorCodeValidationError,
+					Message: "limit must be <= 500",
+				},
+			}
 		}
 	}
 
-	runs, err := s.store.BulkReplayDeadLetterRuns(r.Context(), req.RunIDs, req.ProjectID, req.Limit)
+	runs, err := s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, req.ProjectID, req.Limit)
 	if err != nil {
 		errMsg := err.Error()
 		switch {
 		case strings.Contains(errMsg, "at least one") || strings.Contains(errMsg, "provide either"):
-			respondError(w, r, http.StatusBadRequest, APIError{Code: ErrorCodeValidationError, Message: errMsg})
+			return nil, &typedAPIError{
+				status:   http.StatusBadRequest,
+				apiError: APIError{Code: ErrorCodeValidationError, Message: errMsg},
+			}
 		case strings.Contains(errMsg, "no dead_letter"):
-			respondError(w, r, http.StatusConflict, APIError{Code: ErrorCodeConflict, Message: errMsg})
+			return nil, &typedAPIError{
+				status:   http.StatusConflict,
+				apiError: APIError{Code: ErrorCodeConflict, Message: errMsg},
+			}
 		default:
-			respondError(w, r, http.StatusInternalServerError, "failed to bulk replay dead letter runs")
+			return nil, huma.Error500InternalServerError("failed to bulk replay dead letter runs")
 		}
-		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"replayed": runs, "count": len(runs)})
+	return &BulkReplayDeadLetterRunsOutput{Body: map[string]any{"replayed": runs, "count": len(runs)}}, nil
 }
 
 func isReplayableRunStatus(status domain.RunStatus) bool {
@@ -525,144 +578,189 @@ func isReplayableRunStatus(status domain.RunStatus) bool {
 	}
 }
 
-func (s *Server) handleListChildRuns(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
+// ListChildRunsInput is the typed input for listing child runs.
+type ListChildRunsInput struct {
+	RunID  string `path:"runID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
 
-	limit, cursor, err := parsePaginationParams(r)
+// ListChildRunsOutput is the typed output for listing child runs.
+type ListChildRunsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListChildRuns(ctx context.Context, input *ListChildRunsInput) (*ListChildRunsOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	children, err := s.store.ListChildRuns(r.Context(), runID, limit+1, cursor)
+	children, err := s.store.ListChildRuns(ctx, input.RunID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list children")
-		return
+		return nil, huma.Error500InternalServerError("failed to list children")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(children, limit, func(run domain.JobRun) string {
+	return &ListChildRunsOutput{Body: paginatedResult(children, limit, func(run domain.JobRun) string {
 		return run.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-func (s *Server) handleGetDebugBundle(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-	bundle, err := s.store.GetDebugBundle(r.Context(), runID)
+// GetDebugBundleInput is the typed input for getting a debug bundle.
+type GetDebugBundleInput struct {
+	RunID string `path:"runID"`
+}
+
+// GetDebugBundleOutput is the typed output for getting a debug bundle.
+type GetDebugBundleOutput struct {
+	Body *domain.DebugBundle
+}
+
+func (s *Server) handleGetDebugBundle(ctx context.Context, input *GetDebugBundleInput) (*GetDebugBundleOutput, error) {
+	bundle, err := s.store.GetDebugBundle(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get debug bundle")
-		return
+		return nil, huma.Error500InternalServerError("failed to get debug bundle")
 	}
 
-	respondJSON(w, http.StatusOK, bundle)
+	return &GetDebugBundleOutput{Body: bundle}, nil
 }
 
-func (s *Server) handleSetDebugMode(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
+// SetDebugModeRequest is the request body for setting debug mode.
+type SetDebugModeRequest struct {
+	DebugMode bool `json:"debug_mode"`
+}
 
-	var req struct {
-		DebugMode bool `json:"debug_mode"`
-	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+// SetDebugModeInput is the typed input for setting debug mode.
+type SetDebugModeInput struct {
+	RunID string `path:"runID"`
+	Body  SetDebugModeRequest
+}
 
-	if err := s.store.UpdateRunDebugMode(r.Context(), runID, req.DebugMode); err != nil {
+// SetDebugModeOutput is the typed output for setting debug mode.
+type SetDebugModeOutput struct {
+	Body map[string]string
+}
+
+func (s *Server) handleSetDebugMode(ctx context.Context, input *SetDebugModeInput) (*SetDebugModeOutput, error) {
+	if err := s.store.UpdateRunDebugMode(ctx, input.RunID, input.Body.DebugMode); err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to update debug mode")
-		return
+		return nil, huma.Error500InternalServerError("failed to update debug mode")
 	}
 
-	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	return &SetDebugModeOutput{Body: map[string]string{"status": "ok"}}, nil
 }
 
-func (s *Server) handleListRunLineage(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
+// ListRunLineageInput is the typed input for listing run lineage.
+type ListRunLineageInput struct {
+	RunID  string `path:"runID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
 
-	limit, cursor, err := parsePaginationParams(r)
+// ListRunLineageOutput is the typed output for listing run lineage.
+type ListRunLineageOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListRunLineage(ctx context.Context, input *ListRunLineageInput) (*ListRunLineageOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	runs, err := s.store.ListRunLineage(r.Context(), runID, limit+1, cursor)
+	runs, err := s.store.ListRunLineage(ctx, input.RunID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list run lineage")
-		return
+		return nil, huma.Error500InternalServerError("failed to list run lineage")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.JobRun) string {
+	return &ListRunLineageOutput{Body: paginatedResult(runs, limit, func(run domain.JobRun) string {
 		return run.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-func (s *Server) handleResetIdempotencyKey(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
+// ResetIdempotencyKeyInput is the typed input for resetting a run's idempotency key.
+type ResetIdempotencyKeyInput struct {
+	RunID string `path:"runID"`
+}
 
-	if err := s.store.ResetRunIdempotencyKey(r.Context(), runID); err != nil {
+// ResetIdempotencyKeyOutput is the typed output for resetting a run's idempotency key.
+type ResetIdempotencyKeyOutput struct {
+	Body map[string]string
+}
+
+func (s *Server) handleResetIdempotencyKey(ctx context.Context, input *ResetIdempotencyKeyInput) (*ResetIdempotencyKeyOutput, error) {
+	if err := s.store.ResetRunIdempotencyKey(ctx, input.RunID); err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found or not eligible for idempotency reset")
-			return
+			return nil, huma.Error404NotFound("run not found or not eligible for idempotency reset")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to reset idempotency key")
-		return
+		return nil, huma.Error500InternalServerError("failed to reset idempotency key")
 	}
 
-	respondJSON(w, http.StatusOK, map[string]string{"status": "reset", "run_id": runID})
+	return &ResetIdempotencyKeyOutput{Body: map[string]string{"status": "reset", "run_id": input.RunID}}, nil
 }
 
+// RescheduleRunRequest is the request body for rescheduling a run.
 type RescheduleRunRequest struct {
 	ScheduledAt time.Time       `json:"scheduled_at" validate:"required"`
 	Payload     json.RawMessage `json:"payload,omitempty"`
 }
 
-func (s *Server) handleRescheduleRun(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-
-	var req RescheduleRunRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
-
-	if err := s.store.RescheduleRun(r.Context(), runID, req.ScheduledAt, req.Payload); err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found or not eligible for rescheduling")
-			return
-		}
-		respondError(w, r, http.StatusInternalServerError, "failed to reschedule run")
-		return
-	}
-
-	updatedRun, err := s.store.GetRun(r.Context(), runID)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to fetch rescheduled run")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, updatedRun)
+// RescheduleRunInput is the typed input for rescheduling a run.
+type RescheduleRunInput struct {
+	RunID string `path:"runID"`
+	Body  RescheduleRunRequest
 }
 
-func (s *Server) handleBulkReplayRuns(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		RunIDs []string `json:"run_ids" validate:"required,min=1,max=100"`
+// RescheduleRunOutput is the typed output for rescheduling a run.
+type RescheduleRunOutput struct {
+	Body *domain.JobRun
+}
+
+func (s *Server) handleRescheduleRun(ctx context.Context, input *RescheduleRunInput) (*RescheduleRunOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
+
+	if err := s.store.RescheduleRun(ctx, input.RunID, req.ScheduledAt, req.Payload); err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			return nil, huma.Error404NotFound("run not found or not eligible for rescheduling")
+		}
+		return nil, huma.Error500InternalServerError("failed to reschedule run")
 	}
-	if !s.validateRequest(w, r, &req) {
-		return
+
+	updatedRun, err := s.store.GetRun(ctx, input.RunID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to fetch rescheduled run")
+	}
+
+	return &RescheduleRunOutput{Body: updatedRun}, nil
+}
+
+// BulkReplayRunsRequest is the request body for bulk replaying runs.
+type BulkReplayRunsRequest struct {
+	RunIDs []string `json:"run_ids" validate:"required,min=1,max=100"`
+}
+
+// BulkReplayRunsInput is the typed input for bulk replaying runs.
+type BulkReplayRunsInput struct {
+	Body BulkReplayRunsRequest
+}
+
+// BulkReplayRunsOutput is the typed output for bulk replaying runs.
+type BulkReplayRunsOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRunsInput) (*BulkReplayRunsOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	type replayResult struct {
@@ -676,7 +774,7 @@ func (s *Server) handleBulkReplayRuns(w http.ResponseWriter, r *http.Request) {
 	replayed := 0
 
 	for _, runID := range req.RunIDs {
-		original, err := s.store.GetRun(r.Context(), runID)
+		original, err := s.store.GetRun(ctx, runID)
 		if err != nil {
 			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "run not found"})
 			continue
@@ -686,7 +784,7 @@ func (s *Server) handleBulkReplayRuns(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		job, err := s.store.GetJob(r.Context(), original.JobID)
+		job, err := s.store.GetJob(ctx, original.JobID)
 		if err != nil || !job.Enabled {
 			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "job not found or disabled"})
 			continue
@@ -710,11 +808,11 @@ func (s *Server) handleBulkReplayRuns(w http.ResponseWriter, r *http.Request) {
 			JobVersion:   original.JobVersion,
 			JobVersionID: job.VersionID,
 			Tags:         original.Tags,
-			CreatedBy:    actorFromContext(r.Context()),
+			CreatedBy:    actorFromContext(ctx),
 			ExpiresAt:    &expiresAt,
 		}
 
-		if err := s.queue.Enqueue(r.Context(), replayRun); err != nil {
+		if err := s.queue.Enqueue(ctx, replayRun); err != nil {
 			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "enqueue failed"})
 			continue
 		}
@@ -723,39 +821,42 @@ func (s *Server) handleBulkReplayRuns(w http.ResponseWriter, r *http.Request) {
 		replayed++
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"results": results, "total": len(req.RunIDs), "replayed": replayed})
+	return &BulkReplayRunsOutput{Body: map[string]any{"results": results, "total": len(req.RunIDs), "replayed": replayed}}, nil
 }
 
-func (s *Server) handlePauseRun(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-	run, err := s.store.GetRun(r.Context(), runID)
+// PauseRunInput is the typed input for pausing a run.
+type PauseRunInput struct {
+	RunID string `path:"runID"`
+}
+
+// PauseRunOutput is the typed output for pausing a run.
+type PauseRunOutput struct {
+	Body *domain.JobRun
+}
+
+func (s *Server) handlePauseRun(ctx context.Context, input *PauseRunInput) (*PauseRunOutput, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
 	if run.ExecutionMode != domain.ExecutionModeManaged {
-		respondError(w, r, http.StatusBadRequest, "only managed runs can be paused")
-		return
+		return nil, huma.Error400BadRequest("only managed runs can be paused")
 	}
 	if run.Status == domain.StatusPaused {
-		respondJSON(w, http.StatusOK, run)
-		return
+		return &PauseRunOutput{Body: run}, nil
 	}
 	if run.Status != domain.StatusExecuting {
-		respondError(w, r, http.StatusBadRequest, "run must be in executing state to pause")
-		return
+		return nil, huma.Error400BadRequest("run must be in executing state to pause")
 	}
 
-	if err := s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusExecuting, domain.StatusPaused, map[string]any{
+	if err := s.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusPaused, map[string]any{
 		"metadata": map[string]string{"_paused_machine_id": run.MachineID},
 	}); err != nil {
-		respondError(w, r, http.StatusConflict, "failed to pause run")
-		return
+		return nil, huma.Error409Conflict("failed to pause run")
 	}
 
 	// Stop managed container (non-fatal).
@@ -768,84 +869,85 @@ func (s *Server) handlePauseRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
+	updatedRun, err := s.store.GetRun(ctx, run.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get updated run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get updated run")
 	}
-	respondJSON(w, http.StatusOK, updatedRun)
+	return &PauseRunOutput{Body: updatedRun}, nil
 }
 
-func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-	run, err := s.store.GetRun(r.Context(), runID)
+// ResumeRunInput is the typed input for resuming a run.
+type ResumeRunInput struct {
+	RunID string `path:"runID"`
+}
+
+// ResumeRunOutput is the typed output for resuming a run.
+type ResumeRunOutput struct {
+	Body *domain.JobRun
+}
+
+func (s *Server) handleResumeRun(ctx context.Context, input *ResumeRunInput) (*ResumeRunOutput, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
 	if run.Status != domain.StatusPaused {
-		respondError(w, r, http.StatusBadRequest, "run is not paused")
-		return
+		return nil, huma.Error400BadRequest("run is not paused")
 	}
 
-	if err := s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusPaused, domain.StatusQueued, map[string]any{
+	if err := s.store.UpdateRunStatus(ctx, run.ID, domain.StatusPaused, domain.StatusQueued, map[string]any{
 		"started_at":  nil,
 		"finished_at": nil,
 		"metadata":    map[string]string{},
 	}); err != nil {
-		respondError(w, r, http.StatusConflict, "failed to resume run")
-		return
+		return nil, huma.Error409Conflict("failed to resume run")
 	}
 
-	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
+	updatedRun, err := s.store.GetRun(ctx, run.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get updated run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get updated run")
 	}
-	respondJSON(w, http.StatusOK, updatedRun)
+	return &ResumeRunOutput{Body: updatedRun}, nil
+}
+
+// RestartRunInput is the typed input for restarting a run.
+type RestartRunInput struct {
+	RunID string `path:"runID"`
+	Body  restartRunRequest
+}
+
+// RestartRunOutput is the typed output for restarting a run.
+type RestartRunOutput struct {
+	Body *domain.JobRun
 }
 
 type restartRunRequest struct {
 	MachinePreset string `json:"machine_preset,omitempty"`
 }
 
-func (s *Server) handleRestartRun(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-	run, err := s.store.GetRun(r.Context(), runID)
+func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (*RestartRunOutput, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
 	if run.ExecutionMode != domain.ExecutionModeManaged {
-		respondError(w, r, http.StatusBadRequest, "only managed runs can be restarted")
-		return
+		return nil, huma.Error400BadRequest("only managed runs can be restarted")
 	}
 	if run.Status != domain.StatusExecuting && run.Status != domain.StatusPaused {
-		respondError(w, r, http.StatusBadRequest, "run must be executing or paused to restart")
-		return
+		return nil, huma.Error400BadRequest("run must be executing or paused to restart")
 	}
 
-	var req restartRunRequest
-	if r.ContentLength > 0 {
-		if err := s.decodeJSON(r, &req); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid request body")
-			return
-		}
-	}
-
+	req := input.Body
 	if req.MachinePreset != "" && !domain.MachinePreset(req.MachinePreset).IsValid() {
-		respondError(w, r, http.StatusBadRequest, "invalid machine_preset")
-		return
+		return nil, huma.Error400BadRequest("invalid machine_preset")
 	}
 
 	// Stop container if running.
@@ -863,22 +965,20 @@ func (s *Server) handleRestartRun(w http.ResponseWriter, r *http.Request) {
 		metadata["_preset_override"] = req.MachinePreset
 	}
 
-	if err := s.store.UpdateRunStatus(r.Context(), run.ID, run.Status, domain.StatusQueued, map[string]any{
+	if err := s.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusQueued, map[string]any{
 		"started_at":  nil,
 		"finished_at": nil,
 		"machine_id":  nil,
 		"metadata":    metadata,
 	}); err != nil {
-		respondError(w, r, http.StatusConflict, "failed to restart run")
-		return
+		return nil, huma.Error409Conflict("failed to restart run")
 	}
 
-	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
+	updatedRun, err := s.store.GetRun(ctx, run.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get updated run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get updated run")
 	}
-	respondJSON(w, http.StatusOK, updatedRun)
+	return &RestartRunOutput{Body: updatedRun}, nil
 }
 
 // parseBracketParam extracts the key from bracket notation params like "metadata[key]".

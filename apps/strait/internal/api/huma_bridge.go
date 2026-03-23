@@ -130,7 +130,11 @@ func decodeBody(s *Server, r *http.Request, input any) error {
 	}
 	defer r.Body.Close()
 	dec := json.NewDecoder(io.LimitReader(r.Body, s.maxRequestBodySize))
-	return dec.Decode(bodyField.Addr().Interface())
+	err := dec.Decode(bodyField.Addr().Interface())
+	if errors.Is(err, io.EOF) {
+		return nil // empty body is OK -- fields stay at zero values
+	}
+	return err
 }
 
 func extractBodyField(output any) any {
