@@ -69,7 +69,7 @@ export const deleteWebhookFn = createServerFn({ method: "POST" })
   });
 
 export const testWebhookFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { webhook_url: string }) => data)
+  .inputValidator((data: { url: string; secret?: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     return await runWithSentryReport(
@@ -108,10 +108,25 @@ export const webhookQueryOptions = (id: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
+/**
+ * Seed individual webhook detail caches from a list response.
+ * Call this after fetching the list to avoid redundant list fetches
+ * when navigating to a detail view.
+ */
+export function seedWebhookDetailCaches(
+  queryClient: ReturnType<typeof useQueryClient>,
+  subscriptions: WebhookSubscription[]
+) {
+  for (const sub of subscriptions) {
+    queryClient.setQueryData(queryKeys.webhooks.detail(sub.id).queryKey, sub);
+  }
+}
+
 export const webhookDeliveriesQueryOptions = (webhookId: string) =>
   queryOptions({
     queryKey: queryKeys.webhooks.deliveries(webhookId).queryKey,
     queryFn: () => fetchWebhookDeliveries({ data: {} }),
+    enabled: !!webhookId,
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
@@ -127,7 +142,7 @@ export const useCreateWebhook = () => {
     mutationFn: (
       data: Pick<WebhookSubscription, "webhook_url" | "event_types">
     ) => createWebhookFn({ data }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
     },
   });
@@ -138,15 +153,22 @@ export const useDeleteWebhook = () => {
   return useMutation({
     mutationKey: ["webhooks", "delete"],
     mutationFn: (id: string) => deleteWebhookFn({ data: { id } }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
     },
   });
 };
 
-export const useTestWebhook = () =>
-  useMutation({
+export const useTestWebhook = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
     mutationKey: ["webhooks", "test"],
     mutationFn: (webhookUrl: string) =>
-      testWebhookFn({ data: { webhook_url: webhookUrl } }),
+      testWebhookFn({ data: { url: webhookUrl } }),
+    onSettled: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.webhooks.deliveries._def,
+      });
+    },
   });
+};

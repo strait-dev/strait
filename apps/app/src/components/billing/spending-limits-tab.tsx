@@ -201,7 +201,14 @@ const SpendingLimitsTab = () => {
             <p className="mb-2 text-muted-foreground text-xs">
               When limit is reached
             </p>
-            <Select onValueChange={(v) => { if (v) { setAction(v); } }} value={action}>
+            <Select
+              onValueChange={(v) => {
+                if (v) {
+                  setAction(v);
+                }
+              }}
+              value={action}
+            >
               <SelectTrigger className="w-[200px]">
                 <SelectValue />
               </SelectTrigger>

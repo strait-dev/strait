@@ -13,6 +13,22 @@ import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
+// Bulk cancel server function (uses the dedicated bulk endpoint)
+// ---------------------------------------------------------------------------
+
+const bulkCancelRunsFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { run_ids: string[] }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    return await runWithSentryReport(
+      apiEffect<{ canceled: number }>("/v1/runs/bulk-cancel", {
+        method: "POST",
+        body: { run_ids: data.run_ids },
+      })
+    );
+  });
+
+// ---------------------------------------------------------------------------
 // Server functions
 // ---------------------------------------------------------------------------
 
@@ -43,10 +59,13 @@ export const bulkReplayDlqFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     return await runWithSentryReport(
-      apiEffect<{ replayed: number }>("/v1/runs/bulk-dlq-replay", {
-        method: "POST",
-        body: { run_ids: data.run_ids },
-      })
+      apiEffect<{ replayed: JobRun[]; count: number }>(
+        "/v1/runs/bulk-dlq-replay",
+        {
+          method: "POST",
+          body: { run_ids: data.run_ids },
+        }
+      )
     );
   });
 
@@ -73,8 +92,9 @@ export const useRetryDlqItem = () => {
     mutationKey: ["dlq", "retry"],
     mutationFn: (data: { id: string }) =>
       replayDlqRunFn({ data: { runId: data.id } }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
     },
   });
 };
@@ -85,8 +105,9 @@ export const useDiscardDlqItem = () => {
     mutationKey: ["dlq", "discard"],
     mutationFn: (data: { id: string }) =>
       cancelRunFn({ data: { runId: data.id } }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
     },
   });
 };
@@ -97,8 +118,9 @@ export const useBulkRetryDlq = () => {
     mutationKey: ["dlq", "bulkRetry"],
     mutationFn: (data: { ids: string[] }) =>
       bulkReplayDlqFn({ data: { run_ids: data.ids } }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
     },
   });
 };
@@ -107,14 +129,11 @@ export const useBulkDiscardDlq = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["dlq", "bulkDiscard"],
-    mutationFn: async (data: { ids: string[] }) => {
-      await Promise.all(
-        data.ids.map((id) => cancelRunFn({ data: { runId: id } }))
-      );
-      return { discarded: data.ids.length };
-    },
-    onSuccess: () => {
+    mutationFn: (data: { ids: string[] }) =>
+      bulkCancelRunsFn({ data: { run_ids: data.ids } }),
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
     },
   });
 };

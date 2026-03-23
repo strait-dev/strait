@@ -16,6 +16,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { LIVE_REFETCH_INTERVAL } from "@/hooks/utils";
 import { ActivityIcon } from "@/lib/icons";
 import ChartEmptyState from "./chart-empty-state";
 import StatusBadge from "./status-badge";
@@ -40,6 +41,8 @@ const RecentRunsTable = ({ hasProject = true }: { hasProject?: boolean }) => {
   const { data } = useQuery({
     ...runsQueryOptions({ limit: 6 }),
     enabled: hasProject,
+    refetchInterval: LIVE_REFETCH_INTERVAL,
+    refetchIntervalInBackground: false,
   });
   const runs = data?.data ?? [];
 

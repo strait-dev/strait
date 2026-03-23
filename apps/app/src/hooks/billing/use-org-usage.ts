@@ -30,12 +30,13 @@ const getOrgUsageServerFn = createServerFn({ method: "GET" })
     return normalizeOrgUsageData(usage);
   });
 
-/** Query options for the organization's current usage, quotas, and alerts. Refetches every 60s. */
+/** Query options for the organization's current usage, quotas, and alerts. Refetches every 5 minutes. */
 export const orgUsageQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.orgUsage.queryKey,
     queryFn: () => getOrgUsageServerFn(),
-    refetchInterval: 60_000,
+    refetchInterval: 300_000,
+    refetchIntervalInBackground: false,
   });
 
 /** Returns alerts where the organization is approaching a usage limit. */

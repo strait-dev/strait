@@ -2,7 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
-import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
 
@@ -49,15 +49,14 @@ const getCostEstimateServerFn = createServerFn({ method: "GET" })
       return null;
     }
 
-    return await runWithFallback(
+    return await runWithSentryReport(
       apiEffect<CostEstimate>("/v1/cost-estimate", {
         params: {
           org_id: orgId,
           preset: data.preset,
           timeout_secs: data.timeoutSecs,
         },
-      }),
-      null
+      })
     );
   });
 

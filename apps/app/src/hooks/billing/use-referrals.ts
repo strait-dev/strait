@@ -6,11 +6,7 @@ import {
 import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
-import {
-  apiEffect,
-  runWithFallback,
-  runWithSentryReport,
-} from "@/lib/effect-api.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
 
@@ -41,11 +37,10 @@ const getReferralsServerFn = createServerFn({ method: "GET" })
       return null;
     }
 
-    return await runWithFallback(
+    return await runWithSentryReport(
       apiEffect<ReferralsResponse>("/v1/referrals", {
         params: { org_id: orgId },
-      }),
-      null
+      })
     );
   });
 
@@ -89,7 +84,7 @@ const activateReferralServerFn = createServerFn({ method: "POST" })
     return await runWithSentryReport(
       apiEffect<{ success: boolean }>("/v1/referrals/activate", {
         method: "POST",
-        body: { org_id: orgId, code: data.code },
+        body: { referred_org_id: orgId, code: data.code },
       })
     );
   });
@@ -98,7 +93,8 @@ export const referralsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.referrals.queryKey,
     queryFn: () => getReferralsServerFn(),
-    refetchInterval: 300_000,
+    refetchInterval: 600_000,
+    refetchIntervalInBackground: false,
   });
 
 export function useCreateReferralCode() {
@@ -106,7 +102,7 @@ export function useCreateReferralCode() {
 
   return useMutation({
     mutationFn: () => createReferralCodeServerFn(),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.billing.referrals.queryKey,
       });
@@ -119,7 +115,7 @@ export function useActivateReferral() {
 
   return useMutation({
     mutationFn: (code: string) => activateReferralServerFn({ data: { code } }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.billing.referrals.queryKey,
       });

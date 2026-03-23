@@ -12,7 +12,7 @@ import type {
   RunEvent,
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
-import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { DEFAULT_GC_TIME, HIGH_CHURN_STALE_TIME } from "@/hooks/utils";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -70,7 +70,7 @@ export const replayRunFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     return await runWithSentryReport(
-      apiEffect<{ id: string }>(`/v1/runs/${data.runId}/replay`, {
+      apiEffect<JobRun>(`/v1/runs/${data.runId}/replay`, {
         method: "POST",
       })
     );
@@ -99,7 +99,7 @@ export const runsQueryOptions = (search?: RunsSearchParams) =>
   queryOptions({
     queryKey: queryKeys.runs.list(search).queryKey,
     queryFn: () => fetchRuns({ data: search ?? {} }),
-    staleTime: DEFAULT_STALE_TIME,
+    staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
     placeholderData: keepPreviousData,
   });
@@ -108,7 +108,7 @@ export const runQueryOptions = (id: string) =>
   queryOptions({
     queryKey: queryKeys.runs.detail(id).queryKey,
     queryFn: () => fetchRun({ data: { id } }),
-    staleTime: DEFAULT_STALE_TIME,
+    staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
 
@@ -116,7 +116,7 @@ export const runEventsQueryOptions = (runId: string) =>
   queryOptions({
     queryKey: queryKeys.runs.events(runId).queryKey,
     queryFn: () => fetchRunEvents({ data: { runId } }),
-    staleTime: DEFAULT_STALE_TIME,
+    staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
 
@@ -130,7 +130,7 @@ export const useRetryRun = () => {
     mutationKey: ["runs", "retry"],
     mutationFn: (data: { run_id: string }) =>
       replayRunFn({ data: { runId: data.run_id } }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
     },
   });
@@ -142,7 +142,44 @@ export const useCancelRun = () => {
     mutationKey: ["runs", "cancel"],
     mutationFn: (data: { run_id: string }) =>
       cancelRunFn({ data: { runId: data.run_id } }),
-    onSuccess: () => {
+    onMutate: async (data) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.runs._def });
+
+      const previousDetail = queryClient.getQueryData<JobRun>(
+        queryKeys.runs.detail(data.run_id).queryKey
+      );
+
+      queryClient.setQueryData<JobRun>(
+        queryKeys.runs.detail(data.run_id).queryKey,
+        (old) => (old ? { ...old, status: "canceled" as const } : old)
+      );
+
+      queryClient.setQueriesData<PaginatedResponse<JobRun>>(
+        { queryKey: queryKeys.runs.list._def },
+        (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.map((run) =>
+                  run.id === data.run_id
+                    ? { ...run, status: "canceled" as const }
+                    : run
+                ),
+              }
+            : old
+      );
+
+      return { previousDetail };
+    },
+    onError: (_err, data, context) => {
+      if (context?.previousDetail) {
+        queryClient.setQueryData(
+          queryKeys.runs.detail(data.run_id).queryKey,
+          context.previousDetail
+        );
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
     },
   });

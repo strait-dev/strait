@@ -14,6 +14,7 @@
     "biome:fix:unsafe": "biome check --fix --unsafe ./src",
     "test": "vitest run",
     "test:watch": "vitest watch",
+    "generate:api": "openapi-typescript ../../apps/strait/internal/api/openapi.yaml -o ./src/lib/api/schema.d.ts --export-type",
     "typecheck": "echo skipped",
     "knip": "knip",
     "knip:fix": "knip --fix",

@@ -5,11 +5,7 @@ import {
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
-import type {
-  PaginatedResponse,
-  ProjectSettings,
-  Region,
-} from "@/hooks/api/types";
+import type { ProjectSettings, Region } from "@/hooks/api/types";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
@@ -23,7 +19,7 @@ export const fetchRegions = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
     return await runWithSentryReport(
-      apiEffect<PaginatedResponse<Region>>("/v1/regions")
+      apiEffect<{ regions: Region[] }>("/v1/regions")
     );
   });
 
@@ -81,6 +77,7 @@ export const projectSettingsQueryOptions = (projectId: string) =>
   queryOptions({
     queryKey: ["project-settings", projectId],
     queryFn: () => fetchProjectSettings({ data: { projectId } }),
+    enabled: !!projectId,
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
@@ -95,7 +92,7 @@ export const useUpdateProjectSettings = () => {
     mutationKey: ["project-settings", "update"],
     mutationFn: (data: { projectId: string; default_region: string }) =>
       updateProjectSettingsFn({ data }),
-    onSuccess: (_data, variables) => {
+    onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["project-settings", variables.projectId],
       });

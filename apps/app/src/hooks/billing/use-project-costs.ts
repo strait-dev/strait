@@ -43,10 +43,11 @@ const getProjectCostsServerFn = createServerFn({ method: "GET" })
     );
   });
 
-/** Query options for per-project cost breakdown in the current billing period. Refetches every 5 minutes. */
+/** Query options for per-project cost breakdown in the current billing period. Refetches every 10 minutes. */
 export const projectCostsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.projectCosts.queryKey,
     queryFn: () => getProjectCostsServerFn(),
-    refetchInterval: 300_000,
+    refetchInterval: 600_000,
+    refetchIntervalInBackground: false,
   });

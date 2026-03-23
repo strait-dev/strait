@@ -16,7 +16,13 @@ import { authMiddleware } from "@/middlewares/auth";
 
 export const fetchEvents = createServerFn({ method: "GET" })
   .inputValidator(
-    (data: ListParams & { type?: string; search?: string }) => data
+    (
+      data: ListParams & {
+        status?: string;
+        workflow_run_id?: string;
+        source_type?: string;
+      }
+    ) => data
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
@@ -25,8 +31,9 @@ export const fetchEvents = createServerFn({ method: "GET" })
         params: {
           limit: data.limit,
           cursor: data.cursor,
-          type: data.type,
-          search: data.search,
+          status: data.status,
+          workflow_run_id: data.workflow_run_id,
+          source_type: data.source_type,
         },
       })
     );
@@ -46,7 +53,11 @@ export const fetchEvent = createServerFn({ method: "GET" })
 // ---------------------------------------------------------------------------
 
 export const eventsQueryOptions = (
-  search?: ListParams & { type?: string; search?: string }
+  search?: ListParams & {
+    status?: string;
+    workflow_run_id?: string;
+    source_type?: string;
+  }
 ) =>
   queryOptions({
     queryKey: queryKeys.events.list(search).queryKey,

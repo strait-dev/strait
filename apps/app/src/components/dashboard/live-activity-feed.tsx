@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import type { JobRun } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { LIVE_REFETCH_INTERVAL } from "@/hooks/utils";
 import { ActivityIcon } from "@/lib/icons";
 import ChartEmptyState from "./chart-empty-state";
 
@@ -52,6 +53,8 @@ const LiveActivityFeed = ({ hasProject = true }: { hasProject?: boolean }) => {
   const { data } = useQuery({
     ...runsQueryOptions({ limit: 20 }),
     enabled: hasProject,
+    refetchInterval: LIVE_REFETCH_INTERVAL,
+    refetchIntervalInBackground: false,
   });
   const runs = data?.data ?? [];
 

@@ -6,11 +6,7 @@ import {
 import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
-import {
-  apiEffect,
-  runWithFallback,
-  runWithSentryReport,
-} from "@/lib/effect-api.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
 
@@ -37,20 +33,20 @@ const getSpendingLimitServerFn = createServerFn({ method: "GET" })
       return null;
     }
 
-    return await runWithFallback(
+    return await runWithSentryReport(
       apiEffect<SpendingLimitData>("/v1/spending-limit", {
         params: { org_id: orgId },
-      }),
-      null
+      })
     );
   });
 
-/** Query options for the organization's spending limit and current spend. Refetches every 60s. */
+/** Query options for the organization's spending limit and current spend. Refetches every 5 minutes. */
 export const spendingLimitQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.spendingLimit.queryKey,
     queryFn: () => getSpendingLimitServerFn(),
-    refetchInterval: 60_000,
+    refetchInterval: 300_000,
+    refetchIntervalInBackground: false,
   });
 
 type UpdateSpendingLimitInput = {
@@ -80,8 +76,8 @@ const updateSpendingLimitServerFn = createServerFn({ method: "POST" })
     return await runWithSentryReport(
       apiEffect<{ status: string }>("/v1/spending-limit", {
         method: "PUT",
+        params: { org_id: orgId },
         body: {
-          org_id: orgId,
           limit_microusd: data.limitMicrousd,
           action: data.action,
         },
@@ -94,7 +90,7 @@ export const useUpdateSpendingLimit = () => {
   return useMutation({
     mutationFn: (params: { limitMicrousd: number; action: string }) =>
       updateSpendingLimitServerFn({ data: params }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.billing.spendingLimit.queryKey,
       });
