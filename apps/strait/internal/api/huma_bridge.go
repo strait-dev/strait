@@ -10,10 +10,11 @@ import (
 	"reflect"
 	"strconv"
 
-	"strait/internal/billing"
-
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
+	validator "github.com/go-playground/validator/v10"
+
+	"strait/internal/billing"
 )
 
 // TypedHandler creates a chi-compatible http.HandlerFunc from a typed handler function.
@@ -146,6 +147,12 @@ func extractBodyField(output any) any {
 }
 
 func writeTypedError(w http.ResponseWriter, r *http.Request, err error) {
+	// Check for typed API errors that carry a full APIError body.
+	var tae *typedAPIError
+	if errors.As(err, &tae) {
+		respondError(w, r, tae.status, tae.apiError)
+		return
+	}
 	// Check for huma status errors (e.g., huma.Error404NotFound).
 	var se huma.StatusError
 	if errors.As(err, &se) {
@@ -159,4 +166,47 @@ func writeTypedError(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	respondError(w, r, http.StatusInternalServerError, err.Error())
+}
+
+// typedAPIError wraps an APIError with an HTTP status code for use in typed handlers.
+// It is checked first in writeTypedError so the full APIError (with Code, Message,
+// Details) reaches the client.
+type typedAPIError struct {
+	status   int
+	apiError APIError
+}
+
+func (e *typedAPIError) Error() string {
+	return e.apiError.Message
+}
+
+func (e *typedAPIError) GetStatus() int {
+	return e.status
+}
+
+// newValidationError creates a typedAPIError for struct validation failures,
+// preserving the same response shape as the old s.validateRequest helper.
+func newValidationError(err error) error {
+	var ve validator.ValidationErrors
+	if errors.As(err, &ve) {
+		messages := make([]string, 0, len(ve))
+		for _, fe := range ve {
+			messages = append(messages, fmt.Sprintf("%s: failed on '%s'", fe.Field(), fe.Tag()))
+		}
+		return &typedAPIError{
+			status: http.StatusBadRequest,
+			apiError: APIError{
+				Code:    ErrorCodeValidationError,
+				Message: "validation failed",
+				Details: messages,
+			},
+		}
+	}
+	return &typedAPIError{
+		status: http.StatusBadRequest,
+		apiError: APIError{
+			Code:    ErrorCodeValidationError,
+			Message: "invalid request",
+		},
+	}
 }

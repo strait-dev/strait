@@ -1,20 +1,22 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/robfig/cron/v3"
 
 	"strait/internal/clickhouse"
 	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/robfig/cron/v3"
 )
 
 type CreateJobRequest struct {
@@ -94,36 +96,38 @@ type UpdateJobRequest struct {
 	PreferredRegions     *[]string          `json:"preferred_regions,omitempty"`
 }
 
-//nolint:gocyclo,cyclop
-func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
-	var req CreateJobRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+// CreateJobInput is the typed input for creating a job.
+type CreateJobInput struct {
+	Body CreateJobRequest
+}
 
-	if !s.validateRequest(w, r, &req) {
-		return
+// CreateJobOutput is the typed output for creating a job.
+type CreateJobOutput struct {
+	Body *domain.Job
+}
+
+//nolint:gocyclo,cyclop
+func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*CreateJobOutput, error) {
+	req := input.Body
+
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 	if err := validateJobName(req.Name); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 	if err := validateJobSlug(req.Slug); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	if req.EndpointURL != "" {
 		if err := validateURL(req.EndpointURL); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
-			return
+			return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
 		}
 	}
 	if req.FallbackEndpointURL != "" {
 		if err := validateURL(req.FallbackEndpointURL); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid fallback_endpoint_url: "+err.Error())
-			return
+			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
 		}
 	}
 
@@ -137,42 +141,37 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if req.Cron != "" {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(req.Cron); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid cron expression")
-			return
+			return nil, huma.Error400BadRequest("invalid cron expression")
 		}
 	}
 
 	if req.ExecutionWindowCron != "" {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(req.ExecutionWindowCron); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid execution_window_cron expression")
-			return
+			return nil, huma.Error400BadRequest("invalid execution_window_cron expression")
 		}
 	}
 
 	if err := validateRetryConfig(req.RetryStrategy, req.RetryDelaysSecs); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	if len(req.Tags) > 0 {
 		if err := validateTags(req.Tags); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 
 	if req.DebounceWindowSecs > 0 && req.BatchWindowSecs > 0 {
-		respondError(w, r, http.StatusBadRequest, "debounce_window_secs and batch_window_secs are mutually exclusive")
-		return
+		return nil, huma.Error400BadRequest("debounce_window_secs and batch_window_secs are mutually exclusive")
 	}
 
 	// Region and plan-based gating validation.
-	if !s.validateRegionForPlan(w, r, req.ProjectID, req.Region) {
-		return
+	if err := s.checkRegionForPlan(ctx, req.ProjectID, req.Region); err != nil {
+		return nil, err
 	}
-	if !s.validatePreferredRegionsForPlan(w, r, req.ProjectID, req.PreferredRegions) {
-		return
+	if err := s.checkPreferredRegionsForPlan(ctx, req.ProjectID, req.PreferredRegions); err != nil {
+		return nil, err
 	}
 
 	// Execution mode validation.
@@ -183,25 +182,21 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	switch execMode {
 	case domain.ExecutionModeManaged:
 		if s.config.ComputeRuntime == "" || s.config.ComputeRuntime == "none" {
-			respondError(w, r, http.StatusBadRequest, "managed execution is not available: COMPUTE_RUNTIME not configured")
-			return
+			return nil, huma.Error400BadRequest("managed execution is not available: COMPUTE_RUNTIME not configured")
 		}
 		if req.ImageURI == "" {
-			respondError(w, r, http.StatusBadRequest, "image_uri is required for managed execution")
-			return
+			return nil, huma.Error400BadRequest("image_uri is required for managed execution")
 		}
 		preset := domain.MachinePreset(req.MachinePreset)
 		if req.MachinePreset != "" && !preset.IsValid() {
-			respondError(w, r, http.StatusBadRequest, "invalid machine_preset")
-			return
+			return nil, huma.Error400BadRequest("invalid machine_preset")
 		}
 		if req.MachinePreset == "" {
 			req.MachinePreset = string(domain.PresetMicro)
 		}
 	case domain.ExecutionModeHTTP:
 		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 
@@ -242,151 +237,158 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		PreferredRegions:     req.PreferredRegions,
 		Enabled:              true,
 		VersionPolicy:        domain.VersionPolicyPin,
-		CreatedBy:            actorFromContext(r.Context()),
-		UpdatedBy:            actorFromContext(r.Context()),
+		CreatedBy:            actorFromContext(ctx),
+		UpdatedBy:            actorFromContext(ctx),
 	}
 
 	if req.VersionPolicy != "" {
 		job.VersionPolicy = domain.VersionPolicy(req.VersionPolicy)
 	}
 
-	if err := s.store.CreateJob(r.Context(), job); err != nil {
+	if err := s.store.CreateJob(ctx, job); err != nil {
 		if errors.Is(err, store.ErrJobSlugConflict) {
-			respondError(w, r, http.StatusConflict, err.Error())
-			return
+			return nil, huma.Error409Conflict(err.Error())
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to create job")
-		return
+		return nil, huma.Error500InternalServerError("failed to create job")
 	}
 
 	s.enqueueJobMetadata(job)
 
-	respondJSON(w, http.StatusCreated, job)
+	return &CreateJobOutput{Body: job}, nil
 }
 
-func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
-	job, err := s.store.GetJob(r.Context(), jobID)
+// GetJobInput is the typed input for getting a single job.
+type GetJobInput struct {
+	JobID string `path:"jobID"`
+}
+
+// GetJobOutput is the typed output for getting a single job.
+type GetJobOutput struct {
+	Body *domain.Job
+}
+
+func (s *Server) handleGetJob(ctx context.Context, input *GetJobInput) (*GetJobOutput, error) {
+	job, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusNotFound, "job not found")
-			return
+			return nil, huma.Error404NotFound("job not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
-	respondJSON(w, http.StatusOK, job)
+	return &GetJobOutput{Body: job}, nil
 }
 
-func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	projectID := projectIDFromContext(r.Context())
+// ListJobsInput is the typed input for listing jobs.
+type ListJobsInput struct {
+	TagKey   string `query:"tag_key"`
+	TagValue string `query:"tag_value"`
+	Limit    string `query:"limit"`
+	Cursor   string `query:"cursor"`
+}
+
+// ListJobsOutput is the typed output for listing jobs.
+type ListJobsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListJobs(ctx context.Context, input *ListJobsInput) (*ListJobsOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-	tagKey := query.Get("tag_key")
-	tagValue := query.Get("tag_value")
-	if tagValue != "" && tagKey == "" {
-		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
-		return
+	if input.TagValue != "" && input.TagKey == "" {
+		return nil, huma.Error400BadRequest("tag_key is required when tag_value is provided")
 	}
 
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	var (
 		jobs    []domain.Job
 		listErr error
 	)
-	if tagKey != "" {
-		jobs, listErr = s.store.ListJobsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
+	if input.TagKey != "" {
+		jobs, listErr = s.store.ListJobsByTag(ctx, projectID, input.TagKey, input.TagValue, limit+1, cursor)
 	} else {
-		jobs, listErr = s.store.ListJobs(r.Context(), projectID, limit+1, cursor)
+		jobs, listErr = s.store.ListJobs(ctx, projectID, limit+1, cursor)
 	}
 	if listErr != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list jobs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list jobs")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(jobs, limit, func(j domain.Job) string {
+	return &ListJobsOutput{Body: paginatedResult(jobs, limit, func(j domain.Job) string {
 		return j.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
+}
+
+// UpdateJobInput is the typed input for updating a job.
+type UpdateJobInput struct {
+	JobID string `path:"jobID"`
+	Body  UpdateJobRequest
+}
+
+// UpdateJobOutput is the typed output for updating a job.
+type UpdateJobOutput struct {
+	Body *domain.Job
 }
 
 //nolint:gocognit,gocyclo,cyclop,funlen
-func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
+func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*UpdateJobOutput, error) {
+	req := input.Body
 
-	job, err := s.store.GetJob(r.Context(), jobID)
+	job, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusNotFound, "job not found")
-			return
+			return nil, huma.Error404NotFound("job not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
-	var req UpdateJobRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if !s.validateRequest(w, r, &req) {
-		return
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	if req.Name != nil {
 		if err := validateJobName(*req.Name); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 	if req.Slug != nil {
 		if err := validateJobSlug(*req.Slug); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 	if req.EndpointURL != nil {
 		if err := validateEndpointNotEmpty(*req.EndpointURL); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 
 	if req.Cron != nil && *req.Cron != "" {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(*req.Cron); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid cron expression")
-			return
+			return nil, huma.Error400BadRequest("invalid cron expression")
 		}
 	}
 
 	if req.ExecutionWindowCron != nil && *req.ExecutionWindowCron != "" {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(*req.ExecutionWindowCron); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid execution_window_cron expression")
-			return
+			return nil, huma.Error400BadRequest("invalid execution_window_cron expression")
 		}
 	}
 
 	if req.RetryStrategy != nil {
 		if err := validateRetryConfig(*req.RetryStrategy, nil); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 	if req.RetryDelaysSecs != nil {
 		if err := validateRetryConfig("", *req.RetryDelaysSecs); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 
@@ -410,15 +412,13 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Tags != nil {
 		if err := validateTags(*req.Tags); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 		job.Tags = *req.Tags
 	}
 	if req.EndpointURL != nil {
 		if err := validateURL(*req.EndpointURL); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
-			return
+			return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
 		}
 		job.EndpointURL = *req.EndpointURL
 	}
@@ -485,16 +485,14 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	if req.ExecutionMode != nil {
 		mode := domain.ExecutionMode(*req.ExecutionMode)
 		if mode == domain.ExecutionModeManaged && (s.config.ComputeRuntime == "" || s.config.ComputeRuntime == "none") {
-			respondError(w, r, http.StatusBadRequest, "managed execution is not available: COMPUTE_RUNTIME not configured")
-			return
+			return nil, huma.Error400BadRequest("managed execution is not available: COMPUTE_RUNTIME not configured")
 		}
 		job.ExecutionMode = mode
 	}
 	if req.MachinePreset != nil {
 		preset := domain.MachinePreset(*req.MachinePreset)
 		if *req.MachinePreset != "" && !preset.IsValid() {
-			respondError(w, r, http.StatusBadRequest, "invalid machine_preset")
-			return
+			return nil, huma.Error400BadRequest("invalid machine_preset")
 		}
 		job.MachinePreset = preset
 	}
@@ -502,40 +500,37 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		job.ImageURI = *req.ImageURI
 	}
 	if req.Region != nil {
-		if !s.validateRegionForPlan(w, r, job.ProjectID, *req.Region) {
-			return
+		if err := s.checkRegionForPlan(ctx, job.ProjectID, *req.Region); err != nil {
+			return nil, err
 		}
 		job.Region = *req.Region
 	}
 	if req.PreferredRegions != nil {
-		if !s.validatePreferredRegionsForPlan(w, r, job.ProjectID, *req.PreferredRegions) {
-			return
+		if err := s.checkPreferredRegionsForPlan(ctx, job.ProjectID, *req.PreferredRegions); err != nil {
+			return nil, err
 		}
 		job.PreferredRegions = *req.PreferredRegions
 	}
 	// Cross-field validation for managed mode.
 	if job.ExecutionMode == domain.ExecutionModeManaged && job.ImageURI == "" {
-		respondError(w, r, http.StatusBadRequest, "image_uri is required for managed execution")
-		return
+		return nil, huma.Error400BadRequest("image_uri is required for managed execution")
 	}
 
 	if job.FallbackEndpointURL != "" {
 		if err := validateURL(job.FallbackEndpointURL); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid fallback_endpoint_url: "+err.Error())
-			return
+			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
 		}
 	}
 
-	job.UpdatedBy = actorFromContext(r.Context())
+	job.UpdatedBy = actorFromContext(ctx)
 
-	if err := s.store.UpdateJob(r.Context(), job); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to update job")
-		return
+	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return nil, huma.Error500InternalServerError("failed to update job")
 	}
 
 	s.enqueueJobMetadata(job)
 
-	respondJSON(w, http.StatusOK, job)
+	return &UpdateJobOutput{Body: job}, nil
 }
 
 // enqueueJobMetadata sends a job metadata record to the ClickHouse exporter
@@ -551,29 +546,29 @@ func (s *Server) enqueueJobMetadata(job *domain.Job) {
 	})
 }
 
-func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
+// DeleteJobInput is the typed input for deleting a job.
+type DeleteJobInput struct {
+	JobID string `path:"jobID"`
+}
 
-	if err := s.store.DeleteJob(r.Context(), jobID); err != nil {
+func (s *Server) handleDeleteJob(ctx context.Context, input *DeleteJobInput) (*struct{}, error) {
+	if err := s.store.DeleteJob(ctx, input.JobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusNotFound, "job not found")
-			return
+			return nil, huma.Error404NotFound("job not found")
 		}
 		if errors.Is(err, store.ErrJobHasActiveRuns) {
-			respondError(w, r, http.StatusConflict, "job has active runs — cancel them first or wait for completion")
-			return
+			return nil, huma.Error409Conflict("job has active runs — cancel them first or wait for completion")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete job")
-		return
+		return nil, huma.Error500InternalServerError("failed to delete job")
 	}
 
 	slog.Info("job deleted",
-		"job_id", jobID,
-		"actor", actorFromContext(r.Context()),
-		"project_id", projectIDFromContext(r.Context()))
-	s.emitAuditEvent(r.Context(), "job.delete", "job", jobID, nil)
+		"job_id", input.JobID,
+		"actor", actorFromContext(ctx),
+		"project_id", projectIDFromContext(ctx))
+	s.emitAuditEvent(ctx, "job.delete", "job", input.JobID, nil)
 
-	w.WriteHeader(http.StatusNoContent)
+	return nil, nil
 }
 
 type CloneJobRequest struct {
@@ -581,35 +576,35 @@ type CloneJobRequest struct {
 	Slug string `json:"slug"`
 }
 
-func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
-	source, err := s.store.GetJob(r.Context(), jobID)
+// CloneJobInput is the typed input for cloning a job.
+type CloneJobInput struct {
+	JobID string `path:"jobID"`
+	Body  CloneJobRequest
+}
+
+// CloneJobOutput is the typed output for cloning a job.
+type CloneJobOutput struct {
+	Body *domain.Job
+}
+
+func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*CloneJobOutput, error) {
+	source, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusNotFound, "job not found")
-			return
+			return nil, huma.Error404NotFound("job not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
-	var req CloneJobRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
+	req := input.Body
 	if req.Name == "" || req.Slug == "" {
-		respondError(w, r, http.StatusBadRequest, "name and slug are required")
-		return
+		return nil, huma.Error400BadRequest("name and slug are required")
 	}
 	if err := validateJobName(req.Name); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 	if err := validateJobSlug(req.Slug); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	clone := &domain.Job{
@@ -647,16 +642,15 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 		ImageURI:             source.ImageURI,
 		Region:               source.Region,
 		PreferredRegions:     source.PreferredRegions,
-		CreatedBy:            actorFromContext(r.Context()),
-		UpdatedBy:            actorFromContext(r.Context()),
+		CreatedBy:            actorFromContext(ctx),
+		UpdatedBy:            actorFromContext(ctx),
 	}
 
-	if err := s.store.CreateJob(r.Context(), clone); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to clone job")
-		return
+	if err := s.store.CreateJob(ctx, clone); err != nil {
+		return nil, huma.Error500InternalServerError("failed to clone job")
 	}
 
-	respondJSON(w, http.StatusCreated, clone)
+	return &CloneJobOutput{Body: clone}, nil
 }
 
 func validateTags(tags map[string]string) error {
@@ -850,54 +844,55 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, resp)
 }
 
-func (s *Server) handleBatchEnableJobs(w http.ResponseWriter, r *http.Request) {
-	var req BatchJobIDsRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if len(req.IDs) == 0 {
-		respondError(w, r, http.StatusBadRequest, "ids array is required and must not be empty")
-		return
-	}
-	if len(req.IDs) > maxBatchSize {
-		respondError(w, r, http.StatusBadRequest, fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
-		return
-	}
-
-	updated, err := s.store.BatchUpdateJobsEnabled(r.Context(), req.IDs, true)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to enable jobs")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, BatchUpdateResult{Updated: updated})
+// BatchEnableJobsInput is the typed input for batch enabling jobs.
+type BatchEnableJobsInput struct {
+	Body BatchJobIDsRequest
 }
 
-func (s *Server) handleBatchDisableJobs(w http.ResponseWriter, r *http.Request) {
-	var req BatchJobIDsRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+// BatchUpdateResultOutput is the typed output for batch update operations.
+type BatchUpdateResultOutput struct {
+	Body BatchUpdateResult
+}
+
+func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJobsInput) (*BatchUpdateResultOutput, error) {
+	req := input.Body
 
 	if len(req.IDs) == 0 {
-		respondError(w, r, http.StatusBadRequest, "ids array is required and must not be empty")
-		return
+		return nil, huma.Error400BadRequest("ids array is required and must not be empty")
 	}
 	if len(req.IDs) > maxBatchSize {
-		respondError(w, r, http.StatusBadRequest, fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
-		return
+		return nil, huma.Error400BadRequest(fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
 	}
 
-	updated, err := s.store.BatchUpdateJobsEnabled(r.Context(), req.IDs, false)
+	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, true)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to disable jobs")
-		return
+		return nil, huma.Error500InternalServerError("failed to enable jobs")
 	}
 
-	respondJSON(w, http.StatusOK, BatchUpdateResult{Updated: updated})
+	return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: updated}}, nil
+}
+
+// BatchDisableJobsInput is the typed input for batch disabling jobs.
+type BatchDisableJobsInput struct {
+	Body BatchJobIDsRequest
+}
+
+func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisableJobsInput) (*BatchUpdateResultOutput, error) {
+	req := input.Body
+
+	if len(req.IDs) == 0 {
+		return nil, huma.Error400BadRequest("ids array is required and must not be empty")
+	}
+	if len(req.IDs) > maxBatchSize {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
+	}
+
+	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, false)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to disable jobs")
+	}
+
+	return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: updated}}, nil
 }
 
 // JobHealthResponse wraps health stats with the time window.
@@ -908,20 +903,27 @@ type JobHealthResponse struct {
 	*store.JobHealthStats
 }
 
-func (s *Server) handleGetJobHealth(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
+// GetJobHealthInput is the typed input for getting job health stats.
+type GetJobHealthInput struct {
+	JobID  string `path:"jobID"`
+	Window string `query:"window"`
+}
 
-	_, err := s.store.GetJob(r.Context(), jobID)
+// GetJobHealthOutput is the typed output for getting job health stats.
+type GetJobHealthOutput struct {
+	Body JobHealthResponse
+}
+
+func (s *Server) handleGetJobHealth(ctx context.Context, input *GetJobHealthInput) (*GetJobHealthOutput, error) {
+	_, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusNotFound, "job not found")
-			return
+			return nil, huma.Error404NotFound("job not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
-	window := r.URL.Query().Get("window")
+	window := input.Window
 	var since time.Time
 	switch window {
 	case "1h":
@@ -934,20 +936,44 @@ func (s *Server) handleGetJobHealth(w http.ResponseWriter, r *http.Request) {
 		window = "7d"
 		since = time.Now().Add(-7 * 24 * time.Hour)
 	default:
-		respondError(w, r, http.StatusBadRequest, "invalid window: must be 1h, 1d, 7d, or 30d")
-		return
+		return nil, huma.Error400BadRequest("invalid window: must be 1h, 1d, 7d, or 30d")
 	}
 
-	stats, err := s.store.GetJobHealthStats(r.Context(), jobID, since)
+	stats, err := s.store.GetJobHealthStats(ctx, input.JobID, since)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to compute health stats")
-		return
+		return nil, huma.Error500InternalServerError("failed to compute health stats")
 	}
 
-	respondJSON(w, http.StatusOK, JobHealthResponse{
-		JobID:          jobID,
+	return &GetJobHealthOutput{Body: JobHealthResponse{
+		JobID:          input.JobID,
 		Window:         window,
 		Since:          since,
 		JobHealthStats: stats,
-	})
+	}}, nil
+}
+
+// parsePaginationFromStrings parses limit and cursor from string query params.
+func parsePaginationFromStrings(limitStr, cursorStr string) (int, *time.Time, error) {
+	limit := defaultPageLimit
+	if limitStr != "" {
+		parsed, err := strconv.Atoi(limitStr)
+		if err != nil || parsed <= 0 {
+			return 0, nil, &paginationError{msg: "limit must be a positive integer"}
+		}
+		if parsed > maxPageLimit {
+			parsed = maxPageLimit
+		}
+		limit = parsed
+	}
+
+	var cursor *time.Time
+	if cursorStr != "" {
+		t, err := time.Parse(time.RFC3339Nano, cursorStr)
+		if err != nil {
+			return 0, nil, &paginationError{msg: "invalid cursor format"}
+		}
+		cursor = &t
+	}
+
+	return limit, cursor, nil
 }

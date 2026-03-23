@@ -158,9 +158,9 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.projectRateLimit)
 		r.Use(chimw.Timeout(requestTimeout))
 		r.Route("/secrets", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeSecretsWrite), rateLimit(20, time.Minute)).Post("/", s.handleCreateSecret)
-			r.With(s.requirePermission(domain.ScopeSecretsRead)).Get("/", s.handleListSecrets)
-			r.With(s.requirePermission(domain.ScopeSecretsWrite)).Delete("/{secretID}", s.handleDeleteSecret)
+			r.With(s.requirePermission(domain.ScopeSecretsWrite), rateLimit(20, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateSecret))
+			r.With(s.requirePermission(domain.ScopeSecretsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListSecrets))
+			r.With(s.requirePermission(domain.ScopeSecretsWrite)).Delete("/{secretID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteSecret))
 		})
 
 		r.Get("/plans", TypedHandler(s, http.StatusOK, s.handleGetPlans))
@@ -188,12 +188,12 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.Route("/projects", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", s.handleCreateProject)
-			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleListProjects)
+			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateProject))
+			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListProjects))
 
 			r.Route("/{projectID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleGetProject)
-				r.With(s.requirePermission(domain.ScopeProjectsManage)).Delete("/", s.handleDeleteProject)
+				r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetProject))
+				r.With(s.requirePermission(domain.ScopeProjectsManage)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteProject))
 
 				r.Route("/settings", func(r chi.Router) {
 					r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetProjectSettings)
@@ -203,16 +203,16 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.Route("/jobs", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(30, time.Minute)).Post("/", s.handleCreateJob)
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListJobs)
+			r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(30, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateJob))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListJobs))
 			r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(10, time.Minute)).Post("/batch", s.handleBatchCreateJobs)
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/batch-enable", s.handleBatchEnableJobs)
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/batch-disable", s.handleBatchDisableJobs)
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/batch-enable", TypedHandler(s, http.StatusOK, s.handleBatchEnableJobs))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/batch-disable", TypedHandler(s, http.StatusOK, s.handleBatchDisableJobs))
 
 			r.Route("/{jobID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetJob)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateJob)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteJob)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetJob))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateJob))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteJob))
 				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", s.handleTriggerJob)
 				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(5, time.Minute)).Post("/trigger/bulk", s.handleBulkTriggerJob)
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/dependencies", s.handleCreateJobDependency)
@@ -220,8 +220,8 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/dependencies/{depID}", s.handleDeleteJobDependency)
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions", s.handleListJobVersions)
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions/{versionID}", s.handleGetJobVersion)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/clone", s.handleCloneJob)
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", s.handleGetJobHealth)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/clone", TypedHandler(s, http.StatusCreated, s.handleCloneJob))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", TypedHandler(s, http.StatusOK, s.handleGetJobHealth))
 			})
 		})
 
@@ -240,13 +240,13 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.Route("/environments", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateEnvironment)
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListEnvironments)
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateEnvironment))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListEnvironments))
 			r.Route("/{envID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetEnvironment)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateEnvironment)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteEnvironment)
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/variables", s.handleGetResolvedVariables)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetEnvironment))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateEnvironment))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteEnvironment))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/variables", TypedHandler(s, http.StatusOK, s.handleGetResolvedVariables))
 			})
 		})
 
