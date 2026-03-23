@@ -46,28 +46,40 @@ export const getPlansServerFn = createServerFn({ method: "GET" }).handler(
 const MICRO_TO_DOLLARS = 1_000_000;
 
 function formatLimit(value: number): string {
-  if (value === -1) { return "Unlimited"; }
-  if (value >= 1000) { return value.toLocaleString("en-US"); }
+  if (value === -1) {
+    return "Unlimited";
+  }
+  if (value >= 1000) {
+    return value.toLocaleString("en-US");
+  }
   return String(value);
 }
 
 function formatComputeCredit(microusd: number): string {
-  if (microusd <= 0) { return "-"; }
+  if (microusd <= 0) {
+    return "-";
+  }
   return `$${(microusd / MICRO_TO_DOLLARS).toFixed(2)}`;
 }
 
 function formatRegionCount(regions: string[]): string {
-  if (regions.length === 0) { return "All"; }
+  if (regions.length === 0) {
+    return "All";
+  }
   return String(regions.length);
 }
 
 function formatRetention(days: number): string {
-  if (days === 1) { return "1 day"; }
+  if (days === 1) {
+    return "1 day";
+  }
   return `${days} days`;
 }
 
 function formatRBAC(level: string): string {
-  if (!level) { return "-"; }
+  if (!level) {
+    return "-";
+  }
   return level.charAt(0).toUpperCase() + level.slice(1);
 }
 
@@ -132,7 +144,10 @@ export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
         { name: "Custom compute credits", included: true },
         { name: "SSO/SAML", included: true },
         { name: "99.9% SLA", included: true },
-        { name: `${formatRetention(p.retention_days)} retention`, included: true },
+        {
+          name: `${formatRetention(p.retention_days)} retention`,
+          included: true,
+        },
         { name: formatSupportLevel(p.support_level), included: true },
         { name: "Custom integrations", included: true },
         { name: "Static IPs", included: true }
@@ -160,7 +175,8 @@ export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
             ]
           : []),
         ...(isFree
-          ? [] : [
+          ? []
+          : [
               {
                 name: `${formatLimit(p.max_concurrent_runs)} concurrent runs`,
                 included: true,
@@ -189,9 +205,7 @@ export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
         ...(p.has_rbac
           ? [{ name: `${formatRBAC(p.rbac_level)} RBAC`, included: true }]
           : []),
-        ...(p.has_audit_logs
-          ? [{ name: "Audit logs", included: true }]
-          : []),
+        ...(p.has_audit_logs ? [{ name: "Audit logs", included: true }] : []),
         ...(p.ai_assistant_byok
           ? [{ name: "AI Assistant BYOK", included: true }]
           : []),
@@ -200,9 +214,7 @@ export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
     }
 
     const monthlyInYearly =
-      p.price_annual_usd > 0
-        ? Math.floor(p.price_annual_usd / 12)
-        : undefined;
+      p.price_annual_usd > 0 ? Math.floor(p.price_annual_usd / 12) : undefined;
 
     return {
       name: p.display_name,
@@ -257,7 +269,9 @@ export function apiPlansToComparisonFeatures(
   return [
     row("Runs per day", (p) => formatLimit(p.max_runs_per_day)),
     row("Concurrent runs", (p) => formatLimit(p.max_concurrent_runs)),
-    row("Compute credit", (p) => formatComputeCredit(p.compute_credit_microusd)),
+    row("Compute credit", (p) =>
+      formatComputeCredit(p.compute_credit_microusd)
+    ),
     row("Projects", (p) => formatLimit(p.max_projects_per_org)),
     row("Team members", (p) => formatLimit(p.max_members_per_org)),
     row("Retention", (p) => formatRetention(p.retention_days)),

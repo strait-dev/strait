@@ -20,10 +20,7 @@ import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
 const MONTHS_IN_A_YEAR = 12;
 const CENTS_TO_DOLLARS = 100;
 
-import type {
-  ComparisonFeature,
-  PricingPlan,
-} from "@/hooks/billing/use-plans";
+import type { ComparisonFeature, PricingPlan } from "@/hooks/billing/use-plans";
 
 type PlanType = "free" | "starter" | "pro" | "enterprise";
 
@@ -37,7 +34,6 @@ type UpgradeMode = "new_user" | "upgrade" | "checkout_recovery";
 type PlanSlug = "free" | "starter" | "pro" | "enterprise";
 
 type BillingInterval = "monthly" | "yearly";
-
 
 type PlanSelectionProps = {
   mode: UpgradeMode;

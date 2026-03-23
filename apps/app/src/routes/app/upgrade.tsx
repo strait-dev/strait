@@ -23,12 +23,12 @@ import type {
   PlanType,
 } from "@/components/upgrade/plan-selection";
 import { PlanSelection } from "@/components/upgrade/plan-selection";
+import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import {
-  apiPlansToPricingPlans,
   apiPlansToComparisonFeatures,
+  apiPlansToPricingPlans,
   getPlansServerFn,
 } from "@/hooks/billing/use-plans";
-import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
 import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";

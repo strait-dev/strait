@@ -210,7 +210,11 @@ export const auth = betterAuth({
               );
             }
           } catch (err) {
-            console.error("Failed to auto-create workspace for user", user.id, err);
+            console.error(
+              "Failed to auto-create workspace for user",
+              user.id,
+              err
+            );
           }
         },
       },

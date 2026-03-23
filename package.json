@@ -38,8 +38,8 @@
     "@biomejs/biome": "2.4.8",
     "@changesets/cli": "^2.30.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260322.1",
-    "knip": "^6.0.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260323.1",
+    "knip": "^6.0.2",
     "lefthook": "^2.1.4",
     "turbo": "^2.8.20",
     "ultracite": "7.3.2"
