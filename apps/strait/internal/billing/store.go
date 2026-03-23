@@ -92,4 +92,11 @@ type Store interface {
 
 	// Org listing
 	ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
+
+	// Stale subscription detection
+	ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription, error)
+
+	// Project suspension
+	IsProjectSuspended(ctx context.Context, projectID string) (bool, error)
+	SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error)
 }

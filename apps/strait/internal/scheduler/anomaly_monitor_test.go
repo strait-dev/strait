@@ -164,6 +164,15 @@ func (m *mockAnomalyMonitorStore) UpdatePaymentStatus(context.Context, string, s
 func (m *mockAnomalyMonitorStore) ListOrgsInGracePeriod(context.Context) ([]billing.OrgSubscription, error) {
 	return nil, nil
 }
+func (m *mockAnomalyMonitorStore) ListStaleSubscriptions(context.Context) ([]billing.OrgSubscription, error) {
+	return nil, nil
+}
+func (m *mockAnomalyMonitorStore) IsProjectSuspended(context.Context, string) (bool, error) {
+	return false, nil
+}
+func (m *mockAnomalyMonitorStore) SuspendExcessProjects(context.Context, string, int) (int, error) {
+	return 0, nil
+}
 
 // mockCooldown implements AnomalyCooldown for testing.
 type mockCooldown struct {

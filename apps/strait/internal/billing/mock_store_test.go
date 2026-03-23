@@ -298,3 +298,15 @@ func (m *mockBillingStore) ListAllSubscribedOrgIDs(_ context.Context) ([]string,
 }
 
 func (m *mockBillingStore) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
+
+func (m *mockBillingStore) ListStaleSubscriptions(_ context.Context) ([]OrgSubscription, error) {
+	return nil, nil
+}
+
+func (m *mockBillingStore) IsProjectSuspended(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockBillingStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
+	return 0, nil
+}
