@@ -35,6 +35,7 @@ type planResponse struct {
 	HasSLA                  bool     `json:"has_sla"`
 	RequiresCreditCard      bool     `json:"requires_credit_card"`
 	OveragePerKRunsMicrousd int64    `json:"overage_per_k_runs_microusd"`
+	SupportLevel            string   `json:"support_level"`
 }
 
 func toPlanResponse(p billing.OrgPlanLimits) planResponse {
@@ -71,6 +72,7 @@ func toPlanResponse(p billing.OrgPlanLimits) planResponse {
 		HasSLA:                  p.HasSLA,
 		RequiresCreditCard:      p.RequiresCreditCard,
 		OveragePerKRunsMicrousd: p.OveragePerKRunsMicrousd,
+		SupportLevel:            p.SupportLevel,
 	}
 }
 

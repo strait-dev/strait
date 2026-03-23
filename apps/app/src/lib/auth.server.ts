@@ -196,7 +196,7 @@ export const auth = betterAuth({
             const workspaceName = user.name
               ? `${user.name}'s Workspace`
               : "My Workspace";
-            const slug = `ws-${user.id.slice(0, 8)}`;
+            const slug = `ws-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
             // Server-side call: pass userId directly (no session headers needed).
             const org = await auth.api.createOrganization({
@@ -205,7 +205,7 @@ export const auth = betterAuth({
 
             if (org) {
               await authPool.query(
-                `UPDATE "user" SET "defaultOrganizationId" = $1, "onboarded" = true WHERE id = $2`,
+                `UPDATE "user" SET "defaultOrganizationId" = $1 WHERE id = $2`,
                 [org.id, user.id]
               );
             }
@@ -246,11 +246,6 @@ export const auth = betterAuth({
       activeProjectId: {
         type: "string",
         required: false,
-      },
-      onboarded: {
-        type: "boolean",
-        required: false,
-        defaultValue: false,
       },
     },
   },

@@ -30,7 +30,8 @@ type OrgPlanLimits struct {
 	HasSSO                  bool
 	HasSLA                  bool
 	RequiresCreditCard      bool
-	OveragePerKRunsMicrousd int64 // cost per 1K runs overage in micro-USD
+	OveragePerKRunsMicrousd int64  // cost per 1K runs overage in micro-USD
+	SupportLevel            string // "community", "email_48h", "priority_24h", "dedicated"
 }
 
 // Plans maps plan tiers to their limits.
@@ -63,6 +64,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  false,
 		RequiresCreditCard:      false,
 		OveragePerKRunsMicrousd: 0,
+		SupportLevel:            "community",
 	},
 	domain.PlanStarter: {
 		PlanTier:                domain.PlanStarter,
@@ -92,6 +94,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
 		OveragePerKRunsMicrousd: 200000,
+		SupportLevel:            "email_48h",
 	},
 	domain.PlanPro: {
 		PlanTier:                domain.PlanPro,
@@ -121,6 +124,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
 		OveragePerKRunsMicrousd: 200000,
+		SupportLevel:            "priority_24h",
 	},
 	domain.PlanEnterprise: {
 		PlanTier:                domain.PlanEnterprise,
@@ -150,6 +154,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  true,
 		RequiresCreditCard:      false,
 		OveragePerKRunsMicrousd: 0,
+		SupportLevel:            "dedicated",
 	},
 }
 

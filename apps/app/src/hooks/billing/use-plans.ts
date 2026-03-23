@@ -29,6 +29,7 @@ export type APIPlan = {
   has_sla: boolean;
   requires_credit_card: boolean;
   overage_per_k_runs_microusd: number;
+  support_level: string;
 };
 
 type PlansResponse = {
@@ -103,12 +104,16 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
   enterprise: "Custom everything for large organizations.",
 };
 
-const PLAN_SUPPORT: Record<string, string> = {
-  free: "Community support",
-  starter: "Email support (48h)",
-  pro: "Priority support (24h)",
-  enterprise: "Dedicated support + Slack",
+const SUPPORT_LABELS: Record<string, string> = {
+  community: "Community support",
+  email_48h: "Email support (48h)",
+  priority_24h: "Priority support (24h)",
+  dedicated: "Dedicated support + Slack",
 };
+
+function formatSupportLevel(level: string): string {
+  return SUPPORT_LABELS[level] ?? level;
+}
 
 export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: feature mapping requires many branches per plan tier
@@ -128,7 +133,7 @@ export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
         { name: "SSO/SAML", included: true },
         { name: "99.9% SLA", included: true },
         { name: `${formatRetention(p.retention_days)} retention`, included: true },
-        { name: PLAN_SUPPORT[slug] ?? "Support", included: true },
+        { name: formatSupportLevel(p.support_level), included: true },
         { name: "Custom integrations", included: true },
         { name: "Static IPs", included: true }
       );
@@ -190,7 +195,7 @@ export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
         ...(p.ai_assistant_byok
           ? [{ name: "AI Assistant BYOK", included: true }]
           : []),
-        { name: PLAN_SUPPORT[slug] ?? "Support", included: true }
+        { name: formatSupportLevel(p.support_level), included: true }
       );
     }
 
