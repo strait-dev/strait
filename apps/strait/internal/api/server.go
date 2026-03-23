@@ -507,6 +507,8 @@ type Encryptor interface {
 type BillingEnforcer interface {
 	CheckProjectLimit(ctx context.Context, orgID string) error
 	CheckMemberLimit(ctx context.Context, orgID string) error
+	CheckOrgCreationLimit(ctx context.Context, userID string, planTier domain.PlanTier) error
+	CheckProjectBudgetLimit(ctx context.Context, projectID string) error
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 	EnsureOrgSubscription(ctx context.Context, orgID string) error

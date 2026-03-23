@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -594,6 +595,37 @@ func (s *Server) handleListReferrals(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, referrals)
+}
+
+func (s *Server) handleCheckOrgLimit(w http.ResponseWriter, r *http.Request) {
+	if s.billingEnforcer == nil {
+		respondJSON(w, http.StatusOK, map[string]string{"status": "allowed"})
+		return
+	}
+
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		respondError(w, r, http.StatusBadRequest, "user_id query parameter is required")
+		return
+	}
+
+	planTier := domain.PlanTier(r.URL.Query().Get("plan_tier"))
+	if planTier == "" {
+		planTier = domain.PlanFree
+	}
+
+	if err := s.billingEnforcer.CheckOrgCreationLimit(r.Context(), userID, planTier); err != nil {
+		var le *billing.LimitError
+		if errors.As(err, &le) {
+			respondError(w, r, http.StatusForbidden, le)
+			return
+		}
+		slog.Error("failed to check org creation limit", "error", err)
+		respondError(w, r, http.StatusInternalServerError, "failed to check org creation limit")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "allowed"})
 }
 
 // parseDateRange extracts from/to query parameters as dates.

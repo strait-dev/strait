@@ -206,6 +206,7 @@ export const generatedOperationSchemas = {
   "getV1AuditEventsExport": {},
   "getV1BatchOperations": { response: Schema.Array(Schema.suspend(() => componentSchemas["BatchOperation"] ?? Schema.Unknown)) },
   "getV1BatchOperationsByBatchID": { response: Schema.suspend(() => componentSchemas["BatchOperation"] ?? Schema.Unknown) },
+  "getV1BillingCheckOrgLimit": {},
   "postV1CliAuthDeviceCode": { response: Schema.Struct({ "device_code": Schema.optional(Schema.String), "user_code": Schema.optional(Schema.String), "verification_url": Schema.optional(Schema.String), "expires_in": Schema.optional(Schema.Number.pipe(Schema.int())), "interval": Schema.optional(Schema.Number.pipe(Schema.int())) }) },
   "postV1CliAuthToken": { request: Schema.Struct({ "device_code": Schema.String, "grant_type": Schema.Literal("device_code") }), response: Schema.Struct({ "api_key": Schema.optional(Schema.String), "project_id": Schema.optional(Schema.String) }) },
   "postV1CliDeviceCodesApprove": { request: Schema.Struct({ "user_code": Schema.String, "project_id": Schema.optional(Schema.String) }) },

@@ -46,6 +46,14 @@ func (m *mockBillingEnforcer) GetActiveProjectOrgID(_ context.Context, projectID
 	return "", nil
 }
 
+func (m *mockBillingEnforcer) CheckOrgCreationLimit(_ context.Context, _ string, _ domain.PlanTier) error {
+	return nil
+}
+
+func (m *mockBillingEnforcer) CheckProjectBudgetLimit(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
 
 type mockUsageService struct {

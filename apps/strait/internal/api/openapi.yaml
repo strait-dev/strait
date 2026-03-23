@@ -6082,6 +6082,25 @@ paths:
         '200':
           description: List of plan definitions with limits and features
 
+  /v1/billing/check-org-limit:
+    get:
+      tags:
+        - Billing
+      summary: Check if user can create another organization
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User is within org creation limit
+        '403':
+          description: Org creation limit exceeded
+
 components:
   securitySchemes:
     ApiKeyAuth:
