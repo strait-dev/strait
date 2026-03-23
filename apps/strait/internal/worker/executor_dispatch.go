@@ -359,12 +359,16 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 				e.logger.Warn("org concurrent run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
 				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+				e.billingEnforcer.DecrManagedRunCount(ctx, orgID)
 				e.handleSystemFailure(ctx, run, err.Error())
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
 			}
 			// Concurrent run was counted; ensure decrement on any exit path.
-			defer e.billingEnforcer.DecrConcurrentRunCount(ctx, orgID)
+			// Use WithoutCancel so the DECR reaches Redis even if the parent
+			// context is canceled before this defer executes.
+			decrCtx := context.WithoutCancel(ctx)
+			defer e.billingEnforcer.DecrConcurrentRunCount(decrCtx, orgID)
 
 			if err := e.billingEnforcer.CheckSpendingLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org spending limit exceeded",
