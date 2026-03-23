@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -11,7 +12,7 @@ import (
 	"strait/internal/store"
 	"strait/internal/webhook"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
 type CreateEventSourceRequest struct {
@@ -48,99 +49,91 @@ type DispatchEventRequest struct {
 	Payload   json.RawMessage `json:"payload"`
 }
 
-func (s *Server) handleCreateEventSource(w http.ResponseWriter, r *http.Request) {
-	var req CreateEventSourceRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
+type CreateEventSourceInput struct {
+	Body CreateEventSourceRequest
+}
 
+type CreateEventSourceOutput struct {
+	Body *domain.EventSource
+}
+
+func (s *Server) handleCreateEventSource(ctx context.Context, input *CreateEventSourceInput) (*CreateEventSourceOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
-
 	src := &domain.EventSource{
-		ProjectID:          req.ProjectID,
-		Name:               req.Name,
-		Description:        req.Description,
-		Schema:             req.Schema,
-		Enabled:            enabled,
-		SignatureHeader:    req.SignatureHeader,
-		SignatureAlgorithm: req.SignatureAlgorithm,
+		ProjectID: req.ProjectID, Name: req.Name, Description: req.Description,
+		Schema: req.Schema, Enabled: enabled,
+		SignatureHeader: req.SignatureHeader, SignatureAlgorithm: req.SignatureAlgorithm,
 	}
-
 	if req.SignatureSecret != "" && s.encryptor != nil {
 		enc, encErr := s.encryptor.Encrypt([]byte(req.SignatureSecret))
 		if encErr != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to encrypt signature secret")
-			return
+			return nil, huma.Error500InternalServerError("failed to encrypt signature secret")
 		}
 		src.SignatureSecretEnc = enc
 	}
-
-	if err := s.store.CreateEventSource(r.Context(), src); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create event source")
-		return
+	if err := s.store.CreateEventSource(ctx, src); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create event source")
 	}
-
-	respondJSON(w, http.StatusCreated, src)
+	return &CreateEventSourceOutput{Body: src}, nil
 }
 
-func (s *Server) handleListEventSources(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+type ListEventSourcesInput struct{}
+type ListEventSourcesOutput struct {
+	Body []domain.EventSource
+}
 
-	sources, err := s.store.ListEventSources(r.Context(), projectID)
+func (s *Server) handleListEventSources(ctx context.Context, _ *ListEventSourcesInput) (*ListEventSourcesOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	sources, err := s.store.ListEventSources(ctx, projectID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list event sources")
-		return
+		return nil, huma.Error500InternalServerError("failed to list event sources")
 	}
-
-	respondJSON(w, http.StatusOK, sources)
+	return &ListEventSourcesOutput{Body: sources}, nil
 }
 
-func (s *Server) handleGetEventSource(w http.ResponseWriter, r *http.Request) {
-	sourceID := chi.URLParam(r, "sourceID")
-	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+type GetEventSourceInput struct {
+	SourceID string `path:"sourceID"`
+}
+type GetEventSourceOutput struct {
+	Body *domain.EventSource
+}
 
-	src, err := s.store.GetEventSource(r.Context(), sourceID, projectID)
+func (s *Server) handleGetEventSource(ctx context.Context, input *GetEventSourceInput) (*GetEventSourceOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	src, err := s.store.GetEventSource(ctx, input.SourceID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrEventSourceNotFound) {
-			respondError(w, r, http.StatusNotFound, "event source not found")
-			return
+			return nil, huma.Error404NotFound("event source not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get event source")
-		return
+		return nil, huma.Error500InternalServerError("failed to get event source")
 	}
-
-	respondJSON(w, http.StatusOK, src)
+	return &GetEventSourceOutput{Body: src}, nil
 }
 
-func (s *Server) handleUpdateEventSource(w http.ResponseWriter, r *http.Request) {
-	sourceID := chi.URLParam(r, "sourceID")
-	projectID := projectIDFromContext(r.Context())
+type UpdateEventSourceInput struct {
+	SourceID string `path:"sourceID"`
+	Body     UpdateEventSourceRequest
+}
+
+func (s *Server) handleUpdateEventSource(ctx context.Context, input *UpdateEventSourceInput) (*struct{}, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-
-	var req UpdateEventSourceRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
+	req := input.Body
 	patch := make(map[string]any)
 	if req.Name != nil {
 		patch["name"] = *req.Name
@@ -154,7 +147,6 @@ func (s *Server) handleUpdateEventSource(w http.ResponseWriter, r *http.Request)
 	if req.Enabled != nil {
 		patch["enabled"] = *req.Enabled
 	}
-
 	if req.SignatureHeader != nil {
 		patch["signature_header"] = *req.SignatureHeader
 	}
@@ -167,110 +159,98 @@ func (s *Server) handleUpdateEventSource(w http.ResponseWriter, r *http.Request)
 		} else {
 			enc, encErr := s.encryptor.Encrypt([]byte(*req.SignatureSecret))
 			if encErr != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to encrypt signature secret")
-				return
+				return nil, huma.Error500InternalServerError("failed to encrypt signature secret")
 			}
 			patch["signature_secret_enc"] = enc
 		}
 	}
-
 	if len(patch) == 0 {
-		respondError(w, r, http.StatusBadRequest, "no fields to update")
-		return
+		return nil, huma.Error400BadRequest("no fields to update")
 	}
-
-	if err := s.store.UpdateEventSource(r.Context(), sourceID, projectID, patch); err != nil {
+	if err := s.store.UpdateEventSource(ctx, input.SourceID, projectID, patch); err != nil {
 		if errors.Is(err, store.ErrEventSourceNotFound) {
-			respondError(w, r, http.StatusNotFound, "event source not found")
-			return
+			return nil, huma.Error404NotFound("event source not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to update event source")
-		return
+		return nil, huma.Error500InternalServerError("failed to update event source")
 	}
-
-	respondJSON(w, http.StatusNoContent, nil)
+	return nil, nil
 }
 
-func (s *Server) handleDeleteEventSource(w http.ResponseWriter, r *http.Request) {
-	sourceID := chi.URLParam(r, "sourceID")
-	projectID := projectIDFromContext(r.Context())
+type DeleteEventSourceInput struct {
+	SourceID string `path:"sourceID"`
+}
+
+func (s *Server) handleDeleteEventSource(ctx context.Context, input *DeleteEventSourceInput) (*struct{}, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-
-	if err := s.store.DeleteEventSource(r.Context(), sourceID, projectID); err != nil {
+	if err := s.store.DeleteEventSource(ctx, input.SourceID, projectID); err != nil {
 		if errors.Is(err, store.ErrEventSourceNotFound) {
-			respondError(w, r, http.StatusNotFound, "event source not found")
-			return
+			return nil, huma.Error404NotFound("event source not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete event source")
-		return
+		return nil, huma.Error500InternalServerError("failed to delete event source")
 	}
-
-	respondJSON(w, http.StatusNoContent, nil)
+	return nil, nil
 }
 
-func (s *Server) handleSubscribeToEventSource(w http.ResponseWriter, r *http.Request) {
-	sourceID := chi.URLParam(r, "sourceID")
+type SubscribeToEventSourceInput struct {
+	SourceID string `path:"sourceID"`
+	Body     SubscribeToEventSourceRequest
+}
+type SubscribeToEventSourceOutput struct {
+	Body *domain.EventSubscription
+}
 
-	var req SubscribeToEventSourceRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
+func (s *Server) handleSubscribeToEventSource(ctx context.Context, input *SubscribeToEventSourceInput) (*SubscribeToEventSourceOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
-
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
-
 	sub := &domain.EventSubscription{
-		SourceID:   sourceID,
-		TargetType: req.TargetType,
-		TargetID:   req.TargetID,
-		FilterExpr: req.FilterExpr,
-		Enabled:    enabled,
+		SourceID: input.SourceID, TargetType: req.TargetType,
+		TargetID: req.TargetID, FilterExpr: req.FilterExpr, Enabled: enabled,
 	}
-
-	if err := s.store.CreateEventSubscription(r.Context(), sub); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create event subscription")
-		return
+	if err := s.store.CreateEventSubscription(ctx, sub); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create event subscription")
 	}
-
-	respondJSON(w, http.StatusCreated, sub)
+	return &SubscribeToEventSourceOutput{Body: sub}, nil
 }
 
-func (s *Server) handleListEventSourceSubscriptions(w http.ResponseWriter, r *http.Request) {
-	sourceID := chi.URLParam(r, "sourceID")
+type ListEventSourceSubscriptionsInput struct {
+	SourceID string `path:"sourceID"`
+}
+type ListEventSourceSubscriptionsOutput struct {
+	Body []domain.EventSubscription
+}
 
-	subs, err := s.store.ListEventSubscriptionsBySource(r.Context(), sourceID)
+func (s *Server) handleListEventSourceSubscriptions(ctx context.Context, input *ListEventSourceSubscriptionsInput) (*ListEventSourceSubscriptionsOutput, error) {
+	subs, err := s.store.ListEventSubscriptionsBySource(ctx, input.SourceID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list subscriptions")
-		return
+		return nil, huma.Error500InternalServerError("failed to list subscriptions")
 	}
-
-	respondJSON(w, http.StatusOK, subs)
+	return &ListEventSourceSubscriptionsOutput{Body: subs}, nil
 }
 
-func (s *Server) handleDeleteEventSubscription(w http.ResponseWriter, r *http.Request) {
-	subID := chi.URLParam(r, "subID")
+type DeleteEventSubscriptionInput struct {
+	SubID string `path:"subID"`
+}
 
-	if err := s.store.DeleteEventSubscription(r.Context(), subID); err != nil {
+func (s *Server) handleDeleteEventSubscription(ctx context.Context, input *DeleteEventSubscriptionInput) (*struct{}, error) {
+	if err := s.store.DeleteEventSubscription(ctx, input.SubID); err != nil {
 		if errors.Is(err, store.ErrEventSubscriptionNotFound) {
-			respondError(w, r, http.StatusNotFound, "event subscription not found")
-			return
+			return nil, huma.Error404NotFound("event subscription not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete event subscription")
-		return
+		return nil, huma.Error500InternalServerError("failed to delete event subscription")
 	}
-
-	respondJSON(w, http.StatusNoContent, nil)
+	return nil, nil
 }
 
+// TODO: migrate to TypedHandler -- requires raw http.Request for r.Header.Get() (signature validation).
 func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 	var req DispatchEventRequest
 	if err := s.decodeJSON(r, &req); err != nil {
@@ -280,7 +260,6 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 	if !s.validateRequest(w, r, &req) {
 		return
 	}
-
 	source, err := s.store.GetEventSourceByName(r.Context(), req.ProjectID, req.Source)
 	if err != nil {
 		respondError(w, r, http.StatusNotFound, "event source not found")
@@ -290,8 +269,6 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "event source is disabled")
 		return
 	}
-
-	// Validate inbound webhook signature if configured.
 	if source.SignatureAlgorithm != "" && len(source.SignatureSecretEnc) > 0 && s.encryptor != nil {
 		sigHeader := r.Header.Get(source.SignatureHeader)
 		if sigHeader == "" {
@@ -310,20 +287,16 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
 	subs, err := s.store.ListEventSubscriptionsBySource(r.Context(), source.ID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list subscriptions")
 		return
 	}
-
 	dispatched := 0
 	for _, sub := range subs {
 		if !sub.Enabled {
 			continue
 		}
-
-		// Evaluate filter.
 		match, err := eventfilter.Eval(sub.FilterExpr, req.Payload)
 		if err != nil {
 			slog.Error("filter eval failed", "subscription_id", sub.ID, "source_id", source.ID, "project_id", source.ProjectID, "error", err)
@@ -332,8 +305,6 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 		if !match {
 			continue
 		}
-
-		// Dispatch based on target type.
 		switch sub.TargetType {
 		case "job":
 			job, err := s.store.GetJob(r.Context(), sub.TargetID)
@@ -342,13 +313,9 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			run := &domain.JobRun{
-				JobID:        sub.TargetID,
-				ProjectID:    source.ProjectID,
-				Attempt:      1,
-				Payload:      req.Payload,
-				TriggeredBy:  "event",
-				JobVersion:   job.Version,
-				JobVersionID: job.VersionID,
+				JobID: sub.TargetID, ProjectID: source.ProjectID, Attempt: 1,
+				Payload: req.Payload, TriggeredBy: "event",
+				JobVersion: job.Version, JobVersionID: job.VersionID,
 			}
 			if err := s.queue.Enqueue(r.Context(), run); err != nil {
 				slog.Error("event dispatch: enqueue failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", err)
@@ -366,6 +333,5 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
 	respondJSON(w, http.StatusOK, map[string]any{"dispatched": dispatched, "source": req.Source})
 }

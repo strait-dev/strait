@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -22,7 +21,6 @@ type SendEventRequest struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// validateEventKey returns an error string if the key is invalid, empty string if OK.
 func validateEventKey(key string) string {
 	if len(key) == 0 {
 		return "event key is required"
@@ -31,301 +29,222 @@ func validateEventKey(key string) string {
 		return "event key must be at most 512 characters"
 	}
 	for i := range len(key) {
-		if key[i] < 0x20 { // control characters including \x00
+		if key[i] < 0x20 {
 			return "event key contains invalid characters (control characters not allowed)"
 		}
 	}
 	return ""
 }
 
-// handleSendEvent delivers an event to a waiting event trigger.
-func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
-	eventKey := chi.URLParam(r, "eventKey")
+type SendEventInput struct {
+	EventKey string `path:"eventKey"`
+	Body     SendEventRequest
+}
+type SendEventOutput struct {
+	Body *domain.EventTrigger
+}
+
+func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*SendEventOutput, error) {
+	eventKey := input.EventKey
 	if errMsg := validateEventKey(eventKey); errMsg != "" {
-		respondError(w, r, http.StatusBadRequest, errMsg)
-		return
+		return nil, huma.Error400BadRequest(errMsg)
 	}
-
-	var req SendEventRequest
-	// Decode body if present. ContentLength == 0 means explicitly empty;
-	// ContentLength == -1 means unknown (chunked), which we should still try.
-	if r.Body != nil && r.ContentLength != 0 {
-		if err := s.decodeJSON(r, &req); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid request body")
-			return
-		}
-	}
-
-	trigger, err := s.store.GetEventTriggerByEventKey(r.Context(), eventKey)
+	req := input.Body
+	trigger, err := s.store.GetEventTriggerByEventKey(ctx, eventKey)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get event trigger")
-		return
+		return nil, huma.Error500InternalServerError("failed to get event trigger")
 	}
 	if trigger == nil {
-		respondError(w, r, http.StatusNotFound, "event trigger not found")
-		return
+		return nil, huma.Error404NotFound("event trigger not found")
 	}
-
-	// Scope to project when authenticated via API key (not internal secret).
-	if projectID := projectIDFromContext(r.Context()); projectID != "" && trigger.ProjectID != projectID {
-		respondError(w, r, http.StatusForbidden, "event trigger does not belong to this project")
-		return
+	if projectID := projectIDFromContext(ctx); projectID != "" && trigger.ProjectID != projectID {
+		return nil, huma.Error403Forbidden("event trigger does not belong to this project")
 	}
-
 	if trigger.Status != domain.EventTriggerStatusWaiting {
-		// Idempotent re-send: if already received with the same payload, return 200.
 		if trigger.Status == domain.EventTriggerStatusReceived && payloadsMatch(trigger.ResponsePayload, req.Payload) {
-			respondJSON(w, http.StatusOK, trigger)
-			return
+			return &SendEventOutput{Body: trigger}, nil
 		}
-		respondError(w, r, http.StatusConflict, "event trigger is not in waiting state")
-		return
+		return nil, huma.Error409Conflict("event trigger is not in waiting state")
 	}
-
 	now := time.Now()
-
-	// For job_run sources, use atomic receive+requeue to prevent inconsistency.
-	// For workflow steps, update trigger then call callback (multi-step progression
-	// is inherently non-atomic; the reconciliation reaper is the safety net).
 	if trigger.SourceType == domain.EventSourceJobRun && trigger.JobRunID != "" {
-		if err := s.store.ReceiveEventAndRequeueRun(r.Context(), trigger.ID, req.Payload, now, trigger.JobRunID); err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to receive event")
-			return
+		if err := s.store.ReceiveEventAndRequeueRun(ctx, trigger.ID, req.Payload, now, trigger.JobRunID); err != nil {
+			return nil, huma.Error500InternalServerError("failed to receive event")
 		}
 	} else if trigger.SourceType == domain.EventSourceWorkflowStep && trigger.WorkflowStepRunID != "" {
-		if err := s.runInTx(r.Context(), func(txStore APIStore) error {
-			if err := txStore.UpdateEventTriggerStatus(r.Context(), trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+		if err := s.runInTx(ctx, func(txStore APIStore) error {
+			if err := txStore.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
 				return fmt.Errorf("update event trigger status: %w", err)
 			}
-			return txStore.UpdateStepRunStatus(r.Context(), trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
-				"output":      req.Payload,
-				"finished_at": now,
+			return txStore.UpdateStepRunStatus(ctx, trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
+				"output": req.Payload, "finished_at": now,
 			})
 		}); err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to receive event")
-			return
+			return nil, huma.Error500InternalServerError("failed to receive event")
 		}
-
-		// Drive workflow progression outside the transaction.
 		trigger.Status = domain.EventTriggerStatusReceived
 		trigger.ResponsePayload = req.Payload
 		trigger.ReceivedAt = &now
 		if trigger.WorkflowRunID != "" && s.workflowCallback != nil {
-			if err := s.workflowCallback.OnEventReceived(r.Context(), trigger); err != nil {
-				slog.Error("event received but failed to resume workflow",
-					"event_key", eventKey, "trigger_id", trigger.ID, "error", err)
+			if err := s.workflowCallback.OnEventReceived(ctx, trigger); err != nil {
+				slog.Error("event received but failed to resume workflow", "event_key", eventKey, "trigger_id", trigger.ID, "error", err)
 			}
 		}
 	} else {
-		// Non-workflow-step source: update trigger status directly.
-		if err := s.store.UpdateEventTriggerStatus(
-			r.Context(), trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, "",
-		); err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to update event trigger")
-			return
+		if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+			return nil, huma.Error500InternalServerError("failed to update event trigger")
 		}
-
 		trigger.Status = domain.EventTriggerStatusReceived
 		trigger.ResponsePayload = req.Payload
 		trigger.ReceivedAt = &now
-
-		if err := s.resumeEventSource(r.Context(), trigger); err != nil {
-			slog.Error("event received but failed to resume execution",
-				"event_key", eventKey, "trigger_id", trigger.ID, "error", err)
+		if err := s.resumeEventSource(ctx, trigger); err != nil {
+			slog.Error("event received but failed to resume execution", "event_key", eventKey, "trigger_id", trigger.ID, "error", err)
 		}
 	}
-
-	// Ensure in-memory trigger is up-to-date for the response (covers both branches).
 	trigger.Status = domain.EventTriggerStatusReceived
 	trigger.ResponsePayload = req.Payload
 	trigger.ReceivedAt = &now
-
-	// Record who sent the event (audit trail — non-fatal on error).
-	sentBy := senderIdentity(r.Context())
-	if err := s.store.SetEventTriggerSentBy(r.Context(), trigger.ID, sentBy); err != nil {
+	sentBy := senderIdentity(ctx)
+	if err := s.store.SetEventTriggerSentBy(ctx, trigger.ID, sentBy); err != nil {
 		slog.Warn("failed to set sent_by", "trigger_id", trigger.ID, "error", err)
 	}
 	trigger.SentBy = sentBy
-
-	// Direct publish for sub-millisecond SSE delivery (CDC is the catch-all).
-	s.publishTriggerStatusChange(r.Context(), trigger)
-
-	// Enqueue ClickHouse analytics for received event trigger.
+	s.publishTriggerStatusChange(ctx, trigger)
 	s.enqueueEventTriggerRecord(trigger, domain.EventTriggerStatusReceived)
-
-	// Record metrics.
 	if s.metrics != nil {
-		attrs := metric.WithAttributes(
-			attribute.String("source_type", trigger.SourceType),
-			attribute.String("project_id", trigger.ProjectID),
-		)
-		s.metrics.EventTriggersReceived.Add(r.Context(), 1, attrs)
-		waitDuration := now.Sub(trigger.RequestedAt).Seconds()
-		s.metrics.EventTriggerWaitDuration.Record(r.Context(), waitDuration, attrs)
+		attrs := metric.WithAttributes(attribute.String("source_type", trigger.SourceType), attribute.String("project_id", trigger.ProjectID))
+		s.metrics.EventTriggersReceived.Add(ctx, 1, attrs)
+		s.metrics.EventTriggerWaitDuration.Record(ctx, now.Sub(trigger.RequestedAt).Seconds(), attrs)
 	}
-
-	respondJSON(w, http.StatusOK, trigger)
+	return &SendEventOutput{Body: trigger}, nil
 }
 
-// resumeEventSource resumes the workflow step or job run that was waiting on the event.
 func (s *Server) resumeEventSource(ctx context.Context, trigger *domain.EventTrigger) error {
 	switch trigger.SourceType {
 	case domain.EventSourceWorkflowStep:
 		if trigger.WorkflowStepRunID == "" {
 			return nil
 		}
-		// Trigger workflow progression via callback — OnEventReceived handles
-		// both the step completion and fan-in/progression in one place.
 		if s.workflowCallback != nil {
 			return s.workflowCallback.OnEventReceived(ctx, trigger)
 		}
 		return nil
-
 	case domain.EventSourceJobRun:
 		if trigger.JobRunID == "" {
 			return nil
 		}
-		// Re-queue the job run.
-		if err := s.store.UpdateRunStatus(ctx, trigger.JobRunID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
-			"checkpoint_data": trigger.ResponsePayload,
-		}); err != nil {
-			return err
-		}
-		return nil
+		return s.store.UpdateRunStatus(ctx, trigger.JobRunID, domain.StatusWaiting, domain.StatusQueued, map[string]any{"checkpoint_data": trigger.ResponsePayload})
 	}
 	return nil
 }
 
-// handleGetEventTrigger returns a single event trigger by key.
-func (s *Server) handleGetEventTrigger(w http.ResponseWriter, r *http.Request) {
-	eventKey := chi.URLParam(r, "eventKey")
-	if errMsg := validateEventKey(eventKey); errMsg != "" {
-		respondError(w, r, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	trigger, err := s.store.GetEventTriggerByEventKey(r.Context(), eventKey)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get event trigger")
-		return
-	}
-	if trigger == nil {
-		respondError(w, r, http.StatusNotFound, "event trigger not found")
-		return
-	}
-
-	// Scope to project when authenticated via API key (not internal secret).
-	if projectID := projectIDFromContext(r.Context()); projectID != "" && trigger.ProjectID != projectID {
-		respondError(w, r, http.StatusNotFound, "event trigger not found")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, trigger)
+type GetEventTriggerInput struct {
+	EventKey string `path:"eventKey"`
+}
+type GetEventTriggerOutput struct {
+	Body *domain.EventTrigger
 }
 
-// handleCancelEventTrigger cancels a waiting event trigger by key.
-func (s *Server) handleCancelEventTrigger(w http.ResponseWriter, r *http.Request) {
-	eventKey := chi.URLParam(r, "eventKey")
-	if errMsg := validateEventKey(eventKey); errMsg != "" {
-		respondError(w, r, http.StatusBadRequest, errMsg)
-		return
+func (s *Server) handleGetEventTrigger(ctx context.Context, input *GetEventTriggerInput) (*GetEventTriggerOutput, error) {
+	if errMsg := validateEventKey(input.EventKey); errMsg != "" {
+		return nil, huma.Error400BadRequest(errMsg)
 	}
-
-	trigger, err := s.store.GetEventTriggerByEventKey(r.Context(), eventKey)
+	trigger, err := s.store.GetEventTriggerByEventKey(ctx, input.EventKey)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get event trigger")
-		return
+		return nil, huma.Error500InternalServerError("failed to get event trigger")
 	}
 	if trigger == nil {
-		respondError(w, r, http.StatusNotFound, "event trigger not found")
-		return
+		return nil, huma.Error404NotFound("event trigger not found")
 	}
-
-	if projectID := projectIDFromContext(r.Context()); projectID != "" && trigger.ProjectID != projectID {
-		respondError(w, r, http.StatusForbidden, "event trigger does not belong to this project")
-		return
+	if projectID := projectIDFromContext(ctx); projectID != "" && trigger.ProjectID != projectID {
+		return nil, huma.Error404NotFound("event trigger not found")
 	}
+	return &GetEventTriggerOutput{Body: trigger}, nil
+}
 
+type CancelEventTriggerInput struct {
+	EventKey string `path:"eventKey"`
+}
+type CancelEventTriggerOutput struct {
+	Body *domain.EventTrigger
+}
+
+func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEventTriggerInput) (*CancelEventTriggerOutput, error) {
+	if errMsg := validateEventKey(input.EventKey); errMsg != "" {
+		return nil, huma.Error400BadRequest(errMsg)
+	}
+	trigger, err := s.store.GetEventTriggerByEventKey(ctx, input.EventKey)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get event trigger")
+	}
+	if trigger == nil {
+		return nil, huma.Error404NotFound("event trigger not found")
+	}
+	if projectID := projectIDFromContext(ctx); projectID != "" && trigger.ProjectID != projectID {
+		return nil, huma.Error403Forbidden("event trigger does not belong to this project")
+	}
 	if trigger.Status != domain.EventTriggerStatusWaiting {
-		respondError(w, r, http.StatusConflict, "event trigger is not in waiting state")
-		return
+		return nil, huma.Error409Conflict("event trigger is not in waiting state")
 	}
-
 	now := time.Now()
-	if err := s.store.UpdateEventTriggerStatus(
-		r.Context(), trigger.ID, domain.EventTriggerStatusCanceled, nil, nil, "canceled by user",
-	); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to cancel event trigger")
-		return
+	if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusCanceled, nil, nil, "canceled by user"); err != nil {
+		return nil, huma.Error500InternalServerError("failed to cancel event trigger")
 	}
-
 	trigger.Status = domain.EventTriggerStatusCanceled
 	trigger.Error = "canceled by user"
-
-	// Direct publish for sub-millisecond SSE delivery.
-	s.publishTriggerStatusChange(r.Context(), trigger)
-
-	// Drive step/run progression for the cancellation.
+	s.publishTriggerStatusChange(ctx, trigger)
 	switch trigger.SourceType {
 	case domain.EventSourceWorkflowStep:
 		if trigger.WorkflowStepRunID != "" {
-			if stepErr := s.store.UpdateStepRunStatus(r.Context(), trigger.WorkflowStepRunID, domain.StepFailed, map[string]any{
-				"finished_at": now,
-				"error":       "event trigger canceled by user",
-			}); stepErr != nil {
+			if stepErr := s.store.UpdateStepRunStatus(ctx, trigger.WorkflowStepRunID, domain.StepFailed, map[string]any{"finished_at": now, "error": "event trigger canceled by user"}); stepErr != nil {
 				slog.Error("failed to fail step after trigger cancel", "step_run_id", trigger.WorkflowStepRunID, "error", stepErr)
 			} else if trigger.WorkflowRunID != "" && s.workflowCallback != nil {
-				s.workflowCallback.OnStepFailed(r.Context(), trigger.WorkflowRunID, trigger.WorkflowStepRunID)
+				s.workflowCallback.OnStepFailed(ctx, trigger.WorkflowRunID, trigger.WorkflowStepRunID)
 			}
 		}
 	case domain.EventSourceJobRun:
 		if trigger.JobRunID != "" {
-			if runErr := s.store.UpdateRunStatus(r.Context(), trigger.JobRunID, domain.StatusWaiting, domain.StatusCanceled, nil); runErr != nil {
+			if runErr := s.store.UpdateRunStatus(ctx, trigger.JobRunID, domain.StatusWaiting, domain.StatusCanceled, nil); runErr != nil {
 				slog.Error("failed to cancel job run after trigger cancel", "job_run_id", trigger.JobRunID, "error", runErr)
 			}
 		}
 	}
-
 	if s.metrics != nil {
-		attrs := metric.WithAttributes(
-			attribute.String("source_type", trigger.SourceType),
-			attribute.String("project_id", trigger.ProjectID),
-		)
-		s.metrics.EventTriggersTimedOut.Add(r.Context(), 1, attrs)
+		attrs := metric.WithAttributes(attribute.String("source_type", trigger.SourceType), attribute.String("project_id", trigger.ProjectID))
+		s.metrics.EventTriggersTimedOut.Add(ctx, 1, attrs)
 	}
-
-	respondJSON(w, http.StatusOK, trigger)
+	return &CancelEventTriggerOutput{Body: trigger}, nil
 }
 
-// handleListEventTriggers lists event triggers for the authenticated project.
-func (s *Server) handleListEventTriggers(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+type ListEventTriggersInput struct {
+	Status        string `query:"status"`
+	WorkflowRunID string `query:"workflow_run_id"`
+	SourceType    string `query:"source_type"`
+	Limit         string `query:"limit"`
+	Cursor        string `query:"cursor"`
+}
+type ListEventTriggersOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListEventTriggers(ctx context.Context, input *ListEventTriggersInput) (*ListEventTriggersOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project context is required — authenticate with an API key")
-		return
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
-
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	status := r.URL.Query().Get("status")
-	workflowRunID := r.URL.Query().Get("workflow_run_id")
-	sourceType := r.URL.Query().Get("source_type")
-	triggers, err := s.store.ListEventTriggersByProject(r.Context(), projectID, status, workflowRunID, sourceType, limit+1, cursor)
+	triggers, err := s.store.ListEventTriggersByProject(ctx, projectID, input.Status, input.WorkflowRunID, input.SourceType, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list event triggers")
-		return
+		return nil, huma.Error500InternalServerError("failed to list event triggers")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(triggers, limit, func(t domain.EventTrigger) string {
+	return &ListEventTriggersOutput{Body: paginatedResult(triggers, limit, func(t domain.EventTrigger) string {
 		return t.RequestedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-// payloadsMatch compares two JSON payloads for semantic equality.
 func payloadsMatch(a, b json.RawMessage) bool {
 	if len(a) == 0 && len(b) == 0 {
 		return true
@@ -333,11 +252,9 @@ func payloadsMatch(a, b json.RawMessage) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false
 	}
-	// Fast path: byte-equal payloads are always semantically equal.
 	if bytes.Equal(a, b) {
 		return true
 	}
-	// Slow path: normalize via round-trip for semantic comparison.
 	var va, vb any
 	if err := json.Unmarshal(a, &va); err != nil {
 		return false
@@ -356,24 +273,23 @@ func payloadsMatch(a, b json.RawMessage) bool {
 	return bytes.Equal(ea, eb)
 }
 
-// handleGetEventTriggerStats returns aggregate statistics for event triggers.
-func (s *Server) handleGetEventTriggerStats(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project context is required — authenticate with an API key")
-		return
-	}
-
-	stats, err := s.store.GetEventTriggerStats(r.Context(), projectID)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get event trigger stats")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, stats)
+type GetEventTriggerStatsInput struct{}
+type GetEventTriggerStatsOutput struct {
+	Body any
 }
 
-// enqueueEventTriggerRecord sends an EventTriggerEventRecord to ClickHouse.
+func (s *Server) handleGetEventTriggerStats(ctx context.Context, _ *GetEventTriggerStatsInput) (*GetEventTriggerStatsOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
+	stats, err := s.store.GetEventTriggerStats(ctx, projectID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get event trigger stats")
+	}
+	return &GetEventTriggerStatsOutput{Body: stats}, nil
+}
+
 func (s *Server) enqueueEventTriggerRecord(trigger *domain.EventTrigger, status string) {
 	if s.chExporter == nil || trigger == nil {
 		return
@@ -386,19 +302,13 @@ func (s *Server) enqueueEventTriggerRecord(trigger *domain.EventTrigger, status 
 		waitDurationMs = uint64(max(trigger.ReceivedAt.Sub(trigger.RequestedAt).Milliseconds(), 0))
 	}
 	s.chExporter.Enqueue(clickhouse.EventTriggerEventRecord{
-		TriggerID:      trigger.ID,
-		EventKey:       trigger.EventKey,
-		ProjectID:      trigger.ProjectID,
-		SourceType:     trigger.SourceType,
-		Status:         status,
+		TriggerID: trigger.ID, EventKey: trigger.EventKey, ProjectID: trigger.ProjectID,
+		SourceType: trigger.SourceType, Status: status,
 		TimeoutSecs:    uint32(max(trigger.TimeoutSecs, 0)), //nolint:gosec // timeout is always non-negative
-		WaitDurationMs: waitDurationMs,
-		CreatedAt:      trigger.RequestedAt,
-		ReceivedAt:     receivedAt,
+		WaitDurationMs: waitDurationMs, CreatedAt: trigger.RequestedAt, ReceivedAt: receivedAt,
 	})
 }
 
-// senderIdentity returns a string identifying who is making the current request.
 func senderIdentity(ctx context.Context) string {
 	if pid := projectIDFromContext(ctx); pid != "" {
 		return "api-key:" + pid
@@ -406,53 +316,40 @@ func senderIdentity(ctx context.Context) string {
 	return "internal"
 }
 
-// handleSendEventByPrefix delivers an event to all waiting triggers matching a prefix.
-func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	prefix := chi.URLParam(r, "prefix")
+type SendEventByPrefixInput struct {
+	Prefix string `path:"prefix"`
+	Body   SendEventRequest
+}
+type SendEventByPrefixOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleSendEventByPrefix(ctx context.Context, input *SendEventByPrefixInput) (*SendEventByPrefixOutput, error) {
+	prefix := input.Prefix
 	if errMsg := validateEventKey(prefix); errMsg != "" {
-		respondError(w, r, http.StatusBadRequest, errMsg)
-		return
+		return nil, huma.Error400BadRequest(errMsg)
 	}
-
-	var req SendEventRequest
-	if r.Body != nil && r.ContentLength != 0 {
-		if err := s.decodeJSON(r, &req); err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid request body")
-			return
-		}
-	}
-
+	req := input.Body
 	projectID := projectIDFromContext(ctx)
-
 	triggers, err := s.store.ListEventTriggersByKeyPrefix(ctx, prefix, projectID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list triggers by prefix")
-		return
+		return nil, huma.Error500InternalServerError("failed to list triggers by prefix")
 	}
-
 	if len(triggers) == 0 {
-		respondJSON(w, http.StatusOK, map[string]any{"resolved": 0, "triggers": []any{}})
-		return
+		return &SendEventByPrefixOutput{Body: map[string]any{"resolved": 0, "triggers": []any{}}}, nil
 	}
-
 	now := time.Now()
 	sentBy := senderIdentity(ctx)
-
-	// Collect trigger IDs for atomic batch update.
 	triggerIDs := make([]string, len(triggers))
 	triggerMap := make(map[string]*domain.EventTrigger, len(triggers))
 	for i := range triggers {
 		triggerIDs[i] = triggers[i].ID
 		triggerMap[triggers[i].ID] = &triggers[i]
 	}
-
-	// Atomically mark all triggers as received in a single transaction.
 	resolvedIDs, err := s.store.BatchReceiveEventTriggers(ctx, triggerIDs, req.Payload, now, sentBy)
 	if err != nil {
 		slog.Error("batch receive failed", "prefix", prefix, "project_id", projectID, "trigger_count", len(triggerIDs), "error", err)
 	}
-
 	resolved := make([]domain.EventTrigger, 0, len(resolvedIDs))
 	for _, id := range resolvedIDs {
 		trigger := triggerMap[id]
@@ -460,76 +357,52 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 		trigger.ReceivedAt = &now
 		trigger.ResponsePayload = req.Payload
 		trigger.SentBy = sentBy
-
-		// Resume each source outside the transaction.
 		if err := s.resumeEventSource(ctx, trigger); err != nil {
 			slog.Error("failed to resume event source by prefix", "trigger_id", trigger.ID, "project_id", trigger.ProjectID, "event_key", trigger.EventKey, "error", err)
 		}
-
-		// Direct publish for sub-millisecond SSE delivery.
 		s.publishTriggerStatusChange(ctx, trigger)
-
 		resolved = append(resolved, *trigger)
 	}
-
-	// Record metrics and ClickHouse analytics for each resolved trigger.
 	for i := range resolved {
 		s.enqueueEventTriggerRecord(&resolved[i], domain.EventTriggerStatusReceived)
 	}
 	if s.metrics != nil {
 		for _, t := range resolved {
-			attrs := metric.WithAttributes(
-				attribute.String("source_type", t.SourceType),
-				attribute.String("project_id", t.ProjectID),
-			)
+			attrs := metric.WithAttributes(attribute.String("source_type", t.SourceType), attribute.String("project_id", t.ProjectID))
 			s.metrics.EventTriggersReceived.Add(ctx, 1, attrs)
-			waitDuration := now.Sub(t.RequestedAt).Seconds()
-			s.metrics.EventTriggerWaitDuration.Record(ctx, waitDuration, attrs)
+			s.metrics.EventTriggerWaitDuration.Record(ctx, now.Sub(t.RequestedAt).Seconds(), attrs)
 		}
 	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"resolved": len(resolved),
-		"triggers": resolved,
-	})
+	return &SendEventByPrefixOutput{Body: map[string]any{"resolved": len(resolved), "triggers": resolved}}, nil
 }
 
-// handlePurgeEventTriggers deletes terminal triggers older than N days.
-func (s *Server) handlePurgeEventTriggers(w http.ResponseWriter, r *http.Request) {
-	type purgeRequest struct {
-		OlderThanDays int  `json:"older_than_days"`
-		DryRun        bool `json:"dry_run"`
-	}
+type purgeEventTriggersRequest struct {
+	OlderThanDays int  `json:"older_than_days"`
+	DryRun        bool `json:"dry_run"`
+}
+type PurgeEventTriggersInput struct {
+	Body purgeEventTriggersRequest
+}
+type PurgeEventTriggersOutput struct {
+	Body map[string]any
+}
 
-	var req purgeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
+func (s *Server) handlePurgeEventTriggers(ctx context.Context, input *PurgeEventTriggersInput) (*PurgeEventTriggersOutput, error) {
+	req := input.Body
 	if req.OlderThanDays < 1 {
-		respondError(w, r, http.StatusBadRequest, "older_than_days must be >= 1")
-		return
+		return nil, huma.Error400BadRequest("older_than_days must be >= 1")
 	}
-
 	before := time.Now().Add(-time.Duration(req.OlderThanDays) * 24 * time.Hour)
-
 	if req.DryRun {
-		// For dry run, return a count estimate.
-		count, err := s.store.CountEventTriggersFinishedBefore(r.Context(), before)
+		count, err := s.store.CountEventTriggersFinishedBefore(ctx, before)
 		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to count triggers")
-			return
+			return nil, huma.Error500InternalServerError("failed to count triggers")
 		}
-		respondJSON(w, http.StatusOK, map[string]any{"dry_run": true, "would_delete": count})
-		return
+		return &PurgeEventTriggersOutput{Body: map[string]any{"dry_run": true, "would_delete": count}}, nil
 	}
-
-	deleted, err := s.store.DeleteEventTriggersFinishedBefore(r.Context(), before, 10000)
+	deleted, err := s.store.DeleteEventTriggersFinishedBefore(ctx, before, 10000)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to purge triggers")
-		return
+		return nil, huma.Error500InternalServerError("failed to purge triggers")
 	}
-
-	respondJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+	return &PurgeEventTriggersOutput{Body: map[string]any{"deleted": deleted}}, nil
 }

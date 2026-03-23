@@ -1,97 +1,85 @@
 package api
 
 import (
-	"net/http"
+	"context"
 	"time"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func (s *Server) handleWorkflowStepDurations(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.WorkflowStepDurations")
+type WorkflowStepDurationsInput struct {
+	WorkflowID string `path:"workflowID"`
+	From       string `query:"from"`
+	To         string `query:"to"`
+}
+type WorkflowStepDurationsOutput struct{ Body any }
+
+func (s *Server) handleWorkflowStepDurations(ctx context.Context, input *WorkflowStepDurationsInput) (*WorkflowStepDurationsOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.WorkflowStepDurations")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-	workflowID := chi.URLParam(r, "workflowID")
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	span.SetAttributes(
-		attribute.String("workflow_id", workflowID),
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-	)
-
-	result, err := s.analytics().GetWorkflowStepDurations(ctx, projectID, workflowID, from, to)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow step durations")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	span.SetAttributes(attribute.String("workflow_id", input.WorkflowID), attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)))
+	result, rErr := s.analytics().GetWorkflowStepDurations(ctx, projectID, input.WorkflowID, from, to)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get workflow step durations")
+	}
+	return &WorkflowStepDurationsOutput{Body: result}, nil
 }
 
-func (s *Server) handleWorkflowCompletionRates(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.WorkflowCompletionRates")
+type WorkflowCompletionRatesInput struct {
+	From   string `query:"from"`
+	To     string `query:"to"`
+	Bucket string `query:"bucket"`
+}
+type WorkflowCompletionRatesOutput struct{ Body any }
+
+func (s *Server) handleWorkflowCompletionRates(ctx context.Context, input *WorkflowCompletionRatesInput) (*WorkflowCompletionRatesOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.WorkflowCompletionRates")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
+	if err != nil {
+		return nil, err
 	}
-
-	bucket := r.URL.Query().Get("bucket")
+	bucket := input.Bucket
 	if bucket == "" {
 		bucket = "day"
 	}
 	if bucket != "hour" && bucket != "day" {
-		respondError(w, r, http.StatusBadRequest, "bucket must be 'hour' or 'day'")
-		return
+		return nil, huma.Error400BadRequest("bucket must be 'hour' or 'day'")
 	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-		attribute.String("bucket", bucket),
-	)
-
-	result, err := s.analytics().GetWorkflowCompletionRates(ctx, projectID, from, to, bucket)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow completion rates")
-		return
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.String("bucket", bucket))
+	result, rErr := s.analytics().GetWorkflowCompletionRates(ctx, projectID, from, to, bucket)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get workflow completion rates")
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	return &WorkflowCompletionRatesOutput{Body: result}, nil
 }
 
-func (s *Server) handleWorkflowAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.WorkflowAnalyticsSummary")
+type WorkflowAnalyticsSummaryInput struct {
+	From string `query:"from"`
+	To   string `query:"to"`
+}
+type WorkflowAnalyticsSummaryOutput struct{ Body any }
+
+func (s *Server) handleWorkflowAnalyticsSummary(ctx context.Context, input *WorkflowAnalyticsSummaryInput) (*WorkflowAnalyticsSummaryOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.WorkflowAnalyticsSummary")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-	)
-
-	result, err := s.analytics().GetWorkflowSummary(ctx, projectID, from, to)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow summary")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)))
+	result, rErr := s.analytics().GetWorkflowSummary(ctx, projectID, from, to)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get workflow summary")
+	}
+	return &WorkflowAnalyticsSummaryOutput{Body: result}, nil
 }

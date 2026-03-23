@@ -26,7 +26,7 @@ func TestHandleSDKSetState_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/state", "run-1",
 		`{"key":"step_result","value":{"score":42}}`)
-	srv.handleSDKSetState(w, r)
+	TypedHandler(srv, 200, srv.handleSDKSetState)(w, r)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -54,7 +54,7 @@ func TestHandleSDKSetState_KeyTooLong(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/state", "run-1", string(body))
-	srv.handleSDKSetState(w, r)
+	TypedHandler(srv, 200, srv.handleSDKSetState)(w, r)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for long key, got %d", w.Code)
@@ -73,7 +73,7 @@ func TestHandleSDKSetState_ValueTooLarge(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/state", "run-1", string(body))
-	srv.handleSDKSetState(w, r)
+	TypedHandler(srv, 200, srv.handleSDKSetState)(w, r)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for large value, got %d", w.Code)
@@ -87,7 +87,7 @@ func TestHandleSDKSetState_MissingKey(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/state", "run-1",
 		`{"value":"hello"}`)
-	srv.handleSDKSetState(w, r)
+	TypedHandler(srv, 200, srv.handleSDKSetState)(w, r)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for missing key, got %d", w.Code)
@@ -107,7 +107,7 @@ func TestHandleSDKGetState_Found(t *testing.T) {
 	r := sdkRequest(t, http.MethodGet, "/sdk/v1/runs/run-1/state/mykey", "run-1", "")
 	rctx := chi.RouteContext(r.Context())
 	rctx.URLParams.Add("key", "mykey")
-	srv.handleSDKGetState(w, r)
+	TypedHandler(srv, 200, srv.handleSDKGetState)(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -127,7 +127,7 @@ func TestHandleSDKGetState_NotFound(t *testing.T) {
 	r := sdkRequest(t, http.MethodGet, "/sdk/v1/runs/run-1/state/missing", "run-1", "")
 	rctx := chi.RouteContext(r.Context())
 	rctx.URLParams.Add("key", "missing")
-	srv.handleSDKGetState(w, r)
+	TypedHandler(srv, 200, srv.handleSDKGetState)(w, r)
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
@@ -148,7 +148,7 @@ func TestHandleSDKListState(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodGet, "/sdk/v1/runs/run-1/state", "run-1", "")
-	srv.handleSDKListState(w, r)
+	TypedHandler(srv, 200, srv.handleSDKListState)(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -178,7 +178,7 @@ func TestHandleSDKDeleteState(t *testing.T) {
 	r := sdkRequest(t, http.MethodDelete, "/sdk/v1/runs/run-1/state/mykey", "run-1", "")
 	rctx := chi.RouteContext(r.Context())
 	rctx.URLParams.Add("key", "mykey")
-	srv.handleSDKDeleteState(w, r)
+	TypedHandler(srv, 200, srv.handleSDKDeleteState)(w, r)
 
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", w.Code)

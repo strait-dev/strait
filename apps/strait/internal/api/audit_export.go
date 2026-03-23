@@ -19,6 +19,7 @@ import (
 
 const maxExportWindow = 90 * 24 * time.Hour
 
+// TODO: migrate to TypedHandler -- writes CSV/NDJSON directly to http.ResponseWriter, not compatible with typed output.
 func (s *Server) handleExportAuditEvents(w http.ResponseWriter, r *http.Request) {
 	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {

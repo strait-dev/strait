@@ -3,24 +3,12 @@ package api
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"strait/internal/compute"
 	"strait/internal/domain"
 )
-
-// validateRegionForPlan validates a region against plan-based gating rules.
-// Returns an HTTP error response if validation fails.
-// Returns true if validation passed (or gating disabled), false if an error was sent.
-func (s *Server) validateRegionForPlan(w http.ResponseWriter, r *http.Request, projectID, region string) bool {
-	if err := s.checkRegionForPlan(r.Context(), projectID, region); err != nil {
-		writeTypedError(w, r, err)
-		return false
-	}
-	return true
-}
 
 // checkRegionForPlan validates a region against plan-based gating rules, returning an error.
 func (s *Server) checkRegionForPlan(ctx context.Context, projectID, region string) error {

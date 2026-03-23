@@ -1,104 +1,90 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
-	"net/http"
 
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleSDKSetState(w http.ResponseWriter, r *http.Request) {
-	applySDKResponseHeaders(r.Context(), w)
-	runID := chi.URLParam(r, "runID")
+type SDKSetStateRequest struct {
+	Key   string          `json:"key" validate:"required"`
+	Value json.RawMessage `json:"value" validate:"required"`
+}
+type SDKSetStateInput struct {
+	RunID string `path:"runID"`
+	Body  SDKSetStateRequest
+}
+type SDKSetStateOutput struct{ Body *domain.RunState }
 
-	var req struct {
-		Key   string          `json:"key" validate:"required"`
-		Value json.RawMessage `json:"value" validate:"required"`
-	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
+func (s *Server) handleSDKSetState(ctx context.Context, input *SDKSetStateInput) (*SDKSetStateOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 	if len(req.Key) > 256 {
-		respondError(w, r, http.StatusBadRequest, "state key must be 256 characters or fewer")
-		return
+		return nil, huma.Error400BadRequest("state key must be 256 characters or fewer")
 	}
 	if len(req.Value) > 65536 {
-		respondError(w, r, http.StatusBadRequest, "state value must not exceed 64KB")
-		return
+		return nil, huma.Error400BadRequest("state value must not exceed 64KB")
 	}
-
-	state := &domain.RunState{
-		RunID:    runID,
-		StateKey: req.Key,
-		Value:    req.Value,
+	state := &domain.RunState{RunID: input.RunID, StateKey: req.Key, Value: req.Value}
+	if err := s.store.UpsertRunState(ctx, state); err != nil {
+		return nil, huma.Error500InternalServerError("failed to upsert run state")
 	}
-	if err := s.store.UpsertRunState(r.Context(), state); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to upsert run state")
-		return
-	}
-
-	respondJSON(w, http.StatusCreated, state)
+	return &SDKSetStateOutput{Body: state}, nil
 }
 
-func (s *Server) handleSDKGetState(w http.ResponseWriter, r *http.Request) {
-	applySDKResponseHeaders(r.Context(), w)
-	runID := chi.URLParam(r, "runID")
-	key := chi.URLParam(r, "key")
+type SDKGetStateInput struct {
+	RunID string `path:"runID"`
+	Key   string `path:"key"`
+}
+type SDKGetStateOutput struct{ Body *domain.RunState }
 
-	state, err := s.store.GetRunState(r.Context(), runID, key)
+func (s *Server) handleSDKGetState(ctx context.Context, input *SDKGetStateInput) (*SDKGetStateOutput, error) {
+	state, err := s.store.GetRunState(ctx, input.RunID, input.Key)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get run state")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run state")
 	}
 	if state == nil {
-		respondError(w, r, http.StatusNotFound, "state key not found")
-		return
+		return nil, huma.Error404NotFound("state key not found")
 	}
-
-	respondJSON(w, http.StatusOK, state)
+	return &SDKGetStateOutput{Body: state}, nil
 }
 
-func (s *Server) handleSDKListState(w http.ResponseWriter, r *http.Request) {
-	applySDKResponseHeaders(r.Context(), w)
-	runID := chi.URLParam(r, "runID")
+type SDKListStateOutput struct{ Body any }
 
-	items, err := s.store.ListRunState(r.Context(), runID)
+func (s *Server) handleSDKListState(ctx context.Context, input *SDKRunIDInput) (*SDKListStateOutput, error) {
+	items, err := s.store.ListRunState(ctx, input.RunID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list run state")
-		return
+		return nil, huma.Error500InternalServerError("failed to list run state")
 	}
-
-	respondJSON(w, http.StatusOK, items)
+	return &SDKListStateOutput{Body: items}, nil
 }
 
-func (s *Server) handleSDKDeleteState(w http.ResponseWriter, r *http.Request) {
-	applySDKResponseHeaders(r.Context(), w)
-	runID := chi.URLParam(r, "runID")
-	key := chi.URLParam(r, "key")
-
-	if err := s.store.DeleteRunState(r.Context(), runID, key); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to delete run state")
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
+type SDKDeleteStateInput struct {
+	RunID string `path:"runID"`
+	Key   string `path:"key"`
 }
 
-// handleListRunState exposes run state for the management API.
-func (s *Server) handleListRunState(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
+func (s *Server) handleSDKDeleteState(ctx context.Context, input *SDKDeleteStateInput) (*struct{}, error) {
+	if err := s.store.DeleteRunState(ctx, input.RunID, input.Key); err != nil {
+		return nil, huma.Error500InternalServerError("failed to delete run state")
+	}
+	return nil, nil
+}
 
-	items, err := s.store.ListRunState(r.Context(), runID)
+type ListRunStateInput struct {
+	RunID string `path:"runID"`
+}
+type ListRunStateOutput struct{ Body any }
+
+func (s *Server) handleListRunState(ctx context.Context, input *ListRunStateInput) (*ListRunStateOutput, error) {
+	items, err := s.store.ListRunState(ctx, input.RunID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list run state")
-		return
+		return nil, huma.Error500InternalServerError("failed to list run state")
 	}
-
-	respondJSON(w, http.StatusOK, items)
+	return &ListRunStateOutput{Body: items}, nil
 }

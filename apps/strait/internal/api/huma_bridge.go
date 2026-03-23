@@ -85,6 +85,13 @@ func extractParams(r *http.Request, input any) error {
 				}
 			}
 		}
+		if tag := field.Tag.Get("header"); tag != "" {
+			if val := r.Header.Get(tag); val != "" {
+				if err := setStringField(fv, val); err != nil {
+					return fmt.Errorf("header %q: %w", tag, err)
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -151,6 +158,12 @@ func extractBodyField(output any) any {
 }
 
 func writeTypedError(w http.ResponseWriter, r *http.Request, err error) {
+	// Check for raw JSON status errors (SDK handlers return custom JSON bodies).
+	var rse *rawStatusError
+	if errors.As(err, &rse) {
+		respondJSON(w, rse.status, rse.body)
+		return
+	}
 	// Check for typed API errors that carry a full APIError body.
 	var tae *typedAPIError
 	if errors.As(err, &tae) {
@@ -185,6 +198,23 @@ func (e *typedAPIError) Error() string {
 }
 
 func (e *typedAPIError) GetStatus() int {
+	return e.status
+}
+
+// rawStatusError writes a raw JSON body with a specific HTTP status code.
+// It is used by SDK handlers that return structured error bodies (e.g.,
+// {"error": "token_budget_exceeded", "current": 100, "limit": 50}) that
+// must not be wrapped in the standard ErrorResponse envelope.
+type rawStatusError struct {
+	status int
+	body   any
+}
+
+func (e *rawStatusError) Error() string {
+	return fmt.Sprintf("raw status error %d", e.status)
+}
+
+func (e *rawStatusError) GetStatus() int {
 	return e.status
 }
 

@@ -1,19 +1,17 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
 type CreateAPIKeyRequest struct {
@@ -25,7 +23,6 @@ type CreateAPIKeyRequest struct {
 	EnvironmentID        string   `json:"environment_id,omitempty"`
 	RotationIntervalDays *int     `json:"rotation_interval_days,omitempty"`
 }
-
 type CreateAPIKeyResponse struct {
 	ID        string     `json:"id"`
 	ProjectID string     `json:"project_id"`
@@ -36,7 +33,6 @@ type CreateAPIKeyResponse struct {
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 }
-
 type RotateAPIKeyRequest struct {
 	GracePeriodMinutes int `json:"grace_period_minutes,omitempty"`
 }
@@ -46,202 +42,125 @@ func generateAPIKey() (string, error) {
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate api key: %w", err)
 	}
-
 	return "strait_" + hex.EncodeToString(b), nil
 }
+func hashAPIKey(key string) string { h := sha256.Sum256([]byte(key)); return hex.EncodeToString(h[:]) }
 
-func hashAPIKey(key string) string {
-	h := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(h[:])
-}
+type CreateAPIKeyInput struct{ Body CreateAPIKeyRequest }
+type CreateAPIKeyOutput struct{ Body CreateAPIKeyResponse }
 
-func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
-	var req CreateAPIKeyRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
+func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInput) (*CreateAPIKeyOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
-
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
-
 	rawKey, err := generateAPIKey()
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to generate api key")
-		return
+		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-
 	if req.Scopes == nil {
 		req.Scopes = []string{}
 	}
-
 	if len(req.Scopes) > 0 {
 		if err := domain.ValidateScopes(req.Scopes); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
-
 	var expiresAt *time.Time
 	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
 		t := time.Now().Add(time.Duration(*req.ExpiresIn) * 24 * time.Hour)
 		expiresAt = &t
 	}
-
-	key := &domain.APIKey{
-		ProjectID:            req.ProjectID,
-		OrgID:                req.OrgID,
-		Name:                 req.Name,
-		KeyHash:              hashAPIKey(rawKey),
-		KeyPrefix:            rawKey[:12],
-		Scopes:               req.Scopes,
-		ExpiresAt:            expiresAt,
-		EnvironmentID:        req.EnvironmentID,
-		RotationIntervalDays: req.RotationIntervalDays,
-	}
-
+	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays}
 	if req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0 {
-		nextRotation := time.Now().Add(time.Duration(*req.RotationIntervalDays) * 24 * time.Hour)
-		key.NextRotationAt = &nextRotation
+		nr := time.Now().Add(time.Duration(*req.RotationIntervalDays) * 24 * time.Hour)
+		key.NextRotationAt = &nr
 	}
-
-	if err := s.store.CreateAPIKey(r.Context(), key); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create api key")
-		return
+	if err := s.store.CreateAPIKey(ctx, key); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
-
-	respondJSON(w, http.StatusCreated, CreateAPIKeyResponse{
-		ID:        key.ID,
-		ProjectID: key.ProjectID,
-		Name:      key.Name,
-		Key:       rawKey,
-		KeyPrefix: key.KeyPrefix,
-		Scopes:    key.Scopes,
-		ExpiresAt: key.ExpiresAt,
-		CreatedAt: key.CreatedAt,
-	})
+	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt}}, nil
 }
 
-func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
-	orgID := r.URL.Query().Get("org_id")
+type ListAPIKeysInput struct {
+	OrgID  string `query:"org_id"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+type ListAPIKeysOutput struct{ Body PaginatedResponse }
 
-	limit, cursor, err := parsePaginationParams(r)
+func (s *Server) handleListAPIKeys(ctx context.Context, input *ListAPIKeysInput) (*ListAPIKeysOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
 	var keys []domain.APIKey
-	if orgID != "" {
-		keys, err = s.store.ListAPIKeysByOrg(r.Context(), orgID, limit+1, cursor)
+	if input.OrgID != "" {
+		keys, err = s.store.ListAPIKeysByOrg(ctx, input.OrgID, limit+1, cursor)
 	} else {
-		projectID := projectIDFromContext(r.Context())
+		projectID := projectIDFromContext(ctx)
 		if projectID == "" {
-			respondError(w, r, http.StatusBadRequest, "project_id is required")
-			return
+			return nil, huma.Error400BadRequest("project_id is required")
 		}
-		keys, err = s.store.ListAPIKeysByProject(r.Context(), projectID, limit+1, cursor)
+		keys, err = s.store.ListAPIKeysByProject(ctx, projectID, limit+1, cursor)
 	}
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list api keys")
-		return
+		return nil, huma.Error500InternalServerError("failed to list api keys")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(keys, limit, func(k domain.APIKey) string {
-		return k.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListAPIKeysOutput{Body: paginatedResult(keys, limit, func(k domain.APIKey) string { return k.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-func (s *Server) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
-	keyID := chi.URLParam(r, "keyID")
+type RevokeAPIKeyInput struct {
+	KeyID string `path:"keyID"`
+}
+type RevokeAPIKeyOutput struct{ Body map[string]string }
 
-	if err := s.store.RevokeAPIKey(r.Context(), keyID); err != nil {
-		respondError(w, r, http.StatusNotFound, "api key not found or already revoked")
-		return
+func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInput) (*RevokeAPIKeyOutput, error) {
+	if err := s.store.RevokeAPIKey(ctx, input.KeyID); err != nil {
+		return nil, huma.Error404NotFound("api key not found or already revoked")
 	}
-
-	slog.Info("api key revoked", "key_id", keyID, "actor", actorFromContext(r.Context()),
-		"project_id", projectIDFromContext(r.Context()))
-	s.emitAuditEvent(r.Context(), "api_key.revoke", "api_key", keyID, nil)
-	respondJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+	slog.Info("api key revoked", "key_id", input.KeyID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
+	s.emitAuditEvent(ctx, "api_key.revoke", "api_key", input.KeyID, nil)
+	return &RevokeAPIKeyOutput{Body: map[string]string{"status": "revoked"}}, nil
 }
 
-func (s *Server) handleRotateAPIKey(w http.ResponseWriter, r *http.Request) {
-	keyID := chi.URLParam(r, "keyID")
+type RotateAPIKeyInput struct {
+	KeyID string `path:"keyID"`
+	Body  RotateAPIKeyRequest
+}
+type RotateAPIKeyOutput struct{ Body any }
 
-	var req RotateAPIKeyRequest
-	if err := s.decodeJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
+func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInput) (*RotateAPIKeyOutput, error) {
+	req := input.Body
 	if req.GracePeriodMinutes <= 0 {
 		req.GracePeriodMinutes = 60
 	}
 	if req.GracePeriodMinutes > 7*24*60 {
-		respondError(w, r, http.StatusBadRequest, "grace_period_minutes must be <= 10080")
-		return
+		return nil, huma.Error400BadRequest("grace_period_minutes must be <= 10080")
 	}
-
-	oldKey, err := s.store.GetAPIKeyByID(r.Context(), keyID)
+	oldKey, err := s.store.GetAPIKeyByID(ctx, input.KeyID)
 	if err != nil || oldKey == nil {
-		respondError(w, r, http.StatusNotFound, "api key not found")
-		return
+		return nil, huma.Error404NotFound("api key not found")
 	}
 	if oldKey.RevokedAt != nil {
-		respondError(w, r, http.StatusConflict, "api key is already revoked")
-		return
+		return nil, huma.Error409Conflict("api key is already revoked")
 	}
-
 	rawKey, err := generateAPIKey()
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to generate api key")
-		return
+		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-
-	newKey := &domain.APIKey{
-		ProjectID:            oldKey.ProjectID,
-		Name:                 oldKey.Name + " (rotated)",
-		KeyHash:              hashAPIKey(rawKey),
-		KeyPrefix:            rawKey[:12],
-		Scopes:               oldKey.Scopes,
-		ExpiresAt:            oldKey.ExpiresAt,
-		EnvironmentID:        oldKey.EnvironmentID,
-		RotationIntervalDays: oldKey.RotationIntervalDays,
-		RotationWebhookURL:   oldKey.RotationWebhookURL,
-	}
+	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: oldKey.Scopes, ExpiresAt: oldKey.ExpiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL}
 	if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
-		nextRotation := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
-		newKey.NextRotationAt = &nextRotation
+		nr := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
+		newKey.NextRotationAt = &nr
 	}
-	if err := s.store.CreateAPIKey(r.Context(), newKey); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create rotated api key")
-		return
+	if err := s.store.CreateAPIKey(ctx, newKey); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create rotated api key")
 	}
-
 	graceExpiresAt := time.Now().Add(time.Duration(req.GracePeriodMinutes) * time.Minute)
-	if err := s.store.MarkAPIKeyRotated(r.Context(), oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to mark old key as rotated")
-		return
+	if err := s.store.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
+		return nil, huma.Error500InternalServerError("failed to mark old key as rotated")
 	}
-
-	s.emitAuditEvent(r.Context(), "api_key.rotate", "api_key", keyID, map[string]any{
-		"new_key_id":          newKey.ID,
-		"grace_expires_at":    graceExpiresAt,
-		"grace_period_minute": req.GracePeriodMinutes,
-	})
-
-	respondJSON(w, http.StatusCreated, map[string]any{
-		"old_key_id":       oldKey.ID,
-		"new_key_id":       newKey.ID,
-		"project_id":       newKey.ProjectID,
-		"name":             newKey.Name,
-		"key":              rawKey,
-		"key_prefix":       newKey.KeyPrefix,
-		"scopes":           newKey.Scopes,
-		"expires_at":       newKey.ExpiresAt,
-		"created_at":       newKey.CreatedAt,
-		"grace_expires_at": graceExpiresAt,
-	})
+	s.emitAuditEvent(ctx, "api_key.rotate", "api_key", input.KeyID, map[string]any{"new_key_id": newKey.ID, "grace_expires_at": graceExpiresAt, "grace_period_minute": req.GracePeriodMinutes})
+	return &RotateAPIKeyOutput{Body: map[string]any{"old_key_id": oldKey.ID, "new_key_id": newKey.ID, "project_id": newKey.ProjectID, "name": newKey.Name, "key": rawKey, "key_prefix": newKey.KeyPrefix, "scopes": newKey.Scopes, "expires_at": newKey.ExpiresAt, "created_at": newKey.CreatedAt, "grace_expires_at": graceExpiresAt}}, nil
 }

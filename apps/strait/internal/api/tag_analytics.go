@@ -1,118 +1,100 @@
 package api
 
 import (
-	"net/http"
-	"strconv"
+	"context"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func (s *Server) handleTagSummary(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.TagSummary")
+type TagSummaryInput struct {
+	From  string `query:"from"`
+	To    string `query:"to"`
+	Limit int    `query:"limit"`
+}
+type TagSummaryOutput struct{ Body any }
+
+func (s *Server) handleTagSummary(ctx context.Context, input *TagSummaryInput) (*TagSummaryOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.TagSummary")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	limit := 50
-	if v := r.URL.Query().Get("limit"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil || parsed < 1 || parsed > 500 {
-			respondError(w, r, http.StatusBadRequest, "limit must be between 1 and 500")
-			return
-		}
-		limit = parsed
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-		attribute.Int("limit", limit),
-	)
-
-	result, err := s.analytics().GetTagSummary(ctx, projectID, from, to, limit)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get tag summary")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	limit := input.Limit
+	if limit == 0 {
+		limit = 50
+	}
+	if limit < 1 || limit > 500 {
+		return nil, huma.Error400BadRequest("limit must be between 1 and 500")
+	}
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.Int("limit", limit))
+	result, rErr := s.analytics().GetTagSummary(ctx, projectID, from, to, limit)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get tag summary")
+	}
+	return &TagSummaryOutput{Body: result}, nil
 }
 
-func (s *Server) handleTopFailingTags(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.TopFailingTags")
+type TopFailingTagsInput struct {
+	From  string `query:"from"`
+	To    string `query:"to"`
+	Limit int    `query:"limit"`
+}
+type TopFailingTagsOutput struct{ Body any }
+
+func (s *Server) handleTopFailingTags(ctx context.Context, input *TopFailingTagsInput) (*TopFailingTagsOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.TopFailingTags")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	limit := 10
-	if v := r.URL.Query().Get("limit"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil || parsed < 1 || parsed > 100 {
-			respondError(w, r, http.StatusBadRequest, "limit must be between 1 and 100")
-			return
-		}
-		limit = parsed
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-		attribute.Int("limit", limit),
-	)
-
-	result, err := s.analytics().GetTopFailingTags(ctx, projectID, from, to, limit)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get top failing tags")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	limit := input.Limit
+	if limit == 0 {
+		limit = 10
+	}
+	if limit < 1 || limit > 100 {
+		return nil, huma.Error400BadRequest("limit must be between 1 and 100")
+	}
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.Int("limit", limit))
+	result, rErr := s.analytics().GetTopFailingTags(ctx, projectID, from, to, limit)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get top failing tags")
+	}
+	return &TopFailingTagsOutput{Body: result}, nil
 }
 
-func (s *Server) handleTagCost(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.TagCost")
+type TagCostInput struct {
+	From  string `query:"from"`
+	To    string `query:"to"`
+	Limit int    `query:"limit"`
+}
+type TagCostOutput struct{ Body any }
+
+func (s *Server) handleTagCost(ctx context.Context, input *TagCostInput) (*TagCostOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.TagCost")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	limit := 50
-	if v := r.URL.Query().Get("limit"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil || parsed < 1 || parsed > 500 {
-			respondError(w, r, http.StatusBadRequest, "limit must be between 1 and 500")
-			return
-		}
-		limit = parsed
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-		attribute.Int("limit", limit),
-	)
-
-	result, err := s.analytics().GetTagCost(ctx, projectID, from, to, limit)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get tag cost")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	limit := input.Limit
+	if limit == 0 {
+		limit = 50
+	}
+	if limit < 1 || limit > 500 {
+		return nil, huma.Error400BadRequest("limit must be between 1 and 500")
+	}
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.Int("limit", limit))
+	result, rErr := s.analytics().GetTagCost(ctx, projectID, from, to, limit)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get tag cost")
+	}
+	return &TagCostOutput{Body: result}, nil
 }

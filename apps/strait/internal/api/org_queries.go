@@ -1,86 +1,72 @@
 package api
 
 import (
-	"net/http"
+	"context"
 	"time"
 
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleListOrgRuns(w http.ResponseWriter, r *http.Request) {
-	orgID := chi.URLParam(r, "orgID")
-	if orgID == "" {
-		respondError(w, r, http.StatusBadRequest, "org_id is required")
-		return
-	}
+type ListOrgRunsInput struct {
+	OrgID  string `path:"orgID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+type ListOrgRunsOutput struct{ Body PaginatedResponse }
 
-	// Enforce authorization: caller must have org-scoped key for this org
-	// or use internal secret auth.
-	callerOrgID := orgIDFromContext(r.Context())
+func (s *Server) handleListOrgRuns(ctx context.Context, input *ListOrgRunsInput) (*ListOrgRunsOutput, error) {
+	orgID := input.OrgID
+	if orgID == "" {
+		return nil, huma.Error400BadRequest("org_id is required")
+	}
+	callerOrgID := orgIDFromContext(ctx)
 	if callerOrgID == "" {
-		// Not an org-scoped key -- check if this is an internal secret request.
-		// Internal secret auth does not set scopes, so scopesFromContext returns nil.
-		if scopesFromContext(r.Context()) != nil {
-			respondError(w, r, http.StatusForbidden, "org-scoped api key required for cross-project queries")
-			return
+		if scopesFromContext(ctx) != nil {
+			return nil, huma.Error403Forbidden("org-scoped api key required for cross-project queries")
 		}
 	} else if callerOrgID != orgID {
-		respondError(w, r, http.StatusForbidden, "api key does not belong to this organization")
-		return
+		return nil, huma.Error403Forbidden("api key does not belong to this organization")
 	}
-
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	runs, err := s.store.ListRunsByOrg(r.Context(), orgID, limit+1, cursor)
+	runs, err := s.store.ListRunsByOrg(ctx, orgID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list runs")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.JobRun) string {
-		return run.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListOrgRunsOutput{Body: paginatedResult(runs, limit, func(run domain.JobRun) string { return run.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-func (s *Server) handleListOrgJobs(w http.ResponseWriter, r *http.Request) {
-	orgID := chi.URLParam(r, "orgID")
-	if orgID == "" {
-		respondError(w, r, http.StatusBadRequest, "org_id is required")
-		return
-	}
+type ListOrgJobsInput struct {
+	OrgID  string `path:"orgID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+type ListOrgJobsOutput struct{ Body PaginatedResponse }
 
-	// Enforce authorization: caller must have org-scoped key for this org
-	// or use internal secret auth.
-	callerOrgID := orgIDFromContext(r.Context())
+func (s *Server) handleListOrgJobs(ctx context.Context, input *ListOrgJobsInput) (*ListOrgJobsOutput, error) {
+	orgID := input.OrgID
+	if orgID == "" {
+		return nil, huma.Error400BadRequest("org_id is required")
+	}
+	callerOrgID := orgIDFromContext(ctx)
 	if callerOrgID == "" {
-		if scopesFromContext(r.Context()) != nil {
-			respondError(w, r, http.StatusForbidden, "org-scoped api key required for cross-project queries")
-			return
+		if scopesFromContext(ctx) != nil {
+			return nil, huma.Error403Forbidden("org-scoped api key required for cross-project queries")
 		}
 	} else if callerOrgID != orgID {
-		respondError(w, r, http.StatusForbidden, "api key does not belong to this organization")
-		return
+		return nil, huma.Error403Forbidden("api key does not belong to this organization")
 	}
-
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	jobs, err := s.store.ListJobsByOrg(r.Context(), orgID, limit+1, cursor)
+	jobs, err := s.store.ListJobsByOrg(ctx, orgID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list jobs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list jobs")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(jobs, limit, func(job domain.Job) string {
-		return job.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListOrgJobsOutput{Body: paginatedResult(jobs, limit, func(job domain.Job) string { return job.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }

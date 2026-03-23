@@ -1,32 +1,36 @@
 package api
 
 import (
-	"net/http"
+	"context"
 	"time"
 
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleListRunEvents(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-	level := r.URL.Query().Get("level")
-	eventType := r.URL.Query().Get("type")
+type ListRunEventsInput struct {
+	RunID  string `path:"runID"`
+	Level  string `query:"level"`
+	Type   string `query:"type"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
 
-	limit, cursor, err := parsePaginationParams(r)
+type ListRunEventsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListRunEvents(ctx context.Context, input *ListRunEventsInput) (*ListRunEventsOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	events, err := s.store.ListEventsByRunFiltered(r.Context(), runID, level, eventType, limit+1, cursor)
+	events, err := s.store.ListEventsByRunFiltered(ctx, input.RunID, input.Level, input.Type, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list events")
-		return
+		return nil, huma.Error500InternalServerError("failed to list events")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(events, limit, func(e domain.RunEvent) string {
+	return &ListRunEventsOutput{Body: paginatedResult(events, limit, func(e domain.RunEvent) string {
 		return e.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }

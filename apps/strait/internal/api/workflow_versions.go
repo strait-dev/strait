@@ -1,98 +1,107 @@
 package api
 
 import (
+	"context"
 	"errors"
-	"net/http"
 
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleListWorkflowVersions(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
-
-	limit, _, err := parsePaginationParams(r)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	versions, err := s.store.ListWorkflowVersions(r.Context(), workflowID, limit)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow versions")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, versions)
+type ListWorkflowVersionsInput struct {
+	WorkflowID string `path:"workflowID"`
+	Limit      string `query:"limit"`
+	Cursor     string `query:"cursor"`
 }
 
-func (s *Server) handleGetWorkflowVersion(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
-	versionID := chi.URLParam(r, "versionID")
+type ListWorkflowVersionsOutput struct {
+	Body any
+}
 
-	version, err := s.store.GetWorkflowVersionByVersionID(r.Context(), workflowID, versionID)
+func (s *Server) handleListWorkflowVersions(ctx context.Context, input *ListWorkflowVersionsInput) (*ListWorkflowVersionsOutput, error) {
+	limit, _, err := parsePaginationFromStrings(input.Limit, input.Cursor)
+	if err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	versions, err := s.store.ListWorkflowVersions(ctx, input.WorkflowID, limit)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list workflow versions")
+	}
+	return &ListWorkflowVersionsOutput{Body: versions}, nil
+}
+
+type GetWorkflowVersionInput struct {
+	WorkflowID string `path:"workflowID"`
+	VersionID  string `path:"versionID"`
+}
+
+type GetWorkflowVersionOutput struct {
+	Body any
+}
+
+func (s *Server) handleGetWorkflowVersion(ctx context.Context, input *GetWorkflowVersionInput) (*GetWorkflowVersionOutput, error) {
+	version, err := s.store.GetWorkflowVersionByVersionID(ctx, input.WorkflowID, input.VersionID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowVersionNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow version not found")
-			return
+			return nil, huma.Error404NotFound("workflow version not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow version")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow version")
 	}
-
-	respondJSON(w, http.StatusOK, version)
+	return &GetWorkflowVersionOutput{Body: version}, nil
 }
 
-func (s *Server) handleListWorkflowVersionSteps(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
-	versionID := chi.URLParam(r, "versionID")
+type ListWorkflowVersionStepsInput struct {
+	WorkflowID string `path:"workflowID"`
+	VersionID  string `path:"versionID"`
+}
 
-	version, err := s.store.GetWorkflowVersionByVersionID(r.Context(), workflowID, versionID)
+type ListWorkflowVersionStepsOutput struct {
+	Body any
+}
+
+func (s *Server) handleListWorkflowVersionSteps(ctx context.Context, input *ListWorkflowVersionStepsInput) (*ListWorkflowVersionStepsOutput, error) {
+	version, err := s.store.GetWorkflowVersionByVersionID(ctx, input.WorkflowID, input.VersionID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowVersionNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow version not found")
-			return
+			return nil, huma.Error404NotFound("workflow version not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow version")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow version")
 	}
-
-	steps, err := s.store.ListStepsByWorkflowVersion(r.Context(), workflowID, version.Version)
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, input.WorkflowID, version.Version)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow version steps")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow version steps")
 	}
-
-	respondJSON(w, http.StatusOK, steps)
+	return &ListWorkflowVersionStepsOutput{Body: steps}, nil
 }
 
-func (s *Server) handleWorkflowVersionDiff(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
-	fromVersionID := chi.URLParam(r, "fromVersionID")
-	toVersionID := chi.URLParam(r, "toVersionID")
+type WorkflowVersionDiffInput struct {
+	WorkflowID    string `path:"workflowID"`
+	FromVersionID string `path:"fromVersionID"`
+	ToVersionID   string `path:"toVersionID"`
+}
 
-	fromVersion, err := s.store.GetWorkflowVersionByVersionID(r.Context(), workflowID, fromVersionID)
-	if err != nil {
-		respondError(w, r, http.StatusNotFound, "from workflow version not found")
-		return
-	}
-	toVersion, err := s.store.GetWorkflowVersionByVersionID(r.Context(), workflowID, toVersionID)
-	if err != nil {
-		respondError(w, r, http.StatusNotFound, "to workflow version not found")
-		return
-	}
-	fromSteps, err := s.store.ListStepsByWorkflowVersion(r.Context(), workflowID, fromVersion.Version)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list from steps")
-		return
-	}
-	toSteps, err := s.store.ListStepsByWorkflowVersion(r.Context(), workflowID, toVersion.Version)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list to steps")
-		return
-	}
+type WorkflowVersionDiffOutput struct {
+	Body map[string]any
+}
 
+func (s *Server) handleWorkflowVersionDiff(ctx context.Context, input *WorkflowVersionDiffInput) (*WorkflowVersionDiffOutput, error) {
+	fromVersion, err := s.store.GetWorkflowVersionByVersionID(ctx, input.WorkflowID, input.FromVersionID)
+	if err != nil {
+		return nil, huma.Error404NotFound("from workflow version not found")
+	}
+	toVersion, err := s.store.GetWorkflowVersionByVersionID(ctx, input.WorkflowID, input.ToVersionID)
+	if err != nil {
+		return nil, huma.Error404NotFound("to workflow version not found")
+	}
+	fromSteps, err := s.store.ListStepsByWorkflowVersion(ctx, input.WorkflowID, fromVersion.Version)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list from steps")
+	}
+	toSteps, err := s.store.ListStepsByWorkflowVersion(ctx, input.WorkflowID, toVersion.Version)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list to steps")
+	}
 	fromMap := map[string]bool{}
 	for _, st := range fromSteps {
 		fromMap[st.StepRef] = true
@@ -113,22 +122,26 @@ func (s *Server) handleWorkflowVersionDiff(w http.ResponseWriter, r *http.Reques
 			removed = append(removed, ref)
 		}
 	}
-
-	respondJSON(w, http.StatusOK, map[string]any{"from_version_id": fromVersionID, "to_version_id": toVersionID, "added_steps": added, "removed_steps": removed})
+	return &WorkflowVersionDiffOutput{Body: map[string]any{"from_version_id": input.FromVersionID, "to_version_id": input.ToVersionID, "added_steps": added, "removed_steps": removed}}, nil
 }
 
-func (s *Server) handleWorkflowVersionImpact(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
-	versionID := chi.URLParam(r, "versionID")
-	version, err := s.store.GetWorkflowVersionByVersionID(r.Context(), workflowID, versionID)
+type WorkflowVersionImpactInput struct {
+	WorkflowID string `path:"workflowID"`
+	VersionID  string `path:"versionID"`
+}
+
+type WorkflowVersionImpactOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleWorkflowVersionImpact(ctx context.Context, input *WorkflowVersionImpactInput) (*WorkflowVersionImpactOutput, error) {
+	version, err := s.store.GetWorkflowVersionByVersionID(ctx, input.WorkflowID, input.VersionID)
 	if err != nil {
-		respondError(w, r, http.StatusNotFound, "workflow version not found")
-		return
+		return nil, huma.Error404NotFound("workflow version not found")
 	}
-	runs, err := s.store.ListWorkflowRuns(r.Context(), workflowID, 500, nil)
+	runs, err := s.store.ListWorkflowRuns(ctx, input.WorkflowID, 500, nil)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow runs")
 	}
 	pinned := 0
 	for _, run := range runs {
@@ -136,5 +149,5 @@ func (s *Server) handleWorkflowVersionImpact(w http.ResponseWriter, r *http.Requ
 			pinned++
 		}
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"version_id": versionID, "matching_runs": pinned, "sampled_runs": len(runs)})
+	return &WorkflowVersionImpactOutput{Body: map[string]any{"version_id": input.VersionID, "matching_runs": pinned, "sampled_runs": len(runs)}}, nil
 }
