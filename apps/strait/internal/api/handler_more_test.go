@@ -456,8 +456,8 @@ func TestHandleTriggerJob_IdempotencyHit(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "same-key")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (idempotent hit), got %d: %s", w.Code, w.Body.String())
 	}
 	if enqueued {
 		t.Fatal("expected enqueue to be skipped for idempotency hit")

@@ -49,8 +49,8 @@ func TestTriggerJob_StampsJobVersion(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 	if capturedRun == nil {
 		t.Fatal("expected enqueue to be called")
@@ -83,8 +83,8 @@ func TestTriggerJob_StampsVersionOne(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 	if capturedRun == nil {
 		t.Fatal("expected enqueue to be called")
@@ -117,8 +117,8 @@ func TestTriggerJob_DefaultVersionIfZero(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 	if capturedRun == nil {
 		t.Fatal("expected enqueue to be called")
@@ -152,8 +152,8 @@ func TestBulkTrigger_StampsJobVersion(t *testing.T) {
 	body := `{"items":[{},{},{}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 	if len(capturedRuns) != 3 {
 		t.Fatalf("expected 3 enqueued runs, got %d", len(capturedRuns))
@@ -189,8 +189,8 @@ func TestBulkTrigger_VersionConsistency(t *testing.T) {
 	body := `{"items":[{},{},{}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 	if len(capturedRuns) != 3 {
 		t.Fatalf("expected 3 enqueued runs, got %d", len(capturedRuns))

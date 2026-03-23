@@ -834,8 +834,8 @@ func TestHandleTriggerJob_WaitingDependencyConflictReturnsIdempotentHit(t *testi
 	r.Header.Set("X-Idempotency-Key", "same-key")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (idempotent hit), got %d: %s", w.Code, w.Body.String())
 	}
 	if !lookupCalled {
 		t.Fatal("expected idempotency lookup to be called")

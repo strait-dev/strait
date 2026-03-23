@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"strait/internal/domain"
@@ -95,31 +96,31 @@ func (s *Server) handleDeviceToken(ctx context.Context, input *DeviceTokenInput)
 	row, err := s.store.GetDeviceCodeByDeviceCode(ctx, req.DeviceCode)
 	if err != nil {
 		if errors.Is(err, store.ErrDeviceCodeNotFound) {
-			return &DeviceTokenOutput{Body: map[string]string{"error": "expired_token"}}, nil
+			return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "expired_token"}}
 		}
 		return nil, huma.Error500InternalServerError("failed to look up device code")
 	}
 	if time.Now().After(row.ExpiresAt) {
-		return &DeviceTokenOutput{Body: map[string]string{"error": "expired_token"}}, nil
+		return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "expired_token"}}
 	}
 	switch row.Status {
 	case "pending":
-		return &DeviceTokenOutput{Body: map[string]string{"error": "authorization_pending"}}, nil
+		return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "authorization_pending"}}
 	case "approved":
 		rawKey := row.RawAPIKey
 		projectID := row.ProjectID
 		_, exchangeErr := s.store.ExchangeDeviceCode(ctx, req.DeviceCode)
 		if exchangeErr != nil {
 			if errors.Is(exchangeErr, store.ErrDeviceCodeNotFound) {
-				return &DeviceTokenOutput{Body: map[string]string{"error": "token_already_exchanged"}}, nil
+				return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "token_already_exchanged"}}
 			}
 			return nil, huma.Error500InternalServerError("failed to exchange device code")
 		}
 		return &DeviceTokenOutput{Body: deviceTokenResponse{APIKey: rawKey, ProjectID: projectID, Scopes: row.Scopes}}, nil
 	case "used":
-		return &DeviceTokenOutput{Body: map[string]string{"error": "token_already_exchanged"}}, nil
+		return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "token_already_exchanged"}}
 	default:
-		return &DeviceTokenOutput{Body: map[string]string{"error": "expired_token"}}, nil
+		return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "expired_token"}}
 	}
 }
 

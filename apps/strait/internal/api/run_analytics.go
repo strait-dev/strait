@@ -78,6 +78,10 @@ func (s *Server) handleRunFailureReasons(ctx context.Context, input *RunFailureR
 	}
 	limit := input.Limit
 	if limit == 0 {
+		r := requestFromContext(ctx)
+		if r != nil && r.URL.Query().Has("limit") {
+			return nil, huma.Error400BadRequest("limit must be between 1 and 100")
+		}
 		limit = 10
 	}
 	if limit < 1 || limit > 100 {

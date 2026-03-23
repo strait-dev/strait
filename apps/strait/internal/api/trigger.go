@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"time"
 
 	"strait/internal/domain"
@@ -85,7 +86,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		if err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
-		return &TriggerJobOutput{Body: result}, nil
+		return nil, &rawStatusError{status: http.StatusOK, body: result}
 	}
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
 		return nil, huma.Error400BadRequest("payload validation failed: " + err.Error())
@@ -119,11 +120,11 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 				"idempotency_key", idempotencyKey,
 				"existing_run_id", existingRun.ID,
 				"existing_run_status", existingRun.Status)
-			return &TriggerJobOutput{Body: map[string]any{
+			return nil, &rawStatusError{status: http.StatusOK, body: map[string]any{
 				"id":              existingRun.ID,
 				"status":          existingRun.Status,
 				"idempotency_hit": true,
-			}}, nil
+			}}
 		}
 	}
 
@@ -415,11 +416,11 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 							"job_id", job.ID,
 							"idempotency_key", idempotencyKey,
 							"winning_run_id", existingRun.ID)
-						return &TriggerJobOutput{Body: map[string]any{
+						return nil, &rawStatusError{status: http.StatusOK, body: map[string]any{
 							"id":              existingRun.ID,
 							"status":          existingRun.Status,
 							"idempotency_hit": true,
-						}}, nil
+						}}
 					}
 					slog.Error("idempotency conflict retry returned nil",
 						"job_id", job.ID,
@@ -455,11 +456,11 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 					"job_id", job.ID,
 					"idempotency_key", idempotencyKey,
 					"winning_run_id", existingRun.ID)
-				return &TriggerJobOutput{Body: map[string]any{
+				return nil, &rawStatusError{status: http.StatusOK, body: map[string]any{
 					"id":              existingRun.ID,
 					"status":          existingRun.Status,
 					"idempotency_hit": true,
-				}}, nil
+				}}
 			}
 			slog.Error("idempotency conflict retry returned nil",
 				"job_id", job.ID,

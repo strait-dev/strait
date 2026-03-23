@@ -46,8 +46,8 @@ func TestIdempotency_XHeader_ReturnsExistingRun(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "my-key-1")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	if enqueued {
 		t.Fatal("expected enqueue to be skipped for idempotency hit")
@@ -82,8 +82,8 @@ func TestIdempotency_StandardHeader_ReturnsExistingRun(t *testing.T) {
 	r.Header.Set("Idempotency-Key", "standard-key")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	if !lookupCalled {
 		t.Fatal("expected idempotency lookup to be called via standard header")
@@ -116,8 +116,8 @@ func TestIdempotency_XHeaderTakesPrecedenceOverStandard(t *testing.T) {
 	r.Header.Set("Idempotency-Key", "standard-key")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	if capturedKey != "x-key" {
 		t.Fatalf("expected X-Idempotency-Key to take precedence, got key=%q", capturedKey)
@@ -332,8 +332,8 @@ func TestIdempotency_HitReturnsCurrentStatus(t *testing.T) {
 			r.Header.Set("X-Idempotency-Key", "key-"+string(status))
 			srv.ServeHTTP(w, r)
 
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 			}
 
 			var resp map[string]any
@@ -383,8 +383,8 @@ func TestIdempotency_ScopedPerJob(t *testing.T) {
 	r2.Header.Set("X-Idempotency-Key", "shared-key")
 	srv.ServeHTTP(w2, r2)
 
-	if w1.Code != http.StatusCreated || w2.Code != http.StatusCreated {
-		t.Fatalf("expected both 201, got %d and %d", w1.Code, w2.Code)
+	if w1.Code != http.StatusOK || w2.Code != http.StatusCreated {
+		t.Fatalf("expected 200 (hit) and 201 (new), got %d and %d", w1.Code, w2.Code)
 	}
 
 	var resp1, resp2 map[string]any
@@ -553,8 +553,8 @@ func TestIdempotency_HitBypassesRateLimitCheck(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	// Idempotency hit returns cached run; rate limit is never checked
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 (idempotency before rate limit), got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (idempotency before rate limit), got %d: %s", w.Code, w.Body.String())
 	}
 	if rateLimitCalled {
 		t.Fatal("rate limit should not be checked when idempotency hits")
@@ -592,8 +592,8 @@ func TestIdempotency_HitBeforeDedupCheck(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "idem-before-dedup")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	if dedupCalled {
 		t.Fatal("expected dedup to be skipped when idempotency hits")
@@ -629,8 +629,8 @@ func TestIdempotency_HitBypassesProjectQuotaCheck(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	// Idempotency hit returns cached run; quota is never checked
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 (idempotency before quota), got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (idempotency before quota), got %d: %s", w.Code, w.Body.String())
 	}
 	if quotaCalled {
 		t.Fatal("quota should not be checked when idempotency hits")
@@ -664,8 +664,8 @@ func TestIdempotency_WithScheduledRun(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "delayed-key")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
 	var resp map[string]any
@@ -701,8 +701,8 @@ func TestIdempotency_WithDifferentPayloads(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "same-key")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
 	var resp map[string]any
@@ -1137,8 +1137,8 @@ func TestIdempotency_SequentialTriggersReturnSameRun(t *testing.T) {
 	r2.Header.Set("X-Idempotency-Key", "seq-key")
 	srv.ServeHTTP(w2, r2)
 
-	if w2.Code != http.StatusCreated {
-		t.Fatalf("second trigger: expected 201, got %d", w2.Code)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("second trigger: expected 200, got %d", w2.Code)
 	}
 	if enqueueCount != 1 {
 		t.Fatalf("expected still 1 enqueue after second trigger, got %d", enqueueCount)
@@ -1156,8 +1156,8 @@ func TestIdempotency_SequentialTriggersReturnSameRun(t *testing.T) {
 	r3.Header.Set("X-Idempotency-Key", "seq-key")
 	srv.ServeHTTP(w3, r3)
 
-	if w3.Code != http.StatusCreated {
-		t.Fatalf("third trigger: expected 201, got %d", w3.Code)
+	if w3.Code != http.StatusOK {
+		t.Fatalf("third trigger: expected 200, got %d", w3.Code)
 	}
 	if enqueueCount != 1 {
 		t.Fatalf("expected still 1 enqueue after third trigger, got %d", enqueueCount)
@@ -1191,8 +1191,8 @@ func TestIdempotency_ExecutionWindowDoesNotApplyOnHit(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "window-key")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	var resp map[string]any
@@ -1266,8 +1266,8 @@ func TestIdempotency_HitBypassesCostBudgetCheck(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	// Idempotency hit returns cached run; cost budget is never checked
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 (idempotency before cost budget), got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (idempotency before cost budget), got %d: %s", w.Code, w.Body.String())
 	}
 	if costCalled {
 		t.Fatal("cost budget should not be checked when idempotency hits")
@@ -1399,8 +1399,8 @@ func TestIdempotency_EnqueueUniqueViolation_RetriesLookup(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "race-key")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 after conflict retry, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 after conflict retry, got %d: %s", w.Code, w.Body.String())
 	}
 	if lookupCount != 2 {
 		t.Fatalf("expected 2 lookups (initial miss + retry), got %d", lookupCount)
@@ -1731,8 +1731,8 @@ func TestIdempotency_NonTerminalRunStillReturnsHit(t *testing.T) {
 			r.Header.Set("X-Idempotency-Key", "active-"+string(status))
 			srv.ServeHTTP(w, r)
 
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201, got %d", w.Code)
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", w.Code)
 			}
 			if enqueued {
 				t.Fatal("should NOT enqueue when store returns a non-terminal run")
@@ -1823,8 +1823,8 @@ func TestIdempotency_HitSkipsAllDownstreamWork(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "fast-path-key")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	if dedupCalled {
 		t.Error("dedup should be skipped on idempotency hit")
@@ -1974,8 +1974,8 @@ func TestIdempotency_HitIgnoresNewPriority(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "priority-hit-key")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
 	var resp map[string]any
@@ -2177,8 +2177,8 @@ func TestIdempotency_HitAlwaysReturns201(t *testing.T) {
 		r.Header.Set("X-Idempotency-Key", "consistent-key")
 		srv.ServeHTTP(w, r)
 
-		if w.Code != http.StatusCreated {
-			t.Fatalf("attempt %d: expected 201, got %d", i, w.Code)
+		if w.Code != http.StatusOK {
+			t.Fatalf("attempt %d: expected 200, got %d", i, w.Code)
 		}
 	}
 }
@@ -2203,8 +2203,8 @@ func TestIdempotency_WorksWithAPIKeyAuth(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "api-key-auth-test")
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
@@ -2361,11 +2361,12 @@ func TestIdempotency_BodyFieldIdempotencyKeyRejected(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	// Body has idempotency_key — rejected by strict JSON decoding.
+	// Body has idempotency_key — this field is unknown but TypedHandler
+	// silently ignores unknown fields (idempotency_key must be sent via header).
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"idempotency_key":"body-key"}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for unknown body field, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 (unknown body field ignored), got %d: %s", w.Code, w.Body.String())
 	}
 }
 

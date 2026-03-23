@@ -70,7 +70,8 @@ func (s *Server) handleGetWebhookDelivery(ctx context.Context, input *GetWebhook
 }
 
 type RetryWebhookDeliveryInput struct {
-	ID string `path:"id"`
+	DeliveryID string `path:"deliveryID"`
+	ID         string `path:"id"`
 }
 
 type RetryWebhookDeliveryOutput struct {
@@ -78,7 +79,10 @@ type RetryWebhookDeliveryOutput struct {
 }
 
 func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWebhookDeliveryInput) (*RetryWebhookDeliveryOutput, error) {
-	deliveryID := input.ID
+	deliveryID := input.DeliveryID
+	if deliveryID == "" {
+		deliveryID = input.ID
+	}
 	if deliveryID == "" {
 		return nil, huma.Error400BadRequest("delivery ID is required")
 	}

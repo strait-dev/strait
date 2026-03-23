@@ -25,6 +25,9 @@ func (s *Server) handleGetPerformanceAnalytics(ctx context.Context, input *Perfo
 
 	periodHours := input.PeriodHours
 	if periodHours == 0 {
+		if r := requestFromContext(ctx); r != nil && r.URL.Query().Has("period_hours") {
+			return nil, huma.Error400BadRequest("period_hours must be between 1 and 720")
+		}
 		periodHours = 24
 	}
 	if periodHours < 1 || periodHours > 720 {

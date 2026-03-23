@@ -26,6 +26,10 @@ func (s *Server) handleTagSummary(ctx context.Context, input *TagSummaryInput) (
 	}
 	limit := input.Limit
 	if limit == 0 {
+		r := requestFromContext(ctx)
+		if r != nil && r.URL.Query().Has("limit") {
+			return nil, huma.Error400BadRequest("limit must be between 1 and 500")
+		}
 		limit = 50
 	}
 	if limit < 1 || limit > 500 {
@@ -56,6 +60,10 @@ func (s *Server) handleTopFailingTags(ctx context.Context, input *TopFailingTags
 	}
 	limit := input.Limit
 	if limit == 0 {
+		r := requestFromContext(ctx)
+		if r != nil && r.URL.Query().Has("limit") {
+			return nil, huma.Error400BadRequest("limit must be between 1 and 100")
+		}
 		limit = 10
 	}
 	if limit < 1 || limit > 100 {
@@ -86,6 +94,10 @@ func (s *Server) handleTagCost(ctx context.Context, input *TagCostInput) (*TagCo
 	}
 	limit := input.Limit
 	if limit == 0 {
+		r := requestFromContext(ctx)
+		if r != nil && r.URL.Query().Has("limit") {
+			return nil, huma.Error400BadRequest("limit must be between 1 and 500")
+		}
 		limit = 50
 	}
 	if limit < 1 || limit > 500 {

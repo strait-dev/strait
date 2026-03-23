@@ -142,6 +142,12 @@ func setStringField(fv reflect.Value, val string) error {
 			return err
 		}
 		fv.SetInt(n)
+	case reflect.Float64:
+		f, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			return err
+		}
+		fv.SetFloat(f)
 	case reflect.Bool:
 		b, err := strconv.ParseBool(val)
 		if err != nil {
