@@ -299,12 +299,13 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 }
 
 // DecrDailyRunCount decrements the daily run counter (for rollback on failure).
+// Uses decrFloorScript to prevent negative values from double-decrements.
 func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 	if orgID == "" || e.rdb == nil {
 		return
 	}
 	key := fmt.Sprintf("strait:org_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01-02"))
-	if err := e.rdb.Decr(ctx, key).Err(); err != nil {
+	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
 		e.logger.Warn("failed to decrement org run counter", "org_id", orgID, "error", err)
 	}
 }
@@ -369,12 +370,13 @@ func (e *Enforcer) CheckManagedRunLimit(ctx context.Context, orgID string) error
 }
 
 // DecrManagedRunCount decrements the monthly managed run counter (for rollback on failure).
+// Uses decrFloorScript to prevent negative values from double-decrements.
 func (e *Enforcer) DecrManagedRunCount(ctx context.Context, orgID string) {
 	if orgID == "" || e.rdb == nil {
 		return
 	}
 	key := fmt.Sprintf("strait:org_managed_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01"))
-	if err := e.rdb.Decr(ctx, key).Err(); err != nil {
+	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
 		e.logger.Warn("failed to decrement managed run counter", "org_id", orgID, "error", err)
 	}
 }
@@ -920,6 +922,8 @@ func (e *Enforcer) Check80PercentDailyRunWarning(ctx context.Context, orgID stri
 
 // CheckProjectSuspended checks if a project is suspended due to plan downgrade.
 // Returns ErrProjectSuspended if the project has been soft-locked.
+// TODO: Cache non-suspended results with a short TTL (e.g. 30s) to avoid a DB
+// round-trip on every dispatch. The otter cache is a natural fit once wired here.
 func (e *Enforcer) CheckProjectSuspended(ctx context.Context, projectID string) error {
 	if projectID == "" {
 		return nil

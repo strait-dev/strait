@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"net/http"
 
@@ -239,9 +240,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 // orgAdvisoryLockID returns a deterministic int64 hash of the org ID for use
 // as a pg_advisory_xact_lock key, serializing per-org project creation.
 func orgAdvisoryLockID(orgID string) int64 {
-	var h int64
-	for _, c := range orgID {
-		h = h*31 + int64(c)
-	}
-	return h
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(orgID))
+	return int64(h.Sum64()) //nolint:gosec // advisory lock IDs can wrap
 }

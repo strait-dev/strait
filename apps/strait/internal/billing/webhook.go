@@ -94,7 +94,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify webhook signature when a secret is configured.
-	// In production, the secret MUST be set via POLAR_WEBHOOK_SECRET.
+	// In production, the secret MUST be set via POLAR_API_WEBHOOK_SECRET.
 	// An empty secret bypasses verification (logged as warning on each request).
 	if h.secret != "" {
 		if !h.verifySignature(body, r) {

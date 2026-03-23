@@ -215,6 +215,8 @@ export const auth = betterAuth({
               user.id,
               err
             );
+            // TODO: Add Sentry capture and reconciliation job for users
+            // that end up without an organization due to this failure.
           }
         },
       },

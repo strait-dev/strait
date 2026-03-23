@@ -204,12 +204,14 @@ func (c *Client) doRequest(ctx context.Context, method, endpointPath string, bod
 		return req, nil
 	}
 
+	// failsafe-go evaluates policies outermost-first: circuit breaker should be
+	// first (outermost) so it short-circuits before retry attempts are wasted.
 	var policies []failsafe.Policy[*http.Response]
-	if c.retryPolicy != nil {
-		policies = append(policies, c.retryPolicy)
-	}
 	if c.circuitBreaker != nil {
 		policies = append(policies, c.circuitBreaker)
+	}
+	if c.retryPolicy != nil {
+		policies = append(policies, c.retryPolicy)
 	}
 	if len(policies) > 0 {
 		return failsafe.With[*http.Response](policies...).WithContext(ctx).GetWithExecution(func(exec failsafe.Execution[*http.Response]) (*http.Response, error) {

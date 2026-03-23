@@ -598,6 +598,13 @@ func (s *Server) handleListReferrals(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCheckOrgLimit(w http.ResponseWriter, r *http.Request) {
+	// Org limit checks are an internal-only operation; API key callers must not
+	// be able to probe arbitrary user_ids.
+	if scopesFromContext(r.Context()) != nil {
+		respondError(w, r, http.StatusForbidden, "org limit check requires internal secret")
+		return
+	}
+
 	if s.billingEnforcer == nil {
 		respondJSON(w, http.StatusOK, map[string]string{"status": "allowed"})
 		return

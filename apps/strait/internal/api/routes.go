@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -101,6 +102,7 @@ func (s *Server) routes() chi.Router {
 	humaRouter := chi.NewRouter()
 	s.humaAPI = humachi.New(humaRouter, humaConfig)
 	s.registerHumaOperations(s.humaAPI)
+	s.cachedOpenAPISpec, _ = s.humaAPI.OpenAPI().MarshalJSON()
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
@@ -109,6 +111,7 @@ func (s *Server) routes() chi.Router {
 	}
 
 	if s.config.DebugStatsviz {
+		slog.Warn("statsviz debug endpoints enabled at /debug/statsviz/ -- disable in production")
 		debug.MountDebugRoutes(r)
 	}
 

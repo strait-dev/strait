@@ -111,6 +111,11 @@ func (s *OtterStore) Set(ctx context.Context, key any, value any, options ...lib
 	return nil
 }
 
+// setTags associates a cache key with one or more tags for bulk invalidation.
+// NOTE: Tag bookkeeping is not fully concurrency-safe -- the read-modify-write
+// on the tag map can lose updates under concurrent writers. This is acceptable
+// because no current cache site uses tags. If tags are needed in the future,
+// protect the whole read-modify-write with s.mu or use a sync.Map per tag.
 func (s *OtterStore) setTags(ctx context.Context, key any, tags []string) {
 	for _, tag := range tags {
 		tagKey := fmt.Sprintf(OtterTagPattern, tag)

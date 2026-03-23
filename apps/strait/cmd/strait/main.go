@@ -417,6 +417,10 @@ func runServe(ctx context.Context, modeOverride string) error {
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default())
 	}
 
+	if (cfg.BillingEnforcementEnabled || cfg.PolarWebhookSecret != "") && cfg.PolarWebhookSecret == "" {
+		slog.Warn("POLAR_API_WEBHOOK_SECRET is empty -- Polar webhook signature verification is DISABLED")
+	}
+
 	startCDCConsumer(g, cfg, pub)
 	startWebhookWorker(g, cfg, eventNotifier)
 	startNotificationWorker(g, cfg, queries, metrics)

@@ -482,6 +482,7 @@ type Server struct {
 	chExporter         *clickhouse.Exporter
 	edition            domain.Edition
 	humaAPI            huma.API
+	cachedOpenAPISpec  []byte
 }
 
 // analytics returns the ClickHouse analytics store when available, falling back to Postgres.
@@ -902,10 +903,9 @@ func (s *Server) validateRequest(w http.ResponseWriter, r *http.Request, v any) 
 }
 
 func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
-	// Serve Scalar API reference using the Huma-generated OpenAPI spec.
-	specBytes, _ := s.humaAPI.OpenAPI().MarshalJSON()
+	// Serve Scalar API reference using the cached OpenAPI spec.
 	htmlContent, err := scalar.ApiReferenceHTML(&scalar.Options{
-		SpecContent: string(specBytes),
+		SpecContent: string(s.cachedOpenAPISpec),
 		CustomOptions: scalar.CustomOptions{
 			PageTitle: "Strait API",
 		},
@@ -920,8 +920,7 @@ func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
-	// Serve the Huma-generated OpenAPI spec as JSON.
-	specBytes, _ := s.humaAPI.OpenAPI().MarshalJSON()
+	// Serve the cached OpenAPI spec as JSON.
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(specBytes)
+	_, _ = w.Write(s.cachedOpenAPISpec)
 }

@@ -1,3 +1,6 @@
+// NOTE: This file contains all Huma operation registrations. Consider splitting
+// into domain-specific files (huma_ops_jobs.go, huma_ops_runs.go, etc.) if it
+// becomes difficult to navigate.
 package api
 
 import (

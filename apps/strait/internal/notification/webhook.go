@@ -118,6 +118,7 @@ func (w *WebhookSender) Send(ctx context.Context, channel *domain.NotificationCh
 		return fmt.Errorf("send webhook notification: %w", err)
 	}
 	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)

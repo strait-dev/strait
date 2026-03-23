@@ -152,7 +152,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 		if orgErr != nil {
 			e.logger.Warn("failed to resolve org for billing check",
-				"run_id", run.ID, "error", orgErr)
+				"run_id", run.ID, "error", orgErr, "fail_open", true)
 		}
 		if orgID != "" {
 			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
@@ -373,7 +373,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 		if orgErr != nil {
 			e.logger.Warn("failed to resolve org for managed billing check",
-				"run_id", run.ID, "error", orgErr)
+				"run_id", run.ID, "error", orgErr, "fail_open", true)
 		}
 		if orgID != "" {
 			if err := e.billingEnforcer.CheckManagedRunLimit(ctx, orgID); err != nil {
