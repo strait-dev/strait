@@ -95,11 +95,12 @@ func (s *Server) routes() chi.Router {
 			Description: "Internal service-to-service authentication",
 		},
 	}
-	humaConfig.DocsPath = ""    // disable default /docs (we use Scalar)
-	humaConfig.OpenAPIPath = "" // we serve the spec ourselves
-	api := humachi.New(r, humaConfig)
-	s.humaAPI = api
-	_ = api // suppress unused warning during incremental migration
+	humaConfig.DocsPath = ""
+	humaConfig.OpenAPIPath = ""
+	// Separate Huma router for OpenAPI generation only.
+	humaRouter := chi.NewRouter()
+	s.humaAPI = humachi.New(humaRouter, humaConfig)
+	s.registerHumaOperations(s.humaAPI)
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
