@@ -324,16 +324,12 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		return fmt.Errorf("getting existing subscription: %w", existErr)
 	}
 
-	isDowngrade := false
+	isDowngradeChange := false
 	if existing != nil && existing.PlanTier != string(tier) {
-		currentLimits := GetPlanLimits(domain.PlanTier(existing.PlanTier))
-		newLimits := GetPlanLimits(tier)
-		isDowngrade = newLimits.MaxRunsPerDay < currentLimits.MaxRunsPerDay ||
-			newLimits.MaxProjectsPerOrg < currentLimits.MaxProjectsPerOrg ||
-			newLimits.ComputeCreditMicrousd < currentLimits.ComputeCreditMicrousd
+		isDowngradeChange = IsDowngrade(domain.PlanTier(existing.PlanTier), tier)
 	}
 
-	if isDowngrade {
+	if isDowngradeChange {
 		// Defer the downgrade: store the pending tier for end-of-period application.
 		if err := h.store.SetPendingPlanTier(ctx, orgID, string(tier)); err != nil {
 			return fmt.Errorf("setting pending plan tier: %w", err)
