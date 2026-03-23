@@ -141,6 +141,14 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	// Billing enforcement: daily and concurrent run limits apply to ALL dispatch modes.
 	// Managed-only limits (managed run cap, spending) are checked in managedDispatch.
 	if e.billingEnforcer != nil {
+		// Check if the project is suspended due to a plan downgrade.
+		if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
+			e.logger.Warn("project suspended",
+				"run_id", run.ID, "project_id", job.ProjectID, "error", err)
+			e.handleSystemFailure(ctx, run, err.Error())
+			return
+		}
+
 		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 		if orgErr != nil {
 			e.logger.Warn("failed to resolve org for billing check",

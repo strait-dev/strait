@@ -37,6 +37,10 @@ func (m *mockDowngradeStore) ApplyPendingDowngrade(_ context.Context, orgID stri
 	return nil
 }
 
+func (m *mockDowngradeStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
+	return 0, nil
+}
+
 func newTestEnforcer(t *testing.T) *billing.Enforcer {
 	t.Helper()
 	mr := miniredis.RunT(t)
@@ -137,6 +141,15 @@ func (m *mockEnforcerStore) ListOrgsInGracePeriod(_ context.Context) ([]billing.
 }
 func (m *mockEnforcerStore) ListAllSubscribedOrgIDs(_ context.Context) ([]string, error) {
 	return nil, nil
+}
+func (m *mockEnforcerStore) ListStaleSubscriptions(_ context.Context) ([]billing.OrgSubscription, error) {
+	return nil, nil
+}
+func (m *mockEnforcerStore) IsProjectSuspended(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+func (m *mockEnforcerStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
+	return 0, nil
 }
 
 func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {

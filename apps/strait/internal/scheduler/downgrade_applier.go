@@ -6,12 +6,14 @@ import (
 	"time"
 
 	"strait/internal/billing"
+	"strait/internal/domain"
 )
 
 // DowngradeApplierStore defines the store operations needed by the downgrade applier.
 type DowngradeApplierStore interface {
 	ListOrgsWithPendingDowngrade(ctx context.Context) ([]billing.OrgSubscription, error)
 	ApplyPendingDowngrade(ctx context.Context, orgID string) error
+	SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error)
 }
 
 // Advisory lock ID for the downgrade applier (arbitrary unique constant).
@@ -91,6 +93,27 @@ func (d *DowngradeApplier) apply(ctx context.Context) {
 
 		if d.enforcer != nil {
 			d.enforcer.InvalidateOrgCache(sub.OrgID)
+		}
+
+		// Suspend excess projects if the new plan has a lower project limit.
+		if sub.PendingPlanTier != nil {
+			newLimits := billing.GetPlanLimits(domain.PlanTier(*sub.PendingPlanTier))
+			if newLimits.MaxProjectsPerOrg != -1 {
+				suspended, suspendErr := d.store.SuspendExcessProjects(ctx, sub.OrgID, newLimits.MaxProjectsPerOrg)
+				if suspendErr != nil {
+					slog.Warn("failed to suspend excess projects after downgrade",
+						"org_id", sub.OrgID,
+						"max_projects", newLimits.MaxProjectsPerOrg,
+						"error", suspendErr,
+					)
+				} else if suspended > 0 {
+					slog.Info("suspended excess projects after plan downgrade",
+						"org_id", sub.OrgID,
+						"suspended_count", suspended,
+						"max_projects", newLimits.MaxProjectsPerOrg,
+					)
+				}
+			}
 		}
 
 		slog.Info("applied pending downgrade",
