@@ -438,13 +438,24 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 	return nil
 }
 
+// decrFloorScript decrements a counter but floors at zero to prevent negative values
+// from double-decrements or decrements after reconciler resets.
+var decrFloorScript = redis.NewScript(`
+local current = redis.call('GET', KEYS[1])
+if current and tonumber(current) > 0 then
+    return redis.call('DECR', KEYS[1])
+end
+return 0
+`)
+
 // DecrConcurrentRunCount decrements the concurrent run counter (call when a run finishes).
+// Uses a Lua script to floor at zero, preventing negative values from double-decrements.
 func (e *Enforcer) DecrConcurrentRunCount(ctx context.Context, orgID string) {
 	if orgID == "" || e.rdb == nil {
 		return
 	}
 	key := fmt.Sprintf("strait:org_concurrent:%s", orgID)
-	if err := e.rdb.Decr(ctx, key).Err(); err != nil {
+	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
 		e.logger.Warn("failed to decrement concurrent run counter", "org_id", orgID, "error", err)
 	}
 }
