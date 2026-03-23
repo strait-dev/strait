@@ -138,6 +138,33 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	policy = resolved
 
+	// Billing enforcement: daily and concurrent run limits apply to ALL dispatch modes.
+	// Managed-only limits (managed run cap, spending) are checked in managedDispatch.
+	if e.billingEnforcer != nil {
+		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+		if orgErr != nil {
+			e.logger.Warn("failed to resolve org for billing check",
+				"run_id", run.ID, "error", orgErr)
+		}
+		if orgID != "" {
+			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org daily run limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.handleSystemFailure(ctx, run, err.Error())
+				return
+			}
+			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org concurrent run limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+				e.handleSystemFailure(ctx, run, err.Error())
+				return
+			}
+			decrCtx := context.WithoutCancel(ctx)
+			defer e.billingEnforcer.DecrConcurrentRunCount(decrCtx, orgID)
+		}
+	}
+
 	// Route based on execution mode.
 	switch job.ExecutionMode {
 	case domain.ExecutionModeManaged:
@@ -331,49 +358,27 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		return
 	}
 
-	// 2. Org-level billing enforcement (cloud only, gated by BillingEnforcer).
-	// Runs before the semaphore to avoid holding a machine slot during rejection.
+	// 2. Managed-specific billing enforcement (cloud only).
+	// Daily + concurrent limits are already checked in executeInner (shared path).
+	// Here we only check managed run cap (free tier) and spending limit (compute credits).
 	if e.billingEnforcer != nil {
 		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 		if orgErr != nil {
-			e.logger.Warn("failed to resolve org for billing check",
+			e.logger.Warn("failed to resolve org for managed billing check",
 				"run_id", run.ID, "error", orgErr)
 		}
 		if orgID != "" {
-			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
-				e.logger.Warn("org daily run limit exceeded",
-					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.handleSystemFailure(ctx, run, err.Error())
-				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
-				return
-			}
 			if err := e.billingEnforcer.CheckManagedRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org managed run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
 				e.handleSystemFailure(ctx, run, err.Error())
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
 			}
-			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
-				e.logger.Warn("org concurrent run limit exceeded",
-					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
-				e.billingEnforcer.DecrManagedRunCount(ctx, orgID)
-				e.handleSystemFailure(ctx, run, err.Error())
-				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
-				return
-			}
-			// Concurrent run was counted; ensure decrement on any exit path.
-			// Use WithoutCancel so the DECR reaches Redis even if the parent
-			// context is canceled before this defer executes.
-			decrCtx := context.WithoutCancel(ctx)
-			defer e.billingEnforcer.DecrConcurrentRunCount(decrCtx, orgID)
-
 			if err := e.billingEnforcer.CheckSpendingLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org spending limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+				e.billingEnforcer.DecrManagedRunCount(ctx, orgID)
 				e.handleSystemFailure(ctx, run, err.Error())
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
