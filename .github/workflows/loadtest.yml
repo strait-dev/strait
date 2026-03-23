@@ -33,7 +33,7 @@ jobs:
   # Vegeta HTTP load tests — split by domain, run in parallel via matrix
   # ---------------------------------------------------------------------------
   vegeta:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -102,7 +102,7 @@ jobs:
   # Quick validation — capacity framework smoke test
   # ---------------------------------------------------------------------------
   quick-validation:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     name: "capacity / Quick Validation"
     services:
@@ -195,7 +195,7 @@ jobs:
   # Integration load tests — split into two parallel jobs
   # ---------------------------------------------------------------------------
   integration-queue-store:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     name: "integration / Queue, Store, Rate Limit"
     steps:
@@ -240,7 +240,7 @@ jobs:
             apps/strait/integration-queue-store-summary.md
 
   integration-pipeline:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     name: "integration / Pipeline, Worker, Webhook, Workflow"
     steps:
