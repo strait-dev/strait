@@ -110,6 +110,7 @@ func runHook(ctx context.Context, binPath string, stdinData []byte, timeout time
 	cmd.Stdin = strings.NewReader(string(stdinData))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.WaitDelay = 3 * time.Second
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
