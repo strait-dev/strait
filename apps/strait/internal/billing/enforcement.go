@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"strait/internal/domain"
@@ -49,13 +50,14 @@ func (e *LimitError) Error() string {
 
 // Enforcer checks org-level billing limits before allowing operations.
 type Enforcer struct {
-	store       Store
-	rdb         redis.Cmdable
-	logger      *slog.Logger
-	metrics     *telemetry.Metrics
-	orgCache    *cache.Cache[*cachedOrgLimits]
-	limitsGroup singleflight.Group
-	cacheTTL    time.Duration
+	store          Store
+	rdb            redis.Cmdable
+	logger         *slog.Logger
+	metrics        *telemetry.Metrics
+	orgCache       *cache.Cache[*cachedOrgLimits]
+	limitsGroup    singleflight.Group
+	cacheTTL       time.Duration
+	suspendedCache sync.Map // projectID -> *suspendedCacheEntry
 }
 
 type cachedOrgLimits struct {
@@ -920,21 +922,50 @@ func (e *Enforcer) Check80PercentDailyRunWarning(ctx context.Context, orgID stri
 	return count >= threshold, nil
 }
 
+// suspendedCacheEntry stores a cached suspension check result.
+type suspendedCacheEntry struct {
+	suspended bool
+	checkedAt time.Time
+}
+
+const suspendedCacheTTL = 30 * time.Second
+
 // CheckProjectSuspended checks if a project is suspended due to plan downgrade.
 // Returns ErrProjectSuspended if the project has been soft-locked.
-// TODO: Cache non-suspended results with a short TTL (e.g. 30s) to avoid a DB
-// round-trip on every dispatch. The otter cache is a natural fit once wired here.
+// Results are cached for 30 seconds to avoid a DB round-trip on every dispatch.
 func (e *Enforcer) CheckProjectSuspended(ctx context.Context, projectID string) error {
 	if projectID == "" {
 		return nil
+	}
+
+	// Check in-memory cache first.
+	if cached, ok := e.suspendedCache.Load(projectID); ok {
+		entry := cached.(*suspendedCacheEntry)
+		if time.Since(entry.checkedAt) < suspendedCacheTTL {
+			if entry.suspended {
+				return &LimitError{
+					Code:       "project_suspended",
+					Message:    "This project is suspended due to a plan downgrade. Upgrade your plan or remove excess projects to restore access.",
+					UpgradeURL: "/upgrade",
+				}
+			}
+			return nil
+		}
 	}
 
 	suspended, err := e.store.IsProjectSuspended(ctx, projectID)
 	if err != nil {
 		e.logger.Warn("failed to check project suspended status",
 			"project_id", projectID, "error", err)
+		e.recordFailOpen(ctx, "project_suspended", "db_error")
 		return nil // fail open
 	}
+
+	// Cache the result.
+	e.suspendedCache.Store(projectID, &suspendedCacheEntry{
+		suspended: suspended,
+		checkedAt: time.Now(),
+	})
 
 	if suspended {
 		return &LimitError{
@@ -945,6 +976,12 @@ func (e *Enforcer) CheckProjectSuspended(ctx context.Context, projectID string) 
 	}
 
 	return nil
+}
+
+// InvalidateProjectSuspendedCache clears the suspended status cache for a project.
+// Call this after changing a project's suspended status.
+func (e *Enforcer) InvalidateProjectSuspendedCache(projectID string) {
+	e.suspendedCache.Delete(projectID)
 }
 
 // SuspendExcessProjects suspends projects that exceed the plan limit for an org,
