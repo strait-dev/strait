@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -36,38 +37,78 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.billingEnforcer != nil {
-		if err := s.billingEnforcer.CheckProjectLimit(r.Context(), req.OrgID); err != nil {
-			var le *billing.LimitError
-			if errors.As(err, &le) {
-				respondError(w, r, http.StatusForbidden, le)
-				return
-			}
-			slog.Error("failed to check project limit", "error", err)
-			respondError(w, r, http.StatusInternalServerError, "failed to check project limit")
-			return
-		}
-
-		// Ensure the org has a subscription row (lazy init for free tier).
-		if err := s.billingEnforcer.EnsureOrgSubscription(r.Context(), req.OrgID); err != nil {
-			slog.Warn("failed to ensure org subscription", "org_id", req.OrgID, "error", err)
-		}
-	}
-
 	project := &domain.Project{
 		ID:    req.ID,
 		OrgID: req.OrgID,
 		Name:  req.Name,
 	}
 
-	if err := s.store.CreateProject(r.Context(), project); err != nil {
-		slog.Error("failed to create project", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to create project")
-		return
-	}
+	// Serialize project creation per org using an advisory lock inside a
+	// transaction so the limit check and insert are atomic.
+	if s.txPool != nil && s.billingEnforcer != nil {
+		txErr := store.WithTx(r.Context(), s.txPool, func(q *store.Queries) error {
+			// Advisory lock keyed on org_id to serialize concurrent creates.
+			if err := q.AdvisoryXactLock(r.Context(), orgAdvisoryLockID(req.OrgID)); err != nil {
+				return fmt.Errorf("advisory lock: %w", err)
+			}
 
-	if err := s.store.SeedProjectSystemRoles(r.Context(), project.ID); err != nil {
-		slog.Error("failed to seed system roles for project", "project_id", project.ID, "error", err)
+			if err := s.billingEnforcer.CheckProjectLimit(r.Context(), req.OrgID); err != nil {
+				return err
+			}
+
+			// Ensure the org has a subscription row (lazy init for free tier).
+			if subErr := s.billingEnforcer.EnsureOrgSubscription(r.Context(), req.OrgID); subErr != nil {
+				slog.Warn("failed to ensure org subscription", "org_id", req.OrgID, "error", subErr)
+			}
+
+			if err := q.CreateProject(r.Context(), project); err != nil {
+				return fmt.Errorf("create project: %w", err)
+			}
+
+			if err := q.SeedProjectSystemRoles(r.Context(), project.ID); err != nil {
+				slog.Error("failed to seed system roles for project", "project_id", project.ID, "error", err)
+			}
+
+			return nil
+		})
+		if txErr != nil {
+			var le *billing.LimitError
+			if errors.As(txErr, &le) {
+				respondError(w, r, http.StatusForbidden, le)
+				return
+			}
+			slog.Error("failed to create project", "error", txErr)
+			respondError(w, r, http.StatusInternalServerError, "failed to create project")
+			return
+		}
+	} else {
+		// Fallback: no transaction pool available, run without advisory lock.
+		if s.billingEnforcer != nil {
+			if err := s.billingEnforcer.CheckProjectLimit(r.Context(), req.OrgID); err != nil {
+				var le *billing.LimitError
+				if errors.As(err, &le) {
+					respondError(w, r, http.StatusForbidden, le)
+					return
+				}
+				slog.Error("failed to check project limit", "error", err)
+				respondError(w, r, http.StatusInternalServerError, "failed to check project limit")
+				return
+			}
+
+			if err := s.billingEnforcer.EnsureOrgSubscription(r.Context(), req.OrgID); err != nil {
+				slog.Warn("failed to ensure org subscription", "org_id", req.OrgID, "error", err)
+			}
+		}
+
+		if err := s.store.CreateProject(r.Context(), project); err != nil {
+			slog.Error("failed to create project", "error", err)
+			respondError(w, r, http.StatusInternalServerError, "failed to create project")
+			return
+		}
+
+		if err := s.store.SeedProjectSystemRoles(r.Context(), project.ID); err != nil {
+			slog.Error("failed to seed system roles for project", "project_id", project.ID, "error", err)
+		}
 	}
 
 	// Auto-activate referral on first project creation.
@@ -193,4 +234,14 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// orgAdvisoryLockID returns a deterministic int64 hash of the org ID for use
+// as a pg_advisory_xact_lock key, serializing per-org project creation.
+func orgAdvisoryLockID(orgID string) int64 {
+	var h int64
+	for _, c := range orgID {
+		h = h*31 + int64(c)
+	}
+	return h
 }
