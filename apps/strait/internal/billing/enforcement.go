@@ -263,28 +263,30 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	}
 
 	key := fmt.Sprintf("strait:org_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01-02"))
-	count, err := e.rdb.Incr(ctx, key).Result()
+	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
+		limits.MaxRunsPerDay, int(48*time.Hour/time.Second)).Result()
 	if err != nil {
-		e.logger.Warn("failed to increment org run counter", "org_id", orgID, "error", err)
+		e.logger.Warn("failed to run atomic daily run check", "org_id", orgID, "error", err)
 		e.recordFailOpen(ctx, "daily_run", "redis_error")
 		return nil // fail open
 	}
 
-	if count == 1 {
-		if err := e.rdb.Expire(ctx, key, 48*time.Hour).Err(); err != nil {
-			e.logger.Warn("failed to set TTL on org run counter", "org_id", orgID, "error", err)
-		}
+	vals, ok := result.([]any)
+	if !ok || len(vals) < 2 {
+		e.logger.Warn("unexpected result from atomic daily run check", "org_id", orgID)
+		e.recordFailOpen(ctx, "daily_run", "redis_error")
+		return nil // fail open
 	}
 
-	if count > limits.MaxRunsPerDay {
-		if err := e.rdb.Decr(ctx, key).Err(); err != nil {
-			e.logger.Warn("failed to rollback org run counter", "org_id", orgID, "error", err)
-		}
+	allowed, _ := vals[0].(int64)
+	currentCount, _ := vals[1].(int64)
+
+	if allowed == 0 {
 		e.recordRejection(ctx, "daily_run_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "org_daily_run_limit_exceeded",
-			Message:      fmt.Sprintf("Your %s plan allows %d runs per day. You've used %d.", limits.DisplayName, limits.MaxRunsPerDay, count-1),
-			CurrentUsage: count - 1,
+			Message:      fmt.Sprintf("Your %s plan allows %d runs per day. You've used %d.", limits.DisplayName, limits.MaxRunsPerDay, currentCount),
+			CurrentUsage: currentCount,
 			Limit:        limits.MaxRunsPerDay,
 			Plan:         string(limits.PlanTier),
 			UpgradeURL:   "/upgrade",
@@ -330,29 +332,31 @@ func (e *Enforcer) CheckManagedRunLimit(ctx context.Context, orgID string) error
 	}
 
 	key := fmt.Sprintf("strait:org_managed_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01"))
-	count, err := e.rdb.Incr(ctx, key).Result()
+	managedTTLSecs := int(35 * 24 * time.Hour / time.Second)
+	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
+		limits.FreeManagedRunsPerMonth, managedTTLSecs).Result()
 	if err != nil {
-		e.logger.Warn("failed to increment managed run counter", "org_id", orgID, "error", err)
+		e.logger.Warn("failed to run atomic managed run check", "org_id", orgID, "error", err)
 		e.recordFailOpen(ctx, "managed_run", "redis_error")
 		return nil // fail open
 	}
 
-	// Set TTL on first increment (35 days covers any month + buffer).
-	if count == 1 {
-		if err := e.rdb.Expire(ctx, key, 35*24*time.Hour).Err(); err != nil {
-			e.logger.Warn("failed to set TTL on managed run counter", "org_id", orgID, "error", err)
-		}
+	vals, ok := result.([]any)
+	if !ok || len(vals) < 2 {
+		e.logger.Warn("unexpected result from atomic managed run check", "org_id", orgID)
+		e.recordFailOpen(ctx, "managed_run", "redis_error")
+		return nil // fail open
 	}
 
-	if count > int64(limits.FreeManagedRunsPerMonth) {
-		if err := e.rdb.Decr(ctx, key).Err(); err != nil {
-			e.logger.Warn("failed to rollback managed run counter", "org_id", orgID, "error", err)
-		}
+	allowed, _ := vals[0].(int64)
+	currentCount, _ := vals[1].(int64)
+
+	if allowed == 0 {
 		e.recordRejection(ctx, "managed_run_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "managed_run_limit_exceeded",
 			Message:      fmt.Sprintf("Your free plan allows %d managed runs per month. Upgrade for unlimited managed execution.", limits.FreeManagedRunsPerMonth),
-			CurrentUsage: count - 1,
+			CurrentUsage: currentCount,
 			Limit:        int64(limits.FreeManagedRunsPerMonth),
 			Plan:         string(limits.PlanTier),
 			UpgradeURL:   "/upgrade",
@@ -437,6 +441,22 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 
 	return nil
 }
+
+// atomicIncrCheckScript atomically increments a counter and checks against a limit.
+// Returns {1, count} if allowed, {0, count} if over limit (counter is not incremented).
+// ARGV[1] = limit (-1 for unlimited), ARGV[2] = TTL in seconds.
+var atomicIncrCheckScript = redis.NewScript(`
+local current = redis.call('INCR', KEYS[1])
+local limit = tonumber(ARGV[1])
+if limit ~= -1 and current > limit then
+    redis.call('DECR', KEYS[1])
+    return {0, current - 1}
+end
+if redis.call('TTL', KEYS[1]) == -1 then
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]))
+end
+return {1, current}
+`)
 
 // decrFloorScript decrements a counter but floors at zero to prevent negative values
 // from double-decrements or decrements after reconciler resets.
