@@ -1,18 +1,18 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
-	"net/http"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
@@ -62,47 +62,45 @@ type BulkCancelResponse struct {
 	Failed   int                `json:"failed"`
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen,nestif
-func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
+type BulkTriggerJobInput struct {
+	JobID string `path:"jobID"`
+	Body  BulkTriggerRequest
+}
 
-	job, err := s.store.GetJob(r.Context(), jobID)
+type BulkTriggerJobOutput struct {
+	Body BulkTriggerResponse
+}
+
+//nolint:gocognit,gocyclo,cyclop,funlen,nestif
+func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJobInput) (*BulkTriggerJobOutput, error) {
+	job, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusNotFound, "job not found")
-			return
+			return nil, huma.Error404NotFound("job not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
 	if !job.Enabled {
-		respondError(w, r, http.StatusBadRequest, "job is disabled")
-		return
+		return nil, huma.Error400BadRequest("job is disabled")
 	}
 
-	var req BulkTriggerRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if !s.validateRequest(w, r, &req) {
-		return
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	if len(req.Items) > s.config.MaxBulkTriggerItems {
-		respondError(w, r, http.StatusBadRequest, fmt.Sprintf("maximum %d items per bulk trigger request", s.config.MaxBulkTriggerItems))
-		return
+		return nil, huma.Error400BadRequest(fmt.Sprintf("maximum %d items per bulk trigger request", s.config.MaxBulkTriggerItems))
 	}
 
 	batchID := uuid.Must(uuid.NewV7()).String()
-	if err := s.store.CreateBatchOperation(r.Context(), &domain.BatchOperation{
+	if err := s.store.CreateBatchOperation(ctx, &domain.BatchOperation{
 		ID:        batchID,
 		ProjectID: job.ProjectID,
 		JobID:     job.ID,
 		ItemCount: len(req.Items),
-		CreatedBy: actorFromContext(r.Context()),
+		CreatedBy: actorFromContext(ctx),
 	}); err != nil {
 		slog.Error("failed to create batch operation", "error", err)
 	}
@@ -111,10 +109,9 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	results := make([]BulkTriggerResult, 0, len(req.Items))
 	created := 0
 
-	projectQuota, err := s.store.GetProjectQuota(r.Context(), job.ProjectID)
+	projectQuota, err := s.store.GetProjectQuota(ctx, job.ProjectID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
-		return
+		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}
 
 	// Pre-compute project quotas once (all items target the same job/project).
@@ -122,23 +119,21 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	if projectQuota != nil {
 		if projectQuota.MaxQueuedRuns > 0 {
 			var countErr error
-			queuedRuns, countErr = s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
+			queuedRuns, countErr = s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
 			if countErr != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to count project queued runs")
-				return
+				return nil, huma.Error500InternalServerError("failed to count project queued runs")
 			}
 		}
 		if projectQuota.MaxExecutingRuns > 0 {
 			var countErr error
-			activeRuns, countErr = s.store.CountProjectActiveRuns(r.Context(), job.ProjectID)
+			activeRuns, countErr = s.store.CountProjectActiveRuns(ctx, job.ProjectID)
 			if countErr != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to count project active runs")
-				return
+				return nil, huma.Error500InternalServerError("failed to count project active runs")
 			}
 		}
 	}
 
-	// Check if any item has an idempotency key — if none, we can use batch COPY insert.
+	// Check if any item has an idempotency key -- if none, we can use batch COPY insert.
 	hasIdempotencyKey := false
 	for _, item := range req.Items {
 		if item.IdempotencyKey != "" {
@@ -154,34 +149,29 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 		if len(item.Tags) > 0 {
 			if err := validateTags(item.Tags); err != nil {
-				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("invalid tags for item %d: %v", itemIdx, err))
-				return
+				return nil, huma.Error400BadRequest(fmt.Sprintf("invalid tags for item %d: %v", itemIdx, err))
 			}
 		}
 
 		if err := validatePayloadAgainstSchema(item.Payload, job.PayloadSchema); err != nil {
-			respondError(w, r, http.StatusBadRequest, fmt.Sprintf("payload validation failed for item %d: %v", itemIdx, err))
-			return
+			return nil, huma.Error400BadRequest(fmt.Sprintf("payload validation failed for item %d: %v", itemIdx, err))
 		}
 
 		payload, _, payloadErr := canonicalizePayload(item.Payload)
 		if payloadErr != nil {
-			respondError(w, r, http.StatusBadRequest, fmt.Sprintf("invalid payload for item %d: %v", itemIdx, payloadErr))
-			return
+			return nil, huma.Error400BadRequest(fmt.Sprintf("invalid payload for item %d: %v", itemIdx, payloadErr))
 		}
 
 		// Per-item idempotency check.
 		if item.IdempotencyKey != "" {
 			if len(item.IdempotencyKey) > maxIdempotencyKeyLength {
-				respondError(w, r, http.StatusBadRequest,
+				return nil, huma.Error400BadRequest(
 					fmt.Sprintf("idempotency key for item %d must be %d characters or fewer", itemIdx, maxIdempotencyKeyLength))
-				return
 			}
 
-			existingRun, idempErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
+			existingRun, idempErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, item.IdempotencyKey)
 			if idempErr != nil {
-				respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key for item %d", itemIdx))
-				return
+				return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to check idempotency key for item %d", itemIdx))
 			}
 			if existingRun != nil {
 				slog.Info("idempotency hit",
@@ -201,34 +191,29 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 		if projectQuota != nil {
 			if projectQuota.MaxQueuedRuns > 0 && (queuedRuns+enqueuedInBatch) >= projectQuota.MaxQueuedRuns {
-				respondError(w, r, http.StatusTooManyRequests, "project queued quota exceeded")
-				return
+				return nil, huma.Error429TooManyRequests("project queued quota exceeded")
 			}
 			if projectQuota.MaxExecutingRuns > 0 && activeRuns >= projectQuota.MaxExecutingRuns {
-				respondError(w, r, http.StatusTooManyRequests, "project executing quota exceeded")
-				return
+				return nil, huma.Error429TooManyRequests("project executing quota exceeded")
 			}
 		}
 
 		if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
 			since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
-			runCount, countErr := s.store.CountRunsForJobSince(r.Context(), job.ID, since)
+			runCount, countErr := s.store.CountRunsForJobSince(ctx, job.ID, since)
 			if countErr != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to evaluate job rate limit")
-				return
+				return nil, huma.Error500InternalServerError("failed to evaluate job rate limit")
 			}
 			if runCount >= job.RateLimitMax {
-				respondError(w, r, http.StatusTooManyRequests, "job rate limit exceeded")
-				return
+				return nil, huma.Error429TooManyRequests("job rate limit exceeded")
 			}
 		}
 
 		if job.DedupWindowSecs > 0 {
 			since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
-			existingRun, findErr := s.store.FindRecentRunByPayload(r.Context(), job.ID, payload, since)
+			existingRun, findErr := s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
 			if findErr != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to evaluate payload deduplication")
-				return
+				return nil, huma.Error500InternalServerError("failed to evaluate payload deduplication")
 			}
 			if existingRun != nil {
 				results = append(results, BulkTriggerResult{
@@ -260,8 +245,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))
 		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to sign run token for item %d", itemIdx))
-			return
+			return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to sign run token for item %d", itemIdx))
 		}
 
 		scheduledAt := item.ScheduledAt
@@ -272,8 +256,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			}
 			adjustedScheduledAt, adjustErr := alignToExecutionWindow(scheduledAt, now, job.ExecutionWindowCron, timezone)
 			if adjustErr != nil {
-				respondError(w, r, http.StatusBadRequest, "execution window validation failed: "+adjustErr.Error())
-				return
+				return nil, huma.Error400BadRequest("execution window validation failed: " + adjustErr.Error())
 			}
 			scheduledAt = adjustedScheduledAt
 		}
@@ -302,7 +285,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			IdempotencyKey: item.IdempotencyKey,
 			JobVersion:     job.Version,
 			JobVersionID:   job.VersionID,
-			CreatedBy:      actorFromContext(r.Context()),
+			CreatedBy:      actorFromContext(ctx),
 			BatchID:        batchID,
 			ExpiresAt:      &expiresAt,
 		}
@@ -322,17 +305,16 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 		if hasIdempotencyKey {
 			// Sequential enqueue with idempotency CTE.
-			if err := s.queue.Enqueue(r.Context(), run); err != nil {
+			if err := s.queue.Enqueue(ctx, run); err != nil {
 				if errors.Is(err, domain.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
-					existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
+					existingRun, retryErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, item.IdempotencyKey)
 					if retryErr != nil {
 						slog.Error("idempotency conflict retry failed",
 							"job_id", job.ID,
 							"idempotency_key", item.IdempotencyKey,
 							"item_index", itemIdx,
 							"error", retryErr)
-						respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key after conflict for item %d", itemIdx))
-						return
+						return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to check idempotency key after conflict for item %d", itemIdx))
 					}
 					if existingRun != nil {
 						slog.Warn("idempotency conflict resolved",
@@ -352,8 +334,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 						"idempotency_key", item.IdempotencyKey,
 						"item_index", itemIdx)
 				}
-				respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", itemIdx))
-				return
+				return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to enqueue item %d", itemIdx))
 			}
 		} else {
 			// Collect for batch COPY insert.
@@ -372,45 +353,47 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	// Batch insert all collected runs via COPY protocol.
 	if len(pendingRuns) > 0 {
-		if _, err := s.queue.EnqueueBatch(r.Context(), pendingRuns); err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to enqueue batch")
-			return
+		if _, err := s.queue.EnqueueBatch(ctx, pendingRuns); err != nil {
+			return nil, huma.Error500InternalServerError("failed to enqueue batch")
 		}
 	}
 
-	if err := s.store.FinalizeBatchOperation(r.Context(), batchID, created); err != nil {
+	if err := s.store.FinalizeBatchOperation(ctx, batchID, created); err != nil {
 		slog.Error("failed to finalize batch operation", "batch_id", batchID, "error", err)
 	}
 
-	respondJSON(w, http.StatusCreated, BulkTriggerResponse{
-		BatchID: batchID,
-		Results: results,
-		Total:   len(req.Items),
-		Created: created,
-	})
+	return &BulkTriggerJobOutput{
+		Body: BulkTriggerResponse{
+			BatchID: batchID,
+			Results: results,
+			Total:   len(req.Items),
+			Created: created,
+		},
+	}, nil
 }
 
-func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
-	var req BulkCancelRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+type BulkCancelRunsInput struct {
+	Body BulkCancelRequest
+}
 
-	if !s.validateRequest(w, r, &req) {
-		return
+type BulkCancelRunsOutput struct {
+	Body BulkCancelResponse
+}
+
+func (s *Server) handleBulkCancelRuns(ctx context.Context, input *BulkCancelRunsInput) (*BulkCancelRunsOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	if len(req.RunIDs) > 100 {
-		respondError(w, r, http.StatusBadRequest, "maximum 100 run IDs per bulk cancel request")
-		return
+		return nil, huma.Error400BadRequest("maximum 100 run IDs per bulk cancel request")
 	}
 
 	// Step 1: Batch fetch all runs.
-	runsMap, err := s.store.GetRunsByIDs(r.Context(), req.RunIDs)
+	runsMap, err := s.store.GetRunsByIDs(ctx, req.RunIDs)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to fetch runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to fetch runs")
 	}
 
 	// Step 2: Partition into cancelable and not.
@@ -436,10 +419,9 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 	// Step 3: Batch cancel.
 	if len(cancelableIDs) > 0 {
 		now := time.Now()
-		cancelResults, cancelErr := s.store.BulkCancelRuns(r.Context(), cancelableIDs, now, "canceled by user (bulk)")
+		cancelResults, cancelErr := s.store.BulkCancelRuns(ctx, cancelableIDs, now, "canceled by user (bulk)")
 		if cancelErr != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to cancel runs")
-			return
+			return nil, huma.Error500InternalServerError("failed to cancel runs")
 		}
 
 		canceledSet := make(map[string]struct{}, len(cancelResults))
@@ -458,17 +440,19 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Step 4: Batch cancel children.
-		if _, err := s.store.CancelChildRunsByParentIDs(r.Context(), cancelableIDs, now, "parent run canceled (bulk)"); err != nil {
+		if _, err := s.store.CancelChildRunsByParentIDs(ctx, cancelableIDs, now, "parent run canceled (bulk)"); err != nil {
 			slog.Error("failed to cancel child runs in bulk", "error", err)
 		}
 	}
 
-	respondJSON(w, http.StatusOK, BulkCancelResponse{
-		Results:  results,
-		Total:    len(req.RunIDs),
-		Canceled: canceled,
-		Failed:   failed,
-	})
+	return &BulkCancelRunsOutput{
+		Body: BulkCancelResponse{
+			Results:  results,
+			Total:    len(req.RunIDs),
+			Canceled: canceled,
+			Failed:   failed,
+		},
+	}, nil
 }
 
 type BulkCancelAllRequest struct {
@@ -478,28 +462,29 @@ type BulkCancelAllRequest struct {
 	Status      domain.RunStatus `json:"status,omitempty"`
 }
 
-func (s *Server) handleBulkCancelAll(w http.ResponseWriter, r *http.Request) {
-	var req BulkCancelAllRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+type BulkCancelAllInput struct {
+	Body BulkCancelAllRequest
+}
 
-	projectID := projectIDFromContext(r.Context())
+type BulkCancelAllOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleBulkCancelAll(ctx context.Context, input *BulkCancelAllInput) (*BulkCancelAllOutput, error) {
+	req := input.Body
+	projectID := projectIDFromContext(ctx)
 
 	if req.JobID == "" && req.BatchID == "" && req.TriggeredBy == "" && req.Status == "" {
-		respondError(w, r, http.StatusBadRequest, "at least one filter is required")
-		return
+		return nil, huma.Error400BadRequest("at least one filter is required")
 	}
 
 	now := time.Now()
-	ids, err := s.store.BulkCancelByFilter(r.Context(), projectID, store.BulkCancelFilter{
+	ids, err := s.store.BulkCancelByFilter(ctx, projectID, store.BulkCancelFilter{
 		JobID: req.JobID, BatchID: req.BatchID, TriggeredBy: req.TriggeredBy, Status: req.Status,
 	}, now, "canceled by user (bulk filter)")
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to cancel runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to cancel runs")
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"canceled": len(ids), "run_ids": ids})
+	return &BulkCancelAllOutput{Body: map[string]any{"canceled": len(ids), "run_ids": ids}}, nil
 }

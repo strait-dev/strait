@@ -17,6 +17,29 @@ import (
 	"strait/internal/billing"
 )
 
+type ctxKey int
+
+const (
+	ctxKeyResponseWriter ctxKey = iota
+	ctxKeyRequest
+)
+
+// responseWriterFromContext retrieves the http.ResponseWriter stored by TypedHandler.
+func responseWriterFromContext(ctx context.Context) http.ResponseWriter {
+	if w, ok := ctx.Value(ctxKeyResponseWriter).(http.ResponseWriter); ok {
+		return w
+	}
+	return nil
+}
+
+// requestFromContext retrieves the *http.Request stored by TypedHandler.
+func requestFromContext(ctx context.Context) *http.Request {
+	if r, ok := ctx.Value(ctxKeyRequest).(*http.Request); ok {
+		return r
+	}
+	return nil
+}
+
 // TypedHandler creates a chi-compatible http.HandlerFunc from a typed handler function.
 // It extracts path/query params into the input struct, decodes JSON body if present,
 // validates using the server's validator, and returns the output as JSON.
@@ -42,7 +65,11 @@ func TypedHandler[I any, O any](s *Server, status int, handler func(ctx context.
 			}
 		}
 
-		output, err := handler(r.Context(), &input)
+		// Store w and r in context for streaming/export handlers that need raw access.
+		ctx := context.WithValue(r.Context(), ctxKeyResponseWriter, w)
+		ctx = context.WithValue(ctx, ctxKeyRequest, r)
+
+		output, err := handler(ctx, &input)
 		if err != nil {
 			writeTypedError(w, r, err)
 			return
@@ -79,7 +106,16 @@ func extractParams(r *http.Request, input any) error {
 			}
 		}
 		if tag := field.Tag.Get("query"); tag != "" {
-			if val := r.URL.Query().Get(tag); val != "" {
+			// Support []string fields for multi-value query params (e.g. statuses[]=a&statuses[]=b).
+			if fv.Kind() == reflect.Slice && fv.Type().Elem().Kind() == reflect.String {
+				vals := r.URL.Query()[tag]
+				if len(vals) == 0 {
+					vals = r.URL.Query()[tag+"[]"]
+				}
+				if len(vals) > 0 {
+					fv.Set(reflect.ValueOf(vals))
+				}
+			} else if val := r.URL.Query().Get(tag); val != "" {
 				if err := setStringField(fv, val); err != nil {
 					return fmt.Errorf("query param %q: %w", tag, err)
 				}

@@ -1,12 +1,12 @@
 package api
 
 import (
-	"net/http"
+	"context"
 	"sort"
 
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
 type upsertWorkflowPolicyRequest struct {
@@ -16,52 +16,64 @@ type upsertWorkflowPolicyRequest struct {
 	RequireApprovalForDeploy bool     `json:"require_approval_for_deploy"`
 }
 
-func (s *Server) handleUpsertWorkflowPolicy(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	var req upsertWorkflowPolicyRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	policy := &domain.WorkflowPolicy{
-		ProjectID:                projectID,
-		MaxFanOut:                req.MaxFanOut,
-		MaxDepth:                 req.MaxDepth,
-		ForbiddenStepTypes:       req.ForbiddenStepTypes,
-		RequireApprovalForDeploy: req.RequireApprovalForDeploy,
-	}
-	if err := s.store.UpsertWorkflowPolicy(r.Context(), policy); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to save workflow policy")
-		return
-	}
-	respondJSON(w, http.StatusOK, policy)
+type UpsertWorkflowPolicyInput struct {
+	ProjectID string `path:"projectID"`
+	Body      upsertWorkflowPolicyRequest
 }
 
-func (s *Server) handleGetWorkflowPolicy(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	policy, err := s.store.GetWorkflowPolicyByProject(r.Context(), projectID)
+type UpsertWorkflowPolicyOutput struct {
+	Body *domain.WorkflowPolicy
+}
+
+func (s *Server) handleUpsertWorkflowPolicy(ctx context.Context, input *UpsertWorkflowPolicyInput) (*UpsertWorkflowPolicyOutput, error) {
+	policy := &domain.WorkflowPolicy{
+		ProjectID:                input.ProjectID,
+		MaxFanOut:                input.Body.MaxFanOut,
+		MaxDepth:                 input.Body.MaxDepth,
+		ForbiddenStepTypes:       input.Body.ForbiddenStepTypes,
+		RequireApprovalForDeploy: input.Body.RequireApprovalForDeploy,
+	}
+	if err := s.store.UpsertWorkflowPolicy(ctx, policy); err != nil {
+		return nil, huma.Error500InternalServerError("failed to save workflow policy")
+	}
+	return &UpsertWorkflowPolicyOutput{Body: policy}, nil
+}
+
+type GetWorkflowPolicyInput struct {
+	ProjectID string `path:"projectID"`
+}
+
+type GetWorkflowPolicyOutput struct {
+	Body *domain.WorkflowPolicy
+}
+
+func (s *Server) handleGetWorkflowPolicy(ctx context.Context, input *GetWorkflowPolicyInput) (*GetWorkflowPolicyOutput, error) {
+	policy, err := s.store.GetWorkflowPolicyByProject(ctx, input.ProjectID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow policy")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow policy")
 	}
 	if policy == nil {
-		respondError(w, r, http.StatusNotFound, "workflow policy not found")
-		return
+		return nil, huma.Error404NotFound("workflow policy not found")
 	}
-	respondJSON(w, http.StatusOK, policy)
+	return &GetWorkflowPolicyOutput{Body: policy}, nil
 }
 
-func (s *Server) handleSimulateWorkflow(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
-	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
+type SimulateWorkflowInput struct {
+	WorkflowID string `path:"workflowID"`
+}
+
+type SimulateWorkflowOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleSimulateWorkflow(ctx context.Context, input *SimulateWorkflowInput) (*SimulateWorkflowOutput, error) {
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
 	if err != nil {
-		respondError(w, r, http.StatusNotFound, "workflow not found")
-		return
+		return nil, huma.Error404NotFound("workflow not found")
 	}
-	steps, err := s.store.ListStepsByWorkflowVersion(r.Context(), workflowID, wf.Version)
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, input.WorkflowID, wf.Version)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to load workflow steps")
-		return
+		return nil, huma.Error500InternalServerError("failed to load workflow steps")
 	}
 	// Topological sort via Kahn's algorithm for deterministic predicted order.
 	indegree := make(map[string]int, len(steps))
@@ -107,5 +119,7 @@ func (s *Server) handleSimulateWorkflow(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"workflow_id": workflowID, "version": wf.Version, "predicted_order": order, "step_count": len(order)})
+	return &SimulateWorkflowOutput{
+		Body: map[string]any{"workflow_id": input.WorkflowID, "version": wf.Version, "predicted_order": order, "step_count": len(order)},
+	}, nil
 }

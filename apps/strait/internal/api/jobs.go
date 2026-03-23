@@ -729,20 +729,22 @@ type BatchUpdateResult struct {
 	Updated int64 `json:"updated"`
 }
 
-func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
-	var req BatchCreateJobsRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+type BatchCreateJobsInput struct {
+	Body BatchCreateJobsRequest
+}
+
+type BatchCreateJobsOutput struct {
+	Body BatchCreateJobsResponse
+}
+
+func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJobsInput) (*BatchCreateJobsOutput, error) {
+	req := input.Body
 
 	if len(req.Jobs) == 0 {
-		respondError(w, r, http.StatusBadRequest, "jobs array is required and must not be empty")
-		return
+		return nil, huma.Error400BadRequest("jobs array is required and must not be empty")
 	}
 	if len(req.Jobs) > maxBatchSize {
-		respondError(w, r, http.StatusBadRequest, fmt.Sprintf("too many jobs in batch (max %d)", maxBatchSize))
-		return
+		return nil, huma.Error400BadRequest(fmt.Sprintf("too many jobs in batch (max %d)", maxBatchSize))
 	}
 
 	var resp BatchCreateJobsResponse
@@ -828,7 +830,7 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 			Enabled:             true,
 		}
 
-		if err := s.store.CreateJob(r.Context(), job); err != nil {
+		if err := s.store.CreateJob(ctx, job); err != nil {
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "failed to create job"})
 			continue
 		}
@@ -837,11 +839,10 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(resp.Created) == 0 && len(resp.Errors) > 0 {
-		respondJSON(w, http.StatusBadRequest, resp)
-		return
+		return nil, &rawStatusError{status: http.StatusBadRequest, body: resp}
 	}
 
-	respondJSON(w, http.StatusCreated, resp)
+	return &BatchCreateJobsOutput{Body: resp}, nil
 }
 
 // BatchEnableJobsInput is the typed input for batch enabling jobs.

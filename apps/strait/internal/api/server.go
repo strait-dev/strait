@@ -876,32 +876,6 @@ func isPrivateIP(ip net.IP) bool {
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
-// validateRequest validates a struct using the validator and writes an error response if invalid.
-// Returns true if the struct is valid.
-func (s *Server) validateRequest(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := s.validate.Struct(v); err != nil {
-		var ve validator.ValidationErrors
-		if errors.As(err, &ve) {
-			messages := make([]string, 0, len(ve))
-			for _, fe := range ve {
-				messages = append(messages, fmt.Sprintf("%s: failed on '%s'", fe.Field(), fe.Tag()))
-			}
-			respondError(w, r, http.StatusBadRequest, APIError{
-				Code:    ErrorCodeValidationError,
-				Message: "validation failed",
-				Details: messages,
-			})
-			return false
-		}
-		respondError(w, r, http.StatusBadRequest, APIError{
-			Code:    ErrorCodeValidationError,
-			Message: "invalid request",
-		})
-		return false
-	}
-	return true
-}
-
 func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
 	// Serve Scalar API reference using the cached OpenAPI spec.
 	htmlContent, err := scalar.ApiReferenceHTML(&scalar.Options{

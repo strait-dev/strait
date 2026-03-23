@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net/http"
 
 	"strait/internal/domain"
 	"strait/internal/eventfilter"
@@ -250,56 +249,58 @@ func (s *Server) handleDeleteEventSubscription(ctx context.Context, input *Delet
 	return nil, nil
 }
 
-// TODO: migrate to TypedHandler -- requires raw http.Request for r.Header.Get() (signature validation).
-func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
-	var req DispatchEventRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
+type DispatchEventInput struct {
+	Body DispatchEventRequest
+}
+
+type DispatchEventOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventInput) (*DispatchEventOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
-	source, err := s.store.GetEventSourceByName(r.Context(), req.ProjectID, req.Source)
+	source, err := s.store.GetEventSourceByName(ctx, req.ProjectID, req.Source)
 	if err != nil {
-		respondError(w, r, http.StatusNotFound, "event source not found")
-		return
+		return nil, huma.Error404NotFound("event source not found")
 	}
 	if !source.Enabled {
-		respondError(w, r, http.StatusBadRequest, "event source is disabled")
-		return
+		return nil, huma.Error400BadRequest("event source is disabled")
 	}
 	if source.SignatureAlgorithm != "" && len(source.SignatureSecretEnc) > 0 && s.encryptor != nil {
+		// Retrieve raw request from context for signature header access.
+		r := requestFromContext(ctx)
+		if r == nil {
+			return nil, huma.Error500InternalServerError("internal error")
+		}
 		sigHeader := r.Header.Get(source.SignatureHeader)
 		if sigHeader == "" {
-			respondError(w, r, http.StatusUnauthorized, "missing signature header: "+source.SignatureHeader)
-			return
+			return nil, huma.Error401Unauthorized("missing signature header: " + source.SignatureHeader)
 		}
 		secret, decErr := s.encryptor.Decrypt(source.SignatureSecretEnc)
 		if decErr != nil {
 			slog.Error("failed to decrypt event source signature secret", "source_id", source.ID, "error", decErr)
-			respondError(w, r, http.StatusInternalServerError, "signature verification failed")
-			return
+			return nil, huma.Error500InternalServerError("signature verification failed")
 		}
 		if err := webhook.ValidateSignature(source.SignatureAlgorithm, string(secret), req.Payload, sigHeader); err != nil {
 			slog.Warn("event source signature validation failed", "source_id", source.ID, "error", err)
-			respondError(w, r, http.StatusUnauthorized, "signature validation failed")
-			return
+			return nil, huma.Error401Unauthorized("signature validation failed")
 		}
 	}
-	subs, err := s.store.ListEventSubscriptionsBySource(r.Context(), source.ID)
+	subs, err := s.store.ListEventSubscriptionsBySource(ctx, source.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list subscriptions")
-		return
+		return nil, huma.Error500InternalServerError("failed to list subscriptions")
 	}
 	dispatched := 0
 	for _, sub := range subs {
 		if !sub.Enabled {
 			continue
 		}
-		match, err := eventfilter.Eval(sub.FilterExpr, req.Payload)
-		if err != nil {
-			slog.Error("filter eval failed", "subscription_id", sub.ID, "source_id", source.ID, "project_id", source.ProjectID, "error", err)
+		match, filterErr := eventfilter.Eval(sub.FilterExpr, req.Payload)
+		if filterErr != nil {
+			slog.Error("filter eval failed", "subscription_id", sub.ID, "source_id", source.ID, "project_id", source.ProjectID, "error", filterErr)
 			continue
 		}
 		if !match {
@@ -307,8 +308,8 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 		}
 		switch sub.TargetType {
 		case "job":
-			job, err := s.store.GetJob(r.Context(), sub.TargetID)
-			if err != nil || !job.Enabled {
+			job, jobErr := s.store.GetJob(ctx, sub.TargetID)
+			if jobErr != nil || !job.Enabled {
 				slog.Error("event dispatch: target job not found or disabled", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
 			}
@@ -317,21 +318,21 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 				Payload: req.Payload, TriggeredBy: "event",
 				JobVersion: job.Version, JobVersionID: job.VersionID,
 			}
-			if err := s.queue.Enqueue(r.Context(), run); err != nil {
-				slog.Error("event dispatch: enqueue failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", err)
+			if enqErr := s.queue.Enqueue(ctx, run); enqErr != nil {
+				slog.Error("event dispatch: enqueue failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", enqErr)
 				continue
 			}
 			dispatched++
 		case "workflow":
 			if s.workflowEngine != nil {
-				_, err := s.workflowEngine.TriggerWorkflow(r.Context(), sub.TargetID, source.ProjectID, req.Payload, "event", nil, nil)
-				if err != nil {
-					slog.Error("event dispatch: workflow trigger failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", err)
+				_, wfErr := s.workflowEngine.TriggerWorkflow(ctx, sub.TargetID, source.ProjectID, req.Payload, "event", nil, nil)
+				if wfErr != nil {
+					slog.Error("event dispatch: workflow trigger failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", wfErr)
 					continue
 				}
 				dispatched++
 			}
 		}
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"dispatched": dispatched, "source": req.Source})
+	return &DispatchEventOutput{Body: map[string]any{"dispatched": dispatched, "source": req.Source}}, nil
 }

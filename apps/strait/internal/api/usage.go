@@ -64,23 +64,6 @@ func (s *Server) validateProjectBelongsToCallerOrg(ctx context.Context, targetPr
 	return nil
 }
 
-// resolveUsageOrgID is the (w,r) version kept for handleExportUsage.
-func (s *Server) resolveUsageOrgID(w http.ResponseWriter, r *http.Request) (string, bool) {
-	orgID := r.URL.Query().Get("org_id")
-	if orgID == "" {
-		respondError(w, r, http.StatusBadRequest, "org_id query parameter is required")
-		return "", false
-	}
-	if err := s.validateCallerOrgAccess(r.Context(), orgID); err != nil {
-		if scopesFromContext(r.Context()) != nil {
-			slog.Error("org access validation failed", "project_id", projectIDFromContext(r.Context()), "error", err)
-		}
-		respondError(w, r, http.StatusForbidden, err.Error())
-		return "", false
-	}
-	return orgID, true
-}
-
 func (s *Server) resolveUsageOrgIDTyped(ctx context.Context, orgID string) (string, error) {
 	if orgID == "" {
 		return "", huma.Error400BadRequest("org_id query parameter is required")
@@ -322,50 +305,69 @@ func (s *Server) handleGetDowngradePreview(ctx context.Context, input *GetDowngr
 	return &GetDowngradePreviewOutput{Body: impact}, nil
 }
 
-// handleExportUsage stays as (w,r) because it writes raw CSV/PDF bytes.
-func (s *Server) handleExportUsage(w http.ResponseWriter, r *http.Request) {
+type ExportUsageInput struct {
+	OrgID  string `query:"org_id"`
+	From   string `query:"from"`
+	To     string `query:"to"`
+	Format string `query:"format"`
+}
+
+// ExportUsageOutput uses any Body because the handler writes raw CSV/PDF bytes
+// directly to the response writer. A nil return signals the response was already written.
+type ExportUsageOutput struct {
+	Body any
+}
+
+func (s *Server) handleExportUsage(ctx context.Context, input *ExportUsageInput) (*ExportUsageOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
+	if err != nil {
+		return nil, err
 	}
-	from, to, ok := parseDateRange(w, r)
-	if !ok {
-		return
+	from, to, err := parseDateRangeTyped(input.From, input.To)
+	if err != nil {
+		return nil, err
 	}
-	format := r.URL.Query().Get("format")
+	format := input.Format
 	if format == "" {
 		format = "csv"
 	}
+
+	// Retrieve the raw response writer for binary output.
+	w := responseWriterFromContext(ctx)
+	if w == nil {
+		return nil, huma.Error500InternalServerError("internal error")
+	}
+
 	switch format {
 	case "csv":
-		csvData, err := s.usageService.ExportUsageCSV(r.Context(), orgID, from, to)
-		if err != nil {
-			slog.Error("failed to export usage", "error", err)
-			respondError(w, r, http.StatusInternalServerError, "failed to export usage")
-			return
+		csvData, csvErr := s.usageService.ExportUsageCSV(ctx, orgID, from, to)
+		if csvErr != nil {
+			slog.Error("failed to export usage", "error", csvErr)
+			return nil, huma.Error500InternalServerError("failed to export usage")
 		}
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=usage_%s.csv", orgID))
 		w.WriteHeader(http.StatusOK)
 		w.Write(csvData) //nolint:errcheck,gosec
 	case "pdf":
-		pdfData, err := s.usageService.ExportUsagePDF(r.Context(), orgID, from, to)
-		if err != nil {
-			slog.Error("failed to export usage PDF", "error", err)
-			respondError(w, r, http.StatusInternalServerError, "failed to export usage")
-			return
+		pdfData, pdfErr := s.usageService.ExportUsagePDF(ctx, orgID, from, to)
+		if pdfErr != nil {
+			slog.Error("failed to export usage PDF", "error", pdfErr)
+			return nil, huma.Error500InternalServerError("failed to export usage")
 		}
 		w.Header().Set("Content-Type", "application/pdf")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=usage_%s.pdf", orgID))
 		w.WriteHeader(http.StatusOK)
 		w.Write(pdfData) //nolint:errcheck,gosec
 	default:
-		respondError(w, r, http.StatusBadRequest, "unsupported format, use csv or pdf")
+		return nil, huma.Error400BadRequest("unsupported format, use csv or pdf")
 	}
+
+	// Return nil to signal that the response was already written.
+	return nil, nil
 }
 
 type GetAnomalyAlertsInput struct {
@@ -589,28 +591,4 @@ func (s *Server) handleCheckOrgLimit(ctx context.Context, input *CheckOrgLimitIn
 		return nil, huma.Error500InternalServerError("failed to check org creation limit")
 	}
 	return &CheckOrgLimitOutput{Body: map[string]string{"status": "allowed"}}, nil
-}
-
-func parseDateRange(w http.ResponseWriter, r *http.Request) (time.Time, time.Time, bool) {
-	fromStr := r.URL.Query().Get("from")
-	toStr := r.URL.Query().Get("to")
-	if fromStr == "" || toStr == "" {
-		respondError(w, r, http.StatusBadRequest, "from and to query parameters are required (format: YYYY-MM-DD)")
-		return time.Time{}, time.Time{}, false
-	}
-	from, err := time.Parse("2006-01-02", fromStr)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid from date format (expected YYYY-MM-DD)")
-		return time.Time{}, time.Time{}, false
-	}
-	to, err := time.Parse("2006-01-02", toStr)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid to date format (expected YYYY-MM-DD)")
-		return time.Time{}, time.Time{}, false
-	}
-	if to.Before(from) {
-		respondError(w, r, http.StatusBadRequest, "to date must be after from date")
-		return time.Time{}, time.Time{}, false
-	}
-	return from, to, true
 }

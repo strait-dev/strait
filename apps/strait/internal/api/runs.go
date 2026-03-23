@@ -38,73 +38,73 @@ func (s *Server) handleGetRun(ctx context.Context, input *GetRunInput) (*GetRunO
 	return &GetRunOutput{Body: run}, nil
 }
 
-// TODO: migrate to TypedHandler -- requires raw *http.Request for bracket
-// notation query param iteration (tags[key]=value, metadata[key]=value).
-func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	projectID := projectIDFromContext(r.Context())
+// ListRunsInput is the typed input for listing runs.
+type ListRunsInput struct {
+	Status          string   `query:"status"`
+	Statuses        []string `query:"statuses"`
+	TagKey          string   `query:"tag_key"`
+	TagValue        string   `query:"tag_value"`
+	MetadataKey     string   `query:"metadata_key"`
+	MetadataValue   string   `query:"metadata_value"`
+	TriggeredBy     string   `query:"triggered_by"`
+	BatchID         string   `query:"batch_id"`
+	PayloadContains string   `query:"payload_contains"`
+	ExecutionMode   string   `query:"execution_mode"`
+	ErrorClass      string   `query:"error_class"`
+	Limit           string   `query:"limit"`
+	Cursor          string   `query:"cursor"`
+}
+
+// ListRunsOutput is the typed output for listing runs.
+type ListRunsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*ListRunsOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
 	var status *domain.RunStatus
-	if statusRaw := query.Get("status"); statusRaw != "" {
-		parsed := domain.RunStatus(statusRaw)
+	if input.Status != "" {
+		parsed := domain.RunStatus(input.Status)
 		if !parsed.IsValid() {
-			respondError(w, r, http.StatusBadRequest, "status is invalid")
-			return
+			return nil, huma.Error400BadRequest("status is invalid")
 		}
 		status = &parsed
 	}
 
-	tagKey := query.Get("tag_key")
-	tagValue := query.Get("tag_value")
-
-	// Support bracket notation: ?tags[key]=value
-	if tagKey == "" {
-		for param, values := range query {
-			if k, ok := parseBracketParam(param, "tags"); ok && len(values) > 0 {
-				tagKey = k
-				tagValue = values[0]
-				break
-			}
+	// Support statuses[] multi-value param: use first valid status for the single-status store query.
+	if status == nil && len(input.Statuses) > 0 {
+		parsed := domain.RunStatus(input.Statuses[0])
+		if !parsed.IsValid() {
+			return nil, huma.Error400BadRequest("status is invalid")
 		}
+		status = &parsed
 	}
 
+	tagKey := input.TagKey
+	tagValue := input.TagValue
+
 	if tagValue != "" && tagKey == "" {
-		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
-		return
+		return nil, huma.Error400BadRequest("tag_key is required when tag_value is provided")
 	}
 	if tagKey != "" {
 		if err := validateTags(map[string]string{tagKey: tagValue}); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 
-	metadataKeyRaw := query.Get("metadata_key")
-	metadataValueRaw := query.Get("metadata_value")
-
-	// Support bracket notation: ?metadata[key]=value
-	if metadataKeyRaw == "" {
-		for param, values := range query {
-			if k, ok := parseBracketParam(param, "metadata"); ok && len(values) > 0 {
-				metadataKeyRaw = k
-				metadataValueRaw = values[0]
-				break
-			}
-		}
-	}
+	metadataKeyRaw := input.MetadataKey
+	metadataValueRaw := input.MetadataValue
 
 	if metadataValueRaw != "" && metadataKeyRaw == "" {
-		respondError(w, r, http.StatusBadRequest, "metadata_key is required when metadata_value is provided")
-		return
+		return nil, huma.Error400BadRequest("metadata_key is required when metadata_value is provided")
 	}
 
 	if tagKey != "" && metadataKeyRaw != "" {
-		respondError(w, r, http.StatusBadRequest, "tag_key and metadata_key filters are mutually exclusive")
-		return
+		return nil, huma.Error400BadRequest("tag_key and metadata_key filters are mutually exclusive")
 	}
 
 	var metadataKey *string
@@ -118,59 +118,57 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var triggeredBy *string
-	if tb := query.Get("triggered_by"); tb != "" {
-		triggeredBy = &tb
+	if input.TriggeredBy != "" {
+		triggeredBy = &input.TriggeredBy
 	}
 
 	var batchID *string
-	if bid := query.Get("batch_id"); bid != "" {
-		batchID = &bid
+	if input.BatchID != "" {
+		batchID = &input.BatchID
 	}
 
 	var payloadContains json.RawMessage
-	if pc := query.Get("payload_contains"); pc != "" {
-		payloadContains = json.RawMessage(pc)
+	if input.PayloadContains != "" {
+		payloadContains = json.RawMessage(input.PayloadContains)
 	}
 
 	var executionMode *domain.ExecutionMode
-	if em := query.Get("execution_mode"); em != "" {
-		parsed := domain.ExecutionMode(em)
+	if input.ExecutionMode != "" {
+		parsed := domain.ExecutionMode(input.ExecutionMode)
 		if !parsed.IsValid() {
-			respondError(w, r, http.StatusBadRequest, "execution_mode is invalid")
-			return
+			return nil, huma.Error400BadRequest("execution_mode is invalid")
 		}
 		executionMode = &parsed
 	}
 
 	var errorClass *string
-	if ec := query.Get("error_class"); ec != "" {
-		if !domain.ValidErrorClasses[ec] {
-			respondError(w, r, http.StatusBadRequest, "error_class is invalid")
-			return
+	if input.ErrorClass != "" {
+		if !domain.ValidErrorClasses[input.ErrorClass] {
+			return nil, huma.Error400BadRequest("error_class is invalid")
 		}
-		errorClass = &ec
+		errorClass = &input.ErrorClass
 	}
 
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	var runs []domain.JobRun
 	if tagKey != "" {
-		runs, err = s.store.ListRunsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
+		runs, err = s.store.ListRunsByTag(ctx, projectID, tagKey, tagValue, limit+1, cursor)
 	} else {
-		runs, err = s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
+		runs, err = s.store.ListRunsByProject(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
 	}
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list runs")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.JobRun) string {
-		return run.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListRunsOutput{
+		Body: paginatedResult(runs, limit, func(run domain.JobRun) string {
+			return run.CreatedAt.Format(time.RFC3339Nano)
+		}),
+	}, nil
 }
 
 // CancelRunInput is the typed input for canceling a run.

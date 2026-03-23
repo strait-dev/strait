@@ -9,13 +9,12 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"net/http"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
@@ -39,82 +38,80 @@ type TriggerRequest struct {
 	BatchKey       string            `json:"batch_key,omitempty"`
 }
 
+type TriggerJobInput struct {
+	JobID             string `path:"jobID"`
+	XIdempotencyKey   string `header:"X-Idempotency-Key"`
+	IdempotencyKeyAlt string `header:"Idempotency-Key"`
+	FlyRegion         string `header:"Fly-Region"`
+	Traceparent       string `header:"Traceparent"`
+	Tracestate        string `header:"Tracestate"`
+	Body              TriggerRequest
+}
+
+type TriggerJobOutput struct {
+	Body any
+}
+
 //nolint:gocognit,gocyclo,cyclop,funlen,nestif
-func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
+func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (*TriggerJobOutput, error) {
+	jobID := input.JobID
 	if err := validateRunCreationJobID(jobID); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	job, err := s.store.GetJob(r.Context(), jobID)
+	job, err := s.store.GetJob(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusNotFound, "job not found")
-			return
+			return nil, huma.Error404NotFound("job not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
 	if !job.Enabled {
-		respondError(w, r, http.StatusBadRequest, "job is disabled")
-		return
+		return nil, huma.Error400BadRequest("job is disabled")
 	}
 
-	var req TriggerRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if !s.validateRequest(w, r, &req) {
-		return
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 	if err := validatePayloadSize(req.Payload); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	// Handle dry-run mode
 	if req.DryRun {
-		result, err := s.validateTriggerRequest(r.Context(), jobID, req)
+		result, err := s.validateTriggerRequest(ctx, jobID, req)
 		if err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
-		respondJSON(w, http.StatusOK, result)
-		return
+		return &TriggerJobOutput{Body: result}, nil
 	}
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
-		respondError(w, r, http.StatusBadRequest, "payload validation failed: "+err.Error())
-		return
+		return nil, huma.Error400BadRequest("payload validation failed: " + err.Error())
 	}
 
 	payload, payloadHash, err := canonicalizePayload(req.Payload)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid payload: "+err.Error())
-		return
+		return nil, huma.Error400BadRequest("invalid payload: " + err.Error())
 	}
 
 	// Idempotency check: must happen before quotas, rate limits, and cost
 	// budgets so that retried requests with the same key always get the
 	// cached response regardless of transient limit conditions.
-	idempotencyKey := r.Header.Get("X-Idempotency-Key")
+	idempotencyKey := input.XIdempotencyKey
 	if idempotencyKey == "" {
-		idempotencyKey = r.Header.Get("Idempotency-Key")
+		idempotencyKey = input.IdempotencyKeyAlt
 	}
 	if idempotencyKey != "" {
 		if len(idempotencyKey) > maxIdempotencyKeyLength {
-			respondError(w, r, http.StatusBadRequest,
+			return nil, huma.Error400BadRequest(
 				fmt.Sprintf("idempotency key must be %d characters or fewer", maxIdempotencyKeyLength))
-			return
 		}
 
-		existingRun, idempErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
+		existingRun, idempErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, idempotencyKey)
 		if idempErr != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key")
-			return
+			return nil, huma.Error500InternalServerError("failed to check idempotency key")
 		}
 		if existingRun != nil {
 			slog.Info("idempotency hit",
@@ -122,44 +119,38 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 				"idempotency_key", idempotencyKey,
 				"existing_run_id", existingRun.ID,
 				"existing_run_status", existingRun.Status)
-			respondJSON(w, http.StatusCreated, map[string]any{
+			return &TriggerJobOutput{Body: map[string]any{
 				"id":              existingRun.ID,
 				"status":          existingRun.Status,
 				"idempotency_hit": true,
-			})
-			return
+			}}, nil
 		}
 	}
 
 	var projectQuota *store.ProjectQuota
-	projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
+	projectQuota, err = s.store.GetProjectQuota(ctx, job.ProjectID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
-		return
+		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}
 
 	if projectQuota != nil {
 		if projectQuota.MaxQueuedRuns > 0 {
-			queuedRuns, countErr := s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
+			queuedRuns, countErr := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
 			if countErr != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to evaluate project queued quota")
-				return
+				return nil, huma.Error500InternalServerError("failed to evaluate project queued quota")
 			}
 			if queuedRuns >= projectQuota.MaxQueuedRuns {
-				respondError(w, r, http.StatusTooManyRequests, "project queued quota exceeded")
-				return
+				return nil, huma.Error429TooManyRequests("project queued quota exceeded")
 			}
 		}
 
 		if projectQuota.MaxExecutingRuns > 0 {
-			activeRuns, countErr := s.store.CountProjectActiveRuns(r.Context(), job.ProjectID)
+			activeRuns, countErr := s.store.CountProjectActiveRuns(ctx, job.ProjectID)
 			if countErr != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to evaluate project active quota")
-				return
+				return nil, huma.Error500InternalServerError("failed to evaluate project active quota")
 			}
 			if activeRuns >= projectQuota.MaxExecutingRuns {
-				respondError(w, r, http.StatusTooManyRequests, "project executing quota exceeded")
-				return
+				return nil, huma.Error429TooManyRequests("project executing quota exceeded")
 			}
 		}
 	}
@@ -169,45 +160,39 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		if tz == "" {
 			tz = "UTC"
 		}
-		dailyCost, costErr := s.store.SumProjectDailyCostMicrousd(r.Context(), job.ProjectID, tz)
+		dailyCost, costErr := s.store.SumProjectDailyCostMicrousd(ctx, job.ProjectID, tz)
 		if costErr != nil {
-			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
-			return
+			return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
 		}
 		if dailyCost >= projectQuota.MaxDailyCostMicrousd {
-			respondError(w, r, http.StatusTooManyRequests, "project daily cost budget exceeded")
-			return
+			return nil, huma.Error429TooManyRequests("project daily cost budget exceeded")
 		}
 	}
 
 	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
 		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
-		runCount, countErr := s.store.CountRunsForJobSince(r.Context(), job.ID, since)
+		runCount, countErr := s.store.CountRunsForJobSince(ctx, job.ID, since)
 		if countErr != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to evaluate job rate limit")
-			return
+			return nil, huma.Error500InternalServerError("failed to evaluate job rate limit")
 		}
 		if runCount >= job.RateLimitMax {
-			respondError(w, r, http.StatusTooManyRequests, "job rate limit exceeded")
-			return
+			return nil, huma.Error429TooManyRequests("job rate limit exceeded")
 		}
 	}
 
 	if job.DedupWindowSecs > 0 {
 		since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
-		existingRun, findErr := s.store.FindRecentRunByPayload(r.Context(), job.ID, payload, since)
+		existingRun, findErr := s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
 		if findErr != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to evaluate payload deduplication")
-			return
+			return nil, huma.Error500InternalServerError("failed to evaluate payload deduplication")
 		}
 		if existingRun != nil {
-			respondJSON(w, http.StatusCreated, map[string]any{
+			return &TriggerJobOutput{Body: map[string]any{
 				"id":              existingRun.ID,
 				"status":          existingRun.Status,
 				"payload_hash":    payloadHash,
 				"idempotency_hit": false,
-			})
-			return
+			}}, nil
 		}
 	}
 
@@ -225,18 +210,16 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 			ConcurrencyKey: req.ConcurrencyKey,
 			TTLSecs:        req.TTLSecs,
 			TriggeredBy:    domain.TriggerDebounce,
-			CreatedBy:      actorFromContext(r.Context()),
+			CreatedBy:      actorFromContext(ctx),
 			FireAt:         fireAt,
 		}
-		if err := s.store.UpsertDebouncePending(r.Context(), pending); err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to upsert debounce pending")
-			return
+		if err := s.store.UpsertDebouncePending(ctx, pending); err != nil {
+			return nil, huma.Error500InternalServerError("failed to upsert debounce pending")
 		}
-		respondJSON(w, http.StatusAccepted, map[string]any{
+		return &TriggerJobOutput{Body: map[string]any{
 			"debounced": true,
 			"fire_at":   fireAt,
-		})
-		return
+		}}, nil
 	}
 
 	// Batch: collect payloads until size or time threshold, then flush as one run.
@@ -250,18 +233,17 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 			Tags:        tagsJSON,
 			Priority:    req.Priority,
 			TriggeredBy: domain.TriggerManual,
-			CreatedBy:   actorFromContext(r.Context()),
+			CreatedBy:   actorFromContext(ctx),
 		}
-		if err := s.store.InsertBatchBufferItem(r.Context(), item); err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to insert batch buffer item")
-			return
+		if err := s.store.InsertBatchBufferItem(ctx, item); err != nil {
+			return nil, huma.Error500InternalServerError("failed to insert batch buffer item")
 		}
 
-		// Check if max size reached → immediate flush.
+		// Check if max size reached -> immediate flush.
 		if job.BatchMaxSize > 0 {
-			count, countErr := s.store.CountBatchBufferItems(r.Context(), job.ID, req.BatchKey)
+			count, countErr := s.store.CountBatchBufferItems(ctx, job.ID, req.BatchKey)
 			if countErr == nil && count >= job.BatchMaxSize {
-				items, drainErr := s.store.DrainBatchBuffer(r.Context(), job.ID, req.BatchKey, job.BatchMaxSize)
+				items, drainErr := s.store.DrainBatchBuffer(ctx, job.ID, req.BatchKey, job.BatchMaxSize)
 				if drainErr == nil && len(items) > 0 {
 					payloads := make([]json.RawMessage, len(items))
 					for i, it := range items {
@@ -282,27 +264,24 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 						JobVersion:   job.Version,
 						JobVersionID: job.VersionID,
 						ExpiresAt:    &batchExpiresAt,
-						CreatedBy:    actorFromContext(r.Context()),
+						CreatedBy:    actorFromContext(ctx),
 					}
-					if enqErr := s.queue.Enqueue(r.Context(), batchRun); enqErr != nil {
+					if enqErr := s.queue.Enqueue(ctx, batchRun); enqErr != nil {
 						slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
-						respondError(w, r, http.StatusInternalServerError, "failed to enqueue batch run")
-						return
+						return nil, huma.Error500InternalServerError("failed to enqueue batch run")
 					}
-					respondJSON(w, http.StatusCreated, map[string]any{
+					return &TriggerJobOutput{Body: map[string]any{
 						"id":     batchRun.ID,
 						"status": batchRun.Status,
 						"batch":  true,
-					})
-					return
+					}}, nil
 				}
 			}
 		}
 
-		respondJSON(w, http.StatusAccepted, map[string]any{
+		return &TriggerJobOutput{Body: map[string]any{
 			"buffered": true,
-		})
-		return
+		}}, nil
 	}
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -315,8 +294,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 		adjustedScheduledAt, adjustErr := alignToExecutionWindow(scheduledAt, now, job.ExecutionWindowCron, timezone)
 		if adjustErr != nil {
-			respondError(w, r, http.StatusBadRequest, "execution window validation failed: "+adjustErr.Error())
-			return
+			return nil, huma.Error400BadRequest("execution window validation failed: " + adjustErr.Error())
 		}
 		scheduledAt = adjustedScheduledAt
 	}
@@ -340,8 +318,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to sign run token")
-		return
+		return nil, huma.Error500InternalServerError("failed to sign run token")
 	}
 
 	status := domain.StatusQueued
@@ -370,7 +347,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey: idempotencyKey,
 		JobVersion:     job.Version,
 		JobVersionID:   job.VersionID,
-		CreatedBy:      actorFromContext(r.Context()),
+		CreatedBy:      actorFromContext(ctx),
 		ExpiresAt:      &expiresAt,
 	}
 	if dependencyKey != "" {
@@ -391,29 +368,28 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	run.ConcurrencyKey = req.ConcurrencyKey
 
 	// Capture Fly-Region header for geo-routing of managed dispatch.
-	if flyRegion := r.Header.Get("Fly-Region"); flyRegion != "" {
+	if input.FlyRegion != "" {
 		if run.Metadata == nil {
 			run.Metadata = make(map[string]string)
 		}
-		run.Metadata["_region_hint"] = flyRegion
+		run.Metadata["_region_hint"] = input.FlyRegion
 	}
 
 	// Capture W3C trace context from incoming request headers.
-	if tp := r.Header.Get("Traceparent"); tp != "" {
+	if input.Traceparent != "" {
 		if run.Metadata == nil {
 			run.Metadata = make(map[string]string)
 		}
-		run.Metadata["_trace_parent"] = tp
-		if ts := r.Header.Get("Tracestate"); ts != "" {
-			run.Metadata["_trace_state"] = ts
+		run.Metadata["_trace_parent"] = input.Traceparent
+		if input.Tracestate != "" {
+			run.Metadata["_trace_state"] = input.Tracestate
 		}
 	}
 
 	if status == domain.StatusQueued {
-		satisfied, depErr := s.store.AreJobDependenciesSatisfied(r.Context(), run)
+		satisfied, depErr := s.store.AreJobDependenciesSatisfied(ctx, run)
 		if depErr != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to evaluate job dependencies")
-			return
+			return nil, huma.Error500InternalServerError("failed to evaluate job dependencies")
 		}
 		if !satisfied {
 			run.Status = domain.StatusWaiting
@@ -422,90 +398,83 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 					otelattr.String("project_id", run.ProjectID),
 					otelattr.String("job_id", run.JobID),
 				)
-				s.metrics.WorkflowDependencyWaits.Add(r.Context(), 1, attrs)
+				s.metrics.WorkflowDependencyWaits.Add(ctx, 1, attrs)
 			}
-			if err := s.store.CreateRun(r.Context(), run); err != nil {
+			if err := s.store.CreateRun(ctx, run); err != nil {
 				if errors.Is(err, domain.ErrIdempotencyConflict) && idempotencyKey != "" {
-					existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
+					existingRun, retryErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, idempotencyKey)
 					if retryErr != nil {
 						slog.Error("idempotency conflict retry failed",
 							"job_id", job.ID,
 							"idempotency_key", idempotencyKey,
 							"error", retryErr)
-						respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key after conflict")
-						return
+						return nil, huma.Error500InternalServerError("failed to check idempotency key after conflict")
 					}
 					if existingRun != nil {
 						slog.Warn("idempotency conflict resolved",
 							"job_id", job.ID,
 							"idempotency_key", idempotencyKey,
 							"winning_run_id", existingRun.ID)
-						respondJSON(w, http.StatusCreated, map[string]any{
+						return &TriggerJobOutput{Body: map[string]any{
 							"id":              existingRun.ID,
 							"status":          existingRun.Status,
 							"idempotency_hit": true,
-						})
-						return
+						}}, nil
 					}
 					slog.Error("idempotency conflict retry returned nil",
 						"job_id", job.ID,
 						"idempotency_key", idempotencyKey)
 				}
-				respondError(w, r, http.StatusInternalServerError, "failed to create waiting run")
-				return
+				return nil, huma.Error500InternalServerError("failed to create waiting run")
 			}
-			respondJSON(w, http.StatusCreated, map[string]any{
+			return &TriggerJobOutput{Body: map[string]any{
 				"id":              run.ID,
 				"status":          run.Status,
 				"payload_hash":    payloadHash,
 				"run_token":       tokenString,
 				"idempotency_hit": false,
-			})
-			return
+			}}, nil
 		}
 	}
 
-	if err := s.queue.Enqueue(r.Context(), run); err != nil {
+	if err := s.queue.Enqueue(ctx, run); err != nil {
 		// Handle race condition: two concurrent requests with the same
 		// idempotency key both passed the app-level check but the DB
 		// unique index rejected the second INSERT. Retry the lookup.
 		if errors.Is(err, domain.ErrIdempotencyConflict) && idempotencyKey != "" {
-			existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
+			existingRun, retryErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, idempotencyKey)
 			if retryErr != nil {
 				slog.Error("idempotency conflict retry failed",
 					"job_id", job.ID,
 					"idempotency_key", idempotencyKey,
 					"error", retryErr)
-				respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key after conflict")
-				return
+				return nil, huma.Error500InternalServerError("failed to check idempotency key after conflict")
 			}
 			if existingRun != nil {
 				slog.Warn("idempotency conflict resolved",
 					"job_id", job.ID,
 					"idempotency_key", idempotencyKey,
 					"winning_run_id", existingRun.ID)
-				respondJSON(w, http.StatusCreated, map[string]any{
+				return &TriggerJobOutput{Body: map[string]any{
 					"id":              existingRun.ID,
 					"status":          existingRun.Status,
 					"idempotency_hit": true,
-				})
-				return
+				}}, nil
 			}
 			slog.Error("idempotency conflict retry returned nil",
 				"job_id", job.ID,
 				"idempotency_key", idempotencyKey)
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to enqueue run")
-		return
+		return nil, huma.Error500InternalServerError("failed to enqueue run")
 	}
 
-	respondJSON(w, http.StatusCreated, map[string]any{
+	return &TriggerJobOutput{Body: map[string]any{
 		"id":              run.ID,
 		"status":          run.Status,
 		"payload_hash":    payloadHash,
 		"run_token":       tokenString,
 		"idempotency_hit": false,
-	})
+	}}, nil
 }
 
 func canonicalizePayload(payload json.RawMessage) (json.RawMessage, string, error) {
