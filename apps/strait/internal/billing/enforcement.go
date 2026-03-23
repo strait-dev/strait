@@ -208,6 +208,7 @@ func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) (bool, 
 			return false, nil // free tier, no payment status
 		}
 		e.logger.Warn("failed to get org subscription for payment check", "org_id", orgID, "error", err)
+		e.recordFailOpen(ctx, "payment_status", "db_error")
 		return false, nil // fail open
 	}
 
@@ -422,6 +423,7 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 	).Int64()
 	if err != nil {
 		e.logger.Warn("failed to run concurrent check script", "org_id", orgID, "error", err)
+		e.recordFailOpen(ctx, "concurrent_run", "redis_error")
 		return nil // fail open
 	}
 
@@ -528,6 +530,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		if errors.Is(err, ErrSubscriptionNotFound) {
 			return nil // free tier, no spending limit config
 		}
+		e.recordFailOpen(ctx, "spending_limit", "db_error")
 		return nil // fail open
 	}
 
@@ -578,6 +581,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	budget, action, err := e.store.GetProjectBudget(ctx, projectID)
 	if err != nil {
 		e.logger.Warn("failed to get project budget", "project_id", projectID, "error", err)
+		e.recordFailOpen(ctx, "project_budget", "db_error")
 		return nil // fail open
 	}
 
@@ -589,6 +593,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	spend, err := e.store.GetProjectPeriodSpend(ctx, projectID, periodStart)
 	if err != nil {
 		e.logger.Warn("failed to get project period spend", "project_id", projectID, "error", err)
+		e.recordFailOpen(ctx, "project_budget", "db_spend_error")
 		return nil // fail open
 	}
 
