@@ -26,7 +26,7 @@ func TestHandleTestWebhook_TargetUnreachable(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	TypedHandler(srv, 200, srv.handleTestWebhook)(w, r)
+	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 even for failed connection, got %d: %s", w.Code, w.Body.String())
@@ -53,7 +53,7 @@ func TestHandleTestWebhook_InvalidURL(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	TypedHandler(srv, 200, srv.handleTestWebhook)(w, r)
+	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
@@ -68,7 +68,7 @@ func TestHandleTestWebhook_MissingURL(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	TypedHandler(srv, 200, srv.handleTestWebhook)(w, r)
+	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for missing url, got %d", w.Code)
@@ -107,7 +107,7 @@ func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
 	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
 	w := httptest.NewRecorder()
 
-	TypedHandler(srv, 200, srv.handleReplayWebhookDelivery)(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleReplayWebhookDelivery)(w, r)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -133,7 +133,7 @@ func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
 	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "my-project"))
 	w := httptest.NewRecorder()
 
-	TypedHandler(srv, 200, srv.handleReplayWebhookDelivery)(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleReplayWebhookDelivery)(w, r)
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for wrong project, got %d", w.Code)
@@ -155,7 +155,7 @@ func TestHandleReplayWebhookDelivery_NotFound(t *testing.T) {
 	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 	w := httptest.NewRecorder()
 
-	TypedHandler(srv, 200, srv.handleReplayWebhookDelivery)(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleReplayWebhookDelivery)(w, r)
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)

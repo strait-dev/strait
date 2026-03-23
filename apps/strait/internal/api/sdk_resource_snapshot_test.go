@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -22,7 +23,7 @@ func TestSDKResourceSnapshot_OOMRisk_InsertsEvent(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":950,"memory_limit_mb":1000,"network_rx_bytes":100,"network_tx_bytes":200}`)
-	TypedHandler(srv, 201, srv.handleSDKResourceSnapshot)(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
 
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -52,7 +53,7 @@ func TestSDKResourceSnapshot_NoOOMRisk_BelowThreshold(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":800,"memory_limit_mb":1000,"network_rx_bytes":100,"network_tx_bytes":200}`)
-	TypedHandler(srv, 201, srv.handleSDKResourceSnapshot)(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
 
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -76,7 +77,7 @@ func TestSDKResourceSnapshot_NoOOMRisk_ZeroLimit(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":800,"memory_limit_mb":0,"network_rx_bytes":100,"network_tx_bytes":200}`)
-	TypedHandler(srv, 201, srv.handleSDKResourceSnapshot)(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
 
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())

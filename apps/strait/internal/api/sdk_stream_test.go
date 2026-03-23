@@ -29,7 +29,7 @@ func TestHandleSDKStreamChunk_PublishesChunk(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1",
 		`{"chunk":"Hello ","stream_id":"default","done":false}`)
-	TypedHandler(srv, 200, srv.handleSDKStreamChunk)(w, r)
+	TypedHandler(srv, http.StatusOK, srv.handleSDKStreamChunk)(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -71,7 +71,7 @@ func TestHandleSDKStreamChunk_DefaultStreamID(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1",
 		`{"chunk":"token"}`)
-	TypedHandler(srv, 200, srv.handleSDKStreamChunk)(w, r)
+	TypedHandler(srv, http.StatusOK, srv.handleSDKStreamChunk)(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -90,7 +90,7 @@ func TestHandleSDKStreamChunk_NoPubSub(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1",
 		`{"chunk":"token"}`)
-	TypedHandler(srv, 200, srv.handleSDKStreamChunk)(w, r)
+	TypedHandler(srv, http.StatusOK, srv.handleSDKStreamChunk)(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 even without pubsub, got %d", w.Code)
@@ -103,7 +103,7 @@ func TestHandleSDKStreamChunk_InvalidBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1", "not json")
-	TypedHandler(srv, 200, srv.handleSDKStreamChunk)(w, r)
+	TypedHandler(srv, http.StatusOK, srv.handleSDKStreamChunk)(w, r)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
