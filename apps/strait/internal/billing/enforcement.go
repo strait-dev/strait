@@ -30,6 +30,7 @@ var (
 	ErrProjectBudgetReached          = errors.New("project budget reached")
 	ErrGracePeriodExpired            = errors.New("payment grace period expired")
 	ErrPaymentRestricted             = errors.New("payment restricted")
+	ErrProjectSuspended              = errors.New("project suspended due to plan downgrade")
 )
 
 // LimitError provides structured information about a limit rejection.
@@ -710,6 +711,70 @@ func (e *Enforcer) ReconcileAllConcurrentCounts(ctx context.Context, counter Exe
 	return nil
 }
 
+// DailyRunCounter provides ground-truth daily run counts from the database.
+type DailyRunCounter interface {
+	CountDailyRunsByOrg(ctx context.Context, orgID string, date time.Time) (int64, error)
+}
+
+// ReconcileDailyRunCounts compares Redis daily run counters with actual DB counts
+// for all subscribed orgs. Unlike concurrent reconciliation, daily counters have
+// a 48h TTL and reset naturally, so this only logs drift metrics for observability
+// rather than correcting the values.
+func (e *Enforcer) ReconcileDailyRunCounts(ctx context.Context, counter DailyRunCounter) error {
+	if e.rdb == nil {
+		return nil
+	}
+
+	orgIDs, err := e.store.ListAllSubscribedOrgIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("listing subscribed org IDs for daily reconciliation: %w", err)
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	todayDate := time.Now().UTC().Truncate(24 * time.Hour)
+	var driftCount int
+
+	for _, orgID := range orgIDs {
+		key := fmt.Sprintf("strait:org_runs:%s:%s", orgID, today)
+		redisCount, err := e.rdb.Get(ctx, key).Int64()
+		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				continue // no Redis key means no runs today, nothing to reconcile
+			}
+			e.logger.Warn("daily run reconciliation: failed to read Redis counter",
+				"org_id", orgID, "error", err)
+			continue
+		}
+
+		dbCount, err := counter.CountDailyRunsByOrg(ctx, orgID, todayDate)
+		if err != nil {
+			e.logger.Warn("daily run reconciliation: failed to query DB count",
+				"org_id", orgID, "error", err)
+			continue
+		}
+
+		drift := redisCount - dbCount
+		if drift != 0 {
+			driftCount++
+			e.logger.Warn("daily run counter drift detected",
+				"org_id", orgID,
+				"redis_count", redisCount,
+				"db_count", dbCount,
+				"drift", drift,
+			)
+		}
+	}
+
+	if driftCount > 0 {
+		e.logger.Info("daily run reconciliation complete",
+			"orgs_checked", len(orgIDs),
+			"orgs_with_drift", driftCount,
+		)
+	}
+
+	return nil
+}
+
 // concurrentCounterTTL is the TTL for concurrent run counters.
 // The reconciler runs every 5 minutes to correct drift; 24h is a backstop
 // for total Redis failure. Managed runs can last many hours, so shorter
@@ -851,6 +916,40 @@ func (e *Enforcer) Check80PercentDailyRunWarning(ctx context.Context, orgID stri
 
 	threshold := int64(float64(limits.MaxRunsPerDay) * 0.8)
 	return count >= threshold, nil
+}
+
+// CheckProjectSuspended checks if a project is suspended due to plan downgrade.
+// Returns ErrProjectSuspended if the project has been soft-locked.
+func (e *Enforcer) CheckProjectSuspended(ctx context.Context, projectID string) error {
+	if projectID == "" {
+		return nil
+	}
+
+	suspended, err := e.store.IsProjectSuspended(ctx, projectID)
+	if err != nil {
+		e.logger.Warn("failed to check project suspended status",
+			"project_id", projectID, "error", err)
+		return nil // fail open
+	}
+
+	if suspended {
+		return &LimitError{
+			Code:       "project_suspended",
+			Message:    "This project is suspended due to a plan downgrade. Upgrade your plan or remove excess projects to restore access.",
+			UpgradeURL: "/upgrade",
+		}
+	}
+
+	return nil
+}
+
+// SuspendExcessProjects suspends projects that exceed the plan limit for an org,
+// keeping the oldest projects active. Returns the number of projects suspended.
+func (e *Enforcer) SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error) {
+	if maxProjects == -1 {
+		return 0, nil // unlimited
+	}
+	return e.store.SuspendExcessProjects(ctx, orgID, maxProjects)
 }
 
 // EnsureOrgSubscription delegates to the underlying store to lazily
