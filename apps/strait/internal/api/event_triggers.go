@@ -30,7 +30,7 @@ func validateEventKey(key string) string {
 	if len(key) > 512 {
 		return "event key must be at most 512 characters"
 	}
-	for i := 0; i < len(key); i++ {
+	for i := range len(key) {
 		if key[i] < 0x20 { // control characters including \x00
 			return "event key contains invalid characters (control characters not allowed)"
 		}

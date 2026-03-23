@@ -256,6 +256,8 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 // tier). Polar delivers webhooks in order per subscription, so the practical risk
 // is low. A full fix requires transactional store operations (BeginTx + conditional
 // UPDATEs). See review finding #2.
+//
+//nolint:gocyclo,cyclop
 func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data json.RawMessage) error {
 	var sub PolarSubscriptionData
 	if err := json.Unmarshal(data, &sub); err != nil {

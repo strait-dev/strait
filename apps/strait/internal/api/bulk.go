@@ -62,6 +62,7 @@ type BulkCancelResponse struct {
 	Failed   int                `json:"failed"`
 }
 
+//nolint:gocognit,gocyclo,cyclop,funlen,nestif
 func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 

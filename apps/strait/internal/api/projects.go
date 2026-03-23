@@ -46,7 +46,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 
 	// Serialize project creation per org using an advisory lock inside a
 	// transaction so the limit check and insert are atomic.
-	if s.txPool != nil && s.billingEnforcer != nil {
+	if s.txPool != nil && s.billingEnforcer != nil { //nolint:nestif
 		txErr := store.WithTx(r.Context(), s.txPool, func(q *store.Queries) error {
 			// Advisory lock keyed on org_id to serialize concurrent creates.
 			if err := q.AdvisoryXactLock(r.Context(), orgAdvisoryLockID(req.OrgID)); err != nil {

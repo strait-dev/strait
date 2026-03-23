@@ -1964,7 +1964,7 @@ func BenchmarkExecutorPoll(b *testing.B) {
 	defer func() { _ = exec.pool.Shutdown(context.Background()) }()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		exec.poll(context.Background())
 	}
 }

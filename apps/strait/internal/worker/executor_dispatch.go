@@ -105,6 +105,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	handler(ctx, ec)
 }
 
+//nolint:gocyclo,cyclop,funlen
 func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	run := ec.Run
 	executeStart := ec.Start
@@ -352,6 +353,8 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 }
 
 // managedDispatch dispatches a job run to a container runtime (Fly Machines, Docker).
+//
+//nolint:gocognit,gocyclo,cyclop,funlen,nestif
 func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job *domain.Job) {
 	dispatchStart := time.Now()
 
@@ -1160,7 +1163,6 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 }
 
 func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, run *domain.JobRun, extraHeaders map[string]string) (json.RawMessage, error) {
-
 	var body io.Reader
 	if len(run.Payload) > 0 {
 		body = bytes.NewReader(run.Payload)

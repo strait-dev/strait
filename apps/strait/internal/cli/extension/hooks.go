@@ -51,7 +51,7 @@ func ExecuteHooks(ctx context.Context, hook string, hctx HookContext, pluginDir 
 		}
 
 		manifestPath := filepath.Join(pluginDir, entry.Name(), "strait-plugin.json")
-		data, err := os.ReadFile(manifestPath) //nolint:gosec // plugin dir from config path
+		data, err := os.ReadFile(manifestPath)
 		if err != nil {
 			continue // no manifest, skip
 		}

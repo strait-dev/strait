@@ -88,7 +88,7 @@ func (s *redisCircuitState) process(_ context.Context, cmd redis.Cmder) error {
 		return fmt.Errorf("exists command type")
 	case "zremrangebyscore":
 		key := fmt.Sprint(args[1])
-		max, err := strconv.ParseInt(fmt.Sprint(args[3]), 10, 64)
+		maxScore, err := strconv.ParseInt(fmt.Sprint(args[3]), 10, 64)
 		if err != nil {
 			return err
 		}
@@ -96,7 +96,7 @@ func (s *redisCircuitState) process(_ context.Context, cmd redis.Cmder) error {
 		remaining := current[:0]
 		removed := int64(0)
 		for _, score := range current {
-			if score <= max {
+			if score <= maxScore {
 				removed++
 				continue
 			}

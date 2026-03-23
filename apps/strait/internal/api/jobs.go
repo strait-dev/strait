@@ -94,6 +94,7 @@ type UpdateJobRequest struct {
 	PreferredRegions     *[]string          `json:"preferred_regions,omitempty"`
 }
 
+//nolint:gocyclo,cyclop
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	var req CreateJobRequest
 	if err := s.decodeJSON(r, &req); err != nil {
@@ -317,6 +318,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
+//nolint:gocognit,gocyclo,cyclop,funlen
 func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 

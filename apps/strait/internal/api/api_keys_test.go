@@ -113,9 +113,9 @@ func TestHandleCreateAPIKey_WithExpiry(t *testing.T) {
 	if captured == nil || captured.ExpiresAt == nil {
 		t.Fatal("expected expires_at to be set on stored key")
 	}
-	min := now.Add(29 * 24 * time.Hour)
-	max := now.Add(31 * 24 * time.Hour)
-	if captured.ExpiresAt.Before(min) || captured.ExpiresAt.After(max) {
+	earliest := now.Add(29 * 24 * time.Hour)
+	latest := now.Add(31 * 24 * time.Hour)
+	if captured.ExpiresAt.Before(earliest) || captured.ExpiresAt.After(latest) {
 		t.Fatalf("expected expires_at around 30 days in future, got %v", captured.ExpiresAt)
 	}
 }

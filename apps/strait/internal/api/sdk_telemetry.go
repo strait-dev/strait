@@ -59,7 +59,7 @@ func (s *Server) handleSDKUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Token budget check BEFORE recording usage.
-	if req.TotalTokens > 0 {
+	if req.TotalTokens > 0 { //nolint:nestif
 		run, runErr := s.store.GetRun(r.Context(), runID)
 		if runErr == nil && run != nil {
 			quota, qErr := s.store.GetProjectQuota(r.Context(), run.ProjectID)
@@ -115,7 +115,7 @@ func (s *Server) handleSDKToolCall(w http.ResponseWriter, r *http.Request) {
 
 	// Tool allowlist/blocklist and count limit checks.
 	run, runErr := s.store.GetRun(r.Context(), runID)
-	if runErr == nil && run != nil {
+	if runErr == nil && run != nil { //nolint:nestif
 		job, jobErr := s.store.GetJob(r.Context(), run.JobID)
 		if jobErr == nil && job != nil {
 			// Tool allowlist check.

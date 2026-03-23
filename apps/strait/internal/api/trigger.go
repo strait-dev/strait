@@ -39,6 +39,7 @@ type TriggerRequest struct {
 	BatchKey       string            `json:"batch_key,omitempty"`
 }
 
+//nolint:gocognit,gocyclo,cyclop,funlen,nestif
 func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	if err := validateRunCreationJobID(jobID); err != nil {
@@ -591,6 +592,7 @@ type DryRunValidationResult struct {
 	ValidationWarnings []string        `json:"validation_warnings,omitempty"`
 }
 
+//nolint:nestif
 func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req TriggerRequest) (*DryRunValidationResult, error) {
 	if err := validateRunCreationJobID(jobID); err != nil {
 		return nil, err

@@ -29,7 +29,7 @@ func TestRequestDeviceCode_Success(t *testing.T) {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(want) //nolint:errcheck
+		json.NewEncoder(w).Encode(want)
 	}))
 	defer srv.Close()
 
@@ -65,7 +65,7 @@ func TestRequestDeviceCode_ServerError(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"internal server error"}`)) //nolint:errcheck
+		w.Write([]byte(`{"error":"internal server error"}`))
 	}))
 	defer srv.Close()
 
@@ -93,11 +93,11 @@ func TestPollDeviceToken_ReturnsOnApproval(t *testing.T) {
 		if n < 3 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"}) //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DeviceTokenResponse{ //nolint:errcheck
+		json.NewEncoder(w).Encode(DeviceTokenResponse{
 			APIKey:    "sk_test_approved",
 			ProjectID: "proj_123",
 			Scopes:    []string{"jobs:read", "jobs:write"},
@@ -136,7 +136,7 @@ func TestPollDeviceToken_StopsOnExpiry(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]string{"error": "expired_token"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"error": "expired_token"})
 	}))
 	defer srv.Close()
 
@@ -160,7 +160,7 @@ func TestPollDeviceToken_RespectsContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
 	}))
 	defer srv.Close()
 
@@ -194,7 +194,7 @@ func TestPollDeviceToken_HandlesSlowPoll(t *testing.T) {
 		}
 		// Second call succeeds.
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DeviceTokenResponse{ //nolint:errcheck
+		json.NewEncoder(w).Encode(DeviceTokenResponse{
 			APIKey:    "sk_test_backoff",
 			ProjectID: "proj_456",
 		})
@@ -227,11 +227,11 @@ func TestPollDeviceToken_Pending(t *testing.T) {
 		if n <= 2 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"}) //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DeviceTokenResponse{ //nolint:errcheck
+		json.NewEncoder(w).Encode(DeviceTokenResponse{
 			APIKey:    "sk_test_pending",
 			ProjectID: "proj_789",
 			Scopes:    []string{"*"},

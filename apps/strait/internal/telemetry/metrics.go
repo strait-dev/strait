@@ -115,6 +115,8 @@ type Metrics struct {
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
+//
+//nolint:gocyclo,cyclop,funlen
 func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(context.Context) error, error) {
 	exporter, err := prometheus.New()
 	if err != nil {

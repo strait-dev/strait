@@ -1930,7 +1930,6 @@ func TestHandleDryRunWorkflow_ErrorPaths(t *testing.T) {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 		}
 	})
-
 }
 
 func TestHandleSkipWorkflowStep_ErrorPaths(t *testing.T) {

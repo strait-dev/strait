@@ -143,7 +143,7 @@ func AutoDisableResources(impacts []ResourceImpact) (manualActions []ResourceImp
 			autoDisabled = append(autoDisabled, impact)
 		}
 	}
-	return
+	return manualActions, autoDisabled
 }
 
 func buildImpact(resource string, current, limit int64) ResourceImpact {

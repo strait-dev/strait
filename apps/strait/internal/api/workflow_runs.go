@@ -847,6 +847,7 @@ func (s *Server) handleReplayWorkflowSubtree(w http.ResponseWriter, r *http.Requ
 	respondJSON(w, http.StatusOK, map[string]any{"reset_steps": reset})
 }
 
+//nolint:gocognit,gocyclo,cyclop
 func (s *Server) handleGetWorkflowRunTimeline(w http.ResponseWriter, r *http.Request) {
 	workflowRunID := chi.URLParam(r, "workflowRunID")
 	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)

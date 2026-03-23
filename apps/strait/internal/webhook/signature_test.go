@@ -96,9 +96,9 @@ func TestValidateSignature_StripeV1(t *testing.T) {
 
 	t.Run("expired timestamp", func(t *testing.T) {
 		t.Parallel()
-		oldTs := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
-		sig := signStripe(oldTs, body)
-		header := fmt.Sprintf("t=%s,v1=%s", oldTs, sig)
+		oldTS := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
+		sig := signStripe(oldTS, body)
+		header := fmt.Sprintf("t=%s,v1=%s", oldTS, sig)
 		err := ValidateSignature("stripe-v1", secret, body, header)
 		if err == nil {
 			t.Fatal("expected error for expired timestamp")

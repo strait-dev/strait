@@ -189,6 +189,8 @@ type Config struct {
 }
 
 // Load reads configuration from environment variables.
+//
+//nolint:gocyclo,cyclop
 func Load() (*Config, error) {
 	var cfg Config
 

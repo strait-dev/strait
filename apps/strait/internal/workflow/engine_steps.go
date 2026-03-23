@@ -243,7 +243,7 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	if len(renderedKey) > 512 {
 		return fmt.Errorf("event_key exceeds 512 characters for step %s", step.StepRef)
 	}
-	for i := 0; i < len(renderedKey); i++ {
+	for i := range len(renderedKey) {
 		if renderedKey[i] < 0x20 {
 			return fmt.Errorf("event_key contains invalid control characters for step %s", step.StepRef)
 		}

@@ -248,6 +248,7 @@ func (s *Server) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
+//nolint:gocognit,gocyclo,cyclop,funlen
 func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "workflowID")
 	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
@@ -551,6 +552,7 @@ func workflowStepsFromRequests(stepReqs []workflowStepRequest) []domain.Workflow
 	return steps
 }
 
+//nolint:gocognit
 func (s *Server) validateWorkflowPolicy(ctx context.Context, projectID string, steps []domain.WorkflowStep) error {
 	policy, err := s.store.GetWorkflowPolicyByProject(ctx, projectID)
 	if err != nil {
@@ -663,6 +665,7 @@ func (s *Server) validateWorkflowPolicy(ctx context.Context, projectID string, s
 
 const maxWorkflowSteps = 1000
 
+//nolint:gocognit,gocyclo,cyclop
 func validateWorkflowSteps(steps []workflowStepRequest) error {
 	if len(steps) > maxWorkflowSteps {
 		return fmt.Errorf("workflow cannot have more than %d steps", maxWorkflowSteps)

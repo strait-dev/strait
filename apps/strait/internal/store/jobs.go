@@ -740,6 +740,7 @@ type scanTarget interface {
 	Scan(dest ...any) error
 }
 
+//nolint:gocyclo,cyclop,funlen
 func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var job domain.Job
 	var description *string

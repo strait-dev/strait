@@ -157,7 +157,7 @@ func rowsFromData(data any) ([]string, []map[string]string, error) {
 		}
 		headers := map[string]struct{}{}
 		rows := make([]map[string]string, 0, v.Len())
-		for i := 0; i < v.Len(); i++ {
+		for i := range v.Len() {
 			row, err := toStringMap(v.Index(i))
 			if err != nil {
 				return nil, nil, err
@@ -202,7 +202,7 @@ func toStringMap(v reflect.Value) (map[string]string, error) {
 	case reflect.Struct:
 		out := map[string]string{}
 		t := v.Type()
-		for i := 0; i < v.NumField(); i++ {
+		for i := range v.NumField() {
 			field := t.Field(i)
 			if !field.IsExported() {
 				continue
