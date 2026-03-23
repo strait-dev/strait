@@ -7,6 +7,8 @@ import (
 	"strait/internal/debug"
 	"strait/internal/domain"
 
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -71,6 +73,33 @@ func (s *Server) routes() chi.Router {
 		}
 		return httprate.LimitByIP(requests, window)
 	}
+
+	// Initialize Huma API for auto-generated OpenAPI documentation.
+	// Huma wraps the chi router and generates OpenAPI from typed handlers.
+	humaConfig := huma.DefaultConfig("Strait API", "1.0.0")
+	humaConfig.Info.Description = "Production-grade job orchestration platform for background jobs, workflows, and managed execution."
+	humaConfig.Servers = []*huma.Server{
+		{URL: "https://strait.fly.dev", Description: "Production"},
+	}
+	humaConfig.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+		"bearerAuth": {
+			Type:         "http",
+			Scheme:       "bearer",
+			Description:  "API key passed as Bearer token",
+			BearerFormat: "strait_...",
+		},
+		"internalSecret": {
+			Type:        "apiKey",
+			In:          "header",
+			Name:        "X-Internal-Secret",
+			Description: "Internal service-to-service authentication",
+		},
+	}
+	humaConfig.DocsPath = ""    // disable default /docs (we use Scalar)
+	humaConfig.OpenAPIPath = "" // we serve the spec ourselves
+	api := humachi.New(r, humaConfig)
+	s.humaAPI = api
+	_ = api // suppress unused warning during incremental migration
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)

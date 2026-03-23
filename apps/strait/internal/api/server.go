@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +31,7 @@ import (
 	"sync/atomic"
 
 	"github.com/alitto/pond/v2"
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
@@ -39,9 +39,6 @@ import (
 
 	scalar "github.com/MarceloPetrucio/go-scalar-api-reference"
 )
-
-//go:embed openapi.yaml
-var openapiSpec []byte
 
 // globalAllowPrivateEndpoints is an atomic flag set by NewServer when
 // ALLOW_PRIVATE_ENDPOINTS is true. Used by the package-level validateURL
@@ -484,6 +481,7 @@ type Server struct {
 	referralService    ReferralService
 	chExporter         *clickhouse.Exporter
 	edition            domain.Edition
+	humaAPI            huma.API
 }
 
 // analytics returns the ClickHouse analytics store when available, falling back to Postgres.
@@ -904,8 +902,10 @@ func (s *Server) validateRequest(w http.ResponseWriter, r *http.Request, v any) 
 }
 
 func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
+	// Serve Scalar API reference using the Huma-generated OpenAPI spec.
+	specBytes, _ := s.humaAPI.OpenAPI().MarshalJSON()
 	htmlContent, err := scalar.ApiReferenceHTML(&scalar.Options{
-		SpecContent: string(openapiSpec),
+		SpecContent: string(specBytes),
 		CustomOptions: scalar.CustomOptions{
 			PageTitle: "Strait API",
 		},
@@ -920,6 +920,8 @@ func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/x-yaml")
-	w.Write(openapiSpec) //nolint:errcheck,gosec // best-effort response write
+	// Serve the Huma-generated OpenAPI spec as JSON.
+	specBytes, _ := s.humaAPI.OpenAPI().MarshalJSON()
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(specBytes)
 }

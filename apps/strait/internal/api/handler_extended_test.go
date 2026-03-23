@@ -547,8 +547,8 @@ func TestHandleOpenAPISpec_Returns200(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	contentType := w.Header().Get("Content-Type")
-	if !strings.Contains(contentType, "yaml") {
-		t.Fatalf("expected yaml content type, got %q", contentType)
+	if !strings.Contains(contentType, "json") {
+		t.Fatalf("expected json content type, got %q", contentType)
 	}
 	if w.Body.Len() == 0 {
 		t.Fatal("expected non-empty OpenAPI spec body")
