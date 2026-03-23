@@ -1,7 +1,7 @@
 package api
 
 import (
-	"net/http"
+	"context"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
@@ -76,8 +76,15 @@ func toPlanResponse(p billing.OrgPlanLimits) planResponse {
 	}
 }
 
+// GetPlansOutput is the typed output for the list plans endpoint.
+type GetPlansOutput struct {
+	Body struct {
+		Plans []planResponse `json:"plans"`
+	}
+}
+
 // handleGetPlans returns all plan tier definitions with their limits and features.
-func (s *Server) handleGetPlans(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleGetPlans(_ context.Context, _ *struct{}) (*GetPlansOutput, error) {
 	tierOrder := []domain.PlanTier{
 		domain.PlanFree,
 		domain.PlanStarter,
@@ -90,5 +97,7 @@ func (s *Server) handleGetPlans(w http.ResponseWriter, _ *http.Request) {
 		plans = append(plans, toPlanResponse(billing.Plans[tier]))
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"plans": plans})
+	out := &GetPlansOutput{}
+	out.Body.Plans = plans
+	return out, nil
 }
