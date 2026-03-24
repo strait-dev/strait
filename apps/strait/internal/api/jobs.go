@@ -979,6 +979,8 @@ func parsePaginationFromStrings(limitStr, cursorStr string) (int, *time.Time, er
 	return limit, cursor, nil
 }
 
+const maxPauseReasonLen = 500
+
 // PauseJobRequest is the optional body for pausing a job.
 type PauseJobRequest struct {
 	Reason string `json:"reason,omitempty" maxLength:"500"`
@@ -996,6 +998,10 @@ type PauseJobOutput struct {
 }
 
 func (s *Server) handlePauseJob(ctx context.Context, input *PauseJobInput) (*PauseJobOutput, error) {
+	if len(input.Body.Reason) > maxPauseReasonLen {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("reason must be %d characters or fewer", maxPauseReasonLen))
+	}
+
 	job, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
@@ -1008,6 +1014,9 @@ func (s *Server) handlePauseJob(ctx context.Context, input *PauseJobInput) (*Pau
 
 	if !alreadyPaused {
 		if err := s.store.PauseJob(ctx, input.JobID, input.Body.Reason); err != nil {
+			if errors.Is(err, store.ErrJobNotFound) {
+				return nil, huma.Error404NotFound("job not found")
+			}
 			return nil, huma.Error500InternalServerError("failed to pause job")
 		}
 
@@ -1052,6 +1061,9 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 
 	if wasPaused {
 		if err := s.store.ResumeJob(ctx, input.JobID); err != nil {
+			if errors.Is(err, store.ErrJobNotFound) {
+				return nil, huma.Error404NotFound("job not found")
+			}
 			return nil, huma.Error500InternalServerError("failed to resume job")
 		}
 

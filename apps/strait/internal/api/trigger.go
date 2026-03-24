@@ -73,7 +73,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}
 
 	if job.Paused {
-		return nil, huma.Error409Conflict("job is paused — resume it before triggering new runs")
+		return nil, huma.Error409Conflict("job is paused -- resume it before triggering new runs")
 	}
 
 	req := input.Body
@@ -585,7 +585,7 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 	}
 
 	if job.Paused {
-		return nil, errors.New("job is paused — resume it before triggering new runs")
+		return nil, errors.New("job is paused -- resume it before triggering new runs")
 	}
 
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -966,5 +967,166 @@ func TestPauseJob_GetJobFailsAfterPause(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 when re-fetch fails, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Reason length validation.
+
+func TestPauseJob_ReasonTooLong(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Paused: false}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	longReason := strings.Repeat("a", 501)
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", fmt.Sprintf(`{"reason":%q}`, longReason)))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for reason >500 chars, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPauseJob_ReasonExactly500Chars(t *testing.T) {
+	t.Parallel()
+	callCount := 0
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			callCount++
+			if callCount == 1 {
+				return &domain.Job{ID: id, ProjectID: "proj-1", Paused: false}, nil
+			}
+			return &domain.Job{ID: id, ProjectID: "proj-1", Paused: true}, nil
+		},
+		PauseJobFunc: func(_ context.Context, _, _ string) error {
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	reason500 := strings.Repeat("b", 500)
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", fmt.Sprintf(`{"reason":%q}`, reason500)))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for reason at exactly 500 chars, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPauseJob_ReasonValidationBeforeGetJob(t *testing.T) {
+	// Reason validation should happen before the DB call, so even a
+	// nonexistent job should get 400 (not 404) for an oversized reason.
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return nil, store.ErrJobNotFound
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	longReason := strings.Repeat("x", 501)
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/nonexistent/pause", fmt.Sprintf(`{"reason":%q}`, longReason)))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 (validation first), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Event source dispatch paused bypass.
+
+func TestEventDispatch_SkipsPausedJob(t *testing.T) {
+	t.Parallel()
+	var enqueueCalled bool
+	ms := &APIStoreMock{
+		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+			return &domain.EventSource{
+				ID: "src-1", ProjectID: projectID, Name: name, Enabled: true,
+			}, nil
+		},
+		ListEventSubscriptionsBySourceFunc: func(_ context.Context, _ string) ([]domain.EventSubscription, error) {
+			return []domain.EventSubscription{
+				{
+					ID: "sub-1", SourceID: "src-1", TargetType: "job", TargetID: "job-1",
+					Enabled: true,
+				},
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: id, ProjectID: "proj-1", Enabled: true, Paused: true,
+				Version: 1, VersionID: "jv-1",
+			}, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueueCalled = true
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	body := `{"source":"my-source","project_id":"proj-1","payload":{"type":"deploy"}}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueueCalled {
+		t.Fatal("event dispatch should NOT enqueue runs for paused jobs")
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if int(resp["dispatched"].(float64)) != 0 {
+		t.Fatalf("expected dispatched=0 for paused job, got %v", resp["dispatched"])
+	}
+}
+
+func TestEventDispatch_EnqueuesWhenNotPaused(t *testing.T) {
+	t.Parallel()
+	var enqueueCalled bool
+	ms := &APIStoreMock{
+		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+			return &domain.EventSource{
+				ID: "src-1", ProjectID: projectID, Name: name, Enabled: true,
+			}, nil
+		},
+		ListEventSubscriptionsBySourceFunc: func(_ context.Context, _ string) ([]domain.EventSubscription, error) {
+			return []domain.EventSubscription{
+				{
+					ID: "sub-1", SourceID: "src-1", TargetType: "job", TargetID: "job-1",
+					Enabled: true,
+				},
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: id, ProjectID: "proj-1", Enabled: true, Paused: false,
+				Version: 1, VersionID: "jv-1",
+			}, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueueCalled = true
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	body := `{"source":"my-source","project_id":"proj-1","payload":{"type":"deploy"}}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !enqueueCalled {
+		t.Fatal("event dispatch should enqueue runs for non-paused jobs")
 	}
 }
