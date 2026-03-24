@@ -10,9 +10,7 @@ import (
 )
 
 func TestOnApprovalChanged_CalledAfterCreate(t *testing.T) {
-	t.Parallel()
-
-	// Save and restore the global hook.
+	// Not parallel: mutates the package-level OnApprovalChanged hook.
 	origHook := OnApprovalChanged
 	t.Cleanup(func() { OnApprovalChanged = origHook })
 
@@ -53,8 +51,7 @@ func TestOnApprovalChanged_CalledAfterCreate(t *testing.T) {
 }
 
 func TestOnApprovalChanged_NilHookDoesNotPanic(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: mutates the package-level OnApprovalChanged hook.
 	origHook := OnApprovalChanged
 	t.Cleanup(func() { OnApprovalChanged = origHook })
 
@@ -67,8 +64,7 @@ func TestOnApprovalChanged_NilHookDoesNotPanic(t *testing.T) {
 }
 
 func TestOnApprovalChanged_UpdateFields(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: mutates the package-level OnApprovalChanged hook.
 	origHook := OnApprovalChanged
 	t.Cleanup(func() { OnApprovalChanged = origHook })
 
