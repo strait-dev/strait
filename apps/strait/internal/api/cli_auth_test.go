@@ -16,7 +16,7 @@ import (
 func TestHandleDeviceCode_Success(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -60,7 +60,7 @@ func TestHandleDeviceCode_Success(t *testing.T) {
 func TestHandleDeviceCode_CodesAreUnique(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	// Make two requests and verify the codes differ.
@@ -91,8 +91,8 @@ func TestHandleDeviceCode_CodesAreUnique(t *testing.T) {
 func TestHandleDeviceToken_Pending(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getDeviceCodeByDeviceCodeFn: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+	ms := &APIStoreMock{
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -130,8 +130,8 @@ func TestHandleDeviceToken_Pending(t *testing.T) {
 func TestHandleDeviceToken_Approved(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getDeviceCodeByDeviceCodeFn: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+	ms := &APIStoreMock{
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -144,7 +144,7 @@ func TestHandleDeviceToken_Approved(t *testing.T) {
 				ExpiresAt:  time.Now().Add(10 * time.Minute),
 			}, nil
 		},
-		exchangeDeviceCodeFn: func(_ context.Context, _ string) (string, error) {
+		ExchangeDeviceCodeFunc: func(_ context.Context, _ string) (string, error) {
 			return "key-1", nil
 		},
 	}
@@ -176,8 +176,8 @@ func TestHandleDeviceToken_Approved(t *testing.T) {
 func TestHandleDeviceToken_Expired(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getDeviceCodeByDeviceCodeFn: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+	ms := &APIStoreMock{
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -212,8 +212,8 @@ func TestHandleDeviceToken_Expired(t *testing.T) {
 func TestHandleDeviceToken_AlreadyUsed(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getDeviceCodeByDeviceCodeFn: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+	ms := &APIStoreMock{
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -248,7 +248,7 @@ func TestHandleDeviceToken_AlreadyUsed(t *testing.T) {
 func TestHandleDeviceToken_InvalidGrantType(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	body := `{"device_code":"test-device-code","grant_type":"authorization_code"}`
@@ -266,7 +266,7 @@ func TestHandleDeviceToken_InvalidGrantType(t *testing.T) {
 func TestHandleDeviceToken_MissingDeviceCode(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	body := `{"grant_type":"device_code"}`
@@ -288,8 +288,8 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 	var approvedDeviceCode string
 	var approvedAPIKeyID string
 
-	ms := &mockAPIStore{
-		getDeviceCodeByDeviceCodeFn: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+	ms := &APIStoreMock{
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -298,13 +298,13 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 				ExpiresAt:  time.Now().Add(10 * time.Minute),
 			}, nil
 		},
-		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
 			key.ID = "key-generated"
 			key.CreatedAt = time.Now()
 			createdKey = key
 			return nil
 		},
-		approveDeviceCodeFn: func(_ context.Context, deviceCode, apiKeyID, _ string) error {
+		ApproveDeviceCodeFunc: func(_ context.Context, deviceCode, apiKeyID, _ string) error {
 			approvedDeviceCode = deviceCode
 			approvedAPIKeyID = apiKeyID
 			return nil
@@ -340,8 +340,8 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 func TestHandleApproveDeviceCode_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getDeviceCodeByDeviceCodeFn: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+	ms := &APIStoreMock{
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return nil, store.ErrDeviceCodeNotFound
 		},
 	}

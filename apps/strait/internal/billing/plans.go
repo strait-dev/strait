@@ -30,7 +30,8 @@ type OrgPlanLimits struct {
 	HasSSO                  bool
 	HasSLA                  bool
 	RequiresCreditCard      bool
-	OveragePerKRunsMicrousd int64 // cost per 1K runs overage in micro-USD
+	OveragePerKRunsMicrousd int64  // cost per 1K runs overage in micro-USD
+	SupportLevel            string // "community", "email_48h", "priority_24h", "dedicated"
 }
 
 // Plans maps plan tiers to their limits.
@@ -63,6 +64,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  false,
 		RequiresCreditCard:      false,
 		OveragePerKRunsMicrousd: 0,
+		SupportLevel:            "community",
 	},
 	domain.PlanStarter: {
 		PlanTier:                domain.PlanStarter,
@@ -92,6 +94,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
 		OveragePerKRunsMicrousd: 200000,
+		SupportLevel:            "email_48h",
 	},
 	domain.PlanPro: {
 		PlanTier:                domain.PlanPro,
@@ -121,6 +124,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
 		OveragePerKRunsMicrousd: 200000,
+		SupportLevel:            "priority_24h",
 	},
 	domain.PlanEnterprise: {
 		PlanTier:                domain.PlanEnterprise,
@@ -150,7 +154,45 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  true,
 		RequiresCreditCard:      false,
 		OveragePerKRunsMicrousd: 0,
+		SupportLevel:            "dedicated",
 	},
+}
+
+// IsDowngrade returns true if moving from oldTier to newTier reduces ANY limit.
+// Used to determine whether a plan change should be deferred to period end.
+func IsDowngrade(oldTier, newTier domain.PlanTier) bool {
+	if oldTier == newTier {
+		return false
+	}
+	oldLimits := GetPlanLimits(oldTier)
+	newLimits := GetPlanLimits(newTier)
+
+	// Compare all numeric limits. A decrease in ANY field means downgrade.
+	// -1 means unlimited, so going from -1 to any positive number is a downgrade.
+	less := func(oldVal, newVal int64) bool {
+		if oldVal == -1 && newVal != -1 {
+			return true // unlimited -> limited
+		}
+		if newVal == -1 {
+			return false // anything -> unlimited is not a downgrade
+		}
+		return newVal < oldVal
+	}
+	lessInt := func(oldVal, newVal int) bool {
+		return less(int64(oldVal), int64(newVal))
+	}
+
+	return less(oldLimits.MaxRunsPerDay, newLimits.MaxRunsPerDay) ||
+		lessInt(oldLimits.MaxConcurrentRuns, newLimits.MaxConcurrentRuns) ||
+		lessInt(oldLimits.MaxProjectsPerOrg, newLimits.MaxProjectsPerOrg) ||
+		lessInt(oldLimits.MaxMembersPerOrg, newLimits.MaxMembersPerOrg) ||
+		lessInt(oldLimits.MaxOrgsPerUser, newLimits.MaxOrgsPerUser) ||
+		less(oldLimits.ComputeCreditMicrousd, newLimits.ComputeCreditMicrousd) ||
+		lessInt(oldLimits.RetentionDays, newLimits.RetentionDays) ||
+		lessInt(oldLimits.MaxAlertRulesPerProj, newLimits.MaxAlertRulesPerProj) ||
+		lessInt(oldLimits.MaxWebhookSubsPerProj, newLimits.MaxWebhookSubsPerProj) ||
+		lessInt(oldLimits.MaxLogDrainsPerOrg, newLimits.MaxLogDrainsPerOrg) ||
+		lessInt(oldLimits.MaxAIModelCallsPerDay, newLimits.MaxAIModelCallsPerDay)
 }
 
 // GetPlanLimits returns the plan limits for the given tier.

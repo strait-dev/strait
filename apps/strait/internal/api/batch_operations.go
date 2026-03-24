@@ -1,43 +1,42 @@
 package api
 
 import (
-	"net/http"
+	"context"
 	"time"
 
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleListBatchOperations(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+type ListBatchOperationsInput struct {
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+type ListBatchOperationsOutput struct{ Body PaginatedResponse }
 
-	limit, cursor, err := parsePaginationParams(r)
+func (s *Server) handleListBatchOperations(ctx context.Context, input *ListBatchOperationsInput) (*ListBatchOperationsOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	ops, err := s.store.ListBatchOperations(r.Context(), projectID, limit+1, cursor)
+	ops, err := s.store.ListBatchOperations(ctx, projectID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list batch operations")
-		return
+		return nil, huma.Error500InternalServerError("failed to list batch operations")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(ops, limit, func(op domain.BatchOperation) string {
-		return op.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListBatchOperationsOutput{Body: paginatedResult(ops, limit, func(op domain.BatchOperation) string { return op.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-func (s *Server) handleGetBatchOperation(w http.ResponseWriter, r *http.Request) {
-	batchID := chi.URLParam(r, "batchID")
-	projectID := projectIDFromContext(r.Context())
+type GetBatchOperationInput struct {
+	BatchID string `path:"batchID"`
+}
+type GetBatchOperationOutput struct{ Body *domain.BatchOperation }
 
-	op, err := s.store.GetBatchOperation(r.Context(), batchID, projectID)
+func (s *Server) handleGetBatchOperation(ctx context.Context, input *GetBatchOperationInput) (*GetBatchOperationOutput, error) {
+	op, err := s.store.GetBatchOperation(ctx, input.BatchID, projectIDFromContext(ctx))
 	if err != nil {
-		respondError(w, r, http.StatusNotFound, "batch operation not found")
-		return
+		return nil, huma.Error404NotFound("batch operation not found")
 	}
-
-	respondJSON(w, http.StatusOK, op)
+	return &GetBatchOperationOutput{Body: op}, nil
 }

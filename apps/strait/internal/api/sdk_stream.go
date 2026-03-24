@@ -1,54 +1,39 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
-	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleSDKStreamChunk(w http.ResponseWriter, r *http.Request) {
-	applySDKResponseHeaders(r.Context(), w)
-	runID := chi.URLParam(r, "runID")
+type SDKStreamChunkRequest struct {
+	Chunk    string `json:"chunk"`
+	StreamID string `json:"stream_id,omitempty"`
+	Done     bool   `json:"done,omitempty"`
+}
+type SDKStreamChunkInput struct {
+	RunID string `path:"runID"`
+	Body  SDKStreamChunkRequest
+}
+type SDKStreamChunkOutput struct{ Body map[string]string }
 
-	var req struct {
-		Chunk    string `json:"chunk"`
-		StreamID string `json:"stream_id,omitempty"`
-		Done     bool   `json:"done,omitempty"`
-	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
+func (s *Server) handleSDKStreamChunk(ctx context.Context, input *SDKStreamChunkInput) (*SDKStreamChunkOutput, error) {
 	if s.pubsub == nil {
-		respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-		return
+		return &SDKStreamChunkOutput{Body: map[string]string{"status": "ok"}}, nil
 	}
-
-	streamID := req.StreamID
+	streamID := input.Body.StreamID
 	if streamID == "" {
 		streamID = "default"
 	}
-
-	payload, err := json.Marshal(map[string]any{
-		"type":      "stream_chunk",
-		"chunk":     req.Chunk,
-		"stream_id": streamID,
-		"done":      req.Done,
-		"timestamp": time.Now().UTC(),
-	})
+	payload, err := json.Marshal(map[string]any{"type": "stream_chunk", "chunk": input.Body.Chunk, "stream_id": streamID, "done": input.Body.Done, "timestamp": time.Now().UTC()})
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to marshal chunk")
-		return
+		return nil, huma.Error500InternalServerError("failed to marshal chunk")
 	}
-
-	channel := "run_stream:" + runID
-	if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
-		slog.Warn("failed to publish stream chunk", "run_id", runID, "error", err)
+	if err := s.pubsub.Publish(ctx, "run_stream:"+input.RunID, payload); err != nil {
+		slog.Warn("failed to publish stream chunk", "run_id", input.RunID, "error", err)
 	}
-
-	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	return &SDKStreamChunkOutput{Body: map[string]string{"status": "ok"}}, nil
 }

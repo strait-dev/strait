@@ -17,8 +17,8 @@ import (
 func TestHandleRunStream_RunNotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}
@@ -35,8 +35,8 @@ func TestHandleRunStream_RunNotFound(t *testing.T) {
 func TestHandleRunStream_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, errors.New("db error")
 		},
 	}
@@ -52,8 +52,8 @@ func TestHandleRunStream_StoreError(t *testing.T) {
 func TestHandleRunStream_TerminalRun(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:        id,
 				JobID:     "job-1",
@@ -75,8 +75,8 @@ func TestHandleRunStream_TerminalRun(t *testing.T) {
 func TestHandleRunStream_NoPubSub(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:        id,
 				JobID:     "job-1",
@@ -107,8 +107,8 @@ func TestHandleRunStream_NoPubSub(t *testing.T) {
 func TestHandleRunStream_SubscribeError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:        id,
 				JobID:     "job-1",
@@ -140,8 +140,8 @@ func TestHandleRunStream_SubscribeError(t *testing.T) {
 func TestHandleRunStream_ReceivesMessage(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:        id,
 				JobID:     "job-1",
@@ -180,8 +180,8 @@ func TestHandleRunStream_ReceivesMessage(t *testing.T) {
 func TestHandleRunStream_ClientDisconnect(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:        id,
 				JobID:     "job-1",
@@ -232,8 +232,8 @@ func TestHandleRunStream_TerminalStatuses(t *testing.T) {
 	for _, status := range terminalStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			t.Parallel()
-			ms := &mockAPIStore{
-				getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			ms := &APIStoreMock{
+				GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 					return &domain.JobRun{
 						ID:        id,
 						JobID:     "job-1",
@@ -257,8 +257,8 @@ func TestHandleRunStream_TerminalStatuses(t *testing.T) {
 func TestHandleRunStream_SSEHeaders(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:        id,
 				JobID:     "job-1",
@@ -313,8 +313,8 @@ func TestHandleRunStream_NonTerminalStatuses(t *testing.T) {
 	for _, status := range nonTerminalStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			t.Parallel()
-			ms := &mockAPIStore{
-				getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			ms := &APIStoreMock{
+				GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 					return &domain.JobRun{
 						ID:        id,
 						JobID:     "job-1",

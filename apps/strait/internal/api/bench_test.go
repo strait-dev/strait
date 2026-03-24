@@ -46,9 +46,12 @@ func uniqueRemoteAddr(counter *atomic.Uint64) string {
 }
 
 func BenchmarkHandleTriggerJob(b *testing.B) {
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return benchmarkJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -81,9 +84,12 @@ func BenchmarkHandleTriggerJob(b *testing.B) {
 }
 
 func BenchmarkHandleBulkTrigger(b *testing.B) {
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return benchmarkJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -114,14 +120,14 @@ func BenchmarkHandleBulkTrigger(b *testing.B) {
 }
 
 func BenchmarkHandleBulkCancel(b *testing.B) {
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		ListChildRunsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -150,8 +156,8 @@ func BenchmarkHandleBulkCancel(b *testing.B) {
 }
 
 func BenchmarkHandleStats(b *testing.B) {
-	ms := &mockAPIStore{
-		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+	ms := &APIStoreMock{
+		QueueStatsFunc: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 10, Executing: 4, Delayed: 2}, nil
 		},
 	}
@@ -189,8 +195,8 @@ func BenchmarkHandleListJobs(b *testing.B) {
 		}
 	}
 
-	ms := &mockAPIStore{
-		listJobsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.Job, error) {
+	ms := &APIStoreMock{
+		ListJobsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return jobs, nil
 		},
 	}
@@ -220,15 +226,15 @@ func BenchmarkHandleListJobs(b *testing.B) {
 func BenchmarkAPIKeyAuth(b *testing.B) {
 	rawKey := "strait_" + strings.Repeat("ab", 32)
 	keyHash := hashAPIKey(rawKey)
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, gotHash string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, gotHash string) (*domain.APIKey, error) {
 			if gotHash != keyHash {
 				return nil, fmt.Errorf("unexpected hash")
 			}
 			return &domain.APIKey{ID: "key-123", ProjectID: "proj-1"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
-		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
+		QueueStatsFunc: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 1, Executing: 1, Delayed: 1}, nil
 		},
 	}
@@ -257,9 +263,12 @@ func BenchmarkAPIKeyAuth(b *testing.B) {
 
 func TestConcurrentTrigger(t *testing.T) {
 	var enqueueCount atomic.Int64
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return benchmarkJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -302,9 +311,12 @@ func TestConcurrentTrigger(t *testing.T) {
 
 func TestConcurrentBulkTrigger(t *testing.T) {
 	var enqueueCount atomic.Int64
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return benchmarkJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -361,8 +373,8 @@ func TestConcurrentBulkCancel(t *testing.T) {
 
 	var mu sync.Mutex
 	cancelAttempts := make(map[string]int, totalRuns)
-	ms := &mockAPIStore{
-		getRunsByIDsFn: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			result := make(map[string]*domain.JobRun)
@@ -373,7 +385,7 @@ func TestConcurrentBulkCancel(t *testing.T) {
 			}
 			return result, nil
 		},
-		bulkCancelRunsFn: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
+		BulkCancelRunsFunc: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			results := make([]store.BulkCancelResult, 0, len(ids))
@@ -383,7 +395,7 @@ func TestConcurrentBulkCancel(t *testing.T) {
 			}
 			return results, nil
 		},
-		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -444,11 +456,14 @@ func TestConcurrentMixedOperations(t *testing.T) {
 	}
 
 	var mu sync.Mutex
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return benchmarkJob(id), nil
 		},
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
+		},
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			st, ok := runs[id]
@@ -457,7 +472,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 			}
 			return &domain.JobRun{ID: id, Status: st}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, id string, _, to domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, id string, _, to domain.RunStatus, _ map[string]any) error {
 			mu.Lock()
 			defer mu.Unlock()
 			if _, ok := runs[id]; ok {
@@ -465,17 +480,17 @@ func TestConcurrentMixedOperations(t *testing.T) {
 			}
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		ListChildRunsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
-		listRunsByProjectFn: func(_ context.Context, projectID string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, _ *time.Time) ([]domain.JobRun, error) {
+		ListRunsByProjectFunc: func(_ context.Context, projectID string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, _ *time.Time) ([]domain.JobRun, error) {
 			out := make([]domain.JobRun, 0, limit)
 			for i := range limit {
 				out = append(out, domain.JobRun{ID: fmt.Sprintf("list-%d", i), ProjectID: projectID, Status: domain.StatusQueued})
 			}
 			return out, nil
 		},
-		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+		QueueStatsFunc: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 5, Executing: 2, Delayed: 1}, nil
 		},
 	}
@@ -549,9 +564,12 @@ func TestConcurrentMixedOperations(t *testing.T) {
 
 func TestBurstTraffic(t *testing.T) {
 	var enqueueCount atomic.Int64
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return benchmarkJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -580,9 +598,12 @@ func TestBurstTraffic(t *testing.T) {
 
 func TestSustainedLoad(t *testing.T) {
 	var enqueueCount atomic.Int64
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return benchmarkJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
 		},
 	}
 	mq := &mockQueue{
@@ -635,18 +656,18 @@ func TestAPIKeyAuthConcurrent(t *testing.T) {
 	wantHash := hashAPIKey(rawKey)
 	var touchCount atomic.Int64
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
 			if keyHash != wantHash {
 				return nil, fmt.Errorf("unexpected hash")
 			}
 			return &domain.APIKey{ID: "key-123", ProjectID: "proj-1"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			touchCount.Add(1)
 			return nil
 		},
-		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+		QueueStatsFunc: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 1, Executing: 1, Delayed: 1}, nil
 		},
 	}

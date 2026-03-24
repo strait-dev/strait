@@ -35,7 +35,7 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
         name,
         email,
         password,
-        callbackURL: redirectTo ?? "/onboarding",
+        callbackURL: redirectTo ?? "/app",
       });
 
       if (result.error) {

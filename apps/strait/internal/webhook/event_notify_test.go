@@ -105,11 +105,11 @@ func TestProcessBatch_ConcurrentDelivery(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		current := inFlight.Add(1)
 		for {
-			max := maxInFlight.Load()
-			if current <= max {
+			peak := maxInFlight.Load()
+			if current <= peak {
 				break
 			}
-			if maxInFlight.CompareAndSwap(max, current) {
+			if maxInFlight.CompareAndSwap(peak, current) {
 				break
 			}
 		}

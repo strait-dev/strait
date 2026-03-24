@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
 // Roles.
@@ -28,122 +27,90 @@ func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resou
 	if s.config == nil {
 		return
 	}
-
 	detailsJSON, err := json.Marshal(details)
 	if err != nil {
 		slog.Warn("failed to marshal audit event details", "action", action, "error", err)
 		return
 	}
-
 	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
 	ev := &domain.AuditEvent{
-		ProjectID:    projectIDFromContext(ctx),
-		ActorID:      actorFromContext(ctx),
-		ActorType:    actorType,
-		Action:       action,
-		ResourceType: resourceType,
-		ResourceID:   resourceID,
-		Details:      detailsJSON,
+		ProjectID: projectIDFromContext(ctx), ActorID: actorFromContext(ctx), ActorType: actorType,
+		Action: action, ResourceType: resourceType, ResourceID: resourceID, Details: detailsJSON,
 	}
 	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
 		slog.Warn("failed to create audit event", "action", action, "resource_type", resourceType, "resource_id", resourceID, "error", err)
 	}
 }
 
-func (s *Server) handleCreateRole(w http.ResponseWriter, r *http.Request) {
-	var req createRoleRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
+type CreateRoleInput struct{ Body createRoleRequest }
+type CreateRoleOutput struct{ Body *domain.ProjectRole }
+
+func (s *Server) handleCreateRole(ctx context.Context, input *CreateRoleInput) (*CreateRoleOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 	if err := domain.ValidateScopes(req.Permissions); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	role := &domain.ProjectRole{
-		ProjectID:    projectIDFromContext(r.Context()),
-		Name:         req.Name,
-		Description:  req.Description,
-		Permissions:  req.Permissions,
-		ParentRoleID: req.ParentRoleID,
+	role := &domain.ProjectRole{ProjectID: projectIDFromContext(ctx), Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
+	if err := s.store.CreateProjectRole(ctx, role); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create role")
 	}
-
-	if err := s.store.CreateProjectRole(r.Context(), role); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create role")
-		return
-	}
-
-	s.emitAuditEvent(r.Context(), "role.created", "role", role.ID, map[string]any{
-		"name":          role.Name,
-		"description":   role.Description,
-		"permissions":   role.Permissions,
-		"parent_role":   role.ParentRoleID,
-		"project_id":    role.ProjectID,
-		"is_system":     role.IsSystem,
-		"change_source": "rbac_api",
-	})
-	respondJSON(w, http.StatusCreated, role)
+	s.emitAuditEvent(ctx, "role.created", "role", role.ID, map[string]any{"name": role.Name, "description": role.Description, "permissions": role.Permissions, "parent_role": role.ParentRoleID, "project_id": role.ProjectID, "is_system": role.IsSystem, "change_source": "rbac_api"})
+	return &CreateRoleOutput{Body: role}, nil
 }
 
-func (s *Server) handleListRoles(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
-	limit, cursor, err := parsePaginationParams(r)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
+type ListRolesInput struct {
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+type ListRolesOutput struct{ Body PaginatedResponse }
 
-	roles, err := s.store.ListProjectRoles(r.Context(), projectID, limit+1, cursor)
+func (s *Server) handleListRoles(ctx context.Context, input *ListRolesInput) (*ListRolesOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list roles")
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(roles, limit, func(role domain.ProjectRole) string {
-		return role.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	roles, err := s.store.ListProjectRoles(ctx, projectID, limit+1, cursor)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list roles")
+	}
+	return &ListRolesOutput{Body: paginatedResult(roles, limit, func(role domain.ProjectRole) string { return role.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-func (s *Server) handleGetRole(w http.ResponseWriter, r *http.Request) {
-	roleID := chi.URLParam(r, "roleID")
-	role, err := s.store.GetProjectRole(r.Context(), roleID)
+type GetRoleInput struct {
+	RoleID         string `path:"roleID"`
+	IncludeLineage string `query:"include_lineage"`
+}
+type GetRoleOutput struct{ Body any }
+
+func (s *Server) handleGetRole(ctx context.Context, input *GetRoleInput) (*GetRoleOutput, error) {
+	role, err := s.store.GetProjectRole(ctx, input.RoleID)
 	if err != nil {
 		if errors.Is(err, store.ErrRoleNotFound) {
-			respondError(w, r, http.StatusNotFound, "role not found")
-			return
+			return nil, huma.Error404NotFound("role not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get role")
-		return
+		return nil, huma.Error500InternalServerError("failed to get role")
 	}
-
-	if r.URL.Query().Get("include_lineage") != "true" {
-		respondJSON(w, http.StatusOK, role)
-		return
+	if input.IncludeLineage != "true" {
+		return &GetRoleOutput{Body: role}, nil
 	}
-
 	lineage := make([]domain.ProjectRole, 0, 4)
 	currentParent := role.ParentRoleID
 	for depth := 0; depth < 20 && currentParent != ""; depth++ {
-		parent, parentErr := s.store.GetProjectRole(r.Context(), currentParent)
+		parent, parentErr := s.store.GetProjectRole(ctx, currentParent)
 		if parentErr != nil {
 			if errors.Is(parentErr, store.ErrRoleNotFound) {
 				break
 			}
-			respondError(w, r, http.StatusInternalServerError, "failed to load role lineage")
-			return
+			return nil, huma.Error500InternalServerError("failed to load role lineage")
 		}
 		lineage = append(lineage, *parent)
 		currentParent = parent.ParentRoleID
 	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"role":    role,
-		"lineage": lineage,
-	})
+	return &GetRoleOutput{Body: map[string]any{"role": role, "lineage": lineage}}, nil
 }
 
 type updateRoleRequest struct {
@@ -152,89 +119,67 @@ type updateRoleRequest struct {
 	Permissions  []string `json:"permissions" validate:"required,min=1"`
 	ParentRoleID string   `json:"parent_role_id,omitempty"`
 }
+type UpdateRoleInput struct {
+	RoleID string `path:"roleID"`
+	Body   updateRoleRequest
+}
+type UpdateRoleOutput struct{ Body *domain.ProjectRole }
 
-func (s *Server) handleUpdateRole(w http.ResponseWriter, r *http.Request) {
-	var req updateRoleRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
+func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (*UpdateRoleOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 	if err := domain.ValidateScopes(req.Permissions); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	roleID := chi.URLParam(r, "roleID")
-	previousRole, _ := s.store.GetProjectRole(r.Context(), roleID)
-	role := &domain.ProjectRole{
-		ID:           roleID,
-		Name:         req.Name,
-		Description:  req.Description,
-		Permissions:  req.Permissions,
-		ParentRoleID: req.ParentRoleID,
-	}
-
-	if err := s.store.UpdateProjectRole(r.Context(), role); err != nil {
+	roleID := input.RoleID
+	previousRole, _ := s.store.GetProjectRole(ctx, roleID)
+	role := &domain.ProjectRole{ID: roleID, Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
+	if err := s.store.UpdateProjectRole(ctx, role); err != nil {
 		if errors.Is(err, store.ErrRoleNotFound) {
-			respondError(w, r, http.StatusNotFound, "role not found or is a system role")
-			return
+			return nil, huma.Error404NotFound("role not found or is a system role")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to update role")
-		return
+		return nil, huma.Error500InternalServerError("failed to update role")
 	}
-
-	updated, err := s.store.GetProjectRole(r.Context(), roleID)
+	updated, err := s.store.GetProjectRole(ctx, roleID)
 	if err != nil {
 		if errors.Is(err, store.ErrRoleNotFound) {
-			respondError(w, r, http.StatusNotFound, "role not found")
-			return
+			return nil, huma.Error404NotFound("role not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to load updated role")
-		return
+		return nil, huma.Error500InternalServerError("failed to load updated role")
 	}
 	if updated == nil {
 		updated = role
 	}
-
-	s.emitAuditEvent(r.Context(), "role.updated", "role", roleID, map[string]any{
-		"changes": map[string]any{
-			"before": previousRole,
-			"after":  updated,
-		},
-	})
-	respondJSON(w, http.StatusOK, updated)
+	s.emitAuditEvent(ctx, "role.updated", "role", roleID, map[string]any{"changes": map[string]any{"before": previousRole, "after": updated}})
+	return &UpdateRoleOutput{Body: updated}, nil
 }
 
-func (s *Server) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
-	roleID := chi.URLParam(r, "roleID")
-	if err := s.store.DeleteProjectRole(r.Context(), roleID); err != nil {
+type DeleteRoleInput struct {
+	RoleID string `path:"roleID"`
+}
+
+func (s *Server) handleDeleteRole(ctx context.Context, input *DeleteRoleInput) (*struct{}, error) {
+	if err := s.store.DeleteProjectRole(ctx, input.RoleID); err != nil {
 		if errors.Is(err, store.ErrRoleNotFound) {
-			respondError(w, r, http.StatusNotFound, "role not found or is a system role")
-			return
+			return nil, huma.Error404NotFound("role not found or is a system role")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete role")
-		return
+		return nil, huma.Error500InternalServerError("failed to delete role")
 	}
-	slog.Info("role deleted", "role_id", roleID, "actor", actorFromContext(r.Context()),
-		"project_id", projectIDFromContext(r.Context()))
-	s.emitAuditEvent(r.Context(), "role.deleted", "role", roleID, nil)
-	w.WriteHeader(http.StatusNoContent)
+	slog.Info("role deleted", "role_id", input.RoleID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
+	s.emitAuditEvent(ctx, "role.deleted", "role", input.RoleID, nil)
+	return nil, nil
 }
 
 // Members.
-
 type assignMemberRequest struct {
 	UserID string `json:"user_id" validate:"required"`
 	RoleID string `json:"role_id" validate:"required"`
 }
-
 type bulkAssignMembersRequest struct {
 	Items []assignMemberRequest `json:"items" validate:"required,min=1"`
 }
-
 type bulkAssignMemberResult struct {
 	UserID string `json:"user_id"`
 	RoleID string `json:"role_id"`
@@ -242,187 +187,141 @@ type bulkAssignMemberResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-func (s *Server) handleAssignMember(w http.ResponseWriter, r *http.Request) {
-	var req assignMemberRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
+type AssignMemberInput struct{ Body assignMemberRequest }
+type AssignMemberOutput struct{ Body *domain.ProjectMemberRole }
 
-	// Check member limit before assigning.
+func (s *Server) handleAssignMember(ctx context.Context, input *AssignMemberInput) (*AssignMemberOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
 	if s.billingEnforcer != nil {
-		projectID := projectIDFromContext(r.Context())
-		orgID, err := s.billingEnforcer.GetActiveProjectOrgID(r.Context(), projectID)
+		projectID := projectIDFromContext(ctx)
+		orgID, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, projectID)
 		if err == nil && orgID != "" {
-			if err := s.billingEnforcer.CheckMemberLimit(r.Context(), orgID); err != nil {
+			if err := s.billingEnforcer.CheckMemberLimit(ctx, orgID); err != nil {
 				var le *billing.LimitError
 				if errors.As(err, &le) {
-					respondError(w, r, http.StatusForbidden, le)
-					return
+					return nil, le
 				}
 			}
 		}
 	}
-
-	// Verify the role exists.
-	if _, err := s.store.GetProjectRole(r.Context(), req.RoleID); err != nil {
+	if _, err := s.store.GetProjectRole(ctx, req.RoleID); err != nil {
 		if errors.Is(err, store.ErrRoleNotFound) {
-			respondError(w, r, http.StatusBadRequest, "role not found")
-			return
+			return nil, huma.Error400BadRequest("role not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to verify role")
-		return
+		return nil, huma.Error500InternalServerError("failed to verify role")
 	}
-
-	m := &domain.ProjectMemberRole{
-		ProjectID: projectIDFromContext(r.Context()),
-		UserID:    req.UserID,
-		RoleID:    req.RoleID,
-		GrantedBy: actorFromContext(r.Context()),
+	m := &domain.ProjectMemberRole{ProjectID: projectIDFromContext(ctx), UserID: req.UserID, RoleID: req.RoleID, GrantedBy: actorFromContext(ctx)}
+	if err := s.store.AssignMemberRole(ctx, m); err != nil {
+		return nil, huma.Error500InternalServerError("failed to assign role")
 	}
-
-	if err := s.store.AssignMemberRole(r.Context(), m); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to assign role")
-		return
-	}
-
 	s.permCache.Invalidate(m.ProjectID, m.UserID)
-	s.emitAuditEvent(r.Context(), "permission.granted", "role", m.RoleID, map[string]any{
-		"user_id":    m.UserID,
-		"project_id": m.ProjectID,
-	})
-	respondJSON(w, http.StatusCreated, m)
+	s.emitAuditEvent(ctx, "permission.granted", "role", m.RoleID, map[string]any{"user_id": m.UserID, "project_id": m.ProjectID})
+	return &AssignMemberOutput{Body: m}, nil
 }
 
-func (s *Server) handleBulkAssignMembers(w http.ResponseWriter, r *http.Request) {
-	var req bulkAssignMembersRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
+type BulkAssignMembersInput struct{ Body bulkAssignMembersRequest }
+type BulkAssignMembersOutput struct{ Body any }
 
-	projectID := projectIDFromContext(r.Context())
-	actor := actorFromContext(r.Context())
+func (s *Server) handleBulkAssignMembers(ctx context.Context, input *BulkAssignMembersInput) (*BulkAssignMembersOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
+	projectID := projectIDFromContext(ctx)
+	actor := actorFromContext(ctx)
 	results := make([]bulkAssignMemberResult, 0, len(req.Items))
-
 	for _, item := range req.Items {
 		if item.UserID == "" || item.RoleID == "" {
 			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "user_id and role_id are required"})
 			continue
 		}
-
-		if _, err := s.store.GetProjectRole(r.Context(), item.RoleID); err != nil {
+		if _, err := s.store.GetProjectRole(ctx, item.RoleID); err != nil {
 			if errors.Is(err, store.ErrRoleNotFound) {
 				results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "role not found"})
 				continue
 			}
-			respondError(w, r, http.StatusInternalServerError, "failed to verify role")
-			return
+			return nil, huma.Error500InternalServerError("failed to verify role")
 		}
-
-		m := &domain.ProjectMemberRole{
-			ProjectID: projectID,
-			UserID:    item.UserID,
-			RoleID:    item.RoleID,
-			GrantedBy: actor,
-		}
-		if err := s.store.AssignMemberRole(r.Context(), m); err != nil {
+		m := &domain.ProjectMemberRole{ProjectID: projectID, UserID: item.UserID, RoleID: item.RoleID, GrantedBy: actor}
+		if err := s.store.AssignMemberRole(ctx, m); err != nil {
 			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "failed to assign role"})
 			continue
 		}
-
 		s.permCache.Invalidate(projectID, item.UserID)
-		s.emitAuditEvent(r.Context(), "permission.granted", "role", item.RoleID, map[string]any{
-			"user_id":    item.UserID,
-			"project_id": projectID,
-			"bulk":       true,
-		})
+		s.emitAuditEvent(ctx, "permission.granted", "role", item.RoleID, map[string]any{"user_id": item.UserID, "project_id": projectID, "bulk": true})
 		results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "assigned"})
 	}
-
-	respondJSON(w, http.StatusOK, map[string]any{"results": results, "total": len(results)})
+	return &BulkAssignMembersOutput{Body: map[string]any{"results": results, "total": len(results)}}, nil
 }
 
-func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
-	limit, cursor, err := parsePaginationParams(r)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
+type ListMembersInput struct {
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+type ListMembersOutput struct{ Body PaginatedResponse }
 
-	members, err := s.store.ListProjectMembers(r.Context(), projectID, limit+1, cursor)
+func (s *Server) handleListMembers(ctx context.Context, input *ListMembersInput) (*ListMembersOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list members")
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(members, limit, func(m domain.ProjectMemberRole) string {
-		return m.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	members, err := s.store.ListProjectMembers(ctx, projectID, limit+1, cursor)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list members")
+	}
+	return &ListMembersOutput{Body: paginatedResult(members, limit, func(m domain.ProjectMemberRole) string { return m.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
-	userID := chi.URLParam(r, "userID")
-	projectID := projectIDFromContext(r.Context())
-	memberRole, _ := s.store.GetMemberRole(r.Context(), projectID, userID)
+type RemoveMemberInput struct {
+	UserID string `path:"userID"`
+}
 
-	if err := s.store.RemoveMemberRole(r.Context(), projectID, userID); err != nil {
+func (s *Server) handleRemoveMember(ctx context.Context, input *RemoveMemberInput) (*struct{}, error) {
+	userID := input.UserID
+	projectID := projectIDFromContext(ctx)
+	memberRole, _ := s.store.GetMemberRole(ctx, projectID, userID)
+	if err := s.store.RemoveMemberRole(ctx, projectID, userID); err != nil {
 		if errors.Is(err, store.ErrMemberNotFound) {
-			respondError(w, r, http.StatusNotFound, "member not found")
-			return
+			return nil, huma.Error404NotFound("member not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to remove member")
-		return
+		return nil, huma.Error500InternalServerError("failed to remove member")
 	}
 	s.permCache.Invalidate(projectID, userID)
-	slog.Info("member removed", "user_id", userID, "actor", actorFromContext(r.Context()),
-		"project_id", projectID)
+	slog.Info("member removed", "user_id", userID, "actor", actorFromContext(ctx), "project_id", projectID)
 	resourceID := userID
 	roleID := ""
 	if memberRole != nil && memberRole.RoleID != "" {
 		roleID = memberRole.RoleID
 		resourceID = memberRole.RoleID
 	}
-	s.emitAuditEvent(r.Context(), "permission.revoked", "role", resourceID, map[string]any{
-		"user_id":    userID,
-		"project_id": projectID,
-		"role_id":    roleID,
-	})
-	w.WriteHeader(http.StatusNoContent)
+	s.emitAuditEvent(ctx, "permission.revoked", "role", resourceID, map[string]any{"user_id": userID, "project_id": projectID, "role_id": roleID})
+	return nil, nil
 }
 
 // System Roles.
+type SeedSystemRolesInput struct{}
+type SeedSystemRolesOutput struct{ Body []domain.ProjectRole }
 
-func (s *Server) handleSeedSystemRoles(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+func (s *Server) handleSeedSystemRoles(ctx context.Context, _ *SeedSystemRolesInput) (*SeedSystemRolesOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-
-	if err := s.store.SeedProjectSystemRoles(r.Context(), projectID); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to seed system roles")
-		return
+	if err := s.store.SeedProjectSystemRoles(ctx, projectID); err != nil {
+		return nil, huma.Error500InternalServerError("failed to seed system roles")
 	}
-
-	roles, err := s.store.ListProjectRoles(r.Context(), projectID, 100, nil)
+	roles, err := s.store.ListProjectRoles(ctx, projectID, 100, nil)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list roles after seeding")
-		return
+		return nil, huma.Error500InternalServerError("failed to list roles after seeding")
 	}
-
-	respondJSON(w, http.StatusOK, roles)
+	return &SeedSystemRolesOutput{Body: roles}, nil
 }
 
 // Resource Policies.
-
 type createResourcePolicyRequest struct {
 	ProjectID    string   `json:"project_id" validate:"required"`
 	ResourceType string   `json:"resource_type" validate:"required"`
@@ -430,97 +329,69 @@ type createResourcePolicyRequest struct {
 	UserID       string   `json:"user_id" validate:"required"`
 	Actions      []string `json:"actions" validate:"required,min=1"`
 }
+type CreateResourcePolicyInput struct{ Body createResourcePolicyRequest }
+type CreateResourcePolicyOutput struct{ Body *domain.ResourcePolicy }
 
-func (s *Server) handleCreateResourcePolicy(w http.ResponseWriter, r *http.Request) {
-	var req createResourcePolicyRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
+func (s *Server) handleCreateResourcePolicy(ctx context.Context, input *CreateResourcePolicyInput) (*CreateResourcePolicyOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
-
 	for _, action := range req.Actions {
 		if !domain.ValidScopes[action] {
-			respondError(w, r, http.StatusBadRequest, "invalid action: "+action)
-			return
+			return nil, huma.Error400BadRequest("invalid action: " + action)
 		}
 	}
-
-	policy := &domain.ResourcePolicy{
-		ProjectID:    req.ProjectID,
-		ResourceType: req.ResourceType,
-		ResourceID:   req.ResourceID,
-		UserID:       req.UserID,
-		Actions:      req.Actions,
+	policy := &domain.ResourcePolicy{ProjectID: req.ProjectID, ResourceType: req.ResourceType, ResourceID: req.ResourceID, UserID: req.UserID, Actions: req.Actions}
+	if err := s.store.CreateResourcePolicy(ctx, policy); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create resource policy")
 	}
-
-	if err := s.store.CreateResourcePolicy(r.Context(), policy); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create resource policy")
-		return
-	}
-
-	// Invalidate cache for the affected user.
 	s.permCache.Invalidate(req.ProjectID, req.UserID)
-	s.emitAuditEvent(r.Context(), "resource_policy.created", "resource_policy", policy.ID, map[string]any{
-		"resource_type": req.ResourceType,
-		"resource_id":   req.ResourceID,
-		"user_id":       req.UserID,
-		"actions":       req.Actions,
-	})
-
-	respondJSON(w, http.StatusCreated, policy)
+	s.emitAuditEvent(ctx, "resource_policy.created", "resource_policy", policy.ID, map[string]any{"resource_type": req.ResourceType, "resource_id": req.ResourceID, "user_id": req.UserID, "actions": req.Actions})
+	return &CreateResourcePolicyOutput{Body: policy}, nil
 }
 
-func (s *Server) handleListResourcePolicies(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	resourceType := query.Get("resource_type")
-	resourceID := query.Get("resource_id")
-	if resourceType == "" || resourceID == "" {
-		respondError(w, r, http.StatusBadRequest, "resource_type and resource_id are required")
-		return
-	}
+type ListResourcePoliciesInput struct {
+	ResourceType string `query:"resource_type"`
+	ResourceID   string `query:"resource_id"`
+	Limit        string `query:"limit"`
+	Cursor       string `query:"cursor"`
+}
+type ListResourcePoliciesOutput struct{ Body PaginatedResponse }
 
-	limit, cursor, err := parsePaginationParams(r)
+func (s *Server) handleListResourcePolicies(ctx context.Context, input *ListResourcePoliciesInput) (*ListResourcePoliciesOutput, error) {
+	if input.ResourceType == "" || input.ResourceID == "" {
+		return nil, huma.Error400BadRequest("resource_type and resource_id are required")
+	}
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	policies, err := s.store.ListResourcePolicies(r.Context(), resourceType, resourceID, limit+1, cursor)
+	policies, err := s.store.ListResourcePolicies(ctx, input.ResourceType, input.ResourceID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list resource policies")
-		return
+		return nil, huma.Error500InternalServerError("failed to list resource policies")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(policies, limit, func(p domain.ResourcePolicy) string {
-		return p.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListResourcePoliciesOutput{Body: paginatedResult(policies, limit, func(p domain.ResourcePolicy) string { return p.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-func (s *Server) handleDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
-	policyID := chi.URLParam(r, "policyID")
+type DeleteResourcePolicyInput struct {
+	PolicyID string `path:"policyID"`
+}
 
-	projectID, userID, err := s.store.DeleteResourcePolicy(r.Context(), policyID)
+func (s *Server) handleDeleteResourcePolicy(ctx context.Context, input *DeleteResourcePolicyInput) (*struct{}, error) {
+	projectID, userID, err := s.store.DeleteResourcePolicy(ctx, input.PolicyID)
 	if err != nil {
 		if errors.Is(err, store.ErrResourcePolicyNotFound) {
-			respondError(w, r, http.StatusNotFound, "resource policy not found")
-			return
+			return nil, huma.Error404NotFound("resource policy not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete resource policy")
-		return
+		return nil, huma.Error500InternalServerError("failed to delete resource policy")
 	}
-
-	// Invalidate cache for the affected user so revoked access takes effect immediately.
 	if projectID != "" && userID != "" {
 		s.permCache.Invalidate(projectID, userID)
 	}
-
-	slog.Info("resource policy deleted", "policy_id", policyID, "actor", actorFromContext(r.Context()),
-		"affected_user", userID, "project_id", projectID)
-	s.emitAuditEvent(r.Context(), "resource_policy.deleted", "resource_policy", policyID, map[string]any{"affected_user": userID})
-	w.WriteHeader(http.StatusNoContent)
+	slog.Info("resource policy deleted", "policy_id", input.PolicyID, "actor", actorFromContext(ctx), "affected_user", userID, "project_id", projectID)
+	s.emitAuditEvent(ctx, "resource_policy.deleted", "resource_policy", input.PolicyID, map[string]any{"affected_user": userID})
+	return nil, nil
 }
 
 type createTagPolicyRequest struct {
@@ -531,147 +402,120 @@ type createTagPolicyRequest struct {
 	TagValue     string   `json:"tag_value,omitempty"`
 	Actions      []string `json:"actions" validate:"required,min=1"`
 }
+type CreateTagPolicyInput struct{ Body createTagPolicyRequest }
+type CreateTagPolicyOutput struct{ Body *domain.TagPolicy }
 
-func (s *Server) handleCreateTagPolicy(w http.ResponseWriter, r *http.Request) {
-	var req createTagPolicyRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
+func (s *Server) handleCreateTagPolicy(ctx context.Context, input *CreateTagPolicyInput) (*CreateTagPolicyOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 	if err := validateTags(map[string]string{req.TagKey: req.TagValue}); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 	for _, action := range req.Actions {
 		if !domain.ValidScopes[action] {
-			respondError(w, r, http.StatusBadRequest, "invalid action: "+action)
-			return
+			return nil, huma.Error400BadRequest("invalid action: " + action)
 		}
 	}
-
-	policy := &domain.TagPolicy{
-		ProjectID:    req.ProjectID,
-		ResourceType: req.ResourceType,
-		UserID:       req.UserID,
-		TagKey:       req.TagKey,
-		TagValue:     req.TagValue,
-		Actions:      req.Actions,
-	}
-	if err := s.store.CreateTagPolicy(r.Context(), policy); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create tag policy")
-		return
+	policy := &domain.TagPolicy{ProjectID: req.ProjectID, ResourceType: req.ResourceType, UserID: req.UserID, TagKey: req.TagKey, TagValue: req.TagValue, Actions: req.Actions}
+	if err := s.store.CreateTagPolicy(ctx, policy); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create tag policy")
 	}
 	s.permCache.Invalidate(req.ProjectID, req.UserID)
-	s.emitAuditEvent(r.Context(), "tag_policy.created", "tag_policy", policy.ID, map[string]any{
-		"tag_key":       req.TagKey,
-		"tag_value":     req.TagValue,
-		"resource_type": req.ResourceType,
-		"user_id":       req.UserID,
-		"actions":       req.Actions,
-	})
-	respondJSON(w, http.StatusCreated, policy)
+	s.emitAuditEvent(ctx, "tag_policy.created", "tag_policy", policy.ID, map[string]any{"tag_key": req.TagKey, "tag_value": req.TagValue, "resource_type": req.ResourceType, "user_id": req.UserID, "actions": req.Actions})
+	return &CreateTagPolicyOutput{Body: policy}, nil
 }
 
-func (s *Server) handleListTagPolicies(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	projectID := projectIDFromContext(r.Context())
+type ListTagPoliciesInput struct {
+	ResourceType string `query:"resource_type"`
+	UserID       string `query:"user_id"`
+	Limit        string `query:"limit"`
+	Cursor       string `query:"cursor"`
+}
+type ListTagPoliciesOutput struct{ Body PaginatedResponse }
+
+func (s *Server) handleListTagPolicies(ctx context.Context, input *ListTagPoliciesInput) (*ListTagPoliciesOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-	resourceType := query.Get("resource_type")
-	userID := query.Get("user_id")
-
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	policies, err := s.store.ListTagPolicies(r.Context(), projectID, resourceType, userID, limit+1, cursor)
+	policies, err := s.store.ListTagPolicies(ctx, projectID, input.ResourceType, input.UserID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list tag policies")
-		return
+		return nil, huma.Error500InternalServerError("failed to list tag policies")
 	}
-	respondJSON(w, http.StatusOK, paginatedResult(policies, limit, func(p domain.TagPolicy) string {
-		return p.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListTagPoliciesOutput{Body: paginatedResult(policies, limit, func(p domain.TagPolicy) string { return p.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-func (s *Server) handleDeleteTagPolicy(w http.ResponseWriter, r *http.Request) {
-	policyID := chi.URLParam(r, "policyID")
-	projectID, userID, err := s.store.DeleteTagPolicy(r.Context(), policyID)
+type DeleteTagPolicyInput struct {
+	PolicyID string `path:"policyID"`
+}
+
+func (s *Server) handleDeleteTagPolicy(ctx context.Context, input *DeleteTagPolicyInput) (*struct{}, error) {
+	projectID, userID, err := s.store.DeleteTagPolicy(ctx, input.PolicyID)
 	if err != nil {
 		if errors.Is(err, store.ErrTagPolicyNotFound) {
-			respondError(w, r, http.StatusNotFound, "tag policy not found")
-			return
+			return nil, huma.Error404NotFound("tag policy not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete tag policy")
-		return
+		return nil, huma.Error500InternalServerError("failed to delete tag policy")
 	}
 	if projectID != "" && userID != "" {
 		s.permCache.Invalidate(projectID, userID)
 	}
-	s.emitAuditEvent(r.Context(), "tag_policy.deleted", "tag_policy", policyID, nil)
-	w.WriteHeader(http.StatusNoContent)
+	s.emitAuditEvent(ctx, "tag_policy.deleted", "tag_policy", input.PolicyID, nil)
+	return nil, nil
 }
 
-func (s *Server) handleListAuditEvents(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	projectID := projectIDFromContext(r.Context())
+type ListAuditEventsInput struct {
+	ActorID      string `query:"actor_id"`
+	ResourceType string `query:"resource_type"`
+	ResourceID   string `query:"resource_id"`
+	Order        string `query:"order"`
+	From         string `query:"from"`
+	To           string `query:"to"`
+	Limit        string `query:"limit"`
+	Cursor       string `query:"cursor"`
+}
+type ListAuditEventsOutput struct{ Body PaginatedResponse }
+
+func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEventsInput) (*ListAuditEventsOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-
-	actorID := query.Get("actor_id")
-	resourceType := query.Get("resource_type")
-	resourceID := query.Get("resource_id")
-	order := query.Get("order")
-	ascending := order == "asc"
-	if order != "" && order != "asc" && order != "desc" {
-		respondError(w, r, http.StatusBadRequest, "order must be one of: asc, desc")
-		return
+	ascending := input.Order == "asc"
+	if input.Order != "" && input.Order != "asc" && input.Order != "desc" {
+		return nil, huma.Error400BadRequest("order must be one of: asc, desc")
 	}
-
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
 	var from, to *time.Time
-	if raw := query.Get("from"); raw != "" {
-		parsed, parseErr := time.Parse(time.RFC3339Nano, raw)
+	if input.From != "" {
+		parsed, parseErr := time.Parse(time.RFC3339Nano, input.From)
 		if parseErr != nil {
-			respondError(w, r, http.StatusBadRequest, "from must be a valid RFC3339 timestamp")
-			return
+			return nil, huma.Error400BadRequest("from must be a valid RFC3339 timestamp")
 		}
 		from = &parsed
 	}
-	if raw := query.Get("to"); raw != "" {
-		parsed, parseErr := time.Parse(time.RFC3339Nano, raw)
+	if input.To != "" {
+		parsed, parseErr := time.Parse(time.RFC3339Nano, input.To)
 		if parseErr != nil {
-			respondError(w, r, http.StatusBadRequest, "to must be a valid RFC3339 timestamp")
-			return
+			return nil, huma.Error400BadRequest("to must be a valid RFC3339 timestamp")
 		}
 		to = &parsed
 	}
 	if from != nil && to != nil && from.After(*to) {
-		respondError(w, r, http.StatusBadRequest, "from must be <= to")
-		return
+		return nil, huma.Error400BadRequest("from must be <= to")
 	}
-
-	events, err := s.store.ListAuditEvents(r.Context(), projectID, actorID, resourceType, resourceID, limit+1, cursor, from, to, ascending)
+	events, err := s.store.ListAuditEvents(ctx, projectID, input.ActorID, input.ResourceType, input.ResourceID, limit+1, cursor, from, to, ascending)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list audit events")
-		return
+		return nil, huma.Error500InternalServerError("failed to list audit events")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(events, limit, func(ev domain.AuditEvent) string {
-		return ev.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListAuditEventsOutput{Body: paginatedResult(events, limit, func(ev domain.AuditEvent) string { return ev.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }

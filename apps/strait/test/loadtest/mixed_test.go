@@ -340,7 +340,7 @@ func TestMixed_Reference(t *testing.T) {
 		if i%2 == 0 {
 			tgt.URL = baseURL + "/reference"
 		} else {
-			tgt.URL = baseURL + "/reference/openapi.yaml"
+			tgt.URL = baseURL + "/reference/openapi.json"
 		}
 		return nil
 	}

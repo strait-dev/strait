@@ -13,5 +13,8 @@ func TestMain(m *testing.M) {
 		goleak.IgnoreTopFunction("time.Sleep"),
 		goleak.IgnoreTopFunction("sync.runtime_SemacquireWaitGroup"),
 		goleak.IgnoreTopFunction("github.com/alitto/pond/v2/internal/future.(*Future).Err"),
+		// Otter cache background goroutines (timer + queue processor).
+		goleak.IgnoreTopFunction("github.com/maypok86/otter/internal/unixtime.startTimer.func1"),
+		goleak.IgnoreAnyFunction("github.com/maypok86/otter/internal/queue.(*Growable[...]).Pop"),
 	)
 }

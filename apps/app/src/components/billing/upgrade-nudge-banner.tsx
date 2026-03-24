@@ -2,8 +2,10 @@ import { Button } from "@strait/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
-import { useApproachingLimits } from "@/hooks/billing/use-org-usage";
+import {
+  orgUsageQueryOptions,
+  useApproachingLimits,
+} from "@/hooks/billing/use-org-usage";
 
 const UpgradeNudgeBanner = () => {
   const approaching = useApproachingLimits();

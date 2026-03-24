@@ -42,9 +42,13 @@ type mockBillingStore struct {
 	aiModelCallCounts       map[string]int64
 	usageRecords            []UsageRecord
 	periodSpendByOrg        map[string]int64
+	getOrgSubscriptionFn    func(ctx context.Context, orgID string) (*OrgSubscription, error)
 }
 
-func (m *mockBillingStore) GetOrgSubscription(_ context.Context, orgID string) (*OrgSubscription, error) {
+func (m *mockBillingStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
+	if m.getOrgSubscriptionFn != nil {
+		return m.getOrgSubscriptionFn(ctx, orgID)
+	}
 	if m.subscriptions != nil {
 		if sub, ok := m.subscriptions[orgID]; ok {
 			return sub, nil
@@ -291,4 +295,18 @@ func (m *mockBillingStore) ListAllSubscribedOrgIDs(_ context.Context) ([]string,
 		}
 	}
 	return ids, nil
+}
+
+func (m *mockBillingStore) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
+
+func (m *mockBillingStore) ListStaleSubscriptions(_ context.Context) ([]OrgSubscription, error) {
+	return nil, nil
+}
+
+func (m *mockBillingStore) IsProjectSuspended(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockBillingStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
+	return 0, nil
 }

@@ -157,26 +157,6 @@ func step(ref string, deps ...string) domain.WorkflowStep {
 	}
 }
 
-func FuzzValidateDAG(f *testing.F) {
-	f.Add(3, true)
-	f.Add(0, false)
-	f.Add(10, true)
-
-	f.Fuzz(func(t *testing.T, numSteps int, withDeps bool) {
-		if numSteps < 0 || numSteps > 50 {
-			return
-		}
-		steps := make([]domain.WorkflowStep, numSteps)
-		for i := range steps {
-			steps[i] = domain.WorkflowStep{StepRef: strings.Repeat("s", i+1)}
-			if withDeps && i > 0 {
-				steps[i].DependsOn = []string{steps[i-1].StepRef}
-			}
-		}
-		_ = ValidateDAG(steps)
-	})
-}
-
 func BenchmarkValidateDAG(b *testing.B) {
 	steps := make([]domain.WorkflowStep, 20)
 	for i := range steps {

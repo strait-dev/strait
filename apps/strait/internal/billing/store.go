@@ -47,6 +47,7 @@ type UsageRecord struct {
 // Store defines billing data access operations.
 type Store interface {
 	// Organization subscriptions
+	EnsureOrgSubscription(ctx context.Context, orgID string) error
 	GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error)
 	UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error
 	UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error
@@ -91,4 +92,11 @@ type Store interface {
 
 	// Org listing
 	ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
+
+	// Stale subscription detection
+	ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription, error)
+
+	// Project suspension
+	IsProjectSuspended(ctx context.Context, projectID string) (bool, error)
+	SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error)
 }

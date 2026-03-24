@@ -1,15 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
 type createDeploymentVersionRequest struct {
@@ -33,185 +33,156 @@ func marshalRaw(value any) json.RawMessage {
 	if value == nil {
 		return json.RawMessage(`{}`)
 	}
-
 	b, err := json.Marshal(value)
 	if err != nil {
 		return json.RawMessage(`{}`)
 	}
-
 	return json.RawMessage(b)
 }
 
-func (s *Server) handleCreateDeploymentVersion(w http.ResponseWriter, r *http.Request) {
-	var req createDeploymentVersionRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
+type CreateDeploymentVersionInput struct {
+	Body createDeploymentVersionRequest
+}
 
+type CreateDeploymentVersionOutput struct {
+	Body *domain.DeploymentVersion
+}
+
+func (s *Server) handleCreateDeploymentVersion(ctx context.Context, input *CreateDeploymentVersionInput) (*CreateDeploymentVersionOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
 	status := domain.DeploymentVersionStatusDraft
 	if req.Runtime == "" {
 		req.Runtime = "node"
 	}
-
 	strategy := domain.DeploymentStrategyDirect
 	if req.Strategy != "" {
 		strategy = domain.DeploymentStrategy(req.Strategy)
 		if !strategy.IsValid() {
-			respondError(w, r, http.StatusBadRequest, "invalid strategy: must be \"direct\" or \"canary\"")
-			return
+			return nil, huma.Error400BadRequest("invalid strategy: must be \"direct\" or \"canary\"")
 		}
 	}
-
 	if strategy == domain.DeploymentStrategyCanary {
 		if req.CanaryPercent == nil || *req.CanaryPercent < 1 || *req.CanaryPercent > 99 {
-			respondError(w, r, http.StatusBadRequest, "canary strategy requires canary_percent between 1 and 99")
-			return
+			return nil, huma.Error400BadRequest("canary strategy requires canary_percent between 1 and 99")
 		}
 	}
-
 	var canaryDuration *time.Duration
 	if req.CanaryDuration != "" {
 		d, parseErr := time.ParseDuration(req.CanaryDuration)
 		if parseErr != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid canary_duration: must be a valid Go duration string")
-			return
+			return nil, huma.Error400BadRequest("invalid canary_duration: must be a valid Go duration string")
 		}
 		canaryDuration = &d
 	}
-
 	manifest := marshalRaw(req.Manifest)
-
 	deployment := &domain.DeploymentVersion{
-		ProjectID:      req.ProjectID,
-		Environment:    req.Environment,
-		Runtime:        req.Runtime,
-		ArtifactURI:    req.ArtifactURI,
-		Manifest:       manifest,
-		Checksum:       req.Checksum,
-		Status:         status,
-		Strategy:       strategy,
-		CanaryPercent:  req.CanaryPercent,
-		CanaryDuration: canaryDuration,
-		CreatedBy:      actorFromContext(r.Context()),
-		UpdatedBy:      actorFromContext(r.Context()),
+		ProjectID: req.ProjectID, Environment: req.Environment, Runtime: req.Runtime,
+		ArtifactURI: req.ArtifactURI, Manifest: manifest, Checksum: req.Checksum,
+		Status: status, Strategy: strategy, CanaryPercent: req.CanaryPercent,
+		CanaryDuration: canaryDuration, CreatedBy: actorFromContext(ctx), UpdatedBy: actorFromContext(ctx),
 	}
-
-	if err := s.store.CreateDeploymentVersion(r.Context(), deployment); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create deployment version")
-		return
+	if err := s.store.CreateDeploymentVersion(ctx, deployment); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create deployment version")
 	}
-
-	respondJSON(w, http.StatusCreated, deployment)
+	return &CreateDeploymentVersionOutput{Body: deployment}, nil
 }
 
-func (s *Server) handleListDeploymentVersions(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
-	environment := r.URL.Query().Get("environment")
+type ListDeploymentVersionsInput struct {
+	Environment string `query:"environment"`
+	Limit       string `query:"limit"`
+	Cursor      string `query:"cursor"`
+}
 
-	limit, cursor, err := parsePaginationParams(r)
+type ListDeploymentVersionsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListDeploymentVersions(ctx context.Context, input *ListDeploymentVersionsInput) (*ListDeploymentVersionsOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	versions, err := s.store.ListDeploymentVersions(r.Context(), projectID, environment, limit+1, cursor)
+	versions, err := s.store.ListDeploymentVersions(ctx, projectID, input.Environment, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list deployment versions")
-		return
+		return nil, huma.Error500InternalServerError("failed to list deployment versions")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(versions, limit, func(v domain.DeploymentVersion) string {
+	return &ListDeploymentVersionsOutput{Body: paginatedResult(versions, limit, func(v domain.DeploymentVersion) string {
 		return v.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-func (s *Server) handleFinalizeDeploymentVersion(w http.ResponseWriter, r *http.Request) {
-	deploymentID := chi.URLParam(r, "deploymentID")
-	var req deploymentVersionMutationRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
+type FinalizeDeploymentVersionInput struct {
+	DeploymentID string `path:"deploymentID"`
+	Body         deploymentVersionMutationRequest
+}
 
-	deployment, err := s.store.FinalizeDeploymentVersion(
-		r.Context(),
-		deploymentID,
-		req.ProjectID,
-		actorFromContext(r.Context()),
-	)
+type FinalizeDeploymentVersionOutput struct {
+	Body *domain.DeploymentVersion
+}
+
+func (s *Server) handleFinalizeDeploymentVersion(ctx context.Context, input *FinalizeDeploymentVersionInput) (*FinalizeDeploymentVersionOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
+	deployment, err := s.store.FinalizeDeploymentVersion(ctx, input.DeploymentID, req.ProjectID, actorFromContext(ctx))
 	if err != nil {
 		if errors.Is(err, store.ErrDeploymentVersionNotFound) {
-			respondError(w, r, http.StatusNotFound, "deployment version not found")
-			return
+			return nil, huma.Error404NotFound("deployment version not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to finalize deployment version")
-		return
+		return nil, huma.Error500InternalServerError("failed to finalize deployment version")
 	}
-
-	respondJSON(w, http.StatusOK, deployment)
+	return &FinalizeDeploymentVersionOutput{Body: deployment}, nil
 }
 
-func (s *Server) handlePromoteDeploymentVersion(w http.ResponseWriter, r *http.Request) {
-	s.handleDeploymentPromotion(w, r, false)
+type PromoteDeploymentVersionInput struct {
+	DeploymentID string `path:"deploymentID"`
+	Body         deploymentVersionMutationRequest
 }
 
-func (s *Server) handleRollbackDeploymentVersion(w http.ResponseWriter, r *http.Request) {
-	s.handleDeploymentPromotion(w, r, true)
+type PromoteDeploymentVersionOutput struct {
+	Body *domain.DeploymentVersion
 }
 
-func (s *Server) handleDeploymentPromotion(w http.ResponseWriter, r *http.Request, rollback bool) {
-	deploymentID := chi.URLParam(r, "deploymentID")
-	var req deploymentVersionMutationRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
+func (s *Server) handlePromoteDeploymentVersion(ctx context.Context, input *PromoteDeploymentVersionInput) (*PromoteDeploymentVersionOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
-
-	var (
-		deployment *domain.DeploymentVersion
-		err        error
-	)
-
-	if rollback {
-		deployment, err = s.store.RollbackDeploymentVersion(
-			r.Context(),
-			deploymentID,
-			req.ProjectID,
-			req.Environment,
-			actorFromContext(r.Context()),
-		)
-	} else {
-		deployment, err = s.store.PromoteDeploymentVersion(
-			r.Context(),
-			deploymentID,
-			req.ProjectID,
-			req.Environment,
-			actorFromContext(r.Context()),
-		)
-	}
-
+	deployment, err := s.store.PromoteDeploymentVersion(ctx, input.DeploymentID, req.ProjectID, req.Environment, actorFromContext(ctx))
 	if err != nil {
 		if errors.Is(err, store.ErrDeploymentVersionNotFound) {
-			respondError(w, r, http.StatusNotFound, "deployment version not found")
-			return
+			return nil, huma.Error404NotFound("deployment version not found")
 		}
-		if rollback {
-			respondError(w, r, http.StatusInternalServerError, "failed to rollback deployment version")
-			return
-		}
-		respondError(w, r, http.StatusInternalServerError, "failed to promote deployment version")
-		return
+		return nil, huma.Error500InternalServerError("failed to promote deployment version")
 	}
+	return &PromoteDeploymentVersionOutput{Body: deployment}, nil
+}
 
-	respondJSON(w, http.StatusOK, deployment)
+type RollbackDeploymentVersionInput struct {
+	DeploymentID string `path:"deploymentID"`
+	Body         deploymentVersionMutationRequest
+}
+
+type RollbackDeploymentVersionOutput struct {
+	Body *domain.DeploymentVersion
+}
+
+func (s *Server) handleRollbackDeploymentVersion(ctx context.Context, input *RollbackDeploymentVersionInput) (*RollbackDeploymentVersionOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
+	deployment, err := s.store.RollbackDeploymentVersion(ctx, input.DeploymentID, req.ProjectID, req.Environment, actorFromContext(ctx))
+	if err != nil {
+		if errors.Is(err, store.ErrDeploymentVersionNotFound) {
+			return nil, huma.Error404NotFound("deployment version not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to rollback deployment version")
+	}
+	return &RollbackDeploymentVersionOutput{Body: deployment}, nil
 }

@@ -17,8 +17,8 @@ import (
 
 func TestHandleCreateLogDrain_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createLogDrainFn: func(_ context.Context, drain *domain.LogDrain) error {
+	ms := &APIStoreMock{
+		CreateLogDrainFunc: func(_ context.Context, drain *domain.LogDrain) error {
 			drain.ID = "drain-1"
 			drain.CreatedAt = time.Now()
 			drain.UpdatedAt = time.Now()
@@ -55,7 +55,7 @@ func TestHandleCreateLogDrain_Success(t *testing.T) {
 
 func TestHandleCreateLogDrain_InvalidBody(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", "not json"))
@@ -67,7 +67,7 @@ func TestHandleCreateLogDrain_InvalidBody(t *testing.T) {
 
 func TestHandleCreateLogDrain_MissingRequired(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	// Missing name, drain_type, endpoint_url, auth_type.
 	body := `{"project_id": "proj-1"}`
@@ -87,8 +87,8 @@ func TestHandleCreateLogDrain_MissingRequired(t *testing.T) {
 func TestHandleListLogDrains_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	ms := &mockAPIStore{
-		listLogDrainsFn: func(_ context.Context, projectID string) ([]domain.LogDrain, error) {
+	ms := &APIStoreMock{
+		ListLogDrainsFunc: func(_ context.Context, projectID string) ([]domain.LogDrain, error) {
 			return []domain.LogDrain{
 				{ID: "drain-1", ProjectID: projectID, Name: "d1", DrainType: "http", Enabled: true, CreatedAt: now},
 				{ID: "drain-2", ProjectID: projectID, Name: "d2", DrainType: "http", Enabled: false, CreatedAt: now},
@@ -117,8 +117,8 @@ func TestHandleListLogDrains_Success(t *testing.T) {
 
 func TestHandleGetLogDrain_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getLogDrainFn: func(_ context.Context, drainID, projectID string) (*domain.LogDrain, error) {
+	ms := &APIStoreMock{
+		GetLogDrainFunc: func(_ context.Context, drainID, projectID string) (*domain.LogDrain, error) {
 			return &domain.LogDrain{
 				ID: drainID, ProjectID: projectID, Name: "my-drain",
 				DrainType: "http", Enabled: true, CreatedAt: time.Now(),
@@ -145,8 +145,8 @@ func TestHandleGetLogDrain_Success(t *testing.T) {
 
 func TestHandleGetLogDrain_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getLogDrainFn: func(_ context.Context, _, _ string) (*domain.LogDrain, error) {
+	ms := &APIStoreMock{
+		GetLogDrainFunc: func(_ context.Context, _, _ string) (*domain.LogDrain, error) {
 			return nil, store.ErrLogDrainNotFound
 		},
 	}
@@ -164,11 +164,11 @@ func TestHandleGetLogDrain_NotFound(t *testing.T) {
 
 func TestHandleUpdateLogDrain_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		updateLogDrainFn: func(_ context.Context, _, _ string, _ map[string]any) error {
+	ms := &APIStoreMock{
+		UpdateLogDrainFunc: func(_ context.Context, _, _ string, _ map[string]any) error {
 			return nil
 		},
-		getLogDrainFn: func(_ context.Context, drainID, projectID string) (*domain.LogDrain, error) {
+		GetLogDrainFunc: func(_ context.Context, drainID, projectID string) (*domain.LogDrain, error) {
 			return &domain.LogDrain{
 				ID: drainID, ProjectID: projectID, Name: "updated-drain",
 				DrainType: "http", Enabled: true, CreatedAt: time.Now(),
@@ -196,7 +196,7 @@ func TestHandleUpdateLogDrain_Success(t *testing.T) {
 
 func TestHandleUpdateLogDrain_EmptyPatch(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/log-drains/drain-1", `{}`, "proj-1"))
@@ -213,8 +213,8 @@ func TestHandleUpdateLogDrain_EmptyPatch(t *testing.T) {
 
 func TestHandleDeleteLogDrain_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		deleteLogDrainFn: func(_ context.Context, _, _ string) error {
+	ms := &APIStoreMock{
+		DeleteLogDrainFunc: func(_ context.Context, _, _ string) error {
 			return nil
 		},
 	}
@@ -230,8 +230,8 @@ func TestHandleDeleteLogDrain_Success(t *testing.T) {
 
 func TestHandleDeleteLogDrain_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		deleteLogDrainFn: func(_ context.Context, _, _ string) error {
+	ms := &APIStoreMock{
+		DeleteLogDrainFunc: func(_ context.Context, _, _ string) error {
 			return store.ErrLogDrainNotFound
 		},
 	}
@@ -249,15 +249,15 @@ func TestHandleDeleteLogDrain_NotFound(t *testing.T) {
 
 func TestHandleBulkReplayRuns_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID: id, JobID: "job-1", ProjectID: "proj-1",
 				Status: domain.StatusFailed, Payload: json.RawMessage(`{}`),
 				TriggeredBy: domain.TriggerManual, JobVersion: 1, JobVersionID: "jv-1",
 			}, nil
 		},
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
 				ID: id, Enabled: true, Version: 1, VersionID: "jv-1", TimeoutSecs: 30,
 			}, nil
@@ -290,8 +290,8 @@ func TestHandleBulkReplayRuns_Success(t *testing.T) {
 
 func TestHandleBulkReplayRuns_NotReplayable(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID: id, JobID: "job-1", ProjectID: "proj-1",
 				Status: domain.StatusQueued,
@@ -322,7 +322,7 @@ func TestHandleBulkReplayRuns_NotReplayable(t *testing.T) {
 
 func TestHandleBulkReplayRuns_EmptyRunIDs(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	body := `{"run_ids": []}`
 	w := httptest.NewRecorder()

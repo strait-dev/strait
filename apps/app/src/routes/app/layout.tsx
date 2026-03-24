@@ -72,9 +72,9 @@ export const Route = createFileRoute("/app/layout")({
       session: sessionData.session,
     };
 
-    if (session.user.onboarded !== true) {
-      throw redirect({ to: "/onboarding" });
-    }
+    // Legacy users who signed up before auto-workspace creation may not
+    // have an organization yet. The user.create.after hook handles new
+    // signups; this path only runs for pre-existing accounts.
 
     return { session };
   },

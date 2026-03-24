@@ -65,8 +65,8 @@ func generateExpiredRunToken(t *testing.T, runID string) string {
 func TestHandleSDKLog_Success(t *testing.T) {
 	t.Parallel()
 	var insertCalled atomic.Bool
-	ms := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	ms := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			insertCalled.Store(true)
 			if event.RunID != "run-123" {
 				t.Fatalf("expected run id run-123, got %s", event.RunID)
@@ -103,7 +103,7 @@ func TestHandleSDKLog_Success(t *testing.T) {
 
 func TestHandleSDKLog_MissingMessage(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/log", "run-123", `{"type":"log"}`)
@@ -118,8 +118,8 @@ func TestHandleSDKLog_MissingMessage(t *testing.T) {
 func TestHandleSDKLog_DefaultsEventType(t *testing.T) {
 	t.Parallel()
 	var insertCalled atomic.Bool
-	ms := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	ms := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			insertCalled.Store(true)
 			if event.Type != domain.EventLog {
 				t.Fatalf("expected default event type log, got %s", event.Type)
@@ -147,8 +147,8 @@ func TestHandleSDKLog_DefaultsEventType(t *testing.T) {
 
 func TestHandleSDKLog_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		insertEventFn: func(_ context.Context, _ *domain.RunEvent) error {
+	ms := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, _ *domain.RunEvent) error {
 			return errors.New("boom")
 		},
 	}
@@ -167,8 +167,8 @@ func TestHandleSDKLog_StoreError(t *testing.T) {
 func TestHandleSDKProgress_Success(t *testing.T) {
 	t.Parallel()
 	var insertCalled atomic.Bool
-	ms := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	ms := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			insertCalled.Store(true)
 			if event.Type != domain.EventProgress {
 				t.Fatalf("event type = %s, want %s", event.Type, domain.EventProgress)
@@ -193,7 +193,7 @@ func TestHandleSDKProgress_Success(t *testing.T) {
 
 func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, &mockPublisher{})
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, &mockPublisher{})
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/progress", "run-123", `{"percent":101,"message":"working"}`)
@@ -208,8 +208,8 @@ func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
 func TestHandleSDKAnnotate_Success(t *testing.T) {
 	t.Parallel()
 	updated := false
-	ms := &mockAPIStore{
-		updateRunMetadataFn: func(_ context.Context, id string, annotations map[string]string) error {
+	ms := &APIStoreMock{
+		UpdateRunMetadataFunc: func(_ context.Context, id string, annotations map[string]string) error {
 			updated = true
 			if id != "run-123" {
 				t.Fatalf("run id = %q, want run-123", id)
@@ -219,7 +219,7 @@ func TestHandleSDKAnnotate_Success(t *testing.T) {
 			}
 			return nil
 		},
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Metadata: map[string]string{"env": "prod", "region": "eu"}}, nil
 		},
 	}
@@ -240,8 +240,8 @@ func TestHandleSDKAnnotate_Success(t *testing.T) {
 
 func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
+	ms := &APIStoreMock{
+		UpdateRunMetadataFunc: func(_ context.Context, _ string, _ map[string]string) error {
 			return store.ErrRunNotFound
 		},
 	}
@@ -259,7 +259,7 @@ func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
 
 func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, &mockPublisher{})
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, &mockPublisher{})
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{}}`)
@@ -283,8 +283,8 @@ func TestHandleSDKAnnotate_TooManyAnnotations(t *testing.T) {
 		t.Fatalf("failed to marshal request: %v", err)
 	}
 
-	ms := &mockAPIStore{
-		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
+	ms := &APIStoreMock{
+		UpdateRunMetadataFunc: func(_ context.Context, _ string, _ map[string]string) error {
 			t.Fatal("UpdateRunMetadata should not be called for invalid annotations")
 			return nil
 		},
@@ -315,8 +315,8 @@ func TestHandleSDKAnnotate_AnnotationKeyTooLong(t *testing.T) {
 		t.Fatalf("failed to marshal request: %v", err)
 	}
 
-	ms := &mockAPIStore{
-		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
+	ms := &APIStoreMock{
+		UpdateRunMetadataFunc: func(_ context.Context, _ string, _ map[string]string) error {
 			t.Fatal("UpdateRunMetadata should not be called for invalid annotations")
 			return nil
 		},
@@ -347,8 +347,8 @@ func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
 		t.Fatalf("failed to marshal request: %v", err)
 	}
 
-	ms := &mockAPIStore{
-		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
+	ms := &APIStoreMock{
+		UpdateRunMetadataFunc: func(_ context.Context, _ string, _ map[string]string) error {
 			t.Fatal("UpdateRunMetadata should not be called for invalid annotations")
 			return nil
 		},
@@ -371,11 +371,11 @@ func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
 func TestHandleSDKCheckpoint_Success(t *testing.T) {
 	t.Parallel()
 	created := false
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
 		},
-		createRunCheckpointFn: func(_ context.Context, checkpoint *domain.RunCheckpoint) error {
+		CreateRunCheckpointFunc: func(_ context.Context, checkpoint *domain.RunCheckpoint) error {
 			created = true
 			if checkpoint.RunID != "run-123" {
 				t.Fatalf("run_id = %q, want run-123", checkpoint.RunID)
@@ -403,8 +403,8 @@ func TestHandleSDKCheckpoint_Success(t *testing.T) {
 func TestHandleSDKUsage_Success(t *testing.T) {
 	t.Parallel()
 	created := false
-	ms := &mockAPIStore{
-		createRunUsageFn: func(_ context.Context, usage *domain.RunUsage) error {
+	ms := &APIStoreMock{
+		CreateRunUsageFunc: func(_ context.Context, usage *domain.RunUsage) error {
 			created = true
 			if usage.RunID != "run-123" {
 				t.Fatalf("run_id = %q, want run-123", usage.RunID)
@@ -428,7 +428,7 @@ func TestHandleSDKUsage_Success(t *testing.T) {
 
 func TestHandleSDKOutput_SchemaValidation(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 
 	w := httptest.NewRecorder()
@@ -443,8 +443,8 @@ func TestHandleSDKOutput_SchemaValidation(t *testing.T) {
 func TestHandleSDKHeartbeat_Success(t *testing.T) {
 	t.Parallel()
 	var updateCalled atomic.Bool
-	ms := &mockAPIStore{
-		updateHeartbeatFn: func(_ context.Context, id string) error {
+	ms := &APIStoreMock{
+		UpdateHeartbeatFunc: func(_ context.Context, id string) error {
 			updateCalled.Store(true)
 			if id != "run-123" {
 				t.Fatalf("expected run id run-123, got %s", id)
@@ -469,8 +469,8 @@ func TestHandleSDKHeartbeat_Success(t *testing.T) {
 
 func TestHandleSDKHeartbeat_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		updateHeartbeatFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		UpdateHeartbeatFunc: func(_ context.Context, _ string) error {
 			return errors.New("boom")
 		},
 	}
@@ -490,15 +490,15 @@ func TestHandleSDKComplete_Success(t *testing.T) {
 	t.Parallel()
 	getRunCalls := 0
 	var updateCalled atomic.Bool
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getRunCalls++
 			if getRunCalls == 1 {
 				return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusCompleted}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 			updateCalled.Store(true)
 			if id != "run-123" {
 				t.Fatalf("expected run id run-123, got %s", id)
@@ -533,15 +533,15 @@ func TestHandleSDKComplete_Success(t *testing.T) {
 func TestHandleSDKComplete_WithResult(t *testing.T) {
 	t.Parallel()
 	getRunCalls := 0
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getRunCalls++
 			if getRunCalls == 1 {
 				return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusCompleted, Result: json.RawMessage(`{"ok":true}`)}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _ domain.RunStatus, _ domain.RunStatus, fields map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _ domain.RunStatus, _ domain.RunStatus, fields map[string]any) error {
 			result, ok := fields["result"].(json.RawMessage)
 			if !ok {
 				t.Fatalf("expected result field to be json.RawMessage, got %T", fields["result"])
@@ -566,8 +566,8 @@ func TestHandleSDKComplete_WithResult(t *testing.T) {
 
 func TestHandleSDKComplete_RunNotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}
@@ -585,11 +585,11 @@ func TestHandleSDKComplete_RunNotFound(t *testing.T) {
 
 func TestHandleSDKComplete_Conflict(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return store.ErrRunConflict
 		},
 	}
@@ -609,15 +609,15 @@ func TestHandleSDKFail_Success(t *testing.T) {
 	t.Parallel()
 	getRunCalls := 0
 	var updateCalled atomic.Bool
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getRunCalls++
 			if getRunCalls == 1 {
 				return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusFailed, Error: "boom"}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, fields map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, fields map[string]any) error {
 			updateCalled.Store(true)
 			if from != domain.StatusExecuting || to != domain.StatusFailed {
 				t.Fatalf("unexpected transition %s -> %s", from, to)
@@ -648,7 +648,7 @@ func TestHandleSDKFail_Success(t *testing.T) {
 
 func TestHandleSDKFail_MissingError(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/fail", "run-123", `{}`)
@@ -662,8 +662,8 @@ func TestHandleSDKFail_MissingError(t *testing.T) {
 
 func TestHandleSDKFail_RunNotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}
@@ -681,11 +681,11 @@ func TestHandleSDKFail_RunNotFound(t *testing.T) {
 
 func TestHandleSDKFail_Conflict(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return store.ErrRunConflict
 		},
 	}
@@ -705,11 +705,11 @@ func TestHandleSDKSpawn_Success(t *testing.T) {
 	t.Parallel()
 	var getJobCalled atomic.Bool
 	var enqueueCalled atomic.Bool
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
 		},
-		getJobBySlugFn: func(_ context.Context, projectID, slug string) (*domain.Job, error) {
+		GetJobBySlugFunc: func(_ context.Context, projectID, slug string) (*domain.Job, error) {
 			getJobCalled.Store(true)
 			if projectID != "proj-1" || slug != "child-job" {
 				t.Fatalf("unexpected project/slug %s/%s", projectID, slug)
@@ -717,6 +717,7 @@ func TestHandleSDKSpawn_Success(t *testing.T) {
 			return &domain.Job{ID: "job-123", ProjectID: projectID, Slug: slug}, nil
 		},
 	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 			enqueueCalled.Store(true)
@@ -755,7 +756,7 @@ func TestHandleSDKSpawn_Success(t *testing.T) {
 
 func TestHandleSDKSpawn_MissingFields(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent", `{"project_id":"proj-1"}`)
@@ -769,8 +770,8 @@ func TestHandleSDKSpawn_MissingFields(t *testing.T) {
 
 func TestHandleSDKSpawn_JobNotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobBySlugFn: func(_ context.Context, _, _ string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobBySlugFunc: func(_ context.Context, _, _ string) (*domain.Job, error) {
 			return nil, nil
 		},
 	}
@@ -788,14 +789,15 @@ func TestHandleSDKSpawn_JobNotFound(t *testing.T) {
 
 func TestHandleSDKSpawn_EnqueueError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
 		},
-		getJobBySlugFn: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
+		GetJobBySlugFunc: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-123", ProjectID: projectID}, nil
 		},
 	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
 			return errors.New("queue down")
@@ -817,8 +819,8 @@ func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
 	t.Parallel()
 	getRunCalls := 0
 	updatedParent := false
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			if id == "run-child" {
 				getRunCalls++
 				if getRunCalls == 1 {
@@ -831,7 +833,7 @@ func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
 			}
 			return nil, store.ErrRunNotFound
 		},
-		updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
 			if id == "run-parent" {
 				if from != domain.StatusWaiting || to != domain.StatusQueued {
 					t.Fatalf("unexpected parent transition %s -> %s", from, to)
@@ -844,7 +846,7 @@ func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
 			}
 			return nil
 		},
-		areAllDescendantsTerminalFn: func(_ context.Context, parentRunID string) (bool, error) {
+		AreAllDescendantsTerminalFunc: func(_ context.Context, parentRunID string) (bool, error) {
 			if parentRunID != "run-parent" {
 				t.Fatalf("parent_run_id = %q, want run-parent", parentRunID)
 			}
@@ -867,7 +869,7 @@ func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
 
 func TestSDKAuth_MissingToken(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", nil)
@@ -882,7 +884,7 @@ func TestSDKAuth_MissingToken(t *testing.T) {
 
 func TestSDKAuth_InvalidToken(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", nil)
@@ -898,7 +900,7 @@ func TestSDKAuth_InvalidToken(t *testing.T) {
 
 func TestSDKAuth_TokenRunIDMismatch(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", nil)
@@ -917,7 +919,7 @@ func TestSDKAuth_TokenRunIDMismatch(t *testing.T) {
 
 func TestSDKAuth_ExpiredToken(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", nil)
@@ -933,8 +935,8 @@ func TestSDKAuth_ExpiredToken(t *testing.T) {
 
 func TestSDKAuth_SDKVersionHeaders_Modern(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		updateHeartbeatFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		UpdateHeartbeatFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}
@@ -959,8 +961,8 @@ func TestSDKAuth_SDKVersionHeaders_Modern(t *testing.T) {
 
 func TestSDKAuth_SDKVersionHeaders_Legacy(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		updateHeartbeatFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		UpdateHeartbeatFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}
@@ -984,8 +986,8 @@ func TestSDKAuth_SDKVersionHeaders_Legacy(t *testing.T) {
 
 func TestHandleHealthReady_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+	ms := &APIStoreMock{
+		QueueStatsFunc: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{}, nil
 		},
 	}
@@ -1003,8 +1005,8 @@ func TestHandleHealthReady_Success(t *testing.T) {
 
 func TestHandleHealthReady_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+	ms := &APIStoreMock{
+		QueueStatsFunc: func(_ context.Context) (*store.QueueStats, error) {
 			return nil, errors.New("db unavailable")
 		},
 	}
@@ -1022,8 +1024,8 @@ func TestHandleHealthReady_StoreError(t *testing.T) {
 
 func TestHandleGetRun_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
 		},
 	}
@@ -1041,8 +1043,8 @@ func TestHandleGetRun_Success(t *testing.T) {
 
 func TestHandleGetRun_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}
@@ -1061,8 +1063,8 @@ func TestHandleGetRun_NotFound(t *testing.T) {
 func TestHandleListRuns_Success(t *testing.T) {
 	t.Parallel()
 	var listCalled atomic.Bool
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			listCalled.Store(true)
 			if projectID != "proj-1" {
 				t.Fatalf("expected project_id proj-1, got %s", projectID)
@@ -1101,8 +1103,8 @@ func TestHandleListRuns_Success(t *testing.T) {
 func TestHandleListRuns_MetadataFilter(t *testing.T) {
 	t.Parallel()
 	var listCalled atomic.Bool
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			listCalled.Store(true)
 			if projectID != "proj-1" {
 				t.Fatalf("expected project_id proj-1, got %s", projectID)
@@ -1142,7 +1144,7 @@ func TestHandleListRuns_MetadataFilter(t *testing.T) {
 
 func TestHandleListRuns_MetadataValueWithoutKey(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/runs/?metadata_value=prod", "", "proj-1")
@@ -1156,7 +1158,7 @@ func TestHandleListRuns_MetadataValueWithoutKey(t *testing.T) {
 
 func TestHandleListRuns_MissingProjectID(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodGet, "/v1/runs/", "")
@@ -1170,7 +1172,7 @@ func TestHandleListRuns_MissingProjectID(t *testing.T) {
 
 func TestHandleListRuns_InvalidLimit(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/runs/?limit=abc", "", "proj-1")
@@ -1184,7 +1186,7 @@ func TestHandleListRuns_InvalidLimit(t *testing.T) {
 
 func TestHandleListRuns_InvalidCursor(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/runs/?cursor=not-a-time", "", "proj-1")
@@ -1199,8 +1201,8 @@ func TestHandleListRuns_InvalidCursor(t *testing.T) {
 func TestHandleListRuns_InvalidStatus(t *testing.T) {
 	t.Parallel()
 	called := false
-	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			called = true
 			return nil, nil
 		},
@@ -1222,8 +1224,8 @@ func TestHandleListRuns_InvalidStatus(t *testing.T) {
 
 func TestHandleListChildRuns_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	ms := &APIStoreMock{
+		ListChildRunsFunc: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			if parentRunID != "run-parent" {
 				t.Fatalf("expected parent run id run-parent, got %s", parentRunID)
 			}
@@ -1245,8 +1247,8 @@ func TestHandleListChildRuns_Success(t *testing.T) {
 func TestHandleSDKContinue_Success(t *testing.T) {
 	t.Parallel()
 	var enqueuedRun *domain.JobRun
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:           id,
 				JobID:        "job-1",
@@ -1257,10 +1259,11 @@ func TestHandleSDKContinue_Success(t *testing.T) {
 				Payload:      json.RawMessage(`{"original":true}`),
 			}, nil
 		},
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-1", ProjectID: "proj-1"}, nil
 		},
 	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 			enqueuedRun = run
@@ -1297,8 +1300,8 @@ func TestHandleSDKContinue_Success(t *testing.T) {
 func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
 	t.Parallel()
 	var enqueuedRun *domain.JobRun
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:        id,
 				JobID:     "job-1",
@@ -1307,10 +1310,11 @@ func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
 				Payload:   json.RawMessage(`{"inherited":true}`),
 			}, nil
 		},
-		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-1", ProjectID: "proj-1"}, nil
 		},
 	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 			enqueuedRun = run
@@ -1334,8 +1338,8 @@ func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
 
 func TestHandleSDKContinue_MaxDepthExceeded(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:           id,
 				JobID:        "job-1",
@@ -1359,8 +1363,8 @@ func TestHandleSDKContinue_MaxDepthExceeded(t *testing.T) {
 
 func TestHandleSDKContinue_InvalidStatus(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:     id,
 				JobID:  "job-1",
@@ -1382,8 +1386,8 @@ func TestHandleSDKContinue_InvalidStatus(t *testing.T) {
 
 func TestHandleSDKContinue_RunNotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}
@@ -1401,8 +1405,8 @@ func TestHandleSDKContinue_RunNotFound(t *testing.T) {
 
 func TestHandleSDKContinue_EnqueueError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:        id,
 				JobID:     "job-1",
@@ -1410,10 +1414,11 @@ func TestHandleSDKContinue_EnqueueError(t *testing.T) {
 				Status:    domain.StatusExecuting,
 			}, nil
 		},
-		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-1", ProjectID: "proj-1"}, nil
 		},
 	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
 			return errors.New("queue down")
@@ -1433,15 +1438,15 @@ func TestHandleSDKContinue_EnqueueError(t *testing.T) {
 
 func TestHandleSDKUsage_PerRunCostBudgetExceeded(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error { return nil },
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		CreateRunUsageFunc: func(_ context.Context, _ *domain.RunUsage) error { return nil },
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
-		getProjectQuotaFn: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
 			return &store.ProjectQuota{ProjectID: "proj-1", MaxCostPerRunMicrousd: 1000}, nil
 		},
-		sumRunCostMicrousdFn: func(_ context.Context, _ string) (int64, error) {
+		SumRunCostMicrousdFunc: func(_ context.Context, _ string) (int64, error) {
 			return 1500, nil // exceeds 1000 limit
 		},
 	}
@@ -1458,15 +1463,15 @@ func TestHandleSDKUsage_PerRunCostBudgetExceeded(t *testing.T) {
 
 func TestHandleSDKUsage_PerRunCostBudgetOK(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error { return nil },
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		CreateRunUsageFunc: func(_ context.Context, _ *domain.RunUsage) error { return nil },
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
-		getProjectQuotaFn: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
 			return &store.ProjectQuota{ProjectID: "proj-1", MaxCostPerRunMicrousd: 2000}, nil
 		},
-		sumRunCostMicrousdFn: func(_ context.Context, _ string) (int64, error) {
+		SumRunCostMicrousdFunc: func(_ context.Context, _ string) (int64, error) {
 			return 500, nil // under 2000 limit
 		},
 	}
@@ -1483,8 +1488,8 @@ func TestHandleSDKUsage_PerRunCostBudgetOK(t *testing.T) {
 
 func TestHandleSDKUsage_CostBudgetDisabled(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error { return nil },
+	ms := &APIStoreMock{
+		CreateRunUsageFunc: func(_ context.Context, _ *domain.RunUsage) error { return nil },
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 

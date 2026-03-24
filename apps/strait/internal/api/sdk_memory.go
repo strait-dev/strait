@@ -1,59 +1,50 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleSDKSetMemory(w http.ResponseWriter, r *http.Request) {
-	applySDKResponseHeaders(r.Context(), w)
-	runID := chi.URLParam(r, "runID")
-	key := chi.URLParam(r, "key")
+type SDKSetMemoryRequest struct {
+	Value   json.RawMessage `json:"value" validate:"required"`
+	TTLSecs *int            `json:"ttl_secs,omitempty"`
+}
+type SDKSetMemoryInput struct {
+	RunID string `path:"runID"`
+	Key   string `path:"key"`
+	Body  SDKSetMemoryRequest
+}
+type SDKSetMemoryOutput struct{ Body *domain.JobMemory }
 
+func (s *Server) handleSDKSetMemory(ctx context.Context, input *SDKSetMemoryInput) (*SDKSetMemoryOutput, error) {
+	key := input.Key
 	if len(key) > 256 {
-		respondError(w, r, http.StatusBadRequest, "memory key must be 256 characters or fewer")
-		return
+		return nil, huma.Error400BadRequest("memory key must be 256 characters or fewer")
 	}
-
-	var req struct {
-		Value   json.RawMessage `json:"value" validate:"required"`
-		TTLSecs *int            `json:"ttl_secs,omitempty"`
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
-
-	run, err := s.store.GetRun(r.Context(), runID)
+	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
-
-	sizeBytes := len(req.Value)
-
-	// Check per-key quota.
-	quota, err := s.store.GetProjectQuota(r.Context(), run.ProjectID)
+	quota, err := s.store.GetProjectQuota(ctx, run.ProjectID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get project quota")
-		return
+		return nil, huma.Error500InternalServerError("failed to get project quota")
 	}
-	maxPerKey := 1048576  // 1MB default
-	maxPerJob := 10485760 // 10MB default
+	maxPerKey := 1048576
+	maxPerJob := 10485760
 	if quota != nil {
 		if quota.MaxMemoryPerKeyBytes > 0 {
 			maxPerKey = quota.MaxMemoryPerKeyBytes
@@ -62,111 +53,84 @@ func (s *Server) handleSDKSetMemory(w http.ResponseWriter, r *http.Request) {
 			maxPerJob = quota.MaxMemoryPerJobBytes
 		}
 	}
-
 	var ttlExpiresAt *time.Time
 	if req.TTLSecs != nil && *req.TTLSecs > 0 {
 		t := time.Now().Add(time.Duration(*req.TTLSecs) * time.Second)
 		ttlExpiresAt = &t
 	}
-
-	mem := &domain.JobMemory{
-		JobID:        run.JobID,
-		ProjectID:    run.ProjectID,
-		MemoryKey:    key,
-		Value:        req.Value,
-		SizeBytes:    sizeBytes,
-		TTLExpiresAt: ttlExpiresAt,
-	}
-
-	if err := s.store.UpsertJobMemoryWithQuota(r.Context(), mem, maxPerKey, maxPerJob); err != nil {
+	mem := &domain.JobMemory{JobID: run.JobID, ProjectID: run.ProjectID, MemoryKey: key, Value: req.Value, SizeBytes: len(req.Value), TTLExpiresAt: ttlExpiresAt}
+	if err := s.store.UpsertJobMemoryWithQuota(ctx, mem, maxPerKey, maxPerJob); err != nil {
 		switch {
 		case errors.Is(err, store.ErrJobMemoryPerKeyLimitExceeded):
-			respondError(w, r, http.StatusBadRequest, "value exceeds per-key memory limit")
+			return nil, huma.Error400BadRequest("value exceeds per-key memory limit")
 		case errors.Is(err, store.ErrJobMemoryPerJobLimitExceeded):
-			respondError(w, r, http.StatusBadRequest, "value exceeds per-job memory limit")
+			return nil, huma.Error400BadRequest("value exceeds per-job memory limit")
 		default:
-			respondError(w, r, http.StatusInternalServerError, "failed to upsert job memory")
+			return nil, huma.Error500InternalServerError("failed to upsert job memory")
 		}
-		return
 	}
-
-	respondJSON(w, http.StatusCreated, mem)
+	return &SDKSetMemoryOutput{Body: mem}, nil
 }
 
-func (s *Server) handleSDKGetMemory(w http.ResponseWriter, r *http.Request) {
-	applySDKResponseHeaders(r.Context(), w)
-	runID := chi.URLParam(r, "runID")
-	key := chi.URLParam(r, "key")
+type SDKGetMemoryInput struct {
+	RunID string `path:"runID"`
+	Key   string `path:"key"`
+}
+type SDKGetMemoryOutput struct{ Body *domain.JobMemory }
 
-	run, err := s.store.GetRun(r.Context(), runID)
+func (s *Server) handleSDKGetMemory(ctx context.Context, input *SDKGetMemoryInput) (*SDKGetMemoryOutput, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 	if run == nil {
-		respondError(w, r, http.StatusNotFound, "run not found")
-		return
+		return nil, huma.Error404NotFound("run not found")
 	}
-
-	mem, err := s.store.GetJobMemory(r.Context(), run.JobID, key)
+	mem, err := s.store.GetJobMemory(ctx, run.JobID, input.Key)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get job memory")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job memory")
 	}
 	if mem == nil {
-		respondError(w, r, http.StatusNotFound, "memory key not found")
-		return
+		return nil, huma.Error404NotFound("memory key not found")
 	}
-
-	respondJSON(w, http.StatusOK, mem)
+	return &SDKGetMemoryOutput{Body: mem}, nil
 }
 
-func (s *Server) handleSDKListMemory(w http.ResponseWriter, r *http.Request) {
-	applySDKResponseHeaders(r.Context(), w)
-	runID := chi.URLParam(r, "runID")
+type SDKListMemoryOutput struct{ Body any }
 
-	run, err := s.store.GetRun(r.Context(), runID)
+func (s *Server) handleSDKListMemory(ctx context.Context, input *SDKRunIDInput) (*SDKListMemoryOutput, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
-
-	items, err := s.store.ListJobMemory(r.Context(), run.JobID)
+	items, err := s.store.ListJobMemory(ctx, run.JobID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list job memory")
-		return
+		return nil, huma.Error500InternalServerError("failed to list job memory")
 	}
-
-	respondJSON(w, http.StatusOK, items)
+	return &SDKListMemoryOutput{Body: items}, nil
 }
 
-func (s *Server) handleSDKDeleteMemory(w http.ResponseWriter, r *http.Request) {
-	applySDKResponseHeaders(r.Context(), w)
-	runID := chi.URLParam(r, "runID")
-	key := chi.URLParam(r, "key")
+type SDKDeleteMemoryInput struct {
+	RunID string `path:"runID"`
+	Key   string `path:"key"`
+}
 
-	run, err := s.store.GetRun(r.Context(), runID)
+func (s *Server) handleSDKDeleteMemory(ctx context.Context, input *SDKDeleteMemoryInput) (*struct{}, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
-
-	if err := s.store.DeleteJobMemory(r.Context(), run.JobID, key); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to delete job memory")
-		return
+	if err := s.store.DeleteJobMemory(ctx, run.JobID, input.Key); err != nil {
+		return nil, huma.Error500InternalServerError("failed to delete job memory")
 	}
-
-	w.WriteHeader(http.StatusNoContent)
+	return nil, nil
 }

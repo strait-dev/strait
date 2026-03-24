@@ -29,7 +29,7 @@ type DeployJobConfig struct {
 
 // LoadDeployConfig reads and validates a strait.config.yaml file.
 func LoadDeployConfig(path string) (*DeployConfig, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // Path is user-provided CLI config file.
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}

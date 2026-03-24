@@ -1,226 +1,188 @@
 package api
 
 import (
-	"net/http"
-	"strconv"
+	"context"
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func (s *Server) handleJobHistory(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.JobHistory")
+type JobHistoryInput struct {
+	JobID  string `path:"jobID"`
+	From   string `query:"from"`
+	To     string `query:"to"`
+	Bucket string `query:"bucket"`
+}
+type JobHistoryOutput struct{ Body any }
+
+func (s *Server) handleJobHistory(ctx context.Context, input *JobHistoryInput) (*JobHistoryOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.JobHistory")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-	jobID := chi.URLParam(r, "jobID")
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
+	if err != nil {
+		return nil, err
 	}
-
-	bucket := r.URL.Query().Get("bucket")
+	bucket := input.Bucket
 	if bucket == "" {
 		bucket = "day"
 	}
 	if bucket != "hour" && bucket != "day" {
-		respondError(w, r, http.StatusBadRequest, "bucket must be 'hour' or 'day'")
-		return
+		return nil, huma.Error400BadRequest("bucket must be 'hour' or 'day'")
 	}
-
-	span.SetAttributes(
-		attribute.String("job_id", jobID),
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-		attribute.String("bucket", bucket),
-	)
-
-	result, err := s.analytics().GetJobHistory(ctx, projectID, jobID, from, to, bucket)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get job history")
-		return
+	span.SetAttributes(attribute.String("job_id", input.JobID), attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.String("bucket", bucket))
+	result, rErr := s.analytics().GetJobHistory(ctx, projectID, input.JobID, from, to, bucket)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get job history")
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	return &JobHistoryOutput{Body: result}, nil
 }
 
-func (s *Server) handleJobComparison(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.JobComparison")
+type JobComparisonInput struct {
+	From   string `query:"from"`
+	To     string `query:"to"`
+	JobIDs string `query:"job_ids"`
+}
+type JobComparisonOutput struct{ Body any }
+
+func (s *Server) handleJobComparison(ctx context.Context, input *JobComparisonInput) (*JobComparisonOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.JobComparison")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
+	if err != nil {
+		return nil, err
 	}
-
-	jobIDsStr := r.URL.Query().Get("job_ids")
-	if jobIDsStr == "" {
-		respondError(w, r, http.StatusBadRequest, "job_ids query parameter is required (comma-separated)")
-		return
+	if input.JobIDs == "" {
+		return nil, huma.Error400BadRequest("job_ids query parameter is required (comma-separated)")
 	}
-	jobIDs := strings.Split(jobIDsStr, ",")
+	jobIDs := strings.Split(input.JobIDs, ",")
 	if len(jobIDs) > 50 {
-		respondError(w, r, http.StatusBadRequest, "job_ids must not exceed 50 entries")
-		return
+		return nil, huma.Error400BadRequest("job_ids must not exceed 50 entries")
 	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-		attribute.Int("job_count", len(jobIDs)),
-	)
-
-	result, err := s.analytics().GetJobComparison(ctx, projectID, jobIDs, from, to)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get job comparison")
-		return
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.Int("job_count", len(jobIDs)))
+	result, rErr := s.analytics().GetJobComparison(ctx, projectID, jobIDs, from, to)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get job comparison")
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	return &JobComparisonOutput{Body: result}, nil
 }
 
-func (s *Server) handleJobReliability(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.JobReliability")
+type JobReliabilityInput struct {
+	From  string `query:"from"`
+	To    string `query:"to"`
+	Limit int    `query:"limit"`
+}
+type JobReliabilityOutput struct{ Body any }
+
+func (s *Server) handleJobReliability(ctx context.Context, input *JobReliabilityInput) (*JobReliabilityOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.JobReliability")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	limit := 10
-	if v := r.URL.Query().Get("limit"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil || parsed < 1 || parsed > 100 {
-			respondError(w, r, http.StatusBadRequest, "limit must be between 1 and 100")
-			return
-		}
-		limit = parsed
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-		attribute.Int("limit", limit),
-	)
-
-	result, err := s.analytics().GetJobReliability(ctx, projectID, from, to, limit)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get job reliability")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	limit := input.Limit
+	if limit == 0 {
+		limit = 10
+	}
+	if limit < 1 || limit > 100 {
+		return nil, huma.Error400BadRequest("limit must be between 1 and 100")
+	}
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.Int("limit", limit))
+	result, rErr := s.analytics().GetJobReliability(ctx, projectID, from, to, limit)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get job reliability")
+	}
+	return &JobReliabilityOutput{Body: result}, nil
 }
 
-func (s *Server) handleRunsByVersion(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.RunsByVersion")
+type RunsByVersionInput struct {
+	From  string `query:"from"`
+	To    string `query:"to"`
+	JobID string `query:"job_id"`
+}
+type RunsByVersionOutput struct{ Body any }
+
+func (s *Server) handleRunsByVersion(ctx context.Context, input *RunsByVersionInput) (*RunsByVersionOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.RunsByVersion")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	jobID := r.URL.Query().Get("job_id")
-	if jobID == "" {
-		respondError(w, r, http.StatusBadRequest, "job_id query parameter is required")
-		return
-	}
-
-	span.SetAttributes(
-		attribute.String("job_id", jobID),
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-	)
-
-	result, err := s.analytics().GetRunsByVersion(ctx, projectID, jobID, from, to)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get runs by version")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	if input.JobID == "" {
+		return nil, huma.Error400BadRequest("job_id query parameter is required")
+	}
+	span.SetAttributes(attribute.String("job_id", input.JobID), attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)))
+	result, rErr := s.analytics().GetRunsByVersion(ctx, projectID, input.JobID, from, to)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get runs by version")
+	}
+	return &RunsByVersionOutput{Body: result}, nil
 }
 
-func (s *Server) handleJobCostRanking(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.JobCostRanking")
+type JobCostRankingInput struct {
+	From  string `query:"from"`
+	To    string `query:"to"`
+	Limit int    `query:"limit"`
+}
+type JobCostRankingOutput struct{ Body any }
+
+func (s *Server) handleJobCostRanking(ctx context.Context, input *JobCostRankingInput) (*JobCostRankingOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.JobCostRanking")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	limit := 10
-	if v := r.URL.Query().Get("limit"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil || parsed < 1 || parsed > 100 {
-			respondError(w, r, http.StatusBadRequest, "limit must be between 1 and 100")
-			return
-		}
-		limit = parsed
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-		attribute.Int("limit", limit),
-	)
-
-	result, err := s.analytics().GetJobCostRanking(ctx, projectID, from, to, limit)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get job cost ranking")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	limit := input.Limit
+	if limit == 0 {
+		limit = 10
+	}
+	if limit < 1 || limit > 100 {
+		return nil, huma.Error400BadRequest("limit must be between 1 and 100")
+	}
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.Int("limit", limit))
+	result, rErr := s.analytics().GetJobCostRanking(ctx, projectID, from, to, limit)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get job cost ranking")
+	}
+	return &JobCostRankingOutput{Body: result}, nil
 }
 
-func (s *Server) handleTopFailingJobs(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.TopFailingJobs")
+type TopFailingJobsInput struct {
+	From  string `query:"from"`
+	To    string `query:"to"`
+	Limit int    `query:"limit"`
+}
+type TopFailingJobsOutput struct{ Body any }
+
+func (s *Server) handleTopFailingJobs(ctx context.Context, input *TopFailingJobsInput) (*TopFailingJobsOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.TopFailingJobs")
 	defer span.End()
-
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	limit := 10
-	if v := r.URL.Query().Get("limit"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil || parsed < 1 || parsed > 100 {
-			respondError(w, r, http.StatusBadRequest, "limit must be between 1 and 100")
-			return
-		}
-		limit = parsed
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-		attribute.Int("limit", limit),
-	)
-
-	result, err := s.analytics().GetTopFailingJobs(ctx, projectID, from, to, limit)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get top failing jobs")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, result)
+	limit := input.Limit
+	if limit == 0 {
+		limit = 10
+	}
+	if limit < 1 || limit > 100 {
+		return nil, huma.Error400BadRequest("limit must be between 1 and 100")
+	}
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.Int("limit", limit))
+	result, rErr := s.analytics().GetTopFailingJobs(ctx, projectID, from, to, limit)
+	if rErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get top failing jobs")
+	}
+	return &TopFailingJobsOutput{Body: result}, nil
 }

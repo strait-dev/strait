@@ -13,8 +13,8 @@ import (
 
 func TestHandleCreateSecret_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createJobSecretFn: func(_ context.Context, secret *domain.JobSecret) error {
+	ms := &APIStoreMock{
+		CreateJobSecretFunc: func(_ context.Context, secret *domain.JobSecret) error {
 			secret.ID = "sec-123"
 			secret.KeyVersion = 1
 			secret.CreatedAt = time.Now().UTC()
@@ -50,7 +50,7 @@ func TestHandleCreateSecret_Success(t *testing.T) {
 
 func TestHandleCreateSecret_MissingFields(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", `{"project_id":"proj-1"}`))
@@ -62,8 +62,8 @@ func TestHandleCreateSecret_MissingFields(t *testing.T) {
 
 func TestHandleListSecrets_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listJobSecretsFn: func(_ context.Context, projectID, jobID, environment string, _ int, _ *time.Time) ([]domain.JobSecret, error) {
+	ms := &APIStoreMock{
+		ListJobSecretsFunc: func(_ context.Context, projectID, jobID, environment string, _ int, _ *time.Time) ([]domain.JobSecret, error) {
 			if projectID != "proj-1" || jobID != "job-1" || environment != "production" {
 				t.Fatalf("unexpected params: %q %q %q", projectID, jobID, environment)
 			}
@@ -83,8 +83,8 @@ func TestHandleListSecrets_Success(t *testing.T) {
 
 func TestHandleDeleteSecret_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		deleteJobSecretFn: func(_ context.Context, id string) error {
+	ms := &APIStoreMock{
+		DeleteJobSecretFunc: func(_ context.Context, id string) error {
 			if id != "sec-1" {
 				t.Fatalf("unexpected id: %q", id)
 			}

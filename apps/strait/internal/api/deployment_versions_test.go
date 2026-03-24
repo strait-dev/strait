@@ -16,8 +16,8 @@ import (
 func TestCreateDeploymentVersion(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		createDeploymentVersionFn: func(_ context.Context, deployment *domain.DeploymentVersion) error {
+	ms := &APIStoreMock{
+		CreateDeploymentVersionFunc: func(_ context.Context, deployment *domain.DeploymentVersion) error {
 			deployment.ID = "dep-1"
 			deployment.CreatedAt = time.Now()
 			deployment.UpdatedAt = deployment.CreatedAt
@@ -57,8 +57,8 @@ func TestCreateDeploymentVersion(t *testing.T) {
 func TestCreateDeploymentVersion_WithCanaryStrategy(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		createDeploymentVersionFn: func(_ context.Context, deployment *domain.DeploymentVersion) error {
+	ms := &APIStoreMock{
+		CreateDeploymentVersionFunc: func(_ context.Context, deployment *domain.DeploymentVersion) error {
 			deployment.ID = "dep-canary"
 			deployment.CreatedAt = time.Now()
 			deployment.UpdatedAt = deployment.CreatedAt
@@ -105,7 +105,7 @@ func TestCreateDeploymentVersion_WithCanaryStrategy(t *testing.T) {
 func TestCreateDeploymentVersion_CanaryRequiresPercent(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	body := `{
@@ -128,8 +128,8 @@ func TestCreateDeploymentVersion_DirectDefault(t *testing.T) {
 	t.Parallel()
 
 	var captured *domain.DeploymentVersion
-	ms := &mockAPIStore{
-		createDeploymentVersionFn: func(_ context.Context, deployment *domain.DeploymentVersion) error {
+	ms := &APIStoreMock{
+		CreateDeploymentVersionFunc: func(_ context.Context, deployment *domain.DeploymentVersion) error {
 			captured = deployment
 			deployment.ID = "dep-direct"
 			deployment.CreatedAt = time.Now()
@@ -168,7 +168,7 @@ func TestCreateDeploymentVersion_DirectDefault(t *testing.T) {
 func TestCreateDeploymentVersion_InvalidStrategy(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	body := `{
@@ -190,8 +190,8 @@ func TestCreateDeploymentVersion_InvalidStrategy(t *testing.T) {
 func TestFinalizeDeploymentVersion_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		finalizeDeploymentVersionFn: func(_ context.Context, _, _, _ string) (*domain.DeploymentVersion, error) {
+	ms := &APIStoreMock{
+		FinalizeDeploymentVersionFunc: func(_ context.Context, _, _, _ string) (*domain.DeploymentVersion, error) {
 			return nil, store.ErrDeploymentVersionNotFound
 		},
 	}
@@ -208,8 +208,8 @@ func TestFinalizeDeploymentVersion_NotFound(t *testing.T) {
 func TestPromoteDeploymentVersion(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		promoteDeploymentVersionFn: func(_ context.Context, deploymentID, projectID, environment, _ string) (*domain.DeploymentVersion, error) {
+	ms := &APIStoreMock{
+		PromoteDeploymentVersionFunc: func(_ context.Context, deploymentID, projectID, environment, _ string) (*domain.DeploymentVersion, error) {
 			if deploymentID != "dep-2" || projectID != "proj-1" || environment != "production" {
 				return nil, errors.New("unexpected promote input")
 			}

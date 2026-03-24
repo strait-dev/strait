@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"testing"
 
@@ -40,7 +39,7 @@ func TestCacheWarmer_WarmExecutesQueries(t *testing.T) {
 	t.Parallel()
 
 	fakeDB := &fakeQueryRower{}
-	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
 
 	if err := w.Warm(context.Background()); err != nil {
 		t.Fatalf("warm cache: %v", err)
@@ -56,7 +55,7 @@ func TestCacheWarmer_WarmIgnoresNoRows(t *testing.T) {
 
 	query := "SELECT 1 FROM jobs LIMIT 1"
 	fakeDB := &fakeQueryRower{errs: map[string]error{query: pgx.ErrNoRows}}
-	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
 
 	if err := w.Warm(context.Background()); err != nil {
 		t.Fatalf("warm cache with no rows: %v", err)
@@ -68,7 +67,7 @@ func TestCacheWarmer_WarmReturnsError(t *testing.T) {
 
 	query := "SELECT COUNT(*) FROM job_runs WHERE status = 'queued'"
 	fakeDB := &fakeQueryRower{errs: map[string]error{query: errors.New("boom")}}
-	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
 
 	err := w.Warm(context.Background())
 	if err == nil {

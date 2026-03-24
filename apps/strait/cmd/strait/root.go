@@ -326,7 +326,7 @@ func normalizeLegacyArgs(args []string) []string {
 }
 
 func extractConfigPath(args []string) string {
-	for i := range len(args) {
+	for i := range args {
 		if args[i] == "--config" && i+1 < len(args) {
 			return strings.TrimSpace(args[i+1])
 		}

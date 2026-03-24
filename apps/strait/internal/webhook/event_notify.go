@@ -336,6 +336,8 @@ func (n *DeliveryWorker) enqueueDeliveryEvent(d *domain.WebhookDelivery, duratio
 }
 
 // attemptDelivery makes one HTTP request for a delivery.
+//
+//nolint:funlen
 func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookDelivery) {
 	start := time.Now()
 	now := time.Now()

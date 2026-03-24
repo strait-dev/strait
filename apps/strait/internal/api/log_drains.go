@@ -1,17 +1,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"strait/internal/domain"
 	"strait/internal/logdrain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 )
 
@@ -37,7 +37,6 @@ type CreateLogDrainRequest struct {
 	LevelFilter []string          `json:"level_filter,omitempty"`
 	Enabled     *bool             `json:"enabled,omitempty"`
 }
-
 type UpdateLogDrainRequest struct {
 	Name        *string           `json:"name,omitempty"`
 	EndpointURL *string           `json:"endpoint_url,omitempty"`
@@ -47,96 +46,75 @@ type UpdateLogDrainRequest struct {
 	Enabled     *bool             `json:"enabled,omitempty"`
 }
 
-func (s *Server) handleCreateLogDrain(w http.ResponseWriter, r *http.Request) {
-	var req CreateLogDrainRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
+type CreateLogDrainInput struct{ Body CreateLogDrainRequest }
+type CreateLogDrainOutput struct{ Body *domain.LogDrain }
+
+func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrainInput) (*CreateLogDrainOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 	if err := validateURL(req.EndpointURL); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 	if err := validateAuthConfig(req.AuthType, req.AuthConfig); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
-
-	drain := &domain.LogDrain{
-		ID:          uuid.Must(uuid.NewV7()).String(),
-		ProjectID:   req.ProjectID,
-		Name:        req.Name,
-		DrainType:   req.DrainType,
-		EndpointURL: req.EndpointURL,
-		AuthType:    req.AuthType,
-		AuthConfig:  req.AuthConfig,
-		LevelFilter: req.LevelFilter,
-		Enabled:     enabled,
+	drain := &domain.LogDrain{ID: uuid.Must(uuid.NewV7()).String(), ProjectID: req.ProjectID, Name: req.Name, DrainType: req.DrainType, EndpointURL: req.EndpointURL, AuthType: req.AuthType, AuthConfig: req.AuthConfig, LevelFilter: req.LevelFilter, Enabled: enabled}
+	if err := s.store.CreateLogDrain(ctx, drain); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create log drain")
 	}
-
-	if err := s.store.CreateLogDrain(r.Context(), drain); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create log drain")
-		return
-	}
-
-	respondJSON(w, http.StatusCreated, drain)
+	return &CreateLogDrainOutput{Body: drain}, nil
 }
 
-func (s *Server) handleListLogDrains(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+type ListLogDrainsInput struct{}
+type ListLogDrainsOutput struct{ Body []domain.LogDrain }
 
-	drains, err := s.store.ListLogDrains(r.Context(), projectID)
+func (s *Server) handleListLogDrains(ctx context.Context, _ *ListLogDrainsInput) (*ListLogDrainsOutput, error) {
+	drains, err := s.store.ListLogDrains(ctx, projectIDFromContext(ctx))
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list log drains")
-		return
+		return nil, huma.Error500InternalServerError("failed to list log drains")
 	}
-
-	respondJSON(w, http.StatusOK, drains)
+	return &ListLogDrainsOutput{Body: drains}, nil
 }
 
-func (s *Server) handleGetLogDrain(w http.ResponseWriter, r *http.Request) {
-	drainID := chi.URLParam(r, "drainID")
-	projectID := projectIDFromContext(r.Context())
+type GetLogDrainInput struct {
+	DrainID string `path:"drainID"`
+}
+type GetLogDrainOutput struct{ Body *domain.LogDrain }
 
-	drain, err := s.store.GetLogDrain(r.Context(), drainID, projectID)
+func (s *Server) handleGetLogDrain(ctx context.Context, input *GetLogDrainInput) (*GetLogDrainOutput, error) {
+	drain, err := s.store.GetLogDrain(ctx, input.DrainID, projectIDFromContext(ctx))
 	if err != nil {
 		if errors.Is(err, store.ErrLogDrainNotFound) {
-			respondError(w, r, http.StatusNotFound, "log drain not found")
-			return
+			return nil, huma.Error404NotFound("log drain not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get log drain")
-		return
+		return nil, huma.Error500InternalServerError("failed to get log drain")
 	}
-
-	respondJSON(w, http.StatusOK, drain)
+	return &GetLogDrainOutput{Body: drain}, nil
 }
 
-func (s *Server) handleUpdateLogDrain(w http.ResponseWriter, r *http.Request) {
-	drainID := chi.URLParam(r, "drainID")
-	projectID := projectIDFromContext(r.Context())
+type UpdateLogDrainInput struct {
+	DrainID string `path:"drainID"`
+	Body    UpdateLogDrainRequest
+}
+type UpdateLogDrainOutput struct{ Body *domain.LogDrain }
 
-	var req UpdateLogDrainRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
+func (s *Server) handleUpdateLogDrain(ctx context.Context, input *UpdateLogDrainInput) (*UpdateLogDrainOutput, error) {
+	drainID := input.DrainID
+	projectID := projectIDFromContext(ctx)
+	req := input.Body
 	patch := make(map[string]any)
 	if req.Name != nil {
 		patch["name"] = *req.Name
 	}
 	if req.EndpointURL != nil {
 		if err := validateURL(*req.EndpointURL); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 		patch["endpoint_url"] = *req.EndpointURL
 	}
@@ -148,22 +126,17 @@ func (s *Server) handleUpdateLogDrain(w http.ResponseWriter, r *http.Request) {
 		if req.AuthType != nil {
 			authType = *req.AuthType
 		} else {
-			// Load existing drain's auth_type to validate against the current
-			// type when the PATCH body doesn't include auth_type.
-			existing, getErr := s.store.GetLogDrain(r.Context(), drainID, projectID)
+			existing, getErr := s.store.GetLogDrain(ctx, drainID, projectID)
 			if getErr != nil {
 				if errors.Is(getErr, store.ErrLogDrainNotFound) {
-					respondError(w, r, http.StatusNotFound, "log drain not found")
-					return
+					return nil, huma.Error404NotFound("log drain not found")
 				}
-				respondError(w, r, http.StatusInternalServerError, "failed to get log drain")
-				return
+				return nil, huma.Error500InternalServerError("failed to get log drain")
 			}
 			authType = existing.AuthType
 		}
 		if err := validateAuthConfig(authType, req.AuthConfig); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 		authJSON, _ := json.Marshal(req.AuthConfig)
 		patch["auth_config"] = authJSON
@@ -174,45 +147,32 @@ func (s *Server) handleUpdateLogDrain(w http.ResponseWriter, r *http.Request) {
 	if req.Enabled != nil {
 		patch["enabled"] = *req.Enabled
 	}
-
 	if len(patch) == 0 {
-		respondError(w, r, http.StatusBadRequest, "no fields to update")
-		return
+		return nil, huma.Error400BadRequest("no fields to update")
 	}
-
-	err := s.store.UpdateLogDrain(r.Context(), drainID, projectID, patch)
-	if err != nil {
+	if err := s.store.UpdateLogDrain(ctx, drainID, projectID, patch); err != nil {
 		if errors.Is(err, store.ErrLogDrainNotFound) {
-			respondError(w, r, http.StatusNotFound, "log drain not found")
-			return
+			return nil, huma.Error404NotFound("log drain not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to update log drain")
-		return
+		return nil, huma.Error500InternalServerError("failed to update log drain")
 	}
-
-	// Return updated drain.
-	drain, err := s.store.GetLogDrain(r.Context(), drainID, projectID)
+	drain, err := s.store.GetLogDrain(ctx, drainID, projectID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get updated log drain")
-		return
+		return nil, huma.Error500InternalServerError("failed to get updated log drain")
 	}
-
-	respondJSON(w, http.StatusOK, drain)
+	return &UpdateLogDrainOutput{Body: drain}, nil
 }
 
-func (s *Server) handleDeleteLogDrain(w http.ResponseWriter, r *http.Request) {
-	drainID := chi.URLParam(r, "drainID")
-	projectID := projectIDFromContext(r.Context())
+type DeleteLogDrainInput struct {
+	DrainID string `path:"drainID"`
+}
 
-	err := s.store.DeleteLogDrain(r.Context(), drainID, projectID)
-	if err != nil {
+func (s *Server) handleDeleteLogDrain(ctx context.Context, input *DeleteLogDrainInput) (*struct{}, error) {
+	if err := s.store.DeleteLogDrain(ctx, input.DrainID, projectIDFromContext(ctx)); err != nil {
 		if errors.Is(err, store.ErrLogDrainNotFound) {
-			respondError(w, r, http.StatusNotFound, "log drain not found")
-			return
+			return nil, huma.Error404NotFound("log drain not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete log drain")
-		return
+		return nil, huma.Error500InternalServerError("failed to delete log drain")
 	}
-
-	respondJSON(w, http.StatusNoContent, nil)
+	return nil, nil
 }

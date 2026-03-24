@@ -16,8 +16,8 @@ func TestHandleCreateWebhookSubscription_Success(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	ms := &mockAPIStore{
-		createWebhookSubscriptionFn: func(_ context.Context, sub *domain.WebhookSubscription) error {
+	ms := &APIStoreMock{
+		CreateWebhookSubscriptionFunc: func(_ context.Context, sub *domain.WebhookSubscription) error {
 			called = true
 			sub.ID = "sub-1"
 			sub.CreatedAt = time.Now().UTC()
@@ -42,8 +42,8 @@ func TestHandleCreateWebhookSubscription_Success(t *testing.T) {
 func TestHandleListWebhookSubscriptions_Success(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		listWebhookSubscriptionsFn: func(_ context.Context, projectID string) ([]domain.WebhookSubscription, error) {
+	ms := &APIStoreMock{
+		ListWebhookSubscriptionsFunc: func(_ context.Context, projectID string) ([]domain.WebhookSubscription, error) {
 			if projectID != "proj-1" {
 				t.Fatalf("projectID = %q, want %q", projectID, "proj-1")
 			}
@@ -72,8 +72,8 @@ func TestHandleListWebhookSubscriptions_Success(t *testing.T) {
 func TestHandleDeleteWebhookSubscription_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		deleteWebhookSubscriptionFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		DeleteWebhookSubscriptionFunc: func(_ context.Context, _ string) error {
 			return store.ErrWebhookSubscriptionNotFound
 		},
 	}

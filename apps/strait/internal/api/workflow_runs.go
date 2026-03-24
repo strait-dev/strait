@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -15,7 +14,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/samber/lo"
 )
 
@@ -31,136 +30,140 @@ type forceCompleteStepRequest struct {
 	Result json.RawMessage `json:"result,omitempty"`
 }
 
-func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
+type ListWorkflowRunsInput struct {
+	WorkflowID string `path:"workflowID"`
+	Limit      string `query:"limit"`
+	Cursor     string `query:"cursor"`
+}
+type ListWorkflowRunsOutput struct{ Body PaginatedResponse }
 
-	limit, cursor, err := parsePaginationParams(r)
+func (s *Server) handleListWorkflowRuns(ctx context.Context, input *ListWorkflowRunsInput) (*ListWorkflowRunsOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	runs, err := s.store.ListWorkflowRuns(r.Context(), workflowID, limit+1, cursor)
+	runs, err := s.store.ListWorkflowRuns(ctx, input.WorkflowID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow runs")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.WorkflowRun) string {
+	return &ListWorkflowRunsOutput{Body: paginatedResult(runs, limit, func(run domain.WorkflowRun) string {
 		return run.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	projectID := projectIDFromContext(r.Context())
+type ListWorkflowRunsByProjectInput struct {
+	TagKey   string `query:"tag_key"`
+	TagValue string `query:"tag_value"`
+	Status   string `query:"status"`
+	Limit    string `query:"limit"`
+	Cursor   string `query:"cursor"`
+}
+type ListWorkflowRunsByProjectOutput struct{ Body PaginatedResponse }
+
+func (s *Server) handleListWorkflowRunsByProject(ctx context.Context, input *ListWorkflowRunsByProjectInput) (*ListWorkflowRunsByProjectOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	tagKey := query.Get("tag_key")
-	tagValue := query.Get("tag_value")
-	if tagValue != "" && tagKey == "" {
-		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
-		return
+	if input.TagValue != "" && input.TagKey == "" {
+		return nil, huma.Error400BadRequest("tag_key is required when tag_value is provided")
 	}
 
 	var status *domain.WorkflowRunStatus
-	if statusRaw := query.Get("status"); statusRaw != "" {
-		parsed := domain.WorkflowRunStatus(statusRaw)
+	if input.Status != "" {
+		parsed := domain.WorkflowRunStatus(input.Status)
 		if !parsed.IsValid() {
-			respondError(w, r, http.StatusBadRequest, "status is invalid")
-			return
+			return nil, huma.Error400BadRequest("status is invalid")
 		}
 		status = &parsed
 	}
 
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	var runs []domain.WorkflowRun
-	if tagKey != "" {
-		runs, err = s.store.ListWorkflowRunsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
+	if input.TagKey != "" {
+		runs, err = s.store.ListWorkflowRunsByTag(ctx, projectID, input.TagKey, input.TagValue, limit+1, cursor)
 	} else {
-		runs, err = s.store.ListWorkflowRunsByProject(r.Context(), projectID, status, limit+1, cursor)
+		runs, err = s.store.ListWorkflowRunsByProject(ctx, projectID, status, limit+1, cursor)
 	}
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow runs")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.WorkflowRun) string {
+	return &ListWorkflowRunsByProjectOutput{Body: paginatedResult(runs, limit, func(run domain.WorkflowRun) string {
 		return run.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-func (s *Server) handleGetWorkflowRun(w http.ResponseWriter, r *http.Request) {
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+type GetWorkflowRunInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+}
+type GetWorkflowRunOutput struct{ Body *domain.WorkflowRun }
+
+func (s *Server) handleGetWorkflowRun(ctx context.Context, input *GetWorkflowRunInput) (*GetWorkflowRunOutput, error) {
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow run not found")
-			return
+			return nil, huma.Error404NotFound("workflow run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
 	}
 
-	respondJSON(w, http.StatusOK, run)
+	return &GetWorkflowRunOutput{Body: run}, nil
 }
 
-func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request) {
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+type CancelWorkflowRunInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+}
+type CancelWorkflowRunOutput struct{ Body *domain.WorkflowRun }
+
+func (s *Server) handleCancelWorkflowRun(ctx context.Context, input *CancelWorkflowRunInput) (*CancelWorkflowRunOutput, error) {
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow run not found")
-			return
+			return nil, huma.Error404NotFound("workflow run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
 	}
 
 	if run.Status.IsTerminal() {
-		respondError(w, r, http.StatusBadRequest, "workflow run already in terminal state")
-		return
+		return nil, huma.Error400BadRequest("workflow run already in terminal state")
 	}
 
-	if err := s.store.UpdateWorkflowRunStatus(r.Context(), run.ID, run.Status, domain.WfStatusCanceled, map[string]any{
+	if err := s.store.UpdateWorkflowRunStatus(ctx, run.ID, run.Status, domain.WfStatusCanceled, map[string]any{
 		"finished_at": time.Now(),
 		"error":       "canceled by user",
 	}); err != nil {
-		respondError(w, r, http.StatusConflict, "failed to cancel workflow run")
-		return
+		return nil, huma.Error409Conflict("failed to cancel workflow run")
 	}
 	now := time.Now()
 	reason := "workflow canceled by user"
 
 	// Bulk-cancel all non-terminal step runs in one UPDATE.
-	if _, err := s.store.CancelNonTerminalStepRuns(r.Context(), run.ID, now, reason); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to cancel workflow step runs")
-		return
+	if _, err := s.store.CancelNonTerminalStepRuns(ctx, run.ID, now, reason); err != nil {
+		return nil, huma.Error500InternalServerError("failed to cancel workflow step runs")
 	}
 
 	// Bulk-cancel all non-terminal job runs linked to this workflow run.
-	if _, err := s.store.CancelJobRunsByWorkflowRun(r.Context(), run.ID, now, reason); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to cancel workflow job runs")
-		return
+	if _, err := s.store.CancelJobRunsByWorkflowRun(ctx, run.ID, now, reason); err != nil {
+		return nil, huma.Error500InternalServerError("failed to cancel workflow job runs")
 	}
 
 	// Cancel any pending event triggers for this workflow (non-fatal).
-	if _, triggerErr := s.store.CancelEventTriggersByWorkflowRun(r.Context(), run.ID); triggerErr != nil {
+	if _, triggerErr := s.store.CancelEventTriggersByWorkflowRun(ctx, run.ID); triggerErr != nil {
 		slog.Warn("failed to cancel event triggers for workflow (non-fatal)", "workflow_run_id", run.ID, "error", triggerErr)
 	}
 
 	// Stop managed containers for cancelled workflow runs (non-fatal).
 	// Use detached context so client disconnect doesn't abort stops.
 	if s.containerRuntime != nil {
-		machineIDs, listErr := s.store.ListManagedMachineIDsByWorkflowRun(r.Context(), run.ID)
+		machineIDs, listErr := s.store.ListManagedMachineIDsByWorkflowRun(ctx, run.ID)
 		if listErr != nil {
 			slog.Warn("failed to list managed machines for workflow cancel", "workflow_run_id", run.ID, "error", listErr)
 		}
@@ -174,48 +177,45 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
+	updatedRun, err := s.store.GetWorkflowRun(ctx, run.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get updated workflow run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get updated workflow run")
 	}
-	s.publishWorkflowRunHook(r.Context(), updatedRun, run.Status, domain.WfStatusCanceled, "cancel")
+	s.publishWorkflowRunHook(ctx, updatedRun, run.Status, domain.WfStatusCanceled, "cancel")
 
-	respondJSON(w, http.StatusOK, updatedRun)
+	return &CancelWorkflowRunOutput{Body: updatedRun}, nil
 }
 
-func (s *Server) handlePauseWorkflowRun(w http.ResponseWriter, r *http.Request) {
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+type PauseWorkflowRunInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+}
+type PauseWorkflowRunOutput struct{ Body *domain.WorkflowRun }
+
+func (s *Server) handlePauseWorkflowRun(ctx context.Context, input *PauseWorkflowRunInput) (*PauseWorkflowRunOutput, error) {
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow run not found")
-			return
+			return nil, huma.Error404NotFound("workflow run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
 	}
 	if run.Status.IsTerminal() {
-		respondError(w, r, http.StatusBadRequest, "workflow run already in terminal state")
-		return
+		return nil, huma.Error400BadRequest("workflow run already in terminal state")
 	}
 	if run.Status == domain.WfStatusPaused {
-		respondJSON(w, http.StatusOK, run)
-		return
+		return &PauseWorkflowRunOutput{Body: run}, nil
 	}
 	if run.Status != domain.WfStatusRunning {
-		respondError(w, r, http.StatusBadRequest, "workflow run can only be paused from running state")
-		return
+		return nil, huma.Error400BadRequest("workflow run can only be paused from running state")
 	}
 
-	if err := s.store.UpdateWorkflowRunStatus(r.Context(), run.ID, domain.WfStatusRunning, domain.WfStatusPaused, nil); err != nil {
-		respondError(w, r, http.StatusConflict, "failed to pause workflow run")
-		return
+	if err := s.store.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusRunning, domain.WfStatusPaused, nil); err != nil {
+		return nil, huma.Error409Conflict("failed to pause workflow run")
 	}
 
 	// Stop managed containers to save compute (non-fatal).
 	if s.containerRuntime != nil {
-		machineIDs, listErr := s.store.ListManagedMachineIDsByWorkflowRun(r.Context(), run.ID)
+		machineIDs, listErr := s.store.ListManagedMachineIDsByWorkflowRun(ctx, run.ID)
 		if listErr != nil {
 			slog.Warn("failed to list managed machines for workflow pause", "workflow_run_id", run.ID, "error", listErr)
 		}
@@ -230,274 +230,257 @@ func (s *Server) handlePauseWorkflowRun(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Mark affected job runs so resume knows to re-dispatch them (non-fatal).
-	if _, markErr := s.store.MarkJobRunsPausedByWorkflowRun(r.Context(), run.ID); markErr != nil {
+	if _, markErr := s.store.MarkJobRunsPausedByWorkflowRun(ctx, run.ID); markErr != nil {
 		slog.Warn("failed to mark job runs paused", "workflow_run_id", run.ID, "error", markErr)
 	}
 
-	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
+	updatedRun, err := s.store.GetWorkflowRun(ctx, run.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get updated workflow run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get updated workflow run")
 	}
-	s.publishWorkflowRunHook(r.Context(), updatedRun, run.Status, domain.WfStatusPaused, "pause")
-	respondJSON(w, http.StatusOK, updatedRun)
+	s.publishWorkflowRunHook(ctx, updatedRun, run.Status, domain.WfStatusPaused, "pause")
+	return &PauseWorkflowRunOutput{Body: updatedRun}, nil
 }
 
-func (s *Server) handleResumeWorkflowRun(w http.ResponseWriter, r *http.Request) {
+type ResumeWorkflowRunInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+}
+type ResumeWorkflowRunOutput struct{ Body *domain.WorkflowRun }
+
+func (s *Server) handleResumeWorkflowRun(ctx context.Context, input *ResumeWorkflowRunInput) (*ResumeWorkflowRunOutput, error) {
 	if s.workflowCallback == nil {
-		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
-		return
+		return nil, huma.Error503ServiceUnavailable("workflow callback unavailable")
 	}
 
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow run not found")
-			return
+			return nil, huma.Error404NotFound("workflow run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
 	}
 	if run.Status != domain.WfStatusPaused {
-		respondError(w, r, http.StatusBadRequest, "workflow run is not paused")
-		return
+		return nil, huma.Error400BadRequest("workflow run is not paused")
 	}
 
-	if err := s.workflowCallback.ResumeWorkflowRun(r.Context(), workflowRunID); err != nil {
-		respondError(w, r, http.StatusConflict, err.Error())
-		return
+	if err := s.workflowCallback.ResumeWorkflowRun(ctx, input.WorkflowRunID); err != nil {
+		return nil, huma.Error409Conflict(err.Error())
 	}
 
-	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
+	updatedRun, err := s.store.GetWorkflowRun(ctx, run.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get updated workflow run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get updated workflow run")
 	}
-	s.publishWorkflowRunHook(r.Context(), updatedRun, run.Status, domain.WfStatusRunning, "resume")
-	respondJSON(w, http.StatusOK, updatedRun)
+	s.publishWorkflowRunHook(ctx, updatedRun, run.Status, domain.WfStatusRunning, "resume")
+	return &ResumeWorkflowRunOutput{Body: updatedRun}, nil
 }
 
-func (s *Server) handleGetWorkflowRunLabels(w http.ResponseWriter, r *http.Request) {
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	labels, err := s.store.ListWorkflowRunLabels(r.Context(), workflowRunID)
+type GetWorkflowRunLabelsInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+}
+type GetWorkflowRunLabelsOutput struct{ Body any }
+
+func (s *Server) handleGetWorkflowRunLabels(ctx context.Context, input *GetWorkflowRunLabelsInput) (*GetWorkflowRunLabelsOutput, error) {
+	labels, err := s.store.ListWorkflowRunLabels(ctx, input.WorkflowRunID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow run labels")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow run labels")
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"labels": labels})
+	return &GetWorkflowRunLabelsOutput{Body: map[string]any{"labels": labels}}, nil
 }
 
-func (s *Server) handleListWorkflowStepRuns(w http.ResponseWriter, r *http.Request) {
-	workflowRunID := chi.URLParam(r, "workflowRunID")
+type ListWorkflowStepRunsInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+	Limit         string `query:"limit"`
+	Cursor        string `query:"cursor"`
+}
+type ListWorkflowStepRunsOutput struct{ Body PaginatedResponse }
 
-	limit, cursor, err := parsePaginationParams(r)
+func (s *Server) handleListWorkflowStepRuns(ctx context.Context, input *ListWorkflowStepRunsInput) (*ListWorkflowStepRunsOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), workflowRunID, limit+1, cursor)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, input.WorkflowRunID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow step runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow step runs")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(stepRuns, limit, func(sr domain.WorkflowStepRun) string {
+	return &ListWorkflowStepRunsOutput{Body: paginatedResult(stepRuns, limit, func(sr domain.WorkflowStepRun) string {
 		return sr.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-func (s *Server) loadScopedWorkflowRunForStepMutation(w http.ResponseWriter, r *http.Request, workflowRunID string) (*domain.WorkflowRun, bool) {
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+func (s *Server) loadScopedWorkflowRunForStepMutation(ctx context.Context, workflowRunID string) (*domain.WorkflowRun, error) {
+	run, err := s.store.GetWorkflowRun(ctx, workflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow run not found")
-			return nil, false
+			return nil, huma.Error404NotFound("workflow run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
-		return nil, false
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
 	}
 	if run == nil {
-		respondError(w, r, http.StatusNotFound, "workflow run not found")
-		return nil, false
+		return nil, huma.Error404NotFound("workflow run not found")
 	}
-	if projectID := projectIDFromContext(r.Context()); projectID != "" && run.ProjectID != projectID {
-		respondError(w, r, http.StatusNotFound, "workflow run not found")
-		return nil, false
+	if projectID := projectIDFromContext(ctx); projectID != "" && run.ProjectID != projectID {
+		return nil, huma.Error404NotFound("workflow run not found")
 	}
-	return run, true
+	return run, nil
 }
 
-func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Request) {
+type ApproveWorkflowStepInput struct {
+	WorkflowRunID string                     `path:"workflowRunID"`
+	StepRef       string                     `path:"stepRef"`
+	Body          approveWorkflowStepRequest `json:"body"`
+}
+type ApproveWorkflowStepOutput struct{ Body any }
+
+func (s *Server) handleApproveWorkflowStep(ctx context.Context, input *ApproveWorkflowStepInput) (*ApproveWorkflowStepOutput, error) {
 	if s.workflowCallback == nil {
-		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
-		return
+		return nil, huma.Error503ServiceUnavailable("workflow callback unavailable")
 	}
 
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	stepRef := chi.URLParam(r, "stepRef")
-	beforeRun, ok := s.loadScopedWorkflowRunForStepMutation(w, r, workflowRunID)
-	if !ok {
-		return
+	beforeRun, err := s.loadScopedWorkflowRunForStepMutation(ctx, input.WorkflowRunID)
+	if err != nil {
+		return nil, err
 	}
 
-	// Decode body but ignore the approver field — use authenticated identity.
-	var req approveWorkflowStepRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	approver := actorFromContext(r.Context())
+	approver := actorFromContext(ctx)
 	if approver == "" {
-		respondError(w, r, http.StatusUnauthorized, "authenticated identity required")
-		return
+		return nil, huma.Error401Unauthorized("authenticated identity required")
 	}
 
-	if err := s.workflowCallback.ApproveStep(r.Context(), workflowRunID, stepRef, approver); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+	if err := s.workflowCallback.ApproveStep(ctx, input.WorkflowRunID, input.StepRef, approver); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
+	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, input.WorkflowRunID, input.StepRef)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to fetch workflow step run")
-		return
+		return nil, huma.Error500InternalServerError("failed to fetch workflow step run")
 	}
-	approval, err := s.store.GetWorkflowStepApprovalByStepRunID(r.Context(), stepRun.ID)
+	approval, err := s.store.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to fetch workflow step approval")
-		return
+		return nil, huma.Error500InternalServerError("failed to fetch workflow step approval")
 	}
 
-	afterRun, afterErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	afterRun, afterErr := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if afterErr != nil {
-		slog.Warn("failed to get workflow run after approve step", "workflow_run_id", workflowRunID, "error", afterErr)
+		slog.Warn("failed to get workflow run after approve step", "workflow_run_id", input.WorkflowRunID, "error", afterErr)
 	}
 	if afterErr == nil && afterRun != nil && beforeRun.Status != afterRun.Status {
-		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "approve_step")
+		s.publishWorkflowRunHook(ctx, afterRun, beforeRun.Status, afterRun.Status, "approve_step")
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{
+	return &ApproveWorkflowStepOutput{Body: map[string]any{
 		"step_run": stepRun,
 		"approval": approval,
-	})
+	}}, nil
 }
 
-func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) {
+type SkipWorkflowStepInput struct {
+	WorkflowRunID string          `path:"workflowRunID"`
+	StepRef       string          `path:"stepRef"`
+	Body          skipStepRequest `json:"body"`
+}
+type SkipWorkflowStepOutput struct{ Body any }
+
+func (s *Server) handleSkipWorkflowStep(ctx context.Context, input *SkipWorkflowStepInput) (*SkipWorkflowStepOutput, error) {
 	if s.workflowCallback == nil {
-		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
-		return
+		return nil, huma.Error503ServiceUnavailable("workflow callback unavailable")
 	}
 
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	stepRef := chi.URLParam(r, "stepRef")
-	beforeRun, ok := s.loadScopedWorkflowRunForStepMutation(w, r, workflowRunID)
-	if !ok {
-		return
-	}
-
-	var req skipStepRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if err := s.workflowCallback.SkipStep(r.Context(), workflowRunID, stepRef, req.Reason, actorFromContext(r.Context())); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
+	beforeRun, err := s.loadScopedWorkflowRunForStepMutation(ctx, input.WorkflowRunID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to fetch workflow step run")
-		return
+		return nil, err
 	}
 
-	afterRun, afterErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	if err := s.workflowCallback.SkipStep(ctx, input.WorkflowRunID, input.StepRef, input.Body.Reason, actorFromContext(ctx)); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+
+	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, input.WorkflowRunID, input.StepRef)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to fetch workflow step run")
+	}
+
+	afterRun, afterErr := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if afterErr != nil {
-		slog.Warn("failed to get workflow run after skip step", "workflow_run_id", workflowRunID, "error", afterErr)
+		slog.Warn("failed to get workflow run after skip step", "workflow_run_id", input.WorkflowRunID, "error", afterErr)
 	}
 	if afterErr == nil && afterRun != nil && beforeRun.Status != afterRun.Status {
-		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "skip_step")
+		s.publishWorkflowRunHook(ctx, afterRun, beforeRun.Status, afterRun.Status, "skip_step")
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"step_run": stepRun})
+	return &SkipWorkflowStepOutput{Body: map[string]any{"step_run": stepRun}}, nil
 }
 
-func (s *Server) handleForceCompleteWorkflowStep(w http.ResponseWriter, r *http.Request) {
+type ForceCompleteWorkflowStepInput struct {
+	WorkflowRunID string                   `path:"workflowRunID"`
+	StepRef       string                   `path:"stepRef"`
+	Body          forceCompleteStepRequest `json:"body"`
+}
+type ForceCompleteWorkflowStepOutput struct{ Body any }
+
+func (s *Server) handleForceCompleteWorkflowStep(ctx context.Context, input *ForceCompleteWorkflowStepInput) (*ForceCompleteWorkflowStepOutput, error) {
 	if s.workflowCallback == nil {
-		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
-		return
+		return nil, huma.Error503ServiceUnavailable("workflow callback unavailable")
 	}
 
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	stepRef := chi.URLParam(r, "stepRef")
-	beforeRun, beforeErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	beforeRun, beforeErr := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if beforeErr != nil {
-		slog.Warn("failed to get workflow run before force-complete step", "workflow_run_id", workflowRunID, "error", beforeErr)
+		slog.Warn("failed to get workflow run before force-complete step", "workflow_run_id", input.WorkflowRunID, "error", beforeErr)
 	}
 
-	var req forceCompleteStepRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
+	if err := s.workflowCallback.ForceCompleteStep(ctx, input.WorkflowRunID, input.StepRef, input.Body.Result); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	if err := s.workflowCallback.ForceCompleteStep(r.Context(), workflowRunID, stepRef, req.Result); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
+	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, input.WorkflowRunID, input.StepRef)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to fetch workflow step run")
-		return
+		return nil, huma.Error500InternalServerError("failed to fetch workflow step run")
 	}
 
-	afterRun, afterErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	afterRun, afterErr := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if afterErr != nil {
-		slog.Warn("failed to get workflow run after force-complete step", "workflow_run_id", workflowRunID, "error", afterErr)
+		slog.Warn("failed to get workflow run after force-complete step", "workflow_run_id", input.WorkflowRunID, "error", afterErr)
 	}
 	if beforeErr == nil && afterErr == nil && beforeRun != nil && afterRun != nil && beforeRun.Status != afterRun.Status {
-		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "force_complete_step")
+		s.publishWorkflowRunHook(ctx, afterRun, beforeRun.Status, afterRun.Status, "force_complete_step")
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"step_run": stepRun})
+	return &ForceCompleteWorkflowStepOutput{Body: map[string]any{"step_run": stepRun}}, nil
 }
 
-func (s *Server) handleRetryWorkflowRun(w http.ResponseWriter, r *http.Request) {
+type RetryWorkflowRunInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+}
+type RetryWorkflowRunOutput struct{ Body *domain.WorkflowRun }
+
+func (s *Server) handleRetryWorkflowRun(ctx context.Context, input *RetryWorkflowRunInput) (*RetryWorkflowRunOutput, error) {
 	if s.workflowEngine == nil {
-		respondError(w, r, http.StatusServiceUnavailable, "workflow engine unavailable")
-		return
+		return nil, huma.Error503ServiceUnavailable("workflow engine unavailable")
 	}
 
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow run not found")
-			return
+			return nil, huma.Error404NotFound("workflow run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
 	}
 
 	if !run.Status.IsTerminal() {
-		respondError(w, r, http.StatusBadRequest, "can only retry a workflow run in terminal state")
-		return
+		return nil, huma.Error400BadRequest("can only retry a workflow run in terminal state")
 	}
 
-	newRun, err := s.workflowEngine.RetryWorkflowRun(r.Context(), workflowRunID)
+	newRun, err := s.workflowEngine.RetryWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to retry workflow run: %v", err))
-		return
+		return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to retry workflow run: %v", err))
 	}
 
-	s.publishWorkflowRunHook(r.Context(), newRun, domain.WfStatusPending, newRun.Status, "retry")
+	s.publishWorkflowRunHook(ctx, newRun, domain.WfStatusPending, newRun.Status, "retry")
 
-	respondJSON(w, http.StatusCreated, newRun)
+	return &RetryWorkflowRunOutput{Body: newRun}, nil
 }
 
 type workflowRunGraphNode struct {
@@ -511,22 +494,23 @@ type workflowRunGraphNode struct {
 	DurationMS int64                   `json:"duration_ms,omitempty"`
 }
 
-func (s *Server) handleGetWorkflowRunGraph(w http.ResponseWriter, r *http.Request) {
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+type GetWorkflowRunGraphInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+}
+type GetWorkflowRunGraphOutput struct{ Body any }
+
+func (s *Server) handleGetWorkflowRunGraph(ctx context.Context, input *GetWorkflowRunGraphInput) (*GetWorkflowRunGraphOutput, error) {
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
-		respondError(w, r, http.StatusNotFound, "workflow run not found")
-		return
+		return nil, huma.Error404NotFound("workflow run not found")
 	}
-	steps, err := s.store.ListStepsByWorkflowVersion(r.Context(), run.WorkflowID, run.WorkflowVersion)
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, run.WorkflowID, run.WorkflowVersion)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow steps")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow steps")
 	}
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), workflowRunID, 10000, nil)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, input.WorkflowRunID, 10000, nil)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list step runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list step runs")
 	}
 
 	runByRef := make(map[string]domain.WorkflowStepRun, len(stepRuns))
@@ -570,7 +554,7 @@ func (s *Server) handleGetWorkflowRunGraph(w http.ResponseWriter, r *http.Reques
 	sort.Strings(runnable)
 	criticalPath, estimatedDurationMS, estimatedRemainingMS := estimateWorkflowCriticalPath(steps, runByRef, now)
 
-	respondJSON(w, http.StatusOK, map[string]any{
+	return &GetWorkflowRunGraphOutput{Body: map[string]any{
 		"workflow_run_id":            run.ID,
 		"workflow_id":                run.WorkflowID,
 		"version":                    run.WorkflowVersion,
@@ -581,7 +565,7 @@ func (s *Server) handleGetWorkflowRunGraph(w http.ResponseWriter, r *http.Reques
 		"critical_path":              criticalPath,
 		"critical_path_estimate_ms":  estimatedDurationMS,
 		"critical_path_remaining_ms": estimatedRemainingMS,
-	})
+	}}, nil
 }
 
 func estimateWorkflowCriticalPath(steps []domain.WorkflowStep, runByRef map[string]domain.WorkflowStepRun, now time.Time) ([]string, int64, int64) {
@@ -706,96 +690,100 @@ func estimateStepTiming(step domain.WorkflowStep, stepRun domain.WorkflowStepRun
 	return totalEstimateMS, totalEstimateMS - spentMS
 }
 
-func (s *Server) handleGetWorkflowRunExplain(w http.ResponseWriter, r *http.Request) {
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	limit, cursor, err := parsePaginationParams(r)
+type GetWorkflowRunExplainInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+	StepRef       string `query:"step_ref"`
+	DecisionType  string `query:"decision_type"`
+	Limit         string `query:"limit"`
+	Cursor        string `query:"cursor"`
+}
+type GetWorkflowRunExplainOutput struct{ Body PaginatedResponse }
+
+func (s *Server) handleGetWorkflowRunExplain(ctx context.Context, input *GetWorkflowRunExplainInput) (*GetWorkflowRunExplainOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-	decisions, err := s.store.ListWorkflowStepDecisions(r.Context(), workflowRunID, r.URL.Query().Get("step_ref"), r.URL.Query().Get("decision_type"), limit+1, cursor)
+	decisions, err := s.store.ListWorkflowStepDecisions(ctx, input.WorkflowRunID, input.StepRef, input.DecisionType, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow decisions")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow decisions")
 	}
-	respondJSON(w, http.StatusOK, paginatedResult(decisions, limit, func(d domain.WorkflowStepDecision) string {
+	return &GetWorkflowRunExplainOutput{Body: paginatedResult(decisions, limit, func(d domain.WorkflowStepDecision) string {
 		return d.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-func (s *Server) handleRetryWorkflowStep(w http.ResponseWriter, r *http.Request) {
+type RetryWorkflowStepInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+	StepRef       string `path:"stepRef"`
+}
+type RetryWorkflowStepOutput struct{ Body any }
+
+func (s *Server) handleRetryWorkflowStep(ctx context.Context, input *RetryWorkflowStepInput) (*RetryWorkflowStepOutput, error) {
 	if s.workflowCallback == nil {
-		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
-		return
+		return nil, huma.Error503ServiceUnavailable("workflow callback unavailable")
 	}
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	stepRef := chi.URLParam(r, "stepRef")
 
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
-		respondError(w, r, http.StatusNotFound, "workflow run not found")
-		return
+		return nil, huma.Error404NotFound("workflow run not found")
 	}
 
-	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
+	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, input.WorkflowRunID, input.StepRef)
 	if err != nil || stepRun == nil {
-		respondError(w, r, http.StatusNotFound, "workflow step run not found")
-		return
+		return nil, huma.Error404NotFound("workflow step run not found")
 	}
 	if !stepRun.Status.IsTerminal() {
-		respondError(w, r, http.StatusBadRequest, "step run must be terminal to retry")
-		return
+		return nil, huma.Error400BadRequest("step run must be terminal to retry")
 	}
 
 	// If the workflow run is terminal, transition it back to running so
 	// ResumeWorkflowRun can proceed. If it is paused, ResumeWorkflowRun
 	// handles the transition internally.
 	if run.Status.IsTerminal() {
-		if err := s.store.UpdateWorkflowRunStatus(r.Context(), run.ID, run.Status, domain.WfStatusRunning, nil); err != nil {
-			respondError(w, r, http.StatusConflict, "failed to reopen workflow run for retry")
-			return
+		if err := s.store.UpdateWorkflowRunStatus(ctx, run.ID, run.Status, domain.WfStatusRunning, nil); err != nil {
+			return nil, huma.Error409Conflict("failed to reopen workflow run for retry")
 		}
 	}
 
-	if err := s.store.UpdateStepRunStatus(r.Context(), stepRun.ID, domain.StepPending, map[string]any{"started_at": nil, "finished_at": nil, "error": "", "output": nil, "event_key": nil}); err != nil {
-		respondError(w, r, http.StatusConflict, "failed to reset step run")
-		return
+	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepPending, map[string]any{"started_at": nil, "finished_at": nil, "error": "", "output": nil, "event_key": nil}); err != nil {
+		return nil, huma.Error409Conflict("failed to reset step run")
 	}
 
 	// Only call ResumeWorkflowRun if the run was paused (it handles pause->running).
 	// If we already set it to running above, just schedule directly.
 	if run.Status == domain.WfStatusPaused {
-		if err := s.workflowCallback.ResumeWorkflowRun(r.Context(), workflowRunID); err != nil {
-			respondError(w, r, http.StatusConflict, err.Error())
-			return
+		if err := s.workflowCallback.ResumeWorkflowRun(ctx, input.WorkflowRunID); err != nil {
+			return nil, huma.Error409Conflict(err.Error())
 		}
 	}
 
-	updated, _ := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
-	respondJSON(w, http.StatusOK, map[string]any{"step_run": updated})
+	updated, _ := s.store.GetStepRunByWorkflowRunAndRef(ctx, input.WorkflowRunID, input.StepRef)
+	return &RetryWorkflowStepOutput{Body: map[string]any{"step_run": updated}}, nil
 }
 
-func (s *Server) handleReplayWorkflowSubtree(w http.ResponseWriter, r *http.Request) {
+type ReplayWorkflowSubtreeInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+	StepRef       string `path:"stepRef"`
+}
+type ReplayWorkflowSubtreeOutput struct{ Body any }
+
+func (s *Server) handleReplayWorkflowSubtree(ctx context.Context, input *ReplayWorkflowSubtreeInput) (*ReplayWorkflowSubtreeOutput, error) {
 	if s.workflowCallback == nil {
-		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
-		return
+		return nil, huma.Error503ServiceUnavailable("workflow callback unavailable")
 	}
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	stepRef := chi.URLParam(r, "stepRef")
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
-		respondError(w, r, http.StatusNotFound, "workflow run not found")
-		return
+		return nil, huma.Error404NotFound("workflow run not found")
 	}
-	steps, err := s.store.ListStepsByWorkflowVersion(r.Context(), run.WorkflowID, run.WorkflowVersion)
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, run.WorkflowID, run.WorkflowVersion)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow steps")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow steps")
 	}
 	children := map[string][]string{}
 	exists := false
 	for _, st := range steps {
-		if st.StepRef == stepRef {
+		if st.StepRef == input.StepRef {
 			exists = true
 		}
 		for _, dep := range st.DependsOn {
@@ -803,11 +791,10 @@ func (s *Server) handleReplayWorkflowSubtree(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	if !exists {
-		respondError(w, r, http.StatusNotFound, "step not found in workflow version")
-		return
+		return nil, huma.Error404NotFound("step not found in workflow version")
 	}
-	toReset := map[string]struct{}{stepRef: {}}
-	queue := []string{stepRef}
+	toReset := map[string]struct{}{input.StepRef: {}}
+	queue := []string{input.StepRef}
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
@@ -819,10 +806,9 @@ func (s *Server) handleReplayWorkflowSubtree(w http.ResponseWriter, r *http.Requ
 			queue = append(queue, ch)
 		}
 	}
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), workflowRunID, 10000, nil)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, input.WorkflowRunID, 10000, nil)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow step runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow step runs")
 	}
 	var resetErrs []string
 	reset := 0
@@ -830,39 +816,39 @@ func (s *Server) handleReplayWorkflowSubtree(w http.ResponseWriter, r *http.Requ
 		if _, ok := toReset[sr.StepRef]; !ok {
 			continue
 		}
-		if err := s.store.UpdateStepRunStatus(r.Context(), sr.ID, domain.StepPending, map[string]any{"started_at": nil, "finished_at": nil, "error": "", "output": nil, "event_key": nil}); err != nil {
+		if err := s.store.UpdateStepRunStatus(ctx, sr.ID, domain.StepPending, map[string]any{"started_at": nil, "finished_at": nil, "error": "", "output": nil, "event_key": nil}); err != nil {
 			resetErrs = append(resetErrs, fmt.Sprintf("%s: %v", sr.StepRef, err))
 			continue
 		}
 		reset++
 	}
 	if len(resetErrs) > 0 {
-		respondError(w, r, http.StatusConflict, fmt.Sprintf("failed to reset %d step(s): %s", len(resetErrs), strings.Join(resetErrs, "; ")))
-		return
+		return nil, huma.Error409Conflict(fmt.Sprintf("failed to reset %d step(s): %s", len(resetErrs), strings.Join(resetErrs, "; ")))
 	}
-	if err := s.workflowCallback.ResumeWorkflowRun(r.Context(), workflowRunID); err != nil {
-		respondError(w, r, http.StatusConflict, err.Error())
-		return
+	if err := s.workflowCallback.ResumeWorkflowRun(ctx, input.WorkflowRunID); err != nil {
+		return nil, huma.Error409Conflict(err.Error())
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"reset_steps": reset})
+	return &ReplayWorkflowSubtreeOutput{Body: map[string]any{"reset_steps": reset}}, nil
 }
 
-func (s *Server) handleGetWorkflowRunTimeline(w http.ResponseWriter, r *http.Request) {
-	workflowRunID := chi.URLParam(r, "workflowRunID")
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+type GetWorkflowRunTimelineInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+}
+type GetWorkflowRunTimelineOutput struct{ Body domain.TimelineResponse }
+
+//nolint:gocognit,gocyclo,cyclop
+func (s *Server) handleGetWorkflowRunTimeline(ctx context.Context, input *GetWorkflowRunTimelineInput) (*GetWorkflowRunTimelineOutput, error) {
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow run not found")
-			return
+			return nil, huma.Error404NotFound("workflow run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
 	}
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), workflowRunID, 10000, nil)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, input.WorkflowRunID, 10000, nil)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list step runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list step runs")
 	}
 
 	// Sort by started_at ASC; steps without started_at go to the end.
@@ -1002,58 +988,60 @@ func (s *Server) handleGetWorkflowRunTimeline(w http.ResponseWriter, r *http.Req
 		Steps:         timelineSteps,
 	}
 
-	respondJSON(w, http.StatusOK, resp)
+	return &GetWorkflowRunTimelineOutput{Body: resp}, nil
 }
 
-func (s *Server) handleBulkCancelWorkflowRuns(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		WorkflowRunIDs []string `json:"workflow_run_ids" validate:"required,min=1,max=100"`
-	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
+type BulkCancelWorkflowRunsRequest struct {
+	WorkflowRunIDs []string `json:"workflow_run_ids" validate:"required,min=1,max=100"`
+}
+type BulkCancelWorkflowRunsInput struct {
+	Body BulkCancelWorkflowRunsRequest
+}
+type BulkCancelWorkflowRunsOutput struct{ Body any }
+
+func (s *Server) handleBulkCancelWorkflowRuns(ctx context.Context, input *BulkCancelWorkflowRunsInput) (*BulkCancelWorkflowRunsOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
-	projectID := projectIDFromContext(r.Context())
+	projectID := projectIDFromContext(ctx)
 
 	now := time.Now()
-	canceled, err := s.store.BulkCancelWorkflowRuns(r.Context(), projectID, req.WorkflowRunIDs, now)
+	canceled, err := s.store.BulkCancelWorkflowRuns(ctx, projectID, req.WorkflowRunIDs, now)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to cancel workflow runs")
-		return
+		return nil, huma.Error500InternalServerError("failed to cancel workflow runs")
 	}
 
 	// Cancel associated step runs and job runs for each canceled workflow run.
 	for _, wrID := range canceled {
-		if _, err := s.store.CancelNonTerminalStepRuns(r.Context(), wrID, now, "parent workflow canceled (bulk)"); err != nil {
+		if _, err := s.store.CancelNonTerminalStepRuns(ctx, wrID, now, "parent workflow canceled (bulk)"); err != nil {
 			slog.Error("failed to cancel step runs", "workflow_run_id", wrID, "error", err)
 		}
-		if _, err := s.store.CancelJobRunsByWorkflowRun(r.Context(), wrID, now, "parent workflow canceled (bulk)"); err != nil {
+		if _, err := s.store.CancelJobRunsByWorkflowRun(ctx, wrID, now, "parent workflow canceled (bulk)"); err != nil {
 			slog.Error("failed to cancel job runs", "workflow_run_id", wrID, "error", err)
 		}
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"canceled": len(canceled), "workflow_run_ids": canceled})
+	return &BulkCancelWorkflowRunsOutput{Body: map[string]any{"canceled": len(canceled), "workflow_run_ids": canceled}}, nil
 }
 
-func (s *Server) handleBulkReplayWorkflowRuns(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		WorkflowRunIDs []string `json:"workflow_run_ids" validate:"required,min=1,max=100"`
-	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
+type BulkReplayWorkflowRunsRequest struct {
+	WorkflowRunIDs []string `json:"workflow_run_ids" validate:"required,min=1,max=100"`
+}
+type BulkReplayWorkflowRunsInput struct {
+	Body BulkReplayWorkflowRunsRequest
+}
+type BulkReplayWorkflowRunsOutput struct{ Body any }
+
+func (s *Server) handleBulkReplayWorkflowRuns(ctx context.Context, input *BulkReplayWorkflowRunsInput) (*BulkReplayWorkflowRunsOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	if s.workflowEngine == nil {
-		respondError(w, r, http.StatusServiceUnavailable, "workflow engine not available")
-		return
+		return nil, huma.Error503ServiceUnavailable("workflow engine not available")
 	}
 
 	type replayResult struct {
@@ -1067,7 +1055,7 @@ func (s *Server) handleBulkReplayWorkflowRuns(w http.ResponseWriter, r *http.Req
 	replayed := 0
 
 	for _, wrID := range req.WorkflowRunIDs {
-		newRun, err := s.workflowEngine.RetryWorkflowRun(r.Context(), wrID)
+		newRun, err := s.workflowEngine.RetryWorkflowRun(ctx, wrID)
 		if err != nil {
 			results = append(results, replayResult{OriginalRunID: wrID, Status: "failed", Error: err.Error()})
 			continue
@@ -1076,5 +1064,5 @@ func (s *Server) handleBulkReplayWorkflowRuns(w http.ResponseWriter, r *http.Req
 		replayed++
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"results": results, "total": len(req.WorkflowRunIDs), "replayed": replayed})
+	return &BulkReplayWorkflowRunsOutput{Body: map[string]any{"results": results, "total": len(req.WorkflowRunIDs), "replayed": replayed}}, nil
 }

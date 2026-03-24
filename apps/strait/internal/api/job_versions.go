@@ -1,55 +1,51 @@
 package api
 
 import (
+	"context"
 	"errors"
-	"net/http"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleListJobVersions(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
+type ListJobVersionsInput struct {
+	JobID  string `path:"jobID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+type ListJobVersionsOutput struct{ Body PaginatedResponse }
 
-	limit, cursor, err := parsePaginationParams(r)
+func (s *Server) handleListJobVersions(ctx context.Context, input *ListJobVersionsInput) (*ListJobVersionsOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	versions, err := s.store.ListJobVersionsByJob(r.Context(), jobID, limit+1, cursor)
+	versions, err := s.store.ListJobVersionsByJob(ctx, input.JobID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list job versions")
-		return
+		return nil, huma.Error500InternalServerError("failed to list job versions")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(versions, limit, func(v domain.JobVersion) string {
-		return v.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListJobVersionsOutput{Body: paginatedResult(versions, limit, func(v domain.JobVersion) string { return v.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-func (s *Server) handleGetJobVersion(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
-	versionID := chi.URLParam(r, "versionID")
+type GetJobVersionInput struct {
+	JobID     string `path:"jobID"`
+	VersionID string `path:"versionID"`
+}
+type GetJobVersionOutput struct{ Body *domain.JobVersion }
 
-	version, err := s.store.GetJobVersionByVersionID(r.Context(), versionID)
+func (s *Server) handleGetJobVersion(ctx context.Context, input *GetJobVersionInput) (*GetJobVersionOutput, error) {
+	version, err := s.store.GetJobVersionByVersionID(ctx, input.VersionID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusNotFound, "version not found")
-			return
+			return nil, huma.Error404NotFound("version not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job version")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job version")
 	}
-
-	// Ensure the version belongs to the requested job (tenant isolation).
-	if version.JobID != jobID {
-		respondError(w, r, http.StatusNotFound, "version not found")
-		return
+	if version.JobID != input.JobID {
+		return nil, huma.Error404NotFound("version not found")
 	}
-
-	respondJSON(w, http.StatusOK, version)
+	return &GetJobVersionOutput{Body: version}, nil
 }

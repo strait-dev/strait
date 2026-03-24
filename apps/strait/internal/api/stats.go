@@ -1,6 +1,10 @@
 package api
 
-import "net/http"
+import (
+	"context"
+
+	"github.com/danielgtaylor/huma/v2"
+)
 
 type QueueStatsResponse struct {
 	Queued    int `json:"queued"`
@@ -8,14 +12,13 @@ type QueueStatsResponse struct {
 	Delayed   int `json:"delayed"`
 }
 
-func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+type StatsInput struct{}
+type StatsOutput struct{ Body any }
 
+func (s *Server) handleStats(ctx context.Context, _ *StatsInput) (*StatsOutput, error) {
 	stats, err := s.store.QueueStats(ctx)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get stats")
-		return
+		return nil, huma.Error500InternalServerError("failed to get stats")
 	}
-
-	respondJSON(w, http.StatusOK, stats)
+	return &StatsOutput{Body: stats}, nil
 }

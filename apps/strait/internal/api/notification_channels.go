@@ -1,27 +1,24 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strconv"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-// validateNotificationChannelConfig extracts the webhook URL from the channel
-// config based on channel type and validates it against SSRF.
 func validateNotificationChannelConfig(channelType string, config json.RawMessage) error {
 	var parsed map[string]any
 	if err := json.Unmarshal(config, &parsed); err != nil {
 		return fmt.Errorf("invalid config JSON: %w", err)
 	}
-
 	var urlField string
 	switch channelType {
 	case domain.ChannelTypeSlack, domain.ChannelTypeDiscord:
@@ -31,7 +28,6 @@ func validateNotificationChannelConfig(channelType string, config json.RawMessag
 	default:
 		return fmt.Errorf("unsupported channel type: %s", channelType)
 	}
-
 	rawURL, ok := parsed[urlField]
 	if !ok {
 		return fmt.Errorf("%s is required in config", urlField)
@@ -40,7 +36,6 @@ func validateNotificationChannelConfig(channelType string, config json.RawMessag
 	if !ok || urlStr == "" {
 		return fmt.Errorf("%s must be a non-empty string", urlField)
 	}
-
 	return validateURL(urlStr)
 }
 
@@ -50,7 +45,6 @@ type CreateNotificationChannelRequest struct {
 	Config      json.RawMessage `json:"config" validate:"required"`
 	Enabled     *bool           `json:"enabled,omitempty"`
 }
-
 type UpdateNotificationChannelRequest struct {
 	Name        *string          `json:"name,omitempty"`
 	ChannelType *string          `json:"channel_type,omitempty"`
@@ -58,119 +52,94 @@ type UpdateNotificationChannelRequest struct {
 	Enabled     *bool            `json:"enabled,omitempty"`
 }
 
-func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.Request) {
-	var req CreateNotificationChannelRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
+type CreateNotificationChannelInput struct {
+	Body CreateNotificationChannelRequest
+}
+type CreateNotificationChannelOutput struct{ Body *domain.NotificationChannel }
 
+func (s *Server) handleCreateNotificationChannel(ctx context.Context, input *CreateNotificationChannelInput) (*CreateNotificationChannelOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
-
-	projectID := projectIDFromContext(r.Context())
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-
 	if err := validateNotificationChannelConfig(req.ChannelType, req.Config); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	ch := &domain.NotificationChannel{
-		ProjectID:   projectID,
-		ChannelType: req.ChannelType,
-		Name:        req.Name,
-		Config:      req.Config,
-		Enabled:     enabled,
+	ch := &domain.NotificationChannel{ProjectID: projectID, ChannelType: req.ChannelType, Name: req.Name, Config: req.Config, Enabled: enabled}
+	if err := s.store.CreateNotificationChannel(ctx, ch); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create notification channel")
 	}
-
-	if err := s.store.CreateNotificationChannel(r.Context(), ch); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create notification channel")
-		return
-	}
-
-	respondJSON(w, http.StatusCreated, ch)
+	return &CreateNotificationChannelOutput{Body: ch}, nil
 }
 
-func (s *Server) handleListNotificationChannels(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+type ListNotificationChannelsInput struct{}
+type ListNotificationChannelsOutput struct{ Body []domain.NotificationChannel }
 
-	channels, err := s.store.ListNotificationChannels(r.Context(), projectID)
+func (s *Server) handleListNotificationChannels(ctx context.Context, _ *ListNotificationChannelsInput) (*ListNotificationChannelsOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	channels, err := s.store.ListNotificationChannels(ctx, projectID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list notification channels")
-		return
+		return nil, huma.Error500InternalServerError("failed to list notification channels")
 	}
-
-	respondJSON(w, http.StatusOK, channels)
+	return &ListNotificationChannelsOutput{Body: channels}, nil
 }
 
-func (s *Server) handleGetNotificationChannel(w http.ResponseWriter, r *http.Request) {
-	channelID := chi.URLParam(r, "channelID")
-	if channelID == "" {
-		respondError(w, r, http.StatusBadRequest, "channel id is required")
-		return
-	}
+type GetNotificationChannelInput struct {
+	ChannelID string `path:"channelID"`
+}
+type GetNotificationChannelOutput struct{ Body *domain.NotificationChannel }
 
-	projectID := projectIDFromContext(r.Context())
+func (s *Server) handleGetNotificationChannel(ctx context.Context, input *GetNotificationChannelInput) (*GetNotificationChannelOutput, error) {
+	if input.ChannelID == "" {
+		return nil, huma.Error400BadRequest("channel id is required")
+	}
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-
-	ch, err := s.store.GetNotificationChannel(r.Context(), channelID, projectID)
+	ch, err := s.store.GetNotificationChannel(ctx, input.ChannelID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotificationChannelNotFound) {
-			respondError(w, r, http.StatusNotFound, "notification channel not found")
-			return
+			return nil, huma.Error404NotFound("notification channel not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get notification channel")
-		return
+		return nil, huma.Error500InternalServerError("failed to get notification channel")
 	}
-
-	respondJSON(w, http.StatusOK, ch)
+	return &GetNotificationChannelOutput{Body: ch}, nil
 }
 
-func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.Request) {
-	channelID := chi.URLParam(r, "channelID")
-	if channelID == "" {
-		respondError(w, r, http.StatusBadRequest, "channel id is required")
-		return
-	}
+type UpdateNotificationChannelInput struct {
+	ChannelID string `path:"channelID"`
+	Body      UpdateNotificationChannelRequest
+}
+type UpdateNotificationChannelOutput struct{ Body *domain.NotificationChannel }
 
-	projectID := projectIDFromContext(r.Context())
+func (s *Server) handleUpdateNotificationChannel(ctx context.Context, input *UpdateNotificationChannelInput) (*UpdateNotificationChannelOutput, error) {
+	if input.ChannelID == "" {
+		return nil, huma.Error400BadRequest("channel id is required")
+	}
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-
-	var req UpdateNotificationChannelRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	ch, err := s.store.GetNotificationChannel(r.Context(), channelID, projectID)
+	ch, err := s.store.GetNotificationChannel(ctx, input.ChannelID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotificationChannelNotFound) {
-			respondError(w, r, http.StatusNotFound, "notification channel not found")
-			return
+			return nil, huma.Error404NotFound("notification channel not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get notification channel")
-		return
+		return nil, huma.Error500InternalServerError("failed to get notification channel")
 	}
-
+	req := input.Body
 	if req.Name != nil {
 		ch.Name = *req.Name
 	}
@@ -183,80 +152,67 @@ func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.
 	if req.Enabled != nil {
 		ch.Enabled = *req.Enabled
 	}
-
 	if req.Config != nil || req.ChannelType != nil {
 		if err := validateNotificationChannelConfig(ch.ChannelType, ch.Config); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
-
-	if err := s.store.UpdateNotificationChannel(r.Context(), ch); err != nil {
+	if err := s.store.UpdateNotificationChannel(ctx, ch); err != nil {
 		if errors.Is(err, store.ErrNotificationChannelNotFound) {
-			respondError(w, r, http.StatusNotFound, "notification channel not found")
-			return
+			return nil, huma.Error404NotFound("notification channel not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to update notification channel")
-		return
+		return nil, huma.Error500InternalServerError("failed to update notification channel")
 	}
-
-	respondJSON(w, http.StatusOK, ch)
+	return &UpdateNotificationChannelOutput{Body: ch}, nil
 }
 
-func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.Request) {
-	channelID := chi.URLParam(r, "channelID")
-	if channelID == "" {
-		respondError(w, r, http.StatusBadRequest, "channel id is required")
-		return
-	}
-
-	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
-
-	err := s.store.DeleteNotificationChannel(r.Context(), channelID, projectID)
-	if err != nil {
-		if errors.Is(err, store.ErrNotificationChannelNotFound) {
-			respondError(w, r, http.StatusNotFound, "notification channel not found")
-			return
-		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete notification channel")
-		return
-	}
-
-	respondJSON(w, http.StatusNoContent, nil)
+type DeleteNotificationChannelInput struct {
+	ChannelID string `path:"channelID"`
 }
 
-func (s *Server) handleListNotificationDeliveries(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+func (s *Server) handleDeleteNotificationChannel(ctx context.Context, input *DeleteNotificationChannelInput) (*struct{}, error) {
+	if input.ChannelID == "" {
+		return nil, huma.Error400BadRequest("channel id is required")
 	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	if err := s.store.DeleteNotificationChannel(ctx, input.ChannelID, projectID); err != nil {
+		if errors.Is(err, store.ErrNotificationChannelNotFound) {
+			return nil, huma.Error404NotFound("notification channel not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to delete notification channel")
+	}
+	return nil, nil
+}
 
+type ListNotificationDeliveriesInput struct {
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+type ListNotificationDeliveriesOutput struct{ Body []domain.NotificationDelivery }
+
+func (s *Server) handleListNotificationDeliveries(ctx context.Context, input *ListNotificationDeliveriesInput) (*ListNotificationDeliveriesOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
 	limit := defaultPageLimit
-	if l := r.URL.Query().Get("limit"); l != "" {
-		parsed, err := strconv.Atoi(l)
-		if err == nil && parsed > 0 && parsed <= maxPageLimit {
+	if input.Limit != "" {
+		if parsed, err := strconv.Atoi(input.Limit); err == nil && parsed > 0 && parsed <= maxPageLimit {
 			limit = parsed
 		}
 	}
-
 	var cursor *time.Time
-	if c := r.URL.Query().Get("cursor"); c != "" {
-		t, err := time.Parse(time.RFC3339Nano, c)
-		if err == nil {
+	if input.Cursor != "" {
+		if t, err := time.Parse(time.RFC3339Nano, input.Cursor); err == nil {
 			cursor = &t
 		}
 	}
-
-	deliveries, err := s.store.ListNotificationDeliveries(r.Context(), projectID, limit, cursor)
+	deliveries, err := s.store.ListNotificationDeliveries(ctx, projectID, limit, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list notification deliveries")
-		return
+		return nil, huma.Error500InternalServerError("failed to list notification deliveries")
 	}
-
-	respondJSON(w, http.StatusOK, deliveries)
+	return &ListNotificationDeliveriesOutput{Body: deliveries}, nil
 }

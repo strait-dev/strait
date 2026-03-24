@@ -35,11 +35,12 @@ func TestPermissionCache_GetSet(t *testing.T) {
 func TestPermissionCache_Expiry(t *testing.T) {
 	t.Parallel()
 
-	c := newPermissionCache(1 * time.Millisecond)
+	// Otter uses a timer wheel with ~1s granularity for expiration.
+	c := newPermissionCache(1 * time.Second)
 	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 
 	_, ok := c.Get("proj", "user")
 	if ok {
@@ -90,24 +91,23 @@ func TestPermissionCache_IsolatesProjects(t *testing.T) {
 func TestPermissionCache_EvictsOnExpiredRead(t *testing.T) {
 	t.Parallel()
 
-	c := newPermissionCache(1 * time.Millisecond)
+	// Otter uses a timer wheel with ~1s granularity for expiration.
+	c := newPermissionCache(1 * time.Second)
 	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 
-	// Get should evict the expired entry.
+	// Get should return a miss for the expired entry.
 	_, ok := c.Get("proj", "user")
 	if ok {
 		t.Fatal("expected cache miss")
 	}
 
-	// Verify internal map is cleaned.
-	c.mu.RLock()
-	_, exists := c.entries[c.key("proj", "user")]
-	c.mu.RUnlock()
-	if exists {
-		t.Fatal("expired entry should have been evicted from internal map")
+	// A second Get should still miss (entry was evicted, not just stale).
+	_, ok = c.Get("proj", "user")
+	if ok {
+		t.Fatal("expected cache miss on second read after expiry")
 	}
 }
 
@@ -275,11 +275,12 @@ func TestPermissionCache_RLockAllowsConcurrentReads(t *testing.T) {
 func TestPermissionCache_EvictRaceOnExpiry(t *testing.T) {
 	t.Parallel()
 
-	c := newPermissionCache(1 * time.Millisecond)
+	// Otter uses a timer wheel with ~1s granularity for expiration.
+	c := newPermissionCache(1 * time.Second)
 	defer c.Stop()
 
 	c.Set("proj", "user", []string{"*"})
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 
 	// Multiple goroutines race to evict the same expired entry.
 	// This verifies the double-check pattern prevents panics.
@@ -298,10 +299,8 @@ func TestPermissionCache_EvictRaceOnExpiry(t *testing.T) {
 	wg.Wait()
 
 	// Verify the entry was actually removed.
-	c.mu.RLock()
-	_, exists := c.entries[c.key("proj", "user")]
-	c.mu.RUnlock()
-	if exists {
+	_, ok := c.Get("proj", "user")
+	if ok {
 		t.Fatal("expired entry should have been evicted")
 	}
 }

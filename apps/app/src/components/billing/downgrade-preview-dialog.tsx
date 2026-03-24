@@ -186,9 +186,9 @@ const DowngradePreviewDialog = ({
     enabled: open && !!targetTier,
   });
 
-  const [checkedActions, setCheckedActions] = useState<
-    Record<string, boolean>
-  >({});
+  const [checkedActions, setCheckedActions] = useState<Record<string, boolean>>(
+    {}
+  );
 
   const hasIssues = preview?.impacts?.some((i) => i.action !== "ok");
 

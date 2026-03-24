@@ -1,14 +1,14 @@
 package api
 
 import (
+	"context"
 	"errors"
-	"net/http"
 	"time"
+
+	"github.com/danielgtaylor/huma/v2"
 
 	"strait/internal/domain"
 	"strait/internal/store"
-
-	"github.com/go-chi/chi/v5"
 )
 
 type createSecretRequest struct {
@@ -19,15 +19,21 @@ type createSecretRequest struct {
 	Value       string `json:"value" validate:"required"`
 }
 
-func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
-	var req createSecretRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+// CreateSecretInput is the typed input for creating a secret.
+type CreateSecretInput struct {
+	Body createSecretRequest
+}
 
-	if !s.validateRequest(w, r, &req) {
-		return
+// CreateSecretOutput is the typed output for creating a secret.
+type CreateSecretOutput struct {
+	Body *domain.JobSecret
+}
+
+func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInput) (*CreateSecretOutput, error) {
+	req := input.Body
+
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	if req.Environment == "" {
@@ -42,50 +48,59 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 		EncryptedValue: req.Value,
 	}
 
-	if err := s.store.CreateJobSecret(r.Context(), secret); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create secret")
-		return
+	if err := s.store.CreateJobSecret(ctx, secret); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create secret")
 	}
 
-	respondJSON(w, http.StatusCreated, secret)
+	return &CreateSecretOutput{Body: secret}, nil
 }
 
-func (s *Server) handleListSecrets(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+// ListSecretsInput is the typed input for listing secrets.
+type ListSecretsInput struct {
+	JobID       string `query:"job_id"`
+	Environment string `query:"environment"`
+	Limit       string `query:"limit"`
+	Cursor      string `query:"cursor"`
+}
+
+// ListSecretsOutput is the typed output for listing secrets.
+type ListSecretsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListSecrets(ctx context.Context, input *ListSecretsInput) (*ListSecretsOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	jobID := r.URL.Query().Get("job_id")
-	environment := r.URL.Query().Get("environment")
-
-	limit, cursor, pErr := parsePaginationParams(r)
-	if pErr != nil {
-		respondError(w, r, http.StatusBadRequest, pErr.Error())
-		return
-	}
-
-	secrets, err := s.store.ListJobSecrets(r.Context(), projectID, jobID, environment, limit+1, cursor)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list secrets")
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(secrets, limit, func(s domain.JobSecret) string {
+	secrets, err := s.store.ListJobSecrets(ctx, projectID, input.JobID, input.Environment, limit+1, cursor)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list secrets")
+	}
+
+	return &ListSecretsOutput{Body: paginatedResult(secrets, limit, func(s domain.JobSecret) string {
 		return s.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
-func (s *Server) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
-	secretID := chi.URLParam(r, "secretID")
-	if err := s.store.DeleteJobSecret(r.Context(), secretID); err != nil {
+
+// DeleteSecretInput is the typed input for deleting a secret.
+type DeleteSecretInput struct {
+	SecretID string `path:"secretID"`
+}
+
+func (s *Server) handleDeleteSecret(ctx context.Context, input *DeleteSecretInput) (*struct{}, error) {
+	if err := s.store.DeleteJobSecret(ctx, input.SecretID); err != nil {
 		if errors.Is(err, store.ErrJobSecretNotFound) {
-			respondError(w, r, http.StatusNotFound, "secret not found")
-			return
+			return nil, huma.Error404NotFound("secret not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete secret")
-		return
+		return nil, huma.Error500InternalServerError("failed to delete secret")
 	}
 
-	respondJSON(w, http.StatusNoContent, nil)
+	return nil, nil
 }

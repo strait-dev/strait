@@ -263,6 +263,89 @@ func TestUsageService_SetSpendingLimit_FreeTierWithoutSubscription(t *testing.T)
 	}
 }
 
+func TestUsageService_SetSpendingLimit_NegativeValue_Rejected(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-1": {OrgID: "org-1", PlanTier: "starter", Status: "active"},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	err := svc.SetSpendingLimit(context.Background(), "org-1", -1, "notify")
+	if err == nil {
+		t.Fatal("expected negative spending limit to be rejected")
+	}
+	if err.Error() != "spending limit must be non-negative" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUsageService_SetSpendingLimit_NegativeLargeValue_Rejected(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-1": {OrgID: "org-1", PlanTier: "pro", Status: "active"},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	err := svc.SetSpendingLimit(context.Background(), "org-1", -999999999, "reject")
+	if err == nil {
+		t.Fatal("expected large negative spending limit to be rejected")
+	}
+}
+
+func TestUsageService_SetSpendingLimit_ZeroValue_Allowed(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-1": {OrgID: "org-1", PlanTier: "starter", Status: "active"},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	err := svc.SetSpendingLimit(context.Background(), "org-1", 0, "reject")
+	if err != nil {
+		t.Fatalf("zero spending limit should be allowed (hard cap): %v", err)
+	}
+}
+
+func TestUsageService_SetSpendingLimit_ValidPositive_Allowed(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-1": {OrgID: "org-1", PlanTier: "starter", Status: "active"},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	err := svc.SetSpendingLimit(context.Background(), "org-1", 50_000_000, "notify")
+	if err != nil {
+		t.Fatalf("valid positive spending limit should be allowed: %v", err)
+	}
+}
+
+func TestUsageService_SetSpendingLimit_InvalidAction_Rejected(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-1": {OrgID: "org-1", PlanTier: "starter", Status: "active"},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	err := svc.SetSpendingLimit(context.Background(), "org-1", 10_000_000, "invalid")
+	if err == nil {
+		t.Fatal("expected invalid action to be rejected")
+	}
+}
+
 func TestRecommendPlan(t *testing.T) {
 	t.Parallel()
 

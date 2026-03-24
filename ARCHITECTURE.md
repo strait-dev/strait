@@ -125,7 +125,7 @@ ERROR-level slog records sent to Sentry with stack traces. Comprehensive sanitiz
 
 Two HTTP monitors:
 - `strait.dev` -- marketing site status
-- `strait.fly.dev/health` -- API health endpoint (60s interval)
+- `api.strait.dev/health` -- API health endpoint (60s interval)
 
 ### Alerting (Grafana Cloud + Better Stack)
 

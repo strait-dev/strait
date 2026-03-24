@@ -390,6 +390,10 @@ func (s *UsageService) SetSpendingLimit(ctx context.Context, orgID string, limit
 		return fmt.Errorf("spending limits are not available on the Free plan")
 	}
 
+	if limitMicrousd < 0 {
+		return fmt.Errorf("spending limit must be non-negative")
+	}
+
 	maxLimit := MaxSpendingLimit(tier)
 	if maxLimit >= 0 && limitMicrousd > maxLimit {
 		return fmt.Errorf("spending limit exceeds maximum of $%.2f for %s plan", float64(maxLimit)/1000000, tier)

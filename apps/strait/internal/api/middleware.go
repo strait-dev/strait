@@ -298,6 +298,8 @@ func scopesFromContext(ctx context.Context) []string {
 // requirePermission returns a middleware that checks authorization based on
 // the actor type. For API keys, it checks scopes. For users, it loads their
 // role permissions from the database.
+//
+//nolint:gocognit
 func (s *Server) requirePermission(permission string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

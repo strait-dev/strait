@@ -173,10 +173,10 @@ export const auth = betterAuth({
                 returnUrl: process.env.BETTER_AUTH_URL,
               }),
               polarUsage(),
-              ...(process.env.POLAR_WEBHOOK_SECRET
+              ...(process.env.POLAR_APP_WEBHOOK_SECRET
                 ? [
                     webhooks({
-                      secret: process.env.POLAR_WEBHOOK_SECRET,
+                      secret: process.env.POLAR_APP_WEBHOOK_SECRET,
                     }),
                   ]
                 : []),
@@ -186,6 +186,41 @@ export const auth = betterAuth({
       : []),
   ],
   databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          // Auto-create a workspace (organization) for every new user.
+          // This ensures users always have an org for billing enforcement
+          // and project creation, without requiring an onboarding step.
+          try {
+            const workspaceName = user.name
+              ? `${user.name}'s Workspace`
+              : "My Workspace";
+            const slug = `ws-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+
+            // Server-side call: pass userId directly (no session headers needed).
+            const org = await auth.api.createOrganization({
+              body: { name: workspaceName, slug, userId: user.id },
+            });
+
+            if (org) {
+              await authPool.query(
+                `UPDATE "user" SET "defaultOrganizationId" = $1 WHERE id = $2`,
+                [org.id, user.id]
+              );
+            }
+          } catch (err) {
+            console.error(
+              "Failed to auto-create workspace for user",
+              user.id,
+              err
+            );
+            // TODO: Add Sentry capture and reconciliation job for users
+            // that end up without an organization due to this failure.
+          }
+        },
+      },
+    },
     session: {
       create: {
         before: async (session) => {
@@ -217,11 +252,6 @@ export const auth = betterAuth({
       activeProjectId: {
         type: "string",
         required: false,
-      },
-      onboarded: {
-        type: "boolean",
-        required: false,
-        defaultValue: false,
       },
     },
   },

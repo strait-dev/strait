@@ -134,6 +134,7 @@ func (e *WorkflowEngine) TriggerSubWorkflow(
 	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil)
 }
 
+//nolint:gocognit,gocyclo,cyclop,funlen
 func (e *WorkflowEngine) triggerWorkflowInternal(
 	ctx context.Context,
 	workflowID, projectID string,

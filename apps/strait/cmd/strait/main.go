@@ -25,6 +25,7 @@ import (
 	"strait/internal/workflow"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/lmittmann/tint"
 	"github.com/redis/go-redis/v9"
 	concpool "github.com/sourcegraph/conc/pool"
 	otelattr "go.opentelemetry.io/otel/attribute"
@@ -115,7 +116,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		return fmt.Errorf("invalid mode %q: must be api, worker, or all", cfg.Mode)
 	}
 
-	setupLogging(cfg.LogLevel)
+	setupLogging(cfg.LogLevel, cfg.LogFormat)
 
 	if cfg.SentryDSN != "" {
 		if err := sentry.Init(sentry.ClientOptions{
@@ -207,6 +208,18 @@ func runServe(ctx context.Context, modeOverride string) error {
 			slog.Error("failed to shutdown metrics", "error", err)
 		}
 	}()
+
+	profilingShutdown, err := telemetry.InitProfiling(telemetry.ProfilingConfig{
+		Endpoint:    cfg.PyroscopeEndpoint,
+		AuthToken:   cfg.PyroscopeAuthToken,
+		ServiceName: "strait",
+		Environment: cfg.SentryEnvironment,
+	})
+	if err != nil {
+		slog.Error("failed to init profiling", "error", err)
+	} else {
+		defer profilingShutdown()
+	}
 
 	// Initialize OTel log bridge to export structured logs via OTLP.
 	otelLogger, shutdownLogBridge, err := telemetry.InitLogBridge(ctx, "strait", cfg.OTELEndpoint, cfg.SentryEnvironment)
@@ -404,6 +417,10 @@ func runServe(ctx context.Context, modeOverride string) error {
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default())
 	}
 
+	if (cfg.BillingEnforcementEnabled || cfg.PolarWebhookSecret != "") && cfg.PolarWebhookSecret == "" {
+		slog.Warn("POLAR_API_WEBHOOK_SECRET is empty -- Polar webhook signature verification is DISABLED")
+	}
+
 	startCDCConsumer(g, cfg, pub)
 	startWebhookWorker(g, cfg, eventNotifier)
 	startNotificationWorker(g, cfg, queries, metrics)
@@ -432,8 +449,10 @@ func (r redisPingerAdapter) Ping(ctx context.Context) error {
 	return r.rdb.Ping(ctx).Err()
 }
 
-// setupLogging configures the default slog logger from a level string.
-func setupLogging(level string) {
+// setupLogging configures the default slog logger from a level string and format.
+// When format is "text", a colorized tint handler is used (useful for local dev).
+// Otherwise the default JSON handler is used.
+func setupLogging(level, format string) {
 	var logLevel slog.Level
 	switch level {
 	case "debug":
@@ -445,6 +464,16 @@ func setupLogging(level string) {
 	default:
 		logLevel = slog.LevelInfo
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
-	slog.SetDefault(logger)
+
+	var handler slog.Handler
+	if format == "text" {
+		handler = tint.NewHandler(os.Stdout, &tint.Options{
+			Level:      logLevel,
+			TimeFormat: time.Kitchen,
+		})
+	} else {
+		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
+	}
+
+	slog.SetDefault(slog.New(handler))
 }

@@ -35,7 +35,7 @@ func signStandardWebhook(t *testing.T, secret string, body []byte) (msgID, times
 	mac.Write([]byte(signedContent))
 	sig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 	signature = "v1," + sig
-	return
+	return msgID, timestamp, signature
 }
 
 // testSecret is a base64-encoded HMAC key with whsec_ prefix for tests.

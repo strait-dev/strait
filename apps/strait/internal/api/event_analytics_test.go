@@ -8,13 +8,33 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
+	"strait/internal/domain"
 	"strait/internal/store"
 )
 
+func newTestServerWithAnalytics(t *testing.T, s APIStore, as AnalyticsStore, q *mockQueue) *Server {
+	t.Helper()
+	cfg := &config.Config{
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "01234567890123456789012345678901",
+	}
+	srv := NewServer(ServerDeps{
+		Config:         cfg,
+		Store:          s,
+		AnalyticsStore: as,
+		Queue:          q,
+		Edition:        domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 func TestHandleEventVolume_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEventVolumeFn: func(_ context.Context, _ string, _, _ time.Time, bucket string) ([]store.EventVolumeBucket, error) {
+	as := &AnalyticsStoreMock{
+		GetEventVolumeFunc: func(_ context.Context, _ string, _, _ time.Time, bucket string) ([]store.EventVolumeBucket, error) {
 			if bucket != "day" {
 				t.Fatalf("expected default bucket 'day', got %q", bucket)
 			}
@@ -23,7 +43,7 @@ func TestHandleEventVolume_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/volume", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -33,7 +53,7 @@ func TestHandleEventVolume_Success(t *testing.T) {
 
 func TestHandleEventVolume_InvalidBucket(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/volume", validFrom(), validTo(), "bucket", "week"), "", "proj-1"))
 	if w.Code != 400 {
@@ -43,7 +63,7 @@ func TestHandleEventVolume_InvalidBucket(t *testing.T) {
 
 func TestHandleEventVolume_MissingParams(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/events/volume", "", "proj-1"))
 	if w.Code != 400 {
@@ -53,12 +73,12 @@ func TestHandleEventVolume_MissingParams(t *testing.T) {
 
 func TestHandleEventVolume_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEventVolumeFn: func(_ context.Context, _ string, _, _ time.Time, _ string) ([]store.EventVolumeBucket, error) {
+	as := &AnalyticsStoreMock{
+		GetEventVolumeFunc: func(_ context.Context, _ string, _, _ time.Time, _ string) ([]store.EventVolumeBucket, error) {
 			return nil, errors.New("db error")
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/volume", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 500 {
@@ -68,14 +88,14 @@ func TestHandleEventVolume_StoreError(t *testing.T) {
 
 func TestHandleEventLatency_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEventLatencyFn: func(_ context.Context, _ string, _, _ time.Time) (*store.EventLatencyStats, error) {
+	as := &AnalyticsStoreMock{
+		GetEventLatencyFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.EventLatencyStats, error) {
 			return &store.EventLatencyStats{
 				AvgMs: 150, P50Ms: 100, P95Ms: 500, P99Ms: 1200, Count: 1000,
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/latency", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -92,12 +112,12 @@ func TestHandleEventLatency_Success(t *testing.T) {
 
 func TestHandleEventLatency_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEventLatencyFn: func(_ context.Context, _ string, _, _ time.Time) (*store.EventLatencyStats, error) {
+	as := &AnalyticsStoreMock{
+		GetEventLatencyFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.EventLatencyStats, error) {
 			return nil, errors.New("db error")
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/latency", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 500 {
@@ -107,12 +127,12 @@ func TestHandleEventLatency_StoreError(t *testing.T) {
 
 func TestHandleCostForecast_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostForecastFn: func(_ context.Context, _ string, _, _ time.Time) (*store.CostForecast, error) {
+	as := &AnalyticsStoreMock{
+		GetCostForecastFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.CostForecast, error) {
 			return &store.CostForecast{DailyRate: 10000, ProjectedMonthly: 300000, TrendPct: 5.2}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("costs/forecast", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -122,7 +142,7 @@ func TestHandleCostForecast_Success(t *testing.T) {
 
 func TestHandleCostForecast_MissingParams(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/costs/forecast", "", "proj-1"))
 	if w.Code != 400 {
@@ -132,15 +152,15 @@ func TestHandleCostForecast_MissingParams(t *testing.T) {
 
 func TestHandleCostByTrigger_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostByTriggerFn: func(_ context.Context, _ string, _, _ time.Time) ([]store.CostByTrigger, error) {
+	as := &AnalyticsStoreMock{
+		GetCostByTriggerFunc: func(_ context.Context, _ string, _, _ time.Time) ([]store.CostByTrigger, error) {
 			return []store.CostByTrigger{
 				{Trigger: "api", Cost: 50000, RunCount: 100, Pct: 60},
 				{Trigger: "schedule", Cost: 30000, RunCount: 50, Pct: 40},
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("costs/by-trigger", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -150,14 +170,14 @@ func TestHandleCostByTrigger_Success(t *testing.T) {
 
 func TestHandleCostByMachine_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostByMachineFn: func(_ context.Context, _ string, _, _ time.Time) ([]store.CostByMachine, error) {
+	as := &AnalyticsStoreMock{
+		GetCostByMachineFunc: func(_ context.Context, _ string, _, _ time.Time) ([]store.CostByMachine, error) {
 			return []store.CostByMachine{
 				{Preset: "large", Cost: 80000, DurationSecs: 3600, RunCount: 20},
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("costs/by-machine", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -167,12 +187,12 @@ func TestHandleCostByMachine_Success(t *testing.T) {
 
 func TestHandleCostByMachine_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostByMachineFn: func(_ context.Context, _ string, _, _ time.Time) ([]store.CostByMachine, error) {
+	as := &AnalyticsStoreMock{
+		GetCostByMachineFunc: func(_ context.Context, _ string, _, _ time.Time) ([]store.CostByMachine, error) {
 			return nil, errors.New("db error")
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("costs/by-machine", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 500 {

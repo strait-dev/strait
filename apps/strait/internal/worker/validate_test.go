@@ -116,8 +116,17 @@ func FuzzValidateEndpointURL(f *testing.F) {
 	f.Add("")
 	f.Add("http://169.254.169.254/latest")
 	f.Add("not-a-url")
+	f.Add("http://example.com:8080/path")
+	f.Add("http://localhost/secret")
+	f.Add("http://[::1]/path")
+	f.Add("http://10.0.0.1/internal")
+	f.Add("http://192.168.1.1/private")
+	f.Add("http://100.64.0.1/cgnat")
+	f.Add("https://example.com:99999")
+	f.Add("http://metadata.google.internal/computeMetadata/v1/")
 
 	f.Fuzz(func(t *testing.T, rawURL string) {
-		_ = validateEndpointURL(rawURL)
+		// ValidateEndpointURL should never panic regardless of input.
+		_ = ValidateEndpointURL(rawURL)
 	})
 }

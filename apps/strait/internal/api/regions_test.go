@@ -14,7 +14,7 @@ import (
 
 func TestHandleListRegions(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/regions", ""))
@@ -63,8 +63,8 @@ func TestHandleGetProjectSettings(t *testing.T) {
 
 	t.Run("with_default_region", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+		ms := &APIStoreMock{
+			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return &store.ProjectQuota{
 					ProjectID:     projectID,
 					DefaultRegion: "lhr",
@@ -94,8 +94,8 @@ func TestHandleGetProjectSettings(t *testing.T) {
 
 	t.Run("no_quota_row", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+		ms := &APIStoreMock{
+			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return nil, nil // no row
 			},
 		}
@@ -126,12 +126,12 @@ func TestHandleUpdateProjectSettings(t *testing.T) {
 	t.Run("set_valid_region", func(t *testing.T) {
 		t.Parallel()
 		var updatedRegion string
-		ms := &mockAPIStore{
-			updateProjectDefaultRegionFn: func(_ context.Context, projectID, region string) error {
+		ms := &APIStoreMock{
+			UpdateProjectDefaultRegionFunc: func(_ context.Context, projectID, region string) error {
 				updatedRegion = region
 				return nil
 			},
-			getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return &store.ProjectQuota{
 					ProjectID:     projectID,
 					DefaultRegion: updatedRegion,
@@ -153,12 +153,12 @@ func TestHandleUpdateProjectSettings(t *testing.T) {
 	t.Run("clear_region", func(t *testing.T) {
 		t.Parallel()
 		var updatedRegion string
-		ms := &mockAPIStore{
-			updateProjectDefaultRegionFn: func(_ context.Context, projectID, region string) error {
+		ms := &APIStoreMock{
+			UpdateProjectDefaultRegionFunc: func(_ context.Context, projectID, region string) error {
 				updatedRegion = region
 				return nil
 			},
-			getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return &store.ProjectQuota{
 					ProjectID:     projectID,
 					DefaultRegion: updatedRegion,
@@ -179,7 +179,7 @@ func TestHandleUpdateProjectSettings(t *testing.T) {
 
 	t.Run("invalid_region", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{}
+		ms := &APIStoreMock{}
 		srv := newTestServer(t, ms, &mockQueue{}, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPut, "/v1/projects/proj-1/settings/", `{"default_region":"invalid"}`))
@@ -192,7 +192,7 @@ func TestHandleUpdateProjectSettings(t *testing.T) {
 
 func TestHandleCreateJob_InvalidRegion(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	body := `{
 		"project_id": "proj-1",
@@ -212,8 +212,8 @@ func TestHandleCreateJob_InvalidRegion(t *testing.T) {
 
 func TestHandleCreateJob_ValidRegion(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createJobFn: func(_ context.Context, job *domain.Job) error {
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
 			job.ID = "job-123"
 			if job.Region != "lhr" {
 				t.Errorf("expected region=lhr, got %q", job.Region)
@@ -241,7 +241,7 @@ func TestHandleCreateJob_ValidRegion(t *testing.T) {
 
 func TestHandleListRegions_IncludesAvailability(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/regions", ""))
@@ -290,8 +290,8 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 
 	t.Run("free_plan_disallowed_region", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+		ms := &APIStoreMock{
+			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return &store.ProjectQuota{
 					ProjectID: projectID,
 					PlanTier:  "free",
@@ -325,14 +325,14 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 
 	t.Run("starter_plan_allowed_region", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+		ms := &APIStoreMock{
+			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return &store.ProjectQuota{
 					ProjectID: projectID,
 					PlanTier:  "starter",
 				}, nil
 			},
-			createJobFn: func(_ context.Context, job *domain.Job) error {
+			CreateJobFunc: func(_ context.Context, job *domain.Job) error {
 				job.ID = "job-123"
 				return nil
 			},
@@ -364,8 +364,8 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 
 	t.Run("gating_disabled_allows_all", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			createJobFn: func(_ context.Context, job *domain.Job) error {
+		ms := &APIStoreMock{
+			CreateJobFunc: func(_ context.Context, job *domain.Job) error {
 				job.ID = "job-123"
 				return nil
 			},
@@ -395,8 +395,8 @@ func TestHandleCreateJob_PreferredRegions(t *testing.T) {
 
 	t.Run("valid_preferred_regions", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			createJobFn: func(_ context.Context, job *domain.Job) error {
+		ms := &APIStoreMock{
+			CreateJobFunc: func(_ context.Context, job *domain.Job) error {
 				job.ID = "job-123"
 				if len(job.PreferredRegions) != 2 {
 					t.Errorf("expected 2 preferred regions, got %d", len(job.PreferredRegions))
@@ -427,7 +427,7 @@ func TestHandleCreateJob_PreferredRegions(t *testing.T) {
 
 	t.Run("invalid_preferred_region", func(t *testing.T) {
 		t.Parallel()
-		srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+		srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 		body := `{
 			"project_id": "proj-1",
@@ -447,8 +447,8 @@ func TestHandleCreateJob_PreferredRegions(t *testing.T) {
 
 	t.Run("multi_region_gated_on_free_plan", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+		ms := &APIStoreMock{
+			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return &store.ProjectQuota{
 					ProjectID: projectID,
 					PlanTier:  "free",
@@ -486,8 +486,8 @@ func TestHandleUpdateJob_PreferredRegions(t *testing.T) {
 
 	t.Run("update_preferred_regions", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+		ms := &APIStoreMock{
+			GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 				return &domain.Job{
 					ID:          id,
 					ProjectID:   "proj-1",
@@ -496,7 +496,7 @@ func TestHandleUpdateJob_PreferredRegions(t *testing.T) {
 					EndpointURL: "https://example.com/callback",
 				}, nil
 			},
-			updateJobFn: func(_ context.Context, job *domain.Job) error {
+			UpdateJobFunc: func(_ context.Context, job *domain.Job) error {
 				if len(job.PreferredRegions) != 3 {
 					t.Errorf("expected 3 preferred regions, got %d", len(job.PreferredRegions))
 				}
@@ -515,8 +515,8 @@ func TestHandleUpdateJob_PreferredRegions(t *testing.T) {
 
 	t.Run("invalid_preferred_region_on_update", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+		ms := &APIStoreMock{
+			GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 				return &domain.Job{
 					ID:          id,
 					ProjectID:   "proj-1",
@@ -539,8 +539,8 @@ func TestHandleUpdateJob_PreferredRegions(t *testing.T) {
 
 func TestHandleUpdateJob_InvalidRegion(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
 				ID:          id,
 				ProjectID:   "proj-1",

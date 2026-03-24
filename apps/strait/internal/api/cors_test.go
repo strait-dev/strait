@@ -16,7 +16,7 @@ func TestCORS_AllowedOrigin(t *testing.T) {
 			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins: []string{"https://example.com"},
 		},
-		Store:  &mockAPIStore{},
+		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
 		PubSub: &mockPublisher{},
 	})
@@ -46,7 +46,7 @@ func TestCORS_Preflight(t *testing.T) {
 			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins: []string{"https://example.com"},
 		},
-		Store:  &mockAPIStore{},
+		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
 		PubSub: &mockPublisher{},
 	})
@@ -83,7 +83,7 @@ func TestCORS_WildcardOrigin(t *testing.T) {
 			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins: []string{"*"},
 		},
-		Store:  &mockAPIStore{},
+		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
 		PubSub: &mockPublisher{},
 	})
@@ -110,7 +110,7 @@ func TestCORS_Credentials(t *testing.T) {
 			CORSAllowedOrigins:   []string{"https://example.com"},
 			CORSAllowCredentials: true,
 		},
-		Store:  &mockAPIStore{},
+		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
 		PubSub: &mockPublisher{},
 	})
@@ -136,7 +136,7 @@ func TestCORS_NoOriginHeader(t *testing.T) {
 			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins: []string{"https://example.com"},
 		},
-		Store:  &mockAPIStore{},
+		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
 		PubSub: &mockPublisher{},
 	})
@@ -161,7 +161,7 @@ func TestCORS_ExposedHeaders(t *testing.T) {
 			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins: []string{"*"},
 		},
-		Store:  &mockAPIStore{},
+		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
 		PubSub: &mockPublisher{},
 	})

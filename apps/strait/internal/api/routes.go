@@ -1,17 +1,33 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
+	"strait/internal/debug"
 	"strait/internal/domain"
 
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 	"github.com/riandyrn/otelchi"
+)
+
+// cachedOpenAPIOnce ensures Huma operation registration and OpenAPI spec
+// generation happen exactly once per process. The Huma API and serialized
+// spec are identical for every server instance (they depend only on handler
+// types and metadata, not on per-request state), so registering 257
+// operations on every NewServer call is pure waste -- especially under the
+// race detector where ~300 test servers amplify the cost.
+var (
+	cachedOpenAPIOnce sync.Once
+	cachedHumaSpec    []byte
 )
 
 func (s *Server) routes() chi.Router {
@@ -71,10 +87,49 @@ func (s *Server) routes() chi.Router {
 		return httprate.LimitByIP(requests, window)
 	}
 
+	// Initialize Huma API for auto-generated OpenAPI documentation.
+	// Registration is expensive (257 operations via reflection) so we do it
+	// once per process via sync.Once. The spec is identical for every server
+	// since it depends only on handler types, not runtime state.
+	cachedOpenAPIOnce.Do(func() {
+		humaConfig := huma.DefaultConfig("Strait API", "1.0.0")
+		humaConfig.Info.Description = "Production-grade job orchestration platform for background jobs, workflows, and managed execution."
+		humaConfig.Servers = []*huma.Server{
+			{URL: "https://api.strait.dev", Description: "Production"},
+		}
+		humaConfig.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+			"bearerAuth": {
+				Type:         "http",
+				Scheme:       "bearer",
+				Description:  "API key passed as Bearer token",
+				BearerFormat: "strait_...",
+			},
+			"internalSecret": {
+				Type:        "apiKey",
+				In:          "header",
+				Name:        "X-Internal-Secret",
+				Description: "Internal service-to-service authentication",
+			},
+		}
+		humaConfig.DocsPath = ""
+		humaConfig.OpenAPIPath = ""
+		humaRouter := chi.NewRouter()
+		api := humachi.New(humaRouter, humaConfig)
+		registerAllTypedOps(api, s)
+		s.registerHumaOperations(api)
+		cachedHumaSpec, _ = api.OpenAPI().MarshalJSON()
+	})
+	s.cachedOpenAPISpec = cachedHumaSpec
+
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
 	if s.metricsHandler != nil {
 		r.Handle("/metrics", s.metricsHandler)
+	}
+
+	if s.config.DebugStatsviz {
+		slog.Warn("statsviz debug endpoints enabled at /debug/statsviz/ -- disable in production")
+		debug.MountDebugRoutes(r)
 	}
 
 	// Polar billing webhook (HMAC-verified, no API key auth).
@@ -85,8 +140,8 @@ func (s *Server) routes() chi.Router {
 	// CLI device authorization endpoints (no auth required).
 	r.Route("/v1/cli/auth", func(r chi.Router) {
 		r.Use(rateLimit(10, time.Minute))
-		r.Post("/device-code", s.handleDeviceCode)
-		r.Post("/token", s.handleDeviceToken)
+		r.Post("/device-code", TypedHandler(s, http.StatusOK, s.handleDeviceCode))
+		r.Post("/token", TypedHandler(s, http.StatusOK, s.handleDeviceToken))
 	})
 
 	// SSE stream route with query-param token auth for browser EventSource clients.
@@ -110,8 +165,8 @@ func (s *Server) routes() chi.Router {
 	r.Route("/v1/organizations/{orgID}", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(chimw.Timeout(requestTimeout))
-		r.Get("/runs", s.handleListOrgRuns)
-		r.Get("/jobs", s.handleListOrgJobs)
+		r.Get("/runs", TypedHandler(s, http.StatusOK, s.handleListOrgRuns))
+		r.Get("/jobs", TypedHandler(s, http.StatusOK, s.handleListOrgJobs))
 	})
 
 	r.Route("/v1", func(r chi.Router) {
@@ -120,193 +175,195 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.projectRateLimit)
 		r.Use(chimw.Timeout(requestTimeout))
 		r.Route("/secrets", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeSecretsWrite), rateLimit(20, time.Minute)).Post("/", s.handleCreateSecret)
-			r.With(s.requirePermission(domain.ScopeSecretsRead)).Get("/", s.handleListSecrets)
-			r.With(s.requirePermission(domain.ScopeSecretsWrite)).Delete("/{secretID}", s.handleDeleteSecret)
+			r.With(s.requirePermission(domain.ScopeSecretsWrite), rateLimit(20, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateSecret))
+			r.With(s.requirePermission(domain.ScopeSecretsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListSecrets))
+			r.With(s.requirePermission(domain.ScopeSecretsWrite)).Delete("/{secretID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteSecret))
 		})
 
-		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/regions", s.handleListRegions)
+		r.Get("/plans", TypedHandler(s, http.StatusOK, s.handleGetPlans))
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/regions", TypedHandler(s, http.StatusOK, s.handleListRegions))
 
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/current", s.handleGetCurrentUsage)
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/history", s.handleGetUsageHistory)
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/forecast", s.handleGetUsageForecast)
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/projects", s.handleGetProjectCosts)
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/anomalies", s.handleGetAnomalyAlerts)
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/export", s.handleExportUsage)
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/spending-limit", s.handleGetSpendingLimit)
-		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/spending-limit", s.handleUpdateSpendingLimit)
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/cost-estimate", s.handleGetCostEstimate)
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/downgrade-preview", s.handleGetDowngradePreview)
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/project-budget", s.handleGetProjectBudget)
-		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/project-budget", s.handleUpdateProjectBudget)
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/anomaly-config", s.handleGetAnomalyConfig)
-		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/anomaly-config", s.handleUpdateAnomalyConfig)
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/current", TypedHandler(s, http.StatusOK, s.handleGetCurrentUsage))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/history", TypedHandler(s, http.StatusOK, s.handleGetUsageHistory))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/forecast", TypedHandler(s, http.StatusOK, s.handleGetUsageForecast))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/projects", TypedHandler(s, http.StatusOK, s.handleGetProjectCosts))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/anomalies", TypedHandler(s, http.StatusOK, s.handleGetAnomalyAlerts))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/export", TypedHandler(s, http.StatusOK, s.handleExportUsage))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/spending-limit", TypedHandler(s, http.StatusOK, s.handleGetSpendingLimit))
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/spending-limit", TypedHandler(s, http.StatusOK, s.handleUpdateSpendingLimit))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/cost-estimate", TypedHandler(s, http.StatusOK, s.handleGetCostEstimate))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/downgrade-preview", TypedHandler(s, http.StatusOK, s.handleGetDowngradePreview))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/project-budget", TypedHandler(s, http.StatusOK, s.handleGetProjectBudget))
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/project-budget", TypedHandler(s, http.StatusOK, s.handleUpdateProjectBudget))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/anomaly-config", TypedHandler(s, http.StatusOK, s.handleGetAnomalyConfig))
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/anomaly-config", TypedHandler(s, http.StatusOK, s.handleUpdateAnomalyConfig))
+		r.Get("/billing/check-org-limit", TypedHandler(s, http.StatusOK, s.handleCheckOrgLimit))
 		r.Route("/referrals", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", s.handleCreateReferralCode)
-			r.With(s.requirePermission(domain.ScopeProjectsManage), rateLimit(5, time.Minute)).Post("/activate", s.handleActivateReferral)
-			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleListReferrals)
+			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateReferralCode))
+			r.With(s.requirePermission(domain.ScopeProjectsManage), rateLimit(5, time.Minute)).Post("/activate", TypedHandler(s, http.StatusOK, s.handleActivateReferral))
+			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListReferrals))
 		})
 
 		r.Route("/projects", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", s.handleCreateProject)
-			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleListProjects)
+			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateProject))
+			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListProjects))
 
 			r.Route("/{projectID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", s.handleGetProject)
-				r.With(s.requirePermission(domain.ScopeProjectsManage)).Delete("/", s.handleDeleteProject)
+				r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetProject))
+				r.With(s.requirePermission(domain.ScopeProjectsManage)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteProject))
 
 				r.Route("/settings", func(r chi.Router) {
-					r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetProjectSettings)
-					r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/", s.handleUpdateProjectSettings)
+					r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetProjectSettings))
+					r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/", TypedHandler(s, http.StatusOK, s.handleUpdateProjectSettings))
 				})
 			})
 		})
 
 		r.Route("/jobs", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(30, time.Minute)).Post("/", s.handleCreateJob)
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListJobs)
-			r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(10, time.Minute)).Post("/batch", s.handleBatchCreateJobs)
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/batch-enable", s.handleBatchEnableJobs)
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/batch-disable", s.handleBatchDisableJobs)
+			r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(30, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateJob))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListJobs))
+			r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(10, time.Minute)).Post("/batch", TypedHandler(s, http.StatusCreated, s.handleBatchCreateJobs))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/batch-enable", TypedHandler(s, http.StatusOK, s.handleBatchEnableJobs))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/batch-disable", TypedHandler(s, http.StatusOK, s.handleBatchDisableJobs))
 
 			r.Route("/{jobID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetJob)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateJob)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteJob)
-				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", s.handleTriggerJob)
-				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(5, time.Minute)).Post("/trigger/bulk", s.handleBulkTriggerJob)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/dependencies", s.handleCreateJobDependency)
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/dependencies", s.handleListJobDependencies)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/dependencies/{depID}", s.handleDeleteJobDependency)
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions", s.handleListJobVersions)
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions/{versionID}", s.handleGetJobVersion)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/clone", s.handleCloneJob)
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", s.handleGetJobHealth)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetJob))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateJob))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteJob))
+				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", TypedHandler(s, http.StatusCreated, s.handleTriggerJob))
+				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(5, time.Minute)).Post("/trigger/bulk", TypedHandler(s, http.StatusCreated, s.handleBulkTriggerJob))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/dependencies", TypedHandler(s, http.StatusCreated, s.handleCreateJobDependency))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/dependencies", TypedHandler(s, http.StatusOK, s.handleListJobDependencies))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/dependencies/{depID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteJobDependency))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions", TypedHandler(s, http.StatusOK, s.handleListJobVersions))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions/{versionID}", TypedHandler(s, http.StatusOK, s.handleGetJobVersion))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/clone", TypedHandler(s, http.StatusCreated, s.handleCloneJob))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", TypedHandler(s, http.StatusOK, s.handleGetJobHealth))
 			})
 		})
 
 		r.Route("/job-groups", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateJobGroup)
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListJobGroups)
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateJobGroup))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListJobGroups))
 			r.Route("/{groupID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetJobGroup)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateJobGroup)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteJobGroup)
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", s.handleListJobsByGroup)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause-all", s.handlePauseAllJobsByGroup)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/resume-all", s.handleResumeAllJobsByGroup)
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/stats", s.handleGetJobGroupStats)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetJobGroup))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateJobGroup))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteJobGroup))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", TypedHandler(s, http.StatusOK, s.handleListJobsByGroup))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause-all", TypedHandler(s, http.StatusOK, s.handlePauseAllJobsByGroup))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/resume-all", TypedHandler(s, http.StatusOK, s.handleResumeAllJobsByGroup))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/stats", TypedHandler(s, http.StatusOK, s.handleGetJobGroupStats))
 			})
 		})
 
 		r.Route("/environments", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateEnvironment)
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListEnvironments)
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateEnvironment))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListEnvironments))
 			r.Route("/{envID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetEnvironment)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateEnvironment)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteEnvironment)
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/variables", s.handleGetResolvedVariables)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetEnvironment))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateEnvironment))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteEnvironment))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/variables", TypedHandler(s, http.StatusOK, s.handleGetResolvedVariables))
 			})
 		})
 
 		r.Route("/runs", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListRuns)
-			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dlq", s.handleListDeadLetterRuns)
-			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-dlq-replay", s.handleBulkReplayDeadLetterRuns)
-			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-cancel", s.handleBulkCancelRuns)
-			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-cancel-all", s.handleBulkCancelAll)
-			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-replay", s.handleBulkReplayRuns)
+			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListRuns))
+			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dlq", TypedHandler(s, http.StatusOK, s.handleListDeadLetterRuns))
+			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-dlq-replay", TypedHandler(s, http.StatusOK, s.handleBulkReplayDeadLetterRuns))
+			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-cancel", TypedHandler(s, http.StatusOK, s.handleBulkCancelRuns))
+			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-cancel-all", TypedHandler(s, http.StatusOK, s.handleBulkCancelAll))
+			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-replay", TypedHandler(s, http.StatusOK, s.handleBulkReplayRuns))
 			r.Route("/{runID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleGetRun)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/", s.handleCancelRun)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/replay", s.handleReplayRun)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/dlq-replay", s.handleReplayDeadLetterRun)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/children", s.handleListChildRuns)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/events", s.handleListRunEvents)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/checkpoints", s.handleListRunCheckpoints)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/usage", s.handleListRunUsage)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/tool-calls", s.handleListRunToolCalls)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/outputs", s.handleListRunOutputs)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/debug-bundle", s.handleGetDebugBundle)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/debug", s.handleSetDebugMode)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/lineage", s.handleListRunLineage)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dependency-status", s.handleGetRunDependencyStatus)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/idempotency-key", s.handleResetIdempotencyKey)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/reschedule", s.handleRescheduleRun)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/pause", s.handlePauseRun)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/resume", s.handleResumeRun)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/restart", s.handleRestartRun)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/state", s.handleListRunState)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetRun))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/", TypedHandler(s, http.StatusOK, s.handleCancelRun))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/replay", TypedHandler(s, http.StatusCreated, s.handleReplayRun))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/dlq-replay", TypedHandler(s, http.StatusOK, s.handleReplayDeadLetterRun))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/children", TypedHandler(s, http.StatusOK, s.handleListChildRuns))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/events", TypedHandler(s, http.StatusOK, s.handleListRunEvents))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/checkpoints", TypedHandler(s, http.StatusOK, s.handleListRunCheckpoints))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/usage", TypedHandler(s, http.StatusOK, s.handleListRunUsage))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/tool-calls", TypedHandler(s, http.StatusOK, s.handleListRunToolCalls))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/outputs", TypedHandler(s, http.StatusOK, s.handleListRunOutputs))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/debug-bundle", TypedHandler(s, http.StatusOK, s.handleGetDebugBundle))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/debug", TypedHandler(s, http.StatusOK, s.handleSetDebugMode))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/lineage", TypedHandler(s, http.StatusOK, s.handleListRunLineage))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dependency-status", TypedHandler(s, http.StatusOK, s.handleGetRunDependencyStatus))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/idempotency-key", TypedHandler(s, http.StatusOK, s.handleResetIdempotencyKey))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/reschedule", TypedHandler(s, http.StatusOK, s.handleRescheduleRun))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/pause", TypedHandler(s, http.StatusOK, s.handlePauseRun))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/resume", TypedHandler(s, http.StatusOK, s.handleResumeRun))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/restart", TypedHandler(s, http.StatusOK, s.handleRestartRun))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/state", TypedHandler(s, http.StatusOK, s.handleListRunState))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/stream/chunks", s.handleRunLLMStream)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/resources", s.handleListRunResources)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/resources", TypedHandler(s, http.StatusOK, s.handleListRunResources))
 			})
 		})
 
 		r.Route("/batch-operations", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListBatchOperations)
-			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{batchID}", s.handleGetBatchOperation)
+			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListBatchOperations))
+			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{batchID}", TypedHandler(s, http.StatusOK, s.handleGetBatchOperation))
 		})
 
-		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/webhook-deliveries", s.handleListWebhookDeliveries)
-		r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/webhook-deliveries/{deliveryID}/retry", s.handleRetryWebhookDelivery)
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/webhook-deliveries", TypedHandler(s, http.StatusOK, s.handleListWebhookDeliveries))
+		r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/webhook-deliveries/{deliveryID}/retry", TypedHandler(s, http.StatusOK, s.handleRetryWebhookDelivery))
 
 		r.Route("/webhooks", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRunsWrite), rateLimit(5, time.Minute)).Post("/test", s.handleTestWebhook)
+			r.With(s.requirePermission(domain.ScopeRunsWrite), rateLimit(5, time.Minute)).Post("/test", TypedHandler(s, http.StatusOK, s.handleTestWebhook))
 			r.Route("/deliveries", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListWebhookDeliveries)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{id}", s.handleGetWebhookDelivery)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/retry", s.handleRetryWebhookDelivery)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/replay", s.handleReplayWebhookDelivery)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListWebhookDeliveries))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{id}", TypedHandler(s, http.StatusOK, s.handleGetWebhookDelivery))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/retry", TypedHandler(s, http.StatusOK, s.handleRetryWebhookDelivery))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/replay", TypedHandler(s, http.StatusCreated, s.handleReplayWebhookDelivery))
 			})
 			r.Route("/subscriptions", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/", s.handleCreateWebhookSubscription)
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListWebhookSubscriptions)
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/{id}", s.handleDeleteWebhookSubscription)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateWebhookSubscription))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListWebhookSubscriptions))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/{id}", TypedHandler(s, http.StatusNoContent, s.handleDeleteWebhookSubscription))
 			})
 		})
 
 		r.Route("/notification-channels", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateNotificationChannel)
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListNotificationChannels)
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateNotificationChannel))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListNotificationChannels))
 			r.Route("/{channelID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetNotificationChannel)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateNotificationChannel)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteNotificationChannel)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetNotificationChannel))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateNotificationChannel))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteNotificationChannel))
 			})
 		})
-		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/notification-deliveries", s.handleListNotificationDeliveries)
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/notification-deliveries", TypedHandler(s, http.StatusOK, s.handleListNotificationDeliveries))
 
 		r.Route("/log-drains", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListLogDrains)
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateLogDrain)
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListLogDrains))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateLogDrain))
 			r.Route("/{drainID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetLogDrain)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateLogDrain)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteLogDrain)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetLogDrain))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateLogDrain))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteLogDrain))
 			})
 		})
 
 		r.Route("/api-keys", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeAPIKeysManage), httprate.LimitByIP(10, time.Minute)).Post("/", s.handleCreateAPIKey)
-			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/", s.handleListAPIKeys)
-			r.With(s.requirePermission(domain.ScopeAPIKeysManage), rateLimit(10, time.Minute)).Post("/{keyID}/rotate", s.handleRotateAPIKey)
-			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Delete("/{keyID}", s.handleRevokeAPIKey)
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage), httprate.LimitByIP(10, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateAPIKey))
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAPIKeys))
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage), rateLimit(10, time.Minute)).Post("/{keyID}/rotate", TypedHandler(s, http.StatusCreated, s.handleRotateAPIKey))
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Delete("/{keyID}", TypedHandler(s, http.StatusOK, s.handleRevokeAPIKey))
 		})
 
-		r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Post("/cli/device-codes/approve", s.handleApproveDeviceCode)
+		r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Post("/cli/device-codes/approve", TypedHandler(s, http.StatusOK, s.handleApproveDeviceCode))
 
-		r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/stats", s.handleStats)
+		r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/stats", TypedHandler(s, http.StatusOK, s.handleStats))
 
 		r.Route("/analytics", func(r chi.Router) {
 			// Community analytics (Postgres-backed, always available)
-			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/performance", s.handleGetPerformanceAnalytics)
-			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs", s.handleGetCostAnalytics)
-			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/trends", s.handleGetCostTrends)
-			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/top", s.handleGetTopCosts)
-			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/compute", s.handleGetComputeCostAnalytics)
-			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/approvals", s.handleGetApprovalStats)
-			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/cost-insights", s.handleGetCostInsights)
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/performance", TypedHandler(s, http.StatusOK, s.handleGetPerformanceAnalytics))
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs", TypedHandler(s, http.StatusOK, s.handleGetCostAnalytics))
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/trends", TypedHandler(s, http.StatusOK, s.handleGetCostTrends))
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/top", TypedHandler(s, http.StatusOK, s.handleGetTopCosts))
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/compute", TypedHandler(s, http.StatusOK, s.handleGetComputeCostAnalytics))
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/approvals", TypedHandler(s, http.StatusOK, s.handleGetApprovalStats))
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/cost-insights", TypedHandler(s, http.StatusOK, s.handleGetCostInsights))
 
 			// Cloud-only analytics (ClickHouse-backed, requires Strait Cloud)
 			r.Group(func(r chi.Router) {
@@ -314,214 +371,216 @@ func (s *Server) routes() chi.Router {
 				r.Use(s.requirePermission(domain.ScopeStatsRead))
 
 				r.Route("/runs", func(r chi.Router) {
-					r.Get("/timeline", s.handleRunTimeline)
-					r.Get("/duration-distribution", s.handleRunDurationDistribution)
-					r.Get("/failure-reasons", s.handleRunFailureReasons)
-					r.Get("/summary", s.handleRunSummary)
-					r.Get("/by-trigger", s.handleRunsByTrigger)
+					r.Get("/timeline", TypedHandler(s, http.StatusOK, s.handleRunTimeline))
+					r.Get("/duration-distribution", TypedHandler(s, http.StatusOK, s.handleRunDurationDistribution))
+					r.Get("/failure-reasons", TypedHandler(s, http.StatusOK, s.handleRunFailureReasons))
+					r.Get("/summary", TypedHandler(s, http.StatusOK, s.handleRunSummary))
+					r.Get("/by-trigger", TypedHandler(s, http.StatusOK, s.handleRunsByTrigger))
 				})
 
 				r.Route("/jobs", func(r chi.Router) {
-					r.Get("/comparison", s.handleJobComparison)
-					r.Get("/reliability", s.handleJobReliability)
-					r.Get("/by-version", s.handleRunsByVersion)
-					r.Get("/cost-ranking", s.handleJobCostRanking)
-					r.Get("/top-failing", s.handleTopFailingJobs)
-					r.Get("/{jobID}/history", s.handleJobHistory)
+					r.Get("/comparison", TypedHandler(s, http.StatusOK, s.handleJobComparison))
+					r.Get("/reliability", TypedHandler(s, http.StatusOK, s.handleJobReliability))
+					r.Get("/by-version", TypedHandler(s, http.StatusOK, s.handleRunsByVersion))
+					r.Get("/cost-ranking", TypedHandler(s, http.StatusOK, s.handleJobCostRanking))
+					r.Get("/top-failing", TypedHandler(s, http.StatusOK, s.handleTopFailingJobs))
+					r.Get("/{jobID}/history", TypedHandler(s, http.StatusOK, s.handleJobHistory))
 				})
 
 				r.Route("/tags", func(r chi.Router) {
-					r.Get("/summary", s.handleTagSummary)
-					r.Get("/top-failing", s.handleTopFailingTags)
-					r.Get("/cost", s.handleTagCost)
+					r.Get("/summary", TypedHandler(s, http.StatusOK, s.handleTagSummary))
+					r.Get("/top-failing", TypedHandler(s, http.StatusOK, s.handleTopFailingTags))
+					r.Get("/cost", TypedHandler(s, http.StatusOK, s.handleTagCost))
 				})
 
 				r.Route("/workflows", func(r chi.Router) {
-					r.Get("/completion-rates", s.handleWorkflowCompletionRates)
-					r.Get("/summary", s.handleWorkflowAnalyticsSummary)
-					r.Get("/{workflowID}/step-durations", s.handleWorkflowStepDurations)
+					r.Get("/completion-rates", TypedHandler(s, http.StatusOK, s.handleWorkflowCompletionRates))
+					r.Get("/summary", TypedHandler(s, http.StatusOK, s.handleWorkflowAnalyticsSummary))
+					r.Get("/{workflowID}/step-durations", TypedHandler(s, http.StatusOK, s.handleWorkflowStepDurations))
 				})
 
 				r.Route("/webhooks", func(r chi.Router) {
-					r.Get("/delivery-stats", s.handleWebhookDeliveryStats)
-					r.Get("/endpoint-health", s.handleWebhookEndpointHealth)
-					r.Get("/top-failing", s.handleTopFailingWebhooks)
+					r.Get("/delivery-stats", TypedHandler(s, http.StatusOK, s.handleWebhookDeliveryStats))
+					r.Get("/endpoint-health", TypedHandler(s, http.StatusOK, s.handleWebhookEndpointHealth))
+					r.Get("/top-failing", TypedHandler(s, http.StatusOK, s.handleTopFailingWebhooks))
 				})
 
 				r.Route("/events", func(r chi.Router) {
-					r.Get("/volume", s.handleEventVolume)
-					r.Get("/latency", s.handleEventLatency)
+					r.Get("/volume", TypedHandler(s, http.StatusOK, s.handleEventVolume))
+					r.Get("/latency", TypedHandler(s, http.StatusOK, s.handleEventLatency))
 				})
 
-				r.Get("/costs/forecast", s.handleCostForecast)
-				r.Get("/costs/by-trigger", s.handleCostByTrigger)
-				r.Get("/costs/by-machine", s.handleCostByMachine)
+				r.Get("/costs/forecast", TypedHandler(s, http.StatusOK, s.handleCostForecast))
+				r.Get("/costs/by-trigger", TypedHandler(s, http.StatusOK, s.handleCostByTrigger))
+				r.Get("/costs/by-machine", TypedHandler(s, http.StatusOK, s.handleCostByMachine))
 			})
 		})
 
 		r.Route("/roles", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Post("/", s.handleCreateRole)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListRoles)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/{roleID}", s.handleGetRole)
-			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Patch("/{roleID}", s.handleUpdateRole)
-			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Delete("/{roleID}", s.handleDeleteRole)
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateRole))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListRoles))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/{roleID}", TypedHandler(s, http.StatusOK, s.handleGetRole))
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Patch("/{roleID}", TypedHandler(s, http.StatusOK, s.handleUpdateRole))
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Delete("/{roleID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteRole))
 		})
 
 		r.Route("/members", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(40, time.Minute)).Post("/", s.handleAssignMember)
-			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Post("/bulk", s.handleBulkAssignMembers)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListMembers)
-			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(40, time.Minute)).Delete("/{userID}", s.handleRemoveMember)
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(40, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleAssignMember))
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Post("/bulk", TypedHandler(s, http.StatusOK, s.handleBulkAssignMembers))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListMembers))
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(40, time.Minute)).Delete("/{userID}", TypedHandler(s, http.StatusNoContent, s.handleRemoveMember))
 		})
 
-		r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(5, time.Minute)).Post("/seed-roles", s.handleSeedSystemRoles)
+		r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(5, time.Minute)).Post("/seed-roles", TypedHandler(s, http.StatusOK, s.handleSeedSystemRoles))
 		r.Route("/audit-events", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListAuditEvents)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/export", s.handleExportAuditEvents)
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAuditEvents))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/export", TypedHandler(s, http.StatusOK, s.handleExportAuditEvents))
 		})
 
 		r.Route("/resource-policies", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleCreateResourcePolicy)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListResourcePolicies)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{policyID}", s.handleDeleteResourcePolicy)
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateResourcePolicy))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListResourcePolicies))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{policyID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteResourcePolicy))
 		})
 
 		r.Route("/tag-policies", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleCreateTagPolicy)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListTagPolicies)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{policyID}", s.handleDeleteTagPolicy)
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateTagPolicy))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListTagPolicies))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{policyID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteTagPolicy))
 		})
 
 		r.Route("/workflow-policies", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/{projectID}", s.handleGetWorkflowPolicy)
-			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Put("/{projectID}", s.handleUpsertWorkflowPolicy)
+			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/{projectID}", TypedHandler(s, http.StatusOK, s.handleGetWorkflowPolicy))
+			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Put("/{projectID}", TypedHandler(s, http.StatusOK, s.handleUpsertWorkflowPolicy))
 		})
 
 		r.Route("/workflows", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/", s.handleCreateWorkflow)
-			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleListWorkflows)
+			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateWorkflow))
+			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListWorkflows))
 			r.Route("/{workflowID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleGetWorkflow)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Patch("/", s.handleUpdateWorkflow)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Delete("/", s.handleDeleteWorkflow)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/dry-run", s.handleDryRunWorkflow)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/plan", s.handleWorkflowPlan)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/simulate", s.handleSimulateWorkflow)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/graph", s.handleWorkflowGraph)
-				r.With(s.requirePermission(domain.ScopeWorkflowsTrigger)).Post("/trigger", s.handleTriggerWorkflow)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/clone", s.handleCloneWorkflow)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/runs", s.handleListWorkflowRuns)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions", s.handleListWorkflowVersions)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}", s.handleGetWorkflowVersion)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/steps", s.handleListWorkflowVersionSteps)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{fromVersionID}/diff/{toVersionID}", s.handleWorkflowVersionDiff)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/impact", s.handleWorkflowVersionImpact)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/active-versions", s.handleGetActiveVersions)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetWorkflow))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateWorkflow))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteWorkflow))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/dry-run", TypedHandler(s, http.StatusOK, s.handleDryRunWorkflow))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/plan", TypedHandler(s, http.StatusOK, s.handleWorkflowPlan))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/simulate", TypedHandler(s, http.StatusOK, s.handleSimulateWorkflow))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/graph", TypedHandler(s, http.StatusOK, s.handleWorkflowGraph))
+				r.With(s.requirePermission(domain.ScopeWorkflowsTrigger)).Post("/trigger", TypedHandler(s, http.StatusCreated, s.handleTriggerWorkflow))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/clone", TypedHandler(s, http.StatusCreated, s.handleCloneWorkflow))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/runs", TypedHandler(s, http.StatusOK, s.handleListWorkflowRuns))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions", TypedHandler(s, http.StatusOK, s.handleListWorkflowVersions))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}", TypedHandler(s, http.StatusOK, s.handleGetWorkflowVersion))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/steps", TypedHandler(s, http.StatusOK, s.handleListWorkflowVersionSteps))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{fromVersionID}/diff/{toVersionID}", TypedHandler(s, http.StatusOK, s.handleWorkflowVersionDiff))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/impact", TypedHandler(s, http.StatusOK, s.handleWorkflowVersionImpact))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/active-versions", TypedHandler(s, http.StatusOK, s.handleGetActiveVersions))
 			})
 		})
 
 		r.Route("/deployments", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/", s.handleCreateDeploymentVersion)
-			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleListDeploymentVersions)
+			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateDeploymentVersion))
+			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListDeploymentVersions))
 			r.Route("/{deploymentID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/finalize", s.handleFinalizeDeploymentVersion)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/promote", s.handlePromoteDeploymentVersion)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/rollback", s.handleRollbackDeploymentVersion)
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/finalize", TypedHandler(s, http.StatusOK, s.handleFinalizeDeploymentVersion))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/promote", TypedHandler(s, http.StatusOK, s.handlePromoteDeploymentVersion))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/rollback", TypedHandler(s, http.StatusOK, s.handleRollbackDeploymentVersion))
 			})
 		})
 
 		r.Route("/event-sources", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListEventSources)
-			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateEventSource)
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListEventSources))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateEventSource))
 			r.Route("/{sourceID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetEventSource)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateEventSource)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteEventSource)
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/subscriptions", s.handleListEventSourceSubscriptions)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/subscribe", s.handleSubscribeToEventSource)
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/subscriptions/{subID}", s.handleDeleteEventSubscription)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetEventSource))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusNoContent, s.handleUpdateEventSource))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteEventSource))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/subscriptions", TypedHandler(s, http.StatusOK, s.handleListEventSourceSubscriptions))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/subscribe", TypedHandler(s, http.StatusCreated, s.handleSubscribeToEventSource))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/subscriptions/{subID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteEventSubscription))
 			})
 		})
 		r.With(
 			s.requirePermission(domain.ScopeJobsWrite),
 			rateLimit(triggerRateLimitRequests, triggerRateLimitWindow),
-		).Post("/events/dispatch", s.handleDispatchEvent)
+		).Post("/events/dispatch", TypedHandler(s, http.StatusOK, s.handleDispatchEvent))
 
 		r.Route("/events", func(r chi.Router) {
-			r.Get("/", s.handleListEventTriggers)
-			r.Get("/stats", s.handleGetEventTriggerStats)
-			r.Post("/purge", s.handlePurgeEventTriggers)
+			r.Get("/", TypedHandler(s, http.StatusOK, s.handleListEventTriggers))
+			r.Get("/stats", TypedHandler(s, http.StatusOK, s.handleGetEventTriggerStats))
+			r.Post("/purge", TypedHandler(s, http.StatusOK, s.handlePurgeEventTriggers))
 			r.Route("/prefix/{prefix}", func(r chi.Router) {
-				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", s.handleSendEventByPrefix)
+				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEventByPrefix))
 			})
 			r.Route("/{eventKey}", func(r chi.Router) {
-				r.Get("/", s.handleGetEventTrigger)
-				r.Delete("/", s.handleCancelEventTrigger)
-				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", s.handleSendEvent)
+				r.Get("/", TypedHandler(s, http.StatusOK, s.handleGetEventTrigger))
+				r.Delete("/", TypedHandler(s, http.StatusOK, s.handleCancelEventTrigger))
+				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEvent))
 			})
 		})
 
 		r.Route("/workflow-runs", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleListWorkflowRunsByProject)
-			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/bulk-cancel", s.handleBulkCancelWorkflowRuns)
-			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/bulk-replay", s.handleBulkReplayWorkflowRuns)
+			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListWorkflowRunsByProject))
+			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/bulk-cancel", TypedHandler(s, http.StatusOK, s.handleBulkCancelWorkflowRuns))
+			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/bulk-replay", TypedHandler(s, http.StatusOK, s.handleBulkReplayWorkflowRuns))
 			r.Route("/{workflowRunID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleGetWorkflowRun)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Delete("/", s.handleCancelWorkflowRun)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/pause", s.handlePauseWorkflowRun)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/resume", s.handleResumeWorkflowRun)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/labels", s.handleGetWorkflowRunLabels)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/steps", s.handleListWorkflowStepRuns)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/graph", s.handleGetWorkflowRunGraph)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/explain", s.handleGetWorkflowRunExplain)
-				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/timeline", s.handleGetWorkflowRunTimeline)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/approve", s.handleApproveWorkflowStep)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/skip", s.handleSkipWorkflowStep)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/force-complete", s.handleForceCompleteWorkflowStep)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/retry", s.handleRetryWorkflowStep)
-				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/replay-subtree", s.handleReplayWorkflowSubtree)
-				r.With(s.requirePermission(domain.ScopeWorkflowsTrigger)).Post("/retry", s.handleRetryWorkflowRun)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetWorkflowRun))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Delete("/", TypedHandler(s, http.StatusOK, s.handleCancelWorkflowRun))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/pause", TypedHandler(s, http.StatusOK, s.handlePauseWorkflowRun))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/resume", TypedHandler(s, http.StatusOK, s.handleResumeWorkflowRun))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/labels", TypedHandler(s, http.StatusOK, s.handleGetWorkflowRunLabels))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/steps", TypedHandler(s, http.StatusOK, s.handleListWorkflowStepRuns))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/graph", TypedHandler(s, http.StatusOK, s.handleGetWorkflowRunGraph))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/explain", TypedHandler(s, http.StatusOK, s.handleGetWorkflowRunExplain))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/timeline", TypedHandler(s, http.StatusOK, s.handleGetWorkflowRunTimeline))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/approve", TypedHandler(s, http.StatusOK, s.handleApproveWorkflowStep))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/skip", TypedHandler(s, http.StatusOK, s.handleSkipWorkflowStep))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/force-complete", TypedHandler(s, http.StatusOK, s.handleForceCompleteWorkflowStep))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/retry", TypedHandler(s, http.StatusOK, s.handleRetryWorkflowStep))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/replay-subtree", TypedHandler(s, http.StatusOK, s.handleReplayWorkflowSubtree))
+				r.With(s.requirePermission(domain.ScopeWorkflowsTrigger)).Post("/retry", TypedHandler(s, http.StatusCreated, s.handleRetryWorkflowRun))
 			})
 		})
 	})
 
 	r.Route("/sdk/v1", func(r chi.Router) {
 		r.Use(s.runTokenAuth)
+		r.Use(s.sdkResponseHeaders)
 		r.Route("/runs/{runID}", func(r chi.Router) {
-			r.Get("/payload", s.handleSDKGetPayload)
-			r.Post("/log", s.handleSDKLog)
-			r.Post("/progress", s.handleSDKProgress)
-			r.Post("/annotate", s.handleSDKAnnotate)
-			r.Post("/heartbeat", s.handleSDKHeartbeat)
-			r.Post("/checkpoint", s.handleSDKCheckpoint)
-			r.Post("/usage", s.handleSDKUsage)
-			r.Post("/tool-call", s.handleSDKToolCall)
-			r.Post("/output", s.handleSDKOutput)
-			r.Post("/complete", s.handleSDKComplete)
-			r.Post("/fail", s.handleSDKFail)
-			r.Post("/spawn", s.handleSDKSpawn)
-			r.Post("/continue", s.handleSDKContinue)
-			r.Post("/wait-for-event", s.handleSDKWaitForEvent)
-			r.Post("/state", s.handleSDKSetState)
-			r.Get("/state", s.handleSDKListState)
-			r.Get("/state/{key}", s.handleSDKGetState)
-			r.Delete("/state/{key}", s.handleSDKDeleteState)
-			r.Post("/stream", s.handleSDKStreamChunk)
-			r.Post("/resources", s.handleSDKResources)
-			r.Post("/resource-snapshot", s.handleSDKResourceSnapshot)
-			r.Post("/iteration", s.handleSDKIteration)
+			r.Get("/payload", TypedHandler(s, http.StatusOK, s.handleSDKGetPayload))
+			r.Post("/log", TypedHandler(s, http.StatusCreated, s.handleSDKLog))
+			r.Post("/progress", TypedHandler(s, http.StatusCreated, s.handleSDKProgress))
+			r.Post("/annotate", TypedHandler(s, http.StatusOK, s.handleSDKAnnotate))
+			r.Post("/heartbeat", TypedHandler(s, http.StatusOK, s.handleSDKHeartbeat))
+			r.Post("/checkpoint", TypedHandler(s, http.StatusCreated, s.handleSDKCheckpoint))
+			r.Post("/usage", TypedHandler(s, http.StatusCreated, s.handleSDKUsage))
+			r.Post("/tool-call", TypedHandler(s, http.StatusCreated, s.handleSDKToolCall))
+			r.Post("/output", TypedHandler(s, http.StatusCreated, s.handleSDKOutput))
+			r.Post("/complete", TypedHandler(s, http.StatusOK, s.handleSDKComplete))
+			r.Post("/fail", TypedHandler(s, http.StatusOK, s.handleSDKFail))
+			r.Post("/spawn", TypedHandler(s, http.StatusCreated, s.handleSDKSpawn))
+			r.Post("/continue", TypedHandler(s, http.StatusCreated, s.handleSDKContinue))
+			r.Post("/wait-for-event", TypedHandler(s, http.StatusOK, s.handleSDKWaitForEvent))
+			r.Post("/state", TypedHandler(s, http.StatusCreated, s.handleSDKSetState))
+			r.Get("/state", TypedHandler(s, http.StatusOK, s.handleSDKListState))
+			r.Get("/state/{key}", TypedHandler(s, http.StatusOK, s.handleSDKGetState))
+			r.Delete("/state/{key}", TypedHandler(s, http.StatusNoContent, s.handleSDKDeleteState))
+			r.Post("/stream", TypedHandler(s, http.StatusOK, s.handleSDKStreamChunk))
+			r.Post("/resources", TypedHandler(s, http.StatusCreated, s.handleSDKResources))
+			r.Post("/resource-snapshot", TypedHandler(s, http.StatusCreated, s.handleSDKResourceSnapshot))
+			r.Post("/iteration", TypedHandler(s, http.StatusOK, s.handleSDKIteration))
 			r.Route("/memory", func(r chi.Router) {
-				r.Post("/{key}", s.handleSDKSetMemory)
-				r.Get("/{key}", s.handleSDKGetMemory)
-				r.Get("/", s.handleSDKListMemory)
-				r.Delete("/{key}", s.handleSDKDeleteMemory)
+				r.Post("/{key}", TypedHandler(s, http.StatusCreated, s.handleSDKSetMemory))
+				r.Get("/{key}", TypedHandler(s, http.StatusOK, s.handleSDKGetMemory))
+				r.Get("/", TypedHandler(s, http.StatusOK, s.handleSDKListMemory))
+				r.Delete("/{key}", TypedHandler(s, http.StatusNoContent, s.handleSDKDeleteMemory))
 			})
 		})
 	})
 
 	// API Reference
 	r.Get("/reference", s.handleAPIReference)
-	r.Get("/reference/openapi.yaml", s.handleOpenAPISpec)
+	r.Get("/reference/openapi.json", s.handleOpenAPISpec)
+	r.Get("/reference/openapi.yaml", http.RedirectHandler("/reference/openapi.json", http.StatusMovedPermanently).ServeHTTP)
 
 	return r
 }

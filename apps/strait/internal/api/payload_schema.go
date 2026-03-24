@@ -25,6 +25,7 @@ func validatePayloadAgainstSchema(payload, schema json.RawMessage) error {
 	return validateSchemaNode(payloadNode, schemaNode, "$")
 }
 
+//nolint:gocognit,nestif
 func validateSchemaNode(value any, schema map[string]any, path string) error {
 	if rawType, ok := schema["type"].(string); ok {
 		switch rawType {

@@ -37,6 +37,8 @@ type ClickHouseSubscriberDeps struct {
 
 // ClickHouseSubscriber enqueues run analytics and individual run events into
 // the ClickHouse exporter on terminal run events (completed, failed, timed out, etc.).
+//
+//nolint:gocognit
 func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, deps ...ClickHouseSubscriberDeps) RunEventSubscriber {
 	var usage UsageLister
 	var computeUsage ComputeUsageLister

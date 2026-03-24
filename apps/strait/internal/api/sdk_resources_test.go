@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
@@ -16,8 +17,8 @@ func TestHandleSDKResources_ValidPayload_InfoLevel(t *testing.T) {
 	t.Parallel()
 
 	var captured atomic.Value
-	store := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	store := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			captured.Store(event)
 			return nil
 		},
@@ -27,7 +28,7 @@ func TestHandleSDKResources_ValidPayload_InfoLevel(t *testing.T) {
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{"memory_mb":100,"memory_percent":40,"cpu_percent":20}`)
 	w := httptest.NewRecorder()
-	srv.handleSDKResources(w, req)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
 
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d", w.Code)
@@ -45,8 +46,8 @@ func TestHandleSDKResources_MemoryWarn80(t *testing.T) {
 	t.Parallel()
 
 	var captured atomic.Value
-	store := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	store := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			captured.Store(event)
 			return nil
 		},
@@ -56,7 +57,7 @@ func TestHandleSDKResources_MemoryWarn80(t *testing.T) {
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{"memory_mb":200,"memory_percent":85,"cpu_percent":10}`)
 	w := httptest.NewRecorder()
-	srv.handleSDKResources(w, req)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
 
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d", w.Code)
@@ -74,8 +75,8 @@ func TestHandleSDKResources_MemoryCritical90(t *testing.T) {
 	t.Parallel()
 
 	var captured atomic.Value
-	store := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	store := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			captured.Store(event)
 			return nil
 		},
@@ -85,7 +86,7 @@ func TestHandleSDKResources_MemoryCritical90(t *testing.T) {
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{"memory_mb":230,"memory_percent":95,"cpu_percent":50}`)
 	w := httptest.NewRecorder()
-	srv.handleSDKResources(w, req)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
 
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d", w.Code)
@@ -102,12 +103,12 @@ func TestHandleSDKResources_MemoryCritical90(t *testing.T) {
 func TestHandleSDKResources_NegativeMemoryMB(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{"memory_mb":-1}`)
 	w := httptest.NewRecorder()
-	srv.handleSDKResources(w, req)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
 
 	if w.Code != 400 {
 		t.Fatalf("expected 400, got %d", w.Code)
@@ -117,12 +118,12 @@ func TestHandleSDKResources_NegativeMemoryMB(t *testing.T) {
 func TestHandleSDKResources_MemoryPercentOver100(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{"memory_percent":150}`)
 	w := httptest.NewRecorder()
-	srv.handleSDKResources(w, req)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
 
 	if w.Code != 400 {
 		t.Fatalf("expected 400, got %d", w.Code)
@@ -132,12 +133,12 @@ func TestHandleSDKResources_MemoryPercentOver100(t *testing.T) {
 func TestHandleSDKResources_CPUPercentOver100(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{"cpu_percent":200}`)
 	w := httptest.NewRecorder()
-	srv.handleSDKResources(w, req)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
 
 	if w.Code != 400 {
 		t.Fatalf("expected 400, got %d", w.Code)
@@ -147,12 +148,12 @@ func TestHandleSDKResources_CPUPercentOver100(t *testing.T) {
 func TestHandleSDKResources_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{not json`)
 	w := httptest.NewRecorder()
-	srv.handleSDKResources(w, req)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
 
 	if w.Code != 400 {
 		t.Fatalf("expected 400, got %d", w.Code)
@@ -162,8 +163,8 @@ func TestHandleSDKResources_InvalidJSON(t *testing.T) {
 func TestHandleSDKResources_InsertEventFailure(t *testing.T) {
 	t.Parallel()
 
-	store := &mockAPIStore{
-		insertEventFn: func(_ context.Context, _ *domain.RunEvent) error {
+	store := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, _ *domain.RunEvent) error {
 			return errors.New("db down")
 		},
 	}
@@ -172,7 +173,7 @@ func TestHandleSDKResources_InsertEventFailure(t *testing.T) {
 	req := sdkRequest(t, "POST", "/sdk/runs/run-1/resources", "run-1",
 		`{"memory_mb":100,"memory_percent":40,"cpu_percent":20}`)
 	w := httptest.NewRecorder()
-	srv.handleSDKResources(w, req)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
 
 	if w.Code != 500 {
 		t.Fatalf("expected 500, got %d", w.Code)

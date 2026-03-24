@@ -89,7 +89,7 @@ func Load(pathOverride string) (*LoadResult, error) {
 			return nil, fmt.Errorf("config path %q is a directory", p)
 		}
 
-		content, readErr := os.ReadFile(p) //nolint:gosec // config path is explicit override or trusted discovery path
+		content, readErr := os.ReadFile(p)
 		if readErr != nil {
 			return nil, fmt.Errorf("read config %q: %w", p, readErr)
 		}

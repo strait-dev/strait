@@ -162,7 +162,7 @@ func buildPartitionCycle(partitions []string, weightsRaw string) []string {
 		if w <= 0 {
 			w = 1
 		}
-		for i := 0; i < w; i++ {
+		for range w {
 			cycle = append(cycle, partition)
 		}
 	}

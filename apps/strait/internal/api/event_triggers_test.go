@@ -45,8 +45,8 @@ func TestHandleSendEvent_Success(t *testing.T) {
 	var updatedStatus string
 	var updatedPayload json.RawMessage
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, key string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, key string) (*domain.EventTrigger, error) {
 			if key == "aml-check:app-123" {
 				return &domain.EventTrigger{
 					ID:                "evt-1",
@@ -60,12 +60,12 @@ func TestHandleSendEvent_Success(t *testing.T) {
 			}
 			return nil, nil
 		},
-		updateEventTriggerStatusFn: func(_ context.Context, _ string, status string, payload json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, status string, payload json.RawMessage, _ *time.Time, _ string) error {
 			updatedStatus = status
 			updatedPayload = payload
 			return nil
 		},
-		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+		UpdateStepRunStatusFunc: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
 			return nil
 		},
 	}
@@ -100,8 +100,8 @@ func TestHandleSendEvent_Success(t *testing.T) {
 func TestHandleSendEvent_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return nil, nil
 		},
 	}
@@ -122,8 +122,8 @@ func TestHandleSendEvent_NotFound(t *testing.T) {
 func TestHandleSendEvent_AlreadyReceived_DifferentPayload(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:              "evt-1",
 				EventKey:        "some-key",
@@ -151,8 +151,8 @@ func TestHandleSendEvent_AlreadyReceived_DifferentPayload(t *testing.T) {
 func TestHandleSendEvent_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -174,8 +174,8 @@ func TestHandleGetEventTrigger_SuccessInternalSecret(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, key string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, key string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:          "evt-1",
 				EventKey:    key,
@@ -211,8 +211,8 @@ func TestHandleGetEventTrigger_SuccessInternalSecret(t *testing.T) {
 func TestHandleGetEventTrigger_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return nil, nil
 		},
 	}
@@ -234,8 +234,8 @@ func TestHandleListEventTriggers_Success(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	ms := &mockAPIStore{
-		listEventTriggersByProjectFn: func(_ context.Context, projectID, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
 			if projectID == "proj-1" {
 				return []domain.EventTrigger{
 					{ID: "evt-1", EventKey: "aml:app-1", ProjectID: "proj-1", Status: domain.EventTriggerStatusWaiting, RequestedAt: now},
@@ -244,10 +244,10 @@ func TestHandleListEventTriggers_Success(t *testing.T) {
 			}
 			return nil, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-1"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}
@@ -270,8 +270,8 @@ func TestHandleSendEvent_EmptyBody(t *testing.T) {
 
 	var capturedTrigger *domain.EventTrigger
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:         "evt-1",
 				EventKey:   "my-event",
@@ -281,10 +281,10 @@ func TestHandleSendEvent_EmptyBody(t *testing.T) {
 				Status:     domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
 			return nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
 	}
@@ -321,8 +321,8 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 	var callbackCalled bool
 	var stepRunStatusUpdatedDirectly bool
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:                "evt-1",
 				EventKey:          "my-event",
@@ -333,10 +333,10 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 				Status:            domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
 			return nil
 		},
-		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+		UpdateStepRunStatusFunc: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
 			stepRunStatusUpdatedDirectly = true
 			return nil
 		},
@@ -375,8 +375,8 @@ func TestHandleSendEvent_IdempotentResend(t *testing.T) {
 	t.Parallel()
 
 	receivedAt := time.Now()
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:              "evt-1",
 				EventKey:        "my-event",
@@ -418,8 +418,8 @@ func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
 	now := time.Now().Add(-time.Minute)
 	var batchResolvedIDs []string
 
-	ms := &mockAPIStore{
-		listEventTriggersByKeyPrefixFn: func(_ context.Context, prefix string, _ string) ([]domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		ListEventTriggersByKeyPrefixFunc: func(_ context.Context, prefix string, _ string) ([]domain.EventTrigger, error) {
 			if prefix == "order:" {
 				return []domain.EventTrigger{
 					{ID: "evt-1", EventKey: "order:100", ProjectID: "proj-1", SourceType: "job_run", JobRunID: "run-1", Status: domain.EventTriggerStatusWaiting, RequestedAt: now},
@@ -428,11 +428,11 @@ func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
 			}
 			return nil, nil
 		},
-		batchReceiveEventTriggersFn: func(_ context.Context, ids []string, _ json.RawMessage, _ time.Time, _ string) ([]string, error) {
+		BatchReceiveEventTriggersFunc: func(_ context.Context, ids []string, _ json.RawMessage, _ time.Time, _ string) ([]string, error) {
 			batchResolvedIDs = ids
 			return ids, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
 	}
@@ -465,8 +465,8 @@ func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
 func TestHandleSendEventByPrefix_NoMatches(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		listEventTriggersByKeyPrefixFn: func(_ context.Context, _ string, _ string) ([]domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		ListEventTriggersByKeyPrefixFunc: func(_ context.Context, _ string, _ string) ([]domain.EventTrigger, error) {
 			return nil, nil
 		},
 	}
@@ -495,8 +495,8 @@ func TestHandleSendEventByPrefix_NoMatches(t *testing.T) {
 func TestHandleSendEvent_ProjectScoping_Forbidden(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-1",
 				EventKey:  "my-event",
@@ -504,10 +504,10 @@ func TestHandleSendEvent_ProjectScoping_Forbidden(t *testing.T) {
 				Status:    domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-mine"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}
@@ -585,8 +585,8 @@ func TestHandleCancelEventTrigger(t *testing.T) {
 	var failedStepRunID string
 	var onStepFailedCalled bool
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, eventKey string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, eventKey string) (*domain.EventTrigger, error) {
 			if eventKey == "cancel-me" {
 				return &domain.EventTrigger{
 					ID:                "evt-cancel",
@@ -601,11 +601,11 @@ func TestHandleCancelEventTrigger(t *testing.T) {
 			}
 			return nil, nil
 		},
-		updateEventTriggerStatusFn: func(_ context.Context, _ string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
 			canceledTriggerStatus = status
 			return nil
 		},
-		updateStepRunStatusFn: func(_ context.Context, id string, _ domain.StepRunStatus, _ map[string]any) error {
+		UpdateStepRunStatusFunc: func(_ context.Context, id string, _ domain.StepRunStatus, _ map[string]any) error {
 			failedStepRunID = id
 			return nil
 		},
@@ -640,8 +640,8 @@ func TestHandleCancelEventTrigger(t *testing.T) {
 func TestHandleCancelEventTrigger_NotWaiting(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-done",
 				EventKey:  "already-received",
@@ -669,8 +669,8 @@ func TestHandleEventTriggerStream_TerminalState(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, key string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, key string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:          "evt-terminal",
 				EventKey:    key,
@@ -707,8 +707,8 @@ func TestHandleEventTriggerStream_TerminalState(t *testing.T) {
 func TestHandleEventTriggerStream_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return nil, nil
 		},
 	}
@@ -728,8 +728,8 @@ func TestHandleEventTriggerStream_NotFound(t *testing.T) {
 func TestHandleEventTriggerStream_ProjectMismatch(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-other",
 				EventKey:  "other-key",
@@ -737,10 +737,10 @@ func TestHandleEventTriggerStream_ProjectMismatch(t *testing.T) {
 				Status:    domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-mine"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}
@@ -762,7 +762,7 @@ func TestHandleEventTriggerStream_ProjectMismatch(t *testing.T) {
 func TestHandleGetEventTriggerStats_RequiresProject(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/stats", nil)
@@ -778,12 +778,15 @@ func TestHandleGetEventTriggerStats_RequiresProject(t *testing.T) {
 func TestHandleGetEventTriggerStats_Success(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-stats"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			return nil
+		},
+		GetEventTriggerStatsFunc: func(_ context.Context, _ string) (*store.EventTriggerStats, error) {
+			return &store.EventTriggerStats{TotalCount: 5}, nil
 		},
 	}
 
@@ -812,8 +815,8 @@ func TestHandleGetEventTriggerStats_Success(t *testing.T) {
 func TestHandleGetEventTrigger_ProjectMismatchWithAPIKey(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-1",
 				EventKey:  "my-key",
@@ -821,10 +824,10 @@ func TestHandleGetEventTrigger_ProjectMismatchWithAPIKey(t *testing.T) {
 				Status:    domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-mine"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}
@@ -847,14 +850,14 @@ func TestHandleListEventTriggers_WithFilters(t *testing.T) {
 	t.Parallel()
 
 	var calledStatus, calledWfRunID, calledSourceType string
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-list"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
-		listEventTriggersByProjectFn: func(_ context.Context, _, status, wfRunID, sourceType string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+		ListEventTriggersByProjectFunc: func(_ context.Context, _, status, wfRunID, sourceType string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
 			calledStatus = status
 			calledWfRunID = wfRunID
 			calledSourceType = sourceType
@@ -889,8 +892,8 @@ func TestHandleCancelEventTrigger_JobRunSource(t *testing.T) {
 	t.Parallel()
 
 	var canceledRunStatus domain.RunStatus
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:          "evt-jr",
 				EventKey:    "cancel-job",
@@ -901,10 +904,10 @@ func TestHandleCancelEventTrigger_JobRunSource(t *testing.T) {
 				RequestedAt: time.Now(),
 			}, nil
 		},
-		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
 			return nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
 			canceledRunStatus = to
 			return nil
 		},
@@ -931,8 +934,8 @@ func TestHandleSendEvent_WorkflowStepResume(t *testing.T) {
 	t.Parallel()
 
 	var receivedCalled bool
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:                "evt-wf",
 				EventKey:          "wf-event",
@@ -944,7 +947,7 @@ func TestHandleSendEvent_WorkflowStepResume(t *testing.T) {
 				RequestedAt:       time.Now(),
 			}, nil
 		},
-		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
 			return nil
 		},
 	}
@@ -976,8 +979,8 @@ func TestHandleSendEvent_WorkflowStepResume(t *testing.T) {
 func TestHandleSendEvent_IdempotentResendMatchingPayload(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:              "evt-idem",
 				EventKey:        "idem-key",
@@ -1005,8 +1008,8 @@ func TestHandleSendEvent_IdempotentResendMatchingPayload(t *testing.T) {
 func TestHandleSendEvent_ConflictDifferentPayload(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:              "evt-conf",
 				EventKey:        "conf-key",
@@ -1036,8 +1039,8 @@ func TestHandleSendEvent_ConflictDifferentPayload(t *testing.T) {
 func TestHandleSendEvent_GetTriggerStoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -1058,8 +1061,8 @@ func TestHandleSendEvent_GetTriggerStoreError(t *testing.T) {
 func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-stream",
 				EventKey:  "stream-key",
@@ -1111,8 +1114,8 @@ func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
 func TestHandleEventTriggerStream_ContextCancel(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-cancel-stream",
 				EventKey:  "cancel-stream-key",
@@ -1157,8 +1160,8 @@ func TestHandleEventTriggerStream_ContextCancel(t *testing.T) {
 func TestHandleEventTriggerStream_ClosedChannel(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-closed",
 				EventKey:  "closed-key",
@@ -1195,8 +1198,8 @@ func TestHandleEventTriggerStream_ClosedChannel(t *testing.T) {
 func TestHandleEventTriggerStream_NilPubsub(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-nopub",
 				EventKey:  "nopub-key",
@@ -1222,8 +1225,8 @@ func TestHandleEventTriggerStream_NilPubsub(t *testing.T) {
 func TestHandleEventTriggerStream_SubscribeError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-suberr",
 				EventKey:  "suberr-key",
@@ -1255,8 +1258,8 @@ func TestHandleEventTriggerStream_SubscribeError(t *testing.T) {
 func TestHandleEventTriggerStream_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -1277,12 +1280,12 @@ func TestHandleEventTriggerStream_StoreError(t *testing.T) {
 func TestHandleGetEventTriggerStats_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-err"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
-		getEventTriggerStatsFn: func(_ context.Context, _ string) (*store.EventTriggerStats, error) {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
+		GetEventTriggerStatsFunc: func(_ context.Context, _ string) (*store.EventTriggerStats, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -1303,8 +1306,8 @@ func TestHandleGetEventTriggerStats_StoreError(t *testing.T) {
 func TestHandleCancelEventTrigger_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return nil, nil
 		},
 	}
@@ -1325,8 +1328,8 @@ func TestHandleCancelEventTrigger_NotFound(t *testing.T) {
 func TestHandleCancelEventTrigger_ProjectForbidden(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-proj",
 				EventKey:  "proj-key",
@@ -1334,10 +1337,10 @@ func TestHandleCancelEventTrigger_ProjectForbidden(t *testing.T) {
 				Status:    domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-mine"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
 	}
 
 	srv := newEventTriggersTestServer(t, ms, nil)
@@ -1356,8 +1359,8 @@ func TestHandleCancelEventTrigger_ProjectForbidden(t *testing.T) {
 func TestHandleCancelEventTrigger_UpdateStatusError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-upderr",
 				EventKey:  "upderr-key",
@@ -1365,7 +1368,7 @@ func TestHandleCancelEventTrigger_UpdateStatusError(t *testing.T) {
 				Status:    domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
 			return errors.New("update failed")
 		},
 	}
@@ -1386,8 +1389,8 @@ func TestHandleCancelEventTrigger_UpdateStatusError(t *testing.T) {
 func TestHandleGetEventTrigger_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -1408,8 +1411,8 @@ func TestHandleGetEventTrigger_StoreError(t *testing.T) {
 func TestHandleGetEventTrigger_ResponseBody(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:          "evt-ok",
 				EventKey:    "ok-key",
@@ -1447,7 +1450,7 @@ func TestHandleGetEventTrigger_ResponseBody(t *testing.T) {
 func TestPublishTriggerStatusChange_NilPubsub(t *testing.T) {
 	t.Parallel()
 
-	srv := newEventTriggersTestServerWithPubSub(t, &mockAPIStore{}, nil, nil)
+	srv := newEventTriggersTestServerWithPubSub(t, &APIStoreMock{}, nil, nil)
 	// Should not panic.
 	srv.publishTriggerStatusChange(context.Background(), &domain.EventTrigger{
 		ID:       "evt-1",
@@ -1466,7 +1469,7 @@ func TestPublishTriggerStatusChange_PublishError(t *testing.T) {
 		},
 	}
 
-	srv := newEventTriggersTestServerWithPubSub(t, &mockAPIStore{}, nil, pub)
+	srv := newEventTriggersTestServerWithPubSub(t, &APIStoreMock{}, nil, pub)
 	// Should not panic.
 	srv.publishTriggerStatusChange(context.Background(), &domain.EventTrigger{
 		ID:       "evt-1",
@@ -1479,7 +1482,7 @@ func TestPublishTriggerStatusChange_PublishError(t *testing.T) {
 func TestResumeEventSource_NilCallback(t *testing.T) {
 	t.Parallel()
 
-	srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+	srv := newEventTriggersTestServer(t, &APIStoreMock{}, nil)
 	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
 		SourceType:        domain.EventSourceWorkflowStep,
 		WorkflowStepRunID: "wsr-1",
@@ -1493,7 +1496,7 @@ func TestResumeEventSource_NilCallback(t *testing.T) {
 func TestResumeEventSource_EmptyStepRunID(t *testing.T) {
 	t.Parallel()
 
-	srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+	srv := newEventTriggersTestServer(t, &APIStoreMock{}, nil)
 	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
 		SourceType: domain.EventSourceWorkflowStep,
 	})
@@ -1506,7 +1509,7 @@ func TestResumeEventSource_EmptyStepRunID(t *testing.T) {
 func TestResumeEventSource_EmptyJobRunID(t *testing.T) {
 	t.Parallel()
 
-	srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+	srv := newEventTriggersTestServer(t, &APIStoreMock{}, nil)
 	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
 		SourceType: domain.EventSourceJobRun,
 	})
@@ -1519,7 +1522,7 @@ func TestResumeEventSource_EmptyJobRunID(t *testing.T) {
 func TestResumeEventSource_UnknownSourceType(t *testing.T) {
 	t.Parallel()
 
-	srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+	srv := newEventTriggersTestServer(t, &APIStoreMock{}, nil)
 	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
 		SourceType: "unknown",
 	})
@@ -1573,8 +1576,8 @@ func TestValidateEventKey(t *testing.T) {
 func TestHandleEventTriggerStream_QueryParamAuth(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
 				ID:        "evt-qp",
 				EventKey:  "qp-key",
@@ -1582,10 +1585,10 @@ func TestHandleEventTriggerStream_QueryParamAuth(t *testing.T) {
 				Status:    domain.EventTriggerStatusReceived, // terminal — immediate SSE response
 			}, nil
 		},
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-1"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
 	}
 
 	srv := newEventTriggersTestServer(t, ms, nil)
@@ -1608,7 +1611,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 
 	t.Run("invalid request body", func(t *testing.T) {
 		t.Parallel()
-		srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+		srv := newEventTriggersTestServer(t, &APIStoreMock{}, nil)
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader("{"))
 		req.Header.Set("X-Internal-Secret", "test-secret")
@@ -1621,7 +1624,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 
 	t.Run("older_than_days must be >= 1", func(t *testing.T) {
 		t.Parallel()
-		srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+		srv := newEventTriggersTestServer(t, &APIStoreMock{}, nil)
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":0}`))
 		req.Header.Set("Content-Type", "application/json")
@@ -1637,12 +1640,12 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		t.Parallel()
 		countCalled := false
 		deleteCalled := false
-		ms := &mockAPIStore{
-			countEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time) (int64, error) {
+		ms := &APIStoreMock{
+			CountEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time) (int64, error) {
 				countCalled = true
 				return 7, nil
 			},
-			deleteEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time, _ int) (int64, error) {
+			DeleteEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time, _ int) (int64, error) {
 				deleteCalled = true
 				return 0, nil
 			},
@@ -1678,8 +1681,8 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 
 	t.Run("dry run count error", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			countEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time) (int64, error) {
+		ms := &APIStoreMock{
+			CountEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time) (int64, error) {
 				return 0, errors.New("count failed")
 			},
 		}
@@ -1698,8 +1701,8 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 	t.Run("delete success", func(t *testing.T) {
 		t.Parallel()
 		deleteCalled := false
-		ms := &mockAPIStore{
-			deleteEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time, limit int) (int64, error) {
+		ms := &APIStoreMock{
+			DeleteEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time, limit int) (int64, error) {
 				deleteCalled = true
 				if limit != 10000 {
 					t.Fatalf("limit = %d, want 10000", limit)
@@ -1732,8 +1735,8 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 
 	t.Run("delete error", func(t *testing.T) {
 		t.Parallel()
-		ms := &mockAPIStore{
-			deleteEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time, _ int) (int64, error) {
+		ms := &APIStoreMock{
+			DeleteEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time, _ int) (int64, error) {
 				return 0, errors.New("delete failed")
 			},
 		}

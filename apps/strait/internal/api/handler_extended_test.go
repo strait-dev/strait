@@ -18,8 +18,8 @@ import (
 func TestHandleUpdateEnvironment_Success(t *testing.T) {
 	t.Parallel()
 	var updatedName string
-	ms := &mockAPIStore{
-		getEnvironmentFn: func(_ context.Context, id string) (*domain.Environment, error) {
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID:        id,
 				ProjectID: "proj-1",
@@ -28,7 +28,7 @@ func TestHandleUpdateEnvironment_Success(t *testing.T) {
 				Variables: map[string]string{"FOO": "bar"},
 			}, nil
 		},
-		updateEnvironmentFn: func(_ context.Context, env *domain.Environment) error {
+		UpdateEnvironmentFunc: func(_ context.Context, env *domain.Environment) error {
 			updatedName = env.Name
 			return nil
 		},
@@ -48,8 +48,8 @@ func TestHandleUpdateEnvironment_Success(t *testing.T) {
 
 func TestHandleUpdateEnvironment_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEnvironmentFn: func(_ context.Context, _ string) (*domain.Environment, error) {
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, _ string) (*domain.Environment, error) {
 			return nil, store.ErrEnvironmentNotFound
 		},
 	}
@@ -66,8 +66,8 @@ func TestHandleUpdateEnvironment_NotFound(t *testing.T) {
 func TestHandleUpdateEnvironment_UpdateVariables(t *testing.T) {
 	t.Parallel()
 	var updatedVars map[string]string
-	ms := &mockAPIStore{
-		getEnvironmentFn: func(_ context.Context, id string) (*domain.Environment, error) {
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID:        id,
 				ProjectID: "proj-1",
@@ -76,7 +76,7 @@ func TestHandleUpdateEnvironment_UpdateVariables(t *testing.T) {
 				Variables: map[string]string{"OLD": "val"},
 			}, nil
 		},
-		updateEnvironmentFn: func(_ context.Context, env *domain.Environment) error {
+		UpdateEnvironmentFunc: func(_ context.Context, env *domain.Environment) error {
 			updatedVars = env.Variables
 			return nil
 		},
@@ -96,8 +96,8 @@ func TestHandleUpdateEnvironment_UpdateVariables(t *testing.T) {
 
 func TestHandleUpdateEnvironment_InvalidBody(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getEnvironmentFn: func(_ context.Context, id string) (*domain.Environment, error) {
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "staging", Slug: "staging"}, nil
 		},
 	}
@@ -116,8 +116,8 @@ func TestHandleUpdateEnvironment_InvalidBody(t *testing.T) {
 func TestHandleDeleteEnvironment_Success(t *testing.T) {
 	t.Parallel()
 	var deletedID string
-	ms := &mockAPIStore{
-		deleteEnvironmentFn: func(_ context.Context, id string) error {
+	ms := &APIStoreMock{
+		DeleteEnvironmentFunc: func(_ context.Context, id string) error {
 			deletedID = id
 			return nil
 		},
@@ -137,8 +137,8 @@ func TestHandleDeleteEnvironment_Success(t *testing.T) {
 
 func TestHandleDeleteEnvironment_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		deleteEnvironmentFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		DeleteEnvironmentFunc: func(_ context.Context, _ string) error {
 			return store.ErrEnvironmentNotFound
 		},
 	}
@@ -157,11 +157,11 @@ func TestHandleDeleteEnvironment_NotFound(t *testing.T) {
 func TestHandleUpdateJobGroup_Success(t *testing.T) {
 	t.Parallel()
 	var updatedName string
-	ms := &mockAPIStore{
-		getJobGroupFn: func(_ context.Context, id string) (*domain.JobGroup, error) {
+	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
 			return &domain.JobGroup{ID: id, ProjectID: "proj-1", Name: "Core", Slug: "core"}, nil
 		},
-		updateJobGroupFn: func(_ context.Context, group *domain.JobGroup) error {
+		UpdateJobGroupFunc: func(_ context.Context, group *domain.JobGroup) error {
 			updatedName = group.Name
 			return nil
 		},
@@ -181,8 +181,8 @@ func TestHandleUpdateJobGroup_Success(t *testing.T) {
 
 func TestHandleUpdateJobGroup_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobGroupFn: func(_ context.Context, _ string) (*domain.JobGroup, error) {
+	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, _ string) (*domain.JobGroup, error) {
 			return nil, store.ErrJobGroupNotFound
 		},
 	}
@@ -199,11 +199,11 @@ func TestHandleUpdateJobGroup_NotFound(t *testing.T) {
 func TestHandleUpdateJobGroup_UpdateDescription(t *testing.T) {
 	t.Parallel()
 	var updatedDesc string
-	ms := &mockAPIStore{
-		getJobGroupFn: func(_ context.Context, id string) (*domain.JobGroup, error) {
+	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
 			return &domain.JobGroup{ID: id, ProjectID: "proj-1", Name: "Core", Slug: "core"}, nil
 		},
-		updateJobGroupFn: func(_ context.Context, group *domain.JobGroup) error {
+		UpdateJobGroupFunc: func(_ context.Context, group *domain.JobGroup) error {
 			updatedDesc = group.Description
 			return nil
 		},
@@ -223,8 +223,8 @@ func TestHandleUpdateJobGroup_UpdateDescription(t *testing.T) {
 
 func TestHandleUpdateJobGroup_InvalidBody(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobGroupFn: func(_ context.Context, id string) (*domain.JobGroup, error) {
+	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
 			return &domain.JobGroup{ID: id, ProjectID: "proj-1", Name: "Core", Slug: "core"}, nil
 		},
 	}
@@ -243,8 +243,8 @@ func TestHandleUpdateJobGroup_InvalidBody(t *testing.T) {
 func TestHandleListRunCheckpoints_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	ms := &mockAPIStore{
-		listRunCheckpointsFn: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
+	ms := &APIStoreMock{
+		ListRunCheckpointsFunc: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
 			return []domain.RunCheckpoint{
 				{ID: "cp-1", RunID: runID, Sequence: 1, Source: "auto", State: json.RawMessage(`{"step":1}`), CreatedAt: now},
 				{ID: "cp-2", RunID: runID, Sequence: 2, Source: "manual", State: json.RawMessage(`{"step":2}`), CreatedAt: now.Add(time.Second)},
@@ -269,8 +269,8 @@ func TestHandleListRunCheckpoints_Success(t *testing.T) {
 
 func TestHandleListRunCheckpoints_Empty(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listRunCheckpointsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
+	ms := &APIStoreMock{
+		ListRunCheckpointsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
 			return []domain.RunCheckpoint{}, nil
 		},
 	}
@@ -292,8 +292,8 @@ func TestHandleListRunCheckpoints_Empty(t *testing.T) {
 
 func TestHandleListRunCheckpoints_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listRunCheckpointsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
+	ms := &APIStoreMock{
+		ListRunCheckpointsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}
@@ -312,8 +312,8 @@ func TestHandleListRunCheckpoints_StoreError(t *testing.T) {
 func TestHandleListRunUsage_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	ms := &mockAPIStore{
-		listRunUsageFn: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunUsage, error) {
+	ms := &APIStoreMock{
+		ListRunUsageFunc: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunUsage, error) {
 			return []domain.RunUsage{
 				{ID: "u-1", RunID: runID, Provider: "openai", Model: "gpt-4", PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, CostMicrousd: 5000, CreatedAt: now},
 			}, nil
@@ -340,8 +340,8 @@ func TestHandleListRunUsage_Success(t *testing.T) {
 
 func TestHandleListRunUsage_Empty(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listRunUsageFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunUsage, error) {
+	ms := &APIStoreMock{
+		ListRunUsageFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunUsage, error) {
 			return []domain.RunUsage{}, nil
 		},
 	}
@@ -366,8 +366,8 @@ func TestHandleListRunUsage_Empty(t *testing.T) {
 func TestHandleListRunToolCalls_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	ms := &mockAPIStore{
-		listRunToolCallsFn: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunToolCall, error) {
+	ms := &APIStoreMock{
+		ListRunToolCallsFunc: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunToolCall, error) {
 			return []domain.RunToolCall{
 				{ID: "tc-1", RunID: runID, ToolName: "web_search", Input: json.RawMessage(`{"q":"test"}`), DurationMs: 200, Status: "success", CreatedAt: now},
 				{ID: "tc-2", RunID: runID, ToolName: "code_exec", Input: json.RawMessage(`{"code":"print(1)"}`), DurationMs: 50, Status: "success", CreatedAt: now.Add(time.Second)},
@@ -395,8 +395,8 @@ func TestHandleListRunToolCalls_Success(t *testing.T) {
 
 func TestHandleListRunToolCalls_Empty(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listRunToolCallsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunToolCall, error) {
+	ms := &APIStoreMock{
+		ListRunToolCallsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunToolCall, error) {
 			return []domain.RunToolCall{}, nil
 		},
 	}
@@ -415,8 +415,8 @@ func TestHandleListRunToolCalls_Empty(t *testing.T) {
 func TestHandleListRunOutputs_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	ms := &mockAPIStore{
-		listRunOutputsFn: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunOutput, error) {
+	ms := &APIStoreMock{
+		ListRunOutputsFunc: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunOutput, error) {
 			return []domain.RunOutput{
 				{ID: "out-1", RunID: runID, OutputKey: "result", Value: json.RawMessage(`"hello"`), CreatedAt: now},
 			}, nil
@@ -443,8 +443,8 @@ func TestHandleListRunOutputs_Success(t *testing.T) {
 
 func TestHandleListRunOutputs_Empty(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listRunOutputsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunOutput, error) {
+	ms := &APIStoreMock{
+		ListRunOutputsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunOutput, error) {
 			return []domain.RunOutput{}, nil
 		},
 	}
@@ -463,8 +463,8 @@ func TestHandleListRunOutputs_Empty(t *testing.T) {
 func TestHandleSDKToolCall_Success(t *testing.T) {
 	t.Parallel()
 	var created bool
-	ms := &mockAPIStore{
-		createRunToolCallFn: func(_ context.Context, call *domain.RunToolCall) error {
+	ms := &APIStoreMock{
+		CreateRunToolCallFunc: func(_ context.Context, call *domain.RunToolCall) error {
 			created = true
 			if call.ToolName != "fetch_url" {
 				t.Fatalf("expected tool_name=fetch_url, got %q", call.ToolName)
@@ -491,7 +491,7 @@ func TestHandleSDKToolCall_Success(t *testing.T) {
 
 func TestHandleSDKToolCall_MissingToolName(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -504,7 +504,7 @@ func TestHandleSDKToolCall_MissingToolName(t *testing.T) {
 
 func TestHandleSDKToolCall_InvalidBody(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -519,7 +519,7 @@ func TestHandleSDKToolCall_InvalidBody(t *testing.T) {
 
 func TestHandleAPIReference_Returns200(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	// API reference endpoint is public (no auth required at route level, but let's use authed for consistency)
@@ -537,18 +537,18 @@ func TestHandleAPIReference_Returns200(t *testing.T) {
 
 func TestHandleOpenAPISpec_Returns200(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.yaml", nil)
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	contentType := w.Header().Get("Content-Type")
-	if !strings.Contains(contentType, "yaml") {
-		t.Fatalf("expected yaml content type, got %q", contentType)
+	if !strings.Contains(contentType, "json") {
+		t.Fatalf("expected json content type, got %q", contentType)
 	}
 	if w.Body.Len() == 0 {
 		t.Fatal("expected non-empty OpenAPI spec body")
@@ -557,10 +557,10 @@ func TestHandleOpenAPISpec_Returns200(t *testing.T) {
 
 func TestHandleOpenAPISpec_ContainsOpenAPI(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.yaml", nil)
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {
@@ -568,5 +568,22 @@ func TestHandleOpenAPISpec_ContainsOpenAPI(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "openapi") {
 		t.Fatal("expected response to contain 'openapi'")
+	}
+}
+
+func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.yaml", nil)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Fatalf("expected 301, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/reference/openapi.json" {
+		t.Fatalf("expected redirect to /reference/openapi.json, got %q", loc)
 	}
 }

@@ -1,90 +1,150 @@
 package api
 
 import (
-	"net/http"
+	"context"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleListRunCheckpoints(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-
-	limit, cursor, err := parsePaginationParams(r)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	checkpoints, err := s.store.ListRunCheckpoints(r.Context(), runID, limit+1, cursor)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list run checkpoints")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(checkpoints, limit, func(cp domain.RunCheckpoint) string {
-		return cp.CreatedAt.Format(time.RFC3339Nano)
-	}))
+type ListRunCheckpointsInput struct {
+	RunID  string `path:"runID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
 }
 
-func (s *Server) handleListRunUsage(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-
-	limit, cursor, err := parsePaginationParams(r)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	usage, err := s.store.ListRunUsage(r.Context(), runID, limit+1, cursor)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list run usage")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(usage, limit, func(u domain.RunUsage) string {
-		return u.CreatedAt.Format(time.RFC3339Nano)
-	}))
+type ListRunCheckpointsOutput struct {
+	Body PaginatedResponse
 }
 
-func (s *Server) handleListRunToolCalls(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-
-	limit, cursor, err := parsePaginationParams(r)
+func (s *Server) handleListRunCheckpoints(ctx context.Context, input *ListRunCheckpointsInput) (*ListRunCheckpointsOutput, error) {
+	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	calls, err := s.store.ListRunToolCalls(r.Context(), runID, limit+1, cursor)
+	checkpoints, err := s.store.ListRunCheckpoints(ctx, input.RunID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list run tool calls")
-		return
+		return nil, huma.Error500InternalServerError("failed to list run checkpoints")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(calls, limit, func(c domain.RunToolCall) string {
-		return c.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListRunCheckpointsOutput{
+		Body: paginatedResult(checkpoints, limit, func(cp domain.RunCheckpoint) string {
+			return cp.CreatedAt.Format(time.RFC3339Nano)
+		}),
+	}, nil
 }
 
-func (s *Server) handleListRunOutputs(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
+type ListRunUsageInput struct {
+	RunID  string `path:"runID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
 
-	limit, cursor, err := parsePaginationParams(r)
+type ListRunUsageOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListRunUsage(ctx context.Context, input *ListRunUsageInput) (*ListRunUsageOutput, error) {
+	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	outputs, err := s.store.ListRunOutputs(r.Context(), runID, limit+1, cursor)
+	usage, err := s.store.ListRunUsage(ctx, input.RunID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list run outputs")
-		return
+		return nil, huma.Error500InternalServerError("failed to list run usage")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(outputs, limit, func(o domain.RunOutput) string {
-		return o.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListRunUsageOutput{
+		Body: paginatedResult(usage, limit, func(u domain.RunUsage) string {
+			return u.CreatedAt.Format(time.RFC3339Nano)
+		}),
+	}, nil
+}
+
+type ListRunToolCallsInput struct {
+	RunID  string `path:"runID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+
+type ListRunToolCallsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListRunToolCalls(ctx context.Context, input *ListRunToolCallsInput) (*ListRunToolCallsOutput, error) {
+	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
+	if err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+
+	calls, err := s.store.ListRunToolCalls(ctx, input.RunID, limit+1, cursor)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list run tool calls")
+	}
+
+	return &ListRunToolCallsOutput{
+		Body: paginatedResult(calls, limit, func(c domain.RunToolCall) string {
+			return c.CreatedAt.Format(time.RFC3339Nano)
+		}),
+	}, nil
+}
+
+type ListRunOutputsInput struct {
+	RunID  string `path:"runID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+
+type ListRunOutputsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListRunOutputs(ctx context.Context, input *ListRunOutputsInput) (*ListRunOutputsOutput, error) {
+	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
+	if err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+
+	outputs, err := s.store.ListRunOutputs(ctx, input.RunID, limit+1, cursor)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list run outputs")
+	}
+
+	return &ListRunOutputsOutput{
+		Body: paginatedResult(outputs, limit, func(o domain.RunOutput) string {
+			return o.CreatedAt.Format(time.RFC3339Nano)
+		}),
+	}, nil
+}
+
+// parsePaginationParamsTyped is a typed-handler variant of parsePaginationParams
+// that accepts raw string values from query params instead of *http.Request.
+func parsePaginationParamsTyped(limitStr, cursorStr string) (int, *time.Time, error) {
+	limit := defaultPageLimit
+	if limitStr != "" {
+		parsed, parseErr := strconv.Atoi(limitStr)
+		if parseErr != nil || parsed <= 0 {
+			return 0, nil, &paginationError{msg: "limit must be a positive integer"}
+		}
+		if parsed > maxPageLimit {
+			parsed = maxPageLimit
+		}
+		limit = parsed
+	}
+
+	var cursor *time.Time
+	if cursorStr != "" {
+		parsed, parseErr := time.Parse(time.RFC3339Nano, cursorStr)
+		if parseErr != nil {
+			return 0, nil, &paginationError{msg: "cursor must be a valid RFC3339 timestamp"}
+		}
+		cursor = &parsed
+	}
+
+	return limit, cursor, nil
 }

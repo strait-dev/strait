@@ -46,6 +46,16 @@ func (m *mockBillingEnforcer) GetActiveProjectOrgID(_ context.Context, projectID
 	return "", nil
 }
 
+func (m *mockBillingEnforcer) CheckOrgCreationLimit(_ context.Context, _ string, _ domain.PlanTier) error {
+	return nil
+}
+
+func (m *mockBillingEnforcer) CheckProjectBudgetLimit(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
+
 type mockUsageService struct {
 	currentUsage    *billing.CurrentUsageResponse
 	spendingLimit   *billing.SpendingLimitResponse
@@ -175,7 +185,7 @@ type usageTestServerOpts struct {
 	enforcer    BillingEnforcer
 	usageSvc    UsageService
 	referralSvc ReferralService
-	store       *mockAPIStore
+	store       *APIStoreMock
 	config      *config.Config
 }
 
@@ -199,10 +209,10 @@ func newUsageTestServerFull(t *testing.T, opts usageTestServerOpts) *Server {
 	}
 	ms := opts.store
 	if ms == nil {
-		ms = &mockAPIStore{}
+		ms = &APIStoreMock{}
 	}
-	if ms.listProjectsByOrgFn == nil {
-		ms.listProjectsByOrgFn = func(_ context.Context, _ string) ([]domain.Project, error) {
+	if ms.ListProjectsByOrgFunc == nil {
+		ms.ListProjectsByOrgFunc = func(_ context.Context, _ string) ([]domain.Project, error) {
 			return nil, nil
 		}
 	}
@@ -258,14 +268,14 @@ func newOIDCUsageTestServer(
 
 	store := opts.store
 	if store == nil {
-		store = &mockAPIStore{}
+		store = &APIStoreMock{}
 	}
-	if store.listProjectsByOrgFn == nil {
-		store.listProjectsByOrgFn = func(_ context.Context, _ string) ([]domain.Project, error) {
+	if store.ListProjectsByOrgFunc == nil {
+		store.ListProjectsByOrgFunc = func(_ context.Context, _ string) ([]domain.Project, error) {
 			return nil, nil
 		}
 	}
-	store.getUserPermissionsFn = getUserPermissions
+	store.GetUserPermissionsFunc = getUserPermissions
 
 	opts.store = store
 	opts.config = &config.Config{

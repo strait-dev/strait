@@ -36,6 +36,8 @@ const resetColor = "\033[0m"
 
 // RenderDAG produces a text-based DAG visualization using box-drawing characters.
 // statusMap maps step_ref to a status string for color-coding. Pass nil to skip coloring.
+//
+//nolint:gocognit
 func RenderDAG(steps []Step, statusMap map[string]string) string {
 	if len(steps) == 0 {
 		return "(empty workflow)"

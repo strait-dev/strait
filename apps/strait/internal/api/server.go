@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,9 +39,6 @@ import (
 	scalar "github.com/MarceloPetrucio/go-scalar-api-reference"
 )
 
-//go:embed openapi.yaml
-var openapiSpec []byte
-
 // globalAllowPrivateEndpoints is an atomic flag set by NewServer when
 // ALLOW_PRIVATE_ENDPOINTS is true. Used by the package-level validateURL
 // to skip private/loopback network checks in development.
@@ -56,6 +52,7 @@ type ProjectContextSetter interface {
 	ClearProjectContext(ctx context.Context) error
 }
 
+//go:generate moq -stub -out mock_apistore_test.go -pkg api . APIStore
 type APIStore interface {
 	JobStore
 	RunStore
@@ -401,6 +398,8 @@ const (
 
 // AnalyticsStore is the subset of analytics query methods that can be backed
 // by either Postgres (store.Queries) or ClickHouse (clickhouse.AnalyticsStore).
+//
+//go:generate moq -stub -out mock_analyticsstore_test.go -pkg api . AnalyticsStore
 type AnalyticsStore interface {
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
 	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
@@ -481,6 +480,7 @@ type Server struct {
 	referralService    ReferralService
 	chExporter         *clickhouse.Exporter
 	edition            domain.Edition
+	cachedOpenAPISpec  []byte
 }
 
 // analytics returns the ClickHouse analytics store when available, falling back to Postgres.
@@ -504,8 +504,11 @@ type Encryptor interface {
 type BillingEnforcer interface {
 	CheckProjectLimit(ctx context.Context, orgID string) error
 	CheckMemberLimit(ctx context.Context, orgID string) error
+	CheckOrgCreationLimit(ctx context.Context, userID string, planTier domain.PlanTier) error
+	CheckProjectBudgetLimit(ctx context.Context, projectID string) error
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
+	EnsureOrgSubscription(ctx context.Context, orgID string) error
 }
 
 // UsageService provides org usage data for the billing dashboard.
@@ -871,35 +874,10 @@ func isPrivateIP(ip net.IP) bool {
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
-// validateRequest validates a struct using the validator and writes an error response if invalid.
-// Returns true if the struct is valid.
-func (s *Server) validateRequest(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := s.validate.Struct(v); err != nil {
-		var ve validator.ValidationErrors
-		if errors.As(err, &ve) {
-			messages := make([]string, 0, len(ve))
-			for _, fe := range ve {
-				messages = append(messages, fmt.Sprintf("%s: failed on '%s'", fe.Field(), fe.Tag()))
-			}
-			respondError(w, r, http.StatusBadRequest, APIError{
-				Code:    ErrorCodeValidationError,
-				Message: "validation failed",
-				Details: messages,
-			})
-			return false
-		}
-		respondError(w, r, http.StatusBadRequest, APIError{
-			Code:    ErrorCodeValidationError,
-			Message: "invalid request",
-		})
-		return false
-	}
-	return true
-}
-
 func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
+	// Serve Scalar API reference using the cached OpenAPI spec.
 	htmlContent, err := scalar.ApiReferenceHTML(&scalar.Options{
-		SpecContent: string(openapiSpec),
+		SpecContent: string(s.cachedOpenAPISpec),
 		CustomOptions: scalar.CustomOptions{
 			PageTitle: "Strait API",
 		},
@@ -914,6 +892,7 @@ func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/x-yaml")
-	w.Write(openapiSpec) //nolint:errcheck,gosec // best-effort response write
+	// Serve the cached OpenAPI spec as JSON.
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(s.cachedOpenAPISpec)
 }

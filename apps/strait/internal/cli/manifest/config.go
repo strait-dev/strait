@@ -33,7 +33,7 @@ func FindConfigFile(dir string) string {
 
 // LoadProjectConfig reads and validates a project config from the given path.
 func LoadProjectConfig(path string) (*ProjectConfig, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // Path is user-provided CLI config file.
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}

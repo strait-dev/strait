@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,40 +12,40 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleTestWebhook(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		URL    string `json:"url" validate:"required,url"`
-		Secret string `json:"secret,omitempty"`
-	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
+type testWebhookRequest struct {
+	URL    string `json:"url" validate:"required,url"`
+	Secret string `json:"secret,omitempty"`
+}
 
+type TestWebhookInput struct {
+	Body testWebhookRequest
+}
+
+type TestWebhookOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleTestWebhook(ctx context.Context, input *TestWebhookInput) (*TestWebhookOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
 	if err := validateURLWithTLS(req.URL, s.config.WebhookRequireTLS); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid url: "+err.Error())
-		return
+		return nil, huma.Error400BadRequest("invalid url: " + err.Error())
 	}
-
 	testPayload, _ := json.Marshal(map[string]any{
 		"type":      "webhook.test",
 		"timestamp": time.Now().UTC(),
 	})
-
-	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, req.URL, bytes.NewReader(testPayload))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.URL, bytes.NewReader(testPayload))
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "failed to create request: "+err.Error())
-		return
+		return nil, huma.Error400BadRequest("failed to create request: " + err.Error())
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("User-Agent", "Strait-Webhook-Test/1.0")
-
 	if req.Secret != "" {
 		ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
 		payload := append([]byte(ts+"."), testPayload...)
@@ -54,54 +55,49 @@ func (s *Server) handleTestWebhook(w http.ResponseWriter, r *http.Request) {
 		httpReq.Header.Set("X-Strait-Timestamp", ts)
 		httpReq.Header.Set("X-Strait-Signature", "v1="+sig)
 	}
-
 	start := time.Now()
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(httpReq)
 	latencyMs := time.Since(start).Milliseconds()
 	if err != nil {
-		respondJSON(w, http.StatusOK, map[string]any{
+		return &TestWebhookOutput{Body: map[string]any{
 			"success":    false,
 			"error":      err.Error(),
 			"latency_ms": latencyMs,
-		})
-		return
+		}}, nil
 	}
 	defer resp.Body.Close()
-
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	respondJSON(w, http.StatusOK, map[string]any{
+	return &TestWebhookOutput{Body: map[string]any{
 		"success":       resp.StatusCode >= 200 && resp.StatusCode < 300,
 		"status_code":   resp.StatusCode,
 		"latency_ms":    latencyMs,
 		"response_body": string(body),
-	})
+	}}, nil
 }
 
-func (s *Server) handleReplayWebhookDelivery(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+type ReplayWebhookDeliveryInput struct {
+	ID string `path:"id"`
+}
 
-	original, err := s.store.GetWebhookDelivery(r.Context(), id)
+type ReplayWebhookDeliveryOutput struct {
+	Body any
+}
+
+func (s *Server) handleReplayWebhookDelivery(ctx context.Context, input *ReplayWebhookDeliveryInput) (*ReplayWebhookDeliveryOutput, error) {
+	original, err := s.store.GetWebhookDelivery(ctx, input.ID)
 	if err != nil {
-		respondError(w, r, http.StatusNotFound, "webhook delivery not found")
-		return
+		return nil, huma.Error404NotFound("webhook delivery not found")
 	}
-
-	// Verify the delivery belongs to the caller's project via its associated job.
 	if original.JobID != "" {
-		job, jobErr := s.store.GetJob(r.Context(), original.JobID)
-		if jobErr != nil || job == nil || job.ProjectID != projectIDFromContext(r.Context()) {
-			respondError(w, r, http.StatusNotFound, "webhook delivery not found")
-			return
+		job, jobErr := s.store.GetJob(ctx, original.JobID)
+		if jobErr != nil || job == nil || job.ProjectID != projectIDFromContext(ctx) {
+			return nil, huma.Error404NotFound("webhook delivery not found")
 		}
 	}
-
-	// Clone the delivery at the store layer so the original payload is preserved.
-	replay, err := s.store.ReplayWebhookDelivery(r.Context(), id)
+	replay, err := s.store.ReplayWebhookDelivery(ctx, input.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create replay delivery")
-		return
+		return nil, huma.Error500InternalServerError("failed to create replay delivery")
 	}
-
-	respondJSON(w, http.StatusCreated, replay)
+	return &ReplayWebhookDeliveryOutput{Body: replay}, nil
 }

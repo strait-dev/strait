@@ -43,7 +43,7 @@ func ListInstalled(dir string) ([]InstalledPlugin, error) {
 		}
 
 		manifestPath := filepath.Join(dir, entry.Name(), "strait-plugin.json")
-		data, err := os.ReadFile(manifestPath) //nolint:gosec // extension dir from config
+		data, err := os.ReadFile(manifestPath)
 		if err != nil {
 			continue
 		}
