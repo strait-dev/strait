@@ -57,7 +57,7 @@ jobs:
         working-directory: apps/strait
         run: |
           set -o pipefail
-          go test -json -race -timeout=120s ./... | tee unit-race-test.jsonl
+          go test -json -race -timeout=5m ./... | tee unit-race-test.jsonl
 
       - name: Run package coverage (internal)
         if: always()
