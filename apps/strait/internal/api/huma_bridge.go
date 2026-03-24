@@ -286,3 +286,36 @@ func newValidationError(err error) error {
 		},
 	}
 }
+
+// OpMeta holds OpenAPI operation metadata used by RegisterTypedOp.
+type OpMeta struct {
+	ID          string
+	Method      string
+	Path        string
+	Summary     string
+	Description string
+	Tags        []string
+	Security    []map[string][]string
+	Errors      []int
+}
+
+var bearerSecurity = []map[string][]string{{"bearerAuth": {}}}
+
+// RegisterTypedOp registers a Huma doc-only operation using the real handler's
+// Input/Output types. This eliminates the need for separate stub types in
+// huma_operations.go -- the OpenAPI spec is generated directly from the types
+// the actual handler uses.
+func RegisterTypedOp[I any, O any](api huma.API, meta OpMeta, _ func(context.Context, *I) (*O, error)) {
+	huma.Register(api, huma.Operation{
+		OperationID: meta.ID,
+		Method:      meta.Method,
+		Path:        meta.Path,
+		Summary:     meta.Summary,
+		Description: meta.Description,
+		Tags:        meta.Tags,
+		Security:    meta.Security,
+		Errors:      meta.Errors,
+	}, func(_ context.Context, _ *I) (*O, error) {
+		return nil, nil //nolint:nilnil // doc-only stub for OpenAPI generation
+	})
+}

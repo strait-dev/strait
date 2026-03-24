@@ -101,6 +101,7 @@ func (s *Server) routes() chi.Router {
 	// Separate Huma router for OpenAPI generation only.
 	humaRouter := chi.NewRouter()
 	s.humaAPI = humachi.New(humaRouter, humaConfig)
+	registerAllTypedOps(s.humaAPI, s)
 	s.registerHumaOperations(s.humaAPI)
 	s.cachedOpenAPISpec, _ = s.humaAPI.OpenAPI().MarshalJSON()
 
