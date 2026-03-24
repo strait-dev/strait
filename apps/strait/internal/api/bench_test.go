@@ -119,6 +119,55 @@ func BenchmarkHandleBulkTrigger(b *testing.B) {
 	})
 }
 
+func BenchmarkHandleBulkTrigger_500Items(b *testing.B) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return benchmarkJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueBatchFn: func(_ context.Context, runs []*domain.JobRun) (int64, error) {
+			return int64(len(runs)), nil
+		},
+	}
+	srv := NewServer(ServerDeps{
+		Config: benchmarkConfig(),
+		Store:  ms,
+		Queue:  mq,
+	})
+	b.Cleanup(srv.Close)
+
+	// Build a 500-item JSON body.
+	var sb strings.Builder
+	sb.WriteString(`{"items":[`)
+	for i := range 500 {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{}`)
+	}
+	sb.WriteString(`]}`)
+	body := sb.String()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", strings.NewReader(body))
+			r.Header.Set("X-Internal-Secret", "test-secret")
+			r.Header.Set("Content-Type", "application/json")
+			srv.ServeHTTP(w, r)
+			if w.Code != http.StatusCreated {
+				b.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+			}
+		}
+	})
+}
+
 func BenchmarkHandleBulkCancel(b *testing.B) {
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
