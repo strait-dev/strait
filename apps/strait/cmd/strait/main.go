@@ -311,6 +311,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 		webhook.WithMaxPayloadBytes(cfg.WebhookMaxPayloadBytes),
 		webhook.WithConcurrency(cfg.WebhookConcurrency),
 		webhook.WithChExporter(chExporter),
+		webhook.WithHTTPTransport(cfg.WebhookTimeout, cfg.WebhookIdleConnTimeout, cfg.WebhookMaxIdleConns, cfg.WebhookMaxIdleConnsPerHost),
+		webhook.WithBatchByURL(cfg.WebhookBatchEnabled),
+		webhook.WithMaxBatchSize(cfg.WebhookMaxBatchSize),
 	)
 	eventNotifier := webhook.NewEventNotifier(queries, slog.Default(), webhookOptions...)
 
