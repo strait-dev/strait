@@ -721,5 +721,5 @@ func TestCompleteRunWithWebhook_NilFields(t *testing.T) {
 
 // slogDiscard returns a logger that discards all output.
 func slogDiscard() *slog.Logger {
-	return slog.Default()
+	return slog.New(slog.DiscardHandler)
 }

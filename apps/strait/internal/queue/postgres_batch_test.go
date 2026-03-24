@@ -2,7 +2,8 @@ package queue
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -225,7 +226,7 @@ func TestEnqueueBatch_PastScheduledAt_StatusQueued(t *testing.T) {
 func TestEnqueueBatch_CopyFromError(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{
-		copyFromErr: fmt.Errorf("copy protocol error"),
+		copyFromErr: errors.New("copy protocol error"),
 	}
 	q := NewPostgresQueue(db)
 
@@ -283,7 +284,7 @@ func TestEnqueueBatch_PgNotifyFailure_NonFatal(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{
 		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
-			return pgconn.NewCommandTag(""), fmt.Errorf("pg_notify failed")
+			return pgconn.NewCommandTag(""), errors.New("pg_notify failed")
 		},
 	}
 	q := NewPostgresQueue(db)
@@ -349,7 +350,7 @@ func TestEnqueueBatch_LargeBatch_100Runs(t *testing.T) {
 		runs[i] = &domain.JobRun{
 			JobID:     "job-1",
 			ProjectID: "proj-1",
-			Tags:      map[string]string{"index": fmt.Sprintf("%d", i)},
+			Tags:      map[string]string{"index": strconv.Itoa(i)},
 		}
 	}
 

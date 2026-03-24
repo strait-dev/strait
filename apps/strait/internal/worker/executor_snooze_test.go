@@ -29,7 +29,8 @@ func newSnoozeTestExecutor(t *testing.T, store *mockExecutorStore, maxSnoozeCoun
 }
 
 // collectEvents subscribes a test subscriber that collects events into a slice.
-// Returns a function that returns collected events (thread-safe).
+// Returns a function that polls until at least one event arrives (or 2s timeout),
+// then returns all collected events. Thread-safe.
 func collectEvents(exec *Executor) func() []RunLifecycleEvent {
 	var mu sync.Mutex
 	var events []RunLifecycleEvent
@@ -42,13 +43,32 @@ func collectEvents(exec *Executor) func() []RunLifecycleEvent {
 	go exec.runEventLoop()
 
 	return func() []RunLifecycleEvent {
-		// Give the event loop a moment to process.
-		time.Sleep(10 * time.Millisecond)
-		mu.Lock()
-		defer mu.Unlock()
-		out := make([]RunLifecycleEvent, len(events))
-		copy(out, events)
-		return out
+		deadline := time.After(2 * time.Second)
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				mu.Lock()
+				n := len(events)
+				mu.Unlock()
+				if n > 0 {
+					// Drain a tiny bit more to catch concurrent emits.
+					time.Sleep(2 * time.Millisecond)
+					mu.Lock()
+					out := make([]RunLifecycleEvent, len(events))
+					copy(out, events)
+					mu.Unlock()
+					return out
+				}
+			case <-deadline:
+				mu.Lock()
+				out := make([]RunLifecycleEvent, len(events))
+				copy(out, events)
+				mu.Unlock()
+				return out
+			}
+		}
 	}
 }
 
@@ -138,59 +158,48 @@ func TestSnoozeRun_SetsRetryAt(t *testing.T) {
 	}
 }
 
-func TestSnoozeRun_NilRetryAt(t *testing.T) {
+func TestSnoozeRun_FieldsMap(t *testing.T) {
 	t.Parallel()
 	store := &mockExecutorStore{}
 	exec := newSnoozeTestExecutor(t, store, 0)
 
-	run := testRun(1)
-	run.Status = domain.StatusDequeued
-	exec.snoozeRun(context.Background(), run, "circuit breaker open", nil)
-
-	calls := store.statusUpdates()
-	retryAt, _ := calls[0].fields["next_retry_at"].(*time.Time)
-	if retryAt != nil {
-		t.Fatalf("expected nil next_retry_at, got %v", retryAt)
-	}
-}
-
-func TestSnoozeRun_ClearsStartedAndFinished(t *testing.T) {
-	t.Parallel()
-	store := &mockExecutorStore{}
-	exec := newSnoozeTestExecutor(t, store, 0)
-
-	run := testRun(1)
-	run.Status = domain.StatusDequeued
-	exec.snoozeRun(context.Background(), run, "circuit breaker open", nil)
-
-	calls := store.statusUpdates()
-	f := calls[0].fields
-	if f["started_at"] != nil {
-		t.Fatalf("expected started_at=nil, got %v", f["started_at"])
-	}
-	if f["finished_at"] != nil {
-		t.Fatalf("expected finished_at=nil, got %v", f["finished_at"])
-	}
-}
-
-func TestSnoozeRun_SetsTransientErrorClass(t *testing.T) {
-	t.Parallel()
-	store := &mockExecutorStore{}
-	exec := newSnoozeTestExecutor(t, store, 0)
-
-	run := testRun(1)
-	run.Status = domain.StatusDequeued
 	reason := "circuit breaker open for endpoint"
+	run := testRun(1)
+	run.Status = domain.StatusDequeued
 	exec.snoozeRun(context.Background(), run, reason, nil)
 
 	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 status update, got %d", len(calls))
+	}
 	f := calls[0].fields
-	if f["error_class"] != "transient" {
-		t.Fatalf("expected error_class=transient, got %v", f["error_class"])
-	}
-	if f["error"] != reason {
-		t.Fatalf("expected error=%q, got %v", reason, f["error"])
-	}
+
+	t.Run("ClearsStartedAt", func(t *testing.T) {
+		if f["started_at"] != nil {
+			t.Fatalf("expected started_at=nil, got %v", f["started_at"])
+		}
+	})
+	t.Run("ClearsFinishedAt", func(t *testing.T) {
+		if f["finished_at"] != nil {
+			t.Fatalf("expected finished_at=nil, got %v", f["finished_at"])
+		}
+	})
+	t.Run("SetsTransientErrorClass", func(t *testing.T) {
+		if f["error_class"] != "transient" {
+			t.Fatalf("expected error_class=transient, got %v", f["error_class"])
+		}
+	})
+	t.Run("SetsErrorReason", func(t *testing.T) {
+		if f["error"] != reason {
+			t.Fatalf("expected error=%q, got %v", reason, f["error"])
+		}
+	})
+	t.Run("NilRetryAt", func(t *testing.T) {
+		retryAt, _ := f["next_retry_at"].(*time.Time)
+		if retryAt != nil {
+			t.Fatalf("expected nil next_retry_at, got %v", retryAt)
+		}
+	})
 }
 
 func TestSnoozeRun_MaxSnoozeExceeded_SystemFails(t *testing.T) {

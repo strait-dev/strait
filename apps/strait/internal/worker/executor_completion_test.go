@@ -107,13 +107,17 @@ func TestCompleteRunWithWebhook_WithTxPool_WithWebhook(t *testing.T) {
 		t.Fatal("expected transaction to be started")
 	}
 
-	// The error comes from UpdateRunStatus executing SQL against our mock tx
-	// which returns an empty row. This verifies the tx path was taken.
+	// The tx path executes real SQL against our mock tx, which returns a mock row
+	// that fails on Scan. An error here confirms the transaction path was taken.
 	if err == nil {
-		// If no error, the mock happened to satisfy the query (unlikely but acceptable).
-		return
+		t.Fatal("expected error from SQL execution inside tx (confirms tx path was taken)")
 	}
-	// Error is expected from the SQL execution inside the tx.
+
+	// The plain store path should NOT have been called — the tx path was used.
+	calls := store.statusUpdates()
+	if len(calls) != 0 {
+		t.Fatalf("expected 0 plain store calls (tx path should be used), got %d", len(calls))
+	}
 }
 
 func TestCompleteRunWithWebhook_TxBeginError(t *testing.T) {
@@ -315,22 +319,14 @@ func (m *mockTxBeginner) Begin(_ context.Context) (pgx.Tx, error) {
 }
 
 // mockPgxTx is a minimal pgx.Tx implementation for testing the transaction path.
-type mockPgxTx struct {
-	commitCalled   bool
-	rollbackCalled bool
-}
+type mockPgxTx struct{}
 
 func (m *mockPgxTx) Begin(_ context.Context) (pgx.Tx, error) {
 	return &mockPgxTx{}, nil
 }
-func (m *mockPgxTx) Commit(_ context.Context) error {
-	m.commitCalled = true
-	return nil
-}
-func (m *mockPgxTx) Rollback(_ context.Context) error {
-	m.rollbackCalled = true
-	return nil
-}
+func (m *mockPgxTx) Commit(_ context.Context) error { return nil }
+
+func (m *mockPgxTx) Rollback(_ context.Context) error { return nil }
 func (m *mockPgxTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
 	return 0, nil
 }
