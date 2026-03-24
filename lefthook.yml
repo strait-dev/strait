@@ -59,19 +59,6 @@ pre-commit:
       run: cd packages/rust-sdk && cargo clippy -- -D warnings
       fail_text: "Rust SDK clippy failed — run 'cargo clippy --fix' in packages/rust-sdk"
 
-    # --- Go SDK ---
-    go_sdk_vet:
-      run: cd packages/go-sdk && go vet ./...
-      fail_text: "Go SDK vet failed — run 'go vet ./...' in packages/go-sdk"
-
-    # --- Python SDK ---
-    python_sdk_lint:
-      run: cd packages/python-sdk && ruff check strait/ tests/
-      fail_text: "Python SDK lint failed — run 'ruff check strait/ tests/' in packages/python-sdk"
-    python_sdk_typecheck:
-      run: cd packages/python-sdk && mypy strait/
-      fail_text: "Python SDK typecheck failed — run 'mypy strait/' in packages/python-sdk"
-
 commit-msg:
   commands:
     conventional_commits:

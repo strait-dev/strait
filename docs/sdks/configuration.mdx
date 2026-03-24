@@ -3,7 +3,7 @@ title: "Configuration"
 description: "Universal strait.json config file shared by all SDKs and the CLI."
 ---
 
-Strait uses a universal `strait.json` configuration file that all five SDKs and the CLI can read. This replaces the TypeScript-specific `strait.config.ts` file (now deprecated).
+Strait uses a universal `strait.json` configuration file that all SDKs and the [CLI](https://github.com/strait-dev/cli) can read. This replaces the TypeScript-specific `strait.config.ts` file (now deprecated).
 
 ## Getting Started
 
@@ -145,7 +145,7 @@ CLI flags  >  env vars  >  CLI profile context  >  strait.json
   ```
 
   ```go Go
-  import strait "github.com/strait-dev/go-sdk"
+  import strait "github.com/strait-dev/strait-go"
 
   // Auto-discovers strait.json in cwd
   client, err := strait.NewClientFromFile(nil)

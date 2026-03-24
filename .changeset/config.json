@@ -3,7 +3,7 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "fixed": [
-    ["@strait/ts", "strait-python", "strait-go", "strait-ruby", "strait-sdk-rust"]
+    ["@strait/ts", "strait-ruby", "strait-sdk-rust"]
   ],
   "access": "public",
   "baseBranch": "master",

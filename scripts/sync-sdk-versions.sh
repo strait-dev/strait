@@ -12,11 +12,6 @@ VERSION=$(node -p "require('$ROOT_DIR/packages/typescript-sdk/package.json').ver
 
 echo "Syncing SDK versions to $VERSION"
 
-# Python — pyproject.toml
-sed -i.bak -E "s/^version = \".*\"/version = \"$VERSION\"/" \
-  "$ROOT_DIR/packages/python-sdk/pyproject.toml"
-rm -f "$ROOT_DIR/packages/python-sdk/pyproject.toml.bak"
-
 # Ruby — lib/strait/version.rb
 sed -i.bak -E "s/VERSION = \".*\"/VERSION = \"$VERSION\"/" \
   "$ROOT_DIR/packages/ruby-sdk/lib/strait/version.rb"
@@ -26,7 +21,5 @@ rm -f "$ROOT_DIR/packages/ruby-sdk/lib/strait/version.rb.bak"
 sed -i.bak -E '0,/^version = ".*"/{s/^version = ".*"/version = "'"$VERSION"'"/}' \
   "$ROOT_DIR/packages/rust-sdk/Cargo.toml"
 rm -f "$ROOT_DIR/packages/rust-sdk/Cargo.toml.bak"
-
-# Go — uses git tags (go-sdk/vX.Y.Z), no file to update
 
 echo "All SDK versions synced to $VERSION"

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Publishes all 5 SDKs to their respective registries.
-# Called by the release workflow after the "Version Packages" PR is merged.
+# Publishes monorepo SDKs to their respective registries.
+# Python and Go SDKs have moved to dedicated repositories:
+#   - Python: https://github.com/strait-dev/strait-python
+#   - Go:     https://github.com/strait-dev/strait-go
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -15,25 +17,13 @@ echo "--- Publishing TypeScript SDK to npm ---"
 cd "$ROOT_DIR/packages/typescript-sdk"
 npm publish --access public
 
-# 2. Python → PyPI
-echo "--- Publishing Python SDK to PyPI ---"
-cd "$ROOT_DIR/packages/python-sdk"
-python -m build
-twine upload dist/*
-
-# 3. Go → git tag
-echo "--- Tagging Go SDK ---"
-cd "$ROOT_DIR"
-git tag "go-sdk/v${VERSION}"
-git push origin "go-sdk/v${VERSION}"
-
-# 4. Ruby → RubyGems
+# 2. Ruby → RubyGems
 echo "--- Publishing Ruby SDK to RubyGems ---"
 cd "$ROOT_DIR/packages/ruby-sdk"
 gem build strait.gemspec
 gem push strait-"${VERSION}".gem
 
-# 5. Rust → crates.io
+# 3. Rust → crates.io
 echo "--- Publishing Rust SDK to crates.io ---"
 cd "$ROOT_DIR/packages/rust-sdk"
 cargo publish

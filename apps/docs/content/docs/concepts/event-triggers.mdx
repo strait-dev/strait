@@ -369,9 +369,10 @@ curl -X POST https://strait.dev/v1/events/purge \
 
 ## SDK Client Libraries
 
-Official SDK packages now live under `packages/` in this repository:
+Official SDKs:
 - TypeScript: `packages/typescript-sdk` (`@strait/ts`)
-- Python scaffold: `packages/python-sdk`
+- Python: [strait-dev/strait-python](https://github.com/strait-dev/strait-python)
+- Go: [strait-dev/strait-go](https://github.com/strait-dev/strait-go)
 
 ### TypeScript
 
@@ -404,11 +405,12 @@ const resolved = await eventClient.operationsPromise.postV1EventsByEventKeySend(
 ### Python
 
 ```python
-# Python SDK is scaffold-only in this phase.
-# See packages/python-sdk for current status and roadmap.
-```
+from strait import Client
 
-TypeScript currently provides full API coverage. Python/Go packages are scaffold placeholders pending parity implementation.
+client = Client.from_file()
+
+# See https://github.com/strait-dev/strait-python for full usage
+```
 ## Reconciliation
 
 A background reconciliation reaper runs every 30 seconds to catch edge cases:

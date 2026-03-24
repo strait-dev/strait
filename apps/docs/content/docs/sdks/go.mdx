@@ -3,12 +3,12 @@ title: "Go SDK"
 description: "Go SDK with functional options, typed errors, and full API coverage."
 ---
 
-The Go SDK (`github.com/strait-dev/go-sdk`) uses the functional options pattern and provides full API coverage across 5 packages.
+The Go SDK (`github.com/strait-dev/strait-go`) uses the functional options pattern and provides full API coverage across 5 packages.
 
 ## Installation
 
 ```bash
-go get github.com/strait-dev/go-sdk
+go get github.com/strait-dev/strait-go
 ```
 
 ## Client Creation
@@ -16,7 +16,7 @@ go get github.com/strait-dev/go-sdk
 ### From `strait.json` (recommended)
 
 ```go
-import strait "github.com/strait-dev/go-sdk"
+import strait "github.com/strait-dev/strait-go"
 
 client, err := strait.NewClientFromFile(nil)
 ```
@@ -75,8 +75,8 @@ Operations are organized into service packages under `operations/`:
 ```go
 import (
     "context"
-    strait "github.com/strait-dev/go-sdk"
-    "github.com/strait-dev/go-sdk/operations"
+    strait "github.com/strait-dev/strait-go"
+    "github.com/strait-dev/strait-go/operations"
 )
 
 client, _ := strait.NewClientFromFile(nil)
@@ -108,7 +108,7 @@ run, err := jobs.Trigger(ctx, "job_abc", map[string]any{
 ### Defining jobs
 
 ```go
-import "github.com/strait-dev/go-sdk/authoring"
+import "github.com/strait-dev/strait-go/authoring"
 
 type Payload struct {
     SKU string `json:"sku"`
@@ -151,7 +151,7 @@ wf := authoring.DefineWorkflow(authoring.WorkflowOptions[Payload]{
 ## Composition Helpers
 
 ```go
-import "github.com/strait-dev/go-sdk/composition"
+import "github.com/strait-dev/strait-go/composition"
 
 // Retry with backoff
 result, err := composition.WithRetry(ctx, func() (string, error) {
@@ -170,7 +170,7 @@ run, err := composition.WaitForRun(ctx, getRun, getStatus, "run_123", nil)
 ## FSM State Machines
 
 ```go
-import "github.com/strait-dev/go-sdk/fsm"
+import "github.com/strait-dev/strait-go/fsm"
 
 fsm.CanTransitionRun(fsm.RunExecuting, fsm.RunEventComplete)  // true
 fsm.IsTerminalRunStatus(fsm.RunCompleted)                       // true
@@ -252,8 +252,8 @@ if err != nil {
 
 | Package | Import | Description |
 |---|---|---|
-| `strait` | `github.com/strait-dev/go-sdk` | Client, config, errors, HTTP, middleware |
-| `authoring` | `github.com/strait-dev/go-sdk/authoring` | DefineJob, DefineWorkflow, steps, DAG validation |
-| `composition` | `github.com/strait-dev/go-sdk/composition` | Result, retry, wait, paginate, deployments |
-| `fsm` | `github.com/strait-dev/go-sdk/fsm` | Run, workflow, step state machines |
-| `operations` | `github.com/strait-dev/go-sdk/operations` | Domain services for all API endpoints |
+| `strait` | `github.com/strait-dev/strait-go` | Client, config, errors, HTTP, middleware |
+| `authoring` | `github.com/strait-dev/strait-go/authoring` | DefineJob, DefineWorkflow, steps, DAG validation |
+| `composition` | `github.com/strait-dev/strait-go/composition` | Result, retry, wait, paginate, deployments |
+| `fsm` | `github.com/strait-dev/strait-go/fsm` | Run, workflow, step state machines |
+| `operations` | `github.com/strait-dev/strait-go/operations` | Domain services for all API endpoints |
