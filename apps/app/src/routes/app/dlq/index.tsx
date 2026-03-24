@@ -30,7 +30,7 @@ import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import { dlqColumns } from "@/components/tables/dlq-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import type { JobRun } from "@/hooks/api/types";
+import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
   dlqQueryOptions,
   useBulkDiscardDlq,
@@ -83,7 +83,8 @@ function DlqPage() {
   const bulkRetry = useBulkRetryDlq();
   const bulkDiscard = useBulkDiscardDlq();
 
-  const tableData = hasProject ? (data?.data ?? []) : [];
+  const typed = data as PaginatedResponse<JobRun> | undefined;
+  const tableData = hasProject ? (typed?.data ?? []) : [];
 
   const table = useReactTable({
     data: tableData,

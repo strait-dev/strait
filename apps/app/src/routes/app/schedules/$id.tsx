@@ -26,6 +26,7 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import StatusBadge from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import { jobQueryOptions } from "@/hooks/api/use-jobs";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import {
@@ -53,8 +54,12 @@ export const Route = createFileRoute("/app/schedules/$id")({
 
 function ScheduleDetailPage() {
   const { id } = Route.useParams();
-  const { data: job } = useSuspenseQuery(jobQueryOptions(id));
-  const { data: runs } = useSuspenseQuery(runsQueryOptions());
+  const { data: job } = useSuspenseQuery(jobQueryOptions(id)) as {
+    data: Job | undefined;
+  };
+  const { data: runs } = useSuspenseQuery(runsQueryOptions()) as {
+    data: PaginatedResponse<JobRun> | undefined;
+  };
   const [activeTab, setActiveTab] = useState("history");
 
   const runsTable = useReactTable({

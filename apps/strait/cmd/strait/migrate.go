@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strconv"
 
-	"strait/internal/cli/styles"
 	"strait/migrations"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -19,14 +18,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newMigrateCommand(state *appState) *cobra.Command {
+func newMigrateCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "migrate",
 		Short: "Manage database migrations",
 	}
 
 	cmd.AddCommand(newMigrateUpCommand())
-	cmd.AddCommand(newMigrateDownCommand(state))
+	cmd.AddCommand(newMigrateDownCommand())
 	cmd.AddCommand(newMigrateStatusCommand())
 	cmd.AddCommand(newMigrateCreateCommand())
 
@@ -59,8 +58,8 @@ func newMigrateCreateCommand() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintln(os.Stderr, styles.Success("Created "+styles.FilePath(upPath)))
-			fmt.Fprintln(os.Stderr, styles.Success("Created "+styles.FilePath(downPath)))
+			fmt.Fprintf(os.Stderr, "Created %s\n", upPath)
+			fmt.Fprintf(os.Stderr, "Created %s\n", downPath)
 			return nil
 		},
 	}
@@ -84,7 +83,7 @@ func newMigrateUpCommand() *cobra.Command {
 				if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 					return fmt.Errorf("apply migrations: %w", err)
 				}
-				fmt.Fprintln(os.Stderr, styles.Success("Migrations up complete"))
+				fmt.Fprintln(os.Stderr, "Migrations up complete")
 				return nil
 			}
 
@@ -95,7 +94,7 @@ func newMigrateUpCommand() *cobra.Command {
 			if err := m.Steps(count); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 				return fmt.Errorf("apply migrations: %w", err)
 			}
-			fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Applied %d migration(s)", count)))
+			fmt.Fprintf(os.Stderr, "Applied %d migration(s)\n", count)
 			return nil
 		},
 	}
@@ -103,7 +102,7 @@ func newMigrateUpCommand() *cobra.Command {
 	return cmd
 }
 
-func newMigrateDownCommand(state *appState) *cobra.Command {
+func newMigrateDownCommand() *cobra.Command {
 	var yes bool
 
 	cmd := &cobra.Command{
@@ -116,8 +115,8 @@ func newMigrateDownCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if err := requireConfirmation(state, fmt.Sprintf("Roll back %d migration(s)?", count), yes); err != nil {
-				return err
+			if !yes {
+				return fmt.Errorf("use --yes to confirm rollback of %d migration(s)", count)
 			}
 
 			m, err := openMigratorFromEnv()
@@ -129,7 +128,7 @@ func newMigrateDownCommand(state *appState) *cobra.Command {
 			if err := m.Steps(-count); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 				return fmt.Errorf("rollback migrations: %w", err)
 			}
-			fmt.Fprintln(os.Stderr, styles.Success(fmt.Sprintf("Rolled back %d migration(s)", count)))
+			fmt.Fprintf(os.Stderr, "Rolled back %d migration(s)\n", count)
 			return nil
 		},
 	}

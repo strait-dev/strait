@@ -25,7 +25,7 @@ const ProjectSettings = ({ projectId }: Props) => {
   );
   const updateSettings = useUpdateProjectSettings();
 
-  const regions = regionsResponse?.data ?? [];
+  const regions = regionsResponse?.regions ?? [];
 
   return (
     <div className="space-y-6">
@@ -49,7 +49,7 @@ const ProjectSettings = ({ projectId }: Props) => {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {regions.map((region) => {
               const isAvailable =
-                region.availability[settings.plan_tier] === true;
+                region.availability?.[settings.plan_tier] === true;
               const isSelected = settings.default_region === region.code;
 
               let borderClass = "cursor-not-allowed border-border opacity-50";

@@ -4,7 +4,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { ListParams } from "@/hooks/api/types";
+import type { Job, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { fetchJobs, triggerJobFn, updateJobFn } from "@/hooks/api/use-jobs";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
@@ -28,7 +28,23 @@ export const usePauseSchedule = () => {
     mutationKey: ["schedules", "pause"],
     mutationFn: (data: { id: string }) =>
       updateJobFn({ data: { id: data.id, enabled: false } }),
-    onSuccess: () => {
+    onMutate: async (data) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.schedules._def });
+
+      queryClient.setQueriesData<PaginatedResponse<Job>>(
+        { queryKey: queryKeys.schedules.list._def },
+        (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.map((job) =>
+                  job.id === data.id ? { ...job, enabled: false } : job
+                ),
+              }
+            : old
+      );
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
     },
@@ -41,7 +57,23 @@ export const useResumeSchedule = () => {
     mutationKey: ["schedules", "resume"],
     mutationFn: (data: { id: string }) =>
       updateJobFn({ data: { id: data.id, enabled: true } }),
-    onSuccess: () => {
+    onMutate: async (data) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.schedules._def });
+
+      queryClient.setQueriesData<PaginatedResponse<Job>>(
+        { queryKey: queryKeys.schedules.list._def },
+        (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.map((job) =>
+                  job.id === data.id ? { ...job, enabled: true } : job
+                ),
+              }
+            : old
+      );
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
     },
@@ -53,7 +85,7 @@ export const useTriggerSchedule = () => {
   return useMutation({
     mutationKey: ["schedules", "trigger"],
     mutationFn: (data: { id: string }) => triggerJobFn({ data }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });
     },
   });

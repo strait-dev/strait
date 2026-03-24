@@ -10,7 +10,11 @@ type ListRunsSearch = ListParams & {
 type ListSchedulesSearch = ListParams & { status?: string };
 type ListWorkflowsSearch = ListParams & { search?: string };
 type ListWebhooksSearch = ListParams;
-type ListEventsSearch = ListParams & { type?: string; search?: string };
+type ListEventsSearch = ListParams & {
+  status?: string;
+  workflow_run_id?: string;
+  source_type?: string;
+};
 type ListDlqSearch = ListParams & { search?: string };
 
 /**

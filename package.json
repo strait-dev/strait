@@ -27,7 +27,7 @@
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo run clean",
     "run-all": "bun run manypkg:fix && bun run manypkg:check && bun run biome:format && bun run biome:write && bun run biome:fix:unsafe && bun run biome:lint && bun run typecheck",
-    "sdk:run-all": "bun run --filter @strait/ts run-all && make -C packages/go-sdk run-all && make -C packages/python-sdk run-all",
+    "sdk:run-all": "bun run --filter @strait/ts run-all",
     "update-all": "bunx npm-check-updates -ui -ws",
     "release": "changeset version && bash scripts/sync-sdk-versions.sh",
     "deploy": "cd apps/strait && make deploy",
@@ -38,9 +38,10 @@
     "@biomejs/biome": "2.4.8",
     "@changesets/cli": "^2.30.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260323.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260324.1",
     "knip": "^6.0.4",
     "lefthook": "^2.1.4",
+    "openapi-typescript": "^7.13.0",
     "turbo": "^2.8.20",
     "ultracite": "7.3.2"
   }

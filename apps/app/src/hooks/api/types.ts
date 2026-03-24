@@ -1,9 +1,18 @@
 // Canonical frontend types for the orchestration data model.
-// Field names use snake_case to match Go JSON tags exactly — no mapping layer needed.
-// All timestamps are ISO 8601 strings; nullable Go *time.Time maps to string | null.
+// Entity types are derived from the Huma-generated OpenAPI schema where available.
+// Run `bun run generate:api` to regenerate the schema from the live Go API.
 
-/** JSON-safe value type for fields that can hold arbitrary JSON. */
-type JsonValue = Record<string, never> | string | number | boolean | null;
+import type { components } from "@/lib/api/schema";
+
+// ---------------------------------------------------------------------------
+// Schema type alias for convenience
+// ---------------------------------------------------------------------------
+
+type Schema = components["schemas"];
+
+// ---------------------------------------------------------------------------
+// Enums & union types
+// ---------------------------------------------------------------------------
 
 /** Matches Go domain.RunStatus constants. */
 export type RunStatus =
@@ -19,8 +28,7 @@ export type RunStatus =
   | "system_failed"
   | "canceled"
   | "expired"
-  | "dead_letter"
-  | "replay_staged";
+  | "dead_letter";
 
 /** How a run or workflow run was triggered. */
 export type TriggerType = "manual" | "cron" | "spawn" | "workflow" | "retry";
@@ -77,131 +85,68 @@ export type RetryBackoffPolicy = "exponential" | "fixed";
 /** Matches Go domain.CircuitState. */
 export type CircuitState = "closed" | "open" | "half_open";
 
-/** Timing breakdown for a job run execution. Matches Go domain.ExecutionTrace. */
-export type ExecutionTrace = {
-  queue_wait_ms: number;
-  dequeue_ms: number;
-  connect_ms: number;
-  ttfb_ms: number;
-  transfer_ms: number;
-  total_ms: number;
-  dispatch_ms: number;
-};
+// ---------------------------------------------------------------------------
+// Entity types — derived from Huma-generated OpenAPI component schemas
+// ---------------------------------------------------------------------------
+
+/** Timing breakdown for a job run execution. */
+export type ExecutionTrace = Schema["ExecutionTrace"];
 
 /** Rate limit key config embedded in Job. */
-export type RateLimitKey = {
-  name: string;
-  max: number;
-  window_secs: number;
-};
+export type RateLimitKey = Schema["RateLimitKey"];
 
-/** Job definition. Matches Go domain.Job. */
-export type Job = {
-  id: string;
-  project_id: string;
-  group_id: string;
-  name: string;
-  slug: string;
-  description: string;
-  cron: string;
-  payload_schema: JsonValue;
-  tags: Record<string, string>;
-  endpoint_url: string;
-  fallback_endpoint_url: string;
-  max_attempts: number;
-  timeout_secs: number;
-  max_concurrency: number;
-  max_concurrency_per_key: number;
-  execution_window_cron: string;
-  timezone: string;
-  rate_limit_max: number;
-  rate_limit_window_secs: number;
-  rate_limit_keys: RateLimitKey[];
-  dedup_window_secs: number;
-  enabled: boolean;
-  webhook_url: string;
-  webhook_secret: string;
-  run_ttl_secs: number;
-  retry_strategy: string;
-  retry_delays_secs: number[];
-  environment_id: string;
-  default_run_metadata: Record<string, string>;
-  version: number;
-  version_id: string;
-  version_policy: VersionPolicy;
-  backwards_compatible: boolean;
-  region: string;
-  preferred_regions: string[];
-  created_by: string;
-  updated_by: string;
-  created_at: string; // ISO 8601
-  updated_at: string;
-};
+/** Job definition. */
+export type Job = Schema["Job"];
 
-/** Job run. Matches Go domain.JobRun. */
-export type JobRun = {
-  id: string;
-  job_id: string;
-  project_id: string;
-  tags: Record<string, string>;
-  status: RunStatus;
-  attempt: number;
-  payload: JsonValue;
-  result: JsonValue;
-  metadata: Record<string, string>;
-  error: string;
-  triggered_by: TriggerType;
-  scheduled_at: string | null;
-  started_at: string | null;
-  finished_at: string | null;
-  heartbeat_at: string | null;
-  next_retry_at: string | null;
-  expires_at: string | null;
-  parent_run_id: string;
-  priority: number;
-  idempotency_key: string;
-  job_version: number;
-  job_version_id: string;
-  workflow_step_run_id: string;
-  max_attempts_override: number;
-  timeout_secs_override: number;
-  retry_backoff: string;
-  retry_initial_delay_secs: number;
-  retry_max_delay_secs: number;
-  execution_trace: ExecutionTrace | null;
-  debug_mode: boolean;
-  continuation_of: string;
-  lineage_depth: number;
-  created_by: string;
-  batch_id: string;
-  concurrency_key: string;
-  created_at: string;
-};
+/** Job run. */
+export type JobRun = Schema["JobRun"];
 
-/** Job group. Matches Go domain.JobGroup. */
-export type JobGroup = {
-  id: string;
-  project_id: string;
-  name: string;
-  slug: string;
-  description: string;
-  created_at: string;
-  updated_at: string;
-};
+/** Job group. */
+export type JobGroup = Schema["JobGroup"];
 
-/** Environment. Matches Go domain.Environment. */
-export type Environment = {
-  id: string;
-  project_id: string;
-  name: string;
-  slug: string;
-  parent_id: string;
-  variables: Record<string, string>;
-  created_at: string;
-  updated_at: string;
-};
+/** Workflow step (node in a workflow DAG). */
+export type WorkflowStep = Schema["WorkflowStep"];
 
-/** Workflow DAG definition. Matches Go domain.Workflow. */
+/** Workflow run. */
+export type WorkflowRun = Schema["WorkflowRun"];
+
+/** Webhook subscription. */
+export type WebhookSubscription = Schema["WebhookSubscription"];
+
+/** Webhook delivery. */
+export type WebhookDelivery = Schema["WebhookDelivery"];
+
+/** Run event. */
+export type RunEvent = Schema["RunEvent"];
+
+/** Event trigger (durable wait). */
+export type EventTrigger = Schema["EventTrigger"];
+
+/** Project role (RBAC). */
+export type ProjectRole = Schema["ProjectRole"];
+
+/** Region metadata from GET /v1/regions. */
+export type Region = Schema["RegionResponse"];
+
+/** API key (create response includes the key field). */
+export type APIKey = Schema["CreateAPIKeyResponse"];
+
+/** Response from POST /v1/api-keys/{keyID}/rotate. */
+export type RotateAPIKeyResponse = Schema["RotateAPIKeyRequest"];
+
+// ---------------------------------------------------------------------------
+// Types not exposed as named Huma schemas (manual definitions)
+// ---------------------------------------------------------------------------
+
+/** JSON-safe value type for fields that can hold arbitrary JSON. */
+export type JsonValue =
+  | Record<string, never>
+  | string
+  | number
+  | boolean
+  | null;
+
+/** Workflow DAG definition. Extracted from WorkflowResponse. */
 export type Workflow = {
   id: string;
   project_id: string;
@@ -226,61 +171,7 @@ export type Workflow = {
   updated_at: string;
 };
 
-/** Workflow step (node in a workflow DAG). Matches Go domain.WorkflowStep. */
-export type WorkflowStep = {
-  id: string;
-  workflow_id: string;
-  job_id: string;
-  step_ref: string;
-  depends_on: string[];
-  condition: JsonValue;
-  on_failure: FailurePolicy;
-  payload: JsonValue;
-  step_type: WorkflowStepType;
-  approval_timeout_secs: number;
-  approval_approvers: string[];
-  retry_max_attempts: number;
-  retry_backoff: RetryBackoffPolicy;
-  retry_initial_delay_secs: number;
-  retry_max_delay_secs: number;
-  timeout_secs_override: number;
-  output_transform: string;
-  sub_workflow_id: string;
-  max_nesting_depth: number;
-  event_key: string;
-  event_timeout_secs: number;
-  event_notify_url: string;
-  sleep_duration_secs: number;
-  event_emit_key: string;
-  concurrency_key: string;
-  resource_class: string;
-  created_at: string;
-};
-
-/** Workflow run. Matches Go domain.WorkflowRun. */
-export type WorkflowRun = {
-  id: string;
-  workflow_id: string;
-  project_id: string;
-  tags: Record<string, string>;
-  status: WorkflowRunStatus;
-  triggered_by: TriggerType;
-  workflow_version: number;
-  max_parallel_steps: number;
-  payload: JsonValue;
-  error: string;
-  started_at: string | null;
-  finished_at: string | null;
-  expires_at: string | null;
-  retry_of_run_id: string;
-  parent_workflow_run_id: string;
-  parent_step_run_id: string;
-  workflow_version_id: string;
-  created_by: string;
-  created_at: string;
-};
-
-/** Workflow step run. Matches Go domain.WorkflowStepRun. */
+/** Workflow step run. Not a named Huma schema. */
 export type WorkflowStepRun = {
   id: string;
   workflow_run_id: string;
@@ -298,74 +189,7 @@ export type WorkflowStepRun = {
   created_at: string;
 };
 
-/** Webhook subscription. Matches Go domain.WebhookSubscription. */
-export type WebhookSubscription = {
-  id: string;
-  project_id: string;
-  webhook_url: string;
-  event_types: string[];
-  secret: string;
-  active: boolean;
-  created_at: string;
-};
-
-/** Webhook delivery. Matches Go domain.WebhookDelivery. */
-export type WebhookDelivery = {
-  id: string;
-  run_id: string;
-  job_id: string;
-  event_trigger_id: string;
-  webhook_url: string;
-  webhook_retry_policy: string;
-  status: string;
-  attempts: number;
-  max_attempts: number;
-  last_status_code: number | null;
-  last_error: string;
-  next_retry_at: string | null;
-  delivered_at: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-/** Run event. Matches Go domain.RunEvent. */
-export type RunEvent = {
-  id: string;
-  run_id: string;
-  type: EventType;
-  level: string;
-  message: string;
-  data: JsonValue;
-  created_at: string;
-};
-
-/** API key. Matches Go domain.APIKey (key_hash excluded via json:"-"). */
-export type APIKey = {
-  id: string;
-  project_id: string;
-  name: string;
-  key_prefix: string;
-  scopes: string[];
-  expires_at: string | null;
-  last_used_at: string | null;
-  created_at: string;
-  revoked_at: string | null;
-  replaced_by_key_id: string;
-  grace_expires_at: string | null;
-};
-
-/** Endpoint circuit breaker state. Matches Go domain.EndpointCircuitState. */
-export type EndpointCircuitState = {
-  endpoint_url: string;
-  state: CircuitState;
-  consecutive_failures: number;
-  opened_at: string | null;
-  half_open_until: string | null;
-  updated_at: string;
-  created_at: string;
-};
-
-/** Audit event. Matches Go domain.AuditEvent. */
+/** Audit event. Not a named Huma schema. */
 export type AuditEvent = {
   id: string;
   project_id: string;
@@ -378,40 +202,27 @@ export type AuditEvent = {
   created_at: string;
 };
 
-/** Project role (RBAC). Matches Go domain.ProjectRole. */
-export type ProjectRole = {
+/** Endpoint circuit breaker state. */
+export type EndpointCircuitState = {
+  endpoint_url: string;
+  state: CircuitState;
+  consecutive_failures: number;
+  opened_at: string | null;
+  half_open_until: string | null;
+  updated_at: string;
+  created_at: string;
+};
+
+/** Environment. Matches Go domain.Environment. */
+export type Environment = {
   id: string;
   project_id: string;
   name: string;
-  description: string;
-  permissions: string[];
-  parent_role_id: string;
-  is_system: boolean;
+  slug: string;
+  parent_id: string;
+  variables: Record<string, string>;
   created_at: string;
   updated_at: string;
-};
-
-/** Event trigger (durable wait). Matches Go domain.EventTrigger. */
-export type EventTrigger = {
-  id: string;
-  event_key: string;
-  project_id: string;
-  source_type: string;
-  workflow_run_id: string;
-  workflow_step_run_id: string;
-  job_run_id: string;
-  status: string;
-  request_payload: JsonValue;
-  response_payload: JsonValue;
-  timeout_secs: number;
-  requested_at: string;
-  received_at: string | null;
-  expires_at: string;
-  error: string;
-  notify_url: string;
-  notify_status: string;
-  trigger_type: string;
-  sent_by: string;
 };
 
 /** Union of RunStatus and WorkflowRunStatus, used by StatusBadge. */
@@ -433,22 +244,8 @@ export type ListParams = {
 /** Plan tier for region gating. Matches Go domain.PlanTier. */
 export type PlanTier = "free" | "starter" | "pro" | "enterprise";
 
-/** Region metadata from GET /v1/regions. */
-export type Region = {
-  code: string;
-  label: string;
-  city: string;
-  country: string;
-  continent: string;
-  availability: Record<PlanTier, boolean>;
-};
-
 /** Project settings from GET /v1/projects/:id/settings. */
-export type ProjectSettings = {
-  project_id: string;
-  default_region: string;
-  plan_tier: PlanTier;
-};
+export type ProjectSettings = Schema["ProjectSettingsResponse"];
 
 /** Frontend-managed project entity (stored in the auth DB). */
 export type Project = {

@@ -25,7 +25,7 @@ export const fetchWorkflows = createServerFn({ method: "GET" })
     (data: { limit?: number; cursor?: string; search?: string }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<PaginatedResponse<Workflow>> => {
     return await runWithSentryReport(
       apiEffect<PaginatedResponse<Workflow>>("/v1/workflows", {
         params: { limit: data.limit, cursor: data.cursor, search: data.search },
@@ -36,7 +36,7 @@ export const fetchWorkflows = createServerFn({ method: "GET" })
 export const fetchWorkflow = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<Workflow> => {
     return await runWithSentryReport(
       apiEffect<Workflow>(`/v1/workflows/${data.id}`)
     );
@@ -45,7 +45,8 @@ export const fetchWorkflow = createServerFn({ method: "GET" })
 export const fetchWorkflowSteps = createServerFn({ method: "GET" })
   .inputValidator((data: { workflowId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<WorkflowStep[]> => {
     const resp = await runWithSentryReport(
       apiEffect<PaginatedResponse<WorkflowStep>>(
         `/v1/workflows/${data.workflowId}/versions`,
@@ -69,7 +70,8 @@ export const fetchWorkflowRuns = createServerFn({ method: "GET" })
     (data: { workflowId: string; limit?: number; cursor?: string }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<PaginatedResponse<WorkflowRun>> => {
     return await runWithSentryReport(
       apiEffect<PaginatedResponse<WorkflowRun>>(
         `/v1/workflows/${data.workflowId}/runs`,
@@ -87,7 +89,8 @@ export const triggerWorkflowFn = createServerFn({ method: "POST" })
     }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<WorkflowRun> => {
     return await runWithSentryReport(
       apiEffect<WorkflowRun>(`/v1/workflows/${data.workflowId}/trigger`, {
         method: "POST",
@@ -99,7 +102,7 @@ export const triggerWorkflowFn = createServerFn({ method: "POST" })
 export const updateWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; enabled?: boolean }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<Workflow> => {
     const { id, ...body } = data;
     return await runWithSentryReport(
       apiEffect<Workflow>(`/v1/workflows/${id}`, {
@@ -156,8 +159,9 @@ export const useTriggerWorkflow = () => {
     mutationKey: ["workflows", "trigger"],
     mutationFn: (params: { workflowId: string; payload?: unknown }) =>
       triggerWorkflowFn({ data: params }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
     },
   });
 };
@@ -168,7 +172,42 @@ export const usePauseWorkflow = () => {
     mutationKey: ["workflows", "pause"],
     mutationFn: (params: { workflowId: string }) =>
       updateWorkflowFn({ data: { id: params.workflowId, enabled: false } }),
-    onSuccess: () => {
+    onMutate: async (params) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.workflows._def });
+
+      const previousDetail = queryClient.getQueryData<Workflow>(
+        queryKeys.workflows.detail(params.workflowId).queryKey
+      );
+
+      queryClient.setQueryData<Workflow>(
+        queryKeys.workflows.detail(params.workflowId).queryKey,
+        (old) => (old ? { ...old, enabled: false } : old)
+      );
+
+      queryClient.setQueriesData<PaginatedResponse<Workflow>>(
+        { queryKey: queryKeys.workflows.list._def },
+        (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.map((wf) =>
+                  wf.id === params.workflowId ? { ...wf, enabled: false } : wf
+                ),
+              }
+            : old
+      );
+
+      return { previousDetail };
+    },
+    onError: (_err, params, context) => {
+      if (context?.previousDetail) {
+        queryClient.setQueryData(
+          queryKeys.workflows.detail(params.workflowId).queryKey,
+          context.previousDetail
+        );
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });
     },
   });
@@ -180,7 +219,42 @@ export const useResumeWorkflow = () => {
     mutationKey: ["workflows", "resume"],
     mutationFn: (params: { workflowId: string }) =>
       updateWorkflowFn({ data: { id: params.workflowId, enabled: true } }),
-    onSuccess: () => {
+    onMutate: async (params) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.workflows._def });
+
+      const previousDetail = queryClient.getQueryData<Workflow>(
+        queryKeys.workflows.detail(params.workflowId).queryKey
+      );
+
+      queryClient.setQueryData<Workflow>(
+        queryKeys.workflows.detail(params.workflowId).queryKey,
+        (old) => (old ? { ...old, enabled: true } : old)
+      );
+
+      queryClient.setQueriesData<PaginatedResponse<Workflow>>(
+        { queryKey: queryKeys.workflows.list._def },
+        (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.map((wf) =>
+                  wf.id === params.workflowId ? { ...wf, enabled: true } : wf
+                ),
+              }
+            : old
+      );
+
+      return { previousDetail };
+    },
+    onError: (_err, params, context) => {
+      if (context?.previousDetail) {
+        queryClient.setQueryData(
+          queryKeys.workflows.detail(params.workflowId).queryKey,
+          context.previousDetail
+        );
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });
     },
   });

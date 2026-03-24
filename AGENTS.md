@@ -48,7 +48,7 @@ Start here for high-level context:
 
 Top-level directories you will use most:
 
-- `apps/strait/cmd/strait/` — CLI commands and app entrypoint wiring
+- `apps/strait/cmd/strait/` — app entrypoint wiring (CLI has moved to [strait-dev/cli](https://github.com/strait-dev/cli))
 - `apps/strait/internal/api/` — HTTP routes, middleware, API auth paths
   - `apps/strait/internal/api/sdk_resources.go` — in-container resource monitoring endpoint (`/sdk/v1/runs/{runID}/resources`)
 - `apps/strait/internal/worker/` — execution worker pool and dispatch behavior
@@ -109,9 +109,7 @@ Before implementation, read docs intentionally instead of guessing.
   - `apps/strait/internal/store/*`, `apps/strait/internal/queue/*`
 
 - **CLI changes**:
-  - `docs/cli/overview.mdx`
-  - relevant `docs/cli/*.mdx`
-  - matching files in `apps/strait/cmd/strait/*`
+  - CLI has moved to [strait-dev/cli](https://github.com/strait-dev/cli)
 
 - **Auth / security changes**:
   - `docs/guides/authentication.mdx`

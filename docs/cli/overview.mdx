@@ -1,47 +1,30 @@
 ---
-title: "CLI Overview"
-description: "Current Strait Go CLI architecture, interaction model, and command scope."
+title: "CLI"
+description: "The Strait CLI has moved to its own repository."
 ---
 
-The Strait CLI is the Go CLI shipped from `apps/strait/cmd/strait`.
+The Strait CLI now lives in a dedicated repository:
 
-The canonical implementation lives in:
-- `apps/strait/cmd/strait/`
-- `apps/strait/internal/cli/`
+**[github.com/strait-dev/cli](https://github.com/strait-dev/cli)**
 
-## Current direction
-
-> Status: Go CLI is the shipped command surface.
-
-- One CLI surface: `strait`
-- Go implementation in `apps/strait`
-- Script-safe operational commands for jobs, runs, workflows, events, deploys, and RBAC
-- Deterministic manifest builds from `strait.json` or `strait.config.yaml`/`.yml`
-- Deployment versions with create, finalize, promote, rollback, and list flows
-
-## Interaction policy
-
-> Default behavior is deterministic and automation-safe.
-
-- Non-interactive commands must remain machine-consumable.
-- `--json` output must emit a single JSON document when advertised as script-safe.
-- Interactive prompts are opt-in and must be disabled in CI or non-TTY contexts.
-
-## Current CLI baseline
-
-The Go command set in `apps/strait/cmd/strait` is the source of truth for shipped behavior.
-
-Key command groups:
-- `jobs`, `runs`, `workflows`, `workflow-runs`, `events`
-- `build`, `deploy`, `project`, `secrets`
-- `perf`, `team`, `audit`, `status`, `doctor`
+Refer to the repository README for installation, usage, and the full command reference.
 
 ## Installation
 
 ```bash
-# Build from source (from repo root)
-go build -o strait ./apps/strait/cmd/strait
+# Homebrew
+brew install strait-dev/tap/strait
 
-# Or install from the app directory
-cd apps/strait && go install ./cmd/strait
+# Or build from source
+git clone https://github.com/strait-dev/cli.git
+cd cli
+go build -o strait ./cmd/strait
 ```
+
+## Command Groups
+
+- `jobs`, `runs`, `workflows`, `workflow-runs`, `events`
+- `build`, `deploy`, `project`, `secrets`
+- `perf`, `team`, `audit`, `status`, `doctor`
+
+For full documentation, see the [CLI repository](https://github.com/strait-dev/cli).
