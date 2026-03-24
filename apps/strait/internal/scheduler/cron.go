@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"strait/internal/domain"
@@ -246,16 +247,22 @@ func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Wo
 // runs, and notifies the workflow engine.
 func (cs *CronScheduler) processCancelledRuns(ctx context.Context, jobID string, runs []store.CancelledRun) {
 	if cs.machineStopper != nil {
+		var wg sync.WaitGroup
 		for _, cr := range runs {
 			if cr.ExecutionMode == domain.ExecutionModeManaged && cr.MachineID != "" {
-				stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-				if stopErr := cs.machineStopper.Stop(stopCtx, cr.MachineID); stopErr != nil {
-					slog.Warn("failed to stop container on cron cancel",
-						"run_id", cr.ID, "machine_id", cr.MachineID, "error", stopErr)
-				}
-				stopCancel()
+				wg.Add(1)
+				go func(id, machineID string) { //nolint:gosec // detached context intentional: stop must survive parent cancel
+					defer wg.Done()
+					stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer stopCancel()
+					if stopErr := cs.machineStopper.Stop(stopCtx, machineID); stopErr != nil {
+						slog.Warn("failed to stop container on cron cancel",
+							"run_id", id, "machine_id", machineID, "error", stopErr)
+					}
+				}(cr.ID, cr.MachineID)
 			}
 		}
+		wg.Wait()
 	}
 
 	parentIDs := make([]string, len(runs))

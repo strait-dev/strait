@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -356,6 +358,7 @@ func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning(t *testing.T) {
 	enqueued := false
 	cancelCalled := false
 	var cancelReason string
+	var mu sync.Mutex
 	var stoppedMachines []string
 	childCancelCalled := false
 	wfCallbackCalled := false
@@ -388,7 +391,9 @@ func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning(t *testing.T) {
 	}
 	stopper := &mockMachineStopper{
 		stopFn: func(_ context.Context, machineID string) error {
+			mu.Lock()
 			stoppedMachines = append(stoppedMachines, machineID)
+			mu.Unlock()
 			return nil
 		},
 	}
@@ -707,7 +712,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_NilDependenciesAreGraceful(t *te
 
 func TestCronScheduler_TriggerJob_CancelRunning_MultipleManagedRuns(t *testing.T) {
 	t.Parallel()
-	// Multiple managed runs should each get a Stop call.
+	// Multiple managed runs should each get a Stop call concurrently.
+	var mu sync.Mutex
 	var stoppedMachines []string
 	enqueued := false
 	q := &mockQueue{
@@ -728,7 +734,9 @@ func TestCronScheduler_TriggerJob_CancelRunning_MultipleManagedRuns(t *testing.T
 	}
 	stopper := &mockMachineStopper{
 		stopFn: func(_ context.Context, machineID string) error {
+			mu.Lock()
 			stoppedMachines = append(stoppedMachines, machineID)
+			mu.Unlock()
 			return nil
 		},
 	}
@@ -742,6 +750,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_MultipleManagedRuns(t *testing.T
 	}
 	// Only mach-a and mach-b should be stopped (managed + non-empty machine ID).
 	// mach-c is HTTP mode, run-3 has empty machine ID.
+	// Order is non-deterministic due to concurrent stops.
+	sort.Strings(stoppedMachines)
 	if len(stoppedMachines) != 2 {
 		t.Fatalf("expected 2 stops, got %d: %v", len(stoppedMachines), stoppedMachines)
 	}
@@ -910,6 +920,51 @@ func TestCronScheduler_TriggerJob_CancelRunning_ChildCancelReceivesCorrectParent
 		if id != expected[i] {
 			t.Errorf("parentIDs[%d] = %q, want %q", i, id, expected[i])
 		}
+	}
+}
+
+func TestCronScheduler_TriggerJob_CancelRunning_ConcurrentStops(t *testing.T) {
+	t.Parallel()
+	// Verify machine stops run concurrently, not sequentially.
+	// Each stop sleeps 50ms. With 3 stops, sequential would take 150ms+.
+	// Concurrent should finish in ~50ms.
+	var mu sync.Mutex
+	var stoppedMachines []string
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
+	}
+	s := &mockCronStore{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
+			return []store.CancelledRun{
+				{ID: "r1", MachineID: "m1", ExecutionMode: domain.ExecutionModeManaged},
+				{ID: "r2", MachineID: "m2", ExecutionMode: domain.ExecutionModeManaged},
+				{ID: "r3", MachineID: "m3", ExecutionMode: domain.ExecutionModeManaged},
+			}, nil
+		},
+	}
+	stopper := &mockMachineStopper{
+		stopFn: func(_ context.Context, machineID string) error {
+			time.Sleep(50 * time.Millisecond)
+			mu.Lock()
+			stoppedMachines = append(stoppedMachines, machineID)
+			mu.Unlock()
+			return nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), s, q, nil).WithMachineStopper(stopper)
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
+
+	start := time.Now()
+	cs.triggerJob(context.Background(), job)
+	elapsed := time.Since(start)
+
+	if len(stoppedMachines) != 3 {
+		t.Fatalf("expected 3 stops, got %d", len(stoppedMachines))
+	}
+	// Sequential would take 150ms+. Concurrent should be well under 120ms.
+	if elapsed > 120*time.Millisecond {
+		t.Fatalf("stops appear sequential: took %v, want < 120ms", elapsed)
 	}
 }
 

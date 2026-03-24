@@ -479,7 +479,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	if req.ResultSchema != nil {
 		job.ResultSchema = *req.ResultSchema
 	}
-	if req.CronOverlapPolicy != nil {
+	if req.CronOverlapPolicy != nil && *req.CronOverlapPolicy != "" {
 		job.CronOverlapPolicy = domain.CronOverlapPolicy(*req.CronOverlapPolicy)
 	}
 	if req.ExecutionMode != nil {
