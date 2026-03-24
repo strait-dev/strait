@@ -313,6 +313,10 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 				slog.Error("event dispatch: target job not found or disabled", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
 			}
+			if job.Paused {
+				slog.Info("event dispatch: target job is paused, skipping", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
+				continue
+			}
 			run := &domain.JobRun{
 				JobID: sub.TargetID, ProjectID: source.ProjectID, Attempt: 1,
 				Payload: req.Payload, TriggeredBy: "event",

@@ -239,6 +239,8 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions/{versionID}", TypedHandler(s, http.StatusOK, s.handleGetJobVersion))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/clone", TypedHandler(s, http.StatusCreated, s.handleCloneJob))
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", TypedHandler(s, http.StatusOK, s.handleGetJobHealth))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause", TypedHandler(s, http.StatusOK, s.handlePauseJob))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/resume", TypedHandler(s, http.StatusOK, s.handleResumeJob))
 			})
 		})
 

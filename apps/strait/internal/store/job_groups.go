@@ -167,7 +167,8 @@ func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string, limit int
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
 		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size,
 		       execution_mode, machine_preset, image_uri, region, preferred_regions,
-		       on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools
+		       on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE group_id = $1`
 
@@ -213,7 +214,7 @@ func (q *Queries) PauseJobsByGroup(ctx context.Context, groupID string) error {
 		return err
 	}
 
-	query := `UPDATE jobs SET enabled = FALSE, updated_at = NOW() WHERE group_id = $1`
+	query := `UPDATE jobs SET paused = TRUE, paused_at = NOW(), pause_reason = 'group pause', updated_at = NOW() WHERE group_id = $1`
 	if _, err := q.db.Exec(ctx, query, groupID); err != nil {
 		return fmt.Errorf("pause jobs by group: %w", err)
 	}
@@ -229,7 +230,7 @@ func (q *Queries) ResumeJobsByGroup(ctx context.Context, groupID string) error {
 		return err
 	}
 
-	query := `UPDATE jobs SET enabled = TRUE, updated_at = NOW() WHERE group_id = $1`
+	query := `UPDATE jobs SET paused = FALSE, paused_at = NULL, pause_reason = NULL, updated_at = NOW() WHERE group_id = $1`
 	if _, err := q.db.Exec(ctx, query, groupID); err != nil {
 		return fmt.Errorf("resume jobs by group: %w", err)
 	}

@@ -72,6 +72,10 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return nil, huma.Error400BadRequest("job is disabled")
 	}
 
+	if job.Paused {
+		return nil, huma.Error409Conflict("job is paused -- resume it before triggering new runs")
+	}
+
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
@@ -578,6 +582,10 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 
 	if !job.Enabled {
 		return nil, errors.New("job is disabled")
+	}
+
+	if job.Paused {
+		return nil, errors.New("job is paused -- resume it before triggering new runs")
 	}
 
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {

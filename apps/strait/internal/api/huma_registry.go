@@ -322,6 +322,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleGetJobHealth)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "pause-job", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/pause",
+		Summary: "Pause a job", Description: "Pauses a job, preventing new runs from being dequeued while preserving queue state.",
+		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handlePauseJob)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "resume-job", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/resume",
+		Summary: "Resume a job", Description: "Resumes a paused job, allowing queued runs to be dequeued immediately.",
+		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleResumeJob)
+
 	// -- Job Groups --
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-job-group", Method: http.MethodPost, Path: "/v1/job-groups",

@@ -112,6 +112,8 @@ type JobStore interface {
 	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error
+	PauseJob(ctx context.Context, id, reason string) error
+	ResumeJob(ctx context.Context, id string) error
 }
 
 // RunStore handles job runs, events, checkpoints, and related data.

@@ -580,6 +580,9 @@ var _ APIStore = &APIStoreMock{}
 //			MarkJobRunsPausedByWorkflowRunFunc: func(ctx context.Context, workflowRunID string) (int64, error) {
 //				panic("mock out the MarkJobRunsPausedByWorkflowRun method")
 //			},
+//			PauseJobFunc: func(ctx context.Context, id string, reason string) error {
+//				panic("mock out the PauseJob method")
+//			},
 //			PauseJobsByGroupFunc: func(ctx context.Context, groupID string) error {
 //				panic("mock out the PauseJobsByGroup method")
 //			},
@@ -609,6 +612,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			ResetRunIdempotencyKeyFunc: func(ctx context.Context, runID string) error {
 //				panic("mock out the ResetRunIdempotencyKey method")
+//			},
+//			ResumeJobFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the ResumeJob method")
 //			},
 //			ResumeJobsByGroupFunc: func(ctx context.Context, groupID string) error {
 //				panic("mock out the ResumeJobsByGroup method")
@@ -1283,6 +1289,9 @@ type APIStoreMock struct {
 	// MarkJobRunsPausedByWorkflowRunFunc mocks the MarkJobRunsPausedByWorkflowRun method.
 	MarkJobRunsPausedByWorkflowRunFunc func(ctx context.Context, workflowRunID string) (int64, error)
 
+	// PauseJobFunc mocks the PauseJob method.
+	PauseJobFunc func(ctx context.Context, id string, reason string) error
+
 	// PauseJobsByGroupFunc mocks the PauseJobsByGroup method.
 	PauseJobsByGroupFunc func(ctx context.Context, groupID string) error
 
@@ -1312,6 +1321,9 @@ type APIStoreMock struct {
 
 	// ResetRunIdempotencyKeyFunc mocks the ResetRunIdempotencyKey method.
 	ResetRunIdempotencyKeyFunc func(ctx context.Context, runID string) error
+
+	// ResumeJobFunc mocks the ResumeJob method.
+	ResumeJobFunc func(ctx context.Context, id string) error
 
 	// ResumeJobsByGroupFunc mocks the ResumeJobsByGroup method.
 	ResumeJobsByGroupFunc func(ctx context.Context, groupID string) error
@@ -3129,6 +3141,15 @@ type APIStoreMock struct {
 			// WorkflowRunID is the workflowRunID argument value.
 			WorkflowRunID string
 		}
+		// PauseJob holds details about calls to the PauseJob method.
+		PauseJob []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+			// Reason is the reason argument value.
+			Reason string
+		}
 		// PauseJobsByGroup holds details about calls to the PauseJobsByGroup method.
 		PauseJobsByGroup []struct {
 			// Ctx is the ctx argument value.
@@ -3214,6 +3235,13 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// RunID is the runID argument value.
 			RunID string
+		}
+		// ResumeJob holds details about calls to the ResumeJob method.
+		ResumeJob []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
 		}
 		// ResumeJobsByGroup holds details about calls to the ResumeJobsByGroup method.
 		ResumeJobsByGroup []struct {
@@ -3724,6 +3752,7 @@ type APIStoreMock struct {
 	lockListWorkflowsByTag                 sync.RWMutex
 	lockMarkAPIKeyRotated                  sync.RWMutex
 	lockMarkJobRunsPausedByWorkflowRun     sync.RWMutex
+	lockPauseJob                           sync.RWMutex
 	lockPauseJobsByGroup                   sync.RWMutex
 	lockPromoteDeploymentVersion           sync.RWMutex
 	lockQueueStats                         sync.RWMutex
@@ -3734,6 +3763,7 @@ type APIStoreMock struct {
 	lockRequeuePausedJobRuns               sync.RWMutex
 	lockRescheduleRun                      sync.RWMutex
 	lockResetRunIdempotencyKey             sync.RWMutex
+	lockResumeJob                          sync.RWMutex
 	lockResumeJobsByGroup                  sync.RWMutex
 	lockRetryWebhookDelivery               sync.RWMutex
 	lockRevokeAPIKey                       sync.RWMutex
@@ -11967,6 +11997,49 @@ func (mock *APIStoreMock) MarkJobRunsPausedByWorkflowRunCalls() []struct {
 	return calls
 }
 
+// PauseJob calls PauseJobFunc.
+func (mock *APIStoreMock) PauseJob(ctx context.Context, id string, reason string) error {
+	callInfo := struct {
+		Ctx    context.Context
+		ID     string
+		Reason string
+	}{
+		Ctx:    ctx,
+		ID:     id,
+		Reason: reason,
+	}
+	mock.lockPauseJob.Lock()
+	mock.calls.PauseJob = append(mock.calls.PauseJob, callInfo)
+	mock.lockPauseJob.Unlock()
+	if mock.PauseJobFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.PauseJobFunc(ctx, id, reason)
+}
+
+// PauseJobCalls gets all the calls that were made to PauseJob.
+// Check the length with:
+//
+//	len(mockedAPIStore.PauseJobCalls())
+func (mock *APIStoreMock) PauseJobCalls() []struct {
+	Ctx    context.Context
+	ID     string
+	Reason string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		ID     string
+		Reason string
+	}
+	mock.lockPauseJob.RLock()
+	calls = mock.calls.PauseJob
+	mock.lockPauseJob.RUnlock()
+	return calls
+}
+
 // PauseJobsByGroup calls PauseJobsByGroupFunc.
 func (mock *APIStoreMock) PauseJobsByGroup(ctx context.Context, groupID string) error {
 	callInfo := struct {
@@ -12391,6 +12464,45 @@ func (mock *APIStoreMock) ResetRunIdempotencyKeyCalls() []struct {
 	mock.lockResetRunIdempotencyKey.RLock()
 	calls = mock.calls.ResetRunIdempotencyKey
 	mock.lockResetRunIdempotencyKey.RUnlock()
+	return calls
+}
+
+// ResumeJob calls ResumeJobFunc.
+func (mock *APIStoreMock) ResumeJob(ctx context.Context, id string) error {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockResumeJob.Lock()
+	mock.calls.ResumeJob = append(mock.calls.ResumeJob, callInfo)
+	mock.lockResumeJob.Unlock()
+	if mock.ResumeJobFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.ResumeJobFunc(ctx, id)
+}
+
+// ResumeJobCalls gets all the calls that were made to ResumeJob.
+// Check the length with:
+//
+//	len(mockedAPIStore.ResumeJobCalls())
+func (mock *APIStoreMock) ResumeJobCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockResumeJob.RLock()
+	calls = mock.calls.ResumeJob
+	mock.lockResumeJob.RUnlock()
 	return calls
 }
 

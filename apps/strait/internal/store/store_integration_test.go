@@ -8822,11 +8822,11 @@ func TestPauseJobsByGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJob(outside) error = %v", err)
 	}
-	if gotA.Enabled || gotB.Enabled {
-		t.Fatalf("jobs in group enabled after pause: A=%v B=%v", gotA.Enabled, gotB.Enabled)
+	if !gotA.Paused || !gotB.Paused {
+		t.Fatalf("jobs in group paused after pause: A=%v B=%v", gotA.Paused, gotB.Paused)
 	}
-	if !gotOut.Enabled {
-		t.Fatal("outside job enabled = false, want true")
+	if gotOut.Paused {
+		t.Fatal("outside job paused = true, want false")
 	}
 }
 
@@ -8841,12 +8841,17 @@ func TestResumeJobsByGroup(t *testing.T) {
 		t.Fatalf("CreateJobGroup() error = %v", err)
 	}
 
-	inGroupA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(false)})
-	inGroupB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(false)})
+	inGroupA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(true)})
+	inGroupB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(true)})
 	for i, jobID := range []string{inGroupA.ID, inGroupB.ID} {
 		if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET group_id = $1 WHERE id = $2`, group.ID, jobID); err != nil {
 			t.Fatalf("assign group (%d) error = %v", i, err)
 		}
+	}
+
+	// Pause first, then resume.
+	if err := q.PauseJobsByGroup(ctx, group.ID); err != nil {
+		t.Fatalf("PauseJobsByGroup() error = %v", err)
 	}
 
 	if err := q.ResumeJobsByGroup(ctx, group.ID); err != nil {
@@ -8861,8 +8866,8 @@ func TestResumeJobsByGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJob(inGroupB) error = %v", err)
 	}
-	if !gotA.Enabled || !gotB.Enabled {
-		t.Fatalf("jobs in group enabled after resume: A=%v B=%v", gotA.Enabled, gotB.Enabled)
+	if gotA.Paused || gotB.Paused {
+		t.Fatalf("jobs in group still paused after resume: A=%v B=%v", gotA.Paused, gotB.Paused)
 	}
 }
 

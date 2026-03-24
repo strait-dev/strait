@@ -52,6 +52,8 @@ type JobStore interface {
 	GetProjectQuota(ctx context.Context, projectID string) (*ProjectQuota, error)
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
 	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
+	PauseJob(ctx context.Context, id, reason string) error
+	ResumeJob(ctx context.Context, id string) error
 }
 
 type JobGroupStore interface {

@@ -326,6 +326,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 			%s
 			WHERE jr.status = '%s'
 			  AND j.enabled = true
+			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  %s
@@ -363,6 +364,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 			%s
 			WHERE jr.status = '%s'
 			  AND j.enabled = true
+			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  %s
@@ -422,6 +424,7 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 			%s
 			WHERE jr.status = '%s'
 			  AND j.enabled = true
+			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  %s
@@ -482,6 +485,7 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			%s
 			WHERE jr.status = '%s'
 			  AND j.enabled = true
+			  AND NOT j.paused
 			  AND jr.project_id = $2
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
