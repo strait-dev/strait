@@ -80,7 +80,7 @@ func (s *Server) routes() chi.Router {
 	humaConfig := huma.DefaultConfig("Strait API", "1.0.0")
 	humaConfig.Info.Description = "Production-grade job orchestration platform for background jobs, workflows, and managed execution."
 	humaConfig.Servers = []*huma.Server{
-		{URL: "https://strait.fly.dev", Description: "Production"},
+		{URL: "https://api.strait.dev", Description: "Production"},
 	}
 	humaConfig.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
 		"bearerAuth": {
