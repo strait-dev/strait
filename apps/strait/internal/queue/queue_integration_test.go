@@ -840,7 +840,15 @@ func TestEnqueueBatch_VerifyAllFieldsPersisted_Integration(t *testing.T) {
 	if gotPriority != 5 {
 		t.Fatalf("priority = %d, want 5", gotPriority)
 	}
-	if !bytes.Equal(gotPayload, payload) {
+	// Compare semantically — Postgres JSONB normalizes whitespace.
+	var wantPayload, gotPayloadMap map[string]any
+	if err := json.Unmarshal(payload, &wantPayload); err != nil {
+		t.Fatalf("unmarshal expected payload: %v", err)
+	}
+	if err := json.Unmarshal(gotPayload, &gotPayloadMap); err != nil {
+		t.Fatalf("unmarshal got payload: %v", err)
+	}
+	if wantPayload["key"] != gotPayloadMap["key"] {
 		t.Fatalf("payload = %s, want %s", gotPayload, payload)
 	}
 	if gotTriggered != "manual" {
