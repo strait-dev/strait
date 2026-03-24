@@ -404,7 +404,14 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 
 	// Emit ClickHouse events for every delivery after the function returns,
 	// regardless of success or failure (mirrors attemptDelivery's deferred emit).
-	defer n.enqueueBatchDeliveryEvents(deliveries, start)
+	// Skipped on the payload-too-large fallback path because attemptDelivery
+	// handles its own CH events there (avoids double-counting).
+	var skipDeferredCHEvents bool
+	defer func() {
+		if !skipDeferredCHEvents {
+			n.enqueueBatchDeliveryEvents(deliveries, start)
+		}
+	}()
 
 	// Circuit breaker check (once per batch, same URL).
 	if n.circuitBreaker != nil {
@@ -455,6 +462,8 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 			deliveries[i].Attempts--
 			deliveries[i].LastError = string(extractedPayloads[i])
 		}
+		// Skip deferred CH events; each attemptDelivery emits its own.
+		skipDeferredCHEvents = true
 		// Fan out concurrently to avoid serializing the fallback path.
 		p := concpool.New().WithContext(ctx).WithMaxGoroutines(n.concurrency)
 		for i := range deliveries {
@@ -470,9 +479,9 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 
 	if n.metrics != nil {
 		n.metrics.WebhookPayloadBytes.Record(ctx, int64(len(batchBody)))
-		for range deliveries {
+		for i := range deliveries {
 			n.metrics.WebhookDeliveryAttempts.Add(ctx, 1, metric.WithAttributes(
-				attribute.String("retry_policy", n.defaultRetryPolicy),
+				attribute.String("retry_policy", n.retryPolicyForDelivery(&deliveries[i])),
 			))
 		}
 	}
