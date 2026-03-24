@@ -44,9 +44,12 @@ type DeliveryStore interface {
 	UpdateEventTriggerNotifyStatus(ctx context.Context, id string, notifyStatus string) error
 }
 
-const defaultDeliveryConcurrency = 50
-const defaultWebhookMaxPayloadBytes = 1 << 20
-const defaultMaxBatchSize = 50
+const (
+	defaultDeliveryConcurrency    = 50
+	defaultWebhookMaxPayloadBytes = 1 << 20 // 1 MB
+	defaultMaxBatchSize           = 50
+	maxResponseBodyDrainBytes     = 1 << 20 // 1 MB — cap response body drain to prevent memory exhaustion
+)
 
 type DeliveryWorker struct {
 	client *http.Client
@@ -433,14 +436,14 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 
 	// Extract payloads first, preserving them so we can restore on fallback.
 	extractedPayloads := make([]json.RawMessage, len(deliveries))
-	items := make([]batchPayloadItem, 0, len(deliveries))
+	items := make([]batchPayloadItem, len(deliveries))
 	for i := range deliveries {
 		deliveries[i].Attempts++
 		extractedPayloads[i] = extractPayload(&deliveries[i])
-		items = append(items, batchPayloadItem{
+		items[i] = batchPayloadItem{
 			DeliveryID: deliveries[i].ID,
 			Payload:    extractedPayloads[i],
-		})
+		}
 	}
 
 	batchBody, err := json.Marshal(items)
@@ -514,7 +517,7 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 		return
 	}
 	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyDrainBytes))
 		_ = resp.Body.Close()
 	}()
 
@@ -582,13 +585,12 @@ func (n *DeliveryWorker) enqueueBatchDeliveryEvents(deliveries []domain.WebhookD
 }
 
 // extractPayload returns the JSON payload for a delivery, reading from LastError (where it was stashed).
+// It clears LastError on successful extraction so retry error messages are not confused with payloads.
 func extractPayload(d *domain.WebhookDelivery) json.RawMessage {
-	if d.LastError != "" {
-		var js json.RawMessage
-		if json.Unmarshal([]byte(d.LastError), &js) == nil {
-			d.LastError = ""
-			return js
-		}
+	if d.LastError != "" && json.Valid([]byte(d.LastError)) {
+		payload := json.RawMessage(d.LastError)
+		d.LastError = ""
+		return payload
 	}
 	fallback, _ := json.Marshal(map[string]any{
 		"trigger_id":  d.EventTriggerID,
@@ -773,7 +775,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		return
 	}
 	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyDrainBytes))
 		_ = resp.Body.Close()
 	}()
 
@@ -869,7 +871,7 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 		return
 	}
 
-	backoff := backoffForRetryPolicy(n.retryPolicyForDelivery(d), d.Attempts)
+	backoff := backoffForRetryPolicy(retryPolicy, d.Attempts)
 	nextAttempt := now.Add(backoff)
 	d.NextRetryAt = &nextAttempt
 	d.Status = domain.WebhookStatusPending
