@@ -36,6 +36,14 @@ func (m *mockSchedulerStore) CountActiveRunsForJob(ctx context.Context, jobID st
 	return m.cron.CountActiveRunsForJob(ctx, jobID)
 }
 
+func (m *mockSchedulerStore) CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CanceledRun, error) {
+	return m.cron.CancelActiveRunsForJob(ctx, jobID, reason)
+}
+
+func (m *mockSchedulerStore) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error) {
+	return m.cron.CancelChildRunsByParentIDs(ctx, parentIDs, finishedAt, reason)
+}
+
 func (m *mockSchedulerStore) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
 	return m.reaper.DeleteWorkflowRunsFinishedBefore(ctx, before, limit)
 }

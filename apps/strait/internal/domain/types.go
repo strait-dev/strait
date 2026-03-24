@@ -274,7 +274,7 @@ type Job struct {
 	VersionID                 string            `json:"version_id,omitempty"`
 	VersionPolicy             VersionPolicy     `json:"version_policy,omitempty"`
 	BackwardsCompatible       bool              `json:"backwards_compatible,omitempty"`
-	SkipIfRunning             bool              `json:"skip_if_running,omitempty"`
+	CronOverlapPolicy         CronOverlapPolicy `json:"cron_overlap_policy,omitempty"`
 	ResultSchema              json.RawMessage   `json:"result_schema,omitempty"`
 	DebounceWindowSecs        int               `json:"debounce_window_secs,omitempty"`
 	BatchWindowSecs           int               `json:"batch_window_secs,omitempty"`
@@ -1013,6 +1013,26 @@ const (
 func (m ExecutionMode) IsValid() bool {
 	switch m {
 	case ExecutionModeHTTP, ExecutionModeManaged:
+		return true
+	default:
+		return false
+	}
+}
+
+// CronOverlapPolicy controls behavior when a cron tick fires while
+// previous runs for the same job are still active.
+type CronOverlapPolicy string
+
+const (
+	OverlapPolicyAllow         CronOverlapPolicy = "allow"
+	OverlapPolicySkip          CronOverlapPolicy = "skip"
+	OverlapPolicyCancelRunning CronOverlapPolicy = "cancel_running"
+)
+
+// IsValid returns true if the overlap policy is a known value.
+func (p CronOverlapPolicy) IsValid() bool {
+	switch p {
+	case OverlapPolicyAllow, OverlapPolicySkip, OverlapPolicyCancelRunning:
 		return true
 	default:
 		return false

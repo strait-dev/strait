@@ -168,7 +168,7 @@ func TestLoadTestMassiveParallel(t *testing.T) {
 	// Service health + memory.
 	_, healthBody, _ := client.do("GET", "/health/ready", nil)
 
-	dispatched := int(atomic.LoadInt32(&ep.received))
+	dispatched := int(ep.received.Load())
 	epErrors := ep.getErrors()
 
 	t.Logf("")
@@ -304,7 +304,7 @@ func TestLoadTestRapidFireSameJob(t *testing.T) {
 	}
 
 	elapsed := time.Since(start)
-	dispatched := int(atomic.LoadInt32(&ep.received))
+	dispatched := int(ep.received.Load())
 
 	t.Logf("")
 	t.Logf("=== Rapid-Fire Results ===")
@@ -431,7 +431,7 @@ func TestLoadTestWorkflowFanOut(t *testing.T) {
 	}
 
 	elapsed := time.Since(start)
-	dispatched := int(atomic.LoadInt32(&ep.received))
+	dispatched := int(ep.received.Load())
 
 	t.Logf("")
 	t.Logf("=== Workflow Fan-Out Results ===")

@@ -327,10 +327,10 @@ func TestRequirePermission_User_MissingProjectContext(t *testing.T) {
 func TestRequirePermission_User_CacheHit(t *testing.T) {
 	t.Parallel()
 
-	var callCount int32
+	var callCount atomic.Int32
 	ms := &APIStoreMock{}
 	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
-		atomic.AddInt32(&callCount, 1)
+		callCount.Add(1)
 		return []string{domain.ScopeJobsRead}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -350,7 +350,7 @@ func TestRequirePermission_User_CacheHit(t *testing.T) {
 	if w1.Code != http.StatusOK {
 		t.Fatalf("first call status = %d, want %d", w1.Code, http.StatusOK)
 	}
-	if c := atomic.LoadInt32(&callCount); c != 1 {
+	if c := callCount.Load(); c != 1 {
 		t.Fatalf("DB calls = %d, want 1", c)
 	}
 
@@ -359,7 +359,7 @@ func TestRequirePermission_User_CacheHit(t *testing.T) {
 	if w2.Code != http.StatusOK {
 		t.Fatalf("second call status = %d, want %d", w2.Code, http.StatusOK)
 	}
-	if c := atomic.LoadInt32(&callCount); c != 1 {
+	if c := callCount.Load(); c != 1 {
 		t.Fatalf("DB calls after cache hit = %d, want 1", c)
 	}
 }
@@ -415,10 +415,10 @@ func TestRequirePermission_User_WildcardPermission(t *testing.T) {
 func TestRequirePermission_User_CacheInvalidationReloads(t *testing.T) {
 	t.Parallel()
 
-	var callCount int32
+	var callCount atomic.Int32
 	ms := &APIStoreMock{}
 	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
-		atomic.AddInt32(&callCount, 1)
+		callCount.Add(1)
 		return []string{domain.ScopeJobsRead}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -437,7 +437,7 @@ func TestRequirePermission_User_CacheInvalidationReloads(t *testing.T) {
 
 	// First call populates cache.
 	makeReq()
-	if c := atomic.LoadInt32(&callCount); c != 1 {
+	if c := callCount.Load(); c != 1 {
 		t.Fatalf("DB calls = %d, want 1", c)
 	}
 
@@ -446,7 +446,7 @@ func TestRequirePermission_User_CacheInvalidationReloads(t *testing.T) {
 
 	// Next call should hit DB again.
 	makeReq()
-	if c := atomic.LoadInt32(&callCount); c != 2 {
+	if c := callCount.Load(); c != 2 {
 		t.Fatalf("DB calls after invalidation = %d, want 2", c)
 	}
 }

@@ -111,7 +111,7 @@ type jobEndpoint struct {
 	addr     string
 	runPath  string
 	mu       sync.Mutex
-	received int32
+	received atomic.Int32
 	errors   []string
 }
 
@@ -150,7 +150,7 @@ func startJobEndpoint(t *testing.T) *jobEndpoint {
 }
 
 func (ep *jobEndpoint) handleRun(w http.ResponseWriter, r *http.Request) {
-	atomic.AddInt32(&ep.received, 1)
+	ep.received.Add(1)
 
 	runID := r.Header.Get("X-Run-ID")
 	runToken := r.Header.Get("X-Run-Token")
@@ -445,7 +445,7 @@ func TestEndToEndJobExecution(t *testing.T) {
 		t.Errorf("endpoint error: %s", e)
 	}
 
-	dispatched := int(atomic.LoadInt32(&ep.received))
+	dispatched := int(ep.received.Load())
 	t.Logf("Endpoint received %d dispatches", dispatched)
 	t.Logf("Results: %d completed, %d failed, %d endpoint errors", completed, failed, len(epErrs))
 
@@ -554,7 +554,7 @@ func TestEndToEndWorkflowExecution(t *testing.T) {
 		t.Logf("  step %s: %s", s.StepRef, s.Status)
 	}
 
-	dispatched := int(atomic.LoadInt32(&ep.received))
+	dispatched := int(ep.received.Load())
 	t.Logf("Workflow run %s: %s (endpoint dispatches: %d)", wfRun.ID, finalStatus, dispatched)
 
 	if finalStatus != "completed" {
@@ -655,7 +655,7 @@ func TestEndToEndStressLoop(t *testing.T) {
 
 	completed := int(totalCompleted.Load())
 	failed := int(totalFailed.Load())
-	dispatched := int(atomic.LoadInt32(&ep.received))
+	dispatched := int(ep.received.Load())
 	t.Logf("Stress test: %d/%d completed, %d failed, %d dispatches, %d endpoint errors",
 		completed, iterations, failed, dispatched, len(ep.getErrors()))
 
