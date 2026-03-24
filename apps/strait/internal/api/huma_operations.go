@@ -102,6 +102,7 @@ func (s *Server) registerPlanOps(api huma.API) {
 		Description: "Returns all available plan tiers with their limits and pricing.",
 		Tags:        []string{"Plans"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 500},
 	}, func(_ context.Context, _ *struct{}) (*ListPlansOutput, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -141,6 +142,7 @@ func (s *Server) registerJobOps(api huma.API) {
 		Description: "Creates a new job with the specified endpoint and configuration.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct{ Body CreateJobBody }) (*JobResponseBody, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -153,6 +155,7 @@ func (s *Server) registerJobOps(api huma.API) {
 		Description: "Returns a paginated list of jobs in the current project.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -168,6 +171,7 @@ func (s *Server) registerJobOps(api huma.API) {
 		Description: "Returns details of a specific job.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 	}) (*JobResponseBody, error) {
@@ -182,6 +186,7 @@ func (s *Server) registerJobOps(api huma.API) {
 		Description: "Triggers immediate execution of a job.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string         `path:"jobID" doc:"Job ID"`
 		Body  TriggerJobBody `json:"body"`
@@ -197,6 +202,7 @@ func (s *Server) registerJobOps(api huma.API) {
 		Description: "Updates an existing job's configuration.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 		Body  CreateJobBody
@@ -212,6 +218,7 @@ func (s *Server) registerJobOps(api huma.API) {
 		Description: "Permanently deletes a job and all its associated data.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 	}) (*struct{}, error) {
@@ -230,6 +237,7 @@ func (s *Server) registerRunOps(api huma.API) {
 		Description: "Returns details of a specific job run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
@@ -244,6 +252,7 @@ func (s *Server) registerRunOps(api huma.API) {
 		Description: "Returns a paginated list of job runs.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -261,6 +270,7 @@ func (s *Server) registerRunOps(api huma.API) {
 		Description: "Cancels a queued or executing run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{}, error) {
@@ -275,6 +285,7 @@ func (s *Server) registerRunOps(api huma.API) {
 		Description: "Creates a new run with the same configuration as the original.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
@@ -293,6 +304,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Description: "Creates a new project within an organization.",
 		Tags:        []string{"Projects"},
 		Security:    []map[string][]string{{"internalSecret": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			ID    string `json:"id" required:"true" doc:"Project ID" example:"proj_01HX7ZKRN5"`
@@ -311,6 +323,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Description: "Returns all projects accessible by the current API key.",
 		Tags:        []string{"Projects"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.Project }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -323,6 +336,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Description: "Returns details of a specific project.",
 		Tags:        []string{"Projects"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 	}) (*struct{ Body domain.Project }, error) {
@@ -337,6 +351,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Description: "Permanently deletes a project and all its associated resources.",
 		Tags:        []string{"Projects"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 	}) (*struct{}, error) {
@@ -351,6 +366,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Description: "Returns the current settings for a project.",
 		Tags:        []string{"Projects"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -365,6 +381,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Description: "Updates the settings for a project.",
 		Tags:        []string{"Projects"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 		Body      json.RawMessage
@@ -384,6 +401,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Creates a new workflow with step definitions and trigger configuration.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.Workflow }, error) {
@@ -398,6 +416,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Returns a paginated list of workflows in the current project.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -413,6 +432,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Returns details of a specific workflow including its step definitions.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 	}) (*struct{ Body domain.Workflow }, error) {
@@ -427,6 +447,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Updates an existing workflow's configuration and step definitions.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
@@ -442,6 +463,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Permanently deletes a workflow and all its associated runs.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 	}) (*struct{}, error) {
@@ -456,6 +478,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Validates a workflow execution without creating actual runs.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
@@ -471,6 +494,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Generates an execution plan showing which steps will run and in what order.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
@@ -486,6 +510,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Simulates a workflow run with mock data to preview step outcomes.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
@@ -501,6 +526,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Returns the DAG representation of the workflow's step dependencies.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -515,6 +541,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Triggers a new execution of the workflow.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
@@ -530,6 +557,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Creates a copy of an existing workflow with a new name.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
@@ -545,6 +573,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Returns a paginated list of runs for a specific workflow.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Limit      int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
@@ -561,6 +590,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Returns all versions of a workflow definition.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 	}) (*struct{ Body []domain.WorkflowVersion }, error) {
@@ -575,6 +605,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Returns details of a specific workflow version.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		VersionID  string `path:"versionID" doc:"Version ID" example:"ver_01HX9FGTP2"`
@@ -590,6 +621,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Returns the step definitions for a specific workflow version.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		VersionID  string `path:"versionID" doc:"Version ID" example:"ver_01HX9FGTP2"`
@@ -605,6 +637,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Returns the differences between two workflow versions.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID    string `path:"workflowID" doc:"Workflow ID"`
 		FromVersionID string `path:"fromVersionID" doc:"Source version ID" example:"ver_01HX9FGTP2"`
@@ -621,6 +654,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Returns the impact analysis for a specific workflow version.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		VersionID  string `path:"versionID" doc:"Version ID" example:"ver_01HX9FGTP2"`
@@ -636,6 +670,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Description: "Returns the currently active versions for a workflow, including traffic splits.",
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -654,6 +689,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Returns a paginated list of workflow runs in the current project.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -669,6 +705,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Cancels multiple workflow runs matching the provided filters.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			RunIDs []string `json:"run_ids" required:"true" doc:"List of workflow run IDs to cancel"`
@@ -685,6 +722,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Replays multiple workflow runs matching the provided filters.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			RunIDs []string `json:"run_ids" required:"true" doc:"List of workflow run IDs to replay"`
@@ -701,6 +739,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Returns details of a specific workflow run including step statuses.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body domain.WorkflowRun }, error) {
@@ -715,6 +754,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Cancels an active workflow run and all its pending steps.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{}, error) {
@@ -729,6 +769,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Pauses an active workflow run, preventing further steps from executing.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body domain.WorkflowRun }, error) {
@@ -743,6 +784,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Resumes a paused workflow run.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body domain.WorkflowRun }, error) {
@@ -757,6 +799,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Returns the labels attached to a workflow run.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -771,6 +814,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Returns all step runs for a specific workflow run.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body []domain.WorkflowStepRun }, error) {
@@ -785,6 +829,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Returns the execution graph for a workflow run with step statuses.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -799,6 +844,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Returns a human-readable explanation of workflow run execution decisions.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -813,6 +859,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Returns a chronological timeline of events for a workflow run.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body domain.TimelineResponse }, error) {
@@ -827,6 +874,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Retries a failed workflow run from the beginning.",
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body domain.WorkflowRun }, error) {
@@ -842,6 +890,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Approves a workflow step that is waiting for manual approval.",
 		Tags:        []string{"Workflow Steps"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 		StepRef       string `path:"stepRef" doc:"Step reference name" example:"validate-input"`
@@ -857,6 +906,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Skips a pending workflow step and continues execution.",
 		Tags:        []string{"Workflow Steps"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 		StepRef       string `path:"stepRef" doc:"Step reference name" example:"validate-input"`
@@ -872,6 +922,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Forces a workflow step to complete regardless of its current state.",
 		Tags:        []string{"Workflow Steps"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 		StepRef       string `path:"stepRef" doc:"Step reference name" example:"validate-input"`
@@ -887,6 +938,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Retries a failed workflow step.",
 		Tags:        []string{"Workflow Steps"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 		StepRef       string `path:"stepRef" doc:"Step reference name" example:"validate-input"`
@@ -902,6 +954,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Description: "Replays a workflow step and all of its downstream dependent steps.",
 		Tags:        []string{"Workflow Steps"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 		StepRef       string `path:"stepRef" doc:"Step reference name" example:"validate-input"`
@@ -921,6 +974,7 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Description: "Creates a new deployment version for a workflow.",
 		Tags:        []string{"Deployments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.DeploymentVersion }, error) {
@@ -935,6 +989,7 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Description: "Returns a paginated list of deployment versions.",
 		Tags:        []string{"Deployments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -950,6 +1005,7 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Description: "Finalizes a deployment version, locking its configuration.",
 		Tags:        []string{"Deployments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		DeploymentID string `path:"deploymentID" doc:"Deployment version ID" example:"dep_01HX9HMVR8"`
 	}) (*struct{ Body domain.DeploymentVersion }, error) {
@@ -964,6 +1020,7 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Description: "Promotes a deployment version to active, routing traffic to it.",
 		Tags:        []string{"Deployments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		DeploymentID string `path:"deploymentID" doc:"Deployment version ID" example:"dep_01HX9HMVR8"`
 		Body         json.RawMessage
@@ -979,6 +1036,7 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Description: "Rolls back to the previous deployment version.",
 		Tags:        []string{"Deployments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		DeploymentID string `path:"deploymentID" doc:"Deployment version ID" example:"dep_01HX9HMVR8"`
 	}) (*struct{ Body domain.DeploymentVersion }, error) {
@@ -997,6 +1055,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Description: "Returns a paginated list of event triggers in the current project.",
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -1012,6 +1071,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Description: "Returns aggregate statistics about event triggers.",
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1024,6 +1084,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Description: "Purges completed or expired event triggers.",
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -1038,6 +1099,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Description: "Sends an event to all triggers matching the given key prefix.",
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Prefix string `path:"prefix" doc:"Event key prefix" example:"order.completed"`
 		Body   json.RawMessage
@@ -1053,6 +1115,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Description: "Returns details of a specific event trigger by its key.",
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		EventKey string `path:"eventKey" doc:"Event key" example:"order.completed.12345"`
 	}) (*struct{ Body domain.EventTrigger }, error) {
@@ -1067,6 +1130,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Description: "Cancels a waiting event trigger.",
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		EventKey string `path:"eventKey" doc:"Event key" example:"order.completed.12345"`
 	}) (*struct{}, error) {
@@ -1081,6 +1145,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Description: "Sends a payload to an event trigger, resolving it.",
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		EventKey string `path:"eventKey" doc:"Event key" example:"order.completed.12345"`
 		Body     json.RawMessage
@@ -1096,6 +1161,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Description: "Dispatches an event that triggers matching subscriptions.",
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -1110,6 +1176,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Description: "Opens an SSE stream for real-time updates on an event trigger.",
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		EventKey string `path:"eventKey" doc:"Event key" example:"order.completed.12345"`
 	}) (*struct{}, error) {
@@ -1128,6 +1195,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Description: "Returns all event sources configured in the current project.",
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.EventSource }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1140,6 +1208,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Description: "Creates a new event source for receiving external events.",
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.EventSource }, error) {
@@ -1154,6 +1223,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Description: "Returns details of a specific event source.",
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 	}) (*struct{ Body domain.EventSource }, error) {
@@ -1168,6 +1238,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Description: "Updates an existing event source's configuration.",
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 		Body     json.RawMessage
@@ -1183,6 +1254,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Description: "Permanently deletes an event source and its subscriptions.",
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 	}) (*struct{}, error) {
@@ -1197,6 +1269,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Description: "Returns all subscriptions for a specific event source.",
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 	}) (*struct{ Body []domain.EventSubscription }, error) {
@@ -1211,6 +1284,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Description: "Creates a subscription linking a job or workflow to an event source.",
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 		Body     json.RawMessage
@@ -1226,6 +1300,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Description: "Removes a subscription from an event source.",
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 		SubID    string `path:"subID" doc:"Subscription ID" example:"sub_01HX9KPXV5"`
@@ -1245,6 +1320,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Description: "Sends a test payload to a webhook URL to verify connectivity.",
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -1259,6 +1335,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Description: "Returns a paginated list of webhook delivery attempts.",
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -1274,6 +1351,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Description: "Returns details of a specific webhook delivery attempt.",
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ID string `path:"id" doc:"Webhook delivery ID" example:"del_01HX9LQXW5"`
 	}) (*struct{ Body domain.WebhookDelivery }, error) {
@@ -1288,6 +1366,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Description: "Retries a failed webhook delivery attempt.",
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		ID string `path:"id" doc:"Webhook delivery ID" example:"del_01HX9LQXW5"`
 	}) (*struct{ Body domain.WebhookDelivery }, error) {
@@ -1302,6 +1381,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Description: "Replays a webhook delivery with the original payload.",
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		ID string `path:"id" doc:"Webhook delivery ID" example:"del_01HX9LQXW5"`
 	}) (*struct{ Body domain.WebhookDelivery }, error) {
@@ -1316,6 +1396,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Description: "Creates a new webhook subscription to receive event notifications.",
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.WebhookSubscription }, error) {
@@ -1330,6 +1411,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Description: "Returns all webhook subscriptions in the current project.",
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.WebhookSubscription }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1342,6 +1424,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Description: "Removes a webhook subscription, stopping further deliveries.",
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ID string `path:"id" doc:"Webhook subscription ID" example:"wsub_01HX9LRYW6"`
 	}) (*struct{}, error) {
@@ -1357,6 +1440,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Description: "Returns a paginated list of webhook delivery attempts. Legacy endpoint, prefer /v1/webhooks/deliveries.",
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -1372,6 +1456,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Description: "Retries a failed webhook delivery. Legacy endpoint, prefer /v1/webhooks/deliveries/{id}/retry.",
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		DeliveryID string `path:"deliveryID" doc:"Webhook delivery ID" example:"del_01HX9LQXW5"`
 	}) (*struct{ Body domain.WebhookDelivery }, error) {
@@ -1390,6 +1475,7 @@ func (s *Server) registerAPIKeyOps(api huma.API) {
 		Description: "Creates a new API key for authenticating with the API.",
 		Tags:        []string{"API Keys"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			Name   string   `json:"name" required:"true" doc:"Human-readable key name" example:"production-key"`
@@ -1407,6 +1493,7 @@ func (s *Server) registerAPIKeyOps(api huma.API) {
 		Description: "Returns all API keys for the current project.",
 		Tags:        []string{"API Keys"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.APIKey }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1419,6 +1506,7 @@ func (s *Server) registerAPIKeyOps(api huma.API) {
 		Description: "Rotates an API key, generating a new secret while keeping the same ID.",
 		Tags:        []string{"API Keys"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		KeyID string `path:"keyID" doc:"API key ID" example:"key_01HX8GMNV6"`
 	}) (*struct{ Body domain.APIKey }, error) {
@@ -1433,6 +1521,7 @@ func (s *Server) registerAPIKeyOps(api huma.API) {
 		Description: "Permanently revokes an API key, immediately invalidating it.",
 		Tags:        []string{"API Keys"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		KeyID string `path:"keyID" doc:"API key ID" example:"key_01HX8GMNV6"`
 	}) (*struct{}, error) {
@@ -1450,6 +1539,7 @@ func (s *Server) registerCLIAuthOps(api huma.API) {
 		Summary:     "Request a device authorization code",
 		Description: "Initiates the device authorization flow by generating a device code and user code.",
 		Tags:        []string{"CLI Auth"},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct {
 		Body struct {
 			DeviceCode      string `json:"device_code" doc:"Device code for polling" example:"ABCD-1234-EFGH-5678"`
@@ -1469,6 +1559,7 @@ func (s *Server) registerCLIAuthOps(api huma.API) {
 		Summary:     "Poll for device token",
 		Description: "Polls for the authorization token after the user approves the device code.",
 		Tags:        []string{"CLI Auth"},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			DeviceCode string `json:"device_code" required:"true" doc:"Device code from the initial request" example:"ABCD-1234-EFGH-5678"`
@@ -1490,6 +1581,7 @@ func (s *Server) registerCLIAuthOps(api huma.API) {
 		Description: "Approves a pending device code, authorizing the CLI session.",
 		Tags:        []string{"CLI Auth"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			UserCode string `json:"user_code" required:"true" doc:"User code to approve" example:"STRAIT-A1B2"`
@@ -1510,6 +1602,7 @@ func (s *Server) registerSecretOps(api huma.API) {
 		Description: "Creates a new encrypted secret for use in job payloads.",
 		Tags:        []string{"Secrets"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			Name  string `json:"name" required:"true" doc:"Secret name" example:"DATABASE_URL"`
@@ -1527,6 +1620,7 @@ func (s *Server) registerSecretOps(api huma.API) {
 		Description: "Returns all secrets in the current project. Values are redacted.",
 		Tags:        []string{"Secrets"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.JobSecret }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1539,6 +1633,7 @@ func (s *Server) registerSecretOps(api huma.API) {
 		Description: "Permanently deletes a secret.",
 		Tags:        []string{"Secrets"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		SecretID string `path:"secretID" doc:"Secret ID" example:"sec_01HX8HPQR7"`
 	}) (*struct{}, error) {
@@ -1557,6 +1652,7 @@ func (s *Server) registerLogDrainOps(api huma.API) {
 		Description: "Returns all log drains configured in the current project.",
 		Tags:        []string{"Log Drains"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.LogDrain }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1569,6 +1665,7 @@ func (s *Server) registerLogDrainOps(api huma.API) {
 		Description: "Creates a new log drain to forward job execution logs to an external destination.",
 		Tags:        []string{"Log Drains"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.LogDrain }, error) {
@@ -1583,6 +1680,7 @@ func (s *Server) registerLogDrainOps(api huma.API) {
 		Description: "Returns details of a specific log drain.",
 		Tags:        []string{"Log Drains"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		DrainID string `path:"drainID" doc:"Log drain ID" example:"drain_01HX9MSYW7"`
 	}) (*struct{ Body domain.LogDrain }, error) {
@@ -1597,6 +1695,7 @@ func (s *Server) registerLogDrainOps(api huma.API) {
 		Description: "Updates an existing log drain's configuration.",
 		Tags:        []string{"Log Drains"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		DrainID string `path:"drainID" doc:"Log drain ID" example:"drain_01HX9MSYW7"`
 		Body    json.RawMessage
@@ -1612,6 +1711,7 @@ func (s *Server) registerLogDrainOps(api huma.API) {
 		Description: "Permanently deletes a log drain.",
 		Tags:        []string{"Log Drains"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		DrainID string `path:"drainID" doc:"Log drain ID" example:"drain_01HX9MSYW7"`
 	}) (*struct{}, error) {
@@ -1630,6 +1730,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Description: "Creates a new notification channel for receiving alerts about job events.",
 		Tags:        []string{"Notifications"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.NotificationChannel }, error) {
@@ -1644,6 +1745,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Description: "Returns all notification channels in the current project.",
 		Tags:        []string{"Notifications"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.NotificationChannel }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1656,6 +1758,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Description: "Returns details of a specific notification channel.",
 		Tags:        []string{"Notifications"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ChannelID string `path:"channelID" doc:"Notification channel ID" example:"chan_01HX9NTZY8"`
 	}) (*struct{ Body domain.NotificationChannel }, error) {
@@ -1670,6 +1773,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Description: "Updates an existing notification channel's configuration.",
 		Tags:        []string{"Notifications"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ChannelID string `path:"channelID" doc:"Notification channel ID" example:"chan_01HX9NTZY8"`
 		Body      json.RawMessage
@@ -1685,6 +1789,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Description: "Permanently deletes a notification channel.",
 		Tags:        []string{"Notifications"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ChannelID string `path:"channelID" doc:"Notification channel ID" example:"chan_01HX9NTZY8"`
 	}) (*struct{}, error) {
@@ -1699,6 +1804,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Description: "Returns a paginated list of notification delivery attempts.",
 		Tags:        []string{"Notifications"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -1719,6 +1825,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Creates a new custom role with the specified permissions.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.ProjectRole }, error) {
@@ -1733,6 +1840,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Returns all roles defined in the current project.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.ProjectRole }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1745,6 +1853,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Returns details of a specific role including its permissions.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RoleID string `path:"roleID" doc:"Role ID" example:"role_01HX8KNXP3"`
 	}) (*struct{ Body domain.ProjectRole }, error) {
@@ -1759,6 +1868,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Updates an existing role's name or permissions.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RoleID string `path:"roleID" doc:"Role ID" example:"role_01HX8KNXP3"`
 		Body   json.RawMessage
@@ -1774,6 +1884,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Permanently deletes a custom role. Members with this role lose its permissions.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RoleID string `path:"roleID" doc:"Role ID" example:"role_01HX8KNXP3"`
 	}) (*struct{}, error) {
@@ -1789,6 +1900,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Assigns a user to a role in the current project.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			UserID string `json:"user_id" required:"true" doc:"User ID to assign" example:"user_01HX8JKWM9"`
@@ -1806,6 +1918,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Assigns multiple users to roles in a single operation.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			Assignments []struct {
@@ -1825,6 +1938,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Returns all members and their roles in the current project.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.ProjectMemberRole }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1837,6 +1951,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Removes a user's role assignment from the current project.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		UserID string `path:"userID" doc:"User ID to remove" example:"user_01HX8JKWM9"`
 	}) (*struct{}, error) {
@@ -1852,6 +1967,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Creates the default system roles (admin, editor, viewer) if they do not exist.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1865,6 +1981,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Creates a policy restricting access to specific resources by role.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.ResourcePolicy }, error) {
@@ -1879,6 +1996,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Returns all resource policies in the current project.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.ResourcePolicy }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1891,6 +2009,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Permanently deletes a resource policy.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		PolicyID string `path:"policyID" doc:"Resource policy ID" example:"pol_01HX9PVZW9"`
 	}) (*struct{}, error) {
@@ -1906,6 +2025,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Creates a policy restricting access based on resource tags.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.TagPolicy }, error) {
@@ -1920,6 +2040,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Returns all tag policies in the current project.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.TagPolicy }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1932,6 +2053,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Description: "Permanently deletes a tag policy.",
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		PolicyID string `path:"policyID" doc:"Tag policy ID" example:"tpol_01HX9QWAX1"`
 	}) (*struct{}, error) {
@@ -1950,6 +2072,7 @@ func (s *Server) registerAuditOps(api huma.API) {
 		Description: "Returns a paginated list of audit events for the current project.",
 		Tags:        []string{"Audit"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -1965,6 +2088,7 @@ func (s *Server) registerAuditOps(api huma.API) {
 		Description: "Exports audit events as CSV or JSON for compliance and reporting.",
 		Tags:        []string{"Audit"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Format string `query:"format" doc:"Export format" enum:"csv,json" example:"json"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -1983,6 +2107,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Returns the current billing period's usage metrics.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1995,6 +2120,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Returns historical usage data across billing periods.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Periods int `query:"periods" doc:"Number of historical periods to return" example:"6"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2009,6 +2135,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Returns projected usage for the current billing period.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2021,6 +2148,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Returns cost breakdown by project for the current billing period.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2033,6 +2161,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Returns usage anomaly alerts based on configured thresholds.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2045,6 +2174,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Exports usage data as CSV or JSON for external analysis.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Format string `query:"format" doc:"Export format" enum:"csv,json" example:"json"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2059,6 +2189,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Returns the current spending limit configuration.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2071,6 +2202,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Sets or updates the spending limit for the current project.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2085,6 +2217,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Returns a cost estimate based on current usage patterns.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2097,6 +2230,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Returns a preview of the impact of downgrading to a lower plan tier.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2109,6 +2243,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Returns the budget configuration for the current project.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2121,6 +2256,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Sets or updates the budget for the current project.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2135,6 +2271,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Returns the anomaly detection configuration for the current project.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2147,6 +2284,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Sets or updates the anomaly detection thresholds for the current project.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2161,6 +2299,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Description: "Checks whether the organization has reached its plan limits.",
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2177,6 +2316,7 @@ func (s *Server) registerReferralOps(api huma.API) {
 		Description: "Generates a new referral code for sharing with other users.",
 		Tags:        []string{"Referrals"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2189,6 +2329,7 @@ func (s *Server) registerReferralOps(api huma.API) {
 		Description: "Activates a referral code to receive the referral benefit.",
 		Tags:        []string{"Referrals"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			Code string `json:"code" required:"true" doc:"Referral code to activate" example:"STRAIT-REF-2024"`
@@ -2205,6 +2346,7 @@ func (s *Server) registerReferralOps(api huma.API) {
 		Description: "Returns all referral codes and their activation status.",
 		Tags:        []string{"Referrals"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2222,6 +2364,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns job execution performance metrics including p50/p95/p99 latencies.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" enum:"1h,6h,24h,7d,30d" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2236,6 +2379,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns cost analytics for the current billing period.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2250,6 +2394,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns cost trend data over time for identifying spending patterns.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2264,6 +2409,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns the jobs contributing most to overall costs.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
@@ -2279,6 +2425,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns compute resource utilization and cost breakdown.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2293,6 +2440,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns statistics about workflow approval steps including wait times.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2307,6 +2455,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns actionable insights for reducing costs based on usage patterns.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2320,6 +2469,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns time-series data of run executions bucketed by interval.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period   string `query:"period" doc:"Time period"`
 		Interval string `query:"interval" doc:"Bucket interval" example:"1h"`
@@ -2335,6 +2485,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns a histogram of run durations across percentile buckets.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2349,6 +2500,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns the most common failure reasons across runs.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
@@ -2364,6 +2516,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns aggregate summary statistics for runs in the specified period.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2378,6 +2531,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns run counts grouped by trigger type (cron, API, event, webhook).",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2392,6 +2546,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns side-by-side performance comparison across jobs.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2406,6 +2561,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns reliability metrics (success rate, MTTR, MTBF) for jobs.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2420,6 +2576,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns run metrics grouped by job version to track version performance.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2434,6 +2591,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns jobs ranked by total cost in the specified period.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
@@ -2449,6 +2607,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns jobs with the highest failure rates in the specified period.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
@@ -2464,6 +2623,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns historical execution data for a specific job.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID  string `path:"jobID" doc:"Job ID"`
 		Period string `query:"period" doc:"Time period" example:"24h"`
@@ -2479,6 +2639,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns aggregate metrics grouped by tag for resource categorization.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2493,6 +2654,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns tags associated with the highest failure rates.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
@@ -2508,6 +2670,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns cost data grouped by tag for cost allocation.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2522,6 +2685,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns completion and success rates for workflows.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2536,6 +2700,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns aggregate analytics across all workflows.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2550,6 +2715,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns average and percentile duration metrics for each step in a workflow.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Period     string `query:"period" doc:"Time period"`
@@ -2565,6 +2731,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns delivery success rates and latency metrics for webhooks.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2579,6 +2746,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns health metrics for webhook endpoints including error rates.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2593,6 +2761,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns webhook endpoints with the highest failure rates.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
@@ -2608,6 +2777,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns event volume time-series data.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period   string `query:"period" doc:"Time period"`
 		Interval string `query:"interval" doc:"Bucket interval" example:"1h"`
@@ -2623,6 +2793,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns latency metrics for event processing.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2637,6 +2808,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns projected costs based on historical usage trends.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2649,6 +2821,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns cost breakdown grouped by trigger type.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2663,6 +2836,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Description: "Returns cost breakdown grouped by machine/compute type.",
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2681,6 +2855,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Returns the payload for a run so the SDK can begin execution.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -2695,6 +2870,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Sends a structured log entry from the running job to Strait.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2710,6 +2886,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Reports execution progress as a percentage for monitoring.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
@@ -2728,6 +2905,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Attaches metadata annotations to a run for search and filtering.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2743,6 +2921,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Sends a heartbeat to indicate the run is still actively executing.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{}, error) {
@@ -2757,6 +2936,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Saves a checkpoint so the run can resume from this point on retry.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2772,6 +2952,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Reports resource usage (tokens, compute time, etc.) for billing.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2787,6 +2968,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Records an LLM tool call for observability and debugging.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2802,6 +2984,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Records a structured output produced by the run.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2817,6 +3000,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Marks the run as successfully completed with optional result data.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2832,6 +3016,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Marks the run as failed with an error message and optional details.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
@@ -2850,6 +3035,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Spawns a child run from within the current run for fan-out patterns.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2865,6 +3051,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Signals that the run should continue with a new execution step.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2880,6 +3067,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Pauses the run until an external event with the specified key is received.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
@@ -2898,6 +3086,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Sets a key-value pair in the run's state store.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2913,6 +3102,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Returns all key-value pairs in the run's state store.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunState }, error) {
@@ -2927,6 +3117,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Returns a specific value from the run's state store by key.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Key   string `path:"key" doc:"State key" example:"last_cursor"`
@@ -2942,6 +3133,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Removes a key-value pair from the run's state store.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Key   string `path:"key" doc:"State key" example:"last_cursor"`
@@ -2957,6 +3149,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Sends a streaming chunk for real-time output from LLM-powered runs.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2972,6 +3165,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Reports CPU, memory, and other resource utilization during execution.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -2987,6 +3181,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Saves a point-in-time snapshot of resource utilization.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -3002,6 +3197,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Records an iteration in a loop-based execution pattern.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
@@ -3018,6 +3214,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Stores a value in persistent memory that survives across run attempts.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Key   string `path:"key" doc:"Memory key" example:"processed_count"`
@@ -3034,6 +3231,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Retrieves a value from persistent memory by key.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Key   string `path:"key" doc:"Memory key" example:"processed_count"`
@@ -3049,6 +3247,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Returns all key-value pairs in persistent memory for the run's job.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.JobMemory }, error) {
@@ -3063,6 +3262,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Description: "Removes a key-value pair from persistent memory.",
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Key   string `path:"key" doc:"Memory key" example:"processed_count"`
@@ -3082,6 +3282,7 @@ func (s *Server) registerOrgQueryOps(api huma.API) {
 		Description: "Returns runs across all projects in an organization.",
 		Tags:        []string{"Organizations"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		OrgID  string `path:"orgID" doc:"Organization ID" example:"org_01HX7YMWQ3"`
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
@@ -3098,6 +3299,7 @@ func (s *Server) registerOrgQueryOps(api huma.API) {
 		Description: "Returns jobs across all projects in an organization.",
 		Tags:        []string{"Organizations"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		OrgID  string `path:"orgID" doc:"Organization ID" example:"org_01HX7YMWQ3"`
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
@@ -3118,6 +3320,7 @@ func (s *Server) registerBatchOperationOps(api huma.API) {
 		Description: "Returns a paginated list of batch operations and their progress.",
 		Tags:        []string{"Batch Operations"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -3133,6 +3336,7 @@ func (s *Server) registerBatchOperationOps(api huma.API) {
 		Description: "Returns details and progress of a specific batch operation.",
 		Tags:        []string{"Batch Operations"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		BatchID string `path:"batchID" doc:"Batch operation ID" example:"batch_01HX9MQYW6"`
 	}) (*struct{ Body domain.BatchOperation }, error) {
@@ -3151,6 +3355,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Description: "Creates a new group for organizing related jobs.",
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.JobGroup }, error) {
@@ -3165,6 +3370,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Description: "Returns all job groups in the current project.",
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.JobGroup }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3177,6 +3383,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Description: "Returns details of a specific job group.",
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{ Body domain.JobGroup }, error) {
@@ -3191,6 +3398,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Description: "Updates an existing job group's name or configuration.",
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 		Body    json.RawMessage
@@ -3206,6 +3414,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Description: "Permanently deletes a job group. Jobs in the group are not deleted.",
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{}, error) {
@@ -3220,6 +3429,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Description: "Returns all jobs belonging to a specific job group.",
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{ Body []domain.Job }, error) {
@@ -3234,6 +3444,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Description: "Pauses all jobs belonging to a specific job group.",
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -3248,6 +3459,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Description: "Resumes all paused jobs belonging to a specific job group.",
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -3262,6 +3474,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Description: "Returns aggregate statistics for all jobs in a group.",
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -3280,6 +3493,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Description: "Creates a new environment for isolating job configurations.",
 		Tags:        []string{"Environments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body json.RawMessage
 	}) (*struct{ Body domain.Environment }, error) {
@@ -3294,6 +3508,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Description: "Returns all environments in the current project.",
 		Tags:        []string{"Environments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body []domain.Environment }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3306,6 +3521,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Description: "Returns details of a specific environment.",
 		Tags:        []string{"Environments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		EnvID string `path:"envID" doc:"Environment ID" example:"env_01HX9PSTY8"`
 	}) (*struct{ Body domain.Environment }, error) {
@@ -3320,6 +3536,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Description: "Updates an existing environment's configuration.",
 		Tags:        []string{"Environments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		EnvID string `path:"envID" doc:"Environment ID" example:"env_01HX9PSTY8"`
 		Body  json.RawMessage
@@ -3335,6 +3552,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Description: "Permanently deletes an environment.",
 		Tags:        []string{"Environments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		EnvID string `path:"envID" doc:"Environment ID" example:"env_01HX9PSTY8"`
 	}) (*struct{}, error) {
@@ -3349,6 +3567,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Description: "Returns the resolved environment variables with inheritance applied.",
 		Tags:        []string{"Environments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		EnvID string `path:"envID" doc:"Environment ID" example:"env_01HX9PSTY8"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -3367,6 +3586,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Creates multiple jobs in a single request.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			Jobs []CreateJobBody `json:"jobs" required:"true" doc:"List of jobs to create"`
@@ -3383,6 +3603,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Enables multiple jobs in a single request.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			JobIDs []string `json:"job_ids" required:"true" doc:"List of job IDs to enable"`
@@ -3399,6 +3620,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Disables multiple jobs in a single request.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			JobIDs []string `json:"job_ids" required:"true" doc:"List of job IDs to disable"`
@@ -3415,6 +3637,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Triggers multiple executions of a job with different payloads.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 		Body  json.RawMessage
@@ -3430,6 +3653,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Creates a dependency relationship between two jobs.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 		Body  json.RawMessage
@@ -3445,6 +3669,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Returns all dependencies for a specific job.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 	}) (*struct{ Body []domain.JobDependency }, error) {
@@ -3459,6 +3684,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Removes a dependency relationship between two jobs.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 		DepID string `path:"depID" doc:"Dependency ID" example:"dep_01HX9QTVZ9"`
@@ -3474,6 +3700,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Returns all versions of a job definition showing configuration history.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 	}) (*struct{ Body []domain.JobVersion }, error) {
@@ -3488,6 +3715,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Returns details of a specific job version.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID     string `path:"jobID" doc:"Job ID"`
 		VersionID string `path:"versionID" doc:"Version ID" example:"ver_01HX9FGTP2"`
@@ -3503,6 +3731,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Creates a copy of an existing job with a new name.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 		Body  json.RawMessage
@@ -3518,6 +3747,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Description: "Returns health metrics for a job including success rate and latency.",
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -3536,6 +3766,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns runs that have exhausted all retry attempts.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
 		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
@@ -3551,6 +3782,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Replays multiple runs from the dead-letter queue.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			RunIDs []string `json:"run_ids" required:"true" doc:"List of run IDs to replay"`
@@ -3567,6 +3799,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Cancels multiple runs matching the provided IDs.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			RunIDs []string `json:"run_ids" required:"true" doc:"List of run IDs to cancel"`
@@ -3583,6 +3816,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Cancels all active runs in the current project.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3595,6 +3829,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Replays multiple runs matching the provided IDs.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			RunIDs []string `json:"run_ids" required:"true" doc:"List of run IDs to replay"`
@@ -3611,6 +3846,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Replays a single run from the dead-letter queue.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
@@ -3625,6 +3861,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns all child runs spawned by the specified run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.JobRun }, error) {
@@ -3639,6 +3876,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns the event log for a specific run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunEvent }, error) {
@@ -3653,6 +3891,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns all checkpoints saved during a run's execution.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunCheckpoint }, error) {
@@ -3667,6 +3906,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns resource usage records for a specific run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunUsage }, error) {
@@ -3681,6 +3921,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns all tool calls made during a run's execution.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunToolCall }, error) {
@@ -3695,6 +3936,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns all structured outputs produced by a run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunOutput }, error) {
@@ -3709,6 +3951,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns a comprehensive debug bundle with all run data for troubleshooting.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.DebugBundle }, error) {
@@ -3723,6 +3966,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Enables or disables debug mode for a run, increasing log verbosity.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
@@ -3740,6 +3984,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns the parent-child lineage tree for a run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -3754,6 +3999,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns the status of all dependencies for a run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -3768,6 +4014,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Clears the idempotency key for a run, allowing re-triggering.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{}, error) {
@@ -3782,6 +4029,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Reschedules a queued run to execute at a different time.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
@@ -3799,6 +4047,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Pauses an executing run at the next safe checkpoint.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
@@ -3813,6 +4062,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Resumes a paused run from its last checkpoint.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
@@ -3827,6 +4077,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Restarts a run from the beginning, discarding current progress.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
@@ -3841,6 +4092,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns all key-value pairs in the run's state store.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunState }, error) {
@@ -3855,6 +4107,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns stored LLM streaming chunks for a run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -3869,6 +4122,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Returns resource utilization snapshots for a run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunResourceSnapshot }, error) {
@@ -3883,6 +4137,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Description: "Opens an SSE stream for real-time updates on a run's execution.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{}, error) {
@@ -3901,6 +4156,7 @@ func (s *Server) registerRegionOps(api huma.API) {
 		Description: "Returns all available execution regions.",
 		Tags:        []string{"Regions"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3917,6 +4173,7 @@ func (s *Server) registerStatsOps(api huma.API) {
 		Description: "Returns aggregate statistics for the current project including job and run counts.",
 		Tags:        []string{"Stats"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3933,6 +4190,7 @@ func (s *Server) registerWorkflowPolicyOps(api huma.API) {
 		Description: "Returns the workflow execution policy for a project.",
 		Tags:        []string{"Workflow Policies"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 	}) (*struct{ Body domain.WorkflowPolicy }, error) {
@@ -3947,6 +4205,7 @@ func (s *Server) registerWorkflowPolicyOps(api huma.API) {
 		Description: "Creates or updates the workflow execution policy for a project.",
 		Tags:        []string{"Workflow Policies"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 		Body      json.RawMessage
