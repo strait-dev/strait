@@ -5,7 +5,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -111,16 +110,16 @@ func (s *Server) registerPlanOps(api huma.API) {
 // registerJobOps registers job CRUD and trigger operations.
 
 type CreateJobBody struct {
-	Name        string          `json:"name" required:"true" minLength:"1" maxLength:"255" doc:"Job name" example:"daily-report"`
-	Slug        string          `json:"slug,omitempty" doc:"URL-friendly identifier" example:"daily-report-sync"`
-	EndpointURL string          `json:"endpoint_url" required:"true" doc:"HTTP endpoint to call" example:"https://api.example.com/webhooks/strait"`
-	Cron        string          `json:"cron,omitempty" doc:"Cron expression" example:"0 9 * * *"`
-	Payload     json.RawMessage `json:"payload,omitempty" doc:"Arbitrary JSON payload"`
-	MaxAttempts int             `json:"max_attempts,omitempty" minimum:"1" maximum:"10" doc:"Max retry attempts" example:"3"`
-	TimeoutSecs int             `json:"timeout_secs,omitempty" minimum:"1" maximum:"86400" doc:"Timeout in seconds" example:"300"`
-	WebhookURL  string          `json:"webhook_url,omitempty" doc:"Webhook URL for notifications" example:"https://api.example.com/webhooks/notify"`
-	Tags        json.RawMessage `json:"tags,omitempty" doc:"Key-value metadata tags"`
-	Enabled     *bool           `json:"enabled,omitempty" doc:"Whether job is enabled" example:"true"`
+	Name        string `json:"name" required:"true" minLength:"1" maxLength:"255" doc:"Job name" example:"daily-report"`
+	Slug        string `json:"slug,omitempty" doc:"URL-friendly identifier" example:"daily-report-sync"`
+	EndpointURL string `json:"endpoint_url" required:"true" doc:"HTTP endpoint to call" example:"https://api.example.com/webhooks/strait"`
+	Cron        string `json:"cron,omitempty" doc:"Cron expression" example:"0 9 * * *"`
+	Payload     any    `json:"payload,omitempty" doc:"Arbitrary JSON payload"`
+	MaxAttempts int    `json:"max_attempts,omitempty" minimum:"1" maximum:"10" doc:"Max retry attempts" example:"3"`
+	TimeoutSecs int    `json:"timeout_secs,omitempty" minimum:"1" maximum:"86400" doc:"Timeout in seconds" example:"300"`
+	WebhookURL  string `json:"webhook_url,omitempty" doc:"Webhook URL for notifications" example:"https://api.example.com/webhooks/notify"`
+	Tags        any    `json:"tags,omitempty" doc:"Key-value metadata tags"`
+	Enabled     *bool  `json:"enabled,omitempty" doc:"Whether job is enabled" example:"true"`
 }
 
 type JobResponseBody struct {
@@ -128,9 +127,9 @@ type JobResponseBody struct {
 }
 
 type TriggerJobBody struct {
-	Payload        json.RawMessage `json:"payload,omitempty" doc:"Arbitrary JSON payload for this run"`
-	IdempotencyKey string          `json:"idempotency_key,omitempty" doc:"Prevent duplicate triggers" example:"trigger-2024-01-15-report"`
-	ScheduledFor   *time.Time      `json:"scheduled_for,omitempty" doc:"Schedule for future execution" example:"2024-01-15T09:00:00Z"`
+	Payload        any        `json:"payload,omitempty" doc:"Arbitrary JSON payload for this run"`
+	IdempotencyKey string     `json:"idempotency_key,omitempty" doc:"Prevent duplicate triggers" example:"trigger-2024-01-15-report"`
+	ScheduledFor   *time.Time `json:"scheduled_for,omitempty" doc:"Schedule for future execution" example:"2024-01-15T09:00:00Z"`
 }
 
 func (s *Server) registerJobOps(api huma.API) {
@@ -369,7 +368,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -384,8 +383,8 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
-		Body      json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body      any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -403,7 +402,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.Workflow }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -450,7 +449,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
-		Body       json.RawMessage
+		Body       any
 	}) (*struct{ Body domain.Workflow }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -481,8 +480,8 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
-		Body       json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body       any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -497,8 +496,8 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
-		Body       json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body       any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -513,8 +512,8 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
-		Body       json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body       any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -529,7 +528,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -544,7 +543,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
-		Body       json.RawMessage
+		Body       any
 	}) (*struct{ Body domain.WorkflowRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -560,7 +559,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
-		Body       json.RawMessage
+		Body       any
 	}) (*struct{ Body domain.Workflow }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -642,7 +641,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		WorkflowID    string `path:"workflowID" doc:"Workflow ID"`
 		FromVersionID string `path:"fromVersionID" doc:"Source version ID" example:"ver_01HX9FGTP2"`
 		ToVersionID   string `path:"toVersionID" doc:"Target version ID" example:"ver_01HX9GHTQ3"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -658,7 +657,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		VersionID  string `path:"versionID" doc:"Version ID" example:"ver_01HX9FGTP2"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -673,7 +672,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -710,7 +709,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Body struct {
 			RunIDs []string `json:"run_ids" required:"true" doc:"List of workflow run IDs to cancel"`
 		}
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -727,7 +726,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Body struct {
 			RunIDs []string `json:"run_ids" required:"true" doc:"List of workflow run IDs to replay"`
 		}
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -802,7 +801,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -832,7 +831,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -847,7 +846,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -976,7 +975,7 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.DeploymentVersion }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1023,7 +1022,7 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		DeploymentID string `path:"deploymentID" doc:"Deployment version ID" example:"dep_01HX9HMVR8"`
-		Body         json.RawMessage
+		Body         any
 	}) (*struct{ Body domain.DeploymentVersion }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1072,7 +1071,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -1086,8 +1085,8 @@ func (s *Server) registerEventOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -1102,8 +1101,8 @@ func (s *Server) registerEventOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		Prefix string `path:"prefix" doc:"Event key prefix" example:"order.completed"`
-		Body   json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body   any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -1148,7 +1147,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		EventKey string `path:"eventKey" doc:"Event key" example:"order.completed.12345"`
-		Body     json.RawMessage
+		Body     any
 	}) (*struct{ Body domain.EventTrigger }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1163,8 +1162,8 @@ func (s *Server) registerEventOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -1210,7 +1209,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.EventSource }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1241,7 +1240,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
-		Body     json.RawMessage
+		Body     any
 	}) (*struct{ Body domain.EventSource }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1287,7 +1286,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
-		Body     json.RawMessage
+		Body     any
 	}) (*struct{ Body domain.EventSubscription }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1322,8 +1321,8 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -1398,7 +1397,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.WebhookSubscription }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1667,7 +1666,7 @@ func (s *Server) registerLogDrainOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.LogDrain }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1698,7 +1697,7 @@ func (s *Server) registerLogDrainOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		DrainID string `path:"drainID" doc:"Log drain ID" example:"drain_01HX9MSYW7"`
-		Body    json.RawMessage
+		Body    any
 	}) (*struct{ Body domain.LogDrain }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1732,7 +1731,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.NotificationChannel }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1776,7 +1775,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ChannelID string `path:"channelID" doc:"Notification channel ID" example:"chan_01HX9NTZY8"`
-		Body      json.RawMessage
+		Body      any
 	}) (*struct{ Body domain.NotificationChannel }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1827,7 +1826,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.ProjectRole }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1871,7 +1870,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RoleID string `path:"roleID" doc:"Role ID" example:"role_01HX8KNXP3"`
-		Body   json.RawMessage
+		Body   any
 	}) (*struct{ Body domain.ProjectRole }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1926,7 +1925,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 				RoleID string `json:"role_id" required:"true" doc:"Role ID" example:"role_01HX8KNXP3"`
 			} `json:"assignments" required:"true" doc:"List of role assignments"`
 		}
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -1968,7 +1967,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 404, 409, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -1983,7 +1982,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.ResourcePolicy }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2027,7 +2026,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.TagPolicy }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2091,7 +2090,7 @@ func (s *Server) registerAuditOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Format string `query:"format" doc:"Export format" enum:"csv,json" example:"json"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -2108,7 +2107,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2123,7 +2122,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Periods int `query:"periods" doc:"Number of historical periods to return" example:"6"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2136,7 +2135,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2149,7 +2148,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2162,7 +2161,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2177,7 +2176,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Format string `query:"format" doc:"Export format" enum:"csv,json" example:"json"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2190,7 +2189,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2204,8 +2203,8 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2218,7 +2217,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2231,7 +2230,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2244,7 +2243,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2258,8 +2257,8 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2272,7 +2271,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2286,8 +2285,8 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
-	}) (*struct{ Body json.RawMessage }, error) {
+		Body any
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2300,7 +2299,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -2317,7 +2316,7 @@ func (s *Server) registerReferralOps(api huma.API) {
 		Tags:        []string{"Referrals"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2334,7 +2333,7 @@ func (s *Server) registerReferralOps(api huma.API) {
 		Body struct {
 			Code string `json:"code" required:"true" doc:"Referral code to activate" example:"STRAIT-REF-2024"`
 		}
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2347,7 +2346,7 @@ func (s *Server) registerReferralOps(api huma.API) {
 		Tags:        []string{"Referrals"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -2367,7 +2366,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" enum:"1h,6h,24h,7d,30d" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2382,7 +2381,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2397,7 +2396,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2413,7 +2412,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2428,7 +2427,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2443,7 +2442,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2456,7 +2455,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2473,7 +2472,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Period   string `query:"period" doc:"Time period"`
 		Interval string `query:"interval" doc:"Bucket interval" example:"1h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2488,7 +2487,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2504,7 +2503,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2519,7 +2518,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2534,7 +2533,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2549,7 +2548,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2564,7 +2563,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2579,7 +2578,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2595,7 +2594,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2611,7 +2610,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2627,7 +2626,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		JobID  string `path:"jobID" doc:"Job ID"`
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2642,7 +2641,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2658,7 +2657,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2673,7 +2672,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2688,7 +2687,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2703,7 +2702,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2719,7 +2718,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Period     string `query:"period" doc:"Time period"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2734,7 +2733,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2749,7 +2748,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2765,7 +2764,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
 		Limit  int    `query:"limit" doc:"Max results" example:"10"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2781,7 +2780,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Period   string `query:"period" doc:"Time period"`
 		Interval string `query:"interval" doc:"Bucket interval" example:"1h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2796,7 +2795,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2809,7 +2808,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2824,7 +2823,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2839,7 +2838,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		Period string `query:"period" doc:"Time period" example:"24h"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -2858,7 +2857,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -2873,7 +2872,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2908,7 +2907,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2939,7 +2938,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.RunCheckpoint }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2955,7 +2954,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.RunUsage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2971,7 +2970,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.RunToolCall }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2987,7 +2986,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.RunOutput }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3003,7 +3002,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3020,8 +3019,8 @@ func (s *Server) registerSDKOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
-			Error   string          `json:"error" required:"true" doc:"Error message" example:"connection timeout after 30s"`
-			Details json.RawMessage `json:"details,omitempty" doc:"Additional error details as JSON"`
+			Error   string `json:"error" required:"true" doc:"Error message" example:"connection timeout after 30s"`
+			Details any    `json:"details,omitempty" doc:"Additional error details as JSON"`
 		}
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3038,7 +3037,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3054,7 +3053,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3089,7 +3088,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.RunState }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3152,7 +3151,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3168,7 +3167,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3184,7 +3183,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.RunResourceSnapshot }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3200,7 +3199,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Errors:      []int{400, 401, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.RunIteration }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3218,7 +3217,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Key   string `path:"key" doc:"Memory key" example:"processed_count"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.JobMemory }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3357,7 +3356,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.JobGroup }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3401,7 +3400,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
-		Body    json.RawMessage
+		Body    any
 	}) (*struct{ Body domain.JobGroup }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3447,7 +3446,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -3462,7 +3461,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -3477,7 +3476,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -3495,7 +3494,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
-		Body json.RawMessage
+		Body any
 	}) (*struct{ Body domain.Environment }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3539,7 +3538,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		EnvID string `path:"envID" doc:"Environment ID" example:"env_01HX9PSTY8"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.Environment }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3570,7 +3569,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		EnvID string `path:"envID" doc:"Environment ID" example:"env_01HX9PSTY8"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -3608,7 +3607,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Body struct {
 			JobIDs []string `json:"job_ids" required:"true" doc:"List of job IDs to enable"`
 		}
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -3625,7 +3624,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Body struct {
 			JobIDs []string `json:"job_ids" required:"true" doc:"List of job IDs to disable"`
 		}
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -3640,7 +3639,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body []domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3656,7 +3655,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Errors:      []int{400, 401, 409, 429, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.JobDependency }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3734,7 +3733,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
-		Body  json.RawMessage
+		Body  any
 	}) (*struct{ Body domain.Job }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3750,7 +3749,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -3787,7 +3786,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Body struct {
 			RunIDs []string `json:"run_ids" required:"true" doc:"List of run IDs to replay"`
 		}
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -3804,7 +3803,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Body struct {
 			RunIDs []string `json:"run_ids" required:"true" doc:"List of run IDs to cancel"`
 		}
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -3817,7 +3816,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{400, 401, 404, 409, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -3834,7 +3833,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Body struct {
 			RunIDs []string `json:"run_ids" required:"true" doc:"List of run IDs to replay"`
 		}
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -3987,7 +3986,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -4002,7 +4001,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -4110,7 +4109,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Errors:      []int{401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
-	}) (*struct{ Body json.RawMessage }, error) {
+	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
@@ -4157,7 +4156,7 @@ func (s *Server) registerRegionOps(api huma.API) {
 		Tags:        []string{"Regions"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -4174,7 +4173,7 @@ func (s *Server) registerStatsOps(api huma.API) {
 		Tags:        []string{"Stats"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct{}) (*struct{ Body json.RawMessage }, error) {
+	}, func(_ context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 }
@@ -4208,7 +4207,7 @@ func (s *Server) registerWorkflowPolicyOps(api huma.API) {
 		Errors:      []int{400, 401, 404, 500},
 	}, func(_ context.Context, _ *struct {
 		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
-		Body      json.RawMessage
+		Body      any
 	}) (*struct{ Body domain.WorkflowPolicy }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
