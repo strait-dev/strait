@@ -49,8 +49,8 @@
     "babel-plugin-react-compiler": "^1.0.0",
     "postcss": "^8.5.8",
     "postcss-load-config": "^6.0.1",
-    "typescript": "^5.9.3",
-    "vite": "^8.0.1",
-    "vitest": "^4.1.0"
+    "typescript": "^6.0.2",
+    "vite": "^8.0.2",
+    "vitest": "^4.1.1"
   }
 }
