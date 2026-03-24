@@ -9,13 +9,16 @@ package webhook
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,8 +44,12 @@ type DeliveryStore interface {
 	UpdateEventTriggerNotifyStatus(ctx context.Context, id string, notifyStatus string) error
 }
 
-const defaultDeliveryConcurrency = 50
-const defaultWebhookMaxPayloadBytes = 1 << 20
+const (
+	defaultDeliveryConcurrency    = 50
+	defaultWebhookMaxPayloadBytes = 1 << 20 // 1 MB
+	defaultMaxBatchSize           = 50
+	maxResponseBodyDrainBytes     = 1 << 20 // 1 MB — cap response body drain to prevent memory exhaustion
+)
 
 type DeliveryWorker struct {
 	client *http.Client
@@ -55,6 +62,8 @@ type DeliveryWorker struct {
 	metrics            *telemetry.Metrics
 	chExporter         *clickhouse.Exporter
 	maxPayloadBytes    int64
+	batchByURL         bool
+	maxBatchSize       int
 	stop               chan struct{}
 	done               chan struct{}
 	stopOnce           sync.Once
@@ -110,6 +119,39 @@ func WithMaxPayloadBytes(maxPayloadBytes int64) DeliveryWorkerOption {
 	}
 }
 
+func WithHTTPTransport(timeout, idleConnTimeout time.Duration, maxIdleConns, maxIdleConnsPerHost int) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		w.client = &http.Client{
+			Timeout: timeout,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
+				MaxIdleConns:        maxIdleConns,
+				MaxIdleConnsPerHost: maxIdleConnsPerHost,
+				IdleConnTimeout:     idleConnTimeout,
+				ForceAttemptHTTP2:   true,
+			},
+		}
+	}
+}
+
+func WithBatchByURL(enabled bool) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		w.batchByURL = enabled
+	}
+}
+
+func WithMaxBatchSize(n int) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		if n > 0 {
+			w.maxBatchSize = n
+		}
+	}
+}
+
 func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...DeliveryWorkerOption) *DeliveryWorker {
 	if logger == nil {
 		logger = slog.Default()
@@ -121,6 +163,7 @@ func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...Deliver
 		concurrency:        defaultDeliveryConcurrency,
 		defaultRetryPolicy: domain.WebhookRetryPolicyExponential,
 		maxPayloadBytes:    defaultWebhookMaxPayloadBytes,
+		maxBatchSize:       defaultMaxBatchSize,
 		stop:               make(chan struct{}),
 		done:               make(chan struct{}),
 	}
@@ -290,6 +333,16 @@ func (n *DeliveryWorker) processBatch(ctx context.Context) {
 		return
 	}
 
+	if !n.batchByURL {
+		n.processIndividual(ctx, deliveries)
+		return
+	}
+
+	n.processBatched(ctx, deliveries)
+}
+
+// processIndividual dispatches each delivery as a separate HTTP request.
+func (n *DeliveryWorker) processIndividual(ctx context.Context, deliveries []domain.WebhookDelivery) {
 	p := concpool.New().WithContext(ctx).WithMaxGoroutines(n.concurrency)
 	for i := range deliveries {
 		delivery := deliveries[i]
@@ -302,6 +355,270 @@ func (n *DeliveryWorker) processBatch(ctx context.Context) {
 	if err := p.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		n.logger.Error("webhook batch delivery failed", "error", err)
 	}
+}
+
+// processBatched groups deliveries by URL and sends multi-event batches where possible.
+func (n *DeliveryWorker) processBatched(ctx context.Context, deliveries []domain.WebhookDelivery) {
+	groups := groupByURL(deliveries)
+
+	p := concpool.New().WithContext(ctx).WithMaxGoroutines(n.concurrency)
+	for url, group := range groups {
+		if len(group) == 1 {
+			delivery := group[0]
+			p.Go(func(ctx context.Context) error {
+				n.attemptDelivery(ctx, &delivery)
+				return nil
+			})
+			continue
+		}
+
+		for _, chunk := range chunkDeliveries(group, n.maxBatchSize) {
+			batchURL := url
+			p.Go(func(ctx context.Context) error {
+				n.attemptBatchDelivery(ctx, batchURL, chunk)
+				return nil
+			})
+		}
+	}
+
+	if err := p.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		n.logger.Error("webhook batched delivery failed", "error", err)
+	}
+}
+
+// batchPayloadItem is a single entry in a batch webhook POST.
+type batchPayloadItem struct {
+	DeliveryID string          `json:"delivery_id"`
+	Payload    json.RawMessage `json:"payload"`
+}
+
+// attemptBatchDelivery sends multiple deliveries to the same URL as a JSON array.
+//
+//nolint:funlen
+func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery) {
+	start := time.Now()
+	now := time.Now()
+
+	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.AttemptBatchDelivery", trace.WithAttributes(
+		attribute.String("webhook.url", webhookURL),
+		attribute.Int("batch.size", len(deliveries)),
+	))
+	defer span.End()
+
+	// Emit ClickHouse events for every delivery after the function returns,
+	// regardless of success or failure (mirrors attemptDelivery's deferred emit).
+	// Skipped on the payload-too-large fallback path because attemptDelivery
+	// handles its own CH events there (avoids double-counting).
+	var skipDeferredCHEvents bool
+	defer func() {
+		if !skipDeferredCHEvents {
+			n.enqueueBatchDeliveryEvents(deliveries, start)
+		}
+	}()
+
+	// Circuit breaker check (once per batch, same URL).
+	if n.circuitBreaker != nil {
+		canDeliver, err := n.circuitBreaker.CanDeliver(ctx, webhookURL)
+		if err != nil {
+			n.logger.Warn("webhook circuit breaker check failed", "url", webhookURL, "error", err)
+		} else if !canDeliver {
+			n.recordCircuitBreakerState(ctx, webhookURL, "open")
+			for i := range deliveries {
+				deliveries[i].Attempts++
+				n.recordFailure(ctx, &deliveries[i], now, true, "circuit breaker is open")
+			}
+			span.SetStatus(codes.Error, "circuit breaker is open")
+			return
+		} else {
+			n.recordCircuitBreakerState(ctx, webhookURL, "closed")
+		}
+	}
+
+	// Extract payloads first, preserving them so we can restore on fallback.
+	extractedPayloads := make([]json.RawMessage, len(deliveries))
+	items := make([]batchPayloadItem, len(deliveries))
+	for i := range deliveries {
+		deliveries[i].Attempts++
+		extractedPayloads[i] = extractPayload(&deliveries[i])
+		items[i] = batchPayloadItem{
+			DeliveryID: deliveries[i].ID,
+			Payload:    extractedPayloads[i],
+		}
+	}
+
+	batchBody, err := json.Marshal(items)
+	if err != nil {
+		for i := range deliveries {
+			n.recordFailure(ctx, &deliveries[i], now, false, fmt.Sprintf("marshal batch: %v", err))
+		}
+		span.SetStatus(codes.Error, "marshal batch failed")
+		return
+	}
+
+	// Check aggregate payload size; fall back to individual delivery if too large.
+	if n.maxPayloadBytes > 0 && int64(len(batchBody)) > n.maxPayloadBytes {
+		n.logger.Warn("batch payload too large, falling back to individual delivery",
+			"url", webhookURL, "batch_size", len(deliveries), "payload_bytes", len(batchBody))
+		// Reset attempts and restore payloads; attemptDelivery will re-increment
+		// attempts and re-extract from LastError.
+		for i := range deliveries {
+			deliveries[i].Attempts--
+			deliveries[i].LastError = string(extractedPayloads[i])
+		}
+		// Skip deferred CH events; each attemptDelivery emits its own.
+		skipDeferredCHEvents = true
+		// Fan out concurrently to avoid serializing the fallback path.
+		p := concpool.New().WithContext(ctx).WithMaxGoroutines(n.concurrency)
+		for i := range deliveries {
+			d := &deliveries[i]
+			p.Go(func(ctx context.Context) error {
+				n.attemptDelivery(ctx, d)
+				return nil
+			})
+		}
+		_ = p.Wait()
+		return
+	}
+
+	if n.metrics != nil {
+		n.metrics.WebhookPayloadBytes.Record(ctx, int64(len(batchBody)))
+		for i := range deliveries {
+			n.metrics.WebhookDeliveryAttempts.Add(ctx, 1, metric.WithAttributes(
+				attribute.String("retry_policy", n.retryPolicyForDelivery(&deliveries[i])),
+			))
+		}
+	}
+
+	reqCtx, reqCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer reqCancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, webhookURL, bytes.NewReader(batchBody))
+	if err != nil {
+		for i := range deliveries {
+			n.recordFailure(ctx, &deliveries[i], now, false, fmt.Sprintf("create request: %v", err))
+		}
+		span.SetStatus(codes.Error, "create request failed")
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Strait-Batch", "true")
+	req.Header.Set("X-Strait-Batch-Size", strconv.Itoa(len(deliveries)))
+
+	resp, err := n.client.Do(req)
+	if err != nil {
+		if n.circuitBreaker != nil {
+			n.circuitBreaker.RecordFailure(ctx, webhookURL)
+		}
+		errMsg := fmt.Sprintf("http request: %v", err)
+		for i := range deliveries {
+			n.recordFailure(ctx, &deliveries[i], now, true, errMsg)
+		}
+		span.SetStatus(codes.Error, errMsg)
+		return
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyDrainBytes))
+		_ = resp.Body.Close()
+	}()
+
+	statusCode := resp.StatusCode
+	span.SetAttributes(attribute.Int("status_code", statusCode))
+
+	if statusCode >= 500 {
+		if n.circuitBreaker != nil {
+			n.circuitBreaker.RecordFailure(ctx, webhookURL)
+		}
+		errMsg := fmt.Sprintf("server error: status %d", statusCode)
+		for i := range deliveries {
+			deliveries[i].LastStatusCode = &statusCode
+			n.recordFailure(ctx, &deliveries[i], now, true, errMsg)
+		}
+		span.SetStatus(codes.Error, errMsg)
+		return
+	}
+	if statusCode >= 400 {
+		errMsg := fmt.Sprintf("client error: status %d", statusCode)
+		for i := range deliveries {
+			deliveries[i].LastStatusCode = &statusCode
+			n.recordFailure(ctx, &deliveries[i], now, false, errMsg)
+		}
+		span.SetStatus(codes.Error, errMsg)
+		return
+	}
+
+	// Success: mark all delivered.
+	if n.circuitBreaker != nil {
+		n.circuitBreaker.RecordSuccess(ctx, webhookURL)
+	}
+	for i := range deliveries {
+		deliveries[i].Status = domain.WebhookStatusDelivered
+		deliveries[i].DeliveredAt = &now
+		deliveries[i].LastError = ""
+		deliveries[i].LastStatusCode = &statusCode
+		if err := n.store.UpdateWebhookDelivery(ctx, &deliveries[i]); err != nil {
+			n.logger.Error("failed to mark webhook delivered", "delivery_id", deliveries[i].ID, "error", err)
+		}
+		if n.metrics != nil {
+			n.metrics.WebhookDeliveriesTotal.Add(ctx, 1, metric.WithAttributes(
+				attribute.String("status", "delivered"),
+				attribute.String("retry_policy", n.retryPolicyForDelivery(&deliveries[i])),
+			))
+		}
+		if deliveries[i].EventTriggerID != "" {
+			_ = n.store.UpdateEventTriggerNotifyStatus(ctx, deliveries[i].EventTriggerID, "sent")
+		}
+	}
+
+	n.logger.Info("webhook batch delivered", "url", webhookURL, "batch_size", len(deliveries))
+}
+
+// enqueueBatchDeliveryEvents emits a ClickHouse event for each delivery in a batch.
+func (n *DeliveryWorker) enqueueBatchDeliveryEvents(deliveries []domain.WebhookDelivery, start time.Time) {
+	durationMs := uint64(max(time.Since(start).Milliseconds(), 0))
+	for i := range deliveries {
+		eventType := "run_webhook"
+		if deliveries[i].EventTriggerID != "" {
+			eventType = "event_trigger_notify"
+		}
+		n.enqueueDeliveryEvent(&deliveries[i], durationMs, eventType)
+	}
+}
+
+// extractPayload returns the JSON payload for a delivery, reading from LastError (where it was stashed).
+// It clears LastError on successful extraction so retry error messages are not confused with payloads.
+func extractPayload(d *domain.WebhookDelivery) json.RawMessage {
+	if d.LastError != "" && json.Valid([]byte(d.LastError)) {
+		payload := json.RawMessage(d.LastError)
+		d.LastError = ""
+		return payload
+	}
+	fallback, _ := json.Marshal(map[string]any{
+		"trigger_id":  d.EventTriggerID,
+		"delivery_id": d.ID,
+	})
+	return fallback
+}
+
+// groupByURL groups deliveries by their webhook URL.
+func groupByURL(deliveries []domain.WebhookDelivery) map[string][]domain.WebhookDelivery {
+	groups := make(map[string][]domain.WebhookDelivery, len(deliveries))
+	for i := range deliveries {
+		groups[deliveries[i].WebhookURL] = append(groups[deliveries[i].WebhookURL], deliveries[i])
+	}
+	return groups
+}
+
+// chunkDeliveries splits a slice into chunks of at most size elements.
+func chunkDeliveries(deliveries []domain.WebhookDelivery, size int) [][]domain.WebhookDelivery {
+	if len(deliveries) == 0 || size <= 0 {
+		return nil
+	}
+	chunks := make([][]domain.WebhookDelivery, 0, (len(deliveries)+size-1)/size)
+	for i := 0; i < len(deliveries); i += size {
+		end := min(i+size, len(deliveries))
+		chunks = append(chunks, deliveries[i:end])
+	}
+	return chunks
 }
 
 // enqueueDeliveryEvent sends a WebhookDeliveryEventRecord to the ClickHouse exporter.
@@ -458,7 +775,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		return
 	}
 	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyDrainBytes))
 		_ = resp.Body.Close()
 	}()
 
@@ -554,7 +871,7 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 		return
 	}
 
-	backoff := backoffForRetryPolicy(n.retryPolicyForDelivery(d), d.Attempts)
+	backoff := backoffForRetryPolicy(retryPolicy, d.Attempts)
 	nextAttempt := now.Add(backoff)
 	d.NextRetryAt = &nextAttempt
 	d.Status = domain.WebhookStatusPending

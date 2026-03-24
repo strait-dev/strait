@@ -82,13 +82,17 @@ type Config struct {
 	PermissionCacheTTL time.Duration `env:"PERMISSION_CACHE_TTL" default:"5m"`
 
 	// Worker/Executor timeouts
-	WebhookTimeout          time.Duration `env:"WEBHOOK_TIMEOUT" default:"10s"`
-	WebhookIdleConnTimeout  time.Duration `env:"WEBHOOK_IDLE_CONN_TIMEOUT" default:"1m"`
-	ExecutorHTTPTimeout     time.Duration `env:"EXECUTOR_HTTP_TIMEOUT" default:"5m"`
-	ExecutorIdleConnTimeout time.Duration `env:"EXECUTOR_IDLE_CONN_TIMEOUT" default:"1m30s"`
-	WebhookDispatchTimeout  time.Duration `env:"WEBHOOK_DISPATCH_TIMEOUT" default:"15s"`
-	WebhookMaxPayloadBytes  int64         `env:"WEBHOOK_MAX_PAYLOAD_BYTES" default:"1048576"`
-	WebhookConcurrency      int           `env:"WEBHOOK_CONCURRENCY" default:"50"`
+	WebhookTimeout             time.Duration `env:"WEBHOOK_TIMEOUT" default:"10s"`
+	WebhookIdleConnTimeout     time.Duration `env:"WEBHOOK_IDLE_CONN_TIMEOUT" default:"1m"`
+	ExecutorHTTPTimeout        time.Duration `env:"EXECUTOR_HTTP_TIMEOUT" default:"5m"`
+	ExecutorIdleConnTimeout    time.Duration `env:"EXECUTOR_IDLE_CONN_TIMEOUT" default:"1m30s"`
+	WebhookDispatchTimeout     time.Duration `env:"WEBHOOK_DISPATCH_TIMEOUT" default:"15s"`
+	WebhookMaxPayloadBytes     int64         `env:"WEBHOOK_MAX_PAYLOAD_BYTES" default:"1048576"`
+	WebhookConcurrency         int           `env:"WEBHOOK_CONCURRENCY" default:"50"`
+	WebhookMaxIdleConns        int           `env:"WEBHOOK_MAX_IDLE_CONNS" default:"100"`
+	WebhookMaxIdleConnsPerHost int           `env:"WEBHOOK_MAX_IDLE_CONNS_PER_HOST" default:"50"`
+	WebhookBatchEnabled        bool          `env:"WEBHOOK_BATCH_ENABLED" default:"false"`
+	WebhookMaxBatchSize        int           `env:"WEBHOOK_MAX_BATCH_SIZE" default:"50"`
 
 	// Worker settings
 	WebhookMaxAttempts       int `env:"WEBHOOK_MAX_ATTEMPTS" default:"3"`

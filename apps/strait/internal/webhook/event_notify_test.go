@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1146,5 +1148,2022 @@ func TestDeliveryWorker_ConcurrentDeliveries50(t *testing.T) {
 	peak := maxConcurrent.Load()
 	if peak < 10 {
 		t.Errorf("peak concurrency = %d, expected higher with 60 deliveries", peak)
+	}
+}
+
+// HTTP Transport tests.
+
+func TestWithHTTPTransport_SetsCustomTransport(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(),
+		WithHTTPTransport(10*time.Second, 90*time.Second, 200, 100),
+	)
+
+	transport, ok := worker.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("expected *http.Transport after WithHTTPTransport")
+	}
+	if transport.MaxIdleConns != 200 {
+		t.Errorf("MaxIdleConns = %d, want 200", transport.MaxIdleConns)
+	}
+	if transport.MaxIdleConnsPerHost != 100 {
+		t.Errorf("MaxIdleConnsPerHost = %d, want 100", transport.MaxIdleConnsPerHost)
+	}
+	if transport.IdleConnTimeout != 90*time.Second {
+		t.Errorf("IdleConnTimeout = %v, want 90s", transport.IdleConnTimeout)
+	}
+	if !transport.ForceAttemptHTTP2 {
+		t.Error("expected ForceAttemptHTTP2 = true")
+	}
+	if worker.client.Timeout != 10*time.Second {
+		t.Errorf("client.Timeout = %v, want 10s", worker.client.Timeout)
+	}
+}
+
+func TestWithHTTPTransport_ConnectionReuse(t *testing.T) {
+	t.Parallel()
+
+	var connCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	// Track new connections via a custom dialer wrapper.
+	baseTransport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			connCount.Add(1)
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		},
+		MaxIdleConns:        50,
+		MaxIdleConnsPerHost: 50,
+		IdleConnTimeout:     time.Minute,
+	}
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.client = &http.Client{Transport: baseTransport}
+
+	// Send 10 deliveries sequentially to the same host.
+	for i := range 10 {
+		now := time.Now().Add(-time.Second)
+		d := &domain.WebhookDelivery{
+			ID:          fmt.Sprintf("conn-reuse-%d", i),
+			WebhookURL:  ts.URL,
+			Status:      domain.WebhookStatusPending,
+			MaxAttempts: 5,
+			NextRetryAt: &now,
+			LastError:   fmt.Sprintf(`{"i":%d}`, i),
+		}
+		worker.attemptDelivery(context.Background(), d)
+	}
+
+	// With keep-alive, should have fewer connections than requests.
+	conns := connCount.Load()
+	if conns > 3 {
+		t.Errorf("expected connection reuse, but opened %d connections for 10 requests", conns)
+	}
+}
+
+func TestWithHTTPTransport_DefaultValues(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	// Without WithHTTPTransport, client should have nil Transport (uses default).
+	if worker.client.Transport != nil {
+		t.Error("expected nil Transport (Go default) when WithHTTPTransport is not used")
+	}
+}
+
+// Batch helper tests.
+
+func TestGroupByURL_Empty(t *testing.T) {
+	t.Parallel()
+	result := groupByURL(nil)
+	if len(result) != 0 {
+		t.Fatalf("expected empty map, got %d entries", len(result))
+	}
+}
+
+func TestGroupByURL_SingleURL(t *testing.T) {
+	t.Parallel()
+	deliveries := []domain.WebhookDelivery{
+		{ID: "d1", WebhookURL: "https://a.com/hook"},
+		{ID: "d2", WebhookURL: "https://a.com/hook"},
+		{ID: "d3", WebhookURL: "https://a.com/hook"},
+	}
+	result := groupByURL(deliveries)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(result))
+	}
+	if len(result["https://a.com/hook"]) != 3 {
+		t.Fatalf("expected 3 deliveries in group, got %d", len(result["https://a.com/hook"]))
+	}
+}
+
+func TestGroupByURL_MultipleURLs(t *testing.T) {
+	t.Parallel()
+	deliveries := []domain.WebhookDelivery{
+		{ID: "d1", WebhookURL: "https://a.com"},
+		{ID: "d2", WebhookURL: "https://b.com"},
+		{ID: "d3", WebhookURL: "https://a.com"},
+		{ID: "d4", WebhookURL: "https://c.com"},
+		{ID: "d5", WebhookURL: "https://b.com"},
+	}
+	result := groupByURL(deliveries)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 groups, got %d", len(result))
+	}
+	if len(result["https://a.com"]) != 2 {
+		t.Fatalf("expected 2 for a.com, got %d", len(result["https://a.com"]))
+	}
+	if len(result["https://b.com"]) != 2 {
+		t.Fatalf("expected 2 for b.com, got %d", len(result["https://b.com"]))
+	}
+	if len(result["https://c.com"]) != 1 {
+		t.Fatalf("expected 1 for c.com, got %d", len(result["https://c.com"]))
+	}
+}
+
+func TestChunkDeliveries_ExactMultiple(t *testing.T) {
+	t.Parallel()
+	deliveries := make([]domain.WebhookDelivery, 9)
+	for i := range deliveries {
+		deliveries[i].ID = fmt.Sprintf("d%d", i)
+	}
+	chunks := chunkDeliveries(deliveries, 3)
+	if len(chunks) != 3 {
+		t.Fatalf("expected 3 chunks, got %d", len(chunks))
+	}
+	for _, c := range chunks {
+		if len(c) != 3 {
+			t.Fatalf("expected chunk size 3, got %d", len(c))
+		}
+	}
+}
+
+func TestChunkDeliveries_Remainder(t *testing.T) {
+	t.Parallel()
+	deliveries := make([]domain.WebhookDelivery, 10)
+	for i := range deliveries {
+		deliveries[i].ID = fmt.Sprintf("d%d", i)
+	}
+	chunks := chunkDeliveries(deliveries, 3)
+	if len(chunks) != 4 {
+		t.Fatalf("expected 4 chunks, got %d", len(chunks))
+	}
+	if len(chunks[3]) != 1 {
+		t.Fatalf("expected last chunk size 1, got %d", len(chunks[3]))
+	}
+}
+
+func TestChunkDeliveries_LargerThanInput(t *testing.T) {
+	t.Parallel()
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i := range deliveries {
+		deliveries[i].ID = fmt.Sprintf("d%d", i)
+	}
+	chunks := chunkDeliveries(deliveries, 10)
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk, got %d", len(chunks))
+	}
+	if len(chunks[0]) != 3 {
+		t.Fatalf("expected chunk size 3, got %d", len(chunks[0]))
+	}
+}
+
+func TestChunkDeliveries_Empty(t *testing.T) {
+	t.Parallel()
+	chunks := chunkDeliveries(nil, 5)
+	if chunks != nil {
+		t.Fatalf("expected nil, got %v", chunks)
+	}
+}
+
+// Batch delivery tests.
+
+func TestProcessBatch_BatchByURL_GroupsSameURL(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts2.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+
+	// 5 deliveries to URL-A
+	for i := range 5 {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("batch-a-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+	// 3 deliveries to URL-B
+	for i := range 3 {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("batch-b-%d", i), WebhookURL: ts2.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
+	worker.processBatch(context.Background())
+
+	// Should be 2 HTTP requests: 1 batch to URL-A, 1 batch to URL-B
+	if got := requestCount.Load(); got != 2 {
+		t.Fatalf("expected 2 HTTP requests (batched), got %d", got)
+	}
+
+	// All deliveries should be marked delivered.
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("expected delivered, got %s for %s", d.Status, d.ID)
+		}
+	}
+}
+
+func TestProcessBatch_BatchByURL_SingleDeliveryNotBatched(t *testing.T) {
+	t.Parallel()
+
+	var receivedBatchHeader string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedBatchHeader = r.Header.Get("X-Strait-Batch")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	d := &domain.WebhookDelivery{
+		ID: "single-batch", WebhookURL: ts.URL,
+		Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"solo":true}`,
+	}
+	_ = ms.CreateWebhookDelivery(context.Background(), d)
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
+	worker.processBatch(context.Background())
+
+	// Single delivery should use individual path (no batch header).
+	if receivedBatchHeader == "true" {
+		t.Fatal("expected single delivery to not use batch path")
+	}
+
+	if ms.getDeliveries()[0].Status != domain.WebhookStatusDelivered {
+		t.Fatalf("expected delivered, got %s", ms.getDeliveries()[0].Status)
+	}
+}
+
+func TestProcessBatch_BatchByURL_MaxBatchSize(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	for i := range 10 {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("chunk-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithMaxBatchSize(3), WithConcurrency(10))
+	worker.processBatch(context.Background())
+
+	// 10 deliveries / batch size 3 = 4 batches (3+3+3+1)
+	if got := requestCount.Load(); got != 4 {
+		t.Fatalf("expected 4 HTTP requests (chunked batches), got %d", got)
+	}
+}
+
+func TestProcessBatch_BatchByURL_Disabled(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	for i := range 5 {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("no-batch-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(false), WithConcurrency(10))
+	worker.processBatch(context.Background())
+
+	// Without batching, each delivery is a separate request.
+	if got := requestCount.Load(); got != 5 {
+		t.Fatalf("expected 5 individual HTTP requests, got %d", got)
+	}
+}
+
+func TestAttemptBatchDelivery_Success_AllMarkedDelivered(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("batch-ok-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
+		}
+		if d.Attempts != 1 {
+			t.Fatalf("expected 1 attempt for %s, got %d", d.ID, d.Attempts)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_ServerError_AllRetried(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("batch-5xx-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusPending {
+			t.Fatalf("expected pending (retry) for %s, got %s", d.ID, d.Status)
+		}
+		if d.Attempts != 1 {
+			t.Fatalf("expected 1 attempt for %s, got %d", d.ID, d.Attempts)
+		}
+		if d.NextRetryAt == nil || d.NextRetryAt.Before(time.Now()) {
+			t.Fatalf("expected next_retry_at in the future for %s", d.ID)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_ClientError_AllDeadLettered(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("batch-4xx-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDead {
+			t.Fatalf("expected dead for %s, got %s", d.ID, d.Status)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_CircuitBreakerOpen_SkipsBatch(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true,
+		WithWebhookCircuitBreakerThreshold(1),
+		WithWebhookCircuitBreakerWindow(time.Minute),
+	)
+
+	// Trip the circuit.
+	breaker.RecordFailure(context.Background(), ts.URL)
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("batch-cb-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithCircuitBreaker(breaker))
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	if requestCount.Load() != 0 {
+		t.Fatal("expected no HTTP requests when circuit breaker is open")
+	}
+
+	// Circuit breaker open is retryable, so first attempt goes to pending (scheduled retry),
+	// not dead. Only becomes dead after max attempts exhausted.
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusPending {
+			t.Fatalf("expected pending for %s (circuit breaker, retryable), got %s", d.ID, d.Status)
+		}
+		if d.Attempts != 1 {
+			t.Fatalf("expected 1 attempt for %s, got %d", d.ID, d.Attempts)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_PayloadTooLarge_FallsBackToIndividual(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+
+	// Create deliveries with payloads that are small individually but large when batched.
+	largePayload := `{"data":"` + strings.Repeat("x", 200) + `"}`
+	deliveries := make([]domain.WebhookDelivery, 5)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("batch-big-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: largePayload,
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	// Set maxPayloadBytes low enough that batch exceeds it but individual doesn't.
+	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(500))
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	// Should fall back to 5 individual requests.
+	if got := requestCount.Load(); got != 5 {
+		t.Fatalf("expected 5 individual requests (fallback), got %d", got)
+	}
+
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_Headers(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var headers http.Header
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		headers = r.Header.Clone()
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("batch-hdr-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if headers.Get("X-Strait-Batch") != "true" {
+		t.Fatalf("expected X-Strait-Batch=true, got %q", headers.Get("X-Strait-Batch"))
+	}
+	if headers.Get("X-Strait-Batch-Size") != "3" {
+		t.Fatalf("expected X-Strait-Batch-Size=3, got %q", headers.Get("X-Strait-Batch-Size"))
+	}
+	if headers.Get("Content-Type") != "application/json" {
+		t.Fatalf("expected Content-Type=application/json, got %q", headers.Get("Content-Type"))
+	}
+}
+
+func TestAttemptBatchDelivery_PayloadFormat(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var receivedBody []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		receivedBody, _ = io.ReadAll(r.Body)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 2)
+	deliveries[0] = domain.WebhookDelivery{
+		ID: "fmt-1", WebhookURL: ts.URL,
+		Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"key":"val1"}`,
+	}
+	deliveries[1] = domain.WebhookDelivery{
+		ID: "fmt-2", WebhookURL: ts.URL,
+		Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"key":"val2"}`,
+	}
+	for i := range deliveries {
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	var items []batchPayloadItem
+	if err := json.Unmarshal(receivedBody, &items); err != nil {
+		t.Fatalf("failed to unmarshal batch payload: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items in batch, got %d", len(items))
+	}
+	if items[0].DeliveryID != "fmt-1" || items[1].DeliveryID != "fmt-2" {
+		t.Fatalf("unexpected delivery IDs: %s, %s", items[0].DeliveryID, items[1].DeliveryID)
+	}
+	// Verify payload content.
+	var p1 map[string]string
+	if err := json.Unmarshal(items[0].Payload, &p1); err != nil {
+		t.Fatalf("failed to unmarshal item[0] payload: %v", err)
+	}
+	if p1["key"] != "val1" {
+		t.Fatalf("expected payload key=val1, got %s", p1["key"])
+	}
+}
+
+func TestAttemptBatchDelivery_ClickHouseEvents(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("batch-ch-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	// One ClickHouse event per delivery in the batch.
+	if exporter.PendingCount() != 3 {
+		t.Fatalf("expected 3 pending ClickHouse records, got %d", exporter.PendingCount())
+	}
+}
+
+func TestProcessBatch_BatchAndIndividualMixed(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	var mu sync.Mutex
+	batchHeaders := make(map[string]bool)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		mu.Lock()
+		batchHeaders[r.Header.Get("X-Strait-Batch")] = true
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		mu.Lock()
+		batchHeaders[r.Header.Get("X-Strait-Batch")] = true
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts2.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+
+	// 3 deliveries to URL-A (will be batched)
+	for i := range 3 {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("mix-a-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+
+	// 1 delivery to URL-B (will be individual)
+	d := &domain.WebhookDelivery{
+		ID: "mix-b-0", WebhookURL: ts2.URL,
+		Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"solo":true}`,
+	}
+	_ = ms.CreateWebhookDelivery(context.Background(), d)
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
+	worker.processBatch(context.Background())
+
+	// 1 batch request + 1 individual request = 2 total
+	if got := requestCount.Load(); got != 2 {
+		t.Fatalf("expected 2 HTTP requests (1 batch + 1 individual), got %d", got)
+	}
+
+	// All should be delivered.
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
+		}
+	}
+}
+
+func TestWithBatchByURL_Option(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
+	if !worker.batchByURL {
+		t.Error("expected batchByURL=true")
+	}
+
+	worker2 := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(false))
+	if worker2.batchByURL {
+		t.Error("expected batchByURL=false")
+	}
+}
+
+func TestWithMaxBatchSize_Option(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxBatchSize(25))
+	if worker.maxBatchSize != 25 {
+		t.Errorf("maxBatchSize = %d, want 25", worker.maxBatchSize)
+	}
+}
+
+func TestWithMaxBatchSize_ZeroKeepsDefault(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxBatchSize(0))
+	if worker.maxBatchSize != defaultMaxBatchSize {
+		t.Errorf("maxBatchSize = %d, want %d (default)", worker.maxBatchSize, defaultMaxBatchSize)
+	}
+}
+
+func TestExtractPayload_ValidJSON(t *testing.T) {
+	t.Parallel()
+
+	d := &domain.WebhookDelivery{LastError: `{"key":"value"}`}
+	payload := extractPayload(d)
+
+	var m map[string]string
+	if err := json.Unmarshal(payload, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m["key"] != "value" {
+		t.Fatalf("expected key=value, got %s", m["key"])
+	}
+	if d.LastError != "" {
+		t.Fatal("expected LastError to be cleared after extraction")
+	}
+}
+
+func TestExtractPayload_InvalidJSON_Fallback(t *testing.T) {
+	t.Parallel()
+
+	d := &domain.WebhookDelivery{ID: "d1", EventTriggerID: "evt1", LastError: "not-json"}
+	payload := extractPayload(d)
+
+	var m map[string]string
+	if err := json.Unmarshal(payload, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m["delivery_id"] != "d1" {
+		t.Fatalf("expected delivery_id=d1, got %s", m["delivery_id"])
+	}
+}
+
+func TestExtractPayload_EmptyLastError_Fallback(t *testing.T) {
+	t.Parallel()
+
+	d := &domain.WebhookDelivery{ID: "d2"}
+	payload := extractPayload(d)
+
+	var m map[string]string
+	if err := json.Unmarshal(payload, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m["delivery_id"] != "d2" {
+		t.Fatalf("expected delivery_id=d2, got %s", m["delivery_id"])
+	}
+}
+
+// Adversarial tests: edge cases and failure modes.
+
+func TestAttemptBatchDelivery_PayloadTooLarge_PreservesOriginalPayload(t *testing.T) {
+	// BUG regression: extractPayload clears LastError. If batch exceeds
+	// maxPayloadBytes and falls back to individual delivery, the real payload
+	// must be restored so attemptDelivery sends the correct data.
+	t.Parallel()
+
+	var mu sync.Mutex
+	receivedPayloads := make(map[string]string)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		deliveryID := r.Header.Get("X-Strait-Delivery-ID")
+		mu.Lock()
+		receivedPayloads[deliveryID] = string(body)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+
+	// Create deliveries with unique payloads.
+	for i := range 3 {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("preserve-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"unique_key":"value_%d"}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+
+	// Set maxPayloadBytes very low so batch always exceeds it.
+	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(50))
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i, d := range ms.getDeliveries() {
+		deliveries[i] = *d
+	}
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Each individual delivery must have received its ORIGINAL payload, not the fallback.
+	for i := range 3 {
+		id := fmt.Sprintf("preserve-%d", i)
+		body, ok := receivedPayloads[id]
+		if !ok {
+			t.Fatalf("missing request for delivery %s", id)
+		}
+		var payload map[string]string
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatalf("delivery %s: failed to unmarshal body: %v", id, err)
+		}
+		expected := fmt.Sprintf("value_%d", i)
+		if payload["unique_key"] != expected {
+			t.Fatalf("delivery %s: expected unique_key=%s, got %s (payload was lost on fallback)",
+				id, expected, payload["unique_key"])
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_PayloadTooLarge_FallbackIsConcurrent(t *testing.T) {
+	// BUG regression: fallback from batch to individual used to be sequential.
+	t.Parallel()
+
+	var maxInFlight atomic.Int32
+	var inFlight atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		cur := inFlight.Add(1)
+		for {
+			old := maxInFlight.Load()
+			if cur <= old || maxInFlight.CompareAndSwap(old, cur) {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+		inFlight.Add(-1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 10)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("conc-fallback-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(50), WithConcurrency(10))
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	if maxInFlight.Load() <= 1 {
+		t.Fatalf("fallback should be concurrent, but max in-flight was %d", maxInFlight.Load())
+	}
+}
+
+func TestAttemptBatchDelivery_EmptyDeliveries(t *testing.T) {
+	// Edge case: empty slice should not panic or send HTTP requests.
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	// Should not panic.
+	worker.attemptBatchDelivery(context.Background(), ts.URL, nil)
+	worker.attemptBatchDelivery(context.Background(), ts.URL, []domain.WebhookDelivery{})
+
+	// Empty batch still sends an HTTP request with empty array.
+	// This is acceptable behavior but let's verify no panic.
+}
+
+func TestAttemptBatchDelivery_ContextCanceled(t *testing.T) {
+	// Edge case: context canceled before HTTP request.
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 2)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("ctx-cancel-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(ctx, ts.URL, deliveries)
+
+	// Deliveries should be scheduled for retry (HTTP error due to canceled context).
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusPending {
+			t.Fatalf("expected pending (retry) for %s after ctx cancel, got %s", d.ID, d.Status)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_MaxAttemptsExhausted_DeadLetters(t *testing.T) {
+	// Edge case: delivery at max attempts should be dead-lettered on batch failure.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 2)
+	// One delivery at max attempts, one with room.
+	deliveries[0] = domain.WebhookDelivery{
+		ID: "exhausted", WebhookURL: ts.URL,
+		Status: domain.WebhookStatusPending, Attempts: 4, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"i":0}`,
+	}
+	deliveries[1] = domain.WebhookDelivery{
+		ID: "has-room", WebhookURL: ts.URL,
+		Status: domain.WebhookStatusPending, Attempts: 1, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"i":1}`,
+	}
+	for i := range deliveries {
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	for _, d := range ms.getDeliveries() {
+		switch d.ID {
+		case "exhausted":
+			// Attempts goes 4 -> 5, which equals MaxAttempts=5 -> dead.
+			if d.Status != domain.WebhookStatusDead {
+				t.Fatalf("expected dead for exhausted delivery, got %s", d.Status)
+			}
+		case "has-room":
+			// Attempts goes 1 -> 2, still below MaxAttempts=5 -> pending retry.
+			if d.Status != domain.WebhookStatusPending {
+				t.Fatalf("expected pending for delivery with room, got %s", d.Status)
+			}
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_MixedAttemptCounts(t *testing.T) {
+	// Edge case: batch with deliveries at different attempt counts.
+	// All get the same HTTP response but should have different retry outcomes.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := []domain.WebhookDelivery{
+		{ID: "attempt-0", WebhookURL: ts.URL, Status: domain.WebhookStatusPending,
+			Attempts: 0, MaxAttempts: 2, NextRetryAt: &now, LastError: `{"i":0}`},
+		{ID: "attempt-1", WebhookURL: ts.URL, Status: domain.WebhookStatusPending,
+			Attempts: 1, MaxAttempts: 2, NextRetryAt: &now, LastError: `{"i":1}`},
+	}
+	for i := range deliveries {
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	for _, d := range ms.getDeliveries() {
+		switch d.ID {
+		case "attempt-0":
+			// Attempts: 0 -> 1, MaxAttempts: 2 -> still has room -> pending.
+			if d.Status != domain.WebhookStatusPending {
+				t.Fatalf("expected pending for attempt-0 (1/2), got %s", d.Status)
+			}
+		case "attempt-1":
+			// Attempts: 1 -> 2, MaxAttempts: 2 -> exhausted -> dead.
+			if d.Status != domain.WebhookStatusDead {
+				t.Fatalf("expected dead for attempt-1 (2/2), got %s", d.Status)
+			}
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_InvalidURL_DeadLettersAll(t *testing.T) {
+	// Edge case: completely invalid URL that fails request creation.
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 2)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("bad-url-%d", i), WebhookURL: "://invalid",
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), "://invalid", deliveries)
+
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDead {
+			t.Fatalf("expected dead for %s (invalid URL, non-retryable), got %s", d.ID, d.Status)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_ClickHouseEventsOnAllPaths(t *testing.T) {
+	// BUG regression: ClickHouse events were missing on some error paths.
+	t.Parallel()
+
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+
+	// Test with invalid URL to exercise the request creation failure path.
+	deliveries := make([]domain.WebhookDelivery, 2)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("ch-path-%d", i), WebhookURL: "://invalid",
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
+	worker.attemptBatchDelivery(context.Background(), "://invalid", deliveries)
+
+	// ClickHouse events should fire even on request creation failure.
+	if exporter.PendingCount() != 2 {
+		t.Fatalf("expected 2 ClickHouse events on error path, got %d", exporter.PendingCount())
+	}
+}
+
+func TestProcessBatch_BatchByURL_ZeroDeliveries(t *testing.T) {
+	// Edge case: no pending deliveries.
+	t.Parallel()
+
+	ms := &mockDeliveryStore{
+		listPendingFn: func(_ context.Context) ([]domain.WebhookDelivery, error) {
+			return nil, nil
+		},
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
+	// Should not panic.
+	worker.processBatch(context.Background())
+}
+
+func TestProcessBatch_BatchByURL_StoreError(t *testing.T) {
+	// Edge case: store returns error on list.
+	t.Parallel()
+
+	ms := &mockDeliveryStore{
+		listPendingFn: func(_ context.Context) ([]domain.WebhookDelivery, error) {
+			return nil, fmt.Errorf("db connection lost")
+		},
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
+	// Should not panic, just log error.
+	worker.processBatch(context.Background())
+}
+
+func TestProcessBatch_BatchByURL_MaxBatchSizeOne(t *testing.T) {
+	// Edge case: maxBatchSize=1 means every multi-delivery group is chunked
+	// into single-item batches (which are sent via attemptBatchDelivery, not
+	// attemptDelivery, because the group had > 1 item).
+	t.Parallel()
+
+	var mu sync.Mutex
+	batchHeaders := make([]string, 0)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		batchHeaders = append(batchHeaders, r.Header.Get("X-Strait-Batch"))
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	for i := range 3 {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("batch1-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithMaxBatchSize(1), WithConcurrency(10))
+	worker.processBatch(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// 3 deliveries, maxBatchSize=1 -> 3 batch requests (each with X-Strait-Batch: true).
+	if len(batchHeaders) != 3 {
+		t.Fatalf("expected 3 requests, got %d", len(batchHeaders))
+	}
+	for i, h := range batchHeaders {
+		if h != "true" {
+			t.Fatalf("request %d: expected X-Strait-Batch=true, got %q", i, h)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_ServerSlowResponse(t *testing.T) {
+	// Edge case: server responds slowly but within timeout.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("slow-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_3xxResponse(t *testing.T) {
+	// Edge case: 3xx responses are treated as success (not 4xx/5xx).
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotModified) // 304
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 2)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("3xx-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("expected delivered for %s on 3xx, got %s", d.ID, d.Status)
+		}
+	}
+}
+
+func TestProcessBatch_BatchByURL_AllDifferentURLs(t *testing.T) {
+	// Edge case: every delivery has a different URL.
+	// All go through individual path (group size = 1).
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	servers := make([]*httptest.Server, 5)
+	for i := range servers {
+		servers[i] = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			requestCount.Add(1)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer servers[i].Close()
+	}
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	for i, srv := range servers {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("unique-url-%d", i), WebhookURL: srv.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
+	worker.processBatch(context.Background())
+
+	if got := requestCount.Load(); got != 5 {
+		t.Fatalf("expected 5 individual requests (all different URLs), got %d", got)
+	}
+
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_NonJSONPayloadInLastError(t *testing.T) {
+	// Edge case: delivery on retry has an error message in LastError
+	// (not JSON payload). extractPayload should use fallback.
+	t.Parallel()
+
+	var mu sync.Mutex
+	var receivedBody []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		receivedBody, _ = io.ReadAll(r.Body)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := []domain.WebhookDelivery{{
+		ID: "retry-err", EventTriggerID: "evt-99", WebhookURL: ts.URL,
+		Status: domain.WebhookStatusPending, Attempts: 1, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: "server error: status 500", // Not JSON - this is an error message from previous attempt.
+	}}
+	_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[0])
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Should use fallback payload with delivery_id and trigger_id.
+	var items []batchPayloadItem
+	if err := json.Unmarshal(receivedBody, &items); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(items[0].Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload["trigger_id"] != "evt-99" {
+		t.Fatalf("expected trigger_id=evt-99, got %s", payload["trigger_id"])
+	}
+}
+
+func TestProcessBatch_BatchByURL_LargeNumberOfURLs(t *testing.T) {
+	// Stress test: many different URLs with batching enabled.
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+
+	// 50 URLs, 2 deliveries each = 100 total.
+	for i := range 50 {
+		url := fmt.Sprintf("%s/endpoint-%d", ts.URL, i)
+		for j := range 2 {
+			d := &domain.WebhookDelivery{
+				ID: fmt.Sprintf("stress-%d-%d", i, j), WebhookURL: url,
+				Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+				LastError: fmt.Sprintf(`{"i":%d,"j":%d}`, i, j),
+			}
+			_ = ms.CreateWebhookDelivery(context.Background(), d)
+		}
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(20))
+	worker.processBatch(context.Background())
+
+	// 50 URLs x 1 batch each = 50 requests.
+	if got := requestCount.Load(); got != 50 {
+		t.Fatalf("expected 50 batch requests, got %d", got)
+	}
+
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_EventTriggerNotifyStatusUpdated(t *testing.T) {
+	// Verify that event trigger notify status is set to "sent" on batch success.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := []domain.WebhookDelivery{{
+		ID: "evt-batch", EventTriggerID: "evt-42", WebhookURL: ts.URL,
+		Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"event_key":"test"}`,
+	}}
+	_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[0])
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	if ms.getNotifyStatus() != "sent" {
+		t.Fatalf("expected notify status=sent, got %s", ms.getNotifyStatus())
+	}
+}
+
+func TestAttemptBatchDelivery_EventTriggerNotifyStatusFailed(t *testing.T) {
+	// Verify that event trigger notify status is set to "failed" when dead-lettered.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := []domain.WebhookDelivery{{
+		ID: "evt-batch-fail", EventTriggerID: "evt-43", WebhookURL: ts.URL,
+		Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"event_key":"test"}`,
+	}}
+	_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[0])
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	if ms.getNotifyStatus() != "failed" {
+		t.Fatalf("expected notify status=failed, got %s", ms.getNotifyStatus())
+	}
+}
+
+// Consistency tests: verify behavioral parity between batch and individual paths.
+
+func TestAttemptBatchDelivery_NoDoubleClickHouseOnFallback(t *testing.T) {
+	// BUG regression: batch fallback used to emit double ClickHouse events
+	// (once from the deferred enqueueBatchDeliveryEvents, once from each
+	// attemptDelivery). Must be exactly N events for N deliveries.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+
+	const count = 3
+	deliveries := make([]domain.WebhookDelivery, count)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("dblch-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	// maxPayloadBytes=10 forces fallback to individual delivery.
+	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter), WithMaxPayloadBytes(10))
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	// Must be exactly 3, not 6 (which would indicate double-counting).
+	if got := exporter.PendingCount(); got != count {
+		t.Fatalf("expected exactly %d ClickHouse events (no double-count), got %d", count, got)
+	}
+}
+
+func TestAttemptBatchDelivery_ClickHouseExactCountOnSuccess(t *testing.T) {
+	// Verify exactly N ClickHouse events for a successful N-item batch.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+
+	const count = 5
+	deliveries := make([]domain.WebhookDelivery, count)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("chcount-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	if got := exporter.PendingCount(); got != count {
+		t.Fatalf("expected exactly %d ClickHouse events, got %d", count, got)
+	}
+}
+
+func TestAttemptBatchDelivery_ClickHouseExactCountOn5xx(t *testing.T) {
+	// Verify exactly N ClickHouse events for a failed N-item batch.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+
+	const count = 4
+	deliveries := make([]domain.WebhookDelivery, count)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("ch5xx-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	if got := exporter.PendingCount(); got != count {
+		t.Fatalf("expected exactly %d ClickHouse events on 5xx, got %d", count, got)
+	}
+}
+
+func TestBatchAndIndividual_SameDelivery_SameOutcome(t *testing.T) {
+	// Consistency test: a single delivery should produce the same outcome
+	// whether processed via individual or batch path.
+	t.Parallel()
+
+	var individualPayload, batchPayload []byte
+	var mu sync.Mutex
+
+	ts1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		individualPayload, _ = io.ReadAll(r.Body)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts1.Close()
+
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		batchPayload, _ = io.ReadAll(r.Body)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts2.Close()
+
+	originalPayload := `{"run_id":"run-1","status":"completed"}`
+	now := time.Now().Add(-time.Second)
+
+	// Individual path.
+	ms1 := &mockDeliveryStore{}
+	d1 := &domain.WebhookDelivery{
+		ID: "consistency-individual", WebhookURL: ts1.URL,
+		Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: originalPayload,
+	}
+	_ = ms1.CreateWebhookDelivery(context.Background(), d1)
+	w1 := NewDeliveryWorker(ms1, slog.Default())
+	w1.attemptDelivery(context.Background(), d1)
+
+	// Batch path (single item, forced through batch).
+	ms2 := &mockDeliveryStore{}
+	d2 := &domain.WebhookDelivery{
+		ID: "consistency-batch", WebhookURL: ts2.URL,
+		Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: originalPayload,
+	}
+	_ = ms2.CreateWebhookDelivery(context.Background(), d2)
+	w2 := NewDeliveryWorker(ms2, slog.Default())
+	batchDeliveries := []domain.WebhookDelivery{*d2}
+	w2.attemptBatchDelivery(context.Background(), ts2.URL, batchDeliveries)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Individual sends the raw payload directly.
+	var indParsed map[string]any
+	if err := json.Unmarshal(individualPayload, &indParsed); err != nil {
+		t.Fatalf("individual payload not valid JSON: %v", err)
+	}
+	if indParsed["run_id"] != "run-1" {
+		t.Fatalf("individual payload missing run_id")
+	}
+
+	// Batch wraps in array with delivery_id.
+	var batchParsed []batchPayloadItem
+	if err := json.Unmarshal(batchPayload, &batchParsed); err != nil {
+		t.Fatalf("batch payload not valid JSON array: %v", err)
+	}
+	if len(batchParsed) != 1 {
+		t.Fatalf("expected 1 item in batch, got %d", len(batchParsed))
+	}
+	var batchInnerPayload map[string]any
+	if err := json.Unmarshal(batchParsed[0].Payload, &batchInnerPayload); err != nil {
+		t.Fatalf("batch inner payload not valid JSON: %v", err)
+	}
+	if batchInnerPayload["run_id"] != "run-1" {
+		t.Fatalf("batch inner payload missing run_id")
+	}
+
+	// Both should be delivered.
+	if d1.Status != domain.WebhookStatusDelivered {
+		t.Fatalf("individual: expected delivered, got %s", d1.Status)
+	}
+	if batchDeliveries[0].Status != domain.WebhookStatusDelivered {
+		t.Fatalf("batch: expected delivered, got %s", batchDeliveries[0].Status)
+	}
+
+	// Both should have 1 attempt.
+	if d1.Attempts != 1 {
+		t.Fatalf("individual: expected 1 attempt, got %d", d1.Attempts)
+	}
+	if batchDeliveries[0].Attempts != 1 {
+		t.Fatalf("batch: expected 1 attempt, got %d", batchDeliveries[0].Attempts)
+	}
+}
+
+func TestBatchAndIndividual_5xx_SameRetryBehavior(t *testing.T) {
+	// Consistency test: 5xx should produce same retry behavior in both paths.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer ts.Close()
+
+	now := time.Now().Add(-time.Second)
+
+	// Individual path.
+	ms1 := &mockDeliveryStore{}
+	d1 := &domain.WebhookDelivery{
+		ID: "retry-ind", WebhookURL: ts.URL, RetryPolicy: domain.WebhookRetryPolicyExponential,
+		Status: domain.WebhookStatusPending, Attempts: 0, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"data":1}`,
+	}
+	_ = ms1.CreateWebhookDelivery(context.Background(), d1)
+	w1 := NewDeliveryWorker(ms1, slog.Default())
+	w1.attemptDelivery(context.Background(), d1)
+
+	// Batch path.
+	ms2 := &mockDeliveryStore{}
+	d2 := domain.WebhookDelivery{
+		ID: "retry-batch", WebhookURL: ts.URL, RetryPolicy: domain.WebhookRetryPolicyExponential,
+		Status: domain.WebhookStatusPending, Attempts: 0, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"data":1}`,
+	}
+	_ = ms2.CreateWebhookDelivery(context.Background(), &d2)
+	batchDeliveries := []domain.WebhookDelivery{d2}
+	w2 := NewDeliveryWorker(ms2, slog.Default())
+	w2.attemptBatchDelivery(context.Background(), ts.URL, batchDeliveries)
+
+	// Both should be pending (retry scheduled).
+	if d1.Status != domain.WebhookStatusPending {
+		t.Fatalf("individual: expected pending, got %s", d1.Status)
+	}
+	if batchDeliveries[0].Status != domain.WebhookStatusPending {
+		t.Fatalf("batch: expected pending, got %s", batchDeliveries[0].Status)
+	}
+
+	// Both should have 1 attempt.
+	if d1.Attempts != 1 {
+		t.Fatalf("individual: expected 1 attempt, got %d", d1.Attempts)
+	}
+	if batchDeliveries[0].Attempts != 1 {
+		t.Fatalf("batch: expected 1 attempt, got %d", batchDeliveries[0].Attempts)
+	}
+
+	// Both should have future next_retry_at.
+	if d1.NextRetryAt == nil || !d1.NextRetryAt.After(time.Now()) {
+		t.Fatal("individual: expected next_retry_at in the future")
+	}
+	if batchDeliveries[0].NextRetryAt == nil || !batchDeliveries[0].NextRetryAt.After(time.Now()) {
+		t.Fatal("batch: expected next_retry_at in the future")
+	}
+}
+
+func TestBatchAndIndividual_4xx_SameDeadLetterBehavior(t *testing.T) {
+	// Consistency test: 4xx should dead-letter in both paths.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer ts.Close()
+
+	now := time.Now().Add(-time.Second)
+
+	// Individual path.
+	ms1 := &mockDeliveryStore{}
+	d1 := &domain.WebhookDelivery{
+		ID: "dead-ind", WebhookURL: ts.URL,
+		Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"data":1}`,
+	}
+	_ = ms1.CreateWebhookDelivery(context.Background(), d1)
+	w1 := NewDeliveryWorker(ms1, slog.Default())
+	w1.attemptDelivery(context.Background(), d1)
+
+	// Batch path.
+	ms2 := &mockDeliveryStore{}
+	d2 := domain.WebhookDelivery{
+		ID: "dead-batch", WebhookURL: ts.URL,
+		Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+		LastError: `{"data":1}`,
+	}
+	_ = ms2.CreateWebhookDelivery(context.Background(), &d2)
+	batchDeliveries := []domain.WebhookDelivery{d2}
+	w2 := NewDeliveryWorker(ms2, slog.Default())
+	w2.attemptBatchDelivery(context.Background(), ts.URL, batchDeliveries)
+
+	// Both should be dead.
+	if d1.Status != domain.WebhookStatusDead {
+		t.Fatalf("individual: expected dead, got %s", d1.Status)
+	}
+	if batchDeliveries[0].Status != domain.WebhookStatusDead {
+		t.Fatalf("batch: expected dead, got %s", batchDeliveries[0].Status)
+	}
+}
+
+func TestProcessBatch_BatchEnabled_RunWorker_IntegrationTest(t *testing.T) {
+	// Integration test: verify the full RunWorker -> processBatch -> batch path
+	// delivers correctly with batching enabled.
+	t.Parallel()
+
+	var mu sync.Mutex
+	receivedBodies := make([][]byte, 0)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		receivedBodies = append(receivedBodies, body)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	// 3 deliveries to same URL -> should batch.
+	for i := range 3 {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("integ-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"run_id":"run-%d"}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() {
+		_ = worker.RunWorker(ctx, 50*time.Millisecond)
+	}()
+
+	// Wait for delivery.
+	deadline := time.After(2 * time.Second)
+	for {
+		allDelivered := true
+		for _, d := range ms.getDeliveries() {
+			if d.Status != domain.WebhookStatusDelivered {
+				allDelivered = false
+				break
+			}
+		}
+		if allDelivered && len(ms.getDeliveries()) == 3 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for batch delivery via RunWorker")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	cancel()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Should have received exactly 1 batch request (not 3 individual ones).
+	if len(receivedBodies) != 1 {
+		t.Fatalf("expected 1 batch HTTP request, got %d", len(receivedBodies))
+	}
+
+	// Verify it was a batch payload (JSON array).
+	var items []batchPayloadItem
+	if err := json.Unmarshal(receivedBodies[0], &items); err != nil {
+		t.Fatalf("expected batch JSON array: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items in batch, got %d", len(items))
+	}
+}
+
+func TestAttemptBatchDelivery_FallbackAttemptsNotDoubled(t *testing.T) {
+	// Verify that the fallback path does not double-increment attempts.
+	// The batch path increments, then decrements on fallback. attemptDelivery
+	// increments again. Net result should be exactly 1 for fresh deliveries.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("attempt-check-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, Attempts: 0, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(10))
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	for _, d := range ms.getDeliveries() {
+		if d.Attempts != 1 {
+			t.Fatalf("expected exactly 1 attempt for %s after fallback, got %d (double-increment bug)", d.ID, d.Attempts)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_FallbackRetryPolicyPreserved(t *testing.T) {
+	// Verify that deliveries with non-default retry policies preserve
+	// their policy through the batch fallback path.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := []domain.WebhookDelivery{
+		{ID: "rp-exp", WebhookURL: ts.URL, RetryPolicy: domain.WebhookRetryPolicyExponential,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: `{"i":0}`},
+		{ID: "rp-linear", WebhookURL: ts.URL, RetryPolicy: domain.WebhookRetryPolicyLinear,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: `{"i":1}`},
+		{ID: "rp-fixed", WebhookURL: ts.URL, RetryPolicy: domain.WebhookRetryPolicyFixed,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: `{"i":2}`},
+	}
+	for i := range deliveries {
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	// Force fallback to individual delivery.
+	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(10))
+	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+
+	for _, d := range ms.getDeliveries() {
+		switch d.ID {
+		case "rp-exp":
+			if d.RetryPolicy != domain.WebhookRetryPolicyExponential {
+				t.Fatalf("expected exponential for %s, got %s", d.ID, d.RetryPolicy)
+			}
+		case "rp-linear":
+			if d.RetryPolicy != domain.WebhookRetryPolicyLinear {
+				t.Fatalf("expected linear for %s, got %s", d.ID, d.RetryPolicy)
+			}
+		case "rp-fixed":
+			if d.RetryPolicy != domain.WebhookRetryPolicyFixed {
+				t.Fatalf("expected fixed for %s, got %s", d.ID, d.RetryPolicy)
+			}
+		}
+	}
+}
+
+func TestProcessBatch_IndividualAndBatch_SameStoreUpdates(t *testing.T) {
+	// Verify that both paths result in the same store update count.
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	now := time.Now().Add(-time.Second)
+
+	// Individual: 3 deliveries -> 3 store updates.
+	ms1 := &mockDeliveryStore{}
+	for i := range 3 {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("store-ind-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms1.CreateWebhookDelivery(context.Background(), d)
+	}
+	w1 := NewDeliveryWorker(ms1, slog.Default(), WithConcurrency(10))
+	w1.processIndividual(context.Background(), func() []domain.WebhookDelivery {
+		out := make([]domain.WebhookDelivery, len(ms1.getDeliveries()))
+		for i, d := range ms1.getDeliveries() {
+			out[i] = *d
+		}
+		return out
+	}())
+
+	// Batch: 3 deliveries -> 3 store updates (one per delivery).
+	ms2 := &mockDeliveryStore{}
+	for i := range 3 {
+		d := &domain.WebhookDelivery{
+			ID: fmt.Sprintf("store-batch-%d", i), WebhookURL: ts.URL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms2.CreateWebhookDelivery(context.Background(), d)
+	}
+	w2 := NewDeliveryWorker(ms2, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
+	w2.processBatch(context.Background())
+
+	// Both should have all deliveries marked delivered.
+	for _, d := range ms1.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("individual: expected delivered for %s, got %s", d.ID, d.Status)
+		}
+	}
+	for _, d := range ms2.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("batch: expected delivered for %s, got %s", d.ID, d.Status)
+		}
+	}
+}
+
+func TestAttemptBatchDelivery_ConnectionError_RetriesAll(t *testing.T) {
+	// Edge case: server immediately closes connection.
+	t.Parallel()
+
+	// Use a listener that immediately closes connections.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+	defer listener.Close()
+
+	deadURL := "http://" + listener.Addr().String()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	deliveries := make([]domain.WebhookDelivery, 3)
+	for i := range deliveries {
+		deliveries[i] = domain.WebhookDelivery{
+			ID: fmt.Sprintf("conn-err-%d", i), WebhookURL: deadURL,
+			Status: domain.WebhookStatusPending, MaxAttempts: 5, NextRetryAt: &now,
+			LastError: fmt.Sprintf(`{"i":%d}`, i),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), &deliveries[i])
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.attemptBatchDelivery(context.Background(), deadURL, deliveries)
+
+	// All should be scheduled for retry (connection error is retryable).
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusPending {
+			t.Fatalf("expected pending for %s after connection error, got %s", d.ID, d.Status)
+		}
+		if d.Attempts != 1 {
+			t.Fatalf("expected 1 attempt for %s, got %d", d.ID, d.Attempts)
+		}
+		if !strings.Contains(d.LastError, "http request") {
+			t.Fatalf("expected HTTP error in last_error for %s, got %q", d.ID, d.LastError)
+		}
 	}
 }
