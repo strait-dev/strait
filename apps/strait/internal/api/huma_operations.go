@@ -111,15 +111,15 @@ func (s *Server) registerPlanOps(api huma.API) {
 
 type CreateJobBody struct {
 	Name        string          `json:"name" required:"true" minLength:"1" maxLength:"255" doc:"Job name" example:"daily-report"`
-	Slug        string          `json:"slug,omitempty" doc:"URL-friendly identifier"`
-	EndpointURL string          `json:"endpoint_url" required:"true" doc:"HTTP endpoint to call" example:"https://api.example.com/webhook"`
+	Slug        string          `json:"slug,omitempty" doc:"URL-friendly identifier" example:"daily-report-sync"`
+	EndpointURL string          `json:"endpoint_url" required:"true" doc:"HTTP endpoint to call" example:"https://api.example.com/webhooks/strait"`
 	Cron        string          `json:"cron,omitempty" doc:"Cron expression" example:"0 9 * * *"`
-	Payload     json.RawMessage `json:"payload,omitempty" doc:"Default JSON payload"`
+	Payload     json.RawMessage `json:"payload,omitempty" doc:"Arbitrary JSON payload"`
 	MaxAttempts int             `json:"max_attempts,omitempty" minimum:"1" maximum:"10" doc:"Max retry attempts" example:"3"`
 	TimeoutSecs int             `json:"timeout_secs,omitempty" minimum:"1" maximum:"86400" doc:"Timeout in seconds" example:"300"`
-	WebhookURL  string          `json:"webhook_url,omitempty" doc:"Webhook URL for notifications"`
-	Tags        json.RawMessage `json:"tags,omitempty" doc:"Key-value tags"`
-	Enabled     *bool           `json:"enabled,omitempty" doc:"Whether job is enabled"`
+	WebhookURL  string          `json:"webhook_url,omitempty" doc:"Webhook URL for notifications" example:"https://api.example.com/webhooks/notify"`
+	Tags        json.RawMessage `json:"tags,omitempty" doc:"Key-value metadata tags"`
+	Enabled     *bool           `json:"enabled,omitempty" doc:"Whether job is enabled" example:"true"`
 }
 
 type JobResponseBody struct {
@@ -127,9 +127,9 @@ type JobResponseBody struct {
 }
 
 type TriggerJobBody struct {
-	Payload        json.RawMessage `json:"payload,omitempty" doc:"Custom payload for this run"`
-	IdempotencyKey string          `json:"idempotency_key,omitempty" doc:"Prevent duplicate triggers"`
-	ScheduledFor   *time.Time      `json:"scheduled_for,omitempty" doc:"Schedule for future execution"`
+	Payload        json.RawMessage `json:"payload,omitempty" doc:"Arbitrary JSON payload for this run"`
+	IdempotencyKey string          `json:"idempotency_key,omitempty" doc:"Prevent duplicate triggers" example:"trigger-2024-01-15-report"`
+	ScheduledFor   *time.Time      `json:"scheduled_for,omitempty" doc:"Schedule for future execution" example:"2024-01-15T09:00:00Z"`
 }
 
 func (s *Server) registerJobOps(api huma.API) {
@@ -155,7 +155,7 @@ func (s *Server) registerJobOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
 		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.Job }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -169,7 +169,7 @@ func (s *Server) registerJobOps(api huma.API) {
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		JobID string `path:"jobID" doc:"Job ID"`
+		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 	}) (*JobResponseBody, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -198,7 +198,7 @@ func (s *Server) registerJobOps(api huma.API) {
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		JobID string `path:"jobID" doc:"Job ID"`
+		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 		Body  CreateJobBody
 	}) (*JobResponseBody, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -213,7 +213,7 @@ func (s *Server) registerJobOps(api huma.API) {
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		JobID string `path:"jobID" doc:"Job ID"`
+		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -231,7 +231,7 @@ func (s *Server) registerRunOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -245,10 +245,10 @@ func (s *Server) registerRunOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
-		Status string `query:"status" doc:"Filter by status" enum:"queued,executing,completed,failed,canceled"`
-		JobID  string `query:"job_id" doc:"Filter by job ID"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
+		Status string `query:"status" doc:"Filter by status" enum:"queued,executing,completed,failed,canceled" example:"completed"`
+		JobID  string `query:"job_id" doc:"Filter by job ID" example:"job_01HX7YJKM3"`
 	}) (*struct{ Body []domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -262,7 +262,7 @@ func (s *Server) registerRunOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -276,7 +276,7 @@ func (s *Server) registerRunOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -295,9 +295,9 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Security:    []map[string][]string{{"internalSecret": {}}},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
-			ID    string `json:"id" required:"true" doc:"Project ID"`
-			OrgID string `json:"org_id" required:"true" doc:"Organization ID"`
-			Name  string `json:"name" required:"true" minLength:"2" doc:"Project name"`
+			ID    string `json:"id" required:"true" doc:"Project ID" example:"proj_01HX7ZKRN5"`
+			OrgID string `json:"org_id" required:"true" doc:"Organization ID" example:"org_01HX7YMWQ3"`
+			Name  string `json:"name" required:"true" minLength:"2" doc:"Project name" example:"Payment Processor"`
 		}
 	}) (*struct{ Body domain.Project }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -324,7 +324,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Tags:        []string{"Projects"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ProjectID string `path:"projectID" doc:"Project ID"`
+		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 	}) (*struct{ Body domain.Project }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -338,7 +338,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Tags:        []string{"Projects"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ProjectID string `path:"projectID" doc:"Project ID"`
+		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -352,7 +352,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Tags:        []string{"Projects"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ProjectID string `path:"projectID" doc:"Project ID"`
+		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -366,7 +366,7 @@ func (s *Server) registerProjectOps(api huma.API) {
 		Tags:        []string{"Projects"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ProjectID string `path:"projectID" doc:"Project ID"`
+		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 		Body      json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -399,8 +399,8 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.Workflow }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -414,7 +414,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 	}) (*struct{ Body domain.Workflow }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -428,7 +428,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
 	}) (*struct{ Body domain.Workflow }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -443,7 +443,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -457,7 +457,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -472,7 +472,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -487,7 +487,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -502,7 +502,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -516,7 +516,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
 	}) (*struct{ Body domain.WorkflowRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -531,7 +531,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Body       json.RawMessage
 	}) (*struct{ Body domain.Workflow }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -546,9 +546,9 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
-		Limit      int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor     string `query:"cursor" doc:"Pagination cursor"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
+		Limit      int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor     string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.WorkflowRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -562,7 +562,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 	}) (*struct{ Body []domain.WorkflowVersion }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -576,8 +576,8 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
-		VersionID  string `path:"versionID" doc:"Version ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
+		VersionID  string `path:"versionID" doc:"Version ID" example:"ver_01HX9FGTP2"`
 	}) (*struct{ Body domain.WorkflowVersion }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -591,8 +591,8 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
-		VersionID  string `path:"versionID" doc:"Version ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
+		VersionID  string `path:"versionID" doc:"Version ID" example:"ver_01HX9FGTP2"`
 	}) (*struct{ Body []domain.WorkflowStep }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -607,8 +607,8 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
 		WorkflowID    string `path:"workflowID" doc:"Workflow ID"`
-		FromVersionID string `path:"fromVersionID" doc:"Source version ID"`
-		ToVersionID   string `path:"toVersionID" doc:"Target version ID"`
+		FromVersionID string `path:"fromVersionID" doc:"Source version ID" example:"ver_01HX9FGTP2"`
+		ToVersionID   string `path:"toVersionID" doc:"Target version ID" example:"ver_01HX9GHTQ3"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -622,8 +622,8 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
-		VersionID  string `path:"versionID" doc:"Version ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
+		VersionID  string `path:"versionID" doc:"Version ID" example:"ver_01HX9FGTP2"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -637,7 +637,7 @@ func (s *Server) registerWorkflowOps(api huma.API) {
 		Tags:        []string{"Workflows"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -655,8 +655,8 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.WorkflowRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -702,7 +702,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body domain.WorkflowRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -716,7 +716,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -730,7 +730,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body domain.WorkflowRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -744,7 +744,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body domain.WorkflowRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -758,7 +758,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -772,7 +772,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body []domain.WorkflowStepRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -786,7 +786,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -800,7 +800,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -814,7 +814,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body domain.TimelineResponse }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -828,7 +828,7 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
 	}) (*struct{ Body domain.WorkflowRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -843,8 +843,8 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Steps"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
-		StepRef       string `path:"stepRef" doc:"Step reference name"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
+		StepRef       string `path:"stepRef" doc:"Step reference name" example:"validate-input"`
 	}) (*struct{ Body domain.WorkflowStepRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -858,8 +858,8 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Steps"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
-		StepRef       string `path:"stepRef" doc:"Step reference name"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
+		StepRef       string `path:"stepRef" doc:"Step reference name" example:"validate-input"`
 	}) (*struct{ Body domain.WorkflowStepRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -873,8 +873,8 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Steps"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
-		StepRef       string `path:"stepRef" doc:"Step reference name"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
+		StepRef       string `path:"stepRef" doc:"Step reference name" example:"validate-input"`
 	}) (*struct{ Body domain.WorkflowStepRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -888,8 +888,8 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Steps"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
-		StepRef       string `path:"stepRef" doc:"Step reference name"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
+		StepRef       string `path:"stepRef" doc:"Step reference name" example:"validate-input"`
 	}) (*struct{ Body domain.WorkflowStepRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -903,8 +903,8 @@ func (s *Server) registerWorkflowRunOps(api huma.API) {
 		Tags:        []string{"Workflow Steps"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID"`
-		StepRef       string `path:"stepRef" doc:"Step reference name"`
+		WorkflowRunID string `path:"workflowRunID" doc:"Workflow run ID" example:"wfrun_01HX9DVSW7"`
+		StepRef       string `path:"stepRef" doc:"Step reference name" example:"validate-input"`
 	}) (*struct{ Body domain.WorkflowRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -936,8 +936,8 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Tags:        []string{"Deployments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.DeploymentVersion }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -951,7 +951,7 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Tags:        []string{"Deployments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		DeploymentID string `path:"deploymentID" doc:"Deployment version ID"`
+		DeploymentID string `path:"deploymentID" doc:"Deployment version ID" example:"dep_01HX9HMVR8"`
 	}) (*struct{ Body domain.DeploymentVersion }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -965,7 +965,7 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Tags:        []string{"Deployments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		DeploymentID string `path:"deploymentID" doc:"Deployment version ID"`
+		DeploymentID string `path:"deploymentID" doc:"Deployment version ID" example:"dep_01HX9HMVR8"`
 		Body         json.RawMessage
 	}) (*struct{ Body domain.DeploymentVersion }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -980,7 +980,7 @@ func (s *Server) registerDeploymentOps(api huma.API) {
 		Tags:        []string{"Deployments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		DeploymentID string `path:"deploymentID" doc:"Deployment version ID"`
+		DeploymentID string `path:"deploymentID" doc:"Deployment version ID" example:"dep_01HX9HMVR8"`
 	}) (*struct{ Body domain.DeploymentVersion }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -998,8 +998,8 @@ func (s *Server) registerEventOps(api huma.API) {
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.EventTrigger }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1039,7 +1039,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Prefix string `path:"prefix" doc:"Event key prefix"`
+		Prefix string `path:"prefix" doc:"Event key prefix" example:"order.completed"`
 		Body   json.RawMessage
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1054,7 +1054,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		EventKey string `path:"eventKey" doc:"Event key"`
+		EventKey string `path:"eventKey" doc:"Event key" example:"order.completed.12345"`
 	}) (*struct{ Body domain.EventTrigger }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1068,7 +1068,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		EventKey string `path:"eventKey" doc:"Event key"`
+		EventKey string `path:"eventKey" doc:"Event key" example:"order.completed.12345"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1082,7 +1082,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		EventKey string `path:"eventKey" doc:"Event key"`
+		EventKey string `path:"eventKey" doc:"Event key" example:"order.completed.12345"`
 		Body     json.RawMessage
 	}) (*struct{ Body domain.EventTrigger }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1111,7 +1111,7 @@ func (s *Server) registerEventOps(api huma.API) {
 		Tags:        []string{"Events"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		EventKey string `path:"eventKey" doc:"Event key"`
+		EventKey string `path:"eventKey" doc:"Event key" example:"order.completed.12345"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1155,7 +1155,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		SourceID string `path:"sourceID" doc:"Event source ID"`
+		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 	}) (*struct{ Body domain.EventSource }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1169,7 +1169,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		SourceID string `path:"sourceID" doc:"Event source ID"`
+		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 		Body     json.RawMessage
 	}) (*struct{ Body domain.EventSource }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1184,7 +1184,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		SourceID string `path:"sourceID" doc:"Event source ID"`
+		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1198,7 +1198,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		SourceID string `path:"sourceID" doc:"Event source ID"`
+		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 	}) (*struct{ Body []domain.EventSubscription }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1212,7 +1212,7 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		SourceID string `path:"sourceID" doc:"Event source ID"`
+		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
 		Body     json.RawMessage
 	}) (*struct{ Body domain.EventSubscription }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1227,8 +1227,8 @@ func (s *Server) registerEventSourceOps(api huma.API) {
 		Tags:        []string{"Event Sources"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		SourceID string `path:"sourceID" doc:"Event source ID"`
-		SubID    string `path:"subID" doc:"Subscription ID"`
+		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX9JNWT4"`
+		SubID    string `path:"subID" doc:"Subscription ID" example:"sub_01HX9KPXV5"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1260,8 +1260,8 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.WebhookDelivery }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1275,7 +1275,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ID string `path:"id" doc:"Webhook delivery ID"`
+		ID string `path:"id" doc:"Webhook delivery ID" example:"del_01HX9LQXW5"`
 	}) (*struct{ Body domain.WebhookDelivery }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1289,7 +1289,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ID string `path:"id" doc:"Webhook delivery ID"`
+		ID string `path:"id" doc:"Webhook delivery ID" example:"del_01HX9LQXW5"`
 	}) (*struct{ Body domain.WebhookDelivery }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1303,7 +1303,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ID string `path:"id" doc:"Webhook delivery ID"`
+		ID string `path:"id" doc:"Webhook delivery ID" example:"del_01HX9LQXW5"`
 	}) (*struct{ Body domain.WebhookDelivery }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1343,7 +1343,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ID string `path:"id" doc:"Webhook subscription ID"`
+		ID string `path:"id" doc:"Webhook subscription ID" example:"wsub_01HX9LRYW6"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1358,8 +1358,8 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.WebhookDelivery }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1373,7 +1373,7 @@ func (s *Server) registerWebhookOps(api huma.API) {
 		Tags:        []string{"Webhooks"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		DeliveryID string `path:"deliveryID" doc:"Webhook delivery ID"`
+		DeliveryID string `path:"deliveryID" doc:"Webhook delivery ID" example:"del_01HX9LQXW5"`
 	}) (*struct{ Body domain.WebhookDelivery }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1393,7 +1393,7 @@ func (s *Server) registerAPIKeyOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			Name   string   `json:"name" required:"true" doc:"Human-readable key name" example:"production-key"`
-			Scopes []string `json:"scopes,omitempty" doc:"Permission scopes for this key"`
+			Scopes []string `json:"scopes,omitempty" doc:"Permission scopes for this key" example:"jobs:read,runs:write"`
 		}
 	}) (*struct{ Body domain.APIKey }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1420,7 +1420,7 @@ func (s *Server) registerAPIKeyOps(api huma.API) {
 		Tags:        []string{"API Keys"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		KeyID string `path:"keyID" doc:"API key ID"`
+		KeyID string `path:"keyID" doc:"API key ID" example:"key_01HX8GMNV6"`
 	}) (*struct{ Body domain.APIKey }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1434,7 +1434,7 @@ func (s *Server) registerAPIKeyOps(api huma.API) {
 		Tags:        []string{"API Keys"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		KeyID string `path:"keyID" doc:"API key ID"`
+		KeyID string `path:"keyID" doc:"API key ID" example:"key_01HX8GMNV6"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1452,11 +1452,11 @@ func (s *Server) registerCLIAuthOps(api huma.API) {
 		Tags:        []string{"CLI Auth"},
 	}, func(_ context.Context, _ *struct{}) (*struct {
 		Body struct {
-			DeviceCode      string `json:"device_code" doc:"Device code for polling"`
-			UserCode        string `json:"user_code" doc:"Code to display to user"`
-			VerificationURI string `json:"verification_uri" doc:"URL for user to visit"`
-			ExpiresIn       int    `json:"expires_in" doc:"Seconds until code expires"`
-			Interval        int    `json:"interval" doc:"Polling interval in seconds"`
+			DeviceCode      string `json:"device_code" doc:"Device code for polling" example:"ABCD-1234-EFGH-5678"`
+			UserCode        string `json:"user_code" doc:"Code to display to user" example:"STRAIT-A1B2"`
+			VerificationURI string `json:"verification_uri" doc:"URL for user to visit" example:"https://app.strait.dev/device"`
+			ExpiresIn       int    `json:"expires_in" doc:"Seconds until code expires" example:"900"`
+			Interval        int    `json:"interval" doc:"Polling interval in seconds" example:"5"`
 		}
 	}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1471,12 +1471,12 @@ func (s *Server) registerCLIAuthOps(api huma.API) {
 		Tags:        []string{"CLI Auth"},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
-			DeviceCode string `json:"device_code" required:"true" doc:"Device code from the initial request"`
+			DeviceCode string `json:"device_code" required:"true" doc:"Device code from the initial request" example:"ABCD-1234-EFGH-5678"`
 		}
 	}) (*struct {
 		Body struct {
-			AccessToken string `json:"access_token" doc:"Bearer token for API access"`
-			TokenType   string `json:"token_type" doc:"Token type (bearer)"`
+			AccessToken string `json:"access_token" doc:"Bearer token for API access" example:"sk_live_01HX8GMNV6..."`
+			TokenType   string `json:"token_type" doc:"Token type (bearer)" example:"bearer"`
 		}
 	}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1492,7 +1492,7 @@ func (s *Server) registerCLIAuthOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
-			UserCode string `json:"user_code" required:"true" doc:"User code to approve"`
+			UserCode string `json:"user_code" required:"true" doc:"User code to approve" example:"STRAIT-A1B2"`
 		}
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1513,7 +1513,7 @@ func (s *Server) registerSecretOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			Name  string `json:"name" required:"true" doc:"Secret name" example:"DATABASE_URL"`
-			Value string `json:"value" required:"true" doc:"Secret value"`
+			Value string `json:"value" required:"true" doc:"Secret value" example:"postgres://user:pass@host:5432/db"`
 		}
 	}) (*struct{ Body domain.JobSecret }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1540,7 +1540,7 @@ func (s *Server) registerSecretOps(api huma.API) {
 		Tags:        []string{"Secrets"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		SecretID string `path:"secretID" doc:"Secret ID"`
+		SecretID string `path:"secretID" doc:"Secret ID" example:"sec_01HX8HPQR7"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1584,7 +1584,7 @@ func (s *Server) registerLogDrainOps(api huma.API) {
 		Tags:        []string{"Log Drains"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		DrainID string `path:"drainID" doc:"Log drain ID"`
+		DrainID string `path:"drainID" doc:"Log drain ID" example:"drain_01HX9MSYW7"`
 	}) (*struct{ Body domain.LogDrain }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1598,7 +1598,7 @@ func (s *Server) registerLogDrainOps(api huma.API) {
 		Tags:        []string{"Log Drains"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		DrainID string `path:"drainID" doc:"Log drain ID"`
+		DrainID string `path:"drainID" doc:"Log drain ID" example:"drain_01HX9MSYW7"`
 		Body    json.RawMessage
 	}) (*struct{ Body domain.LogDrain }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1613,7 +1613,7 @@ func (s *Server) registerLogDrainOps(api huma.API) {
 		Tags:        []string{"Log Drains"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		DrainID string `path:"drainID" doc:"Log drain ID"`
+		DrainID string `path:"drainID" doc:"Log drain ID" example:"drain_01HX9MSYW7"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1657,7 +1657,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Tags:        []string{"Notifications"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ChannelID string `path:"channelID" doc:"Notification channel ID"`
+		ChannelID string `path:"channelID" doc:"Notification channel ID" example:"chan_01HX9NTZY8"`
 	}) (*struct{ Body domain.NotificationChannel }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1671,7 +1671,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Tags:        []string{"Notifications"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ChannelID string `path:"channelID" doc:"Notification channel ID"`
+		ChannelID string `path:"channelID" doc:"Notification channel ID" example:"chan_01HX9NTZY8"`
 		Body      json.RawMessage
 	}) (*struct{ Body domain.NotificationChannel }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1686,7 +1686,7 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Tags:        []string{"Notifications"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ChannelID string `path:"channelID" doc:"Notification channel ID"`
+		ChannelID string `path:"channelID" doc:"Notification channel ID" example:"chan_01HX9NTZY8"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1700,8 +1700,8 @@ func (s *Server) registerNotificationOps(api huma.API) {
 		Tags:        []string{"Notifications"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.NotificationDelivery }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1746,7 +1746,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RoleID string `path:"roleID" doc:"Role ID"`
+		RoleID string `path:"roleID" doc:"Role ID" example:"role_01HX8KNXP3"`
 	}) (*struct{ Body domain.ProjectRole }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1760,7 +1760,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RoleID string `path:"roleID" doc:"Role ID"`
+		RoleID string `path:"roleID" doc:"Role ID" example:"role_01HX8KNXP3"`
 		Body   json.RawMessage
 	}) (*struct{ Body domain.ProjectRole }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1775,7 +1775,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RoleID string `path:"roleID" doc:"Role ID"`
+		RoleID string `path:"roleID" doc:"Role ID" example:"role_01HX8KNXP3"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1791,8 +1791,8 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
-			UserID string `json:"user_id" required:"true" doc:"User ID to assign"`
-			RoleID string `json:"role_id" required:"true" doc:"Role ID to assign"`
+			UserID string `json:"user_id" required:"true" doc:"User ID to assign" example:"user_01HX8JKWM9"`
+			RoleID string `json:"role_id" required:"true" doc:"Role ID to assign" example:"role_01HX8KNXP3"`
 		}
 	}) (*struct{ Body domain.ProjectMemberRole }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -1809,8 +1809,8 @@ func (s *Server) registerRBACOps(api huma.API) {
 	}, func(_ context.Context, _ *struct {
 		Body struct {
 			Assignments []struct {
-				UserID string `json:"user_id" required:"true" doc:"User ID"`
-				RoleID string `json:"role_id" required:"true" doc:"Role ID"`
+				UserID string `json:"user_id" required:"true" doc:"User ID" example:"user_01HX8JKWM9"`
+				RoleID string `json:"role_id" required:"true" doc:"Role ID" example:"role_01HX8KNXP3"`
 			} `json:"assignments" required:"true" doc:"List of role assignments"`
 		}
 	}) (*struct{ Body json.RawMessage }, error) {
@@ -1838,7 +1838,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		UserID string `path:"userID" doc:"User ID to remove"`
+		UserID string `path:"userID" doc:"User ID to remove" example:"user_01HX8JKWM9"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1892,7 +1892,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		PolicyID string `path:"policyID" doc:"Resource policy ID"`
+		PolicyID string `path:"policyID" doc:"Resource policy ID" example:"pol_01HX9PVZW9"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1933,7 +1933,7 @@ func (s *Server) registerRBACOps(api huma.API) {
 		Tags:        []string{"RBAC"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		PolicyID string `path:"policyID" doc:"Tag policy ID"`
+		PolicyID string `path:"policyID" doc:"Tag policy ID" example:"tpol_01HX9QWAX1"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1951,8 +1951,8 @@ func (s *Server) registerAuditOps(api huma.API) {
 		Tags:        []string{"Audit"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.AuditEvent }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1966,7 +1966,7 @@ func (s *Server) registerAuditOps(api huma.API) {
 		Tags:        []string{"Audit"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Format string `query:"format" doc:"Export format" enum:"csv,json"`
+		Format string `query:"format" doc:"Export format" enum:"csv,json" example:"json"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -1996,7 +1996,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Periods int `query:"periods" doc:"Number of historical periods to return"`
+		Periods int `query:"periods" doc:"Number of historical periods to return" example:"6"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2046,7 +2046,7 @@ func (s *Server) registerBillingOps(api huma.API) {
 		Tags:        []string{"Billing"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Format string `query:"format" doc:"Export format" enum:"csv,json"`
+		Format string `query:"format" doc:"Export format" enum:"csv,json" example:"json"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2191,7 +2191,7 @@ func (s *Server) registerReferralOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
 		Body struct {
-			Code string `json:"code" required:"true" doc:"Referral code to activate"`
+			Code string `json:"code" required:"true" doc:"Referral code to activate" example:"STRAIT-REF-2024"`
 		}
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2223,7 +2223,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period" enum:"1h,6h,24h,7d,30d"`
+		Period string `query:"period" doc:"Time period" enum:"1h,6h,24h,7d,30d" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2237,7 +2237,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2251,7 +2251,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2265,8 +2265,8 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
-		Limit  int    `query:"limit" doc:"Max results"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
+		Limit  int    `query:"limit" doc:"Max results" example:"10"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2280,7 +2280,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2294,7 +2294,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2322,7 +2322,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
 		Period   string `query:"period" doc:"Time period"`
-		Interval string `query:"interval" doc:"Bucket interval"`
+		Interval string `query:"interval" doc:"Bucket interval" example:"1h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2336,7 +2336,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2350,8 +2350,8 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
-		Limit  int    `query:"limit" doc:"Max results"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
+		Limit  int    `query:"limit" doc:"Max results" example:"10"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2365,7 +2365,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2379,7 +2379,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2393,7 +2393,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2407,7 +2407,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2421,7 +2421,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2435,8 +2435,8 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
-		Limit  int    `query:"limit" doc:"Max results"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
+		Limit  int    `query:"limit" doc:"Max results" example:"10"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2450,8 +2450,8 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
-		Limit  int    `query:"limit" doc:"Max results"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
+		Limit  int    `query:"limit" doc:"Max results" example:"10"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2466,7 +2466,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
 		JobID  string `path:"jobID" doc:"Job ID"`
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2480,7 +2480,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2494,8 +2494,8 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
-		Limit  int    `query:"limit" doc:"Max results"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
+		Limit  int    `query:"limit" doc:"Max results" example:"10"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2509,7 +2509,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2523,7 +2523,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2537,7 +2537,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2551,7 +2551,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		WorkflowID string `path:"workflowID" doc:"Workflow ID"`
+		WorkflowID string `path:"workflowID" doc:"Workflow ID" example:"wf_01HX9CTRMK"`
 		Period     string `query:"period" doc:"Time period"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2566,7 +2566,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2580,7 +2580,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2594,8 +2594,8 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
-		Limit  int    `query:"limit" doc:"Max results"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
+		Limit  int    `query:"limit" doc:"Max results" example:"10"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2610,7 +2610,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
 		Period   string `query:"period" doc:"Time period"`
-		Interval string `query:"interval" doc:"Bucket interval"`
+		Interval string `query:"interval" doc:"Bucket interval" example:"1h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2624,7 +2624,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2650,7 +2650,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2664,7 +2664,7 @@ func (s *Server) registerAnalyticsOps(api huma.API) {
 		Tags:        []string{"Analytics"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Period string `query:"period" doc:"Time period"`
+		Period string `query:"period" doc:"Time period" example:"24h"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2682,7 +2682,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2696,7 +2696,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2711,10 +2711,10 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
-			Progress float64 `json:"progress" minimum:"0" maximum:"100" doc:"Progress percentage"`
-			Message  string  `json:"message,omitempty" doc:"Progress description"`
+			Progress float64 `json:"progress" minimum:"0" maximum:"100" doc:"Progress percentage" example:"75.5"`
+			Message  string  `json:"message,omitempty" doc:"Progress description" example:"Processing batch 3 of 4"`
 		}
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2729,7 +2729,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2744,7 +2744,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2758,7 +2758,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.RunCheckpoint }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2773,7 +2773,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.RunUsage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2788,7 +2788,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.RunToolCall }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2803,7 +2803,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.RunOutput }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2818,7 +2818,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2833,10 +2833,10 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
-			Error   string          `json:"error" required:"true" doc:"Error message"`
-			Details json.RawMessage `json:"details,omitempty" doc:"Additional error details"`
+			Error   string          `json:"error" required:"true" doc:"Error message" example:"connection timeout after 30s"`
+			Details json.RawMessage `json:"details,omitempty" doc:"Additional error details as JSON"`
 		}
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2851,7 +2851,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2866,7 +2866,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2881,10 +2881,10 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
-			EventKey    string `json:"event_key" required:"true" doc:"Event key to wait for"`
-			TimeoutSecs int    `json:"timeout_secs,omitempty" doc:"Timeout in seconds"`
+			EventKey    string `json:"event_key" required:"true" doc:"Event key to wait for" example:"payment.confirmed.12345"`
+			TimeoutSecs int    `json:"timeout_secs,omitempty" doc:"Timeout in seconds" example:"3600"`
 		}
 	}) (*struct{ Body domain.EventTrigger }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2899,7 +2899,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.RunState }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2914,7 +2914,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunState }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2928,8 +2928,8 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
-		Key   string `path:"key" doc:"State key"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
+		Key   string `path:"key" doc:"State key" example:"last_cursor"`
 	}) (*struct{ Body domain.RunState }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2943,8 +2943,8 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
-		Key   string `path:"key" doc:"State key"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
+		Key   string `path:"key" doc:"State key" example:"last_cursor"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -2958,7 +2958,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2973,7 +2973,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -2988,7 +2988,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.RunResourceSnapshot }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3003,7 +3003,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.RunIteration }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3019,8 +3019,8 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
-		Key   string `path:"key" doc:"Memory key"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
+		Key   string `path:"key" doc:"Memory key" example:"processed_count"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.JobMemory }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3035,8 +3035,8 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
-		Key   string `path:"key" doc:"Memory key"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
+		Key   string `path:"key" doc:"Memory key" example:"processed_count"`
 	}) (*struct{ Body domain.JobMemory }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3050,7 +3050,7 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.JobMemory }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3064,8 +3064,8 @@ func (s *Server) registerSDKOps(api huma.API) {
 		Tags:        []string{"SDK"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
-		Key   string `path:"key" doc:"Memory key"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
+		Key   string `path:"key" doc:"Memory key" example:"processed_count"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3083,9 +3083,9 @@ func (s *Server) registerOrgQueryOps(api huma.API) {
 		Tags:        []string{"Organizations"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		OrgID  string `path:"orgID" doc:"Organization ID"`
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		OrgID  string `path:"orgID" doc:"Organization ID" example:"org_01HX7YMWQ3"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3099,9 +3099,9 @@ func (s *Server) registerOrgQueryOps(api huma.API) {
 		Tags:        []string{"Organizations"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		OrgID  string `path:"orgID" doc:"Organization ID"`
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		OrgID  string `path:"orgID" doc:"Organization ID" example:"org_01HX7YMWQ3"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.Job }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3119,8 +3119,8 @@ func (s *Server) registerBatchOperationOps(api huma.API) {
 		Tags:        []string{"Batch Operations"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.BatchOperation }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3134,7 +3134,7 @@ func (s *Server) registerBatchOperationOps(api huma.API) {
 		Tags:        []string{"Batch Operations"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		BatchID string `path:"batchID" doc:"Batch operation ID"`
+		BatchID string `path:"batchID" doc:"Batch operation ID" example:"batch_01HX9MQYW6"`
 	}) (*struct{ Body domain.BatchOperation }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3178,7 +3178,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		GroupID string `path:"groupID" doc:"Job group ID"`
+		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{ Body domain.JobGroup }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3192,7 +3192,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		GroupID string `path:"groupID" doc:"Job group ID"`
+		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 		Body    json.RawMessage
 	}) (*struct{ Body domain.JobGroup }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3207,7 +3207,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		GroupID string `path:"groupID" doc:"Job group ID"`
+		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3221,7 +3221,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		GroupID string `path:"groupID" doc:"Job group ID"`
+		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{ Body []domain.Job }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3235,7 +3235,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		GroupID string `path:"groupID" doc:"Job group ID"`
+		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3249,7 +3249,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		GroupID string `path:"groupID" doc:"Job group ID"`
+		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3263,7 +3263,7 @@ func (s *Server) registerJobGroupOps(api huma.API) {
 		Tags:        []string{"Job Groups"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		GroupID string `path:"groupID" doc:"Job group ID"`
+		GroupID string `path:"groupID" doc:"Job group ID" example:"grp_01HX9NRZX7"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3307,7 +3307,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Tags:        []string{"Environments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		EnvID string `path:"envID" doc:"Environment ID"`
+		EnvID string `path:"envID" doc:"Environment ID" example:"env_01HX9PSTY8"`
 	}) (*struct{ Body domain.Environment }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3321,7 +3321,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Tags:        []string{"Environments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		EnvID string `path:"envID" doc:"Environment ID"`
+		EnvID string `path:"envID" doc:"Environment ID" example:"env_01HX9PSTY8"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.Environment }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3336,7 +3336,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Tags:        []string{"Environments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		EnvID string `path:"envID" doc:"Environment ID"`
+		EnvID string `path:"envID" doc:"Environment ID" example:"env_01HX9PSTY8"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3350,7 +3350,7 @@ func (s *Server) registerEnvironmentOps(api huma.API) {
 		Tags:        []string{"Environments"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		EnvID string `path:"envID" doc:"Environment ID"`
+		EnvID string `path:"envID" doc:"Environment ID" example:"env_01HX9PSTY8"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3416,7 +3416,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		JobID string `path:"jobID" doc:"Job ID"`
+		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 		Body  json.RawMessage
 	}) (*struct{ Body []domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3431,7 +3431,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		JobID string `path:"jobID" doc:"Job ID"`
+		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.JobDependency }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3446,7 +3446,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		JobID string `path:"jobID" doc:"Job ID"`
+		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 	}) (*struct{ Body []domain.JobDependency }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3460,8 +3460,8 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		JobID string `path:"jobID" doc:"Job ID"`
-		DepID string `path:"depID" doc:"Dependency ID"`
+		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
+		DepID string `path:"depID" doc:"Dependency ID" example:"dep_01HX9QTVZ9"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3475,7 +3475,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		JobID string `path:"jobID" doc:"Job ID"`
+		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 	}) (*struct{ Body []domain.JobVersion }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3490,7 +3490,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
 		JobID     string `path:"jobID" doc:"Job ID"`
-		VersionID string `path:"versionID" doc:"Version ID"`
+		VersionID string `path:"versionID" doc:"Version ID" example:"ver_01HX9FGTP2"`
 	}) (*struct{ Body domain.JobVersion }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3504,7 +3504,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		JobID string `path:"jobID" doc:"Job ID"`
+		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 		Body  json.RawMessage
 	}) (*struct{ Body domain.Job }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3519,7 +3519,7 @@ func (s *Server) registerJobExtrasOps(api huma.API) {
 		Tags:        []string{"Jobs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		JobID string `path:"jobID" doc:"Job ID"`
+		JobID string `path:"jobID" doc:"Job ID" example:"job_01HX7YJKM3"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3537,8 +3537,8 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results"`
-		Cursor string `query:"cursor" doc:"Pagination cursor"`
+		Limit  int    `query:"limit" minimum:"1" maximum:"100" doc:"Max results" example:"20"`
+		Cursor string `query:"cursor" doc:"Pagination cursor" example:"2024-01-15T09:00:00Z"`
 	}) (*struct{ Body []domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3612,7 +3612,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3626,7 +3626,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3640,7 +3640,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunEvent }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3654,7 +3654,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunCheckpoint }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3668,7 +3668,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunUsage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3682,7 +3682,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunToolCall }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3696,7 +3696,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunOutput }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3710,7 +3710,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.DebugBundle }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3724,9 +3724,9 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
-			Enabled bool `json:"enabled" doc:"Whether to enable debug mode"`
+			Enabled bool `json:"enabled" doc:"Whether to enable debug mode" example:"true"`
 		}
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3741,7 +3741,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3755,7 +3755,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3769,7 +3769,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3783,9 +3783,9 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 		Body  struct {
-			ScheduledFor time.Time `json:"scheduled_for" required:"true" doc:"New scheduled time"`
+			ScheduledFor time.Time `json:"scheduled_for" required:"true" doc:"New scheduled time" example:"2024-01-15T09:00:00Z"`
 		}
 	}) (*struct{ Body domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
@@ -3800,7 +3800,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3814,7 +3814,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3828,7 +3828,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body domain.JobRun }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3842,7 +3842,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunState }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3856,7 +3856,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body json.RawMessage }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3870,7 +3870,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{ Body []domain.RunResourceSnapshot }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3884,7 +3884,7 @@ func (s *Server) registerRunExtrasOps(api huma.API) {
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		RunID string `path:"runID" doc:"Run ID"`
+		RunID string `path:"runID" doc:"Run ID" example:"run_01HX8BQNP4"`
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3934,7 +3934,7 @@ func (s *Server) registerWorkflowPolicyOps(api huma.API) {
 		Tags:        []string{"Workflow Policies"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ProjectID string `path:"projectID" doc:"Project ID"`
+		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 	}) (*struct{ Body domain.WorkflowPolicy }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
@@ -3948,7 +3948,7 @@ func (s *Server) registerWorkflowPolicyOps(api huma.API) {
 		Tags:        []string{"Workflow Policies"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(_ context.Context, _ *struct {
-		ProjectID string `path:"projectID" doc:"Project ID"`
+		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX7ZKRN5"`
 		Body      json.RawMessage
 	}) (*struct{ Body domain.WorkflowPolicy }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
