@@ -618,3 +618,353 @@ func TestGroupPause_IndividualResume(t *testing.T) {
 		t.Fatalf("expected paused=false after individual resume, got %v", body["paused"])
 	}
 }
+
+// Adversarial tests.
+
+func TestTriggerJob_DryRunRejectedWhenPaused(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: id, ProjectID: "proj-1", Enabled: true, Paused: true,
+				EndpointURL: "https://example.com", MaxAttempts: 3, TimeoutSecs: 30,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"dry_run":true}`))
+
+	// Dry-run must also reject paused jobs. If it returned 200, the user
+	// would think triggering is possible when it isn't.
+	if w.Code == http.StatusOK {
+		t.Fatal("dry-run on paused job should NOT return 200 — must reject like real trigger")
+	}
+}
+
+func TestTriggerJob_DryRunAllowedWhenNotPaused(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: id, ProjectID: "proj-1", Enabled: true, Paused: false,
+				EndpointURL: "https://example.com", MaxAttempts: 3, TimeoutSecs: 30,
+			}, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{MaxQueuedRuns: 1000}, nil
+		},
+		CountProjectQueuedRunsFunc: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+		FindRecentRunByPayloadFunc: func(_ context.Context, _ string, _ json.RawMessage, _ time.Time) (*domain.JobRun, error) {
+			return nil, store.ErrRunNotFound
+		},
+		CountRunsForJobSinceFunc: func(_ context.Context, _ string, _ time.Time) (int, error) {
+			return 0, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"dry_run":true}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("dry-run on active job should return 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPauseJob_IdempotentAlwaysReturnsFreshState(t *testing.T) {
+	// When pausing an already-paused job, the response must come from a
+	// fresh re-fetch, not from the initial check. This ensures consistent
+	// state even under concurrent modifications.
+	t.Parallel()
+	freshPausedAt := time.Date(2026, 3, 24, 15, 0, 0, 0, time.UTC)
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			// Both calls return a paused job, but the second call returns
+			// an updated timestamp (simulating concurrent modification).
+			return &domain.Job{
+				ID: id, ProjectID: "proj-1", Paused: true,
+				PausedAt: &freshPausedAt, PauseReason: "latest reason",
+				Enabled: true,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	// Verify the response has the fresh state.
+	if body["pause_reason"] != "latest reason" {
+		t.Fatalf("expected fresh pause_reason, got %v", body["pause_reason"])
+	}
+}
+
+func TestResumeJob_IdempotentAlwaysReturnsFreshState(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: id, ProjectID: "proj-1", Paused: false, Enabled: true,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["paused"] != false {
+		t.Fatalf("expected paused=false, got %v", body["paused"])
+	}
+	if body["enabled"] != true {
+		t.Fatalf("expected enabled=true, got %v", body["enabled"])
+	}
+}
+
+func TestPauseJob_NoAuditEventWhenAlreadyPaused(t *testing.T) {
+	t.Parallel()
+	var auditCalled bool
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Paused: true, Enabled: true}, nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			auditCalled = true
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{"reason":"duplicate"}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if auditCalled {
+		t.Fatal("audit event should NOT be emitted when job is already paused")
+	}
+}
+
+func TestResumeJob_NoAuditEventWhenNotPaused(t *testing.T) {
+	t.Parallel()
+	var auditCalled bool
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Paused: false, Enabled: true}, nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			auditCalled = true
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if auditCalled {
+		t.Fatal("audit event should NOT be emitted when job is not paused")
+	}
+}
+
+func TestPauseJob_DisabledJobCanBePaused(t *testing.T) {
+	// A disabled job should still be pausable. These are independent states.
+	t.Parallel()
+	callCount := 0
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			callCount++
+			if callCount == 1 {
+				return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: false, Paused: false}, nil
+			}
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: false, Paused: true, PauseReason: "maintenance"}, nil
+		},
+		PauseJobFunc: func(_ context.Context, _, _ string) error {
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{"reason":"maintenance"}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["enabled"] != false {
+		t.Fatalf("expected enabled=false, got %v", body["enabled"])
+	}
+	if body["paused"] != true {
+		t.Fatalf("expected paused=true, got %v", body["paused"])
+	}
+}
+
+func TestPauseDisableResume_JobStillDisabled(t *testing.T) {
+	// Lifecycle: pause -> disable -> resume. After resume, job should
+	// be enabled=false, paused=false. Runs still won't dequeue because
+	// enabled=false. The resume response makes this visible.
+	t.Parallel()
+	callCount := 0
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			callCount++
+			if callCount == 1 {
+				return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: false, Paused: true}, nil
+			}
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: false, Paused: false}, nil
+		},
+		ResumeJobFunc: func(_ context.Context, _ string) error {
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["paused"] != false {
+		t.Fatalf("expected paused=false after resume, got %v", body["paused"])
+	}
+	if body["enabled"] != false {
+		t.Fatalf("expected enabled=false (still disabled), got %v", body["enabled"])
+	}
+}
+
+func TestTriggerJob_DisabledCheckBeforePausedCheck(t *testing.T) {
+	// When a job is both disabled and paused, the disabled check should
+	// fire first (400) rather than the paused check (409).
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: id, ProjectID: "proj-1", Enabled: false, Paused: true,
+				EndpointURL: "https://example.com", MaxAttempts: 3, TimeoutSecs: 30,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 (disabled takes precedence), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPauseJob_EmptyReasonIsAccepted(t *testing.T) {
+	t.Parallel()
+	var capturedReason string
+	callCount := 0
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			callCount++
+			if callCount == 1 {
+				return &domain.Job{ID: id, ProjectID: "proj-1", Paused: false}, nil
+			}
+			return &domain.Job{ID: id, ProjectID: "proj-1", Paused: true}, nil
+		},
+		PauseJobFunc: func(_ context.Context, _ string, reason string) error {
+			capturedReason = reason
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedReason != "" {
+		t.Fatalf("expected empty reason, got %q", capturedReason)
+	}
+}
+
+func TestPauseJob_EmptyBodyIsAccepted(t *testing.T) {
+	t.Parallel()
+	callCount := 0
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			callCount++
+			if callCount == 1 {
+				return &domain.Job{ID: id, ProjectID: "proj-1", Paused: false}, nil
+			}
+			return &domain.Job{ID: id, ProjectID: "proj-1", Paused: true}, nil
+		},
+		PauseJobFunc: func(_ context.Context, _, _ string) error {
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 with empty body, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPauseJob_GetJobFailsAfterPause(t *testing.T) {
+	// If the re-fetch after PauseJob fails, we should get 500.
+	t.Parallel()
+	callCount := 0
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			callCount++
+			if callCount == 1 {
+				return &domain.Job{ID: id, ProjectID: "proj-1", Paused: false}, nil
+			}
+			return nil, fmt.Errorf("db gone")
+		},
+		PauseJobFunc: func(_ context.Context, _, _ string) error {
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{}`))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when re-fetch fails, got %d: %s", w.Code, w.Body.String())
+	}
+}

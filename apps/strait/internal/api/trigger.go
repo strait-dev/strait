@@ -584,6 +584,10 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 		return nil, errors.New("job is disabled")
 	}
 
+	if job.Paused {
+		return nil, errors.New("job is paused — resume it before triggering new runs")
+	}
+
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
 		return nil, fmt.Errorf("payload validation failed: %w", err)
 	}

@@ -1004,22 +1004,22 @@ func (s *Server) handlePauseJob(ctx context.Context, input *PauseJobInput) (*Pau
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
-	if job.Paused {
-		return &PauseJobOutput{Body: job}, nil
-	}
+	alreadyPaused := job.Paused
 
-	if err := s.store.PauseJob(ctx, input.JobID, input.Body.Reason); err != nil {
-		return nil, huma.Error500InternalServerError("failed to pause job")
-	}
+	if !alreadyPaused {
+		if err := s.store.PauseJob(ctx, input.JobID, input.Body.Reason); err != nil {
+			return nil, huma.Error500InternalServerError("failed to pause job")
+		}
 
-	slog.Info("job paused",
-		"job_id", input.JobID,
-		"reason", input.Body.Reason,
-		"actor", actorFromContext(ctx),
-		"project_id", projectIDFromContext(ctx))
-	s.emitAuditEvent(ctx, "job.paused", "job", input.JobID, map[string]any{
-		"reason": input.Body.Reason,
-	})
+		slog.Info("job paused",
+			"job_id", input.JobID,
+			"reason", input.Body.Reason,
+			"actor", actorFromContext(ctx),
+			"project_id", projectIDFromContext(ctx))
+		s.emitAuditEvent(ctx, "job.paused", "job", input.JobID, map[string]any{
+			"reason": input.Body.Reason,
+		})
+	}
 
 	updated, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
@@ -1048,19 +1048,19 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
-	if !job.Paused {
-		return &ResumeJobOutput{Body: job}, nil
-	}
+	wasPaused := job.Paused
 
-	if err := s.store.ResumeJob(ctx, input.JobID); err != nil {
-		return nil, huma.Error500InternalServerError("failed to resume job")
-	}
+	if wasPaused {
+		if err := s.store.ResumeJob(ctx, input.JobID); err != nil {
+			return nil, huma.Error500InternalServerError("failed to resume job")
+		}
 
-	slog.Info("job resumed",
-		"job_id", input.JobID,
-		"actor", actorFromContext(ctx),
-		"project_id", projectIDFromContext(ctx))
-	s.emitAuditEvent(ctx, "job.resumed", "job", input.JobID, nil)
+		slog.Info("job resumed",
+			"job_id", input.JobID,
+			"actor", actorFromContext(ctx),
+			"project_id", projectIDFromContext(ctx))
+		s.emitAuditEvent(ctx, "job.resumed", "job", input.JobID, nil)
+	}
 
 	updated, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
