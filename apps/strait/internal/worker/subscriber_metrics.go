@@ -45,11 +45,5 @@ func MetricsSubscriber(m *telemetry.Metrics) RunEventSubscriber {
 }
 
 func isTerminalStatus(s domain.RunStatus) bool {
-	switch s {
-	case domain.StatusCompleted, domain.StatusFailed,
-		domain.StatusTimedOut, domain.StatusSystemFailed:
-		return true
-	default:
-		return false
-	}
+	return s.IsTerminal()
 }

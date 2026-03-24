@@ -738,6 +738,181 @@ func newID() string {
 	return uuid.Must(uuid.NewV7()).String()
 }
 
+func TestEnqueueBatch_500Items_Integration(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-batch-500")
+
+	runs := make([]*domain.JobRun, 500)
+	for i := range runs {
+		runs[i] = &domain.JobRun{
+			JobID:     job.ID,
+			ProjectID: job.ProjectID,
+		}
+	}
+
+	n, err := q.EnqueueBatch(ctx, runs)
+	if err != nil {
+		t.Fatalf("EnqueueBatch() error = %v", err)
+	}
+	if n != 500 {
+		t.Fatalf("expected 500 inserted, got %d", n)
+	}
+
+	// Verify all runs got IDs assigned.
+	ids := make(map[string]bool, 500)
+	for i, run := range runs {
+		if run.ID == "" {
+			t.Fatalf("run %d: expected ID to be assigned", i)
+		}
+		if ids[run.ID] {
+			t.Fatalf("run %d: duplicate ID %s", i, run.ID)
+		}
+		ids[run.ID] = true
+	}
+
+	// Verify all 500 are in the database as queued.
+	var count int
+	err = testDB.Pool.QueryRow(ctx,
+		"SELECT count(*) FROM job_runs WHERE job_id = $1 AND status = 'queued'",
+		job.ID,
+	).Scan(&count)
+	if err != nil {
+		t.Fatalf("count query error: %v", err)
+	}
+	if count != 500 {
+		t.Fatalf("expected 500 queued runs in DB, got %d", count)
+	}
+}
+
+func TestEnqueueBatch_VerifyAllFieldsPersisted_Integration(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-batch-fields")
+
+	payload := json.RawMessage(`{"key":"value"}`)
+	runs := []*domain.JobRun{
+		{
+			JobID:     job.ID,
+			ProjectID: job.ProjectID,
+			Payload:   payload,
+			Priority:  5,
+			Tags:      map[string]string{"env": "test", "region": "us-east-1"},
+		},
+	}
+
+	n, err := q.EnqueueBatch(ctx, runs)
+	if err != nil {
+		t.Fatalf("EnqueueBatch() error = %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 inserted, got %d", n)
+	}
+
+	// Read back from DB and verify fields.
+	var (
+		gotStatus    string
+		gotAttempt   int
+		gotPriority  int
+		gotPayload   []byte
+		gotTags      []byte
+		gotTriggered string
+	)
+	err = testDB.Pool.QueryRow(ctx,
+		`SELECT status, attempt, priority, payload, tags, triggered_by
+		 FROM job_runs WHERE id = $1`, runs[0].ID,
+	).Scan(&gotStatus, &gotAttempt, &gotPriority, &gotPayload, &gotTags, &gotTriggered)
+	if err != nil {
+		t.Fatalf("query error: %v", err)
+	}
+	if gotStatus != "queued" {
+		t.Fatalf("status = %q, want queued", gotStatus)
+	}
+	if gotAttempt != 1 {
+		t.Fatalf("attempt = %d, want 1", gotAttempt)
+	}
+	if gotPriority != 5 {
+		t.Fatalf("priority = %d, want 5", gotPriority)
+	}
+	// Compare semantically — Postgres JSONB normalizes whitespace.
+	var wantPayload, gotPayloadMap map[string]any
+	if err := json.Unmarshal(payload, &wantPayload); err != nil {
+		t.Fatalf("unmarshal expected payload: %v", err)
+	}
+	if err := json.Unmarshal(gotPayload, &gotPayloadMap); err != nil {
+		t.Fatalf("unmarshal got payload: %v", err)
+	}
+	if wantPayload["key"] != gotPayloadMap["key"] {
+		t.Fatalf("payload = %s, want %s", gotPayload, payload)
+	}
+	if gotTriggered != "manual" {
+		t.Fatalf("triggered_by = %q, want manual", gotTriggered)
+	}
+
+	var tags map[string]string
+	if err := json.Unmarshal(gotTags, &tags); err != nil {
+		t.Fatalf("unmarshal tags: %v", err)
+	}
+	if tags["env"] != "test" || tags["region"] != "us-east-1" {
+		t.Fatalf("tags = %v, want env=test region=us-east-1", tags)
+	}
+}
+
+func BenchmarkEnqueueBatch_500_Integration(b *testing.B) {
+	ctx := context.Background()
+	q := queue.NewPostgresQueue(testDB.Pool)
+	st := store.New(testDB.Pool)
+
+	if err := testDB.CleanTables(ctx); err != nil {
+		b.Fatalf("CleanTables() error = %v", err)
+	}
+
+	job := &domain.Job{
+		ID:          newID(),
+		ProjectID:   "project-bench-batch",
+		Name:        "bench-batch-job",
+		Slug:        "bench-batch-" + newID(),
+		EndpointURL: "https://example.com/queue-job",
+		MaxAttempts: 3,
+		TimeoutSecs: 300,
+		Enabled:     true,
+	}
+	if err := st.CreateJob(ctx, job); err != nil {
+		b.Fatalf("CreateJob() error = %v", err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		runs := make([]*domain.JobRun, 500)
+		for j := range runs {
+			runs[j] = &domain.JobRun{
+				JobID:     job.ID,
+				ProjectID: job.ProjectID,
+			}
+		}
+		n, err := q.EnqueueBatch(ctx, runs)
+		if err != nil {
+			b.Fatalf("EnqueueBatch() error = %v", err)
+		}
+		if n != 500 {
+			b.Fatalf("expected 500, got %d", n)
+		}
+
+		b.StopTimer()
+		if _, cleanErr := testDB.Pool.Exec(ctx, "DELETE FROM job_runs WHERE job_id = $1", job.ID); cleanErr != nil {
+			b.Fatalf("cleanup error: %v", cleanErr)
+		}
+		b.StartTimer()
+	}
+}
+
 func BenchmarkPostgresQueueDequeueN(b *testing.B) {
 	ctx := context.Background()
 	q := queue.NewPostgresQueue(testDB.Pool)

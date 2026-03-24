@@ -35,7 +35,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	}
 
 	run.Status = domain.StatusCompleted
-	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, domain.StatusCompleted, fields)
+	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusCompleted, fields)
 	if err != nil {
 		e.logger.Error(
 			"failed to mark run completed",
@@ -312,7 +312,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		sentry.CaptureMessage(fmt.Sprintf("run dead-lettered: %s", errMsg))
 	})
 
-	updateErr := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, targetStatus, fields)
+	updateErr := e.completeRunWithWebhook(ctx, run, job, targetStatus, fields)
 	if updateErr != nil {
 		e.logger.Error(
 			"failed to mark run terminal",
@@ -409,7 +409,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		sentry.CaptureMessage("run timed out after all retries")
 	})
 
-	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, domain.StatusTimedOut, fields)
+	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusTimedOut, fields)
 	if err != nil {
 		e.logger.Error(
 			"failed to mark run timed_out",
@@ -430,7 +430,9 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 // completeRunWithWebhook atomically updates run status and enqueues a webhook
 // delivery within a single database transaction. If the job has no webhook URL
 // or no txPool is configured, it falls back to a plain status update.
-func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRun, job *domain.Job, from, to domain.RunStatus, fields map[string]any) error {
+// The run must be in StatusExecuting when this is called.
+func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRun, job *domain.Job, to domain.RunStatus, fields map[string]any) error {
+	from := domain.StatusExecuting
 	if e.txPool != nil && job.WebhookURL != "" {
 		return store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
 			if err := q.UpdateRunStatus(ctx, run.ID, from, to, fields); err != nil {
@@ -439,6 +441,10 @@ func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRu
 			_, err := q.EnqueueRunWebhook(ctx, job, run, e.webhookMaxRetry)
 			return err
 		})
+	}
+	if e.txPool == nil && job.WebhookURL != "" {
+		e.logger.Warn("txPool not configured, webhook delivery skipped for completed run",
+			"run_id", run.ID, "job_id", job.ID, "webhook_url", job.WebhookURL)
 	}
 	return e.store.UpdateRunStatus(ctx, run.ID, from, to, fields)
 }
