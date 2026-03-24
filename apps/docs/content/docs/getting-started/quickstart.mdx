@@ -106,8 +106,8 @@ export JWT_SIGNING_KEY=your-jwt-key-must-be-at-least-32-chars-long
 Build Strait binary and start it in `all` mode (API + worker combined).
 
 ```bash
-# Build from source (from repo root)
-go build -o strait ./apps/strait/cmd/strait
+# Build the server from source
+cd apps/strait && go build -o strait ./cmd/strait
 
 # Run in all mode (API + worker in one process)
 ./strait --mode all

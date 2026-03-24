@@ -47,7 +47,7 @@ To build and run Strait locally, you need:
    export REDIS_URL=redis://localhost:6379
    export INTERNAL_SECRET=your-secret
    export JWT_SIGNING_KEY=your-jwt-key-at-least-32-chars-long
-   go run ./apps/strait/cmd/strait --mode all
+   cd apps/strait && go run ./cmd/strait --mode all
    ```
 
 ## Code Style
@@ -99,7 +99,7 @@ If `lefthook` fails, you must fix the issues before you can commit your changes.
 
 ## Project Structure
 
-- `apps/strait/cmd/strait/`: Entry point for the CLI and server. Contains command definitions.
+- `apps/strait/cmd/strait/`: Server entrypoint and migration commands. CLI has moved to [strait-dev/cli](https://github.com/strait-dev/cli).
 - `apps/strait/internal/`: Private application code.
   - `api/`: HTTP handlers and routing.
   - `domain/`: Core business logic and FSM definitions.

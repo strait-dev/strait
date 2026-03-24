@@ -1,35 +1,22 @@
 ---
 title: "SDK Overview"
-description: "Official Strait SDKs for TypeScript, Python, Go, Ruby, and Rust — feature parity across all five languages."
+description: "Official Strait SDKs for TypeScript, Python, Go, Ruby, and Rust — each in its own dedicated repository."
 ---
 
 Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust**. All five SDKs share the same feature set, configuration model, and API coverage.
 
-## Installation
+The **Python**, **Go**, and **MCP** SDKs have moved to dedicated repositories. The TypeScript, Ruby, and Rust SDKs remain in this monorepo.
 
-<CodeGroup>
-  ```bash TypeScript
-  npm install @strait/ts
-  # or
-  bun add @strait/ts
-  ```
+## Repositories
 
-  ```bash Python
-  pip install strait-python
-  ```
-
-  ```bash Go
-  go get github.com/strait-dev/go-sdk
-  ```
-
-  ```bash Ruby
-  gem install strait
-  ```
-
-  ```bash Rust
-  cargo add strait
-  ```
-</CodeGroup>
+| SDK | Repository | Install |
+|---|---|---|
+| **TypeScript** | [packages/typescript-sdk](https://github.com/strait-dev/strait/tree/master/packages/typescript-sdk) (monorepo) | `npm install @strait/ts` |
+| **Python** | [strait-dev/strait-python](https://github.com/strait-dev/strait-python) | `pip install strait-python` |
+| **Go** | [strait-dev/strait-go](https://github.com/strait-dev/strait-go) | `go get github.com/strait-dev/strait-go` |
+| **Ruby** | [packages/ruby-sdk](https://github.com/strait-dev/strait/tree/master/packages/ruby-sdk) (monorepo) | `gem install strait` |
+| **Rust** | [packages/rust-sdk](https://github.com/strait-dev/strait/tree/master/packages/rust-sdk) (monorepo) | `cargo add strait` |
+| **MCP** | [strait-dev/mcp](https://github.com/strait-dev/mcp) | See repository README |
 
 ## Feature Parity
 
@@ -52,21 +39,13 @@ All five SDKs implement the same capabilities:
 
 The fastest way to get started is with a `strait.json` config file and the `STRAIT_API_KEY` environment variable.
 
-**1. Initialize your project:**
-
-```bash
-strait init
-```
-
-This creates a `strait.json` file in your project root. See [Configuration](/docs/sdks/configuration) for the full schema reference.
-
-**2. Set your API key:**
+**1. Set your API key:**
 
 ```bash
 export STRAIT_API_KEY="sk_live_..."
 ```
 
-**3. Create a client:**
+**2. Create a client:**
 
 <CodeGroup>
   ```ts TypeScript
@@ -85,8 +64,7 @@ export STRAIT_API_KEY="sk_live_..."
 
   ```go Go
   import (
-      strait "github.com/strait-dev/go-sdk"
-      "github.com/strait-dev/go-sdk/operations"
+      strait "github.com/strait-dev/strait-go"
   )
 
   client, err := strait.NewClientFromFile(nil)
@@ -114,17 +92,17 @@ export STRAIT_API_KEY="sk_live_..."
 Each SDK is organized into the same five layers:
 
 ```
-┌─────────────────────────────────────────┐
-│  Authoring DSL                          │  defineJob() / defineWorkflow()
-├─────────────────────────────────────────┤
-│  Composition Helpers                    │  retry, wait, paginate, deploy
-├─────────────────────────────────────────┤
-│  Domain Operations (19 services)        │  jobs, runs, workflows, ...
-├─────────────────────────────────────────┤
-│  HTTP Client + Middleware               │  auth, headers, error mapping
-├─────────────────────────────────────────┤
-│  Configuration                          │  strait.json / env vars / inline
-└─────────────────────────────────────────┘
++-------------------------------------------+
+|  Authoring DSL                            |  defineJob() / defineWorkflow()
++-------------------------------------------+
+|  Composition Helpers                      |  retry, wait, paginate, deploy
++-------------------------------------------+
+|  Domain Operations (19 services)          |  jobs, runs, workflows, ...
++-------------------------------------------+
+|  HTTP Client + Middleware                 |  auth, headers, error mapping
++-------------------------------------------+
+|  Configuration                            |  strait.json / env vars / inline
++-------------------------------------------+
 ```
 
 ### Domain Operations (19 Services)
@@ -166,10 +144,10 @@ All 186 API operations are organized into typed service classes:
 
 <CardGroup cols={2}>
   <Card title="Python SDK" icon="python" href="/docs/sdks/python">
-    Sync and async clients with httpx, authoring DSL, and composition helpers.
+    Now in its own repository at github.com/strait-dev/strait-python.
   </Card>
   <Card title="Go SDK" icon="golang" href="/docs/sdks/go">
-    Functional options pattern, typed error handling, and full API coverage.
+    Now in its own repository at github.com/strait-dev/strait-go.
   </Card>
 </CardGroup>
 
