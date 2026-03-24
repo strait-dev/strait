@@ -19,7 +19,7 @@ import { authMiddleware } from "@/middlewares/auth";
 const bulkCancelRunsFn = createServerFn({ method: "POST" })
   .inputValidator((data: { run_ids: string[] }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<{ canceled: number }> => {
     return await runWithSentryReport(
       apiEffect<{ canceled: number }>("/v1/runs/bulk-cancel", {
         method: "POST",
@@ -35,7 +35,8 @@ const bulkCancelRunsFn = createServerFn({ method: "POST" })
 export const fetchDlqRuns = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams & { search?: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<PaginatedResponse<JobRun>> => {
     return await runWithSentryReport(
       apiEffect<PaginatedResponse<JobRun>>("/v1/runs/dlq", {
         params: { limit: data.limit, cursor: data.cursor, search: data.search },
@@ -46,7 +47,8 @@ export const fetchDlqRuns = createServerFn({ method: "GET" })
 export const replayDlqRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<JobRun> => {
     return await runWithSentryReport(
       apiEffect<JobRun>(`/v1/runs/${data.runId}/dlq-replay`, {
         method: "POST",
@@ -57,7 +59,8 @@ export const replayDlqRunFn = createServerFn({ method: "POST" })
 export const bulkReplayDlqFn = createServerFn({ method: "POST" })
   .inputValidator((data: { run_ids: string[] }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<{ replayed: JobRun[]; count: number }> => {
     return await runWithSentryReport(
       apiEffect<{ replayed: JobRun[]; count: number }>(
         "/v1/runs/bulk-dlq-replay",

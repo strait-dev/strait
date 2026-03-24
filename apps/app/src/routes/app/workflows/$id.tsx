@@ -33,7 +33,13 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import StatusBadge from "@/components/dashboard/status-badge";
 import WorkflowDAGFlow from "@/components/dashboard/workflow-dag-flow";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import type { WorkflowRun, WorkflowStep } from "@/hooks/api/types";
+import type {
+  PaginatedResponse,
+  Workflow,
+  WorkflowRun,
+  WorkflowRunStatus,
+  WorkflowStep,
+} from "@/hooks/api/types";
 import {
   workflowQueryOptions,
   workflowRunsQueryOptions,
@@ -73,7 +79,9 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
   {
     accessorKey: "status",
     header: "Status",
-    cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    cell: ({ row }) => (
+      <StatusBadge status={row.original.status as WorkflowRunStatus} />
+    ),
   },
   {
     accessorKey: "triggered_by",
@@ -103,9 +111,15 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
 
 function WorkflowDetailPage() {
   const { id } = Route.useParams();
-  const { data: workflow } = useSuspenseQuery(workflowQueryOptions(id));
-  const { data: apiSteps } = useSuspenseQuery(workflowStepsQueryOptions(id));
-  const { data: runsData } = useSuspenseQuery(workflowRunsQueryOptions(id));
+  const { data: workflow } = useSuspenseQuery(workflowQueryOptions(id)) as {
+    data: Workflow | undefined;
+  };
+  const { data: apiSteps } = useSuspenseQuery(
+    workflowStepsQueryOptions(id)
+  ) as { data: WorkflowStep[] | undefined };
+  const { data: runsData } = useSuspenseQuery(workflowRunsQueryOptions(id)) as {
+    data: PaginatedResponse<WorkflowRun> | undefined;
+  };
   const runs = runsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -113,9 +127,9 @@ function WorkflowDetailPage() {
   const dagSteps = (apiSteps ?? []).map((s: WorkflowStep) => ({
     id: s.id,
     name: s.step_ref,
-    type: s.step_type,
+    type: s.step_type ?? "job",
     status: "pending" as const,
-    dependencies: s.depends_on,
+    dependencies: s.depends_on ?? [],
   }));
 
   const runsTable = useReactTable({
@@ -249,7 +263,11 @@ function WorkflowDetailPage() {
                       className="flex items-center gap-3 text-sm"
                       key={run.id}
                     >
-                      <StatusBadge showDot size="xs" status={run.status} />
+                      <StatusBadge
+                        showDot
+                        size="xs"
+                        status={run.status as WorkflowRunStatus}
+                      />
                       <span className="font-mono text-muted-foreground text-xs">
                         {run.id.slice(0, 8)}
                       </span>

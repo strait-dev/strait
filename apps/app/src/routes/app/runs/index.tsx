@@ -31,7 +31,7 @@ import StatusBadge from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
-import type { JobRun, RunStatus } from "@/hooks/api/types";
+import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
@@ -78,7 +78,8 @@ function RunsPage() {
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const selectedStatuses = (search.status ?? []) as RunStatus[];
 
-  const tableData = hasProject ? (data?.data ?? []) : [];
+  const typed = data as PaginatedResponse<JobRun> | undefined;
+  const tableData = hasProject ? (typed?.data ?? []) : [];
 
   const table = useReactTable({
     data: tableData,

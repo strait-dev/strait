@@ -30,7 +30,7 @@ import JobDetailSheet from "@/components/dashboard/job-detail-sheet";
 import { jobColumns } from "@/components/tables/jobs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
-import type { Job } from "@/hooks/api/types";
+import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { jobsQueryOptions } from "@/hooks/api/use-jobs";
 import {
   BriefcaseIcon,
@@ -80,11 +80,12 @@ function JobsPage() {
   const selectedStatuses = search.status ?? [];
 
   const filteredData = useMemo(() => {
-    const jobs = hasProject ? (data?.data ?? []) : [];
+    const typed = data as PaginatedResponse<Job> | undefined;
+    const jobs = hasProject ? (typed?.data ?? []) : [];
     if (selectedStatuses.length === 0) {
       return jobs;
     }
-    return jobs.filter((job) => {
+    return jobs.filter((job: Job) => {
       if (selectedStatuses.includes("Enabled") && job.enabled) {
         return true;
       }
@@ -93,7 +94,7 @@ function JobsPage() {
       }
       return false;
     });
-  }, [data?.data, selectedStatuses, hasProject]);
+  }, [data, selectedStatuses, hasProject]);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
 

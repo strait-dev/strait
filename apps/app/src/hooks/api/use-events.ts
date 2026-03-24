@@ -25,7 +25,8 @@ export const fetchEvents = createServerFn({ method: "GET" })
     ) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<PaginatedResponse<EventTrigger>> => {
     return await runWithSentryReport(
       apiEffect<PaginatedResponse<EventTrigger>>("/v1/events", {
         params: {
@@ -42,7 +43,8 @@ export const fetchEvents = createServerFn({ method: "GET" })
 export const fetchEvent = createServerFn({ method: "GET" })
   .inputValidator((data: { eventKey: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<EventTrigger> => {
     return await runWithSentryReport(
       apiEffect<EventTrigger>(`/v1/events/${data.eventKey}`)
     );

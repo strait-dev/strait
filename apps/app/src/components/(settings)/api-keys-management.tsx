@@ -415,7 +415,7 @@ const ApiKeysManagement = () => {
                           </td>
                           <td className="hidden px-4 py-3 md:table-cell">
                             <div className="flex flex-wrap gap-1">
-                              {key.scopes.map((scope) => (
+                              {(key.scopes ?? []).map((scope) => (
                                 <Badge key={scope} variant="outline">
                                   {scope}
                                 </Badge>
@@ -426,7 +426,11 @@ const ApiKeysManagement = () => {
                             {formatDate(key.created_at)}
                           </td>
                           <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
-                            {formatDate(key.last_used_at)}
+                            {formatDate(
+                              (key as Record<string, unknown>).last_used_at as
+                                | string
+                                | null
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right">
                             <AlertDialog>

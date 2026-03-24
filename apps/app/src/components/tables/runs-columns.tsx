@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import StatusBadge from "@/components/dashboard/status-badge";
-import type { JobRun } from "@/hooks/api/types";
+import type { DisplayStatus, JobRun } from "@/hooks/api/types";
 import { EyeIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
@@ -54,13 +54,18 @@ export const runColumns: ColumnDef<JobRun>[] = [
   {
     accessorKey: "status",
     header: "Status",
-    cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    cell: ({ row }) => (
+      <StatusBadge status={row.original.status as DisplayStatus} />
+    ),
   },
   {
     id: "duration",
     header: "Duration",
     cell: ({ row }) =>
-      formatDuration(row.original.started_at, row.original.finished_at),
+      formatDuration(
+        row.original.started_at ?? null,
+        row.original.finished_at ?? null
+      ),
   },
   {
     accessorKey: "attempt",

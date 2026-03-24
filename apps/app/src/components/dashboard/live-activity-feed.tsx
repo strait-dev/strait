@@ -8,7 +8,7 @@ import { ScrollArea } from "@strait/ui/components/scroll-area";
 import { cn } from "@strait/ui/utils/index";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import type { JobRun } from "@/hooks/api/types";
+import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import { LIVE_REFETCH_INTERVAL } from "@/hooks/utils";
 import { ActivityIcon } from "@/lib/icons";
@@ -56,7 +56,8 @@ const LiveActivityFeed = ({ hasProject = true }: { hasProject?: boolean }) => {
     refetchInterval: LIVE_REFETCH_INTERVAL,
     refetchIntervalInBackground: false,
   });
-  const runs = data?.data ?? [];
+  const typed = data as PaginatedResponse<JobRun> | undefined;
+  const runs = typed?.data ?? [];
 
   return (
     <Card>

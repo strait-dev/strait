@@ -28,7 +28,12 @@ import ErrorComponent from "@/components/common/error-component";
 import StatusBadge from "@/components/dashboard/status-badge";
 import DetailCell from "@/components/runs/detail-cell";
 import ExecutionTraceBar from "@/components/runs/execution-trace-bar";
-import type { RunStatus } from "@/hooks/api/types";
+import type {
+  JobRun,
+  PaginatedResponse,
+  RunEvent,
+  RunStatus,
+} from "@/hooks/api/types";
 import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
 import { formatDuration } from "@/lib/format";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
@@ -60,8 +65,12 @@ const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set([
 
 function RunDetailPage() {
   const { id } = Route.useParams();
-  const { data: run } = useSuspenseQuery(runQueryOptions(id));
-  const { data: eventsData } = useSuspenseQuery(runEventsQueryOptions(id));
+  const { data: run } = useSuspenseQuery(runQueryOptions(id)) as {
+    data: JobRun | undefined;
+  };
+  const { data: eventsData } = useSuspenseQuery(runEventsQueryOptions(id)) as {
+    data: PaginatedResponse<RunEvent> | undefined;
+  };
   const events = eventsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("logs");
 
@@ -73,8 +82,8 @@ function RunDetailPage() {
     );
   }
 
-  const isFailed = FAILED_STATUSES.has(run.status);
-  const isActive = ACTIVE_STATUSES.has(run.status);
+  const isFailed = FAILED_STATUSES.has(run.status as RunStatus);
+  const isActive = ACTIVE_STATUSES.has(run.status as RunStatus);
 
   return (
     <Shell>
@@ -85,7 +94,7 @@ function RunDetailPage() {
             <h1 className="truncate font-mono font-normal text-lg tracking-tight sm:text-xl">
               {run.id}
             </h1>
-            <StatusBadge showDot status={run.status} />
+            <StatusBadge showDot status={run.status as RunStatus} />
           </div>
           <p className="text-pretty text-muted-foreground text-sm">
             Job:{" "}
@@ -129,7 +138,10 @@ function RunDetailPage() {
             <DetailCell label="Status" value={run.status} />
             <DetailCell
               label="Duration"
-              value={formatDuration(run.started_at, run.finished_at)}
+              value={formatDuration(
+                run.started_at ?? null,
+                run.finished_at ?? null
+              )}
             />
             <DetailCell
               label="Started"
@@ -179,7 +191,7 @@ function RunDetailPage() {
               ? events
                   .map(
                     (evt) =>
-                      `[${new Date(evt.created_at).toISOString()}] [${evt.level.toUpperCase()}] ${evt.message}`
+                      `[${new Date(evt.created_at).toISOString()}] [${(evt.level ?? "info").toUpperCase()}] ${evt.message}`
                   )
                   .join("\n")
               : "No log events available for this run."}

@@ -25,7 +25,8 @@ export const fetchJobs = createServerFn({ method: "GET" })
     (data: ListParams & { status?: string; search?: string }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<PaginatedResponse<Job>> => {
     return await runWithSentryReport(
       apiEffect<PaginatedResponse<Job>>("/v1/jobs", {
         params: {
@@ -41,7 +42,8 @@ export const fetchJobs = createServerFn({ method: "GET" })
 export const fetchJob = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<Job> => {
     return await runWithSentryReport(apiEffect<Job>(`/v1/jobs/${data.id}`));
   });
 
@@ -50,7 +52,8 @@ export const triggerJobFn = createServerFn({ method: "POST" })
     (data: { id: string; payload?: unknown; priority?: number }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<JobRun> => {
     return await runWithSentryReport(
       apiEffect<JobRun>(`/v1/jobs/${data.id}/trigger`, {
         method: "POST",
@@ -62,7 +65,8 @@ export const triggerJobFn = createServerFn({ method: "POST" })
 export const updateJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; enabled?: boolean }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<Job> => {
     const { id, ...body } = data;
     return await runWithSentryReport(
       apiEffect<Job>(`/v1/jobs/${id}`, { method: "PATCH", body })
@@ -72,7 +76,7 @@ export const updateJobFn = createServerFn({ method: "POST" })
 export const deleteJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<void> => {
     return await runWithSentryReport(
       apiEffect<void>(`/v1/jobs/${data.id}`, { method: "DELETE" })
     );

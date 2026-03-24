@@ -15,6 +15,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
+import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import { LIVE_REFETCH_INTERVAL } from "@/hooks/utils";
 import { ActivityIcon } from "@/lib/icons";
@@ -44,7 +45,8 @@ const RecentRunsTable = ({ hasProject = true }: { hasProject?: boolean }) => {
     refetchInterval: LIVE_REFETCH_INTERVAL,
     refetchIntervalInBackground: false,
   });
-  const runs = data?.data ?? [];
+  const typed = data as PaginatedResponse<JobRun> | undefined;
+  const runs = typed?.data ?? [];
 
   return (
     <Card>
@@ -78,10 +80,13 @@ const RecentRunsTable = ({ hasProject = true }: { hasProject?: boolean }) => {
                   {run.job_id}
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={run.status} />
+                  <StatusBadge status={run.status as RunStatus} />
                 </TableCell>
                 <TableCell className="font-mono text-sm tabular-nums">
-                  {formatDuration(run.started_at, run.finished_at)}
+                  {formatDuration(
+                    run.started_at ?? null,
+                    run.finished_at ?? null
+                  )}
                 </TableCell>
                 <TableCell className="text-muted-foreground text-sm">
                   {run.created_at

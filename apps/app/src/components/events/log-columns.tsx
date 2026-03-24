@@ -76,7 +76,7 @@ export const logColumns: ColumnDef<EventTrigger>[] = [
       icon: LinkSquareIcon,
       onClick: (row) => {
         navigator.clipboard.writeText(
-          row.original.job_run_id || row.original.workflow_run_id
+          row.original.job_run_id ?? row.original.workflow_run_id ?? ""
         );
       },
     },

@@ -109,7 +109,9 @@ export const useAddPasskey = () => {
     mutationFn: async () => {
       const result = await authClient.passkey.addPasskey();
       if (result?.error) {
-        throw new Error(result.error.message ?? "Failed to add passkey");
+        throw new Error(
+          String(result.error.message ?? "Failed to add passkey")
+        );
       }
       return result?.data;
     },

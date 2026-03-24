@@ -30,7 +30,7 @@ import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import ExpandedEventDetail from "@/components/events/expanded-event-detail";
 import { logColumns } from "@/components/events/log-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import type { EventTrigger } from "@/hooks/api/types";
+import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { FileTextIcon, FilterIcon, SearchIcon } from "@/lib/icons";
 import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
@@ -74,12 +74,15 @@ function LogsPage() {
   const selectedStatuses = (search.statuses ?? []) as string[];
 
   const allLogs = useMemo(() => {
-    let items = hasProject ? (data?.data ?? []) : [];
+    const typed = data as PaginatedResponse<EventTrigger> | undefined;
+    let items = hasProject ? (typed?.data ?? []) : [];
     if (selectedStatuses.length > 0) {
-      items = items.filter((e) => selectedStatuses.includes(e.status));
+      items = items.filter((e: EventTrigger) =>
+        selectedStatuses.includes(e.status)
+      );
     }
     return items;
-  }, [data?.data, selectedStatuses, hasProject]);
+  }, [data, selectedStatuses, hasProject]);
 
   const table = useReactTable({
     data: allLogs,

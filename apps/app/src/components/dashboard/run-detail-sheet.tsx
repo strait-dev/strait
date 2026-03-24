@@ -10,7 +10,7 @@ import {
 import { cn } from "@strait/ui/utils/index";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import type { JobRun } from "@/hooks/api/types";
+import type { DisplayStatus, JobRun } from "@/hooks/api/types";
 import {
   AlertIcon,
   BriefcaseIcon,
@@ -97,7 +97,7 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
         <div className="mt-4 flex-1 space-y-6 overflow-y-auto px-6">
           {/* Status */}
           <div className="flex items-center gap-2">
-            <StatusBadge status={run.status} />
+            <StatusBadge status={run.status as DisplayStatus} />
           </div>
 
           {/* Job Link */}
@@ -148,7 +148,10 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
                   Duration
                 </span>
                 <span className="font-mono text-sm">
-                  {formatDuration(run.started_at, run.finished_at)}
+                  {formatDuration(
+                    run.started_at ?? null,
+                    run.finished_at ?? null
+                  )}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
