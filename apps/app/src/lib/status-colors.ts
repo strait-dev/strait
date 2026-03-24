@@ -6,7 +6,7 @@
  *  success  (green)  — completed
  *  error    (red)    — failed, timed_out, crashed, system_failed, dead_letter
  *  active   (blue)   — executing, running
- *  warning  (amber)  — replay_staged, delayed, waiting, paused
+ *  warning  (amber)  — delayed, waiting, paused
  *  neutral  (gray)   — queued, dequeued, canceled, expired, pending, skipped
  */
 

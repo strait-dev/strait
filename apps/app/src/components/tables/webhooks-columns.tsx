@@ -29,7 +29,7 @@ export const webhookColumns: ColumnDef<WebhookSubscription>[] = [
     header: "Events",
     cell: ({ row }) => (
       <div className="flex flex-wrap gap-1">
-        {row.original.event_types.map((event) => (
+        {(row.original.event_types ?? []).map((event) => (
           <Badge key={event} variant="secondary">
             {event}
           </Badge>

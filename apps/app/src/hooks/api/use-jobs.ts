@@ -5,7 +5,12 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
-import type { Job, ListParams, PaginatedResponse } from "@/hooks/api/types";
+import type {
+  Job,
+  JobRun,
+  ListParams,
+  PaginatedResponse,
+} from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
@@ -20,7 +25,8 @@ export const fetchJobs = createServerFn({ method: "GET" })
     (data: ListParams & { status?: string; search?: string }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<PaginatedResponse<Job>> => {
     return await runWithSentryReport(
       apiEffect<PaginatedResponse<Job>>("/v1/jobs", {
         params: {
@@ -36,7 +42,8 @@ export const fetchJobs = createServerFn({ method: "GET" })
 export const fetchJob = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<Job> => {
     return await runWithSentryReport(apiEffect<Job>(`/v1/jobs/${data.id}`));
   });
 
@@ -45,9 +52,10 @@ export const triggerJobFn = createServerFn({ method: "POST" })
     (data: { id: string; payload?: unknown; priority?: number }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<JobRun> => {
     return await runWithSentryReport(
-      apiEffect<{ id: string }>(`/v1/jobs/${data.id}/trigger`, {
+      apiEffect<JobRun>(`/v1/jobs/${data.id}/trigger`, {
         method: "POST",
         body: { payload: data.payload, priority: data.priority },
       })
@@ -57,7 +65,8 @@ export const triggerJobFn = createServerFn({ method: "POST" })
 export const updateJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; enabled?: boolean }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<Job> => {
     const { id, ...body } = data;
     return await runWithSentryReport(
       apiEffect<Job>(`/v1/jobs/${id}`, { method: "PATCH", body })
@@ -67,7 +76,7 @@ export const updateJobFn = createServerFn({ method: "POST" })
 export const deleteJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<void> => {
     return await runWithSentryReport(
       apiEffect<void>(`/v1/jobs/${data.id}`, { method: "DELETE" })
     );
@@ -106,8 +115,9 @@ export const useTriggerJob = () => {
     mutationKey: ["jobs", "trigger"],
     mutationFn: (data: { id: string; payload?: unknown }) =>
       triggerJobFn({ data }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
     },
   });
 };
@@ -118,7 +128,42 @@ export const usePauseJob = () => {
     mutationKey: ["jobs", "pause"],
     mutationFn: (data: { id: string }) =>
       updateJobFn({ data: { id: data.id, enabled: false } }),
-    onSuccess: () => {
+    onMutate: async (data) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.jobs._def });
+
+      const previousDetail = queryClient.getQueryData<Job>(
+        queryKeys.jobs.detail(data.id).queryKey
+      );
+
+      queryClient.setQueryData<Job>(
+        queryKeys.jobs.detail(data.id).queryKey,
+        (old) => (old ? { ...old, enabled: false } : old)
+      );
+
+      queryClient.setQueriesData<PaginatedResponse<Job>>(
+        { queryKey: queryKeys.jobs.list._def },
+        (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.map((job) =>
+                  job.id === data.id ? { ...job, enabled: false } : job
+                ),
+              }
+            : old
+      );
+
+      return { previousDetail };
+    },
+    onError: (_err, data, context) => {
+      if (context?.previousDetail) {
+        queryClient.setQueryData(
+          queryKeys.jobs.detail(data.id).queryKey,
+          context.previousDetail
+        );
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
     },
   });
@@ -130,7 +175,42 @@ export const useResumeJob = () => {
     mutationKey: ["jobs", "resume"],
     mutationFn: (data: { id: string }) =>
       updateJobFn({ data: { id: data.id, enabled: true } }),
-    onSuccess: () => {
+    onMutate: async (data) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.jobs._def });
+
+      const previousDetail = queryClient.getQueryData<Job>(
+        queryKeys.jobs.detail(data.id).queryKey
+      );
+
+      queryClient.setQueryData<Job>(
+        queryKeys.jobs.detail(data.id).queryKey,
+        (old) => (old ? { ...old, enabled: true } : old)
+      );
+
+      queryClient.setQueriesData<PaginatedResponse<Job>>(
+        { queryKey: queryKeys.jobs.list._def },
+        (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.map((job) =>
+                  job.id === data.id ? { ...job, enabled: true } : job
+                ),
+              }
+            : old
+      );
+
+      return { previousDetail };
+    },
+    onError: (_err, data, context) => {
+      if (context?.previousDetail) {
+        queryClient.setQueryData(
+          queryKeys.jobs.detail(data.id).queryKey,
+          context.previousDetail
+        );
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
     },
   });
@@ -141,8 +221,9 @@ export const useDeleteJob = () => {
   return useMutation({
     mutationKey: ["jobs", "delete"],
     mutationFn: (data: { id: string }) => deleteJobFn({ data }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });
     },
   });
 };

@@ -6,11 +6,7 @@ import {
 import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
-import {
-  apiEffect,
-  runWithFallback,
-  runWithSentryReport,
-} from "@/lib/effect-api.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { requireProjectAccess } from "@/middlewares/require-access";
 
@@ -36,11 +32,10 @@ const getProjectBudgetServerFn = createServerFn({ method: "GET" })
       .activeOrganizationId as string | undefined;
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
-    return await runWithFallback(
-      apiEffect<ProjectBudgetData>("/v1/project-budget", {
+    return await runWithSentryReport(
+      apiEffect<ProjectBudgetData | null>("/v1/project-budget", {
         params: { project_id: data.projectId },
-      }),
-      null
+      })
     );
   });
 
@@ -48,7 +43,9 @@ export const projectBudgetQueryOptions = (projectId: string) =>
   queryOptions({
     queryKey: queryKeys.billing.projectBudget(projectId).queryKey,
     queryFn: () => getProjectBudgetServerFn({ data: { projectId } }),
-    refetchInterval: 300_000,
+    enabled: !!projectId,
+    refetchInterval: 600_000,
+    refetchIntervalInBackground: false,
   });
 
 type SetBudgetInput = {
@@ -90,7 +87,7 @@ export function useSetProjectBudget() {
   return useMutation({
     mutationFn: (params: SetBudgetInput) =>
       setProjectBudgetServerFn({ data: params }),
-    onSuccess: (_data, variables) => {
+    onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.billing.projectBudget(variables.projectId).queryKey,
       });

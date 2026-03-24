@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { queryKeys } from "@/hooks/query-keys";
-import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
 
@@ -26,18 +26,18 @@ const getAnomalyAlertsServerFn = createServerFn({ method: "GET" })
       return [] as AnomalyAlert[];
     }
 
-    return await runWithFallback(
+    return await runWithSentryReport(
       apiEffect<AnomalyAlert[]>("/v1/usage/anomalies", {
         params: { org_id: orgId },
-      }),
-      [] as AnomalyAlert[]
+      })
     );
   });
 
-/** Query options for spending anomaly alerts. Refetches every 5 minutes. */
+/** Query options for spending anomaly alerts. Refetches every 10 minutes. */
 export const anomalyAlertsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.anomalyAlerts.queryKey,
     queryFn: () => getAnomalyAlertsServerFn(),
-    refetchInterval: 300_000,
+    refetchInterval: 600_000,
+    refetchIntervalInBackground: false,
   });

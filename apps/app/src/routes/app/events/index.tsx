@@ -10,6 +10,7 @@ import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import EventRow from "@/components/events/event-row";
+import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -43,7 +44,8 @@ function EventsPage() {
     enabled: hasProject,
   });
 
-  const events = hasProject ? (data?.data ?? []) : [];
+  const typed = data as PaginatedResponse<EventTrigger> | undefined;
+  const events = hasProject ? (typed?.data ?? []) : [];
 
   if (!hasProject) {
     return (

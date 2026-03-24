@@ -47,7 +47,6 @@ export const RUN_STATUS_OPTIONS = [
   "timed_out",
   "canceled",
   "dead_letter",
-  "replay_staged",
   "crashed",
   "system_failed",
 ] as const;
@@ -145,11 +144,6 @@ export const RUN_STATUS_CONFIG: Record<string, RunStatusConfig> = {
     label: "Dead Letter",
     variant: "destructive-light",
     dotClassName: "bg-destructive",
-  },
-  replay_staged: {
-    label: "Replay Staged",
-    variant: "warning-light",
-    dotClassName: "bg-warning",
   },
   delayed: {
     label: "Delayed",

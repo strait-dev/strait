@@ -23,19 +23,21 @@ import { authMiddleware } from "@/middlewares/auth";
 export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
-    return await runWithSentryReport(
-      apiEffect<PaginatedResponse<WebhookSubscription>>(
-        "/v1/webhooks/subscriptions",
-        { params: { limit: data.limit, cursor: data.cursor } }
-      )
-    );
-  });
+  .handler(
+    async ({ data }): Promise<PaginatedResponse<WebhookSubscription>> => {
+      return await runWithSentryReport(
+        apiEffect<PaginatedResponse<WebhookSubscription>>(
+          "/v1/webhooks/subscriptions",
+          { params: { limit: data.limit, cursor: data.cursor } }
+        )
+      );
+    }
+  );
 
 export const fetchWebhookDeliveries = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<PaginatedResponse<WebhookDelivery>> => {
     return await runWithSentryReport(
       apiEffect<PaginatedResponse<WebhookDelivery>>("/v1/webhooks/deliveries", {
         params: { limit: data.limit, cursor: data.cursor },
@@ -48,7 +50,7 @@ export const createWebhookFn = createServerFn({ method: "POST" })
     (data: { webhook_url: string; event_types: string[] }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<WebhookSubscription> => {
     return await runWithSentryReport(
       apiEffect<WebhookSubscription>("/v1/webhooks/subscriptions", {
         method: "POST",
@@ -60,7 +62,7 @@ export const createWebhookFn = createServerFn({ method: "POST" })
 export const deleteWebhookFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<void> => {
     return await runWithSentryReport(
       apiEffect<void>(`/v1/webhooks/subscriptions/${data.id}`, {
         method: "DELETE",
@@ -69,9 +71,9 @@ export const deleteWebhookFn = createServerFn({ method: "POST" })
   });
 
 export const testWebhookFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { webhook_url: string }) => data)
+  .inputValidator((data: { url: string; secret?: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<WebhookDelivery> => {
     return await runWithSentryReport(
       apiEffect<WebhookDelivery>("/v1/webhooks/test", {
         method: "POST",
@@ -108,10 +110,25 @@ export const webhookQueryOptions = (id: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
+/**
+ * Seed individual webhook detail caches from a list response.
+ * Call this after fetching the list to avoid redundant list fetches
+ * when navigating to a detail view.
+ */
+export function seedWebhookDetailCaches(
+  queryClient: ReturnType<typeof useQueryClient>,
+  subscriptions: WebhookSubscription[]
+) {
+  for (const sub of subscriptions) {
+    queryClient.setQueryData(queryKeys.webhooks.detail(sub.id).queryKey, sub);
+  }
+}
+
 export const webhookDeliveriesQueryOptions = (webhookId: string) =>
   queryOptions({
     queryKey: queryKeys.webhooks.deliveries(webhookId).queryKey,
     queryFn: () => fetchWebhookDeliveries({ data: {} }),
+    enabled: !!webhookId,
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
@@ -124,10 +141,9 @@ export const useCreateWebhook = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["webhooks", "create"],
-    mutationFn: (
-      data: Pick<WebhookSubscription, "webhook_url" | "event_types">
-    ) => createWebhookFn({ data }),
-    onSuccess: () => {
+    mutationFn: (data: { webhook_url: string; event_types: string[] }) =>
+      createWebhookFn({ data }),
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
     },
   });
@@ -138,15 +154,22 @@ export const useDeleteWebhook = () => {
   return useMutation({
     mutationKey: ["webhooks", "delete"],
     mutationFn: (id: string) => deleteWebhookFn({ data: { id } }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
     },
   });
 };
 
-export const useTestWebhook = () =>
-  useMutation({
+export const useTestWebhook = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
     mutationKey: ["webhooks", "test"],
     mutationFn: (webhookUrl: string) =>
-      testWebhookFn({ data: { webhook_url: webhookUrl } }),
+      testWebhookFn({ data: { url: webhookUrl } }),
+    onSettled: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.webhooks.deliveries._def,
+      });
+    },
   });
+};

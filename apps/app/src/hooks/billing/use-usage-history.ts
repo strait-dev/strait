@@ -40,10 +40,11 @@ const getUsageHistoryServerFn = createServerFn({ method: "GET" })
     );
   });
 
-/** Query options for daily usage history in the current billing period. Refetches every 5 minutes. */
+/** Query options for daily usage history in the current billing period. Refetches every 10 minutes. */
 export const usageHistoryQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.usageHistory.queryKey,
     queryFn: () => getUsageHistoryServerFn(),
-    refetchInterval: 300_000,
+    refetchInterval: 600_000,
+    refetchIntervalInBackground: false,
   });

@@ -49,7 +49,7 @@ export const useCreateProject = () => {
       name: string;
       description?: string;
     }) => createProjectServerFn({ data }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.projects._def,
       });
@@ -63,7 +63,7 @@ export const useDeleteProject = () => {
   return useMutation({
     mutationKey: ["projects", "delete"],
     mutationFn: (data: { id: string }) => deleteProjectServerFn({ data }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.projects._def,
       });

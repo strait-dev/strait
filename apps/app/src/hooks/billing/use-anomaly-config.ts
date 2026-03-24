@@ -6,11 +6,7 @@ import {
 import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
-import {
-  apiEffect,
-  runWithFallback,
-  runWithSentryReport,
-} from "@/lib/effect-api.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
 
@@ -30,11 +26,10 @@ const getAnomalyConfigServerFn = createServerFn({ method: "GET" })
       return null;
     }
 
-    return await runWithFallback(
+    return await runWithSentryReport(
       apiEffect<AnomalyConfigData>("/v1/anomaly-config", {
         params: { org_id: orgId },
-      }),
-      null
+      })
     );
   });
 
@@ -42,7 +37,8 @@ export const anomalyConfigQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.anomalyConfig.queryKey,
     queryFn: () => getAnomalyConfigServerFn(),
-    refetchInterval: 300_000,
+    refetchInterval: 600_000,
+    refetchIntervalInBackground: false,
   });
 
 type SetConfigInput = {
@@ -89,7 +85,7 @@ export function useSetAnomalyConfig() {
   return useMutation({
     mutationFn: (params: SetConfigInput) =>
       setAnomalyConfigServerFn({ data: params }),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.billing.anomalyConfig.queryKey,
       });

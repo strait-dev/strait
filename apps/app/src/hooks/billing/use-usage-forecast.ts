@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { queryKeys } from "@/hooks/query-keys";
-import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
 
@@ -25,18 +25,18 @@ const getUsageForecastServerFn = createServerFn({ method: "GET" })
       return null;
     }
 
-    return await runWithFallback(
+    return await runWithSentryReport(
       apiEffect<UsageForecastData>("/v1/usage/forecast", {
         params: { org_id: orgId },
-      }),
-      null
+      })
     );
   });
 
-/** Query options for projected monthly usage and cost forecast. Refetches every 5 minutes. */
+/** Query options for projected monthly usage and cost forecast. Refetches every 10 minutes. */
 export const usageForecastQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.usageForecast.queryKey,
     queryFn: () => getUsageForecastServerFn(),
-    refetchInterval: 300_000,
+    refetchInterval: 600_000,
+    refetchIntervalInBackground: false,
   });
