@@ -562,7 +562,8 @@ func (s *Server) routes() chi.Router {
 
 	// API Reference
 	r.Get("/reference", s.handleAPIReference)
-	r.Get("/reference/openapi.yaml", s.handleOpenAPISpec)
+	r.Get("/reference/openapi.json", s.handleOpenAPISpec)
+	r.Get("/reference/openapi.yaml", http.RedirectHandler("/reference/openapi.json", http.StatusMovedPermanently).ServeHTTP)
 
 	return r
 }

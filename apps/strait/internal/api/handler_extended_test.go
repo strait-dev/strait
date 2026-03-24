@@ -540,7 +540,7 @@ func TestHandleOpenAPISpec_Returns200(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.yaml", nil)
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {
@@ -560,7 +560,7 @@ func TestHandleOpenAPISpec_ContainsOpenAPI(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.yaml", nil)
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {
@@ -568,5 +568,22 @@ func TestHandleOpenAPISpec_ContainsOpenAPI(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "openapi") {
 		t.Fatal("expected response to contain 'openapi'")
+	}
+}
+
+func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.yaml", nil)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Fatalf("expected 301, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/reference/openapi.json" {
+		t.Fatalf("expected redirect to /reference/openapi.json, got %q", loc)
 	}
 }
