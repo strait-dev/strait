@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 type mockWorkflowTrigger struct {
@@ -247,6 +248,261 @@ func TestCronScheduler_TriggerWorkflow_Success(t *testing.T) {
 
 	if !triggered {
 		t.Fatal("expected workflow cron trigger to run")
+	}
+}
+
+func TestCronScheduler_TriggerJob_OverlapPolicyAllow(t *testing.T) {
+	t.Parallel()
+	enqueued := false
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+	// CountActiveRunsForJob returns active runs, but allow policy should ignore that.
+	store := &mockCronStore{
+		countActiveRunsForJobFn: func(_ context.Context, _ string) (int, error) {
+			return 5, nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), store, q, nil)
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyAllow}
+	cs.triggerJob(context.Background(), job)
+
+	if !enqueued {
+		t.Fatal("expected run to be enqueued with allow policy")
+	}
+}
+
+func TestCronScheduler_TriggerJob_OverlapPolicySkip_ActiveRuns(t *testing.T) {
+	t.Parallel()
+	enqueued := false
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+	store := &mockCronStore{
+		countActiveRunsForJobFn: func(_ context.Context, jobID string) (int, error) {
+			if jobID != "job-1" {
+				t.Fatalf("unexpected job_id %q", jobID)
+			}
+			return 2, nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), store, q, nil)
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicySkip}
+	cs.triggerJob(context.Background(), job)
+
+	if enqueued {
+		t.Fatal("expected run to be skipped when active runs exist")
+	}
+}
+
+func TestCronScheduler_TriggerJob_OverlapPolicySkip_NoActive(t *testing.T) {
+	t.Parallel()
+	enqueued := false
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+	store := &mockCronStore{
+		countActiveRunsForJobFn: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), store, q, nil)
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicySkip}
+	cs.triggerJob(context.Background(), job)
+
+	if !enqueued {
+		t.Fatal("expected run to be enqueued when no active runs")
+	}
+}
+
+func TestCronScheduler_TriggerJob_OverlapPolicySkip_CountError(t *testing.T) {
+	t.Parallel()
+	enqueued := false
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+	store := &mockCronStore{
+		countActiveRunsForJobFn: func(_ context.Context, _ string) (int, error) {
+			return 0, errors.New("db error")
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), store, q, nil)
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicySkip}
+	cs.triggerJob(context.Background(), job)
+
+	if enqueued {
+		t.Fatal("expected run not to be enqueued on count error")
+	}
+}
+
+func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning(t *testing.T) {
+	t.Parallel()
+	enqueued := false
+	cancelCalled := false
+	var cancelReason string
+	var stoppedMachines []string
+	childCancelCalled := false
+	wfCallbackCalled := false
+
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+	s := &mockCronStore{
+		cancelActiveRunsForJobFn: func(_ context.Context, jobID string, reason string) ([]store.CancelledRun, error) {
+			if jobID != "job-1" {
+				t.Fatalf("unexpected job_id %q", jobID)
+			}
+			cancelCalled = true
+			cancelReason = reason
+			return []store.CancelledRun{
+				{ID: "run-1", MachineID: "mach-1", ExecutionMode: domain.ExecutionModeManaged},
+				{ID: "run-2", MachineID: "", ExecutionMode: domain.ExecutionModeHTTP},
+			}, nil
+		},
+		cancelChildRunsByParentIDFn: func(_ context.Context, parentIDs []string, _ time.Time, _ string) (int64, error) {
+			childCancelCalled = true
+			if len(parentIDs) != 2 {
+				t.Fatalf("expected 2 parent IDs, got %d", len(parentIDs))
+			}
+			return 1, nil
+		},
+	}
+	stopper := &mockMachineStopper{
+		stopFn: func(_ context.Context, machineID string) error {
+			stoppedMachines = append(stoppedMachines, machineID)
+			return nil
+		},
+	}
+	wfCb := &mockWorkflowCallback{
+		onJobRunTerminalFn: func(_ context.Context, run *domain.JobRun) error {
+			wfCallbackCalled = true
+			return nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), s, q, nil).
+		WithMachineStopper(stopper).
+		WithWorkflowCallback(wfCb)
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
+	cs.triggerJob(context.Background(), job)
+
+	if !cancelCalled {
+		t.Fatal("expected CancelActiveRunsForJob to be called")
+	}
+	if !strings.Contains(cancelReason, "cancel_running") {
+		t.Fatalf("expected reason to contain cancel_running, got %q", cancelReason)
+	}
+	if !enqueued {
+		t.Fatal("expected run to be enqueued after canceling active runs")
+	}
+	// Only the managed run with a machine ID should be stopped.
+	if len(stoppedMachines) != 1 || stoppedMachines[0] != "mach-1" {
+		t.Fatalf("expected [mach-1] stopped, got %v", stoppedMachines)
+	}
+	if !childCancelCalled {
+		t.Fatal("expected CancelChildRunsByParentIDs to be called")
+	}
+	if !wfCallbackCalled {
+		t.Fatal("expected workflow callback to be called")
+	}
+}
+
+func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning_CancelError(t *testing.T) {
+	t.Parallel()
+	enqueued := false
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+	s := &mockCronStore{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
+			return nil, errors.New("cancel failed")
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), s, q, nil)
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
+	cs.triggerJob(context.Background(), job)
+
+	if enqueued {
+		t.Fatal("expected run not to be enqueued on cancel error")
+	}
+}
+
+func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning_NoManagedRuns(t *testing.T) {
+	t.Parallel()
+	enqueued := false
+	stopCalled := false
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+	s := &mockCronStore{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
+			return []store.CancelledRun{
+				{ID: "run-1", MachineID: "", ExecutionMode: domain.ExecutionModeHTTP},
+			}, nil
+		},
+	}
+	stopper := &mockMachineStopper{
+		stopFn: func(_ context.Context, _ string) error {
+			stopCalled = true
+			return nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), s, q, nil).WithMachineStopper(stopper)
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
+	cs.triggerJob(context.Background(), job)
+
+	if !enqueued {
+		t.Fatal("expected run to be enqueued")
+	}
+	if stopCalled {
+		t.Fatal("expected no container stop for HTTP-only runs")
+	}
+}
+
+func TestCronScheduler_TriggerJob_OverlapPolicyDefault(t *testing.T) {
+	t.Parallel()
+	enqueued := false
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, q, nil)
+	// Empty CronOverlapPolicy should behave like allow.
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1"}
+	cs.triggerJob(context.Background(), job)
+
+	if !enqueued {
+		t.Fatal("expected run to be enqueued with empty/default policy")
 	}
 }
 

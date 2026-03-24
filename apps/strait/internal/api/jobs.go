@@ -46,7 +46,7 @@ type CreateJobRequest struct {
 	VersionPolicy        string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 	DefaultRunMetadata   map[string]string `json:"default_run_metadata,omitempty"`
 	ResultSchema         json.RawMessage   `json:"result_schema,omitempty"`
-	SkipIfRunning        bool              `json:"skip_if_running,omitempty"`
+	CronOverlapPolicy    string            `json:"cron_overlap_policy,omitempty" validate:"omitempty,oneof=allow skip cancel_running"`
 	DebounceWindowSecs   int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchWindowSecs      int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize         int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
@@ -85,7 +85,7 @@ type UpdateJobRequest struct {
 	BackwardsCompatible  *bool              `json:"backwards_compatible,omitempty"`
 	DefaultRunMetadata   *map[string]string `json:"default_run_metadata,omitempty"`
 	ResultSchema         *json.RawMessage   `json:"result_schema,omitempty"`
-	SkipIfRunning        *bool              `json:"skip_if_running,omitempty"`
+	CronOverlapPolicy    *string            `json:"cron_overlap_policy,omitempty" validate:"omitempty,oneof=allow skip cancel_running"`
 	DebounceWindowSecs   *int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchWindowSecs      *int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize         *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
@@ -226,7 +226,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		EnvironmentID:        req.EnvironmentID,
 		DefaultRunMetadata:   req.DefaultRunMetadata,
 		ResultSchema:         req.ResultSchema,
-		SkipIfRunning:        req.SkipIfRunning,
+		CronOverlapPolicy:    domain.CronOverlapPolicy(req.CronOverlapPolicy),
 		DebounceWindowSecs:   req.DebounceWindowSecs,
 		BatchWindowSecs:      req.BatchWindowSecs,
 		BatchMaxSize:         req.BatchMaxSize,
@@ -479,8 +479,8 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	if req.ResultSchema != nil {
 		job.ResultSchema = *req.ResultSchema
 	}
-	if req.SkipIfRunning != nil {
-		job.SkipIfRunning = *req.SkipIfRunning
+	if req.CronOverlapPolicy != nil {
+		job.CronOverlapPolicy = domain.CronOverlapPolicy(*req.CronOverlapPolicy)
 	}
 	if req.ExecutionMode != nil {
 		mode := domain.ExecutionMode(*req.ExecutionMode)
@@ -637,6 +637,7 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		Enabled:              true,
 		VersionPolicy:        source.VersionPolicy,
 		BackwardsCompatible:  source.BackwardsCompatible,
+		CronOverlapPolicy:    source.CronOverlapPolicy,
 		ExecutionMode:        source.ExecutionMode,
 		MachinePreset:        source.MachinePreset,
 		ImageURI:             source.ImageURI,

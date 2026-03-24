@@ -54,7 +54,9 @@ type Scheduler struct {
 // New creates a new scheduler that runs the cron, poller, and reaper.
 func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback WorkflowCallback, wfTrigger WorkflowTrigger, opts ...SchedulerOption) *Scheduler {
 	sched := &Scheduler{
-		cron:   NewCronScheduler(ctx, s, q, wfTrigger).WithDefaultRunTTLSecs(cfg.DefaultRunTTLSecs),
+		cron: NewCronScheduler(ctx, s, q, wfTrigger).
+			WithDefaultRunTTLSecs(cfg.DefaultRunTTLSecs).
+			WithWorkflowCallback(wfCallback),
 		poller: NewDelayedPoller(s, slog.Default(), cfg.PollerInterval),
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, true, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
@@ -83,6 +85,14 @@ type SchedulerOption func(*Scheduler)
 func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	return func(s *Scheduler) {
 		s.reaper.WithMetrics(m)
+	}
+}
+
+// WithMachineStopper attaches a container runtime to the cron scheduler
+// for stopping managed containers on cancel_running overlap policy.
+func WithMachineStopper(ms MachineStopper) SchedulerOption {
+	return func(s *Scheduler) {
+		s.cron.machineStopper = ms
 	}
 }
 

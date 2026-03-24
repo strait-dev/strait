@@ -636,6 +636,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
 			scheduler.WithChExporter(chExporter),
 		}
+		if containerRuntime != nil {
+			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))
+		}
 		if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
 			reconciler := scheduler.NewConcurrentReconciler(billingEnforcer, queries, 5*time.Minute)
 			schedOpts = append(schedOpts, scheduler.WithConcurrentReconciler(reconciler))

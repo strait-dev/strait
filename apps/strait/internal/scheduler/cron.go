@@ -9,6 +9,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+	"strait/internal/store"
 	"strait/internal/telemetry"
 
 	"github.com/robfig/cron/v3"
@@ -23,10 +24,17 @@ type CronStore interface {
 	ListCronWorkflows(ctx context.Context) ([]domain.Workflow, error)
 	CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error)
 	CountActiveRunsForJob(ctx context.Context, jobID string) (int, error)
+	CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CancelledRun, error)
+	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 }
 
 type WorkflowTrigger interface {
 	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
+}
+
+// MachineStopper can stop a running managed container.
+type MachineStopper interface {
+	Stop(ctx context.Context, machineID string) error
 }
 
 type CronScheduler struct {
@@ -35,6 +43,8 @@ type CronScheduler struct {
 	store             CronStore
 	queue             queue.Queue
 	workflowTrigger   WorkflowTrigger
+	machineStopper    MachineStopper
+	workflowCallback  WorkflowCallback
 	metrics           *telemetry.Metrics
 	defaultRunTTLSecs int
 }
@@ -57,6 +67,16 @@ func (cs *CronScheduler) WithMetrics(m *telemetry.Metrics) *CronScheduler {
 
 func (cs *CronScheduler) WithDefaultRunTTLSecs(ttl int) *CronScheduler {
 	cs.defaultRunTTLSecs = ttl
+	return cs
+}
+
+func (cs *CronScheduler) WithMachineStopper(ms MachineStopper) *CronScheduler {
+	cs.machineStopper = ms
+	return cs
+}
+
+func (cs *CronScheduler) WithWorkflowCallback(wc WorkflowCallback) *CronScheduler {
+	cs.workflowCallback = wc
 	return cs
 }
 
@@ -127,7 +147,8 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 		run.ExpiresAt = &exp
 	}
 
-	if job.SkipIfRunning {
+	switch job.CronOverlapPolicy {
+	case domain.OverlapPolicySkip:
 		active, err := cs.store.CountActiveRunsForJob(ctx, job.ID)
 		if err != nil {
 			slog.Error("failed to count active runs for job", "job_id", job.ID, "error", err)
@@ -137,12 +158,35 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 			return
 		}
 		if active > 0 {
-			slog.Info("skipping cron trigger: job has active runs", "job_id", job.ID, "active", active)
+			slog.Info("skipping cron trigger: job has active runs",
+				"job_id", job.ID, "active", active, "policy", "skip")
 			if cs.metrics != nil {
 				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
 			}
 			return
 		}
+
+	case domain.OverlapPolicyCancelRunning:
+		cancelledRuns, err := cs.store.CancelActiveRunsForJob(ctx, job.ID,
+			"canceled by cron overlap policy: cancel_running")
+		if err != nil {
+			slog.Error("failed to cancel active runs for job", "job_id", job.ID, "error", err)
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+			}
+			return
+		}
+		if len(cancelledRuns) > 0 {
+			slog.Info("canceled active runs before cron enqueue",
+				"job_id", job.ID, "canceled", len(cancelledRuns), "policy", "cancel_running")
+			cs.processCancelledRuns(ctx, job.ID, cancelledRuns)
+		}
+
+	case domain.OverlapPolicyAllow:
+		// Default: always enqueue.
+
+	default:
+		// Treat unknown/empty as allow for forward compatibility.
 	}
 
 	if err := cs.queue.Enqueue(ctx, &run); err != nil {
@@ -195,6 +239,42 @@ func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Wo
 	}
 
 	slog.Info("cron workflow triggered", "workflow_id", workflow.ID, "project_id", workflow.ProjectID)
+}
+
+// processCancelledRuns handles side effects for runs canceled by the
+// cancel_running overlap policy: stops managed containers, cancels child
+// runs, and notifies the workflow engine.
+func (cs *CronScheduler) processCancelledRuns(ctx context.Context, jobID string, runs []store.CancelledRun) {
+	if cs.machineStopper != nil {
+		for _, cr := range runs {
+			if cr.ExecutionMode == domain.ExecutionModeManaged && cr.MachineID != "" {
+				stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				if stopErr := cs.machineStopper.Stop(stopCtx, cr.MachineID); stopErr != nil {
+					slog.Warn("failed to stop container on cron cancel",
+						"run_id", cr.ID, "machine_id", cr.MachineID, "error", stopErr)
+				}
+				stopCancel()
+			}
+		}
+	}
+
+	parentIDs := make([]string, len(runs))
+	for i, cr := range runs {
+		parentIDs[i] = cr.ID
+	}
+	if _, err := cs.store.CancelChildRunsByParentIDs(ctx, parentIDs, time.Now(),
+		"parent canceled by cron overlap policy"); err != nil {
+		slog.Error("failed to cancel child runs", "job_id", jobID, "error", err)
+	}
+
+	if cs.workflowCallback != nil {
+		for _, cr := range runs {
+			canceledRun := &domain.JobRun{ID: cr.ID, Status: domain.StatusCanceled}
+			if cbErr := cs.workflowCallback.OnJobRunTerminal(ctx, canceledRun); cbErr != nil {
+				slog.Error("workflow callback failed on cron cancel", "run_id", cr.ID, "error", cbErr)
+			}
+		}
+	}
 }
 
 func (cs *CronScheduler) Start() {

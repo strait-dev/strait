@@ -7,6 +7,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+	"strait/internal/store"
 )
 
 var _ queue.Queue = (*mockQueue)(nil)
@@ -49,10 +50,12 @@ type mockReaperStore struct {
 }
 
 type mockCronStore struct {
-	listCronJobsFn          func(ctx context.Context) ([]domain.Job, error)
-	listCronWorkflowsFn     func(ctx context.Context) ([]domain.Workflow, error)
-	countRunningWfRunsFn    func(ctx context.Context, workflowID string) (int, error)
-	countActiveRunsForJobFn func(ctx context.Context, jobID string) (int, error)
+	listCronJobsFn              func(ctx context.Context) ([]domain.Job, error)
+	listCronWorkflowsFn         func(ctx context.Context) ([]domain.Workflow, error)
+	countRunningWfRunsFn        func(ctx context.Context, workflowID string) (int, error)
+	countActiveRunsForJobFn     func(ctx context.Context, jobID string) (int, error)
+	cancelActiveRunsForJobFn    func(ctx context.Context, jobID string, reason string) ([]store.CancelledRun, error)
+	cancelChildRunsByParentIDFn func(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 }
 
 func (m *mockCronStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
@@ -81,6 +84,31 @@ func (m *mockCronStore) CountActiveRunsForJob(ctx context.Context, jobID string)
 		return m.countActiveRunsForJobFn(ctx, jobID)
 	}
 	return 0, nil
+}
+
+func (m *mockCronStore) CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CancelledRun, error) {
+	if m.cancelActiveRunsForJobFn != nil {
+		return m.cancelActiveRunsForJobFn(ctx, jobID, reason)
+	}
+	return nil, nil
+}
+
+func (m *mockCronStore) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error) {
+	if m.cancelChildRunsByParentIDFn != nil {
+		return m.cancelChildRunsByParentIDFn(ctx, parentIDs, finishedAt, reason)
+	}
+	return 0, nil
+}
+
+type mockMachineStopper struct {
+	stopFn func(ctx context.Context, machineID string) error
+}
+
+func (m *mockMachineStopper) Stop(ctx context.Context, machineID string) error {
+	if m.stopFn != nil {
+		return m.stopFn(ctx, machineID)
+	}
+	return nil
 }
 
 type mockQueue struct {

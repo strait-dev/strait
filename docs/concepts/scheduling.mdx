@@ -47,6 +47,33 @@ Jobs can define an `execution_window_cron`. This restricts the job from being de
 `0 9-17 * * 1-5` restricts a job to only run during business hours (9 AM - 5 PM, Monday through Friday).
 </Example>
 
-## Skip-if-Running (Workflows)
+## Cron Overlap Policies
 
-Workflows support a `skip_if_running` flag. If enabled, the scheduler will skip triggering a new run if an instance of that workflow is already in a `running` or `paused` state. This is useful for preventing overlapping executions of long-running maintenance tasks.
+### Jobs
+
+Jobs support a `cron_overlap_policy` field that controls what happens when a cron tick fires while previous runs for the same job are still active.
+
+| Policy | Behavior |
+| :--- | :--- |
+| `allow` (default) | Always create a new queued run, regardless of active runs. |
+| `skip` | If any run is in an active state (queued, dequeued, executing, waiting, or delayed), skip the cron tick entirely. |
+| `cancel_running` | Cancel all active runs for the job, then create a new queued run. Managed containers are stopped and child runs are also canceled. |
+
+<CodeGroup>
+```json Skip overlapping runs
+{
+  "cron": "*/5 * * * *",
+  "cron_overlap_policy": "skip"
+}
+```
+```json Cancel and replace
+{
+  "cron": "*/5 * * * *",
+  "cron_overlap_policy": "cancel_running"
+}
+```
+</CodeGroup>
+
+### Workflows
+
+Workflows support a `skip_if_running` flag. If enabled, the scheduler will skip triggering a new run if an instance of that workflow is already in a `running` state. This is useful for preventing overlapping executions of long-running maintenance tasks.
