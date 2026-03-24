@@ -260,6 +260,9 @@ type Job struct {
 	RateLimitKeys             []RateLimitKey    `json:"rate_limit_keys,omitempty"`
 	DedupWindowSecs           int               `json:"dedup_window_secs,omitempty"`
 	Enabled                   bool              `json:"enabled"`
+	Paused                    bool              `json:"paused"`
+	PausedAt                  *time.Time        `json:"paused_at,omitempty"`
+	PauseReason               string            `json:"pause_reason,omitempty"`
 	WebhookURL                string            `json:"webhook_url,omitempty"`
 	WebhookSecret             string            `json:"webhook_secret,omitempty"`
 	RunTTLSecs                int               `json:"run_ttl_secs,omitempty"`
