@@ -31,7 +31,6 @@ import (
 	"sync/atomic"
 
 	"github.com/alitto/pond/v2"
-	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
@@ -481,7 +480,6 @@ type Server struct {
 	referralService    ReferralService
 	chExporter         *clickhouse.Exporter
 	edition            domain.Edition
-	humaAPI            huma.API
 	cachedOpenAPISpec  []byte
 }
 

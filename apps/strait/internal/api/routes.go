@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"strait/internal/debug"
@@ -16,6 +17,17 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 	"github.com/riandyrn/otelchi"
+)
+
+// cachedOpenAPIOnce ensures Huma operation registration and OpenAPI spec
+// generation happen exactly once per process. The Huma API and serialized
+// spec are identical for every server instance (they depend only on handler
+// types and metadata, not on per-request state), so registering 257
+// operations on every NewServer call is pure waste -- especially under the
+// race detector where ~300 test servers amplify the cost.
+var (
+	cachedOpenAPIOnce sync.Once
+	cachedHumaSpec    []byte
 )
 
 func (s *Server) routes() chi.Router {
@@ -76,34 +88,38 @@ func (s *Server) routes() chi.Router {
 	}
 
 	// Initialize Huma API for auto-generated OpenAPI documentation.
-	// Huma wraps the chi router and generates OpenAPI from typed handlers.
-	humaConfig := huma.DefaultConfig("Strait API", "1.0.0")
-	humaConfig.Info.Description = "Production-grade job orchestration platform for background jobs, workflows, and managed execution."
-	humaConfig.Servers = []*huma.Server{
-		{URL: "https://api.strait.dev", Description: "Production"},
-	}
-	humaConfig.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
-		"bearerAuth": {
-			Type:         "http",
-			Scheme:       "bearer",
-			Description:  "API key passed as Bearer token",
-			BearerFormat: "strait_...",
-		},
-		"internalSecret": {
-			Type:        "apiKey",
-			In:          "header",
-			Name:        "X-Internal-Secret",
-			Description: "Internal service-to-service authentication",
-		},
-	}
-	humaConfig.DocsPath = ""
-	humaConfig.OpenAPIPath = ""
-	// Separate Huma router for OpenAPI generation only.
-	humaRouter := chi.NewRouter()
-	s.humaAPI = humachi.New(humaRouter, humaConfig)
-	registerAllTypedOps(s.humaAPI, s)
-	s.registerHumaOperations(s.humaAPI)
-	s.cachedOpenAPISpec, _ = s.humaAPI.OpenAPI().MarshalJSON()
+	// Registration is expensive (257 operations via reflection) so we do it
+	// once per process via sync.Once. The spec is identical for every server
+	// since it depends only on handler types, not runtime state.
+	cachedOpenAPIOnce.Do(func() {
+		humaConfig := huma.DefaultConfig("Strait API", "1.0.0")
+		humaConfig.Info.Description = "Production-grade job orchestration platform for background jobs, workflows, and managed execution."
+		humaConfig.Servers = []*huma.Server{
+			{URL: "https://api.strait.dev", Description: "Production"},
+		}
+		humaConfig.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+			"bearerAuth": {
+				Type:         "http",
+				Scheme:       "bearer",
+				Description:  "API key passed as Bearer token",
+				BearerFormat: "strait_...",
+			},
+			"internalSecret": {
+				Type:        "apiKey",
+				In:          "header",
+				Name:        "X-Internal-Secret",
+				Description: "Internal service-to-service authentication",
+			},
+		}
+		humaConfig.DocsPath = ""
+		humaConfig.OpenAPIPath = ""
+		humaRouter := chi.NewRouter()
+		api := humachi.New(humaRouter, humaConfig)
+		registerAllTypedOps(api, s)
+		s.registerHumaOperations(api)
+		cachedHumaSpec, _ = api.OpenAPI().MarshalJSON()
+	})
+	s.cachedOpenAPISpec = cachedHumaSpec
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
