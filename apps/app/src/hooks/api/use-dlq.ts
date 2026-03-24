@@ -48,7 +48,7 @@ export const replayDlqRunFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     return await runWithSentryReport(
-      apiEffect<{ id: string }>(`/v1/runs/${data.runId}/dlq-replay`, {
+      apiEffect<JobRun>(`/v1/runs/${data.runId}/dlq-replay`, {
         method: "POST",
       })
     );

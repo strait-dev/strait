@@ -33,7 +33,7 @@ const EventRow = ({ event }: { event: EventTrigger }) => {
         </div>
         <p className="text-sm">{event.event_key}</p>
         <span className="font-mono text-muted-foreground text-xs">
-          {event.source_type}
+          {event.trigger_type} | {event.source_type}
         </span>
       </div>
     </div>

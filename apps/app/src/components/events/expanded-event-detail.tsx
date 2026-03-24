@@ -40,6 +40,9 @@ const ExpandedEventDetail = ({
         <span>
           Source: <code className="font-mono">{event.source_type}</code>
         </span>
+        <span>
+          Type: <code className="font-mono">{event.trigger_type}</code>
+        </span>
         {event.job_run_id && (
           <span>
             Run: <code className="font-mono">{event.job_run_id}</code>

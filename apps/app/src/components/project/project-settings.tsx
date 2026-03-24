@@ -48,16 +48,22 @@ const ProjectSettings = ({ projectId }: Props) => {
         <CardContent>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {regions.map((region) => {
+              const isAvailable =
+                region.availability?.[settings.plan_tier] === true;
               const isSelected = settings.default_region === region.code;
 
-              const borderClass = isSelected
-                ? "border-primary bg-primary/5"
-                : "border-border hover:border-primary/50 hover:bg-muted/50";
+              let borderClass = "cursor-not-allowed border-border opacity-50";
+              if (isSelected) {
+                borderClass = "border-primary bg-primary/5";
+              } else if (isAvailable) {
+                borderClass =
+                  "border-border hover:border-primary/50 hover:bg-muted/50";
+              }
 
               return (
                 <button
                   className={`relative flex flex-col rounded-lg border p-4 text-left transition-colors ${borderClass}`}
-                  disabled={updateSettings.isPending}
+                  disabled={!isAvailable || updateSettings.isPending}
                   key={region.code}
                   onClick={() => {
                     const promise = updateSettings.mutateAsync({
@@ -79,6 +85,11 @@ const ProjectSettings = ({ projectId }: Props) => {
                   <span className="mt-1 text-muted-foreground text-xs">
                     {region.city}, {region.country}
                   </span>
+                  {!isAvailable && (
+                    <span className="mt-2 text-muted-foreground text-xs">
+                      Upgrade to unlock
+                    </span>
+                  )}
                 </button>
               );
             })}

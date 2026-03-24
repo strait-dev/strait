@@ -1,21 +1,34 @@
 // Canonical frontend types for the orchestration data model.
-// All entity types are derived from the generated OpenAPI schema (lib/api/schema.d.ts).
-// Run `bun run generate:api` to regenerate the schema from openapi.yaml.
+// Entity types are derived from the Huma-generated OpenAPI schema where available.
+// Run `bun run generate:api` to regenerate the schema from the live Go API.
 
 import type { components } from "@/lib/api/schema";
 
 // ---------------------------------------------------------------------------
-// Helper: make all fields required (the spec marks most as optional because
-// Go omitempty makes them nullable in JSON, but the backend always returns them)
+// Schema type alias for convenience
 // ---------------------------------------------------------------------------
 
-type Strict<T> = { [K in keyof T]-?: NonNullable<T[K]> };
+type Schema = components["schemas"];
 
 // ---------------------------------------------------------------------------
-// Enums & union types (re-exported from generated schema)
+// Enums & union types
 // ---------------------------------------------------------------------------
 
-export type RunStatus = components["schemas"]["RunStatus"];
+/** Matches Go domain.RunStatus constants. */
+export type RunStatus =
+  | "delayed"
+  | "queued"
+  | "dequeued"
+  | "executing"
+  | "waiting"
+  | "completed"
+  | "failed"
+  | "timed_out"
+  | "crashed"
+  | "system_failed"
+  | "canceled"
+  | "expired"
+  | "dead_letter";
 
 /** How a run or workflow run was triggered. */
 export type TriggerType = "manual" | "cron" | "spawn" | "workflow" | "retry";
@@ -73,135 +86,120 @@ export type RetryBackoffPolicy = "exponential" | "fixed";
 export type CircuitState = "closed" | "open" | "half_open";
 
 // ---------------------------------------------------------------------------
-// Entity types — derived from generated OpenAPI component schemas
+// Entity types — derived from Huma-generated OpenAPI component schemas
 // ---------------------------------------------------------------------------
 
 /** Timing breakdown for a job run execution. */
-export type ExecutionTrace = Strict<components["schemas"]["ExecutionTrace"]>;
+export type ExecutionTrace = Schema["ExecutionTrace"];
 
 /** Rate limit key config embedded in Job. */
-export type RateLimitKey = Strict<components["schemas"]["RateLimitKey"]>;
+export type RateLimitKey = Schema["RateLimitKey"];
 
 /** Job definition. */
-export type Job = {
-  [K in keyof components["schemas"]["Job"]]-?: K extends
-    | "payload_schema"
-    | "tags"
-    | "rate_limit_keys"
-    | "default_run_metadata"
-    | "retry_delays_secs"
-    ? NonNullable<components["schemas"]["Job"][K]>
-    : K extends "version_policy"
-      ? VersionPolicy
-      : NonNullable<components["schemas"]["Job"][K]>;
-};
+export type Job = Schema["Job"];
 
 /** Job run. */
-export type JobRun = {
-  [K in keyof components["schemas"]["JobRun"]]-?: K extends
-    | "scheduled_at"
-    | "started_at"
-    | "finished_at"
-    | "heartbeat_at"
-    | "next_retry_at"
-    | "expires_at"
-    | "execution_trace"
-    ? components["schemas"]["JobRun"][K] | null
-    : K extends "status"
-      ? RunStatus
-      : K extends "tags" | "metadata"
-        ? Record<string, string>
-        : NonNullable<components["schemas"]["JobRun"][K]>;
-};
+export type JobRun = Schema["JobRun"];
 
 /** Job group. */
-export type JobGroup = Strict<components["schemas"]["JobGroup"]>;
-
-/** Workflow DAG definition. */
-export type Workflow = {
-  [K in keyof components["schemas"]["Workflow"]]-?: K extends "version_policy"
-    ? VersionPolicy
-    : K extends "tags"
-      ? Record<string, string>
-      : NonNullable<components["schemas"]["Workflow"][K]>;
-};
+export type JobGroup = Schema["JobGroup"];
 
 /** Workflow step (node in a workflow DAG). */
-export type WorkflowStep = Strict<components["schemas"]["WorkflowStep"]>;
+export type WorkflowStep = Schema["WorkflowStep"];
 
 /** Workflow run. */
-export type WorkflowRun = {
-  [K in keyof components["schemas"]["WorkflowRun"]]-?: K extends
-    | "started_at"
-    | "finished_at"
-    | "expires_at"
-    ? components["schemas"]["WorkflowRun"][K] | null
-    : K extends "status"
-      ? WorkflowRunStatus
-      : K extends "tags"
-        ? Record<string, string>
-        : NonNullable<components["schemas"]["WorkflowRun"][K]>;
-};
-
-/** Workflow step run. */
-export type WorkflowStepRun = {
-  [K in keyof components["schemas"]["WorkflowStepRun"]]-?: K extends
-    | "started_at"
-    | "finished_at"
-    ? components["schemas"]["WorkflowStepRun"][K] | null
-    : K extends "status"
-      ? StepRunStatus
-      : NonNullable<components["schemas"]["WorkflowStepRun"][K]>;
-};
+export type WorkflowRun = Schema["WorkflowRun"];
 
 /** Webhook subscription. */
-export type WebhookSubscription = Strict<
-  components["schemas"]["WebhookSubscription"]
->;
+export type WebhookSubscription = Schema["WebhookSubscription"];
 
 /** Webhook delivery. */
-export type WebhookDelivery = {
-  [K in keyof components["schemas"]["WebhookDelivery"]]-?: K extends
-    | "last_status_code"
-    | "next_retry_at"
-    | "delivered_at"
-    ? components["schemas"]["WebhookDelivery"][K] | null
-    : NonNullable<components["schemas"]["WebhookDelivery"][K]>;
-};
+export type WebhookDelivery = Schema["WebhookDelivery"];
 
 /** Run event. */
-export type RunEvent = Strict<components["schemas"]["RunEvent"]>;
-
-/** API key. */
-export type APIKey = {
-  [K in keyof components["schemas"]["APIKey"]]-?: K extends
-    | "expires_at"
-    | "last_used_at"
-    | "revoked_at"
-    | "grace_expires_at"
-    | "next_rotation_at"
-    | "rotation_interval_days"
-    ? components["schemas"]["APIKey"][K] | null
-    : NonNullable<components["schemas"]["APIKey"][K]>;
-};
-
-/** Response from POST /v1/api-keys/{keyID}/rotate. */
-export type RotateAPIKeyResponse = Strict<
-  components["schemas"]["RotateAPIKeyResponse"]
->;
+export type RunEvent = Schema["RunEvent"];
 
 /** Event trigger (durable wait). */
-export type EventTrigger = {
-  [K in keyof components["schemas"]["EventTrigger"]]-?: K extends
-    | "workflow_run_id"
-    | "workflow_step_run_id"
-    | "job_run_id"
-    | "received_at"
-    | "error"
-    | "request_payload"
-    | "response_payload"
-    ? components["schemas"]["EventTrigger"][K] | null
-    : NonNullable<components["schemas"]["EventTrigger"][K]>;
+export type EventTrigger = Schema["EventTrigger"];
+
+/** Project role (RBAC). */
+export type ProjectRole = Schema["ProjectRole"];
+
+/** Region metadata from GET /v1/regions. */
+export type Region = Schema["RegionResponse"];
+
+/** API key (create response includes the key field). */
+export type APIKey = Schema["CreateAPIKeyResponse"];
+
+/** Response from POST /v1/api-keys/{keyID}/rotate. */
+export type RotateAPIKeyResponse = Schema["RotateAPIKeyRequest"];
+
+// ---------------------------------------------------------------------------
+// Types not exposed as named Huma schemas (manual definitions)
+// ---------------------------------------------------------------------------
+
+/** JSON-safe value type for fields that can hold arbitrary JSON. */
+export type JsonValue =
+  | Record<string, never>
+  | string
+  | number
+  | boolean
+  | null;
+
+/** Workflow DAG definition. Extracted from WorkflowResponse. */
+export type Workflow = {
+  id: string;
+  project_id: string;
+  name: string;
+  slug: string;
+  description: string;
+  tags: Record<string, string>;
+  enabled: boolean;
+  version: number;
+  timeout_secs: number;
+  max_concurrent_runs: number;
+  max_parallel_steps: number;
+  cron: string;
+  cron_timezone: string;
+  skip_if_running: boolean;
+  version_id: string;
+  version_policy: VersionPolicy;
+  backwards_compatible: boolean;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Workflow step run. Not a named Huma schema. */
+export type WorkflowStepRun = {
+  id: string;
+  workflow_run_id: string;
+  workflow_step_id: string;
+  step_ref: string;
+  job_run_id: string;
+  attempt: number;
+  status: StepRunStatus;
+  deps_completed: number;
+  deps_required: number;
+  output: JsonValue;
+  error: string;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+};
+
+/** Audit event. Not a named Huma schema. */
+export type AuditEvent = {
+  id: string;
+  project_id: string;
+  actor_id: string;
+  actor_type: string;
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  details: JsonValue;
+  created_at: string;
 };
 
 /** Endpoint circuit breaker state. */
@@ -214,27 +212,6 @@ export type EndpointCircuitState = {
   updated_at: string;
   created_at: string;
 };
-
-/** Audit event. */
-export type AuditEvent = Strict<components["schemas"]["AuditEvent"]>;
-
-/** Project role (RBAC). */
-export type ProjectRole = Strict<components["schemas"]["ProjectRole"]>;
-
-/** Region metadata from GET /v1/regions. */
-export type Region = Strict<components["schemas"]["Region"]>;
-
-// ---------------------------------------------------------------------------
-// Types not in the OpenAPI spec (frontend-only or from other services)
-// ---------------------------------------------------------------------------
-
-/** JSON-safe value type for fields that can hold arbitrary JSON. */
-export type JsonValue =
-  | Record<string, never>
-  | string
-  | number
-  | boolean
-  | null;
 
 /** Environment. Matches Go domain.Environment. */
 export type Environment = {
@@ -268,11 +245,7 @@ export type ListParams = {
 export type PlanTier = "free" | "starter" | "pro" | "enterprise";
 
 /** Project settings from GET /v1/projects/:id/settings. */
-export type ProjectSettings = {
-  project_id: string;
-  default_region: string;
-  plan_tier: PlanTier;
-};
+export type ProjectSettings = Schema["ProjectSettingsResponse"];
 
 /** Frontend-managed project entity (stored in the auth DB). */
 export type Project = {

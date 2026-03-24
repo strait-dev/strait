@@ -47,6 +47,15 @@ export const logColumns: ColumnDef<EventTrigger>[] = [
     ),
   },
   {
+    accessorKey: "trigger_type",
+    header: "Type",
+    cell: ({ row }) => (
+      <Badge className="capitalize" variant="outline">
+        {row.original.trigger_type}
+      </Badge>
+    ),
+  },
+  {
     accessorKey: "requested_at",
     header: "Time",
     cell: ({ row }) =>
