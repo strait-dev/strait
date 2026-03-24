@@ -359,6 +359,10 @@ func TestPausedJob_CronExcludedFromListCronJobs(t *testing.T) {
 	mustClean(t, ctx)
 
 	job := mustCreateJob(t, ctx, st, "project-cron-excluded")
+	// mustCreateJob doesn't set a cron expression; add one so ListCronJobs returns it.
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET cron = '*/5 * * * *' WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set cron: %v", err)
+	}
 
 	// Verify cron job is listed before pause.
 	cronJobs, err := st.ListCronJobs(ctx)
@@ -399,6 +403,10 @@ func TestPauseResume_NoStaleRunsAfterLongPause(t *testing.T) {
 	mustClean(t, ctx)
 
 	job := mustCreateJob(t, ctx, st, "project-no-stale")
+	// mustCreateJob doesn't set a cron expression; add one so ListCronJobs returns it.
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET cron = '*/5 * * * *' WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set cron: %v", err)
+	}
 
 	// Pause the job.
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET paused = true, paused_at = NOW(), pause_reason = 'long pause' WHERE id = $1`, job.ID); err != nil {
