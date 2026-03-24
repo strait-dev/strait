@@ -2282,9 +2282,9 @@ func (q *Queries) CountActiveRunsForJob(ctx context.Context, jobID string) (int,
 	return count, err
 }
 
-// CancelledRun holds metadata about a run that was canceled, allowing callers
+// CanceledRun holds metadata about a run that was canceled, allowing callers
 // to perform side effects like stopping managed containers.
-type CancelledRun struct {
+type CanceledRun struct {
 	ID            string
 	MachineID     string
 	ExecutionMode domain.ExecutionMode
@@ -2292,7 +2292,7 @@ type CancelledRun struct {
 
 // CancelActiveRunsForJob cancels all non-terminal runs for a job and returns
 // details of each canceled run. Used by the cron overlap policy cancel_running.
-func (q *Queries) CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]CancelledRun, error) {
+func (q *Queries) CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]CanceledRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelActiveRunsForJob")
 	defer span.End()
 
@@ -2307,9 +2307,9 @@ func (q *Queries) CancelActiveRunsForJob(ctx context.Context, jobID string, reas
 	}
 	defer rows.Close()
 
-	var result []CancelledRun
+	var result []CanceledRun
 	for rows.Next() {
-		var cr CancelledRun
+		var cr CanceledRun
 		var execMode string
 		if err := rows.Scan(&cr.ID, &cr.MachineID, &execMode); err != nil {
 			return nil, fmt.Errorf("scan canceled run: %w", err)

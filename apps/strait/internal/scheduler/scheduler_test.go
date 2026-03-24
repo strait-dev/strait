@@ -36,7 +36,7 @@ func (m *mockSchedulerStore) CountActiveRunsForJob(ctx context.Context, jobID st
 	return m.cron.CountActiveRunsForJob(ctx, jobID)
 }
 
-func (m *mockSchedulerStore) CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CancelledRun, error) {
+func (m *mockSchedulerStore) CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CanceledRun, error) {
 	return m.cron.CancelActiveRunsForJob(ctx, jobID, reason)
 }
 

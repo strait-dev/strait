@@ -25,7 +25,7 @@ type CronStore interface {
 	ListCronWorkflows(ctx context.Context) ([]domain.Workflow, error)
 	CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error)
 	CountActiveRunsForJob(ctx context.Context, jobID string) (int, error)
-	CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CancelledRun, error)
+	CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CanceledRun, error)
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 }
 
@@ -168,7 +168,7 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 		}
 
 	case domain.OverlapPolicyCancelRunning:
-		cancelledRuns, err := cs.store.CancelActiveRunsForJob(ctx, job.ID,
+		canceledRuns, err := cs.store.CancelActiveRunsForJob(ctx, job.ID,
 			"canceled by cron overlap policy: cancel_running")
 		if err != nil {
 			slog.Error("failed to cancel active runs for job", "job_id", job.ID, "error", err)
@@ -177,10 +177,10 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 			}
 			return
 		}
-		if len(cancelledRuns) > 0 {
+		if len(canceledRuns) > 0 {
 			slog.Info("canceled active runs before cron enqueue",
-				"job_id", job.ID, "canceled", len(cancelledRuns), "policy", "cancel_running")
-			cs.processCancelledRuns(ctx, job.ID, cancelledRuns)
+				"job_id", job.ID, "canceled", len(canceledRuns), "policy", "cancel_running")
+			cs.processCanceledRuns(ctx, job.ID, canceledRuns)
 		}
 
 	case domain.OverlapPolicyAllow:
@@ -242,10 +242,14 @@ func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Wo
 	slog.Info("cron workflow triggered", "workflow_id", workflow.ID, "project_id", workflow.ProjectID)
 }
 
-// processCancelledRuns handles side effects for runs canceled by the
+// machineStopTimeout caps how long the scheduler waits for a single
+// managed container to stop before giving up and moving on.
+const machineStopTimeout = 10 * time.Second
+
+// processCanceledRuns handles side effects for runs canceled by the
 // cancel_running overlap policy: stops managed containers, cancels child
 // runs, and notifies the workflow engine.
-func (cs *CronScheduler) processCancelledRuns(ctx context.Context, jobID string, runs []store.CancelledRun) {
+func (cs *CronScheduler) processCanceledRuns(ctx context.Context, jobID string, runs []store.CanceledRun) {
 	if cs.machineStopper != nil {
 		var wg sync.WaitGroup
 		for _, cr := range runs {
@@ -253,7 +257,7 @@ func (cs *CronScheduler) processCancelledRuns(ctx context.Context, jobID string,
 				wg.Add(1)
 				go func(id, machineID string) { //nolint:gosec // detached context intentional: stop must survive parent cancel
 					defer wg.Done()
-					stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+					stopCtx, stopCancel := context.WithTimeout(context.Background(), machineStopTimeout)
 					defer stopCancel()
 					if stopErr := cs.machineStopper.Stop(stopCtx, machineID); stopErr != nil {
 						slog.Warn("failed to stop container on cron cancel",

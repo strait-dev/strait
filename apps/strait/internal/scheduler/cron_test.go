@@ -370,13 +370,13 @@ func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning(t *testing.T) {
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, jobID string, reason string) ([]store.CancelledRun, error) {
+		cancelActiveRunsForJobFn: func(_ context.Context, jobID string, reason string) ([]store.CanceledRun, error) {
 			if jobID != "job-1" {
 				t.Fatalf("unexpected job_id %q", jobID)
 			}
 			cancelCalled = true
 			cancelReason = reason
-			return []store.CancelledRun{
+			return []store.CanceledRun{
 				{ID: "run-1", MachineID: "mach-1", ExecutionMode: domain.ExecutionModeManaged},
 				{ID: "run-2", MachineID: "", ExecutionMode: domain.ExecutionModeHTTP},
 			}, nil
@@ -441,7 +441,7 @@ func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning_CancelError(t *test
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
 			return nil, errors.New("cancel failed")
 		},
 	}
@@ -466,8 +466,8 @@ func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning_NoManagedRuns(t *te
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
-			return []store.CancelledRun{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			return []store.CanceledRun{
 				{ID: "run-1", MachineID: "", ExecutionMode: domain.ExecutionModeHTTP},
 			}, nil
 		},
@@ -549,8 +549,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_EmptyResultStillEnqueues(t *test
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
-			return []store.CancelledRun{}, nil // empty, not nil
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			return []store.CanceledRun{}, nil // empty, not nil
 		},
 	}
 
@@ -574,7 +574,7 @@ func TestCronScheduler_TriggerJob_CancelRunning_NilResultStillEnqueues(t *testin
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
 			return nil, nil // nil slice
 		},
 	}
@@ -599,8 +599,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_StopErrorDoesNotPreventEnqueue(t
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
-			return []store.CancelledRun{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			return []store.CanceledRun{
 				{ID: "run-1", MachineID: "mach-1", ExecutionMode: domain.ExecutionModeManaged},
 			}, nil
 		},
@@ -631,8 +631,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_ChildCancelErrorDoesNotPreventEn
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
-			return []store.CancelledRun{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			return []store.CanceledRun{
 				{ID: "run-1", MachineID: "", ExecutionMode: domain.ExecutionModeHTTP},
 			}, nil
 		},
@@ -661,8 +661,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_WorkflowCallbackErrorDoesNotPrev
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
-			return []store.CancelledRun{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			return []store.CanceledRun{
 				{ID: "run-1", MachineID: "", ExecutionMode: domain.ExecutionModeHTTP},
 			}, nil
 		},
@@ -693,8 +693,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_NilDependenciesAreGraceful(t *te
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
-			return []store.CancelledRun{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			return []store.CanceledRun{
 				{ID: "run-1", MachineID: "mach-1", ExecutionMode: domain.ExecutionModeManaged},
 			}, nil
 		},
@@ -723,8 +723,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_MultipleManagedRuns(t *testing.T
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
-			return []store.CancelledRun{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			return []store.CanceledRun{
 				{ID: "run-1", MachineID: "mach-a", ExecutionMode: domain.ExecutionModeManaged},
 				{ID: "run-2", MachineID: "mach-b", ExecutionMode: domain.ExecutionModeManaged},
 				{ID: "run-3", MachineID: "", ExecutionMode: domain.ExecutionModeManaged}, // no machine ID
@@ -784,8 +784,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_EnqueueError(t *testing.T) {
 	t.Parallel()
 	// cancel_running succeeds, but enqueue fails. Should not panic.
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
-			return []store.CancelledRun{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			return []store.CanceledRun{
 				{ID: "run-1", MachineID: "", ExecutionMode: domain.ExecutionModeHTTP},
 			}, nil
 		},
@@ -836,7 +836,7 @@ func TestCronScheduler_TriggerJob_CancelRunning_CorrectRunFields(t *testing.T) {
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
 			return nil, nil
 		},
 	}
@@ -889,8 +889,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_ChildCancelReceivesCorrectParent
 		},
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
-			return []store.CancelledRun{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			return []store.CanceledRun{
 				{ID: "run-aaa"},
 				{ID: "run-bbb"},
 				{ID: "run-ccc"},
@@ -934,8 +934,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_ConcurrentStops(t *testing.T) {
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
 	}
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CancelledRun, error) {
-			return []store.CancelledRun{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			return []store.CanceledRun{
 				{ID: "r1", MachineID: "m1", ExecutionMode: domain.ExecutionModeManaged},
 				{ID: "r2", MachineID: "m2", ExecutionMode: domain.ExecutionModeManaged},
 				{ID: "r3", MachineID: "m3", ExecutionMode: domain.ExecutionModeManaged},
