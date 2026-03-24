@@ -1,124 +1,101 @@
 package api
 
 import (
+	"context"
 	"errors"
-	"net/http"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
 type CreateJobDependencyRequest struct {
 	DependsOnJobID string `json:"depends_on_job_id" validate:"required"`
 	Condition      string `json:"condition,omitempty"`
 }
+type CreateJobDependencyInput struct {
+	JobID string `path:"jobID"`
+	Body  CreateJobDependencyRequest
+}
+type CreateJobDependencyOutput struct{ Body *domain.JobDependency }
 
-func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
-
-	job, err := s.store.GetJob(r.Context(), jobID)
+func (s *Server) handleCreateJobDependency(ctx context.Context, input *CreateJobDependencyInput) (*CreateJobDependencyOutput, error) {
+	jobID := input.JobID
+	job, err := s.store.GetJob(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusNotFound, "job not found")
-			return
+			return nil, huma.Error404NotFound("job not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job")
 	}
-
-	var req CreateJobDependencyRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
-
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
-
 	if req.DependsOnJobID == jobID {
-		respondError(w, r, http.StatusBadRequest, "job cannot depend on itself")
-		return
+		return nil, huma.Error400BadRequest("job cannot depend on itself")
 	}
-
-	depJob, err := s.store.GetJob(r.Context(), req.DependsOnJobID)
+	depJob, err := s.store.GetJob(ctx, req.DependsOnJobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusBadRequest, "depends_on_job_id does not exist")
-			return
+			return nil, huma.Error400BadRequest("depends_on_job_id does not exist")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get dependency job")
-		return
+		return nil, huma.Error500InternalServerError("failed to get dependency job")
 	}
 	if depJob.ProjectID != job.ProjectID {
-		respondError(w, r, http.StatusBadRequest, "dependency jobs must belong to the same project")
-		return
+		return nil, huma.Error400BadRequest("dependency jobs must belong to the same project")
 	}
-
 	condition := req.Condition
 	if condition == "" {
 		condition = "completed"
 	}
 	if !isValidDependencyCondition(condition) {
-		respondError(w, r, http.StatusBadRequest, "condition must be one of: completed, failed, any")
-		return
+		return nil, huma.Error400BadRequest("condition must be one of: completed, failed, any")
 	}
-
-	dep := &domain.JobDependency{
-		JobID:          jobID,
-		DependsOnJobID: req.DependsOnJobID,
-		Condition:      condition,
+	dep := &domain.JobDependency{JobID: jobID, DependsOnJobID: req.DependsOnJobID, Condition: condition}
+	if err := s.store.CreateJobDependency(ctx, dep); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create job dependency")
 	}
-
-	if err := s.store.CreateJobDependency(r.Context(), dep); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create job dependency")
-		return
-	}
-
-	respondJSON(w, http.StatusCreated, dep)
+	return &CreateJobDependencyOutput{Body: dep}, nil
 }
 
-func (s *Server) handleListJobDependencies(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
+type ListJobDependenciesInput struct {
+	JobID  string `path:"jobID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+type ListJobDependenciesOutput struct{ Body PaginatedResponse }
 
-	limit, cursor, err := parsePaginationParams(r)
+func (s *Server) handleListJobDependencies(ctx context.Context, input *ListJobDependenciesInput) (*ListJobDependenciesOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	deps, err := s.store.ListJobDependencies(r.Context(), jobID, limit+1, cursor)
+	deps, err := s.store.ListJobDependencies(ctx, input.JobID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list job dependencies")
-		return
+		return nil, huma.Error500InternalServerError("failed to list job dependencies")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(deps, limit, func(d domain.JobDependency) string {
-		return d.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListJobDependenciesOutput{Body: paginatedResult(deps, limit, func(d domain.JobDependency) string { return d.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-func (s *Server) handleDeleteJobDependency(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
-	if _, err := s.store.GetJob(r.Context(), jobID); err != nil {
+type DeleteJobDependencyInput struct {
+	JobID string `path:"jobID"`
+	DepID string `path:"depID"`
+}
+
+func (s *Server) handleDeleteJobDependency(ctx context.Context, input *DeleteJobDependencyInput) (*struct{}, error) {
+	if _, err := s.store.GetJob(ctx, input.JobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, r, http.StatusNotFound, "job not found")
-			return
+			return nil, huma.Error404NotFound("job not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job")
 	}
-
-	depID := chi.URLParam(r, "depID")
-	if err := s.store.DeleteJobDependency(r.Context(), depID); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to delete job dependency")
-		return
+	if err := s.store.DeleteJobDependency(ctx, input.DepID); err != nil {
+		return nil, huma.Error500InternalServerError("failed to delete job dependency")
 	}
-
-	respondJSON(w, http.StatusNoContent, nil)
+	return nil, nil
 }
 
 func isValidDependencyCondition(condition string) bool {

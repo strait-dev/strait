@@ -189,7 +189,7 @@ func triggerJob(t *testing.T, jobID, body string, idempotencyKey string) map[str
 	}
 	w := httptest.NewRecorder()
 	testServer.ServeHTTP(w, req)
-	if w.Code != http.StatusCreated {
+	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
 	return mustDecodeObject(t, w)

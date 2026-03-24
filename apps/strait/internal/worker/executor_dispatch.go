@@ -30,11 +30,10 @@ import (
 // the current version is marked backwards_compatible.
 func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*domain.Job, error) {
 	// Check job cache first.
-	cacheKey := run.JobID
 	var current *domain.Job
-	if entry, ok := e.jobCache.Load(cacheKey); ok {
-		if cached := entry.(*cachedJob); time.Now().Before(cached.expiresAt) {
-			current = cached.job
+	if e.jobCache != nil {
+		if cached, err := e.jobCache.Get(ctx, run.JobID); err == nil {
+			current = cached
 		}
 	}
 
@@ -44,8 +43,8 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		if err != nil {
 			return nil, fmt.Errorf("load current job: %w", err)
 		}
-		if e.jobCacheTTL > 0 {
-			e.jobCache.Store(cacheKey, &cachedJob{job: current, expiresAt: time.Now().Add(e.jobCacheTTL)})
+		if e.jobCache != nil {
+			_ = e.jobCache.Set(ctx, run.JobID, current)
 		}
 	}
 
@@ -106,6 +105,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	handler(ctx, ec)
 }
 
+//nolint:gocyclo,cyclop,funlen
 func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	run := ec.Run
 	executeStart := ec.Start
@@ -138,6 +138,41 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		return
 	}
 	policy = resolved
+
+	// Billing enforcement: daily and concurrent run limits apply to ALL dispatch modes.
+	// Managed-only limits (managed run cap, spending) are checked in managedDispatch.
+	if e.billingEnforcer != nil {
+		// Check if the project is suspended due to a plan downgrade.
+		if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
+			e.logger.Warn("project suspended",
+				"run_id", run.ID, "project_id", job.ProjectID, "error", err)
+			e.handleSystemFailure(ctx, run, err.Error())
+			return
+		}
+
+		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+		if orgErr != nil {
+			e.logger.Warn("failed to resolve org for billing check",
+				"run_id", run.ID, "error", orgErr, "fail_open", true)
+		}
+		if orgID != "" {
+			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org daily run limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.handleSystemFailure(ctx, run, err.Error())
+				return
+			}
+			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org concurrent run limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+				e.handleSystemFailure(ctx, run, err.Error())
+				return
+			}
+			decrCtx := context.WithoutCancel(ctx)
+			defer e.billingEnforcer.DecrConcurrentRunCount(decrCtx, orgID)
+		}
+	}
 
 	// Route based on execution mode.
 	switch job.ExecutionMode {
@@ -318,6 +353,8 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 }
 
 // managedDispatch dispatches a job run to a container runtime (Fly Machines, Docker).
+//
+//nolint:gocognit,gocyclo,cyclop,funlen,nestif
 func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job *domain.Job) {
 	dispatchStart := time.Now()
 
@@ -332,45 +369,35 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		return
 	}
 
-	// 2. Org-level billing enforcement (cloud only, gated by BillingEnforcer).
-	// Runs before the semaphore to avoid holding a machine slot during rejection.
+	// 2. Managed-specific billing enforcement (cloud only).
+	// Daily + concurrent limits are already checked in executeInner (shared path).
+	// Here we only check managed run cap (free tier) and spending limit (compute credits).
 	if e.billingEnforcer != nil {
 		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 		if orgErr != nil {
-			e.logger.Warn("failed to resolve org for billing check",
-				"run_id", run.ID, "error", orgErr)
+			e.logger.Warn("failed to resolve org for managed billing check",
+				"run_id", run.ID, "error", orgErr, "fail_open", true)
 		}
 		if orgID != "" {
-			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
-				e.logger.Warn("org daily run limit exceeded",
-					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.handleSystemFailure(ctx, run, err.Error())
-				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
-				return
-			}
 			if err := e.billingEnforcer.CheckManagedRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org managed run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
 				e.handleSystemFailure(ctx, run, err.Error())
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
 			}
-			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
-				e.logger.Warn("org concurrent run limit exceeded",
-					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
-				e.handleSystemFailure(ctx, run, err.Error())
-				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
-				return
-			}
-			// Concurrent run was counted; ensure decrement on any exit path.
-			defer e.billingEnforcer.DecrConcurrentRunCount(ctx, orgID)
-
 			if err := e.billingEnforcer.CheckSpendingLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org spending limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+				e.billingEnforcer.DecrManagedRunCount(ctx, orgID)
+				e.handleSystemFailure(ctx, run, err.Error())
+				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
+				return
+			}
+			if err := e.billingEnforcer.CheckProjectBudgetLimit(ctx, job.ProjectID); err != nil {
+				e.logger.Warn("project budget limit exceeded",
+					"run_id", run.ID, "project_id", job.ProjectID, "org_id", orgID, "error", err)
+				e.billingEnforcer.DecrManagedRunCount(ctx, orgID)
 				e.handleSystemFailure(ctx, run, err.Error())
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
@@ -1136,7 +1163,6 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 }
 
 func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, run *domain.JobRun, extraHeaders map[string]string) (json.RawMessage, error) {
-
 	var body io.Reader
 	if len(run.Payload) > 0 {
 		body = bytes.NewReader(run.Payload)

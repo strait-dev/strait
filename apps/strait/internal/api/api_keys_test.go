@@ -20,8 +20,8 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	var created atomic.Bool
 	var captured *domain.APIKey
 
-	ms := &mockAPIStore{
-		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
+	ms := &APIStoreMock{
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
 			created.Store(true)
 			captured = key
 			key.ID = "key-123"
@@ -91,8 +91,8 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 func TestHandleCreateAPIKey_WithExpiry(t *testing.T) {
 	t.Parallel()
 	var captured *domain.APIKey
-	ms := &mockAPIStore{
-		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
+	ms := &APIStoreMock{
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
 			captured = key
 			key.ID = "key-123"
 			key.CreatedAt = time.Now().UTC()
@@ -113,16 +113,16 @@ func TestHandleCreateAPIKey_WithExpiry(t *testing.T) {
 	if captured == nil || captured.ExpiresAt == nil {
 		t.Fatal("expected expires_at to be set on stored key")
 	}
-	min := now.Add(29 * 24 * time.Hour)
-	max := now.Add(31 * 24 * time.Hour)
-	if captured.ExpiresAt.Before(min) || captured.ExpiresAt.After(max) {
+	earliest := now.Add(29 * 24 * time.Hour)
+	latest := now.Add(31 * 24 * time.Hour)
+	if captured.ExpiresAt.Before(earliest) || captured.ExpiresAt.After(latest) {
 		t.Fatalf("expected expires_at around 30 days in future, got %v", captured.ExpiresAt)
 	}
 }
 
 func TestHandleCreateAPIKey_MissingFields(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", ""))
@@ -134,7 +134,7 @@ func TestHandleCreateAPIKey_MissingFields(t *testing.T) {
 
 func TestHandleCreateAPIKey_MissingProjectID(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", `{"name":"missing project"}`))
@@ -146,8 +146,8 @@ func TestHandleCreateAPIKey_MissingProjectID(t *testing.T) {
 
 func TestHandleCreateAPIKey_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createAPIKeyFn: func(_ context.Context, _ *domain.APIKey) error {
+	ms := &APIStoreMock{
+		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
 			return errors.New("boom")
 		},
 	}
@@ -165,8 +165,8 @@ func TestHandleCreateAPIKey_StoreError(t *testing.T) {
 
 func TestHandleListAPIKeys_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listAPIKeysByProjectFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.APIKey, error) {
+	ms := &APIStoreMock{
+		ListAPIKeysByProjectFunc: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.APIKey, error) {
 			if projectID != "proj-1" {
 				t.Fatalf("expected project id proj-1, got %q", projectID)
 			}
@@ -196,7 +196,7 @@ func TestHandleListAPIKeys_Success(t *testing.T) {
 
 func TestHandleListAPIKeys_MissingProjectID(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/api-keys/", ""))
@@ -208,8 +208,8 @@ func TestHandleListAPIKeys_MissingProjectID(t *testing.T) {
 
 func TestHandleListAPIKeys_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listAPIKeysByProjectFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.APIKey, error) {
+	ms := &APIStoreMock{
+		ListAPIKeysByProjectFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.APIKey, error) {
 			return nil, errors.New("boom")
 		},
 	}
@@ -227,8 +227,8 @@ func TestHandleListAPIKeys_StoreError(t *testing.T) {
 func TestHandleRevokeAPIKey_Success(t *testing.T) {
 	t.Parallel()
 	var revokedID string
-	ms := &mockAPIStore{
-		revokeAPIKeyFn: func(_ context.Context, id string) error {
+	ms := &APIStoreMock{
+		RevokeAPIKeyFunc: func(_ context.Context, id string) error {
 			revokedID = id
 			return nil
 		},
@@ -257,8 +257,8 @@ func TestHandleRevokeAPIKey_Success(t *testing.T) {
 
 func TestHandleRevokeAPIKey_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		revokeAPIKeyFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		RevokeAPIKeyFunc: func(_ context.Context, _ string) error {
 			return errors.New("not found")
 		},
 	}
@@ -329,18 +329,18 @@ func TestAPIKeyAuth_ValidKey(t *testing.T) {
 	wantHash := hashAPIKey(rawKey)
 	touched := make(chan string, 1)
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
 			if keyHash != wantHash {
 				t.Fatalf("expected hash %q, got %q", wantHash, keyHash)
 			}
 			return &domain.APIKey{ID: "key-123", ProjectID: "proj-1"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, id string) error {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, id string) error {
 			touched <- id
 			return nil
 		},
-		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+		QueueStatsFunc: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 1, Executing: 2, Delayed: 3}, nil
 		},
 	}
@@ -379,14 +379,14 @@ func TestAPIKeyAuth_TouchUsesBoundedDetachedContext(t *testing.T) {
 
 	touchCh := make(chan touchCall, 1)
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
 			if keyHash != wantHash {
 				t.Fatalf("expected hash %q, got %q", wantHash, keyHash)
 			}
 			return &domain.APIKey{ID: "key-touch", ProjectID: "proj-ctx"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(ctx context.Context, id string) error {
+		TouchAPIKeyLastUsedFunc: func(ctx context.Context, id string) error {
 			if id != "key-touch" {
 				t.Fatalf("expected touched id key-touch, got %q", id)
 			}
@@ -394,7 +394,7 @@ func TestAPIKeyAuth_TouchUsesBoundedDetachedContext(t *testing.T) {
 			touchCh <- touchCall{hasDeadline: ok, deadline: dl, err: ctx.Err()}
 			return nil
 		},
-		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+		QueueStatsFunc: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 1, Executing: 0, Delayed: 0}, nil
 		},
 	}
@@ -432,8 +432,8 @@ func TestAPIKeyAuth_ExpiredKey(t *testing.T) {
 	rawKey := "strait_" + strings.Repeat("ab", 32)
 	expired := time.Now().Add(-time.Hour)
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-123", ProjectID: "proj-1", ExpiresAt: &expired}, nil
 		},
 	}
@@ -463,8 +463,8 @@ func TestAPIKeyAuth_RevokedKey(t *testing.T) {
 	rawKey := "strait_" + strings.Repeat("ab", 32)
 	revoked := time.Now().Add(-time.Minute)
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-123", ProjectID: "proj-1", RevokedAt: &revoked}, nil
 		},
 	}
@@ -491,8 +491,8 @@ func TestAPIKeyAuth_RevokedKey(t *testing.T) {
 
 func TestAPIKeyAuth_InvalidKey(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return nil, errors.New("missing")
 		},
 	}
@@ -511,7 +511,7 @@ func TestAPIKeyAuth_InvalidKey(t *testing.T) {
 
 func TestAPIKeyAuth_MissingHeader(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
 
@@ -524,8 +524,8 @@ func TestAPIKeyAuth_MissingHeader(t *testing.T) {
 
 func TestDualAuth_FallbackToInternalSecret(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+	ms := &APIStoreMock{
+		QueueStatsFunc: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 7, Executing: 0, Delayed: 0}, nil
 		},
 	}
@@ -546,15 +546,15 @@ func TestDualAuth_APIKeyTakesPrecedence(t *testing.T) {
 	wantHash := hashAPIKey(rawKey)
 	var lookedUp atomic.Bool
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
 			lookedUp.Store(true)
 			if keyHash != wantHash {
 				t.Fatalf("expected hash %q, got %q", wantHash, keyHash)
 			}
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-1"}, nil
 		},
-		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+		QueueStatsFunc: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 1, Executing: 1, Delayed: 1}, nil
 		},
 	}
@@ -589,8 +589,8 @@ func TestProjectIDFromContext(t *testing.T) {
 func TestCreateAPIKey_OrgScoped_Success(t *testing.T) {
 	t.Parallel()
 	var captured *domain.APIKey
-	ms := &mockAPIStore{
-		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
+	ms := &APIStoreMock{
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
 			captured = key
 			key.ID = "key-org-1"
 			key.CreatedAt = time.Now().UTC()
@@ -619,7 +619,7 @@ func TestCreateAPIKey_OrgScoped_Success(t *testing.T) {
 
 func TestCreateAPIKey_OrgScoped_RequiresInternalSecret(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
 	// Using a non-internal-secret auth (no X-Internal-Secret, no valid API key)
@@ -637,15 +637,15 @@ func TestOrgScopedKey_CanAccessAllProjectsInOrg(t *testing.T) {
 	rawKey := "strait_" + strings.Repeat("cc", 32)
 	wantHash := hashAPIKey(rawKey)
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
 			if keyHash != wantHash {
 				t.Fatalf("expected hash %q, got %q", wantHash, keyHash)
 			}
 			return &domain.APIKey{ID: "key-org-1", ProjectID: "proj-1", OrgID: "org-1"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
-		listRunsByOrgFn: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
+		ListRunsByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			if orgID != "org-1" {
 				t.Fatalf("expected orgID org-1, got %q", orgID)
 			}
@@ -678,11 +678,11 @@ func TestOrgScopedKey_CannotAccessOtherOrg(t *testing.T) {
 	t.Parallel()
 	rawKey := "strait_" + strings.Repeat("dd", 32)
 
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{ID: "key-org-1", ProjectID: "proj-1", OrgID: "org-1"}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -700,8 +700,8 @@ func TestOrgScopedKey_CannotAccessOtherOrg(t *testing.T) {
 func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
-	ms := &mockAPIStore{
-		listAPIKeysByOrgFn: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.APIKey, error) {
+	ms := &APIStoreMock{
+		ListAPIKeysByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.APIKey, error) {
 			if orgID != "org-1" {
 				t.Fatalf("expected org-1, got %q", orgID)
 			}
@@ -734,8 +734,8 @@ func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
 func TestOrgScopedKey_RevokeWorks(t *testing.T) {
 	t.Parallel()
 	var revokedID string
-	ms := &mockAPIStore{
-		revokeAPIKeyFn: func(_ context.Context, id string) error {
+	ms := &APIStoreMock{
+		RevokeAPIKeyFunc: func(_ context.Context, id string) error {
 			revokedID = id
 			return nil
 		},

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -15,8 +16,8 @@ import (
 func TestHandleCreateRole(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.createProjectRoleFn = func(_ context.Context, role *domain.ProjectRole) error {
+	ms := &APIStoreMock{}
+	ms.CreateProjectRoleFunc = func(_ context.Context, role *domain.ProjectRole) error {
 		role.ID = "role_1"
 		return nil
 	}
@@ -43,7 +44,7 @@ func TestHandleCreateRole(t *testing.T) {
 func TestHandleCreateRole_InvalidScope(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, nil, nil)
 
 	body := `{"name":"bad","permissions":["banana"]}`
@@ -59,8 +60,8 @@ func TestHandleCreateRole_InvalidScope(t *testing.T) {
 func TestHandleListRoles(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.listProjectRolesFn = func(_ context.Context, _ string) ([]domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.ListProjectRolesFunc = func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.ProjectRole, error) {
 		return []domain.ProjectRole{{ID: "role_1", Name: "admin"}}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -77,8 +78,8 @@ func TestHandleListRoles(t *testing.T) {
 func TestHandleGetRole(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
 		return &domain.ProjectRole{ID: id, Name: "admin", Permissions: []string{"*"}}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -103,8 +104,8 @@ func TestHandleGetRole(t *testing.T) {
 func TestHandleGetRole_WithLineage(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
 		switch id {
 		case "role_child":
 			return &domain.ProjectRole{ID: id, Name: "child", ParentRoleID: "role_parent", Permissions: []string{"jobs:read"}}, nil
@@ -142,8 +143,8 @@ func TestHandleGetRole_WithLineage(t *testing.T) {
 func TestHandleGetRole_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
 		return nil, store.ErrRoleNotFound
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -160,8 +161,8 @@ func TestHandleGetRole_NotFound(t *testing.T) {
 func TestHandleUpdateRole(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.updateProjectRoleFn = func(_ context.Context, role *domain.ProjectRole) error {
+	ms := &APIStoreMock{}
+	ms.UpdateProjectRoleFunc = func(_ context.Context, role *domain.ProjectRole) error {
 		return nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -179,8 +180,8 @@ func TestHandleUpdateRole(t *testing.T) {
 func TestHandleUpdateRole_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.updateProjectRoleFn = func(_ context.Context, _ *domain.ProjectRole) error {
+	ms := &APIStoreMock{}
+	ms.UpdateProjectRoleFunc = func(_ context.Context, _ *domain.ProjectRole) error {
 		return store.ErrRoleNotFound
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -198,7 +199,7 @@ func TestHandleUpdateRole_NotFound(t *testing.T) {
 func TestHandleUpdateRole_InvalidScope(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, nil, nil)
 
 	body := `{"name":"bad","permissions":["banana"]}`
@@ -214,8 +215,8 @@ func TestHandleUpdateRole_InvalidScope(t *testing.T) {
 func TestHandleDeleteRole_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.deleteProjectRoleFn = func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{}
+	ms.DeleteProjectRoleFunc = func(_ context.Context, _ string) error {
 		return store.ErrRoleNotFound
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -232,11 +233,11 @@ func TestHandleDeleteRole_NotFound(t *testing.T) {
 func TestHandleAssignMember(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
 		return &domain.ProjectRole{ID: id, Name: "admin"}, nil
 	}
-	ms.assignMemberRoleFn = func(_ context.Context, m *domain.ProjectMemberRole) error {
+	ms.AssignMemberRoleFunc = func(_ context.Context, m *domain.ProjectMemberRole) error {
 		m.ID = "member_1"
 		return nil
 	}
@@ -255,8 +256,8 @@ func TestHandleAssignMember(t *testing.T) {
 func TestHandleAssignMember_RoleNotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
 		return nil, store.ErrRoleNotFound
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -274,8 +275,8 @@ func TestHandleAssignMember_RoleNotFound(t *testing.T) {
 func TestHandleListMembers(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.listProjectMembersFn = func(_ context.Context, _ string) ([]domain.ProjectMemberRole, error) {
+	ms := &APIStoreMock{}
+	ms.ListProjectMembersFunc = func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.ProjectMemberRole, error) {
 		return []domain.ProjectMemberRole{
 			{ID: "m1", UserID: "user-1", RoleID: "role-1"},
 			{ID: "m2", UserID: "user-2", RoleID: "role-2"},
@@ -301,8 +302,8 @@ func TestHandleListMembers(t *testing.T) {
 func TestHandleRemoveMember_InvalidatesCache(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.removeMemberRoleFn = func(_ context.Context, _, _ string) error {
+	ms := &APIStoreMock{}
+	ms.RemoveMemberRoleFunc = func(_ context.Context, _, _ string) error {
 		return nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -330,11 +331,11 @@ func TestHandleRemoveMember_InvalidatesCache(t *testing.T) {
 func TestHandleAssignMember_InvalidatesCache(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
 		return &domain.ProjectRole{ID: id, Name: "admin"}, nil
 	}
-	ms.assignMemberRoleFn = func(_ context.Context, m *domain.ProjectMemberRole) error {
+	ms.AssignMemberRoleFunc = func(_ context.Context, m *domain.ProjectMemberRole) error {
 		m.ID = "member_1"
 		return nil
 	}
@@ -362,8 +363,8 @@ func TestHandleAssignMember_InvalidatesCache(t *testing.T) {
 func TestHandleRemoveMember_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.removeMemberRoleFn = func(_ context.Context, _, _ string) error {
+	ms := &APIStoreMock{}
+	ms.RemoveMemberRoleFunc = func(_ context.Context, _, _ string) error {
 		return store.ErrMemberNotFound
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -382,7 +383,7 @@ func TestHandleRemoveMember_NotFound(t *testing.T) {
 func TestHandleCreateRole_EmptyBody(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	req := authedRequest(http.MethodPost, "/v1/roles", "{}")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -395,7 +396,7 @@ func TestHandleCreateRole_EmptyBody(t *testing.T) {
 func TestHandleCreateRole_EmptyPermissions(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	body := `{"name":"test","permissions":[]}`
 	req := authedRequest(http.MethodPost, "/v1/roles", body)
 	w := httptest.NewRecorder()
@@ -409,7 +410,7 @@ func TestHandleCreateRole_EmptyPermissions(t *testing.T) {
 func TestHandleCreateRole_MalformedJSON(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	req := authedRequest(http.MethodPost, "/v1/roles", "{invalid json")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -422,8 +423,8 @@ func TestHandleCreateRole_MalformedJSON(t *testing.T) {
 func TestHandleCreateRole_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.createProjectRoleFn = func(_ context.Context, _ *domain.ProjectRole) error {
+	ms := &APIStoreMock{}
+	ms.CreateProjectRoleFunc = func(_ context.Context, _ *domain.ProjectRole) error {
 		return fmt.Errorf("database connection lost")
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -441,8 +442,8 @@ func TestHandleCreateRole_StoreError(t *testing.T) {
 func TestHandleCreateRole_ResponseShape(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.createProjectRoleFn = func(_ context.Context, role *domain.ProjectRole) error {
+	ms := &APIStoreMock{}
+	ms.CreateProjectRoleFunc = func(_ context.Context, role *domain.ProjectRole) error {
 		role.ID = "role_resp"
 		return nil
 	}
@@ -478,8 +479,8 @@ func TestHandleCreateRole_ResponseShape(t *testing.T) {
 func TestHandleDeleteRole_Success(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.deleteProjectRoleFn = func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{}
+	ms.DeleteProjectRoleFunc = func(_ context.Context, _ string) error {
 		return nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -496,8 +497,8 @@ func TestHandleDeleteRole_Success(t *testing.T) {
 func TestHandleDeleteRole_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.deleteProjectRoleFn = func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{}
+	ms.DeleteProjectRoleFunc = func(_ context.Context, _ string) error {
 		return fmt.Errorf("db down")
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -514,8 +515,8 @@ func TestHandleDeleteRole_StoreError(t *testing.T) {
 func TestHandleGetRole_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
 		return nil, fmt.Errorf("timeout")
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -532,8 +533,8 @@ func TestHandleGetRole_StoreError(t *testing.T) {
 func TestHandleListRoles_Empty(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.listProjectRolesFn = func(_ context.Context, _ string) ([]domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.ListProjectRolesFunc = func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.ProjectRole, error) {
 		return []domain.ProjectRole{}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -556,8 +557,8 @@ func TestHandleListRoles_Empty(t *testing.T) {
 func TestHandleListRoles_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.listProjectRolesFn = func(_ context.Context, _ string) ([]domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.ListProjectRolesFunc = func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.ProjectRole, error) {
 		return nil, fmt.Errorf("db error")
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -574,7 +575,7 @@ func TestHandleListRoles_StoreError(t *testing.T) {
 func TestHandleUpdateRole_EmptyBody(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	req := authedRequest(http.MethodPatch, "/v1/roles/role_1", "{}")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -587,8 +588,8 @@ func TestHandleUpdateRole_EmptyBody(t *testing.T) {
 func TestHandleUpdateRole_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.updateProjectRoleFn = func(_ context.Context, _ *domain.ProjectRole) error {
+	ms := &APIStoreMock{}
+	ms.UpdateProjectRoleFunc = func(_ context.Context, _ *domain.ProjectRole) error {
 		return fmt.Errorf("db error")
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -606,7 +607,7 @@ func TestHandleUpdateRole_StoreError(t *testing.T) {
 func TestHandleAssignMember_EmptyBody(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	req := authedRequest(http.MethodPost, "/v1/members", "{}")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -619,7 +620,7 @@ func TestHandleAssignMember_EmptyBody(t *testing.T) {
 func TestHandleAssignMember_MissingUserID(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	body := `{"role_id":"role_1"}`
 	req := authedRequest(http.MethodPost, "/v1/members", body)
 	w := httptest.NewRecorder()
@@ -633,7 +634,7 @@ func TestHandleAssignMember_MissingUserID(t *testing.T) {
 func TestHandleAssignMember_MissingRoleID(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	body := `{"user_id":"user_1"}`
 	req := authedRequest(http.MethodPost, "/v1/members", body)
 	w := httptest.NewRecorder()
@@ -647,11 +648,11 @@ func TestHandleAssignMember_MissingRoleID(t *testing.T) {
 func TestHandleAssignMember_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
 		return &domain.ProjectRole{ID: id}, nil
 	}
-	ms.assignMemberRoleFn = func(_ context.Context, _ *domain.ProjectMemberRole) error {
+	ms.AssignMemberRoleFunc = func(_ context.Context, _ *domain.ProjectMemberRole) error {
 		return fmt.Errorf("db error")
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -669,8 +670,8 @@ func TestHandleAssignMember_StoreError(t *testing.T) {
 func TestHandleAssignMember_GetRoleStoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
 		return nil, fmt.Errorf("db timeout")
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -688,11 +689,11 @@ func TestHandleAssignMember_GetRoleStoreError(t *testing.T) {
 func TestHandleAssignMember_ResponseShape(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getProjectRoleFn = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
 		return &domain.ProjectRole{ID: id, Name: "admin"}, nil
 	}
-	ms.assignMemberRoleFn = func(_ context.Context, m *domain.ProjectMemberRole) error {
+	ms.AssignMemberRoleFunc = func(_ context.Context, m *domain.ProjectMemberRole) error {
 		m.ID = "member_resp"
 		return nil
 	}
@@ -724,8 +725,8 @@ func TestHandleAssignMember_ResponseShape(t *testing.T) {
 func TestHandleListMembers_Empty(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.listProjectMembersFn = func(_ context.Context, _ string) ([]domain.ProjectMemberRole, error) {
+	ms := &APIStoreMock{}
+	ms.ListProjectMembersFunc = func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.ProjectMemberRole, error) {
 		return []domain.ProjectMemberRole{}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -748,8 +749,8 @@ func TestHandleListMembers_Empty(t *testing.T) {
 func TestHandleListMembers_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.listProjectMembersFn = func(_ context.Context, _ string) ([]domain.ProjectMemberRole, error) {
+	ms := &APIStoreMock{}
+	ms.ListProjectMembersFunc = func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.ProjectMemberRole, error) {
 		return nil, fmt.Errorf("db error")
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -766,8 +767,8 @@ func TestHandleListMembers_StoreError(t *testing.T) {
 func TestHandleRemoveMember_Success(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.removeMemberRoleFn = func(_ context.Context, _, _ string) error {
+	ms := &APIStoreMock{}
+	ms.RemoveMemberRoleFunc = func(_ context.Context, _, _ string) error {
 		return nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -784,8 +785,8 @@ func TestHandleRemoveMember_Success(t *testing.T) {
 func TestHandleRemoveMember_StoreError(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.removeMemberRoleFn = func(_ context.Context, _, _ string) error {
+	ms := &APIStoreMock{}
+	ms.RemoveMemberRoleFunc = func(_ context.Context, _, _ string) error {
 		return fmt.Errorf("db error")
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -802,7 +803,7 @@ func TestHandleRemoveMember_StoreError(t *testing.T) {
 func TestHandleAssignMember_MalformedJSON(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	req := authedRequest(http.MethodPost, "/v1/members", "{broken")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -815,7 +816,7 @@ func TestHandleAssignMember_MalformedJSON(t *testing.T) {
 func TestHandleUpdateRole_MalformedJSON(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 	req := authedRequest(http.MethodPatch, "/v1/roles/role_1", "{broken")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

@@ -1,63 +1,65 @@
 package api
 
 import (
+	"context"
 	"errors"
-	"net/http"
 	"strconv"
 	"time"
 
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleListRunResources(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
+type ListRunResourcesInput struct {
+	RunID string `path:"runID"`
+	From  string `query:"from"`
+	To    string `query:"to"`
+	Limit string `query:"limit"`
+}
 
-	projectID := projectIDFromContext(r.Context())
+type ListRunResourcesOutput struct {
+	Body any
+}
+
+func (s *Server) handleListRunResources(ctx context.Context, input *ListRunResourcesInput) (*ListRunResourcesOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	run, err := s.store.GetRun(r.Context(), runID)
+	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
+			return nil, huma.Error404NotFound("run not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 	if run.ProjectID != projectID {
-		respondError(w, r, http.StatusNotFound, "run not found")
-		return
+		return nil, huma.Error404NotFound("run not found")
 	}
 
 	var from, to *time.Time
-	if v := r.URL.Query().Get("from"); v != "" {
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid from param: must be RFC3339")
-			return
+	if input.From != "" {
+		t, parseErr := time.Parse(time.RFC3339, input.From)
+		if parseErr != nil {
+			return nil, huma.Error400BadRequest("invalid from param: must be RFC3339")
 		}
 		from = &t
 	}
-	if v := r.URL.Query().Get("to"); v != "" {
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			respondError(w, r, http.StatusBadRequest, "invalid to param: must be RFC3339")
-			return
+	if input.To != "" {
+		t, parseErr := time.Parse(time.RFC3339, input.To)
+		if parseErr != nil {
+			return nil, huma.Error400BadRequest("invalid to param: must be RFC3339")
 		}
 		to = &t
 	}
 
 	limit := 100
-	if v := r.URL.Query().Get("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			respondError(w, r, http.StatusBadRequest, "invalid limit param")
-			return
+	if input.Limit != "" {
+		n, parseErr := strconv.Atoi(input.Limit)
+		if parseErr != nil || n < 1 {
+			return nil, huma.Error400BadRequest("invalid limit param")
 		}
 		if n > 1000 {
 			n = 1000
@@ -65,11 +67,10 @@ func (s *Server) handleListRunResources(w http.ResponseWriter, r *http.Request) 
 		limit = n
 	}
 
-	snapshots, err := s.store.ListRunResourceSnapshots(r.Context(), runID, from, to, limit)
+	snapshots, err := s.store.ListRunResourceSnapshots(ctx, input.RunID, from, to, limit)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list resource snapshots")
-		return
+		return nil, huma.Error500InternalServerError("failed to list resource snapshots")
 	}
 
-	respondJSON(w, http.StatusOK, snapshots)
+	return &ListRunResourcesOutput{Body: snapshots}, nil
 }

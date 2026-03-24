@@ -1,36 +1,44 @@
 package api
 
 import (
-	"net/http"
+	"context"
 
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 )
 
-func (s *Server) handleSDKIteration(w http.ResponseWriter, r *http.Request) {
-	applySDKResponseHeaders(r.Context(), w)
-	runID := chi.URLParam(r, "runID")
+type sdkIterationRequest struct {
+	Iteration   int    `json:"iteration" validate:"required,min=1"`
+	Description string `json:"description,omitempty"`
+}
 
-	var req struct {
-		Iteration   int    `json:"iteration" validate:"required,min=1"`
-		Description string `json:"description,omitempty"`
-	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
+type SDKIterationInput struct {
+	RunID string `path:"runID"`
+	Body  sdkIterationRequest
+}
+
+type SDKIterationOutput struct {
+	Body *domain.RunIteration
+}
+
+func (s *Server) handleSDKIteration(ctx context.Context, input *SDKIterationInput) (*SDKIterationOutput, error) {
+	w := responseWriterFromContext(ctx)
+	if w != nil {
+		applySDKResponseHeaders(ctx, w)
 	}
 
-	if !s.validateRequest(w, r, &req) {
-		return
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	// Iteration count limit check.
-	run, runErr := s.store.GetRun(r.Context(), runID)
+	run, runErr := s.store.GetRun(ctx, input.RunID)
 	if runErr == nil && run != nil {
-		job, jobErr := s.store.GetJob(r.Context(), run.JobID)
-		quota, qErr := s.store.GetProjectQuota(r.Context(), run.ProjectID)
+		job, jobErr := s.store.GetJob(ctx, run.JobID)
+		quota, qErr := s.store.GetProjectQuota(ctx, run.ProjectID)
 		var quotaLimit int
 		if qErr == nil && quota != nil {
 			quotaLimit = quota.MaxIterationsPerRun
@@ -41,28 +49,29 @@ func (s *Server) handleSDKIteration(w http.ResponseWriter, r *http.Request) {
 		}
 		iterLimit := resolveGuardrailInt(quotaLimit, jobLimit)
 		if iterLimit > 0 {
-			count, cErr := s.store.CountRunIterations(r.Context(), runID)
+			count, cErr := s.store.CountRunIterations(ctx, input.RunID)
 			if cErr == nil && count >= iterLimit {
-				respondJSON(w, http.StatusTooManyRequests, map[string]any{
-					"error": "iteration_limit_exceeded", "current": count, "limit": iterLimit,
-				})
-				return
+				return nil, &rawStatusError{
+					status: 429,
+					body: map[string]any{
+						"error": "iteration_limit_exceeded", "current": count, "limit": iterLimit,
+					},
+				}
 			}
 		}
 	}
 
 	iter := &domain.RunIteration{
 		ID:          uuid.Must(uuid.NewV7()).String(),
-		RunID:       runID,
+		RunID:       input.RunID,
 		Iteration:   req.Iteration,
 		Description: req.Description,
 	}
-	if err := s.store.CreateRunIteration(r.Context(), iter); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create run iteration")
-		return
+	if err := s.store.CreateRunIteration(ctx, iter); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create run iteration")
 	}
 
-	respondJSON(w, http.StatusCreated, iter)
+	return &SDKIterationOutput{Body: iter}, nil
 }
 
 // resolveGuardrailInt64 returns the job-level limit if set, otherwise the quota-level limit.

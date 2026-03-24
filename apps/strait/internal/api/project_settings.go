@@ -1,87 +1,74 @@
 package api
 
 import (
-	"net/http"
+	"context"
 
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-// ProjectSettingsResponse is the API representation of project settings.
 type ProjectSettingsResponse struct {
 	ProjectID     string `json:"project_id"`
 	DefaultRegion string `json:"default_region"`
 	PlanTier      string `json:"plan_tier"`
 }
-
-// UpdateProjectSettingsRequest is the request body for updating project settings.
 type UpdateProjectSettingsRequest struct {
 	DefaultRegion *string `json:"default_region,omitempty"`
 }
 
-func (s *Server) handleGetProjectSettings(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
+type GetProjectSettingsInput struct {
+	ProjectID string `path:"projectID"`
+}
+type GetProjectSettingsOutput struct{ Body ProjectSettingsResponse }
+
+func (s *Server) handleGetProjectSettings(ctx context.Context, input *GetProjectSettingsInput) (*GetProjectSettingsOutput, error) {
+	projectID := input.ProjectID
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-
-	if err := s.validateProjectBelongsToCallerOrg(r.Context(), projectID); err != nil {
-		respondError(w, r, http.StatusForbidden, "access denied")
-		return
+	if err := s.validateProjectBelongsToCallerOrg(ctx, projectID); err != nil {
+		return nil, huma.Error403Forbidden("access denied")
 	}
-
-	quota, err := s.store.GetProjectQuota(r.Context(), projectID)
+	quota, err := s.store.GetProjectQuota(ctx, projectID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get project settings")
-		return
+		return nil, huma.Error500InternalServerError("failed to get project settings")
 	}
-
-	resp := ProjectSettingsResponse{
-		ProjectID: projectID,
-		PlanTier:  string(domain.PlanFree),
-	}
+	resp := ProjectSettingsResponse{ProjectID: projectID, PlanTier: string(domain.PlanFree)}
 	if quota != nil {
 		resp.DefaultRegion = quota.DefaultRegion
 		if quota.PlanTier != "" {
 			resp.PlanTier = quota.PlanTier
 		}
 	}
-
-	respondJSON(w, http.StatusOK, resp)
+	return &GetProjectSettingsOutput{Body: resp}, nil
 }
 
-func (s *Server) handleUpdateProjectSettings(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
+type UpdateProjectSettingsInput struct {
+	ProjectID string `path:"projectID"`
+	Body      UpdateProjectSettingsRequest
+}
+type UpdateProjectSettingsOutput struct{ Body ProjectSettingsResponse }
+
+func (s *Server) handleUpdateProjectSettings(ctx context.Context, input *UpdateProjectSettingsInput) (*UpdateProjectSettingsOutput, error) {
+	projectID := input.ProjectID
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-
-	if err := s.validateProjectBelongsToCallerOrg(r.Context(), projectID); err != nil {
-		respondError(w, r, http.StatusForbidden, "access denied")
-		return
+	if err := s.validateProjectBelongsToCallerOrg(ctx, projectID); err != nil {
+		return nil, huma.Error403Forbidden("access denied")
 	}
-
-	var req UpdateProjectSettingsRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if req.DefaultRegion != nil {
-		region := *req.DefaultRegion
-		// Validate region code and plan-based gating.
-		if !s.validateRegionForPlan(w, r, projectID, region) {
-			return
+	if input.Body.DefaultRegion != nil {
+		if err := s.checkRegionForPlan(ctx, projectID, *input.Body.DefaultRegion); err != nil {
+			return nil, err
 		}
-		if err := s.store.UpdateProjectDefaultRegion(r.Context(), projectID, region); err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to update project settings")
-			return
+		if err := s.store.UpdateProjectDefaultRegion(ctx, projectID, *input.Body.DefaultRegion); err != nil {
+			return nil, huma.Error500InternalServerError("failed to update project settings")
 		}
 	}
-
-	// Return the updated settings.
-	s.handleGetProjectSettings(w, r)
+	out, err := s.handleGetProjectSettings(ctx, &GetProjectSettingsInput{ProjectID: projectID})
+	if err != nil {
+		return nil, err
+	}
+	return &UpdateProjectSettingsOutput{Body: out.Body}, nil
 }

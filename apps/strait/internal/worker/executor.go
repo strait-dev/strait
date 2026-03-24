@@ -19,6 +19,9 @@ import (
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
+	"strait/internal/cache/otterstore"
+
+	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/getsentry/sentry-go"
 	"golang.org/x/sync/semaphore"
 )
@@ -74,11 +77,6 @@ type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 }
 
-type cachedJob struct {
-	job       *domain.Job
-	expiresAt time.Time
-}
-
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
 	pool                     *Pool
@@ -107,8 +105,8 @@ type Executor struct {
 	eventCh                  chan runEventEnvelope
 	maxDequeueBatchSize      int
 	defaultJobMaxConcurrency int
-	jobCache                 sync.Map
-	jobCacheTTL              time.Duration
+	jobCache                 *cache.Cache[*domain.Job]
+	jobCacheStore            *otterstore.OtterStore
 	memoryPressureThreshold  float64
 	maxSnoozeCount           int
 	dequeueStrategy          string
@@ -223,6 +221,16 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		}
 	}
 
+	var jobCache *cache.Cache[*domain.Job]
+	var jobCacheStore *otterstore.OtterStore
+	if cfg.JobCacheTTL > 0 {
+		jobCacheStore = otterstore.New(otterstore.Config{
+			DefaultTTL:  cfg.JobCacheTTL,
+			MaxCapacity: 10_000,
+		})
+		jobCache = cache.New[*domain.Job](jobCacheStore)
+	}
+
 	return &Executor{
 		pool:                     cfg.Pool,
 		concurrencyLimit:         cfg.ConcurrencyLimit,
@@ -245,7 +253,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		eventCh:                  make(chan runEventEnvelope, 256),
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
-		jobCacheTTL:              cfg.JobCacheTTL,
+		jobCache:                 jobCache,
+		jobCacheStore:            jobCacheStore,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		dequeueStrategy:          cfg.DequeueStrategy,
@@ -260,6 +269,13 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
+	}
+}
+
+// CloseCache shuts down the otter cache if one was created.
+func (e *Executor) CloseCache() {
+	if e.jobCacheStore != nil {
+		e.jobCacheStore.Close()
 	}
 }
 

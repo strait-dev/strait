@@ -19,8 +19,8 @@ func TestHandleGetWorkflowRunTimeline_Success(t *testing.T) {
 	mid := now.Add(-5 * time.Second)
 	end := now.Add(-1 * time.Second)
 
-	ms := &mockAPIStore{
-		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+	ms := &APIStoreMock{
+		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{
 				ID:         "wr-1",
 				Status:     domain.WfStatusCompleted,
@@ -28,7 +28,7 @@ func TestHandleGetWorkflowRunTimeline_Success(t *testing.T) {
 				FinishedAt: &end,
 			}, nil
 		},
-		listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+		ListStepRunsByWorkflowRunFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{
 					ID:         "sr-1",
@@ -88,8 +88,8 @@ func TestHandleGetWorkflowRunTimeline_ParallelDetection(t *testing.T) {
 	mid := now.Add(-5 * time.Second)
 	end := now.Add(-1 * time.Second)
 
-	ms := &mockAPIStore{
-		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+	ms := &APIStoreMock{
+		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{
 				ID:         "wr-1",
 				Status:     domain.WfStatusCompleted,
@@ -97,7 +97,7 @@ func TestHandleGetWorkflowRunTimeline_ParallelDetection(t *testing.T) {
 				FinishedAt: &end,
 			}, nil
 		},
-		listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+		ListStepRunsByWorkflowRunFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			// Two overlapping steps (parallel).
 			return []domain.WorkflowStepRun{
 				{
@@ -142,8 +142,8 @@ func TestHandleGetWorkflowRunTimeline_ParallelDetection(t *testing.T) {
 
 func TestHandleGetWorkflowRunTimeline_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+	ms := &APIStoreMock{
+		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 			return nil, store.ErrWorkflowRunNotFound
 		},
 	}
@@ -161,15 +161,15 @@ func TestHandleGetWorkflowRunTimeline_EmptySteps(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 
-	ms := &mockAPIStore{
-		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+	ms := &APIStoreMock{
+		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{
 				ID:        "wr-1",
 				Status:    domain.WfStatusRunning,
 				StartedAt: &now,
 			}, nil
 		},
-		listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+		ListStepRunsByWorkflowRunFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{}, nil
 		},
 	}

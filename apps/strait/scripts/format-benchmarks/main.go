@@ -58,7 +58,7 @@ func run() error {
 }
 
 func parse(path string) (map[string][]*result, error) {
-	f, err := os.Open(path) //nolint:gosec // CLI tool reads user-specified file path.
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -168,7 +168,7 @@ func writeMarkdown(out *os.File, pkgResults map[string][]*result) {
 
 func aggregate(samples []sample) (ops int, nsOp, bOp float64, allocs int) {
 	if len(samples) == 0 {
-		return
+		return ops, nsOp, bOp, allocs
 	}
 	if len(samples) == 1 {
 		s := samples[0]
@@ -189,7 +189,7 @@ func aggregate(samples []sample) (ops int, nsOp, bOp float64, allocs int) {
 	nsOp = sumNs / n
 	bOp = sumB / n
 	allocs = int(math.Round(float64(sumAllocs) / n))
-	return
+	return ops, nsOp, bOp, allocs
 }
 
 func formatInt(v int) string {

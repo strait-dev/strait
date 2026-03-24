@@ -22,6 +22,21 @@ func NewPgStore(pool *pgxpool.Pool) *PgStore {
 	return &PgStore{pool: pool}
 }
 
+// EnsureOrgSubscription creates a free-tier subscription row for an org if one
+// does not already exist. Used for lazy initialization when a project is first
+// created under an org that has no Polar subscription yet.
+func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status)
+		 VALUES (gen_random_uuid()::text, $1, 'free', 'active')
+		 ON CONFLICT (org_id) DO NOTHING`,
+		orgID)
+	if err != nil {
+		return fmt.Errorf("ensure org subscription: %w", err)
+	}
+	return nil
+}
+
 func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
 	var sub OrgSubscription
 	err := s.pool.QueryRow(ctx, `
@@ -985,6 +1000,85 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 		subs = append(subs, sub)
 	}
 	return subs, rows.Err()
+}
+
+// ListStaleSubscriptions returns subscriptions that are marked active but whose
+// current_period_end has passed by more than 1 day without a pending downgrade.
+// These may indicate missed cancellation webhooks from Polar.
+func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+			status, current_period_start, current_period_end,
+			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
+			COALESCE(anomaly_threshold_warning, 3.0),
+			COALESCE(anomaly_threshold_critical, 10.0),
+			grace_period_end, COALESCE(payment_status, 'ok'),
+			override_daily_run_limit, override_concurrent_run_limit,
+			COALESCE(enforcement_mode, 'enforce'),
+			created_at, updated_at
+		FROM organization_subscriptions
+		WHERE status = 'active'
+		  AND current_period_end IS NOT NULL
+		  AND current_period_end < NOW() - INTERVAL '1 day'
+		  AND pending_plan_tier IS NULL
+		LIMIT 10000
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("listing stale subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	var subs []OrgSubscription
+	for rows.Next() {
+		var sub OrgSubscription
+		if err := rows.Scan(
+			&sub.ID, &sub.OrgID, &sub.PlanTier,
+			&sub.PolarSubscriptionID, &sub.PolarCustomerID,
+			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
+			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
+			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
+			&sub.GracePeriodEnd, &sub.PaymentStatus,
+			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
+			&sub.EnforcementMode,
+			&sub.CreatedAt, &sub.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning stale subscription: %w", err)
+		}
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
+}
+
+// IsProjectSuspended checks whether a project is suspended due to plan downgrade.
+func (s *PgStore) IsProjectSuspended(ctx context.Context, projectID string) (bool, error) {
+	var suspended bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(suspended, false)
+		FROM projects
+		WHERE id = $1
+	`, projectID).Scan(&suspended)
+	if err != nil {
+		return false, fmt.Errorf("checking project suspended status: %w", err)
+	}
+	return suspended, nil
+}
+
+// SuspendExcessProjects suspends projects that exceed the plan limit for an org.
+// It keeps the oldest maxProjects active (by created_at) and suspends the rest.
+// Returns the number of projects that were suspended.
+func (s *PgStore) SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE projects SET suspended = true
+		WHERE org_id = $1 AND suspended = false AND deleted_at IS NULL AND id NOT IN (
+			SELECT id FROM projects
+			WHERE org_id = $1 AND deleted_at IS NULL
+			ORDER BY created_at ASC LIMIT $2
+		)
+	`, orgID, maxProjects)
+	if err != nil {
+		return 0, fmt.Errorf("suspending excess projects: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 func scanUsageRecords(rows pgx.Rows) ([]UsageRecord, error) {

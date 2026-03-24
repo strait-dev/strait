@@ -4,90 +4,138 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/spf13/viper"
 )
 
-func bindEnvKeys(t *testing.T, keys ...string) {
+// setRequiredEnv sets the minimum required env vars for a valid config.
+func setRequiredEnv(t *testing.T) {
 	t.Helper()
-	for _, key := range keys {
-		if err := viper.BindEnv(key); err != nil {
-			t.Fatalf("BindEnv(%q) failed: %v", key, err)
-		}
-	}
-}
-
-func TestLoad_Defaults(t *testing.T) {
-	viper.Reset()
-	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY")
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret")
 	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+}
+
+func TestLoad_Defaults(t *testing.T) {
+	setRequiredEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.Mode != "all" {
-		t.Fatalf("Mode = %q, want %q", cfg.Mode, "all")
+	tests := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"Mode", cfg.Mode, "all"},
+		{"Port", cfg.Port, 8080},
+		{"WorkerConcurrency", cfg.WorkerConcurrency, 25},
+		{"LogLevel", cfg.LogLevel, "info"},
+		{"HeartbeatInterval", cfg.HeartbeatInterval, 10 * time.Second},
+		{"ReaperInterval", cfg.ReaperInterval, 30 * time.Second},
+		{"StaleThreshold", cfg.StaleThreshold, 60 * time.Second},
+		{"PollerInterval", cfg.PollerInterval, 5 * time.Second},
+		{"RunRetentionShort", cfg.RunRetentionShort, 720 * time.Hour},
+		{"RunRetentionLong", cfg.RunRetentionLong, 2160 * time.Hour},
+		{"WorkflowRunRetentionDays", cfg.WorkflowRunRetentionDays, 30},
+		{"DBMaxConns", cfg.DBMaxConns, int32(50)},
+		{"DBMinConns", cfg.DBMinConns, int32(10)},
+		{"DBMaxConnLifetime", cfg.DBMaxConnLifetime, 30 * time.Minute},
+		{"DBMaxConnIdleTime", cfg.DBMaxConnIdleTime, 5 * time.Minute},
+		{"DBStatementTimeout", cfg.DBStatementTimeout, 30 * time.Second},
+		{"RateLimitRequests", cfg.RateLimitRequests, 100},
+		{"RateLimitWindow", cfg.RateLimitWindow, time.Minute},
+		{"TriggerRateLimitRequests", cfg.TriggerRateLimitRequests, 10},
+		{"TriggerRateLimitWindow", cfg.TriggerRateLimitWindow, time.Minute},
+		{"RequestTimeout", cfg.RequestTimeout, 30 * time.Second},
+		{"MaxRequestBodySize", cfg.MaxRequestBodySize, int64(1 << 20)},
+		{"MaxBulkTriggerItems", cfg.MaxBulkTriggerItems, 500},
+		{"AdaptiveConcurrencyMin", cfg.AdaptiveConcurrencyMin, 5},
+		{"AdaptiveConcurrencyMax", cfg.AdaptiveConcurrencyMax, 100},
+		{"IndexMaintenanceInterval", cfg.IndexMaintenanceInterval, 24 * time.Hour},
+		{"WebhookMaxPayloadBytes", cfg.WebhookMaxPayloadBytes, int64(1 << 20)},
+		{"WebhookConcurrency", cfg.WebhookConcurrency, 50},
+		{"WebhookTimeout", cfg.WebhookTimeout, 10 * time.Second},
+		{"WebhookIdleConnTimeout", cfg.WebhookIdleConnTimeout, time.Minute},
+		{"ExecutorHTTPTimeout", cfg.ExecutorHTTPTimeout, 5 * time.Minute},
+		{"ExecutorIdleConnTimeout", cfg.ExecutorIdleConnTimeout, 90 * time.Second},
+		{"WebhookDispatchTimeout", cfg.WebhookDispatchTimeout, 15 * time.Second},
+		{"WebhookMaxAttempts", cfg.WebhookMaxAttempts, 3},
+		{"DefaultJobMaxAttempts", cfg.DefaultJobMaxAttempts, 3},
+		{"DefaultJobTimeoutSecs", cfg.DefaultJobTimeoutSecs, 300},
+		{"WorkflowRetention", cfg.WorkflowRetention, 720 * time.Hour},
+		{"ReaperDeleteBatchSize", cfg.ReaperDeleteBatchSize, 100},
+		{"StalledWorkflowThreshold", cfg.StalledWorkflowThreshold, 15 * time.Minute},
+		{"StalledWorkflowAction", cfg.StalledWorkflowAction, "log_only"},
+		{"DependencyStatusCacheTTL", cfg.DependencyStatusCacheTTL, 5 * time.Second},
+		{"MaxWorkflowNestingDepth", cfg.MaxWorkflowNestingDepth, 10},
+		{"CDCBatchSize", cfg.CDCBatchSize, 10},
+		{"CDCWaitTimeMs", cfg.CDCWaitTimeMs, 5000},
+		{"SSEKeepaliveInterval", cfg.SSEKeepaliveInterval, 15 * time.Second},
+		{"WorkerDrainTimeout", cfg.WorkerDrainTimeout, 30 * time.Second},
+		{"PermissionCacheTTL", cfg.PermissionCacheTTL, 5 * time.Minute},
+		{"LogDrainWorkerInterval", cfg.LogDrainWorkerInterval, time.Minute},
+		{"JobCacheTTL", cfg.JobCacheTTL, 5 * time.Minute},
+		{"MaxResultSize", cfg.MaxResultSize, int64(1 << 20)},
+		{"MigrationMode", cfg.MigrationMode, "auto"},
+		{"MigrationLockTimeout", cfg.MigrationLockTimeout, 30 * time.Second},
+		{"MaxSnoozeCount", cfg.MaxSnoozeCount, 50},
+		{"DebouncePollerInterval", cfg.DebouncePollerInterval, time.Second},
+		{"BatchFlushInterval", cfg.BatchFlushInterval, time.Second},
+		{"DequeueStrategy", cfg.DequeueStrategy, "priority"},
+		{"ComputeRuntime", cfg.ComputeRuntime, "none"},
+		{"FlyRegion", cfg.FlyRegion, "iad"},
+		{"MaxConcurrentMachines", cfg.MaxConcurrentMachines, 10},
+		{"ClickHouseDatabase", cfg.ClickHouseDatabase, "strait"},
+		{"ClickHouseBatchSize", cfg.ClickHouseBatchSize, 1000},
+		{"ClickHouseFlushInterval", cfg.ClickHouseFlushInterval, 5 * time.Second},
+		{"ResendFromEmail", cfg.ResendFromEmail, "noreply@strait.dev"},
+		{"SentryEnvironment", cfg.SentryEnvironment, "development"},
+		{"Edition", cfg.Edition, "community"},
+		{"SequinBatchSize", cfg.SequinBatchSize, 10},
+		{"SequinWaitTimeMs", cfg.SequinWaitTimeMs, 5000},
 	}
-	if cfg.Port != 8080 {
-		t.Fatalf("Port = %d, want %d", cfg.Port, 8080)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Fatalf("%s = %v (%T), want %v (%T)", tt.name, tt.got, tt.got, tt.want, tt.want)
+			}
+		})
 	}
-	if cfg.WorkerConcurrency != 25 {
-		t.Fatalf("WorkerConcurrency = %d, want %d", cfg.WorkerConcurrency, 25)
+}
+
+func TestLoad_DefaultBooleans(t *testing.T) {
+	setRequiredEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.LogLevel != "info" {
-		t.Fatalf("LogLevel = %q, want %q", cfg.LogLevel, "info")
+
+	falseFields := []struct {
+		name string
+		got  bool
+	}{
+		{"OIDCEnabled", cfg.OIDCEnabled},
+		{"CORSAllowCredentials", cfg.CORSAllowCredentials},
+		{"DBPgBouncerMode", cfg.DBPgBouncerMode},
+		{"WebhookRequireTLS", cfg.WebhookRequireTLS},
+		{"AllowPrivateEndpoints", cfg.AllowPrivateEndpoints},
+		{"EnforceRegionGating", cfg.EnforceRegionGating},
+		{"ClickHouseEnabled", cfg.ClickHouseEnabled},
+		{"ClickHouseExportEnabled", cfg.ClickHouseExportEnabled},
+		{"OTLPMetricEnabled", cfg.OTLPMetricEnabled},
+		{"BillingEnforcementEnabled", cfg.BillingEnforcementEnabled},
+		{"WarmPoolEnabled", cfg.WarmPoolEnabled},
 	}
-	if cfg.HeartbeatInterval != 10*time.Second {
-		t.Fatalf("HeartbeatInterval = %v, want %v", cfg.HeartbeatInterval, 10*time.Second)
-	}
-	if cfg.ReaperInterval != 30*time.Second {
-		t.Fatalf("ReaperInterval = %v, want %v", cfg.ReaperInterval, 30*time.Second)
-	}
-	if cfg.StaleThreshold != 60*time.Second {
-		t.Fatalf("StaleThreshold = %v, want %v", cfg.StaleThreshold, 60*time.Second)
-	}
-	if cfg.PollerInterval != 5*time.Second {
-		t.Fatalf("PollerInterval = %v, want %v", cfg.PollerInterval, 5*time.Second)
-	}
-	if cfg.IndexMaintenanceInterval != 24*time.Hour {
-		t.Fatalf("IndexMaintenanceInterval = %v, want %v", cfg.IndexMaintenanceInterval, 24*time.Hour)
-	}
-	if cfg.WebhookMaxPayloadBytes != int64(1<<20) {
-		t.Fatalf("WebhookMaxPayloadBytes = %d, want %d", cfg.WebhookMaxPayloadBytes, int64(1<<20))
-	}
-	if cfg.DBMaxConns != 50 {
-		t.Fatalf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 50)
-	}
-	if cfg.DBMinConns != 10 {
-		t.Fatalf("DBMinConns = %d, want %d", cfg.DBMinConns, 10)
-	}
-	if cfg.DBMaxConnLifetime != 30*time.Minute {
-		t.Fatalf("DBMaxConnLifetime = %v, want %v", cfg.DBMaxConnLifetime, 30*time.Minute)
-	}
-	if cfg.DBMaxConnIdleTime != 5*time.Minute {
-		t.Fatalf("DBMaxConnIdleTime = %v, want %v", cfg.DBMaxConnIdleTime, 5*time.Minute)
-	}
-	if cfg.RateLimitRequests != 100 {
-		t.Fatalf("RateLimitRequests = %d, want %d", cfg.RateLimitRequests, 100)
-	}
-	if cfg.RateLimitWindow != time.Minute {
-		t.Fatalf("RateLimitWindow = %v, want %v", cfg.RateLimitWindow, time.Minute)
-	}
-	if cfg.TriggerRateLimitRequests != 10 {
-		t.Fatalf("TriggerRateLimitRequests = %d, want %d", cfg.TriggerRateLimitRequests, 10)
-	}
-	if cfg.TriggerRateLimitWindow != time.Minute {
-		t.Fatalf("TriggerRateLimitWindow = %v, want %v", cfg.TriggerRateLimitWindow, time.Minute)
-	}
-	if cfg.AdaptiveConcurrencyMin != 5 {
-		t.Fatalf("AdaptiveConcurrencyMin = %d, want %d", cfg.AdaptiveConcurrencyMin, 5)
-	}
-	if cfg.AdaptiveConcurrencyMax != 100 {
-		t.Fatalf("AdaptiveConcurrencyMax = %d, want %d", cfg.AdaptiveConcurrencyMax, 100)
+
+	for _, tt := range falseFields {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got {
+				t.Fatalf("%s = true, want false", tt.name)
+			}
+		})
 	}
 }
 
@@ -126,10 +174,7 @@ func TestLoad_RequiredFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			viper.Reset()
-			bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY")
 			tt.setEnv(t)
-
 			_, err := Load()
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tt.errorSub)
@@ -142,16 +187,7 @@ func TestLoad_RequiredFields(t *testing.T) {
 }
 
 func TestLoad_OverrideDefaults(t *testing.T) {
-	viper.Reset()
-	bindEnvKeys(
-		t,
-		"DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "PORT", "WORKER_CONCURRENCY", "MODE", "LOG_LEVEL",
-		"INDEX_MAINTENANCE_INTERVAL",
-		"ADAPTIVE_CONCURRENCY_MIN", "ADAPTIVE_CONCURRENCY_MAX",
-	)
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	setRequiredEnv(t)
 	t.Setenv("PORT", "9090")
 	t.Setenv("WORKER_CONCURRENCY", "20")
 	t.Setenv("MODE", "worker")
@@ -189,18 +225,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 }
 
 func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {
-	viper.Reset()
-	bindEnvKeys(t,
-		"DATABASE_URL",
-		"INTERNAL_SECRET",
-		"JWT_SIGNING_KEY",
-		"ENCRYPTION_KEY",
-		"ENCRYPTION_KEY_OLD",
-	)
-
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	setRequiredEnv(t)
 	t.Setenv("ENCRYPTION_KEY", "primary-key")
 	t.Setenv("ENCRYPTION_KEY_OLD", "old-key-1, old-key-2 , ,old-key-3")
 
@@ -223,12 +248,53 @@ func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {
 	}
 }
 
+func TestLoad_EncryptionKeyMirroring(t *testing.T) {
+	t.Run("encryption key fills secret encryption key", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("ENCRYPTION_KEY", "my-key")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.SecretEncryptionKey != "my-key" {
+			t.Fatalf("SecretEncryptionKey = %q, want %q", cfg.SecretEncryptionKey, "my-key")
+		}
+	})
+
+	t.Run("secret encryption key fills encryption key", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("SECRET_ENCRYPTION_KEY", "my-secret-key")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.EncryptionKey != "my-secret-key" {
+			t.Fatalf("EncryptionKey = %q, want %q", cfg.EncryptionKey, "my-secret-key")
+		}
+	})
+
+	t.Run("both set independently", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("ENCRYPTION_KEY", "enc-key")
+		t.Setenv("SECRET_ENCRYPTION_KEY", "secret-key")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.EncryptionKey != "enc-key" {
+			t.Fatalf("EncryptionKey = %q, want %q", cfg.EncryptionKey, "enc-key")
+		}
+		if cfg.SecretEncryptionKey != "secret-key" {
+			t.Fatalf("SecretEncryptionKey = %q, want %q", cfg.SecretEncryptionKey, "secret-key")
+		}
+	})
+}
+
 func TestLoad_InvalidSequinBaseURL(t *testing.T) {
-	viper.Reset()
-	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "SEQUIN_BASE_URL")
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	setRequiredEnv(t)
 	t.Setenv("SEQUIN_BASE_URL", "not-a-url")
 
 	_, err := Load()
@@ -241,11 +307,7 @@ func TestLoad_InvalidSequinBaseURL(t *testing.T) {
 }
 
 func TestLoad_ValidConfig(t *testing.T) {
-	viper.Reset()
-	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "REDIS_URL", "SEQUIN_BASE_URL")
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	setRequiredEnv(t)
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	t.Setenv("SEQUIN_BASE_URL", "https://sequin.example.com")
 
@@ -259,11 +321,7 @@ func TestLoad_ValidConfig(t *testing.T) {
 }
 
 func TestLoad_WebhookConcurrencyDefault(t *testing.T) {
-	viper.Reset()
-	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY")
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	setRequiredEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -275,11 +333,7 @@ func TestLoad_WebhookConcurrencyDefault(t *testing.T) {
 }
 
 func TestLoad_WebhookConcurrencyFromEnv(t *testing.T) {
-	viper.Reset()
-	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "WEBHOOK_CONCURRENCY")
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	setRequiredEnv(t)
 	t.Setenv("WEBHOOK_CONCURRENCY", "100")
 
 	cfg, err := Load()
@@ -292,11 +346,7 @@ func TestLoad_WebhookConcurrencyFromEnv(t *testing.T) {
 }
 
 func TestLoad_MaxBulkTriggerItemsDefault(t *testing.T) {
-	viper.Reset()
-	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY")
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	setRequiredEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -304,5 +354,659 @@ func TestLoad_MaxBulkTriggerItemsDefault(t *testing.T) {
 	}
 	if cfg.MaxBulkTriggerItems != 500 {
 		t.Errorf("MaxBulkTriggerItems = %d, want 500", cfg.MaxBulkTriggerItems)
+	}
+}
+
+func TestLoad_DurationOverrides(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("HEARTBEAT_INTERVAL", "5s")
+	t.Setenv("REAPER_INTERVAL", "1m")
+	t.Setenv("STALE_THRESHOLD", "2m")
+	t.Setenv("POLLER_INTERVAL", "10s")
+	t.Setenv("DB_MAX_CONN_LIFETIME", "1h")
+	t.Setenv("DB_MAX_CONN_IDLE_TIME", "10m")
+	t.Setenv("WEBHOOK_TIMEOUT", "30s")
+	t.Setenv("EXECUTOR_HTTP_TIMEOUT", "10m")
+	t.Setenv("WORKFLOW_RETENTION", "2160h")
+	t.Setenv("SSE_KEEPALIVE_INTERVAL", "30s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		got  time.Duration
+		want time.Duration
+	}{
+		{"HeartbeatInterval", cfg.HeartbeatInterval, 5 * time.Second},
+		{"ReaperInterval", cfg.ReaperInterval, time.Minute},
+		{"StaleThreshold", cfg.StaleThreshold, 2 * time.Minute},
+		{"PollerInterval", cfg.PollerInterval, 10 * time.Second},
+		{"DBMaxConnLifetime", cfg.DBMaxConnLifetime, time.Hour},
+		{"DBMaxConnIdleTime", cfg.DBMaxConnIdleTime, 10 * time.Minute},
+		{"WebhookTimeout", cfg.WebhookTimeout, 30 * time.Second},
+		{"ExecutorHTTPTimeout", cfg.ExecutorHTTPTimeout, 10 * time.Minute},
+		{"WorkflowRetention", cfg.WorkflowRetention, 2160 * time.Hour},
+		{"SSEKeepaliveInterval", cfg.SSEKeepaliveInterval, 30 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Fatalf("%s = %v, want %v", tt.name, tt.got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoad_Int32AndInt64Overrides(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("DB_MAX_CONNS", "100")
+	t.Setenv("DB_MIN_CONNS", "20")
+	t.Setenv("MAX_REQUEST_BODY_SIZE", "2097152")
+	t.Setenv("WEBHOOK_MAX_PAYLOAD_BYTES", "5242880")
+	t.Setenv("MAX_RESULT_SIZE", "4194304")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.DBMaxConns != 100 {
+		t.Fatalf("DBMaxConns = %d, want 100", cfg.DBMaxConns)
+	}
+	if cfg.DBMinConns != 20 {
+		t.Fatalf("DBMinConns = %d, want 20", cfg.DBMinConns)
+	}
+	if cfg.MaxRequestBodySize != 2097152 {
+		t.Fatalf("MaxRequestBodySize = %d, want 2097152", cfg.MaxRequestBodySize)
+	}
+	if cfg.WebhookMaxPayloadBytes != 5242880 {
+		t.Fatalf("WebhookMaxPayloadBytes = %d, want 5242880", cfg.WebhookMaxPayloadBytes)
+	}
+	if cfg.MaxResultSize != 4194304 {
+		t.Fatalf("MaxResultSize = %d, want 4194304", cfg.MaxResultSize)
+	}
+}
+
+func TestLoad_BoolOverrides(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("DB_PGBOUNCER_MODE", "true")
+	t.Setenv("WEBHOOK_REQUIRE_TLS", "true")
+	t.Setenv("ALLOW_PRIVATE_ENDPOINTS", "true")
+	t.Setenv("ENFORCE_REGION_GATING", "true")
+	t.Setenv("OTLP_METRIC_ENABLED", "true")
+	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !cfg.DBPgBouncerMode {
+		t.Fatal("DBPgBouncerMode = false, want true")
+	}
+	if !cfg.WebhookRequireTLS {
+		t.Fatal("WebhookRequireTLS = false, want true")
+	}
+	if !cfg.AllowPrivateEndpoints {
+		t.Fatal("AllowPrivateEndpoints = false, want true")
+	}
+	if !cfg.EnforceRegionGating {
+		t.Fatal("EnforceRegionGating = false, want true")
+	}
+	if !cfg.OTLPMetricEnabled {
+		t.Fatal("OTLPMetricEnabled = false, want true")
+	}
+	if !cfg.CORSAllowCredentials {
+		t.Fatal("CORSAllowCredentials = false, want true")
+	}
+}
+
+func TestLoad_Float64Override(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("MEMORY_PRESSURE_THRESHOLD_PCT", "85.5")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.MemoryPressureThresholdPct != 85.5 {
+		t.Fatalf("MemoryPressureThresholdPct = %f, want 85.5", cfg.MemoryPressureThresholdPct)
+	}
+}
+
+func TestLoad_SliceFields(t *testing.T) {
+	t.Run("CORS allowed origins from env", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com,https://admin.example.com")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(cfg.CORSAllowedOrigins) != 2 {
+			t.Fatalf("len(CORSAllowedOrigins) = %d, want 2", len(cfg.CORSAllowedOrigins))
+		}
+		if cfg.CORSAllowedOrigins[0] != "https://app.example.com" {
+			t.Fatalf("CORSAllowedOrigins[0] = %q, want https://app.example.com", cfg.CORSAllowedOrigins[0])
+		}
+	})
+
+	t.Run("redis sentinel addrs", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("REDIS_SENTINEL_ADDRS", "host1:26379,host2:26379,host3:26379")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(cfg.RedisSentinelAddrs) != 3 {
+			t.Fatalf("len(RedisSentinelAddrs) = %d, want 3", len(cfg.RedisSentinelAddrs))
+		}
+	})
+
+	t.Run("worker partitions", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("WORKER_PARTITIONS", "critical,default,bulk")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(cfg.WorkerPartitions) != 3 {
+			t.Fatalf("len(WorkerPartitions) = %d, want 3", len(cfg.WorkerPartitions))
+		}
+		if cfg.WorkerPartitions[0] != "critical" {
+			t.Fatalf("WorkerPartitions[0] = %q, want critical", cfg.WorkerPartitions[0])
+		}
+	})
+}
+
+func TestLoad_CDCSequinFallback(t *testing.T) {
+	t.Run("CDC uses Sequin batch size when CDC not set", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("SEQUIN_BATCH_SIZE", "50")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.CDCBatchSize != 50 {
+			t.Fatalf("CDCBatchSize = %d, want 50 (from SEQUIN_BATCH_SIZE)", cfg.CDCBatchSize)
+		}
+	})
+
+	t.Run("CDC uses Sequin wait time when CDC not set", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("SEQUIN_WAIT_TIME_MS", "10000")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.CDCWaitTimeMs != 10000 {
+			t.Fatalf("CDCWaitTimeMs = %d, want 10000 (from SEQUIN_WAIT_TIME_MS)", cfg.CDCWaitTimeMs)
+		}
+	})
+
+	t.Run("explicit CDC overrides Sequin", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CDC_BATCH_SIZE", "25")
+		t.Setenv("SEQUIN_BATCH_SIZE", "50")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.CDCBatchSize != 25 {
+			t.Fatalf("CDCBatchSize = %d, want 25 (explicit CDC_BATCH_SIZE)", cfg.CDCBatchSize)
+		}
+	})
+}
+
+func TestLoad_EventTriggerRetentionDaysLegacy(t *testing.T) {
+	t.Run("days converted to duration", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("EVENT_TRIGGER_RETENTION_DAYS", "14")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := 14 * 24 * time.Hour
+		if cfg.EventTriggerRetention != want {
+			t.Fatalf("EventTriggerRetention = %v, want %v", cfg.EventTriggerRetention, want)
+		}
+	})
+
+	t.Run("explicit duration takes precedence over days", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("EVENT_TRIGGER_RETENTION", "168h")
+		t.Setenv("EVENT_TRIGGER_RETENTION_DAYS", "14")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := 168 * time.Hour
+		if cfg.EventTriggerRetention != want {
+			t.Fatalf("EventTriggerRetention = %v, want %v (explicit duration should win)", cfg.EventTriggerRetention, want)
+		}
+	})
+}
+
+func TestLoad_OIDCValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		setEnv   func(t *testing.T)
+		errorSub string
+	}{
+		{
+			name: "OIDC enabled missing issuer",
+			setEnv: func(t *testing.T) {
+				t.Setenv("OIDC_ENABLED", "true")
+				t.Setenv("OIDC_AUDIENCE", "my-audience")
+				t.Setenv("OIDC_PUBLIC_KEY_PEM", "my-key")
+			},
+			errorSub: "OIDC_ISSUER",
+		},
+		{
+			name: "OIDC enabled missing audience",
+			setEnv: func(t *testing.T) {
+				t.Setenv("OIDC_ENABLED", "true")
+				t.Setenv("OIDC_ISSUER", "https://issuer.example.com")
+				t.Setenv("OIDC_PUBLIC_KEY_PEM", "my-key")
+			},
+			errorSub: "OIDC_AUDIENCE",
+		},
+		{
+			name: "OIDC enabled missing public key",
+			setEnv: func(t *testing.T) {
+				t.Setenv("OIDC_ENABLED", "true")
+				t.Setenv("OIDC_ISSUER", "https://issuer.example.com")
+				t.Setenv("OIDC_AUDIENCE", "my-audience")
+			},
+			errorSub: "OIDC_PUBLIC_KEY_PEM",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			tt.setEnv(t)
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tt.errorSub)
+			}
+			if !strings.Contains(err.Error(), tt.errorSub) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.errorSub)
+			}
+		})
+	}
+
+	t.Run("OIDC disabled skips validation", func(t *testing.T) {
+		setRequiredEnv(t)
+		// OIDC_ENABLED defaults to false, so no OIDC fields needed.
+		_, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("OIDC enabled with all fields", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("OIDC_ENABLED", "true")
+		t.Setenv("OIDC_ISSUER", "https://issuer.example.com")
+		t.Setenv("OIDC_AUDIENCE", "my-audience")
+		t.Setenv("OIDC_PUBLIC_KEY_PEM", "my-key-pem")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !cfg.OIDCEnabled {
+			t.Fatal("OIDCEnabled = false, want true")
+		}
+	})
+}
+
+func TestLoad_MigrationModeValidation(t *testing.T) {
+	validModes := []string{"auto", "manual", "validate"}
+	for _, mode := range validModes {
+		t.Run("valid_"+mode, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("MIGRATION_MODE", mode)
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("unexpected error for mode %q: %v", mode, err)
+			}
+			if cfg.MigrationMode != mode {
+				t.Fatalf("MigrationMode = %q, want %q", cfg.MigrationMode, mode)
+			}
+		})
+	}
+
+	t.Run("invalid mode", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("MIGRATION_MODE", "invalid")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid MIGRATION_MODE, got nil")
+		}
+		if !strings.Contains(err.Error(), "MIGRATION_MODE") {
+			t.Fatalf("error = %q, want substring MIGRATION_MODE", err.Error())
+		}
+	})
+}
+
+func TestLoad_ComputeRuntimeValidation(t *testing.T) {
+	t.Run("none runtime", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "none")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeRuntime != "none" {
+			t.Fatalf("ComputeRuntime = %q, want none", cfg.ComputeRuntime)
+		}
+	})
+
+	t.Run("docker runtime with cloud edition", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "docker")
+		t.Setenv("STRAIT_EDITION", "cloud")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeRuntime != "docker" {
+			t.Fatalf("ComputeRuntime = %q, want docker", cfg.ComputeRuntime)
+		}
+	})
+
+	t.Run("fly requires API token and app name", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "fly")
+		t.Setenv("STRAIT_EDITION", "cloud")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for fly without FLY_API_TOKEN, got nil")
+		}
+		if !strings.Contains(err.Error(), "FLY_API_TOKEN") {
+			t.Fatalf("error = %q, want substring FLY_API_TOKEN", err.Error())
+		}
+	})
+
+	t.Run("fly with all required fields", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "fly")
+		t.Setenv("FLY_API_TOKEN", "fly-token")
+		t.Setenv("FLY_APP_NAME", "my-app")
+		t.Setenv("STRAIT_EDITION", "cloud")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeRuntime != "fly" {
+			t.Fatalf("ComputeRuntime = %q, want fly", cfg.ComputeRuntime)
+		}
+	})
+
+	t.Run("invalid runtime", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "kubernetes")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid COMPUTE_RUNTIME, got nil")
+		}
+		if !strings.Contains(err.Error(), "COMPUTE_RUNTIME") {
+			t.Fatalf("error = %q, want substring COMPUTE_RUNTIME", err.Error())
+		}
+	})
+
+	t.Run("community edition overrides non-none runtime", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "docker")
+		t.Setenv("STRAIT_EDITION", "community")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeRuntime != "none" {
+			t.Fatalf("ComputeRuntime = %q, want none (community edition override)", cfg.ComputeRuntime)
+		}
+	})
+}
+
+func TestLoad_ClickHouseValidation(t *testing.T) {
+	t.Run("enabled without URL fails", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CLICKHOUSE_ENABLED", "true")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for CLICKHOUSE_ENABLED without URL, got nil")
+		}
+		if !strings.Contains(err.Error(), "CLICKHOUSE_URL") {
+			t.Fatalf("error = %q, want substring CLICKHOUSE_URL", err.Error())
+		}
+	})
+
+	t.Run("enabled with URL succeeds", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CLICKHOUSE_ENABLED", "true")
+		t.Setenv("CLICKHOUSE_URL", "clickhouse://localhost:9000")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !cfg.ClickHouseEnabled {
+			t.Fatal("ClickHouseEnabled = false, want true")
+		}
+		if cfg.ClickHouseURL != "clickhouse://localhost:9000" {
+			t.Fatalf("ClickHouseURL = %q, want clickhouse://localhost:9000", cfg.ClickHouseURL)
+		}
+	})
+}
+
+func TestLoad_SequinBaseURLValidation(t *testing.T) {
+	t.Run("valid HTTPS URL", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("SEQUIN_BASE_URL", "https://sequin.example.com")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.SequinBaseURL != "https://sequin.example.com" {
+			t.Fatalf("SequinBaseURL = %q, want https://sequin.example.com", cfg.SequinBaseURL)
+		}
+	})
+
+	t.Run("valid HTTP URL", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("SEQUIN_BASE_URL", "http://localhost:8080")
+
+		_, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("invalid URL rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("SEQUIN_BASE_URL", "not-a-url")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid SEQUIN_BASE_URL, got nil")
+		}
+	})
+
+	t.Run("empty URL is allowed", func(t *testing.T) {
+		setRequiredEnv(t)
+
+		_, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestLoad_StringOverrides(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("SENTRY_DSN", "https://sentry.io/123")
+	t.Setenv("SENTRY_ENVIRONMENT", "production")
+	t.Setenv("RESEND_API_KEY", "re_123")
+	t.Setenv("RESEND_FROM_EMAIL", "support@strait.dev")
+	t.Setenv("STRAIT_EDITION", "cloud")
+	t.Setenv("DEQUEUE_STRATEGY", "round_robin")
+	t.Setenv("WORKER_PARTITION_WEIGHTS", "critical:3,default:1")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.SentryDSN != "https://sentry.io/123" {
+		t.Fatalf("SentryDSN = %q, want https://sentry.io/123", cfg.SentryDSN)
+	}
+	if cfg.SentryEnvironment != "production" {
+		t.Fatalf("SentryEnvironment = %q, want production", cfg.SentryEnvironment)
+	}
+	if cfg.ResendAPIKey != "re_123" {
+		t.Fatalf("ResendAPIKey = %q, want re_123", cfg.ResendAPIKey)
+	}
+	if cfg.ResendFromEmail != "support@strait.dev" {
+		t.Fatalf("ResendFromEmail = %q, want support@strait.dev", cfg.ResendFromEmail)
+	}
+	if cfg.Edition != "cloud" {
+		t.Fatalf("Edition = %q, want cloud", cfg.Edition)
+	}
+	if cfg.DequeueStrategy != "round_robin" {
+		t.Fatalf("DequeueStrategy = %q, want round_robin", cfg.DequeueStrategy)
+	}
+	if cfg.WorkerPartitionWeights != "critical:3,default:1" {
+		t.Fatalf("WorkerPartitionWeights = %q, want critical:3,default:1", cfg.WorkerPartitionWeights)
+	}
+}
+
+func TestLoad_PolarBillingFields(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("POLAR_ACCESS_TOKEN", "pat_123")
+	t.Setenv("POLAR_API_WEBHOOK_SECRET", "whsec_123")
+	t.Setenv("POLAR_SERVER", "https://polar.sh")
+	t.Setenv("POLAR_STARTER_MONTHLY_ID", "price_starter_m")
+	t.Setenv("POLAR_STARTER_YEARLY_ID", "price_starter_y")
+	t.Setenv("POLAR_PRO_MONTHLY_ID", "price_pro_m")
+	t.Setenv("POLAR_PRO_YEARLY_ID", "price_pro_y")
+	t.Setenv("BILLING_ENFORCEMENT_ENABLED", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.PolarAccessToken != "pat_123" {
+		t.Fatalf("PolarAccessToken = %q, want pat_123", cfg.PolarAccessToken)
+	}
+	if cfg.PolarWebhookSecret != "whsec_123" {
+		t.Fatalf("PolarWebhookSecret = %q, want whsec_123", cfg.PolarWebhookSecret)
+	}
+	if cfg.PolarServer != "https://polar.sh" {
+		t.Fatalf("PolarServer = %q, want https://polar.sh", cfg.PolarServer)
+	}
+	if !cfg.BillingEnforcementEnabled {
+		t.Fatal("BillingEnforcementEnabled = false, want true")
+	}
+}
+
+func TestLoad_ManagedExecutionFields(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("COMPUTE_RUNTIME", "fly")
+	t.Setenv("FLY_API_TOKEN", "fly-token")
+	t.Setenv("FLY_APP_NAME", "my-app")
+	t.Setenv("FLY_REGION", "lax")
+	t.Setenv("EXTERNAL_API_URL", "https://api.strait.dev")
+	t.Setenv("MAX_CONCURRENT_MACHINES", "25")
+	t.Setenv("WARM_POOL_ENABLED", "true")
+	t.Setenv("WARM_POOL_MAX_PER_JOB", "3")
+	t.Setenv("WARM_POOL_TTL", "10m")
+	t.Setenv("STRAIT_EDITION", "cloud")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.FlyRegion != "lax" {
+		t.Fatalf("FlyRegion = %q, want lax", cfg.FlyRegion)
+	}
+	if cfg.ExternalAPIURL != "https://api.strait.dev" {
+		t.Fatalf("ExternalAPIURL = %q, want https://api.strait.dev", cfg.ExternalAPIURL)
+	}
+	if cfg.MaxConcurrentMachines != 25 {
+		t.Fatalf("MaxConcurrentMachines = %d, want 25", cfg.MaxConcurrentMachines)
+	}
+	if !cfg.WarmPoolEnabled {
+		t.Fatal("WarmPoolEnabled = false, want true")
+	}
+	if cfg.WarmPoolMaxPerJob != 3 {
+		t.Fatalf("WarmPoolMaxPerJob = %d, want 3", cfg.WarmPoolMaxPerJob)
+	}
+	if cfg.WarmPoolTTL != 10*time.Minute {
+		t.Fatalf("WarmPoolTTL = %v, want 10m", cfg.WarmPoolTTL)
+	}
+}
+
+func TestParseCSVEnv(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  []string
+	}{
+		{"empty", "", nil},
+		{"single", "key1", []string{"key1"}},
+		{"multiple", "key1,key2,key3", []string{"key1", "key2", "key3"}},
+		{"with spaces", "key1, key2 , key3", []string{"key1", "key2", "key3"}},
+		{"with empty entries", "key1,,key2, ,key3", []string{"key1", "key2", "key3"}},
+		{"leading trailing spaces", "  key1, key2  ", []string{"key1", "key2"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			envKey := "TEST_CSV_" + strings.ToUpper(tt.name)
+			if tt.value != "" {
+				t.Setenv(envKey, tt.value)
+			}
+			got := parseCSVEnv(envKey)
+			if tt.value == "" {
+				if len(got) != 0 {
+					t.Fatalf("parseCSVEnv(%q) = %v, want empty", envKey, got)
+				}
+				return
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("parseCSVEnv(%q) len = %d, want %d; got %v", envKey, len(got), len(tt.want), got)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("parseCSVEnv(%q)[%d] = %q, want %q", envKey, i, got[i], tt.want[i])
+				}
+			}
+		})
 	}
 }

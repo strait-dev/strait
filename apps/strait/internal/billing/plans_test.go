@@ -144,6 +144,40 @@ func TestPaidTierCredits(t *testing.T) {
 	}
 }
 
+func TestIsDowngrade(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		from domain.PlanTier
+		to   domain.PlanTier
+		want bool
+	}{
+		{"pro_to_starter", domain.PlanPro, domain.PlanStarter, true},
+		{"pro_to_free", domain.PlanPro, domain.PlanFree, true},
+		{"starter_to_free", domain.PlanStarter, domain.PlanFree, true},
+		{"enterprise_to_pro", domain.PlanEnterprise, domain.PlanPro, true},
+		{"enterprise_to_free", domain.PlanEnterprise, domain.PlanFree, true},
+		{"starter_to_pro", domain.PlanStarter, domain.PlanPro, false},
+		{"free_to_starter", domain.PlanFree, domain.PlanStarter, false},
+		{"free_to_pro", domain.PlanFree, domain.PlanPro, false},
+		{"free_to_enterprise", domain.PlanFree, domain.PlanEnterprise, false},
+		{"same_free", domain.PlanFree, domain.PlanFree, false},
+		{"same_pro", domain.PlanPro, domain.PlanPro, false},
+		{"same_enterprise", domain.PlanEnterprise, domain.PlanEnterprise, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := IsDowngrade(tt.from, tt.to)
+			if got != tt.want {
+				t.Errorf("IsDowngrade(%s, %s) = %v, want %v", tt.from, tt.to, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAllPlansHaveEntries(t *testing.T) {
 	t.Parallel()
 	tiers := []domain.PlanTier{

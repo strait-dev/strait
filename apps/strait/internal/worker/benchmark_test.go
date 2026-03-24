@@ -25,7 +25,7 @@ func BenchmarkCircuitBreakerRecordSuccess(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		cb.RecordSuccess()
 	}
 }
@@ -36,7 +36,7 @@ func BenchmarkCircuitBreakerRecordFailure(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		cb.RecordFailure()
 	}
 }
@@ -48,7 +48,7 @@ func BenchmarkPoolSubmit(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		p.Submit(ctx, func() {})
 	}
 
@@ -62,7 +62,7 @@ func BenchmarkValidateEndpointURL(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		if err := validateEndpointURL(endpoint); err != nil {
 			b.Fatalf("validateEndpointURL() error = %v", err)
 		}

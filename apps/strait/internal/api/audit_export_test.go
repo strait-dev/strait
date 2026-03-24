@@ -38,8 +38,8 @@ func newTestServerWithEncryptionKey(t *testing.T, s APIStore, encryptionKey stri
 func TestAuditExport_JSON_IncludesSignature(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
-	ms := &mockAPIStore{
-		streamAuditEventsFn: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
+	ms := &APIStoreMock{
+		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
 			ev := &domain.AuditEvent{
 				ID: "ev-1", ProjectID: "proj-1", ActorID: "user-1", ActorType: "user",
 				Action: "job.created", ResourceType: "job", ResourceID: "job-1",
@@ -69,8 +69,8 @@ func TestAuditExport_JSON_IncludesSignature(t *testing.T) {
 
 func TestAuditExport_NoSigningKey_SkipsSignature(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		streamAuditEventsFn: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
+	ms := &APIStoreMock{
+		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
 			return fn(&domain.AuditEvent{ID: "ev-1", ProjectID: "proj-1", CreatedAt: time.Now()})
 		},
 	}
@@ -93,8 +93,8 @@ func TestAuditExport_NoSigningKey_SkipsSignature(t *testing.T) {
 func TestAuditExport_SignatureVerifies(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
-	ms := &mockAPIStore{
-		streamAuditEventsFn: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
+	ms := &APIStoreMock{
+		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
 			return fn(&domain.AuditEvent{
 				ID: "ev-1", ProjectID: "proj-1", ActorID: "user-1", ActorType: "user",
 				Action: "job.created", ResourceType: "job", ResourceID: "job-1",

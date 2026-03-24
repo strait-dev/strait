@@ -49,6 +49,8 @@ type unaryCondition struct {
 // EvaluateCondition evaluates a workflow step condition against current step statuses.
 // Returns true if the condition is met and the step should run.
 // Returns true if cond is nil or empty (unconditional step).
+//
+//nolint:gocognit,gocyclo,cyclop,funlen
 func EvaluateCondition(cond json.RawMessage, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
 	if len(cond) == 0 {
 		return true, nil

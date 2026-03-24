@@ -1,14 +1,14 @@
 package api
 
 import (
+	"context"
 	"errors"
-	"net/http"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
 type CreateJobGroupRequest struct {
@@ -17,91 +17,76 @@ type CreateJobGroupRequest struct {
 	Slug        string `json:"slug" validate:"required"`
 	Description string `json:"description,omitempty"`
 }
-
 type UpdateJobGroupRequest struct {
 	Name        *string `json:"name,omitempty"`
 	Slug        *string `json:"slug,omitempty"`
 	Description *string `json:"description,omitempty"`
 }
 
-func (s *Server) handleCreateJobGroup(w http.ResponseWriter, r *http.Request) {
-	var req CreateJobGroupRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+type CreateJobGroupInput struct{ Body CreateJobGroupRequest }
+type CreateJobGroupOutput struct{ Body *domain.JobGroup }
 
-	if !s.validateRequest(w, r, &req) {
-		return
+func (s *Server) handleCreateJobGroup(ctx context.Context, input *CreateJobGroupInput) (*CreateJobGroupOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
-
-	group := &domain.JobGroup{
-		ProjectID:   req.ProjectID,
-		Name:        req.Name,
-		Slug:        req.Slug,
-		Description: req.Description,
+	group := &domain.JobGroup{ProjectID: req.ProjectID, Name: req.Name, Slug: req.Slug, Description: req.Description}
+	if err := s.store.CreateJobGroup(ctx, group); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create job group")
 	}
-
-	if err := s.store.CreateJobGroup(r.Context(), group); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create job group")
-		return
-	}
-
-	respondJSON(w, http.StatusCreated, group)
+	return &CreateJobGroupOutput{Body: group}, nil
 }
 
-func (s *Server) handleGetJobGroup(w http.ResponseWriter, r *http.Request) {
-	groupID := chi.URLParam(r, "groupID")
-	group, err := s.store.GetJobGroup(r.Context(), groupID)
+type GetJobGroupInput struct {
+	GroupID string `path:"groupID"`
+}
+type GetJobGroupOutput struct{ Body *domain.JobGroup }
+
+func (s *Server) handleGetJobGroup(ctx context.Context, input *GetJobGroupInput) (*GetJobGroupOutput, error) {
+	group, err := s.store.GetJobGroup(ctx, input.GroupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, r, http.StatusNotFound, "job group not found")
-			return
+			return nil, huma.Error404NotFound("job group not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job group")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job group")
 	}
-
-	respondJSON(w, http.StatusOK, group)
+	return &GetJobGroupOutput{Body: group}, nil
 }
 
-func (s *Server) handleListJobGroups(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
-
-	limit, cursor, err := parsePaginationParams(r)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	groups, err := s.store.ListJobGroups(r.Context(), projectID, limit+1, cursor)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list job groups")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(groups, limit, func(g domain.JobGroup) string {
-		return g.CreatedAt.Format(time.RFC3339Nano)
-	}))
+type ListJobGroupsInput struct {
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
 }
-func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
-	groupID := chi.URLParam(r, "groupID")
-	group, err := s.store.GetJobGroup(r.Context(), groupID)
+type ListJobGroupsOutput struct{ Body PaginatedResponse }
+
+func (s *Server) handleListJobGroups(ctx context.Context, input *ListJobGroupsInput) (*ListJobGroupsOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
+	if err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	groups, err := s.store.ListJobGroups(ctx, projectIDFromContext(ctx), limit+1, cursor)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list job groups")
+	}
+	return &ListJobGroupsOutput{Body: paginatedResult(groups, limit, func(g domain.JobGroup) string { return g.CreatedAt.Format(time.RFC3339Nano) })}, nil
+}
+
+type UpdateJobGroupInput struct {
+	GroupID string `path:"groupID"`
+	Body    UpdateJobGroupRequest
+}
+type UpdateJobGroupOutput struct{ Body *domain.JobGroup }
+
+func (s *Server) handleUpdateJobGroup(ctx context.Context, input *UpdateJobGroupInput) (*UpdateJobGroupOutput, error) {
+	group, err := s.store.GetJobGroup(ctx, input.GroupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, r, http.StatusNotFound, "job group not found")
-			return
+			return nil, huma.Error404NotFound("job group not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job group")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job group")
 	}
-
-	var req UpdateJobGroupRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
+	req := input.Body
 	if req.Name != nil {
 		group.Name = *req.Name
 	}
@@ -111,92 +96,90 @@ func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
 	if req.Description != nil {
 		group.Description = *req.Description
 	}
-
-	if err := s.store.UpdateJobGroup(r.Context(), group); err != nil {
+	if err := s.store.UpdateJobGroup(ctx, group); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, r, http.StatusNotFound, "job group not found")
-			return
+			return nil, huma.Error404NotFound("job group not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to update job group")
-		return
+		return nil, huma.Error500InternalServerError("failed to update job group")
 	}
-
-	respondJSON(w, http.StatusOK, group)
+	return &UpdateJobGroupOutput{Body: group}, nil
 }
 
-func (s *Server) handleDeleteJobGroup(w http.ResponseWriter, r *http.Request) {
-	groupID := chi.URLParam(r, "groupID")
-	if err := s.store.DeleteJobGroup(r.Context(), groupID); err != nil {
-		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, r, http.StatusNotFound, "job group not found")
-			return
-		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete job group")
-		return
-	}
-
-	respondJSON(w, http.StatusNoContent, nil)
+type DeleteJobGroupInput struct {
+	GroupID string `path:"groupID"`
 }
 
-func (s *Server) handleListJobsByGroup(w http.ResponseWriter, r *http.Request) {
-	groupID := chi.URLParam(r, "groupID")
+func (s *Server) handleDeleteJobGroup(ctx context.Context, input *DeleteJobGroupInput) (*struct{}, error) {
+	if err := s.store.DeleteJobGroup(ctx, input.GroupID); err != nil {
+		if errors.Is(err, store.ErrJobGroupNotFound) {
+			return nil, huma.Error404NotFound("job group not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to delete job group")
+	}
+	return nil, nil
+}
 
-	limit, cursor, err := parsePaginationParams(r)
+type ListJobsByGroupInput struct {
+	GroupID string `path:"groupID"`
+	Limit   string `query:"limit"`
+	Cursor  string `query:"cursor"`
+}
+type ListJobsByGroupOutput struct{ Body PaginatedResponse }
+
+func (s *Server) handleListJobsByGroup(ctx context.Context, input *ListJobsByGroupInput) (*ListJobsByGroupOutput, error) {
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	jobs, err := s.store.ListJobsByGroup(r.Context(), groupID, limit+1, cursor)
+	jobs, err := s.store.ListJobsByGroup(ctx, input.GroupID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list jobs by group")
-		return
+		return nil, huma.Error500InternalServerError("failed to list jobs by group")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(jobs, limit, func(j domain.Job) string {
-		return j.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	return &ListJobsByGroupOutput{Body: paginatedResult(jobs, limit, func(j domain.Job) string { return j.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-func (s *Server) handlePauseAllJobsByGroup(w http.ResponseWriter, r *http.Request) {
-	groupID := chi.URLParam(r, "groupID")
-	if err := s.store.PauseJobsByGroup(r.Context(), groupID); err != nil {
+type PauseAllJobsByGroupInput struct {
+	GroupID string `path:"groupID"`
+}
+type PauseAllJobsByGroupOutput struct{ Body map[string]string }
+
+func (s *Server) handlePauseAllJobsByGroup(ctx context.Context, input *PauseAllJobsByGroupInput) (*PauseAllJobsByGroupOutput, error) {
+	if err := s.store.PauseJobsByGroup(ctx, input.GroupID); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, r, http.StatusNotFound, "job group not found")
-			return
+			return nil, huma.Error404NotFound("job group not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to pause jobs in group")
-		return
+		return nil, huma.Error500InternalServerError("failed to pause jobs in group")
 	}
-
-	respondJSON(w, http.StatusOK, map[string]string{"status": "paused"})
+	return &PauseAllJobsByGroupOutput{Body: map[string]string{"status": "paused"}}, nil
 }
 
-func (s *Server) handleResumeAllJobsByGroup(w http.ResponseWriter, r *http.Request) {
-	groupID := chi.URLParam(r, "groupID")
-	if err := s.store.ResumeJobsByGroup(r.Context(), groupID); err != nil {
+type ResumeAllJobsByGroupInput struct {
+	GroupID string `path:"groupID"`
+}
+type ResumeAllJobsByGroupOutput struct{ Body map[string]string }
+
+func (s *Server) handleResumeAllJobsByGroup(ctx context.Context, input *ResumeAllJobsByGroupInput) (*ResumeAllJobsByGroupOutput, error) {
+	if err := s.store.ResumeJobsByGroup(ctx, input.GroupID); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, r, http.StatusNotFound, "job group not found")
-			return
+			return nil, huma.Error404NotFound("job group not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to resume jobs in group")
-		return
+		return nil, huma.Error500InternalServerError("failed to resume jobs in group")
 	}
-
-	respondJSON(w, http.StatusOK, map[string]string{"status": "resumed"})
+	return &ResumeAllJobsByGroupOutput{Body: map[string]string{"status": "resumed"}}, nil
 }
 
-func (s *Server) handleGetJobGroupStats(w http.ResponseWriter, r *http.Request) {
-	groupID := chi.URLParam(r, "groupID")
-	stats, err := s.store.GetJobGroupStats(r.Context(), groupID)
+type GetJobGroupStatsInput struct {
+	GroupID string `path:"groupID"`
+}
+type GetJobGroupStatsOutput struct{ Body any }
+
+func (s *Server) handleGetJobGroupStats(ctx context.Context, input *GetJobGroupStatsInput) (*GetJobGroupStatsOutput, error) {
+	stats, err := s.store.GetJobGroupStats(ctx, input.GroupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, r, http.StatusNotFound, "job group not found")
-			return
+			return nil, huma.Error404NotFound("job group not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job group stats")
-		return
+		return nil, huma.Error500InternalServerError("failed to get job group stats")
 	}
-
-	respondJSON(w, http.StatusOK, stats)
+	return &GetJobGroupStatsOutput{Body: stats}, nil
 }

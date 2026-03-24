@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -11,16 +12,14 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/danielgtaylor/huma/v2"
 )
 
 const (
-	// deviceCodeExpiresIn is how long a device code is valid (seconds).
-	deviceCodeExpiresIn = 900
-	// deviceCodePollInterval is the recommended polling interval (seconds).
+	deviceCodeExpiresIn    = 900
 	deviceCodePollInterval = 5
 )
-
-// userCodeAlphabet excludes ambiguous characters: 0, O, 1, l, I.
 const userCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 type deviceCodeResponse struct {
@@ -30,24 +29,20 @@ type deviceCodeResponse struct {
 	ExpiresIn       int    `json:"expires_in"`
 	Interval        int    `json:"interval"`
 }
-
 type deviceTokenRequest struct {
 	DeviceCode string `json:"device_code"`
 	GrantType  string `json:"grant_type"`
 }
-
 type deviceTokenResponse struct {
 	APIKey    string   `json:"api_key"`
 	ProjectID string   `json:"project_id"`
 	Scopes    []string `json:"scopes"`
 }
-
 type approveDeviceCodeRequest struct {
 	DeviceCode string `json:"device_code" validate:"required"`
 	ProjectID  string `json:"project_id" validate:"required"`
 }
 
-// generateDeviceCode creates a cryptographically random 32-byte hex string.
 func generateDeviceCode() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -55,8 +50,6 @@ func generateDeviceCode() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
-
-// generateUserCode creates an 8-character code from the unambiguous alphabet.
 func generateUserCode() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
@@ -69,180 +62,100 @@ func generateUserCode() (string, error) {
 	return string(code), nil
 }
 
-// handleDeviceCode handles POST /v1/cli/auth/device-code.
-// It generates a device code and user code, stores them, and returns
-// the codes to the CLI so the user can authorize in their browser.
-func (s *Server) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
-	deviceCode, err := generateDeviceCode()
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to generate device code")
-		return
-	}
+type DeviceCodeInput struct{}
+type DeviceCodeOutput struct{ Body deviceCodeResponse }
 
-	userCode, err := generateUserCode()
+func (s *Server) handleDeviceCode(ctx context.Context, _ *DeviceCodeInput) (*DeviceCodeOutput, error) {
+	dc, err := generateDeviceCode()
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to generate user code")
-		return
+		return nil, huma.Error500InternalServerError("failed to generate device code")
 	}
-
+	uc, err := generateUserCode()
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to generate user code")
+	}
 	expiresAt := time.Now().Add(deviceCodeExpiresIn * time.Second)
-
-	// Store with empty project_id and scopes; these are set during approval.
-	if err := s.store.CreateDeviceCode(r.Context(), deviceCode, userCode, "", []string{}, expiresAt); err != nil {
+	if err := s.store.CreateDeviceCode(ctx, dc, uc, "", []string{}, expiresAt); err != nil {
 		slog.Error("failed to create device code", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to create device code")
-		return
+		return nil, huma.Error500InternalServerError("failed to create device code")
 	}
-
-	respondJSON(w, http.StatusOK, deviceCodeResponse{
-		DeviceCode:      deviceCode,
-		UserCode:        userCode,
-		VerificationURL: "/cli/authorize",
-		ExpiresIn:       deviceCodeExpiresIn,
-		Interval:        deviceCodePollInterval,
-	})
+	return &DeviceCodeOutput{Body: deviceCodeResponse{DeviceCode: dc, UserCode: uc, VerificationURL: "/cli/authorize", ExpiresIn: deviceCodeExpiresIn, Interval: deviceCodePollInterval}}, nil
 }
 
-// handleDeviceToken handles POST /v1/cli/auth/token.
-// The CLI polls this endpoint with a device_code until the code is approved.
-func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
-	var req deviceTokenRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+type DeviceTokenInput struct{ Body deviceTokenRequest }
+type DeviceTokenOutput struct{ Body any }
 
+func (s *Server) handleDeviceToken(ctx context.Context, input *DeviceTokenInput) (*DeviceTokenOutput, error) {
+	req := input.Body
 	if req.DeviceCode == "" {
-		respondError(w, r, http.StatusBadRequest, "device_code is required")
-		return
+		return nil, huma.Error400BadRequest("device_code is required")
 	}
-
 	if req.GrantType != "device_code" {
-		respondError(w, r, http.StatusBadRequest, "grant_type must be device_code")
-		return
+		return nil, huma.Error400BadRequest("grant_type must be device_code")
 	}
-
-	row, err := s.store.GetDeviceCodeByDeviceCode(r.Context(), req.DeviceCode)
+	row, err := s.store.GetDeviceCodeByDeviceCode(ctx, req.DeviceCode)
 	if err != nil {
 		if errors.Is(err, store.ErrDeviceCodeNotFound) {
-			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "expired_token"})
-			return
+			return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "expired_token"}}
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to look up device code")
-		return
+		return nil, huma.Error500InternalServerError("failed to look up device code")
 	}
-
-	// Check expiration regardless of status.
 	if time.Now().After(row.ExpiresAt) {
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "expired_token"})
-		return
+		return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "expired_token"}}
 	}
-
 	switch row.Status {
 	case "pending":
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "authorization_pending"})
-		return
-
+		return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "authorization_pending"}}
 	case "approved":
-		// Capture the raw key before exchange clears it.
 		rawKey := row.RawAPIKey
 		projectID := row.ProjectID
-
-		_, exchangeErr := s.store.ExchangeDeviceCode(r.Context(), req.DeviceCode)
+		_, exchangeErr := s.store.ExchangeDeviceCode(ctx, req.DeviceCode)
 		if exchangeErr != nil {
 			if errors.Is(exchangeErr, store.ErrDeviceCodeNotFound) {
-				respondJSON(w, http.StatusBadRequest, map[string]string{"error": "token_already_exchanged"})
-				return
+				return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "token_already_exchanged"}}
 			}
-			respondError(w, r, http.StatusInternalServerError, "failed to exchange device code")
-			return
+			return nil, huma.Error500InternalServerError("failed to exchange device code")
 		}
-
-		respondJSON(w, http.StatusOK, deviceTokenResponse{
-			APIKey:    rawKey,
-			ProjectID: projectID,
-			Scopes:    row.Scopes,
-		})
-		return
-
+		return &DeviceTokenOutput{Body: deviceTokenResponse{APIKey: rawKey, ProjectID: projectID, Scopes: row.Scopes}}, nil
 	case "used":
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "token_already_exchanged"})
-		return
-
+		return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "token_already_exchanged"}}
 	default:
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "expired_token"})
-		return
+		return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "expired_token"}}
 	}
 }
 
-// handleApproveDeviceCode handles POST /v1/cli/auth/approve.
-// This is called by the web app (authenticated) to approve a device code
-// and create a scoped API key for the CLI.
-func (s *Server) handleApproveDeviceCode(w http.ResponseWriter, r *http.Request) {
-	var req approveDeviceCodeRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+type ApproveDeviceCodeInput struct{ Body approveDeviceCodeRequest }
+type ApproveDeviceCodeOutput struct{ Body map[string]string }
 
-	if !s.validateRequest(w, r, &req) {
-		return
+func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDeviceCodeInput) (*ApproveDeviceCodeOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
-
-	// Verify the device code exists and is pending.
-	row, err := s.store.GetDeviceCodeByDeviceCode(r.Context(), req.DeviceCode)
+	row, err := s.store.GetDeviceCodeByDeviceCode(ctx, req.DeviceCode)
 	if err != nil {
 		if errors.Is(err, store.ErrDeviceCodeNotFound) {
-			respondError(w, r, http.StatusNotFound, "device code not found")
-			return
+			return nil, huma.Error404NotFound("device code not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to look up device code")
-		return
+		return nil, huma.Error500InternalServerError("failed to look up device code")
 	}
-
 	if row.Status != "pending" {
-		respondError(w, r, http.StatusConflict, "device code is not pending")
-		return
+		return nil, huma.Error409Conflict("device code is not pending")
 	}
-
 	if time.Now().After(row.ExpiresAt) {
-		respondError(w, r, http.StatusBadRequest, "device code has expired")
-		return
+		return nil, huma.Error400BadRequest("device code has expired")
 	}
-
-	// Generate a new API key for the CLI session.
 	rawKey, err := generateAPIKey()
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to generate api key")
-		return
+		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-
-	apiKey := &domain.APIKey{
-		ProjectID: req.ProjectID,
-		Name:      "CLI (device-code " + row.UserCode + ")",
-		KeyHash:   hashAPIKey(rawKey),
-		KeyPrefix: rawKey[:12],
-		Scopes:    []string{},
+	apiKey := &domain.APIKey{ProjectID: req.ProjectID, Name: "CLI (device-code " + row.UserCode + ")", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: []string{}}
+	if err := s.store.CreateAPIKey(ctx, apiKey); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
-
-	if err := s.store.CreateAPIKey(r.Context(), apiKey); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create api key")
-		return
+	if err := s.store.ApproveDeviceCode(ctx, req.DeviceCode, apiKey.ID, rawKey); err != nil {
+		return nil, huma.Error500InternalServerError("failed to approve device code")
 	}
-
-	// Approve the device code and store the raw key for the token exchange.
-	if err := s.store.ApproveDeviceCode(r.Context(), req.DeviceCode, apiKey.ID, rawKey); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to approve device code")
-		return
-	}
-
-	slog.Info("device code approved",
-		"device_code_id", row.ID,
-		"user_code", row.UserCode,
-		"api_key_id", apiKey.ID,
-		"project_id", req.ProjectID,
-		"actor", actorFromContext(r.Context()),
-	)
-
-	respondJSON(w, http.StatusOK, map[string]string{"status": "approved"})
+	slog.Info("device code approved", "device_code_id", row.ID, "user_code", row.UserCode, "api_key_id", apiKey.ID, "project_id", req.ProjectID, "actor", actorFromContext(ctx))
+	return &ApproveDeviceCodeOutput{Body: map[string]string{"status": "approved"}}, nil
 }

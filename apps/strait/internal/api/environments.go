@@ -1,14 +1,14 @@
 package api
 
 import (
+	"context"
 	"errors"
-	"net/http"
 	"time"
+
+	"github.com/danielgtaylor/huma/v2"
 
 	"strait/internal/domain"
 	"strait/internal/store"
-
-	"github.com/go-chi/chi/v5"
 )
 
 type CreateEnvironmentRequest struct {
@@ -31,15 +31,21 @@ type EnvironmentResponse struct {
 	ResolvedVariables map[string]string `json:"resolved_variables,omitempty"`
 }
 
-func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request) {
-	var req CreateEnvironmentRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+// CreateEnvironmentInput is the typed input for creating an environment.
+type CreateEnvironmentInput struct {
+	Body CreateEnvironmentRequest
+}
 
-	if !s.validateRequest(w, r, &req) {
-		return
+// CreateEnvironmentOutput is the typed output for creating an environment.
+type CreateEnvironmentOutput struct {
+	Body *domain.Environment
+}
+
+func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvironmentInput) (*CreateEnvironmentOutput, error) {
+	req := input.Body
+
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	env := &domain.Environment{
@@ -50,79 +56,96 @@ func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request)
 		Variables: req.Variables,
 	}
 
-	if err := s.store.CreateEnvironment(r.Context(), env); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create environment")
-		return
+	if err := s.store.CreateEnvironment(ctx, env); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create environment")
 	}
 
-	respondJSON(w, http.StatusCreated, env)
+	return &CreateEnvironmentOutput{Body: env}, nil
 }
 
-func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
-	envID := chi.URLParam(r, "envID")
-	env, err := s.store.GetEnvironment(r.Context(), envID)
+// GetEnvironmentInput is the typed input for getting an environment.
+type GetEnvironmentInput struct {
+	EnvID string `path:"envID"`
+}
+
+// GetEnvironmentOutput is the typed output for getting an environment.
+type GetEnvironmentOutput struct {
+	Body EnvironmentResponse
+}
+
+func (s *Server) handleGetEnvironment(ctx context.Context, input *GetEnvironmentInput) (*GetEnvironmentOutput, error) {
+	env, err := s.store.GetEnvironment(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, r, http.StatusNotFound, "environment not found")
-			return
+			return nil, huma.Error404NotFound("environment not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get environment")
-		return
+		return nil, huma.Error500InternalServerError("failed to get environment")
 	}
 
-	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(r.Context(), envID)
+	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, r, http.StatusNotFound, "environment not found")
-			return
+			return nil, huma.Error404NotFound("environment not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to resolve environment variables")
-		return
+		return nil, huma.Error500InternalServerError("failed to resolve environment variables")
 	}
 
-	respondJSON(w, http.StatusOK, EnvironmentResponse{
+	return &GetEnvironmentOutput{Body: EnvironmentResponse{
 		Environment:       *env,
 		ResolvedVariables: resolvedVariables,
-	})
+	}}, nil
 }
 
-func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+// ListEnvironmentsInput is the typed input for listing environments.
+type ListEnvironmentsInput struct {
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
 
-	limit, cursor, err := parsePaginationParams(r)
+// ListEnvironmentsOutput is the typed output for listing environments.
+type ListEnvironmentsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListEnvironments(ctx context.Context, input *ListEnvironmentsInput) (*ListEnvironmentsOutput, error) {
+	projectID := projectIDFromContext(ctx)
+
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	envs, err := s.store.ListEnvironments(r.Context(), projectID, limit+1, cursor)
+	envs, err := s.store.ListEnvironments(ctx, projectID, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list environments")
-		return
+		return nil, huma.Error500InternalServerError("failed to list environments")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(envs, limit, func(e domain.Environment) string {
+	return &ListEnvironmentsOutput{Body: paginatedResult(envs, limit, func(e domain.Environment) string {
 		return e.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
-func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request) {
-	envID := chi.URLParam(r, "envID")
-	env, err := s.store.GetEnvironment(r.Context(), envID)
+
+// UpdateEnvironmentInput is the typed input for updating an environment.
+type UpdateEnvironmentInput struct {
+	EnvID string `path:"envID"`
+	Body  UpdateEnvironmentRequest
+}
+
+// UpdateEnvironmentOutput is the typed output for updating an environment.
+type UpdateEnvironmentOutput struct {
+	Body *domain.Environment
+}
+
+func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvironmentInput) (*UpdateEnvironmentOutput, error) {
+	env, err := s.store.GetEnvironment(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, r, http.StatusNotFound, "environment not found")
-			return
+			return nil, huma.Error404NotFound("environment not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get environment")
-		return
+		return nil, huma.Error500InternalServerError("failed to get environment")
 	}
 
-	var req UpdateEnvironmentRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
+	req := input.Body
 	if req.Name != nil {
 		env.Name = *req.Name
 	}
@@ -136,47 +159,53 @@ func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request)
 		env.Variables = *req.Variables
 	}
 
-	if err := s.store.UpdateEnvironment(r.Context(), env); err != nil {
+	if err := s.store.UpdateEnvironment(ctx, env); err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, r, http.StatusNotFound, "environment not found")
-			return
+			return nil, huma.Error404NotFound("environment not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to update environment")
-		return
+		return nil, huma.Error500InternalServerError("failed to update environment")
 	}
 
-	respondJSON(w, http.StatusOK, env)
+	return &UpdateEnvironmentOutput{Body: env}, nil
 }
 
-func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request) {
-	envID := chi.URLParam(r, "envID")
-	if err := s.store.DeleteEnvironment(r.Context(), envID); err != nil {
+// DeleteEnvironmentInput is the typed input for deleting an environment.
+type DeleteEnvironmentInput struct {
+	EnvID string `path:"envID"`
+}
+
+func (s *Server) handleDeleteEnvironment(ctx context.Context, input *DeleteEnvironmentInput) (*struct{}, error) {
+	if err := s.store.DeleteEnvironment(ctx, input.EnvID); err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, r, http.StatusNotFound, "environment not found")
-			return
+			return nil, huma.Error404NotFound("environment not found")
 		}
 		if errors.Is(err, store.ErrStandardEnvironment) {
-			respondError(w, r, http.StatusForbidden, "cannot delete standard environment")
-			return
+			return nil, huma.Error403Forbidden("cannot delete standard environment")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete environment")
-		return
+		return nil, huma.Error500InternalServerError("failed to delete environment")
 	}
 
-	respondJSON(w, http.StatusNoContent, nil)
+	return nil, nil
 }
 
-func (s *Server) handleGetResolvedVariables(w http.ResponseWriter, r *http.Request) {
-	envID := chi.URLParam(r, "envID")
-	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(r.Context(), envID)
+// GetResolvedVariablesInput is the typed input for getting resolved variables.
+type GetResolvedVariablesInput struct {
+	EnvID string `path:"envID"`
+}
+
+// GetResolvedVariablesOutput is the typed output for getting resolved variables.
+type GetResolvedVariablesOutput struct {
+	Body map[string]map[string]string
+}
+
+func (s *Server) handleGetResolvedVariables(ctx context.Context, input *GetResolvedVariablesInput) (*GetResolvedVariablesOutput, error) {
+	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, r, http.StatusNotFound, "environment not found")
-			return
+			return nil, huma.Error404NotFound("environment not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to resolve environment variables")
-		return
+		return nil, huma.Error500InternalServerError("failed to resolve environment variables")
 	}
 
-	respondJSON(w, http.StatusOK, map[string]map[string]string{"variables": resolvedVariables})
+	return &GetResolvedVariablesOutput{Body: map[string]map[string]string{"variables": resolvedVariables}}, nil
 }

@@ -20,6 +20,8 @@ import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
 const MONTHS_IN_A_YEAR = 12;
 const CENTS_TO_DOLLARS = 100;
 
+import type { ComparisonFeature, PricingPlan } from "@/hooks/billing/use-plans";
+
 type PlanType = "free" | "starter" | "pro" | "enterprise";
 
 type PricingFeature = {
@@ -28,121 +30,10 @@ type PricingFeature = {
   included: boolean;
 };
 
-type PricingPlan = {
-  name: string;
-  slug: PlanType;
-  description: string;
-  prices: {
-    monthly: number;
-    yearly: number;
-    monthlyInYearly?: number;
-  };
-  features: PricingFeature[];
-  differentialFeatures?: PricingFeature[];
-  includesFromPrevious?: string;
-  highlight?: boolean;
-  badge?: string;
-  badgeVariant?: "success-light" | "info-light" | "default";
-  isCustomPricing?: boolean;
-};
-
 type UpgradeMode = "new_user" | "upgrade" | "checkout_recovery";
 type PlanSlug = "free" | "starter" | "pro" | "enterprise";
 
 type BillingInterval = "monthly" | "yearly";
-
-const PRICING_PLANS: PricingPlan[] = [
-  {
-    name: "Free",
-    slug: "free",
-    description: "For side projects and evaluation. All features included.",
-    badge: "No credit card required",
-    badgeVariant: "success-light",
-    prices: {
-      monthly: 0,
-      yearly: 0,
-    },
-    features: [
-      { name: "All core features", included: true },
-      { name: "5,000 runs/day", included: true },
-      { name: "100 managed runs/mo (micro, 10s)", included: true },
-      { name: "1 organization", included: true },
-      { name: "2 projects", included: true },
-      { name: "3 members", included: true },
-      { name: "1-day retention", included: true },
-      { name: "Community support", included: true },
-    ],
-  },
-  {
-    name: "Starter",
-    slug: "starter",
-    description: "For growing teams with production workloads.",
-    prices: {
-      monthly: 1999,
-      yearly: 19_999,
-      monthlyInYearly: 1667,
-    },
-    features: [
-      { name: "All core features", included: true },
-      { name: "25,000 runs/day", included: true },
-      { name: "$19.99/mo compute credit", included: true },
-      { name: "25 concurrent runs", included: true },
-      { name: "2 organizations", included: true },
-      { name: "5 projects per org", included: true },
-      { name: "10 members per org", included: true },
-      { name: "7-day retention", included: true },
-      { name: "6 regions", included: true },
-      { name: "Basic RBAC", included: true },
-      { name: "Email support (48h)", included: true },
-    ],
-    highlight: true,
-  },
-  {
-    name: "Pro",
-    slug: "pro",
-    description: "For production workloads at scale.",
-    prices: {
-      monthly: 4999,
-      yearly: 49_999,
-      monthlyInYearly: 4167,
-    },
-    features: [
-      { name: "All core features", included: true },
-      { name: "100,000 runs/day", included: true },
-      { name: "$49.99/mo compute credit", included: true },
-      { name: "100 concurrent runs", included: true },
-      { name: "5 organizations", included: true },
-      { name: "15 projects per org", included: true },
-      { name: "25 members per org", included: true },
-      { name: "30-day retention", included: true },
-      { name: "All regions", included: true },
-      { name: "Full RBAC", included: true },
-      { name: "Audit logs", included: true },
-      { name: "AI Assistant BYOK", included: true },
-      { name: "Priority support (24h)", included: true },
-    ],
-  },
-  {
-    name: "Enterprise",
-    slug: "enterprise",
-    description: "Custom everything for large organizations.",
-    isCustomPricing: true,
-    prices: {
-      monthly: 0,
-      yearly: 0,
-    },
-    features: [
-      { name: "Unlimited everything", included: true },
-      { name: "Custom compute credits", included: true },
-      { name: "SSO/SAML", included: true },
-      { name: "99.9% SLA", included: true },
-      { name: "90-day retention", included: true },
-      { name: "Dedicated support + Slack", included: true },
-      { name: "Custom integrations", included: true },
-      { name: "Static IPs", included: true },
-    ],
-  },
-];
 
 type PlanSelectionProps = {
   mode: UpgradeMode;
@@ -153,6 +44,8 @@ type PlanSelectionProps = {
   billingInterval: BillingInterval;
   onPlanChange: (plan: PlanType) => void;
   onBillingIntervalChange: (interval: BillingInterval) => void;
+  plans: PricingPlan[];
+  comparisonFeatures: ComparisonFeature[];
 };
 
 const BILLING_INTERVALS = [
@@ -255,32 +148,19 @@ const PricingCardBadges = ({
 
 const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
   <div className="mt-4 grow space-y-2">
-    {plan.includesFromPrevious ? (
-      <div className="flex items-start gap-2 border-border/50 border-b pb-2">
+    {plan.features.slice(0, 8).map((feature: PricingFeature) => (
+      <div className="flex items-start gap-2" key={feature.name}>
         <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-foreground">
           <RadixCheckIcon className="size-3" />
         </div>
-        <span className="font-medium text-muted-foreground/80 text-xs">
-          {plan.includesFromPrevious}
+        <span className="text-muted-foreground/80 text-xs">
+          {feature.description ? feature.description : feature.name}
         </span>
       </div>
-    ) : null}
-
-    {(plan.differentialFeatures || plan.features)
-      .slice(0, 8)
-      .map((feature: PricingFeature) => (
-        <div className="flex items-start gap-2" key={feature.name}>
-          <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-foreground">
-            <RadixCheckIcon className="size-3" />
-          </div>
-          <span className="text-muted-foreground/80 text-xs">
-            {feature.description ? feature.description : feature.name}
-          </span>
-        </div>
-      ))}
-    {(plan.differentialFeatures || plan.features).length > 8 && (
+    ))}
+    {plan.features.length > 8 && (
       <div className="pt-1 text-center text-muted-foreground/60 text-xs">
-        +{(plan.differentialFeatures || plan.features).length - 8} more features
+        +{plan.features.length - 8} more features
       </div>
     )}
   </div>
@@ -475,6 +355,8 @@ export const PlanSelection = ({
   billingInterval,
   onPlanChange,
   onBillingIntervalChange,
+  plans: pricingPlans,
+  comparisonFeatures,
 }: PlanSelectionProps) => {
   const { trackSubscription } = useAnalytics();
 
@@ -531,7 +413,7 @@ export const PlanSelection = ({
 
       {/* Plan Cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {PRICING_PLANS.map((plan) => (
+        {pricingPlans.map((plan) => (
           <PricingCard
             billingInterval={billingInterval}
             buttonText={messaging.buttonText}
@@ -570,103 +452,13 @@ export const PlanSelection = ({
       </div>
 
       {/* Feature comparison matrix */}
-      <FeatureComparisonMatrix />
+      <FeatureComparisonMatrix features={comparisonFeatures} />
 
       {/* FAQ */}
       <PricingFAQ />
     </div>
   );
 };
-
-const COMPARISON_FEATURES = [
-  {
-    name: "Runs per day",
-    free: "5,000",
-    starter: "25,000",
-    pro: "100,000",
-    enterprise: "Unlimited",
-  },
-  {
-    name: "Concurrent runs",
-    free: "5",
-    starter: "25",
-    pro: "100",
-    enterprise: "Unlimited",
-  },
-  {
-    name: "Compute credit",
-    free: "-",
-    starter: "$19.99",
-    pro: "$49.99",
-    enterprise: "Custom",
-  },
-  {
-    name: "Projects",
-    free: "2",
-    starter: "5",
-    pro: "15",
-    enterprise: "Unlimited",
-  },
-  {
-    name: "Team members",
-    free: "3",
-    starter: "10",
-    pro: "25",
-    enterprise: "Unlimited",
-  },
-  {
-    name: "Retention",
-    free: "1 day",
-    starter: "7 days",
-    pro: "30 days",
-    enterprise: "90 days",
-  },
-  { name: "Regions", free: "1", starter: "6", pro: "All", enterprise: "All" },
-  {
-    name: "AI model calls/day",
-    free: "20",
-    starter: "100",
-    pro: "500",
-    enterprise: "Unlimited",
-  },
-  {
-    name: "RBAC",
-    free: "-",
-    starter: "Basic",
-    pro: "Full",
-    enterprise: "Full",
-  },
-  {
-    name: "Audit logs",
-    free: "-",
-    starter: "-",
-    pro: "Yes",
-    enterprise: "Yes",
-  },
-  { name: "SSO", free: "-", starter: "-", pro: "-", enterprise: "Yes" },
-  { name: "SLA", free: "-", starter: "-", pro: "-", enterprise: "Yes" },
-  {
-    name: "Webhook subscriptions",
-    free: "2",
-    starter: "10",
-    pro: "50",
-    enterprise: "Unlimited",
-  },
-  {
-    name: "Log drains",
-    free: "-",
-    starter: "1",
-    pro: "5",
-    enterprise: "Unlimited",
-  },
-  {
-    name: "Alert rules",
-    free: "3",
-    starter: "10",
-    pro: "50",
-    enterprise: "Unlimited",
-  },
-] as const;
 
 const FeatureCellValue = ({ value }: { value: string }) => {
   if (value === "Yes") {
@@ -683,7 +475,11 @@ const FeatureCellValue = ({ value }: { value: string }) => {
   return <>{value}</>;
 };
 
-const FeatureComparisonMatrix = () => {
+const FeatureComparisonMatrix = ({
+  features,
+}: {
+  features: ComparisonFeature[];
+}) => {
   const tiers = ["free", "starter", "pro", "enterprise"] as const;
   const tierLabels = {
     free: "Free",
@@ -712,7 +508,7 @@ const FeatureComparisonMatrix = () => {
             </tr>
           </thead>
           <tbody>
-            {COMPARISON_FEATURES.map((feature) => (
+            {features.map((feature) => (
               <tr className="border-border/50 border-b" key={feature.name}>
                 <td className="py-3 pr-4 text-muted-foreground">
                   {feature.name}

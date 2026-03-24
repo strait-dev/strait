@@ -24,8 +24,8 @@ func costInsightsURL(from, to string, extras ...string) string {
 
 func TestHandleGetCostInsights_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostOutliersFn: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
+	ms := &AnalyticsStoreMock{
+		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
 			if threshold != 2.0 {
 				t.Fatalf("expected threshold 2.0, got %f", threshold)
 			}
@@ -36,7 +36,7 @@ func TestHandleGetCostInsights_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
@@ -61,15 +61,15 @@ func TestHandleGetCostInsights_Success(t *testing.T) {
 
 func TestHandleGetCostInsights_CustomThreshold(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostOutliersFn: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
+	ms := &AnalyticsStoreMock{
+		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
 			if threshold != 3.0 {
 				t.Fatalf("expected threshold 3.0, got %f", threshold)
 			}
 			return nil, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z", "threshold", "3.0"), "", "proj-1")
 	srv.ServeHTTP(w, r)
@@ -81,15 +81,15 @@ func TestHandleGetCostInsights_CustomThreshold(t *testing.T) {
 
 func TestHandleGetCostInsights_DefaultThreshold(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostOutliersFn: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
+	ms := &AnalyticsStoreMock{
+		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
 			if threshold != 2.0 {
 				t.Fatalf("expected default threshold 2.0, got %f", threshold)
 			}
 			return nil, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
@@ -101,7 +101,7 @@ func TestHandleGetCostInsights_DefaultThreshold(t *testing.T) {
 
 func TestHandleGetCostInsights_MissingParams(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", "/v1/analytics/cost-insights", "", "proj-1")
 	srv.ServeHTTP(w, r)
@@ -113,12 +113,12 @@ func TestHandleGetCostInsights_MissingParams(t *testing.T) {
 
 func TestHandleGetCostInsights_NoOutliers(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostOutliersFn: func(_ context.Context, _ string, _, _ time.Time, _ float64) ([]store.CostOutlier, error) {
+	ms := &AnalyticsStoreMock{
+		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, _ float64) ([]store.CostOutlier, error) {
 			return []store.CostOutlier{}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
@@ -139,12 +139,12 @@ func TestHandleGetCostInsights_NoOutliers(t *testing.T) {
 
 func TestHandleGetCostInsights_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getCostOutliersFn: func(_ context.Context, _ string, _, _ time.Time, _ float64) ([]store.CostOutlier, error) {
+	ms := &AnalyticsStoreMock{
+		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, _ float64) ([]store.CostOutlier, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)

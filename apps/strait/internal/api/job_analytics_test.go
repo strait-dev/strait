@@ -13,8 +13,8 @@ import (
 
 func TestHandleJobHistory_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobHistoryFn: func(_ context.Context, _, jobID string, _, _ time.Time, bucket string) ([]store.JobHistoryBucket, error) {
+	as := &AnalyticsStoreMock{
+		GetJobHistoryFunc: func(_ context.Context, _, jobID string, _, _ time.Time, bucket string) ([]store.JobHistoryBucket, error) {
 			if jobID != "job-1" {
 				t.Fatalf("expected job-1, got %s", jobID)
 			}
@@ -26,7 +26,7 @@ func TestHandleJobHistory_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/job-1/history", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -36,7 +36,7 @@ func TestHandleJobHistory_Success(t *testing.T) {
 
 func TestHandleJobHistory_MissingParams(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/jobs/job-1/history", "", "proj-1"))
 	if w.Code != 400 {
@@ -46,12 +46,12 @@ func TestHandleJobHistory_MissingParams(t *testing.T) {
 
 func TestHandleJobHistory_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobHistoryFn: func(_ context.Context, _, _ string, _, _ time.Time, _ string) ([]store.JobHistoryBucket, error) {
+	as := &AnalyticsStoreMock{
+		GetJobHistoryFunc: func(_ context.Context, _, _ string, _, _ time.Time, _ string) ([]store.JobHistoryBucket, error) {
 			return nil, errors.New("db error")
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/job-1/history", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 500 {
@@ -61,8 +61,8 @@ func TestHandleJobHistory_StoreError(t *testing.T) {
 
 func TestHandleJobComparison_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobComparisonFn: func(_ context.Context, _ string, jobIDs []string, _, _ time.Time) ([]store.JobComparison, error) {
+	as := &AnalyticsStoreMock{
+		GetJobComparisonFunc: func(_ context.Context, _ string, jobIDs []string, _, _ time.Time) ([]store.JobComparison, error) {
 			if len(jobIDs) != 2 {
 				t.Fatalf("expected 2 job IDs, got %d", len(jobIDs))
 			}
@@ -71,7 +71,7 @@ func TestHandleJobComparison_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/comparison", validFrom(), validTo(), "job_ids", "job-1,job-2"), "", "proj-1"))
 	if w.Code != 200 {
@@ -81,7 +81,7 @@ func TestHandleJobComparison_Success(t *testing.T) {
 
 func TestHandleJobComparison_MissingJobIDs(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/comparison", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 400 {
@@ -91,8 +91,8 @@ func TestHandleJobComparison_MissingJobIDs(t *testing.T) {
 
 func TestHandleJobReliability_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobReliabilityFn: func(_ context.Context, _ string, _, _ time.Time, limit int) ([]store.JobReliability, error) {
+	as := &AnalyticsStoreMock{
+		GetJobReliabilityFunc: func(_ context.Context, _ string, _, _ time.Time, limit int) ([]store.JobReliability, error) {
 			if limit != 10 {
 				t.Fatalf("expected default limit 10, got %d", limit)
 			}
@@ -101,7 +101,7 @@ func TestHandleJobReliability_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/reliability", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -111,8 +111,8 @@ func TestHandleJobReliability_Success(t *testing.T) {
 
 func TestHandleRunsByVersion_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getRunsByVersionFn: func(_ context.Context, _, jobID string, _, _ time.Time) ([]store.RunsByVersion, error) {
+	as := &AnalyticsStoreMock{
+		GetRunsByVersionFunc: func(_ context.Context, _, jobID string, _, _ time.Time) ([]store.RunsByVersion, error) {
 			if jobID != "job-1" {
 				t.Fatalf("expected job-1, got %s", jobID)
 			}
@@ -121,7 +121,7 @@ func TestHandleRunsByVersion_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/by-version", validFrom(), validTo(), "job_id", "job-1"), "", "proj-1"))
 	if w.Code != 200 {
@@ -131,7 +131,7 @@ func TestHandleRunsByVersion_Success(t *testing.T) {
 
 func TestHandleRunsByVersion_MissingJobID(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/by-version", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 400 {
@@ -141,14 +141,14 @@ func TestHandleRunsByVersion_MissingJobID(t *testing.T) {
 
 func TestHandleJobCostRanking_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobCostRankingFn: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.JobCostRanking, error) {
+	as := &AnalyticsStoreMock{
+		GetJobCostRankingFunc: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.JobCostRanking, error) {
 			return []store.JobCostRanking{
 				{JobID: "job-1", Slug: "expensive", TotalCost: 100000, RunCount: 10, AvgCostPerRun: 10000},
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/cost-ranking", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -165,14 +165,14 @@ func TestHandleJobCostRanking_Success(t *testing.T) {
 
 func TestHandleTopFailingJobs_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getTopFailingJobsFn: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopFailingJob, error) {
+	as := &AnalyticsStoreMock{
+		GetTopFailingJobsFunc: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopFailingJob, error) {
 			return []store.TopFailingJob{
 				{JobID: "job-1", Slug: "bad-job", FailedCount: 30, Total: 100, FailureRate: 0.3},
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/top-failing", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -182,7 +182,7 @@ func TestHandleTopFailingJobs_Success(t *testing.T) {
 
 func TestHandleTopFailingJobs_InvalidLimit(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/top-failing", validFrom(), validTo(), "limit", "abc"), "", "proj-1"))
 	if w.Code != 400 {

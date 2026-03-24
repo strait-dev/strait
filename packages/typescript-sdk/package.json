@@ -36,7 +36,7 @@
     "@types/bun": "latest",
     "@types/node": "^25.5.0",
     "@typescript/native-preview": "^7.0.0-dev.20260323.1",
-    "ai": ">=6.0.134"
+    "ai": ">=6.0.137"
   },
   "dependencies": {
     "@effect/platform": "^0.96.0",

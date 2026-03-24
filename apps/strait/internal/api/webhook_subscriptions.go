@@ -1,13 +1,13 @@
 package api
 
 import (
+	"context"
 	"errors"
-	"net/http"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
 type CreateWebhookSubscriptionRequest struct {
@@ -18,25 +18,26 @@ type CreateWebhookSubscriptionRequest struct {
 	Active     *bool    `json:"active,omitempty"`
 }
 
-func (s *Server) handleCreateWebhookSubscription(w http.ResponseWriter, r *http.Request) {
-	var req CreateWebhookSubscriptionRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if !s.validateRequest(w, r, &req) {
-		return
+type CreateWebhookSubscriptionInput struct {
+	Body CreateWebhookSubscriptionRequest
+}
+
+type CreateWebhookSubscriptionOutput struct {
+	Body *domain.WebhookSubscription
+}
+
+func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *CreateWebhookSubscriptionInput) (*CreateWebhookSubscriptionOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 	if err := validateURL(req.WebhookURL); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
 	active := true
 	if req.Active != nil {
 		active = *req.Active
 	}
-
 	sub := &domain.WebhookSubscription{
 		ProjectID:  req.ProjectID,
 		WebhookURL: req.WebhookURL,
@@ -44,43 +45,41 @@ func (s *Server) handleCreateWebhookSubscription(w http.ResponseWriter, r *http.
 		Secret:     req.Secret,
 		Active:     active,
 	}
-
-	if err := s.store.CreateWebhookSubscription(r.Context(), sub); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create webhook subscription")
-		return
+	if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create webhook subscription")
 	}
-
-	respondJSON(w, http.StatusCreated, sub)
+	return &CreateWebhookSubscriptionOutput{Body: sub}, nil
 }
 
-func (s *Server) handleListWebhookSubscriptions(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+type ListWebhookSubscriptionsInput struct{}
 
-	subs, err := s.store.ListWebhookSubscriptions(r.Context(), projectID)
+type ListWebhookSubscriptionsOutput struct {
+	Body []domain.WebhookSubscription
+}
+
+func (s *Server) handleListWebhookSubscriptions(ctx context.Context, _ *ListWebhookSubscriptionsInput) (*ListWebhookSubscriptionsOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	subs, err := s.store.ListWebhookSubscriptions(ctx, projectID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list webhook subscriptions")
-		return
+		return nil, huma.Error500InternalServerError("failed to list webhook subscriptions")
 	}
-
-	respondJSON(w, http.StatusOK, subs)
+	return &ListWebhookSubscriptionsOutput{Body: subs}, nil
 }
 
-func (s *Server) handleDeleteWebhookSubscription(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		respondError(w, r, http.StatusBadRequest, "subscription id is required")
-		return
-	}
+type DeleteWebhookSubscriptionInput struct {
+	ID string `path:"id"`
+}
 
-	err := s.store.DeleteWebhookSubscription(r.Context(), id)
+func (s *Server) handleDeleteWebhookSubscription(ctx context.Context, input *DeleteWebhookSubscriptionInput) (*struct{}, error) {
+	if input.ID == "" {
+		return nil, huma.Error400BadRequest("subscription id is required")
+	}
+	err := s.store.DeleteWebhookSubscription(ctx, input.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
-			respondError(w, r, http.StatusNotFound, "webhook subscription not found")
-			return
+			return nil, huma.Error404NotFound("webhook subscription not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to delete webhook subscription")
-		return
+		return nil, huma.Error500InternalServerError("failed to delete webhook subscription")
 	}
-
-	respondJSON(w, http.StatusNoContent, nil)
+	return nil, nil
 }

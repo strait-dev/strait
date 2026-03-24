@@ -52,8 +52,8 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	})
 
-	ms := &mockAPIStore{}
-	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
+	ms := &APIStoreMock{}
+	ms.QueueStatsFunc = func(ctx context.Context) (*store.QueueStats, error) {
 		if actor := actorFromContext(ctx); actor != "user-oidc-1" {
 			t.Fatalf("actor = %q, want user-oidc-1", actor)
 		}
@@ -62,7 +62,7 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 		}
 		return &store.QueueStats{}, nil
 	}
-	ms.getUserPermissionsFn = func(_ context.Context, projectID, userID string) ([]string, error) {
+	ms.GetUserPermissionsFunc = func(_ context.Context, projectID, userID string) ([]string, error) {
 		if projectID != "proj-oidc" || userID != "user-oidc-1" {
 			t.Fatalf("permission lookup args = (%s,%s)", projectID, userID)
 		}
@@ -113,7 +113,7 @@ func TestOIDCAuth_RejectsExpiredToken(t *testing.T) {
 			OIDCAudience:     "strait-api",
 			OIDCPublicKeyPEM: string(pubPEM),
 		},
-		Store: &mockAPIStore{},
+		Store: &APIStoreMock{},
 	})
 	t.Cleanup(srv.Close)
 
@@ -148,7 +148,7 @@ func TestOIDCAuth_RejectsWrongAudience(t *testing.T) {
 			OIDCAudience:     "strait-api",
 			OIDCPublicKeyPEM: string(pubPEM),
 		},
-		Store: &mockAPIStore{},
+		Store: &APIStoreMock{},
 	})
 	t.Cleanup(srv.Close)
 

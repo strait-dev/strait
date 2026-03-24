@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/url"
 
+	slogmulti "github.com/samber/slog-multi"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
@@ -69,49 +70,7 @@ func InitLogBridge(ctx context.Context, serviceName, endpoint, environment strin
 	return logger, provider.Shutdown, nil
 }
 
-// TeeHandler fans out log records to multiple slog handlers.
-type TeeHandler struct {
-	handlers []slog.Handler
-}
-
 // NewTeeHandler creates a handler that writes to all provided handlers.
-func NewTeeHandler(handlers ...slog.Handler) *TeeHandler {
-	return &TeeHandler{handlers: handlers}
-}
-
-func (t *TeeHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	for _, h := range t.handlers {
-		if h.Enabled(ctx, level) {
-			return true
-		}
-	}
-	return false
-}
-
-func (t *TeeHandler) Handle(ctx context.Context, record slog.Record) error {
-	var firstErr error
-	for _, h := range t.handlers {
-		if h.Enabled(ctx, record.Level) {
-			if err := h.Handle(ctx, record.Clone()); err != nil && firstErr == nil {
-				firstErr = err
-			}
-		}
-	}
-	return firstErr
-}
-
-func (t *TeeHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	handlers := make([]slog.Handler, len(t.handlers))
-	for i, h := range t.handlers {
-		handlers[i] = h.WithAttrs(attrs)
-	}
-	return &TeeHandler{handlers: handlers}
-}
-
-func (t *TeeHandler) WithGroup(name string) slog.Handler {
-	handlers := make([]slog.Handler, len(t.handlers))
-	for i, h := range t.handlers {
-		handlers[i] = h.WithGroup(name)
-	}
-	return &TeeHandler{handlers: handlers}
+func NewTeeHandler(handlers ...slog.Handler) slog.Handler {
+	return slogmulti.Fanout(handlers...)
 }

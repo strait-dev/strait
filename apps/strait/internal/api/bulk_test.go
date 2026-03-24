@@ -28,8 +28,8 @@ func testEnabledJob(id string) *domain.Job {
 
 func TestHandleBulkTrigger_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return testEnabledJob(id), nil
 		},
 	}
@@ -73,8 +73,8 @@ func TestHandleBulkTrigger_Success(t *testing.T) {
 func TestHandleBulkTrigger_WithPayloads(t *testing.T) {
 	t.Parallel()
 	received := make([]json.RawMessage, 0, 3)
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return testEnabledJob(id), nil
 		},
 	}
@@ -111,8 +111,8 @@ func TestHandleBulkTrigger_WithPayloads(t *testing.T) {
 
 func TestHandleBulkTrigger_WithScheduledAt(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return testEnabledJob(id), nil
 		},
 	}
@@ -145,7 +145,7 @@ func TestHandleBulkTrigger_WithScheduledAt(t *testing.T) {
 
 func TestHandleBulkTrigger_EmptyItems(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
+	ms := &APIStoreMock{GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -158,7 +158,7 @@ func TestHandleBulkTrigger_EmptyItems(t *testing.T) {
 
 func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
+	ms := &APIStoreMock{GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	items := make([]map[string]any, 501)
@@ -183,8 +183,8 @@ func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
 
 func TestHandleBulkTrigger_JobNotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
 			return nil, store.ErrJobNotFound
 		},
 	}
@@ -200,8 +200,8 @@ func TestHandleBulkTrigger_JobNotFound(t *testing.T) {
 
 func TestHandleBulkTrigger_JobDisabled(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			job := testEnabledJob(id)
 			job.Enabled = false
 			return job, nil
@@ -219,7 +219,7 @@ func TestHandleBulkTrigger_JobDisabled(t *testing.T) {
 
 func TestHandleBulkTrigger_InvalidBody(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
+	ms := &APIStoreMock{GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -233,7 +233,7 @@ func TestHandleBulkTrigger_InvalidBody(t *testing.T) {
 func TestHandleBulkTrigger_EnqueueError(t *testing.T) {
 	t.Parallel()
 	call := 0
-	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
+	ms := &APIStoreMock{GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
 			call++
@@ -258,7 +258,7 @@ func TestHandleBulkTrigger_EnqueueError(t *testing.T) {
 
 func TestHandleBulkTrigger_SingleItem(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
+	ms := &APIStoreMock{GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
 	srv := newTestServer(t, ms, mq, nil)
 
@@ -288,8 +288,8 @@ func TestHandleBulkCancel_Success(t *testing.T) {
 		"run-2": {ID: "run-2", Status: domain.StatusExecuting},
 		"run-3": {ID: "run-3", Status: domain.StatusExecuting},
 	}
-	ms := &mockAPIStore{
-		getRunsByIDsFn: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
 			result := make(map[string]*domain.JobRun)
 			for _, id := range ids {
 				if r, ok := runs[id]; ok {
@@ -298,14 +298,14 @@ func TestHandleBulkCancel_Success(t *testing.T) {
 			}
 			return result, nil
 		},
-		bulkCancelRunsFn: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
+		BulkCancelRunsFunc: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
 			results := make([]store.BulkCancelResult, 0, len(ids))
 			for _, id := range ids {
 				results = append(results, store.BulkCancelResult{ID: id, Canceled: true})
 			}
 			return results, nil
 		},
-		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -333,8 +333,8 @@ func TestHandleBulkCancel_PartialFailure(t *testing.T) {
 		"run-1": {ID: "run-1", Status: domain.StatusExecuting},
 		"run-3": {ID: "run-3", Status: domain.StatusCompleted},
 	}
-	ms := &mockAPIStore{
-		getRunsByIDsFn: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
 			result := make(map[string]*domain.JobRun)
 			for _, id := range ids {
 				if r, ok := runs[id]; ok {
@@ -343,14 +343,14 @@ func TestHandleBulkCancel_PartialFailure(t *testing.T) {
 			}
 			return result, nil
 		},
-		bulkCancelRunsFn: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
+		BulkCancelRunsFunc: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
 			results := make([]store.BulkCancelResult, 0, len(ids))
 			for _, id := range ids {
 				results = append(results, store.BulkCancelResult{ID: id, Canceled: true})
 			}
 			return results, nil
 		},
-		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -385,7 +385,7 @@ func TestHandleBulkCancel_PartialFailure(t *testing.T) {
 
 func TestHandleBulkCancel_EmptyRunIDs(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-cancel", `{"run_ids":[]}`))
@@ -397,7 +397,7 @@ func TestHandleBulkCancel_EmptyRunIDs(t *testing.T) {
 
 func TestHandleBulkCancel_TooManyRunIDs(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	runIDs := make([]string, 101)
 	for i := range runIDs {
@@ -421,7 +421,7 @@ func TestHandleBulkCancel_TooManyRunIDs(t *testing.T) {
 
 func TestHandleBulkCancel_InvalidBody(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-cancel", `{"run_ids":[`))
@@ -438,8 +438,8 @@ func TestHandleBulkCancel_AllTerminal(t *testing.T) {
 		"run-2": {ID: "run-2", Status: domain.StatusFailed},
 		"run-3": {ID: "run-3", Status: domain.StatusCanceled},
 	}
-	ms := &mockAPIStore{
-		getRunsByIDsFn: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
 			result := make(map[string]*domain.JobRun)
 			for _, id := range ids {
 				if r, ok := runs[id]; ok {
@@ -473,8 +473,8 @@ func TestHandleBulkCancel_WithChildren(t *testing.T) {
 		"run-parent": {ID: "run-parent", Status: domain.StatusExecuting},
 	}
 	var childCancelCalled bool
-	ms := &mockAPIStore{
-		getRunsByIDsFn: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
 			result := make(map[string]*domain.JobRun)
 			for _, id := range ids {
 				if r, ok := runs[id]; ok {
@@ -483,14 +483,14 @@ func TestHandleBulkCancel_WithChildren(t *testing.T) {
 			}
 			return result, nil
 		},
-		bulkCancelRunsFn: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
+		BulkCancelRunsFunc: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
 			results := make([]store.BulkCancelResult, 0, len(ids))
 			for _, id := range ids {
 				results = append(results, store.BulkCancelResult{ID: id, Canceled: true})
 			}
 			return results, nil
 		},
-		cancelChildRunsByParentIDsFn: func(_ context.Context, parentIDs []string, _ time.Time, _ string) (int64, error) {
+		CancelChildRunsByParentIDsFunc: func(_ context.Context, parentIDs []string, _ time.Time, _ string) (int64, error) {
 			if len(parentIDs) != 1 || parentIDs[0] != "run-parent" {
 				t.Fatalf("expected parent ID run-parent, got %v", parentIDs)
 			}

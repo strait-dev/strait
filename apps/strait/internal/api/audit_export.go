@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/csv"
@@ -14,57 +15,68 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/crypto/hkdf"
 )
 
 const maxExportWindow = 90 * 24 * time.Hour
 
-func (s *Server) handleExportAuditEvents(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+type ExportAuditEventsInput struct {
+	From         string `query:"from"`
+	To           string `query:"to"`
+	Format       string `query:"format"`
+	ActorID      string `query:"actor_id"`
+	ResourceType string `query:"resource_type"`
+}
+
+// ExportAuditEventsOutput uses any Body because the handler streams raw CSV/NDJSON/JSON
+// directly to the response writer. A nil return signals that the response was already written.
+type ExportAuditEventsOutput struct {
+	Body any
+}
+
+func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAuditEventsInput) (*ExportAuditEventsOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	query := r.URL.Query()
-
-	rawFrom := query.Get("from")
-	rawTo := query.Get("to")
-	if rawFrom == "" || rawTo == "" {
-		respondError(w, r, http.StatusBadRequest, "both from and to query parameters are required")
-		return
+	if input.From == "" || input.To == "" {
+		return nil, huma.Error400BadRequest("both from and to query parameters are required")
 	}
 
-	from, err := time.Parse(time.RFC3339, rawFrom)
+	from, err := time.Parse(time.RFC3339, input.From)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "from must be a valid RFC3339 timestamp")
-		return
+		return nil, huma.Error400BadRequest("from must be a valid RFC3339 timestamp")
 	}
-	to, err := time.Parse(time.RFC3339, rawTo)
+	to, err := time.Parse(time.RFC3339, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "to must be a valid RFC3339 timestamp")
-		return
+		return nil, huma.Error400BadRequest("to must be a valid RFC3339 timestamp")
 	}
 	if from.After(to) {
-		respondError(w, r, http.StatusBadRequest, "from must be <= to")
-		return
+		return nil, huma.Error400BadRequest("from must be <= to")
 	}
 	if to.Sub(from) > maxExportWindow {
-		respondError(w, r, http.StatusBadRequest, "export window must not exceed 90 days")
-		return
+		return nil, huma.Error400BadRequest("export window must not exceed 90 days")
 	}
 
-	format := query.Get("format")
+	format := input.Format
 	if format == "" {
 		format = "json"
 	}
 	if format != "json" && format != "csv" && format != "ndjson" {
-		respondError(w, r, http.StatusBadRequest, "format must be one of: json, csv, ndjson")
-		return
+		return nil, huma.Error400BadRequest("format must be one of: json, csv, ndjson")
 	}
 
-	actorID := query.Get("actor_id")
-	resourceType := query.Get("resource_type")
+	// Retrieve the raw response writer for streaming output.
+	w := responseWriterFromContext(ctx)
+	r := requestFromContext(ctx)
+	if w == nil || r == nil {
+		return nil, huma.Error500InternalServerError("internal error")
+	}
+
+	actorID := input.ActorID
+	resourceType := input.ResourceType
 
 	// Derive HMAC signing key if configured.
 	var mac hash.Hash
@@ -72,8 +84,7 @@ func (s *Server) handleExportAuditEvents(w http.ResponseWriter, r *http.Request)
 	if signingEnabled {
 		signingKey, keyErr := deriveAuditSigningKey([]byte(s.config.SecretEncryptionKey))
 		if keyErr != nil {
-			respondError(w, r, http.StatusInternalServerError, "internal error")
-			return
+			return nil, huma.Error500InternalServerError("internal error")
 		}
 		mac = hmac.New(sha256.New, signingKey)
 	}
@@ -104,11 +115,11 @@ func (s *Server) handleExportAuditEvents(w http.ResponseWriter, r *http.Request)
 
 	switch format {
 	case "csv":
-		err = s.streamAuditCSV(out, r, flusher, canFlush, projectID, actorID, resourceType, from, to)
+		err = s.streamAuditCSV(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to)
 	case "ndjson":
-		err = s.streamAuditNDJSON(out, r, flusher, canFlush, projectID, actorID, resourceType, from, to)
+		err = s.streamAuditNDJSON(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to)
 	default:
-		err = s.streamAuditJSON(out, r, flusher, canFlush, projectID, actorID, resourceType, from, to)
+		err = s.streamAuditJSON(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to)
 	}
 
 	if err != nil {
@@ -121,16 +132,19 @@ func (s *Server) handleExportAuditEvents(w http.ResponseWriter, r *http.Request)
 		sig := hex.EncodeToString(mac.Sum(nil))
 		w.Header().Set("X-Audit-Signature", fmt.Sprintf("sha256=%s", sig))
 	}
+
+	// Return nil to signal that the response was already written.
+	return nil, nil
 }
 
-func (s *Server) streamAuditCSV(w io.Writer, r *http.Request, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
+func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
 	cw := csv.NewWriter(w)
 	header := []string{"id", "project_id", "actor_id", "actor_type", "action", "resource_type", "resource_id", "details", "created_at"}
 	if err := cw.Write(header); err != nil {
 		return fmt.Errorf("write csv header: %w", err)
 	}
 
-	err := s.store.StreamAuditEvents(r.Context(), projectID, actorID, resourceType, from, to, func(ev *domain.AuditEvent) error {
+	err := s.store.StreamAuditEvents(ctx, projectID, actorID, resourceType, from, to, func(ev *domain.AuditEvent) error {
 		record := []string{
 			ev.ID,
 			ev.ProjectID,
@@ -158,10 +172,10 @@ func (s *Server) streamAuditCSV(w io.Writer, r *http.Request, flusher http.Flush
 	return cw.Error()
 }
 
-func (s *Server) streamAuditNDJSON(w io.Writer, r *http.Request, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
+func (s *Server) streamAuditNDJSON(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
 	enc := json.NewEncoder(w)
 
-	return s.store.StreamAuditEvents(r.Context(), projectID, actorID, resourceType, from, to, func(ev *domain.AuditEvent) error {
+	return s.store.StreamAuditEvents(ctx, projectID, actorID, resourceType, from, to, func(ev *domain.AuditEvent) error {
 		if err := enc.Encode(ev); err != nil {
 			return fmt.Errorf("encode ndjson row: %w", err)
 		}
@@ -172,13 +186,13 @@ func (s *Server) streamAuditNDJSON(w io.Writer, r *http.Request, flusher http.Fl
 	})
 }
 
-func (s *Server) streamAuditJSON(w io.Writer, r *http.Request, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
+func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) error {
 	if _, err := w.Write([]byte("[")); err != nil {
 		return fmt.Errorf("write json open bracket: %w", err)
 	}
 
 	first := true
-	err := s.store.StreamAuditEvents(r.Context(), projectID, actorID, resourceType, from, to, func(ev *domain.AuditEvent) error {
+	err := s.store.StreamAuditEvents(ctx, projectID, actorID, resourceType, from, to, func(ev *domain.AuditEvent) error {
 		if !first {
 			if _, err := w.Write([]byte(",")); err != nil {
 				return fmt.Errorf("write json comma: %w", err)

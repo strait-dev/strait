@@ -94,7 +94,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify webhook signature when a secret is configured.
-	// In production, the secret MUST be set via POLAR_WEBHOOK_SECRET.
+	// In production, the secret MUST be set via POLAR_API_WEBHOOK_SECRET.
 	// An empty secret bypasses verification (logged as warning on each request).
 	if h.secret != "" {
 		if !h.verifySignature(body, r) {
@@ -256,6 +256,8 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 // tier). Polar delivers webhooks in order per subscription, so the practical risk
 // is low. A full fix requires transactional store operations (BeginTx + conditional
 // UPDATEs). See review finding #2.
+//
+//nolint:gocyclo,cyclop
 func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data json.RawMessage) error {
 	var sub PolarSubscriptionData
 	if err := json.Unmarshal(data, &sub); err != nil {
@@ -324,16 +326,12 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		return fmt.Errorf("getting existing subscription: %w", existErr)
 	}
 
-	isDowngrade := false
+	isDowngradeChange := false
 	if existing != nil && existing.PlanTier != string(tier) {
-		currentLimits := GetPlanLimits(domain.PlanTier(existing.PlanTier))
-		newLimits := GetPlanLimits(tier)
-		isDowngrade = newLimits.MaxRunsPerDay < currentLimits.MaxRunsPerDay ||
-			newLimits.MaxProjectsPerOrg < currentLimits.MaxProjectsPerOrg ||
-			newLimits.ComputeCreditMicrousd < currentLimits.ComputeCreditMicrousd
+		isDowngradeChange = IsDowngrade(domain.PlanTier(existing.PlanTier), tier)
 	}
 
-	if isDowngrade {
+	if isDowngradeChange {
 		// Defer the downgrade: store the pending tier for end-of-period application.
 		if err := h.store.SetPendingPlanTier(ctx, orgID, string(tier)); err != nil {
 			return fmt.Errorf("setting pending plan tier: %w", err)

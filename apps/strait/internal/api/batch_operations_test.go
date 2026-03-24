@@ -28,8 +28,8 @@ func TestHandleGetBatchOperation_Success(t *testing.T) {
 		CreatedAt:    time.Now(),
 	}
 
-	srv := newTestServer(t, &mockAPIStore{
-		getBatchOperationFn: func(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error) {
+	srv := newTestServer(t, &APIStoreMock{
+		GetBatchOperationFunc: func(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error) {
 			if batchID != "batch-1" || projectID != "proj-1" {
 				return nil, fmt.Errorf("unexpected args: %s, %s", batchID, projectID)
 			}
@@ -57,8 +57,8 @@ func TestHandleGetBatchOperation_Success(t *testing.T) {
 func TestHandleGetBatchOperation_NotFound(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{
-		getBatchOperationFn: func(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error) {
+	srv := newTestServer(t, &APIStoreMock{
+		GetBatchOperationFunc: func(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}, &mockQueue{}, nil)
@@ -83,8 +83,8 @@ func TestHandleListBatchOperations_Success(t *testing.T) {
 		{ID: "batch-2", ProjectID: "proj-1", JobID: "job-2", ItemCount: 5, CreatedCount: 2, CreatedAt: now.Add(-time.Minute)},
 	}
 
-	srv := newTestServer(t, &mockAPIStore{
-		listBatchOperationsFn: func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error) {
+	srv := newTestServer(t, &APIStoreMock{
+		ListBatchOperationsFunc: func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error) {
 			if projectID != "proj-1" {
 				return nil, fmt.Errorf("unexpected project_id: %s", projectID)
 			}
@@ -112,8 +112,8 @@ func TestHandleListBatchOperations_Success(t *testing.T) {
 func TestHandleBulkCancelAll_Success(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{
-		bulkCancelByFilterFn: func(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error) {
+	srv := newTestServer(t, &APIStoreMock{
+		BulkCancelByFilterFunc: func(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error) {
 			if projectID != "proj-1" {
 				return nil, fmt.Errorf("unexpected project_id: %s", projectID)
 			}
@@ -142,7 +142,7 @@ func TestHandleBulkCancelAll_Success(t *testing.T) {
 func TestHandleBulkCancelAll_NoFilters(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodPost, "/v1/runs/bulk-cancel-all", `{}`, "proj-1")
@@ -161,14 +161,14 @@ func TestHandleBulkCancelAll_NoFilters(t *testing.T) {
 func TestHandleBulkCancelWorkflowRuns_Success(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{
-		bulkCancelWorkflowRunsFn: func(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error) {
+	srv := newTestServer(t, &APIStoreMock{
+		BulkCancelWorkflowRunsFunc: func(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error) {
 			return ids, nil // all canceled
 		},
-		cancelNonTerminalStepRunsFn: func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+		CancelNonTerminalStepRunsFunc: func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
 			return 1, nil
 		},
-		cancelJobRunsByWorkflowRunFn: func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+		CancelJobRunsByWorkflowRunFunc: func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
 			return 1, nil
 		},
 	}, &mockQueue{}, nil)
@@ -194,7 +194,7 @@ func TestHandleBulkCancelWorkflowRuns_Success(t *testing.T) {
 func TestHandleBulkCancelWorkflowRuns_EmptyIDs(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-cancel", `{"workflow_run_ids":[]}`, "proj-1")
@@ -212,8 +212,8 @@ func TestHandleListRuns_PayloadContainsFilter(t *testing.T) {
 
 	var capturedPayload json.RawMessage
 
-	srv := newTestServer(t, &mockAPIStore{
-		listRunsByProjectFn: func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	srv := newTestServer(t, &APIStoreMock{
+		ListRunsByProjectFunc: func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			capturedPayload = payloadContains
 			return []domain.JobRun{}, nil
 		},

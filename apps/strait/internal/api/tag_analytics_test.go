@@ -12,8 +12,8 @@ import (
 
 func TestHandleTagSummary_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getTagSummaryFn: func(_ context.Context, _ string, _, _ time.Time, limit int) ([]store.TagSummary, error) {
+	ms := &AnalyticsStoreMock{
+		GetTagSummaryFunc: func(_ context.Context, _ string, _, _ time.Time, limit int) ([]store.TagSummary, error) {
 			if limit != 50 {
 				t.Fatalf("expected default limit 50, got %d", limit)
 			}
@@ -22,7 +22,7 @@ func TestHandleTagSummary_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("tags/summary", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -32,15 +32,15 @@ func TestHandleTagSummary_Success(t *testing.T) {
 
 func TestHandleTagSummary_CustomLimit(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getTagSummaryFn: func(_ context.Context, _ string, _, _ time.Time, limit int) ([]store.TagSummary, error) {
+	ms := &AnalyticsStoreMock{
+		GetTagSummaryFunc: func(_ context.Context, _ string, _, _ time.Time, limit int) ([]store.TagSummary, error) {
 			if limit != 20 {
 				t.Fatalf("expected limit 20, got %d", limit)
 			}
 			return []store.TagSummary{}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("tags/summary", validFrom(), validTo(), "limit", "20"), "", "proj-1"))
 	if w.Code != 200 {
@@ -50,7 +50,7 @@ func TestHandleTagSummary_CustomLimit(t *testing.T) {
 
 func TestHandleTagSummary_MissingParams(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/tags/summary", "", "proj-1"))
 	if w.Code != 400 {
@@ -60,12 +60,12 @@ func TestHandleTagSummary_MissingParams(t *testing.T) {
 
 func TestHandleTagSummary_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getTagSummaryFn: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TagSummary, error) {
+	ms := &AnalyticsStoreMock{
+		GetTagSummaryFunc: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TagSummary, error) {
 			return nil, errors.New("db error")
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("tags/summary", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 500 {
@@ -75,14 +75,14 @@ func TestHandleTagSummary_StoreError(t *testing.T) {
 
 func TestHandleTopFailingTags_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getTopFailingTagsFn: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopFailingTag, error) {
+	ms := &AnalyticsStoreMock{
+		GetTopFailingTagsFunc: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopFailingTag, error) {
 			return []store.TopFailingTag{
 				{TagKey: "env", TagValue: "staging", Failed: 10, Total: 20, FailureRate: 0.5},
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("tags/top-failing", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -92,14 +92,14 @@ func TestHandleTopFailingTags_Success(t *testing.T) {
 
 func TestHandleTagCost_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getTagCostFn: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TagCost, error) {
+	ms := &AnalyticsStoreMock{
+		GetTagCostFunc: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TagCost, error) {
 			return []store.TagCost{
 				{TagKey: "team", TagValue: "platform", TotalCost: 50000, RunCount: 100},
 			}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("tags/cost", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -109,7 +109,7 @@ func TestHandleTagCost_Success(t *testing.T) {
 
 func TestHandleTagCost_InvalidLimit(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("tags/cost", validFrom(), validTo(), "limit", "0"), "", "proj-1"))
 	if w.Code != 400 {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -11,8 +12,8 @@ import (
 func TestSDKResourceSnapshot_OOMRisk_InsertsEvent(t *testing.T) {
 	t.Parallel()
 	var insertedEvent *domain.RunEvent
-	ms := &mockAPIStore{
-		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+	ms := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			insertedEvent = event
 			return nil
 		},
@@ -22,7 +23,7 @@ func TestSDKResourceSnapshot_OOMRisk_InsertsEvent(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":950,"memory_limit_mb":1000,"network_rx_bytes":100,"network_tx_bytes":200}`)
-	srv.handleSDKResourceSnapshot(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
 
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -41,8 +42,8 @@ func TestSDKResourceSnapshot_OOMRisk_InsertsEvent(t *testing.T) {
 func TestSDKResourceSnapshot_NoOOMRisk_BelowThreshold(t *testing.T) {
 	t.Parallel()
 	eventCalled := false
-	ms := &mockAPIStore{
-		insertEventFn: func(_ context.Context, _ *domain.RunEvent) error {
+	ms := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, _ *domain.RunEvent) error {
 			eventCalled = true
 			return nil
 		},
@@ -52,7 +53,7 @@ func TestSDKResourceSnapshot_NoOOMRisk_BelowThreshold(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":800,"memory_limit_mb":1000,"network_rx_bytes":100,"network_tx_bytes":200}`)
-	srv.handleSDKResourceSnapshot(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
 
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -65,8 +66,8 @@ func TestSDKResourceSnapshot_NoOOMRisk_BelowThreshold(t *testing.T) {
 func TestSDKResourceSnapshot_NoOOMRisk_ZeroLimit(t *testing.T) {
 	t.Parallel()
 	eventCalled := false
-	ms := &mockAPIStore{
-		insertEventFn: func(_ context.Context, _ *domain.RunEvent) error {
+	ms := &APIStoreMock{
+		InsertEventFunc: func(_ context.Context, _ *domain.RunEvent) error {
 			eventCalled = true
 			return nil
 		},
@@ -76,7 +77,7 @@ func TestSDKResourceSnapshot_NoOOMRisk_ZeroLimit(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":800,"memory_limit_mb":0,"network_rx_bytes":100,"network_tx_bytes":200}`)
-	srv.handleSDKResourceSnapshot(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
 
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())

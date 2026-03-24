@@ -1,34 +1,42 @@
 package api
 
 import (
-	"net/http"
+	"context"
 	"time"
+
+	"github.com/danielgtaylor/huma/v2"
 )
 
 const maxApprovalStatsRange = 90 * 24 * time.Hour
 
-func (s *Server) handleGetApprovalStats(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+type ApprovalStatsInput struct {
+	From string `query:"from"`
+	To   string `query:"to"`
+}
 
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
+type ApprovalStatsOutput struct {
+	Body any
+}
+
+func (s *Server) handleGetApprovalStats(ctx context.Context, input *ApprovalStatsInput) (*ApprovalStatsOutput, error) {
+	projectID := projectIDFromContext(ctx)
+
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
+	if err != nil {
+		return nil, err
 	}
 
 	if to.Before(from) {
-		respondError(w, r, http.StatusBadRequest, "from must be before to")
-		return
+		return nil, huma.Error400BadRequest("from must be before to")
 	}
 	if to.Sub(from) > maxApprovalStatsRange {
-		respondError(w, r, http.StatusBadRequest, "time range must not exceed 90 days")
-		return
+		return nil, huma.Error400BadRequest("time range must not exceed 90 days")
 	}
 
-	stats, err := s.analytics().GetApprovalStats(r.Context(), projectID, from, to)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get approval stats")
-		return
+	stats, sErr := s.analytics().GetApprovalStats(ctx, projectID, from, to)
+	if sErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get approval stats")
 	}
 
-	respondJSON(w, http.StatusOK, stats)
+	return &ApprovalStatsOutput{Body: stats}, nil
 }

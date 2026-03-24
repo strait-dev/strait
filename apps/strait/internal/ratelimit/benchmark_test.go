@@ -41,7 +41,7 @@ func BenchmarkRedisRateLimiterAllow(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		result, err := limiter.Allow(ctx, "rate:user:bench", 1000, time.Minute)
 		if err != nil {
 			b.Fatalf("Allow() error = %v", err)

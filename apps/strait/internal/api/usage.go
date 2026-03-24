@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,14 +11,13 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/danielgtaylor/huma/v2"
 )
 
-// validateCallerOrgAccess checks that a non-internal project-scoped caller
-// belongs to the given org. Returns nil for internal-secret callers (no scopes
-// in context).
 func (s *Server) validateCallerOrgAccess(ctx context.Context, orgID string) error {
 	if scopesFromContext(ctx) == nil {
-		return nil // internal-secret caller, trusted
+		return nil
 	}
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" || s.billingEnforcer == nil {
@@ -33,10 +33,6 @@ func (s *Server) validateCallerOrgAccess(ctx context.Context, orgID string) erro
 	return nil
 }
 
-// validateProjectBelongsToCallerOrg checks that the target project belongs to
-// the same org as the caller's project context. Unlike validateCallerOrgAccess,
-// this runs for ALL callers including internal-secret, because project-scoped
-// endpoints must always verify ownership.
 func (s *Server) validateProjectBelongsToCallerOrg(ctx context.Context, targetProjectID string) error {
 	callerProjectID := projectIDFromContext(ctx)
 	if s.billingEnforcer == nil {
@@ -68,560 +64,531 @@ func (s *Server) validateProjectBelongsToCallerOrg(ctx context.Context, targetPr
 	return nil
 }
 
-// resolveUsageOrgID extracts org_id from the request query, enforcing tenant
-// isolation for non-internal project-scoped callers. Returns the org_id or
-// writes an error response.
-func (s *Server) resolveUsageOrgID(w http.ResponseWriter, r *http.Request) (string, bool) {
-	orgID := r.URL.Query().Get("org_id")
+func (s *Server) resolveUsageOrgIDTyped(ctx context.Context, orgID string) (string, error) {
 	if orgID == "" {
-		respondError(w, r, http.StatusBadRequest, "org_id query parameter is required")
-		return "", false
+		return "", huma.Error400BadRequest("org_id query parameter is required")
 	}
-
-	if err := s.validateCallerOrgAccess(r.Context(), orgID); err != nil {
-		if scopesFromContext(r.Context()) != nil {
-			projectID := projectIDFromContext(r.Context())
-			slog.Error("org access validation failed", "project_id", projectID, "error", err)
+	if err := s.validateCallerOrgAccess(ctx, orgID); err != nil {
+		if scopesFromContext(ctx) != nil {
+			slog.Error("org access validation failed", "project_id", projectIDFromContext(ctx), "error", err)
 		}
-		respondError(w, r, http.StatusForbidden, err.Error())
-		return "", false
+		return "", huma.Error403Forbidden(err.Error())
 	}
-
-	return orgID, true
+	return orgID, nil
 }
 
-func (s *Server) handleGetCurrentUsage(w http.ResponseWriter, r *http.Request) {
-	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+func parseDateRangeTyped(fromStr, toStr string) (time.Time, time.Time, error) {
+	if fromStr == "" || toStr == "" {
+		return time.Time{}, time.Time{}, huma.Error400BadRequest("from and to query parameters are required (format: YYYY-MM-DD)")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
-	}
-
-	usage, err := s.usageService.GetCurrentUsage(r.Context(), orgID)
+	from, err := time.Parse("2006-01-02", fromStr)
 	if err != nil {
-		slog.Error("failed to get current usage", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to get usage data")
-		return
+		return time.Time{}, time.Time{}, huma.Error400BadRequest("invalid from date format (expected YYYY-MM-DD)")
 	}
+	to, err := time.Parse("2006-01-02", toStr)
+	if err != nil {
+		return time.Time{}, time.Time{}, huma.Error400BadRequest("invalid to date format (expected YYYY-MM-DD)")
+	}
+	if to.Before(from) {
+		return time.Time{}, time.Time{}, huma.Error400BadRequest("to date must be after from date")
+	}
+	return from, to, nil
+}
 
-	// Strip internal payment fields for non-internal callers (API keys, OIDC).
-	// Only internal-secret callers (frontend app) should see payment status.
-	if scopesFromContext(r.Context()) != nil {
+type GetCurrentUsageInput struct {
+	OrgID string `query:"org_id"`
+}
+type GetCurrentUsageOutput struct{ Body any }
+
+func (s *Server) handleGetCurrentUsage(ctx context.Context, input *GetCurrentUsageInput) (*GetCurrentUsageOutput, error) {
+	if s.usageService == nil {
+		return nil, huma.Error501NotImplemented("usage service not configured")
+	}
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	usage, usageErr := s.usageService.GetCurrentUsage(ctx, orgID)
+	if usageErr != nil {
+		slog.Error("failed to get current usage", "error", usageErr)
+		return nil, huma.Error500InternalServerError("failed to get usage data")
+	}
+	if scopesFromContext(ctx) != nil {
 		usage.PaymentStatus = ""
 		usage.GracePeriodEnd = nil
 	}
-
-	respondJSON(w, http.StatusOK, usage)
+	return &GetCurrentUsageOutput{Body: usage}, nil
 }
 
-func (s *Server) handleGetUsageHistory(w http.ResponseWriter, r *http.Request) {
+type GetUsageHistoryInput struct {
+	OrgID string `query:"org_id"`
+	From  string `query:"from"`
+	To    string `query:"to"`
+}
+type GetUsageHistoryOutput struct{ Body any }
+
+func (s *Server) handleGetUsageHistory(ctx context.Context, input *GetUsageHistoryInput) (*GetUsageHistoryOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
-	}
-
-	from, to, ok := parseDateRange(w, r)
-	if !ok {
-		return
-	}
-
-	history, err := s.usageService.GetUsageHistory(r.Context(), orgID, from, to)
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
-		slog.Error("failed to get usage history", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to get usage history")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, history)
+	from, to, err := parseDateRangeTyped(input.From, input.To)
+	if err != nil {
+		return nil, err
+	}
+	history, histErr := s.usageService.GetUsageHistory(ctx, orgID, from, to)
+	if histErr != nil {
+		slog.Error("failed to get usage history", "error", histErr)
+		return nil, huma.Error500InternalServerError("failed to get usage history")
+	}
+	return &GetUsageHistoryOutput{Body: history}, nil
 }
 
-func (s *Server) handleGetUsageForecast(w http.ResponseWriter, r *http.Request) {
+type GetUsageForecastInput struct {
+	OrgID string `query:"org_id"`
+}
+type GetUsageForecastOutput struct{ Body any }
+
+func (s *Server) handleGetUsageForecast(ctx context.Context, input *GetUsageForecastInput) (*GetUsageForecastOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
-	}
-
-	forecast, err := s.usageService.GetUsageForecast(r.Context(), orgID)
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
-		slog.Error("failed to get usage forecast", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to get usage forecast")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, forecast)
+	forecast, fErr := s.usageService.GetUsageForecast(ctx, orgID)
+	if fErr != nil {
+		slog.Error("failed to get usage forecast", "error", fErr)
+		return nil, huma.Error500InternalServerError("failed to get usage forecast")
+	}
+	return &GetUsageForecastOutput{Body: forecast}, nil
 }
 
-func (s *Server) handleGetProjectCosts(w http.ResponseWriter, r *http.Request) {
+type GetProjectCostsInput struct {
+	OrgID string `query:"org_id"`
+	From  string `query:"from"`
+	To    string `query:"to"`
+}
+type GetProjectCostsOutput struct{ Body any }
+
+func (s *Server) handleGetProjectCosts(ctx context.Context, input *GetProjectCostsInput) (*GetProjectCostsOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
-	}
-
-	from, to, ok := parseDateRange(w, r)
-	if !ok {
-		return
-	}
-
-	costs, err := s.usageService.GetProjectCosts(r.Context(), orgID, from, to)
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
-		slog.Error("failed to get project costs", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to get project costs")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, costs)
+	from, to, err := parseDateRangeTyped(input.From, input.To)
+	if err != nil {
+		return nil, err
+	}
+	costs, cErr := s.usageService.GetProjectCosts(ctx, orgID, from, to)
+	if cErr != nil {
+		slog.Error("failed to get project costs", "error", cErr)
+		return nil, huma.Error500InternalServerError("failed to get project costs")
+	}
+	return &GetProjectCostsOutput{Body: costs}, nil
 }
 
-func (s *Server) handleGetCostEstimate(w http.ResponseWriter, r *http.Request) {
-	preset := r.URL.Query().Get("preset")
-	if preset == "" {
-		respondError(w, r, http.StatusBadRequest, "preset query parameter is required")
-		return
-	}
+type GetCostEstimateInput struct {
+	Preset     string `query:"preset"`
+	TimeoutStr string `query:"timeout_secs"`
+	OrgID      string `query:"org_id"`
+}
+type GetCostEstimateOutput struct{ Body any }
 
-	timeoutStr := r.URL.Query().Get("timeout_secs")
-	if timeoutStr == "" {
-		respondError(w, r, http.StatusBadRequest, "timeout_secs query parameter is required")
-		return
+func (s *Server) handleGetCostEstimate(ctx context.Context, input *GetCostEstimateInput) (*GetCostEstimateOutput, error) {
+	if input.Preset == "" {
+		return nil, huma.Error400BadRequest("preset query parameter is required")
 	}
-	timeoutSecs, err := strconv.Atoi(timeoutStr)
+	if input.TimeoutStr == "" {
+		return nil, huma.Error400BadRequest("timeout_secs query parameter is required")
+	}
+	timeoutSecs, err := strconv.Atoi(input.TimeoutStr)
 	if err != nil || timeoutSecs <= 0 {
-		respondError(w, r, http.StatusBadRequest, "timeout_secs must be a positive integer")
-		return
+		return nil, huma.Error400BadRequest("timeout_secs must be a positive integer")
 	}
-
-	// Use 0 credit remaining by default; if usage service is available, compute it.
 	var creditRemaining int64
-	if s.usageService != nil {
-		orgID := r.URL.Query().Get("org_id")
-		if orgID != "" {
-			if err := s.validateCallerOrgAccess(r.Context(), orgID); err != nil {
-				respondError(w, r, http.StatusForbidden, err.Error())
-				return
-			}
-			limit, limitErr := s.usageService.GetSpendingLimit(r.Context(), orgID)
-			if limitErr == nil {
-				creditRemaining = int64((limit.IncludedCreditUsd - limit.CurrentSpendUsd) * 1000000)
-				creditRemaining = max(creditRemaining, 0)
-			}
+	if s.usageService != nil && input.OrgID != "" {
+		if err := s.validateCallerOrgAccess(ctx, input.OrgID); err != nil {
+			return nil, huma.Error403Forbidden(err.Error())
+		}
+		limit, limitErr := s.usageService.GetSpendingLimit(ctx, input.OrgID)
+		if limitErr == nil {
+			creditRemaining = int64((limit.IncludedCreditUsd - limit.CurrentSpendUsd) * 1000000)
+			creditRemaining = max(creditRemaining, 0)
 		}
 	}
-
-	estimate, err := billing.EstimateJobCost(preset, timeoutSecs, creditRemaining)
+	estimate, err := billing.EstimateJobCost(input.Preset, timeoutSecs, creditRemaining)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, fmt.Sprintf("invalid preset: %v", err))
-		return
+		return nil, huma.Error400BadRequest(fmt.Sprintf("invalid preset: %v", err))
 	}
-
-	respondJSON(w, http.StatusOK, estimate)
+	return &GetCostEstimateOutput{Body: estimate}, nil
 }
 
-func (s *Server) handleGetSpendingLimit(w http.ResponseWriter, r *http.Request) {
+type GetSpendingLimitInput struct {
+	OrgID string `query:"org_id"`
+}
+type GetSpendingLimitOutput struct{ Body any }
+
+func (s *Server) handleGetSpendingLimit(ctx context.Context, input *GetSpendingLimitInput) (*GetSpendingLimitOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
-	}
-
-	limit, err := s.usageService.GetSpendingLimit(r.Context(), orgID)
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
-		slog.Error("failed to get spending limit", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to get spending limit")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, limit)
+	limit, lErr := s.usageService.GetSpendingLimit(ctx, orgID)
+	if lErr != nil {
+		slog.Error("failed to get spending limit", "error", lErr)
+		return nil, huma.Error500InternalServerError("failed to get spending limit")
+	}
+	return &GetSpendingLimitOutput{Body: limit}, nil
 }
 
-func (s *Server) handleUpdateSpendingLimit(w http.ResponseWriter, r *http.Request) {
+type updateSpendingLimitRequest struct {
+	LimitMicrousd int64  `json:"limit_microusd"`
+	Action        string `json:"action"`
+}
+type UpdateSpendingLimitInput struct {
+	OrgID string `query:"org_id"`
+	Body  updateSpendingLimitRequest
+}
+type UpdateSpendingLimitOutput struct{ Body map[string]string }
+
+func (s *Server) handleUpdateSpendingLimit(ctx context.Context, input *UpdateSpendingLimitInput) (*UpdateSpendingLimitOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
+	if err != nil {
+		return nil, err
 	}
-
-	var req struct {
-		LimitMicrousd int64  `json:"limit_microusd"`
-		Action        string `json:"action"`
+	if err := s.usageService.SetSpendingLimit(ctx, orgID, input.Body.LimitMicrousd, input.Body.Action); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if err := s.usageService.SetSpendingLimit(r.Context(), orgID, req.LimitMicrousd, req.Action); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	return &UpdateSpendingLimitOutput{Body: map[string]string{"status": "updated"}}, nil
 }
 
-func (s *Server) handleGetDowngradePreview(w http.ResponseWriter, r *http.Request) {
+type GetDowngradePreviewInput struct {
+	OrgID      string `query:"org_id"`
+	TargetTier string `query:"target_tier"`
+}
+type GetDowngradePreviewOutput struct{ Body any }
+
+func (s *Server) handleGetDowngradePreview(ctx context.Context, input *GetDowngradePreviewInput) (*GetDowngradePreviewOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
+	if err != nil {
+		return nil, err
 	}
-
-	targetTier := r.URL.Query().Get("target_tier")
-	if targetTier == "" {
-		respondError(w, r, http.StatusBadRequest, "target_tier query parameter is required")
-		return
+	if input.TargetTier == "" {
+		return nil, huma.Error400BadRequest("target_tier query parameter is required")
 	}
-
-	tier := domain.PlanTier(targetTier)
+	tier := domain.PlanTier(input.TargetTier)
 	if _, exists := billing.Plans[tier]; !exists {
-		respondError(w, r, http.StatusBadRequest, "invalid target_tier")
-		return
+		return nil, huma.Error400BadRequest("invalid target_tier")
 	}
-
-	impact, err := s.usageService.PreviewDowngrade(r.Context(), orgID, tier)
-	if err != nil {
-		slog.Error("failed to preview downgrade", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to preview downgrade")
-		return
+	impact, iErr := s.usageService.PreviewDowngrade(ctx, orgID, tier)
+	if iErr != nil {
+		slog.Error("failed to preview downgrade", "error", iErr)
+		return nil, huma.Error500InternalServerError("failed to preview downgrade")
 	}
-
-	respondJSON(w, http.StatusOK, impact)
+	return &GetDowngradePreviewOutput{Body: impact}, nil
 }
 
-func (s *Server) handleExportUsage(w http.ResponseWriter, r *http.Request) {
+type ExportUsageInput struct {
+	OrgID  string `query:"org_id"`
+	From   string `query:"from"`
+	To     string `query:"to"`
+	Format string `query:"format"`
+}
+
+// ExportUsageOutput uses any Body because the handler writes raw CSV/PDF bytes
+// directly to the response writer. A nil return signals the response was already written.
+type ExportUsageOutput struct {
+	Body any
+}
+
+func (s *Server) handleExportUsage(ctx context.Context, input *ExportUsageInput) (*ExportUsageOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
+	if err != nil {
+		return nil, err
 	}
-
-	from, to, ok := parseDateRange(w, r)
-	if !ok {
-		return
+	from, to, err := parseDateRangeTyped(input.From, input.To)
+	if err != nil {
+		return nil, err
 	}
-
-	format := r.URL.Query().Get("format")
+	format := input.Format
 	if format == "" {
 		format = "csv"
 	}
 
+	// Retrieve the raw response writer for binary output.
+	w := responseWriterFromContext(ctx)
+	if w == nil {
+		return nil, huma.Error500InternalServerError("internal error")
+	}
+
 	switch format {
 	case "csv":
-		csvData, err := s.usageService.ExportUsageCSV(r.Context(), orgID, from, to)
-		if err != nil {
-			slog.Error("failed to export usage", "error", err)
-			respondError(w, r, http.StatusInternalServerError, "failed to export usage")
-			return
+		csvData, csvErr := s.usageService.ExportUsageCSV(ctx, orgID, from, to)
+		if csvErr != nil {
+			slog.Error("failed to export usage", "error", csvErr)
+			return nil, huma.Error500InternalServerError("failed to export usage")
 		}
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=usage_%s.csv", orgID))
 		w.WriteHeader(http.StatusOK)
-		w.Write(csvData) //nolint:errcheck,gosec // best-effort response write
-
+		w.Write(csvData) //nolint:errcheck,gosec
 	case "pdf":
-		pdfData, err := s.usageService.ExportUsagePDF(r.Context(), orgID, from, to)
-		if err != nil {
-			slog.Error("failed to export usage PDF", "error", err)
-			respondError(w, r, http.StatusInternalServerError, "failed to export usage")
-			return
+		pdfData, pdfErr := s.usageService.ExportUsagePDF(ctx, orgID, from, to)
+		if pdfErr != nil {
+			slog.Error("failed to export usage PDF", "error", pdfErr)
+			return nil, huma.Error500InternalServerError("failed to export usage")
 		}
 		w.Header().Set("Content-Type", "application/pdf")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=usage_%s.pdf", orgID))
 		w.WriteHeader(http.StatusOK)
-		w.Write(pdfData) //nolint:errcheck,gosec // best-effort response write
-
+		w.Write(pdfData) //nolint:errcheck,gosec
 	default:
-		respondError(w, r, http.StatusBadRequest, "unsupported format, use csv or pdf")
+		return nil, huma.Error400BadRequest("unsupported format, use csv or pdf")
 	}
+
+	// Return nil to signal that the response was already written.
+	return nil, nil
 }
 
-func (s *Server) handleGetAnomalyAlerts(w http.ResponseWriter, r *http.Request) {
+type GetAnomalyAlertsInput struct {
+	OrgID string `query:"org_id"`
+}
+type GetAnomalyAlertsOutput struct{ Body []billing.AnomalyAlert }
+
+func (s *Server) handleGetAnomalyAlerts(ctx context.Context, input *GetAnomalyAlertsInput) (*GetAnomalyAlertsOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
-	}
-
-	alerts, err := s.usageService.DetectAnomalies(r.Context(), orgID)
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
-		slog.Error("failed to detect anomalies", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to detect anomalies")
-		return
+		return nil, err
 	}
-
+	alerts, aErr := s.usageService.DetectAnomalies(ctx, orgID)
+	if aErr != nil {
+		slog.Error("failed to detect anomalies", "error", aErr)
+		return nil, huma.Error500InternalServerError("failed to detect anomalies")
+	}
 	if alerts == nil {
 		alerts = []billing.AnomalyAlert{}
 	}
-
-	respondJSON(w, http.StatusOK, alerts)
+	return &GetAnomalyAlertsOutput{Body: alerts}, nil
 }
 
-func (s *Server) handleGetProjectBudget(w http.ResponseWriter, r *http.Request) {
+type GetProjectBudgetInput struct {
+	ProjectID string `query:"project_id"`
+}
+type GetProjectBudgetOutput struct{ Body any }
+
+func (s *Server) handleGetProjectBudget(ctx context.Context, input *GetProjectBudgetInput) (*GetProjectBudgetOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id query parameter is required")
-		return
+	if input.ProjectID == "" {
+		return nil, huma.Error400BadRequest("project_id query parameter is required")
 	}
-
-	if err := s.validateProjectBelongsToCallerOrg(r.Context(), projectID); err != nil {
-		respondError(w, r, http.StatusForbidden, "access denied")
-		return
+	if err := s.validateProjectBelongsToCallerOrg(ctx, input.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("access denied")
 	}
-
-	budget, err := s.usageService.GetProjectBudget(r.Context(), projectID)
-	if err != nil {
-		slog.Error("failed to get project budget", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to get project budget")
-		return
+	budget, bErr := s.usageService.GetProjectBudget(ctx, input.ProjectID)
+	if bErr != nil {
+		slog.Error("failed to get project budget", "error", bErr)
+		return nil, huma.Error500InternalServerError("failed to get project budget")
 	}
-
-	respondJSON(w, http.StatusOK, budget)
+	return &GetProjectBudgetOutput{Body: budget}, nil
 }
 
-func (s *Server) handleUpdateProjectBudget(w http.ResponseWriter, r *http.Request) {
-	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
-	}
+type updateProjectBudgetRequest struct {
+	ProjectID   string `json:"project_id"`
+	BudgetMicro int64  `json:"budget_microusd"`
+	Action      string `json:"action"`
+}
+type UpdateProjectBudgetInput struct{ Body updateProjectBudgetRequest }
+type UpdateProjectBudgetOutput struct{ Body map[string]string }
 
-	var req struct {
-		ProjectID   string `json:"project_id"`
-		BudgetMicro int64  `json:"budget_microusd"`
-		Action      string `json:"action"`
+func (s *Server) handleUpdateProjectBudget(ctx context.Context, input *UpdateProjectBudgetInput) (*UpdateProjectBudgetOutput, error) {
+	if s.usageService == nil {
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+	req := input.Body
 	if req.ProjectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
-
-	if err := s.validateProjectBelongsToCallerOrg(r.Context(), req.ProjectID); err != nil {
-		respondError(w, r, http.StatusForbidden, "access denied")
-		return
+	if err := s.validateProjectBelongsToCallerOrg(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("access denied")
 	}
-
-	if err := s.usageService.SetProjectBudget(r.Context(), req.ProjectID, req.BudgetMicro, req.Action); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+	if err := s.usageService.SetProjectBudget(ctx, req.ProjectID, req.BudgetMicro, req.Action); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	respondJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	return &UpdateProjectBudgetOutput{Body: map[string]string{"status": "updated"}}, nil
 }
 
-func (s *Server) handleGetAnomalyConfig(w http.ResponseWriter, r *http.Request) {
+type GetAnomalyConfigInput struct {
+	OrgID string `query:"org_id"`
+}
+type GetAnomalyConfigOutput struct{ Body any }
+
+func (s *Server) handleGetAnomalyConfig(ctx context.Context, input *GetAnomalyConfigInput) (*GetAnomalyConfigOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
-	}
-
-	cfg, err := s.usageService.GetAnomalyConfig(r.Context(), orgID)
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
-		slog.Error("failed to get anomaly config", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to get anomaly config")
-		return
+		return nil, err
 	}
-
-	respondJSON(w, http.StatusOK, cfg)
+	cfg, cErr := s.usageService.GetAnomalyConfig(ctx, orgID)
+	if cErr != nil {
+		slog.Error("failed to get anomaly config", "error", cErr)
+		return nil, huma.Error500InternalServerError("failed to get anomaly config")
+	}
+	return &GetAnomalyConfigOutput{Body: cfg}, nil
 }
 
-func (s *Server) handleUpdateAnomalyConfig(w http.ResponseWriter, r *http.Request) {
+type updateAnomalyConfigRequest struct {
+	Warning  float64 `json:"warning_threshold"`
+	Critical float64 `json:"critical_threshold"`
+}
+type UpdateAnomalyConfigInput struct {
+	OrgID string `query:"org_id"`
+	Body  updateAnomalyConfigRequest
+}
+type UpdateAnomalyConfigOutput struct{ Body map[string]string }
+
+func (s *Server) handleUpdateAnomalyConfig(ctx context.Context, input *UpdateAnomalyConfigInput) (*UpdateAnomalyConfigOutput, error) {
 	if s.usageService == nil {
-		respondError(w, r, http.StatusNotImplemented, "usage service not configured")
-		return
+		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
+	if err != nil {
+		return nil, err
 	}
-
-	var req struct {
-		Warning  float64 `json:"warning_threshold"`
-		Critical float64 `json:"critical_threshold"`
+	if err := s.usageService.SetAnomalyConfig(ctx, orgID, input.Body.Warning, input.Body.Critical); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if err := s.usageService.SetAnomalyConfig(r.Context(), orgID, req.Warning, req.Critical); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	return &UpdateAnomalyConfigOutput{Body: map[string]string{"status": "updated"}}, nil
 }
 
 // Referral handlers.
+type createReferralCodeRequest struct {
+	OrgID string `json:"org_id"`
+}
+type CreateReferralCodeInput struct{ Body createReferralCodeRequest }
+type CreateReferralCodeOutput struct{ Body any }
 
-func (s *Server) handleCreateReferralCode(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreateReferralCode(ctx context.Context, input *CreateReferralCodeInput) (*CreateReferralCodeOutput, error) {
 	if s.referralService == nil {
-		respondError(w, r, http.StatusNotImplemented, "referral service not configured")
-		return
+		return nil, huma.Error501NotImplemented("referral service not configured")
 	}
-
-	var req struct {
-		OrgID string `json:"org_id"`
+	if input.Body.OrgID == "" {
+		return nil, huma.Error400BadRequest("org_id is required")
 	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
+	if err := s.validateCallerOrgAccess(ctx, input.Body.OrgID); err != nil {
+		return nil, huma.Error403Forbidden(err.Error())
 	}
-	if req.OrgID == "" {
-		respondError(w, r, http.StatusBadRequest, "org_id is required")
-		return
-	}
-
-	if err := s.validateCallerOrgAccess(r.Context(), req.OrgID); err != nil {
-		respondError(w, r, http.StatusForbidden, err.Error())
-		return
-	}
-
-	referral, err := s.referralService.GenerateCode(r.Context(), req.OrgID)
+	referral, err := s.referralService.GenerateCode(ctx, input.Body.OrgID)
 	if err != nil {
 		slog.Error("failed to create referral code", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to create referral code")
-		return
+		return nil, huma.Error500InternalServerError("failed to create referral code")
 	}
-
-	respondJSON(w, http.StatusCreated, referral)
+	return &CreateReferralCodeOutput{Body: referral}, nil
 }
 
-func (s *Server) handleActivateReferral(w http.ResponseWriter, r *http.Request) {
-	if s.referralService == nil {
-		respondError(w, r, http.StatusNotImplemented, "referral service not configured")
-		return
-	}
+type activateReferralRequest struct {
+	Code          string `json:"code"`
+	ReferredOrgID string `json:"referred_org_id"`
+	ReferredEmail string `json:"referred_email"`
+}
+type ActivateReferralInput struct{ Body activateReferralRequest }
+type ActivateReferralOutput struct{ Body any }
 
-	var req struct {
-		Code          string `json:"code"`
-		ReferredOrgID string `json:"referred_org_id"`
-		ReferredEmail string `json:"referred_email"`
+func (s *Server) handleActivateReferral(ctx context.Context, input *ActivateReferralInput) (*ActivateReferralOutput, error) {
+	if s.referralService == nil {
+		return nil, huma.Error501NotImplemented("referral service not configured")
 	}
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+	req := input.Body
 	if req.Code == "" || req.ReferredOrgID == "" {
-		respondError(w, r, http.StatusBadRequest, "code and referred_org_id are required")
-		return
+		return nil, huma.Error400BadRequest("code and referred_org_id are required")
 	}
-
-	if err := s.validateCallerOrgAccess(r.Context(), req.ReferredOrgID); err != nil {
-		respondError(w, r, http.StatusForbidden, err.Error())
-		return
+	if err := s.validateCallerOrgAccess(ctx, req.ReferredOrgID); err != nil {
+		return nil, huma.Error403Forbidden(err.Error())
 	}
-
-	referral, err := s.referralService.ActivateReferral(r.Context(), req.Code, req.ReferredOrgID, req.ReferredEmail)
+	referral, err := s.referralService.ActivateReferral(ctx, req.Code, req.ReferredOrgID, req.ReferredEmail)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	respondJSON(w, http.StatusOK, referral)
+	return &ActivateReferralOutput{Body: referral}, nil
 }
 
-func (s *Server) handleListReferrals(w http.ResponseWriter, r *http.Request) {
+type ListReferralsInput struct {
+	OrgID string `query:"org_id"`
+}
+type ListReferralsOutput struct{ Body []billing.Referral }
+
+func (s *Server) handleListReferrals(ctx context.Context, input *ListReferralsInput) (*ListReferralsOutput, error) {
 	if s.referralService == nil {
-		respondError(w, r, http.StatusNotImplemented, "referral service not configured")
-		return
+		return nil, huma.Error501NotImplemented("referral service not configured")
 	}
-
-	orgID, ok := s.resolveUsageOrgID(w, r)
-	if !ok {
-		return
-	}
-
-	referrals, err := s.referralService.ListReferrals(r.Context(), orgID)
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
-		slog.Error("failed to list referrals", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to list referrals")
-		return
+		return nil, err
 	}
-
+	referrals, rErr := s.referralService.ListReferrals(ctx, orgID)
+	if rErr != nil {
+		slog.Error("failed to list referrals", "error", rErr)
+		return nil, huma.Error500InternalServerError("failed to list referrals")
+	}
 	if referrals == nil {
 		referrals = []billing.Referral{}
 	}
-
-	respondJSON(w, http.StatusOK, referrals)
+	return &ListReferralsOutput{Body: referrals}, nil
 }
 
-// parseDateRange extracts from/to query parameters as dates.
-func parseDateRange(w http.ResponseWriter, r *http.Request) (time.Time, time.Time, bool) {
-	fromStr := r.URL.Query().Get("from")
-	toStr := r.URL.Query().Get("to")
+type CheckOrgLimitInput struct {
+	UserID   string `query:"user_id"`
+	PlanTier string `query:"plan_tier"`
+}
+type CheckOrgLimitOutput struct{ Body map[string]string }
 
-	if fromStr == "" || toStr == "" {
-		respondError(w, r, http.StatusBadRequest, "from and to query parameters are required (format: YYYY-MM-DD)")
-		return time.Time{}, time.Time{}, false
+func (s *Server) handleCheckOrgLimit(ctx context.Context, input *CheckOrgLimitInput) (*CheckOrgLimitOutput, error) {
+	if scopesFromContext(ctx) != nil {
+		return nil, huma.Error403Forbidden("org limit check requires internal secret")
 	}
-
-	from, err := time.Parse("2006-01-02", fromStr)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid from date format (expected YYYY-MM-DD)")
-		return time.Time{}, time.Time{}, false
+	if s.billingEnforcer == nil {
+		return &CheckOrgLimitOutput{Body: map[string]string{"status": "allowed"}}, nil
 	}
-
-	to, err := time.Parse("2006-01-02", toStr)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid to date format (expected YYYY-MM-DD)")
-		return time.Time{}, time.Time{}, false
+	if input.UserID == "" {
+		return nil, huma.Error400BadRequest("user_id query parameter is required")
 	}
-
-	if to.Before(from) {
-		respondError(w, r, http.StatusBadRequest, "to date must be after from date")
-		return time.Time{}, time.Time{}, false
+	planTier := domain.PlanTier(input.PlanTier)
+	if planTier == "" {
+		planTier = domain.PlanFree
 	}
-
-	return from, to, true
+	if err := s.billingEnforcer.CheckOrgCreationLimit(ctx, input.UserID, planTier); err != nil {
+		var le *billing.LimitError
+		if errors.As(err, &le) {
+			return nil, le
+		}
+		slog.Error("failed to check org creation limit", "error", err)
+		return nil, huma.Error500InternalServerError("failed to check org creation limit")
+	}
+	return &CheckOrgLimitOutput{Body: map[string]string{"status": "allowed"}}, nil
 }

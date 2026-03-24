@@ -474,7 +474,6 @@ func TestTriggerWorkflow(t *testing.T) {
 			t.Fatalf("captured step runs = %d, want 2", len(capturedStepRuns))
 		}
 	})
-
 }
 
 func TestTriggerWorkflow_SnapshotIDPopulated(t *testing.T) {
@@ -2403,7 +2402,6 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 			t.Fatalf("expected wrapped error containing 'skip step runs by refs', got %v", err)
 		}
 	})
-
 }
 
 func TestStepCallback_ApproveStep(t *testing.T) {

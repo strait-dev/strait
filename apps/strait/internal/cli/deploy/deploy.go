@@ -122,7 +122,7 @@ func BuildImage(ctx context.Context, dockerfile, tag, registry, slug string, bui
 		args = append(args, "--build-arg", arg)
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...) //nolint:gosec // Args from trusted CLI flags.
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -140,7 +140,7 @@ func hasBuildx(ctx context.Context) bool {
 
 // PushImage pushes a Docker image to its registry.
 func PushImage(ctx context.Context, imageURI string) error {
-	cmd := exec.CommandContext(ctx, "docker", "push", imageURI) //nolint:gosec // Image URI from trusted CLI input.
+	cmd := exec.CommandContext(ctx, "docker", "push", imageURI)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

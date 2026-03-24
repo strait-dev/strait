@@ -19,7 +19,7 @@ func BenchmarkRegistryCheckAll(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		result := r.CheckAll(ctx)
 		if result.Status != StatusUp {
 			b.Fatalf("CheckAll() status = %q", result.Status)

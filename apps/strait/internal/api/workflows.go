@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -15,7 +14,7 @@ import (
 	"strait/internal/store"
 	"strait/internal/workflow"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
 )
@@ -106,25 +105,25 @@ type workflowResponse struct {
 	Steps []domain.WorkflowStep `json:"steps"`
 }
 
-func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
-	var req createWorkflowRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+type CreateWorkflowInput struct {
+	Body createWorkflowRequest
+}
+type CreateWorkflowOutput struct {
+	Body workflowResponse
+}
 
-	if !s.validateRequest(w, r, &req) {
-		return
+func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflowInput) (*CreateWorkflowOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	if err := validateWorkflowSteps(req.Steps); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 	candidateSteps := workflowStepsFromRequests(req.Steps)
-	if err := s.validateWorkflowPolicy(r.Context(), req.ProjectID, candidateSteps); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+	if err := s.validateWorkflowPolicy(ctx, req.ProjectID, candidateSteps); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	enabled := true
@@ -134,8 +133,7 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 
 	if len(req.Tags) > 0 {
 		if err := validateTags(req.Tags); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 
@@ -153,144 +151,154 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		CronTimezone:      req.CronTimezone,
 		SkipIfRunning:     req.SkipIfRunning,
 		VersionPolicy:     domain.VersionPolicyPin,
-		CreatedBy:         actorFromContext(r.Context()),
-		UpdatedBy:         actorFromContext(r.Context()),
+		CreatedBy:         actorFromContext(ctx),
+		UpdatedBy:         actorFromContext(ctx),
 	}
 
 	if req.VersionPolicy != "" {
 		wf.VersionPolicy = domain.VersionPolicy(req.VersionPolicy)
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	var steps []domain.WorkflowStep
-	if err := s.runInTx(r.Context(), func(txStore APIStore) error {
-		if err := txStore.CreateWorkflow(r.Context(), wf); err != nil {
+	if err := s.runInTx(ctx, func(txStore APIStore) error {
+		if err := txStore.CreateWorkflow(ctx, wf); err != nil {
 			return fmt.Errorf("create workflow: %w", err)
 		}
 		for i := range candidateSteps {
 			candidateSteps[i].WorkflowID = wf.ID
-			if err := txStore.CreateWorkflowStep(r.Context(), &candidateSteps[i]); err != nil {
+			if err := txStore.CreateWorkflowStep(ctx, &candidateSteps[i]); err != nil {
 				return fmt.Errorf("create workflow step %q: %w", candidateSteps[i].StepRef, err)
 			}
 			steps = append(steps, candidateSteps[i])
 		}
-		if err := txStore.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
+		if err := txStore.CreateWorkflowVersionSnapshot(ctx, wf.ID, wf.Version); err != nil {
 			return fmt.Errorf("create workflow version snapshot: %w", err)
 		}
 		return nil
 	}); err != nil {
 		slog.Error("failed to create workflow", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to create workflow")
-		return
+		return nil, huma.Error500InternalServerError("failed to create workflow")
 	}
 
-	respondJSON(w, http.StatusCreated, workflowResponse{Workflow: wf, Steps: steps})
+	return &CreateWorkflowOutput{Body: workflowResponse{Workflow: wf, Steps: steps}}, nil
 }
 
-func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
-	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
+type GetWorkflowInput struct {
+	WorkflowID string `path:"workflowID"`
+}
+type GetWorkflowOutput struct {
+	Body workflowResponse
+}
+
+func (s *Server) handleGetWorkflow(ctx context.Context, input *GetWorkflowInput) (*GetWorkflowOutput, error) {
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow not found")
-			return
+			return nil, huma.Error404NotFound("workflow not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow")
 	}
 
-	steps, err := s.store.ListStepsByWorkflow(r.Context(), wf.ID)
+	steps, err := s.store.ListStepsByWorkflow(ctx, wf.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow steps")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow steps")
 	}
 
-	respondJSON(w, http.StatusOK, workflowResponse{Workflow: wf, Steps: steps})
+	return &GetWorkflowOutput{Body: workflowResponse{Workflow: wf, Steps: steps}}, nil
 }
 
-func (s *Server) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	projectID := projectIDFromContext(r.Context())
+type ListWorkflowsInput struct {
+	TagKey   string `query:"tag_key"`
+	TagValue string `query:"tag_value"`
+	Limit    string `query:"limit"`
+	Cursor   string `query:"cursor"`
+}
+type ListWorkflowsOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListWorkflows(ctx context.Context, input *ListWorkflowsInput) (*ListWorkflowsOutput, error) {
+	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
+		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	tagKey := query.Get("tag_key")
-	tagValue := query.Get("tag_value")
-	if tagValue != "" && tagKey == "" {
-		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
-		return
+	if input.TagValue != "" && input.TagKey == "" {
+		return nil, huma.Error400BadRequest("tag_key is required when tag_value is provided")
 	}
 
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	var workflows []domain.Workflow
-	if tagKey != "" {
-		workflows, err = s.store.ListWorkflowsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
+	if input.TagKey != "" {
+		workflows, err = s.store.ListWorkflowsByTag(ctx, projectID, input.TagKey, input.TagValue, limit+1, cursor)
 	} else {
-		workflows, err = s.store.ListWorkflows(r.Context(), projectID, limit+1, cursor)
+		workflows, err = s.store.ListWorkflows(ctx, projectID, limit+1, cursor)
 	}
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflows")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflows")
 	}
 
-	respondJSON(w, http.StatusOK, paginatedResult(workflows, limit, func(wf domain.Workflow) string {
+	return &ListWorkflowsOutput{Body: paginatedResult(workflows, limit, func(wf domain.Workflow) string {
 		return wf.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
-	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
+type UpdateWorkflowInput struct {
+	WorkflowID string `path:"workflowID"`
+	Body       updateWorkflowRequest
+}
+
+type updateWorkflowResponseBody struct {
+	*domain.Workflow
+	Steps                       []domain.WorkflowStep `json:"steps"`
+	ActiveRunsOnPreviousVersion *int                  `json:"active_runs_on_previous_version,omitempty"`
+	PreviousVersionID           string                `json:"previous_version_id,omitempty"`
+}
+
+type UpdateWorkflowOutput struct {
+	Body updateWorkflowResponseBody
+}
+
+//nolint:gocognit,gocyclo,cyclop
+func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflowInput) (*UpdateWorkflowOutput, error) {
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow not found")
-			return
+			return nil, huma.Error404NotFound("workflow not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow")
 	}
 
 	// Capture the pre-update version for breaking change detection later.
 	previousVersionID := wf.VersionID
 	previousVersion := wf.Version
 
-	var req updateWorkflowRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if !s.validateRequest(w, r, &req) {
-		return
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	var candidateSteps []domain.WorkflowStep
 	if req.Steps != nil {
 		if err := validateWorkflowSteps(*req.Steps); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 
 		candidateSteps = workflowStepsFromRequests(*req.Steps)
-		if err := s.validateWorkflowPolicy(r.Context(), wf.ProjectID, candidateSteps); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+		if err := s.validateWorkflowPolicy(ctx, wf.ProjectID, candidateSteps); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 
-		existingSteps, err := s.store.ListStepsByWorkflow(r.Context(), wf.ID)
+		existingSteps, err := s.store.ListStepsByWorkflow(ctx, wf.ID)
 		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to load existing workflow steps")
-			return
+			return nil, huma.Error500InternalServerError("failed to load existing workflow steps")
 		}
 		existingRefs := make(map[string]struct{}, len(existingSteps))
 		for _, st := range existingSteps {
@@ -302,8 +310,7 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 		for ref := range existingRefs {
 			if _, ok := requestedRefs[ref]; !ok {
-				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("removing step_ref %q is not supported; disable it with step overrides instead", ref))
-				return
+				return nil, huma.Error400BadRequest(fmt.Sprintf("removing step_ref %q is not supported; disable it with step overrides instead", ref))
 			}
 		}
 	}
@@ -340,8 +347,7 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Tags != nil {
 		if err := validateTags(*req.Tags); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 		wf.Tags = *req.Tags
 	}
@@ -352,55 +358,44 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		wf.BackwardsCompatible = *req.BackwardsCompatible
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	wf.UpdatedBy = actorFromContext(r.Context())
+	wf.UpdatedBy = actorFromContext(ctx)
 
-	if err := s.runInTx(r.Context(), func(txStore APIStore) error {
-		if err := txStore.UpdateWorkflow(r.Context(), wf); err != nil {
+	if err := s.runInTx(ctx, func(txStore APIStore) error {
+		if err := txStore.UpdateWorkflow(ctx, wf); err != nil {
 			return fmt.Errorf("update workflow: %w", err)
 		}
 		if req.Steps != nil {
-			if err := txStore.DeleteStepsByWorkflow(r.Context(), wf.ID); err != nil {
+			if err := txStore.DeleteStepsByWorkflow(ctx, wf.ID); err != nil {
 				return fmt.Errorf("delete workflow steps: %w", err)
 			}
 			for i := range candidateSteps {
 				candidateSteps[i].WorkflowID = wf.ID
-				if err := txStore.CreateWorkflowStep(r.Context(), &candidateSteps[i]); err != nil {
+				if err := txStore.CreateWorkflowStep(ctx, &candidateSteps[i]); err != nil {
 					return fmt.Errorf("create workflow step %q: %w", candidateSteps[i].StepRef, err)
 				}
 			}
 		}
-		if err := txStore.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
+		if err := txStore.CreateWorkflowVersionSnapshot(ctx, wf.ID, wf.Version); err != nil {
 			return fmt.Errorf("create workflow version snapshot: %w", err)
 		}
 		return nil
 	}); err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow not found")
-			return
+			return nil, huma.Error404NotFound("workflow not found")
 		}
 		slog.Error("failed to update workflow", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to update workflow")
-		return
+		return nil, huma.Error500InternalServerError("failed to update workflow")
 	}
 
-	steps, err := s.store.ListStepsByWorkflow(r.Context(), wf.ID)
+	steps, err := s.store.ListStepsByWorkflow(ctx, wf.ID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow steps")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow steps")
 	}
 
-	type updateWorkflowResponse struct {
-		*domain.Workflow
-		Steps                       []domain.WorkflowStep `json:"steps"`
-		ActiveRunsOnPreviousVersion *int                  `json:"active_runs_on_previous_version,omitempty"`
-		PreviousVersionID           string                `json:"previous_version_id,omitempty"`
-	}
-
-	resp := updateWorkflowResponse{Workflow: wf, Steps: steps}
+	resp := updateWorkflowResponseBody{Workflow: wf, Steps: steps}
 
 	// Check for active runs on the previous version to warn about breaking changes.
 	if previousVersionID != "" && previousVersion >= 1 {
@@ -408,11 +403,11 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 			CountActiveWorkflowRunsByVersion(ctx context.Context, workflowID, versionID string) (int, error)
 		}
 		if counter, ok := s.store.(activeRunCounter); ok {
-			count, countErr := counter.CountActiveWorkflowRunsByVersion(r.Context(), wf.ID, previousVersionID)
+			count, countErr := counter.CountActiveWorkflowRunsByVersion(ctx, wf.ID, previousVersionID)
 			if countErr == nil && count > 0 {
 				resp.ActiveRunsOnPreviousVersion = &count
 				resp.PreviousVersionID = previousVersionID
-				s.emitAuditEvent(r.Context(), "workflow.updated_breaking", "workflow", wf.ID, map[string]any{
+				s.emitAuditEvent(ctx, "workflow.updated_breaking", "workflow", wf.ID, map[string]any{
 					"previous_version_id":             previousVersionID,
 					"active_runs_on_previous_version": count,
 					"new_version":                     wf.Version,
@@ -421,69 +416,66 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	respondJSON(w, http.StatusOK, resp)
+	return &UpdateWorkflowOutput{Body: resp}, nil
 }
 
-func (s *Server) handleDeleteWorkflow(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
-	if err := s.store.DeleteWorkflow(r.Context(), workflowID); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to delete workflow")
-		return
+type DeleteWorkflowInput struct {
+	WorkflowID string `path:"workflowID"`
+}
+
+func (s *Server) handleDeleteWorkflow(ctx context.Context, input *DeleteWorkflowInput) (*struct{}, error) {
+	if err := s.store.DeleteWorkflow(ctx, input.WorkflowID); err != nil {
+		return nil, huma.Error500InternalServerError("failed to delete workflow")
 	}
 
-	respondJSON(w, http.StatusNoContent, nil)
+	return nil, nil
 }
 
-func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
+type TriggerWorkflowInput struct {
+	WorkflowID string `path:"workflowID"`
+	Body       triggerWorkflowRequest
+}
+type TriggerWorkflowOutput struct {
+	Body any
+}
+
+func (s *Server) handleTriggerWorkflow(ctx context.Context, input *TriggerWorkflowInput) (*TriggerWorkflowOutput, error) {
 	if s.workflowEngine == nil {
-		respondError(w, r, http.StatusServiceUnavailable, "workflow engine unavailable")
-		return
+		return nil, huma.Error503ServiceUnavailable("workflow engine unavailable")
 	}
 
-	workflowID := chi.URLParam(r, "workflowID")
-	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
+	workflowID := input.WorkflowID
+	wf, err := s.store.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow not found")
-			return
+			return nil, huma.Error404NotFound("workflow not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow")
 	}
 	if wf == nil {
-		respondError(w, r, http.StatusNotFound, "workflow not found")
-		return
+		return nil, huma.Error404NotFound("workflow not found")
 	}
 	if !wf.Enabled {
-		respondError(w, r, http.StatusConflict, "workflow is disabled")
-		return
+		return nil, huma.Error409Conflict("workflow is disabled")
 	}
 
-	var req triggerWorkflowRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if !s.validateRequest(w, r, &req) {
-		return
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	if len(req.Tags) > 0 {
 		if err := validateTags(req.Tags); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 
-	steps, err := s.store.ListStepsByWorkflowVersion(r.Context(), workflowID, wf.Version)
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, workflowID, wf.Version)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to load workflow steps")
-		return
+		return nil, huma.Error500InternalServerError("failed to load workflow steps")
 	}
-	if err := s.validateWorkflowPolicy(r.Context(), wf.ProjectID, steps); err != nil {
-		respondError(w, r, http.StatusConflict, err.Error())
-		return
+	if err := s.validateWorkflowPolicy(ctx, wf.ProjectID, steps); err != nil {
+		return nil, huma.Error409Conflict(err.Error())
 	}
 
 	triggeredBy := req.TriggeredBy
@@ -491,31 +483,28 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 		triggeredBy = domain.TriggerManual
 	}
 
-	run, err := s.workflowEngine.TriggerWorkflow(r.Context(), workflowID, req.ProjectID, req.Payload, triggeredBy, req.StepOverrides, req.Tags)
+	run, err := s.workflowEngine.TriggerWorkflow(ctx, workflowID, req.ProjectID, req.Payload, triggeredBy, req.StepOverrides, req.Tags)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow not found")
-			return
+			return nil, huma.Error404NotFound("workflow not found")
 		}
 		slog.Error("failed to trigger workflow", "error", err, "workflow_id", workflowID)
-		respondError(w, r, http.StatusInternalServerError, "failed to trigger workflow")
-		return
+		return nil, huma.Error500InternalServerError("failed to trigger workflow")
 	}
 
-	// Stamp audit field — engine doesn't have access to actor context.
-	if actor := actorFromContext(r.Context()); actor != "" {
+	// Stamp audit field -- engine doesn't have access to actor context.
+	if actor := actorFromContext(ctx); actor != "" {
 		run.CreatedBy = actor
 	}
 
 	if len(req.Labels) > 0 {
-		if err := s.store.CreateWorkflowRunLabels(r.Context(), run.ID, req.Labels); err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to persist workflow run labels")
-			return
+		if err := s.store.CreateWorkflowRunLabels(ctx, run.ID, req.Labels); err != nil {
+			return nil, huma.Error500InternalServerError("failed to persist workflow run labels")
 		}
 	}
-	s.publishWorkflowRunHook(r.Context(), run, domain.WfStatusPending, run.Status, "trigger")
+	s.publishWorkflowRunHook(ctx, run, domain.WfStatusPending, run.Status, "trigger")
 
-	respondJSON(w, http.StatusCreated, run)
+	return &TriggerWorkflowOutput{Body: run}, nil
 }
 
 func workflowStepsFromRequests(stepReqs []workflowStepRequest) []domain.WorkflowStep {
@@ -551,6 +540,7 @@ func workflowStepsFromRequests(stepReqs []workflowStepRequest) []domain.Workflow
 	return steps
 }
 
+//nolint:gocognit
 func (s *Server) validateWorkflowPolicy(ctx context.Context, projectID string, steps []domain.WorkflowStep) error {
 	policy, err := s.store.GetWorkflowPolicyByProject(ctx, projectID)
 	if err != nil {
@@ -663,6 +653,7 @@ func (s *Server) validateWorkflowPolicy(ctx context.Context, projectID string, s
 
 const maxWorkflowSteps = 1000
 
+//nolint:gocognit,gocyclo,cyclop
 func validateWorkflowSteps(steps []workflowStepRequest) error {
 	if len(steps) > maxWorkflowSteps {
 		return fmt.Errorf("workflow cannot have more than %d steps", maxWorkflowSteps)
@@ -778,36 +769,33 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 	return nil
 }
 
-func (s *Server) handleDryRunWorkflow(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
+type DryRunWorkflowInput struct {
+	WorkflowID string `path:"workflowID"`
+	Body       dryRunWorkflowRequest
+}
+type DryRunWorkflowOutput struct {
+	Body any
+}
 
-	var req dryRunWorkflowRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if !s.validateRequest(w, r, &req) {
-		return
+func (s *Server) handleDryRunWorkflow(ctx context.Context, input *DryRunWorkflowInput) (*DryRunWorkflowOutput, error) {
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
 	}
 
 	if len(req.Steps) == 0 {
-		steps, err := s.store.ListStepsByWorkflow(r.Context(), workflowID)
+		steps, err := s.store.ListStepsByWorkflow(ctx, input.WorkflowID)
 		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to list workflow steps")
-			return
+			return nil, huma.Error500InternalServerError("failed to list workflow steps")
 		}
 		if err := workflow.ValidateDAG(steps); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
-		respondJSON(w, http.StatusOK, map[string]any{"valid": true, "step_count": len(steps)})
-		return
+		return &DryRunWorkflowOutput{Body: map[string]any{"valid": true, "step_count": len(steps)}}, nil
 	}
 
 	if err := validateWorkflowSteps(req.Steps); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	steps := make([]domain.WorkflowStep, 0, len(req.Steps))
@@ -815,53 +803,50 @@ func (s *Server) handleDryRunWorkflow(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, domain.WorkflowStep{StepRef: sreq.StepRef, DependsOn: sreq.DependsOn})
 	}
 	if err := workflow.ValidateDAG(steps); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"valid": true, "step_count": len(steps)})
+	return &DryRunWorkflowOutput{Body: map[string]any{"valid": true, "step_count": len(steps)}}, nil
 }
 
 type workflowPlanRequest struct {
 	StepOverrides []domain.StepOverride `json:"step_overrides,omitempty"`
 }
 
-func (s *Server) handleWorkflowPlan(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
+type WorkflowPlanInput struct {
+	WorkflowID string `path:"workflowID"`
+	Body       workflowPlanRequest
+}
+type WorkflowPlanOutput struct {
+	Body any
+}
 
-	var req workflowPlanRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
+func (s *Server) handleWorkflowPlan(ctx context.Context, input *WorkflowPlanInput) (*WorkflowPlanOutput, error) {
+	workflowID := input.WorkflowID
+	req := input.Body
 
-	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
+	wf, err := s.store.GetWorkflow(ctx, workflowID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow")
 	}
 	if wf == nil {
-		respondError(w, r, http.StatusNotFound, "workflow not found")
-		return
+		return nil, huma.Error404NotFound("workflow not found")
 	}
 
-	steps, err := s.store.ListStepsByWorkflowVersion(r.Context(), workflowID, wf.Version)
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, workflowID, wf.Version)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to load workflow steps")
-		return
+		return nil, huma.Error500InternalServerError("failed to load workflow steps")
 	}
 
 	if len(req.StepOverrides) > 0 {
 		steps, err = applyStepOverridesForPlan(steps, req.StepOverrides)
 		if err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
+			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
 
 	if err := workflow.ValidateDAG(steps); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	indegree := make(map[string]int, len(steps))
@@ -902,13 +887,13 @@ func (s *Server) handleWorkflowPlan(w http.ResponseWriter, r *http.Request) {
 		sort.Strings(queue)
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{
+	return &WorkflowPlanOutput{Body: map[string]any{
 		"workflow_id":       workflowID,
 		"workflow_version":  wf.Version,
 		"step_count":        len(steps),
 		"roots":             roots,
 		"topological_order": topo,
-	})
+	}}, nil
 }
 
 func applyStepOverridesForPlan(steps []domain.WorkflowStep, overrides []domain.StepOverride) ([]domain.WorkflowStep, error) {
@@ -951,14 +936,21 @@ func applyStepOverridesForPlan(steps []domain.WorkflowStep, overrides []domain.S
 	return filtered, nil
 }
 
-func (s *Server) handleWorkflowGraph(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
-	format := strings.ToLower(r.URL.Query().Get("format"))
+type WorkflowGraphInput struct {
+	WorkflowID string `path:"workflowID"`
+	Format     string `query:"format"`
+}
+type WorkflowGraphOutput struct {
+	Body workflowGraphResponse
+}
 
-	steps, err := s.store.ListStepsByWorkflow(r.Context(), workflowID)
+func (s *Server) handleWorkflowGraph(ctx context.Context, input *WorkflowGraphInput) (*WorkflowGraphOutput, error) {
+	workflowID := input.WorkflowID
+	format := strings.ToLower(input.Format)
+
+	steps, err := s.store.ListStepsByWorkflow(ctx, workflowID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow steps")
-		return
+		return nil, huma.Error500InternalServerError("failed to list workflow steps")
 	}
 
 	adj := make(map[string][]string, len(steps))
@@ -986,11 +978,10 @@ func (s *Server) handleWorkflowGraph(w http.ResponseWriter, r *http.Request) {
 	resp := workflowGraphResponse{WorkflowID: workflowID, Roots: roots}
 	if format == "dot" {
 		resp.DOT = buildWorkflowDOT(adj)
-		respondJSON(w, http.StatusOK, resp)
-		return
+		return &WorkflowGraphOutput{Body: resp}, nil
 	}
 	resp.Adjacency = adj
-	respondJSON(w, http.StatusOK, resp)
+	return &WorkflowGraphOutput{Body: resp}, nil
 }
 
 func buildWorkflowDOT(adjacency map[string][]string) string {
@@ -1036,24 +1027,26 @@ type cloneWorkflowRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
 
-func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
-	sourceID := chi.URLParam(r, "workflowID")
+type CloneWorkflowInput struct {
+	WorkflowID string `path:"workflowID"`
+	Body       cloneWorkflowRequest
+}
+type CloneWorkflowOutput struct {
+	Body workflowResponse
+}
 
-	sourceWf, err := s.store.GetWorkflow(r.Context(), sourceID)
+func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowInput) (*CloneWorkflowOutput, error) {
+	sourceID := input.WorkflowID
+
+	sourceWf, err := s.store.GetWorkflow(ctx, sourceID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, r, http.StatusNotFound, "workflow not found")
-			return
+			return nil, huma.Error404NotFound("workflow not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow")
-		return
+		return nil, huma.Error500InternalServerError("failed to get workflow")
 	}
 
-	var req cloneWorkflowRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		// Body is optional for clone — use defaults.
-		req = cloneWorkflowRequest{}
-	}
+	req := input.Body
 
 	newName := sourceWf.Name + " (copy)"
 	if req.Name != "" {
@@ -1083,18 +1076,17 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 		Tags:                sourceWf.Tags,
 		VersionPolicy:       sourceWf.VersionPolicy,
 		BackwardsCompatible: sourceWf.BackwardsCompatible,
-		CreatedBy:           actorFromContext(r.Context()),
-		UpdatedBy:           actorFromContext(r.Context()),
+		CreatedBy:           actorFromContext(ctx),
+		UpdatedBy:           actorFromContext(ctx),
 	}
-	sourceSteps, err := s.store.ListStepsByWorkflow(r.Context(), sourceID)
+	sourceSteps, err := s.store.ListStepsByWorkflow(ctx, sourceID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list source workflow steps")
-		return
+		return nil, huma.Error500InternalServerError("failed to list source workflow steps")
 	}
 
 	newSteps := make([]domain.WorkflowStep, 0, len(sourceSteps))
-	if err := s.runInTx(r.Context(), func(txStore APIStore) error {
-		if err := txStore.CreateWorkflow(r.Context(), newWf); err != nil {
+	if err := s.runInTx(ctx, func(txStore APIStore) error {
+		if err := txStore.CreateWorkflow(ctx, newWf); err != nil {
 			return fmt.Errorf("create cloned workflow: %w", err)
 		}
 		for _, src := range sourceSteps {
@@ -1125,44 +1117,46 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 				ConcurrencyKey:        src.ConcurrencyKey,
 				ResourceClass:         src.ResourceClass,
 			}
-			if err := txStore.CreateWorkflowStep(r.Context(), &step); err != nil {
+			if err := txStore.CreateWorkflowStep(ctx, &step); err != nil {
 				return fmt.Errorf("create cloned workflow step %q: %w", step.StepRef, err)
 			}
 			newSteps = append(newSteps, step)
 		}
-		if err := txStore.CreateWorkflowVersionSnapshot(r.Context(), newWf.ID, newWf.Version); err != nil {
+		if err := txStore.CreateWorkflowVersionSnapshot(ctx, newWf.ID, newWf.Version); err != nil {
 			return fmt.Errorf("snapshot cloned workflow version: %w", err)
 		}
 		return nil
 	}); err != nil {
 		slog.Error("failed to clone workflow", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to clone workflow")
-		return
+		return nil, huma.Error500InternalServerError("failed to clone workflow")
 	}
 
-	respondJSON(w, http.StatusCreated, workflowResponse{Workflow: newWf, Steps: newSteps})
+	return &CloneWorkflowOutput{Body: workflowResponse{Workflow: newWf, Steps: newSteps}}, nil
 }
 
-func (s *Server) handleGetActiveVersions(w http.ResponseWriter, r *http.Request) {
-	workflowID := chi.URLParam(r, "workflowID")
+type GetActiveVersionsInput struct {
+	WorkflowID string `path:"workflowID"`
+}
+type GetActiveVersionsOutput struct {
+	Body any
+}
 
+func (s *Server) handleGetActiveVersions(ctx context.Context, input *GetActiveVersionsInput) (*GetActiveVersionsOutput, error) {
 	type activeVersionsLister interface {
 		ListActiveWorkflowVersions(ctx context.Context, workflowID string) ([]store.ActiveVersion, error)
 	}
 	lister, ok := s.store.(activeVersionsLister)
 	if !ok {
-		respondError(w, r, http.StatusNotImplemented, "active-versions not supported")
-		return
+		return nil, huma.Error501NotImplemented("active-versions not supported")
 	}
 
-	versions, err := lister.ListActiveWorkflowVersions(r.Context(), workflowID)
+	versions, err := lister.ListActiveWorkflowVersions(ctx, input.WorkflowID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list active versions")
-		return
+		return nil, huma.Error500InternalServerError("failed to list active versions")
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{
-		"workflow_id": workflowID,
+	return &GetActiveVersionsOutput{Body: map[string]any{
+		"workflow_id": input.WorkflowID,
 		"versions":    versions,
-	})
+	}}, nil
 }

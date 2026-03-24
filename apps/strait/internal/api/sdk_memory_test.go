@@ -21,17 +21,17 @@ func TestHandleSDKSetMemory_SuccessUsesAtomicQuotaUpsert(t *testing.T) {
 		maxPerKey int
 		maxPerJob int
 	)
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, JobID: "job-1", ProjectID: "proj-1"}, nil
 		},
-		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 			if projectID != "proj-1" {
 				t.Fatalf("unexpected projectID %s", projectID)
 			}
 			return &store.ProjectQuota{MaxMemoryPerKeyBytes: 128, MaxMemoryPerJobBytes: 512}, nil
 		},
-		upsertJobMemoryWithQuotaFn: func(_ context.Context, mem *domain.JobMemory, perKey, perJob int) error {
+		UpsertJobMemoryWithQuotaFunc: func(_ context.Context, mem *domain.JobMemory, perKey, perJob int) error {
 			captured = mem
 			maxPerKey = perKey
 			maxPerJob = perJob
@@ -44,7 +44,7 @@ func TestHandleSDKSetMemory_SuccessUsesAtomicQuotaUpsert(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/memory/cache-key", "run-1", `{"value":{"ok":true},"ttl_secs":60}`)
 	chi.RouteContext(r.Context()).URLParams.Add("key", "cache-key")
-	srv.handleSDKSetMemory(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKSetMemory)(w, r)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -69,14 +69,14 @@ func TestHandleSDKSetMemory_SuccessUsesAtomicQuotaUpsert(t *testing.T) {
 func TestHandleSDKSetMemory_PerKeyQuotaExceeded(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, JobID: "job-1", ProjectID: "proj-1"}, nil
 		},
-		getProjectQuotaFn: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
 			return &store.ProjectQuota{MaxMemoryPerKeyBytes: 4, MaxMemoryPerJobBytes: 512}, nil
 		},
-		upsertJobMemoryWithQuotaFn: func(_ context.Context, _ *domain.JobMemory, _, _ int) error {
+		UpsertJobMemoryWithQuotaFunc: func(_ context.Context, _ *domain.JobMemory, _, _ int) error {
 			return store.ErrJobMemoryPerKeyLimitExceeded
 		},
 	}
@@ -85,7 +85,7 @@ func TestHandleSDKSetMemory_PerKeyQuotaExceeded(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/memory/cache-key", "run-1", `{"value":"hello"}`)
 	chi.RouteContext(r.Context()).URLParams.Add("key", "cache-key")
-	srv.handleSDKSetMemory(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKSetMemory)(w, r)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
@@ -98,14 +98,14 @@ func TestHandleSDKSetMemory_PerKeyQuotaExceeded(t *testing.T) {
 func TestHandleSDKSetMemory_PerJobQuotaExceeded(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, JobID: "job-1", ProjectID: "proj-1"}, nil
 		},
-		getProjectQuotaFn: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
 			return &store.ProjectQuota{MaxMemoryPerKeyBytes: 128, MaxMemoryPerJobBytes: 8}, nil
 		},
-		upsertJobMemoryWithQuotaFn: func(_ context.Context, _ *domain.JobMemory, _, _ int) error {
+		UpsertJobMemoryWithQuotaFunc: func(_ context.Context, _ *domain.JobMemory, _, _ int) error {
 			return store.ErrJobMemoryPerJobLimitExceeded
 		},
 	}
@@ -114,7 +114,7 @@ func TestHandleSDKSetMemory_PerJobQuotaExceeded(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/memory/cache-key", "run-1", `{"value":"hello"}`)
 	chi.RouteContext(r.Context()).URLParams.Add("key", "cache-key")
-	srv.handleSDKSetMemory(w, r)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKSetMemory)(w, r)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())

@@ -18,8 +18,8 @@ import (
 func TestHandleCreateProject_Success(t *testing.T) {
 	t.Parallel()
 	var created atomic.Bool
-	ms := &mockAPIStore{
-		createProjectFn: func(_ context.Context, p *domain.Project) error {
+	ms := &APIStoreMock{
+		CreateProjectFunc: func(_ context.Context, p *domain.Project) error {
 			created.Store(true)
 			p.CreatedAt = time.Now()
 			p.UpdatedAt = time.Now()
@@ -56,7 +56,7 @@ func TestHandleCreateProject_Success(t *testing.T) {
 
 func TestHandleCreateProject_MissingFields(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	tests := []struct {
 		name string
@@ -80,7 +80,7 @@ func TestHandleCreateProject_MissingFields(t *testing.T) {
 
 func TestHandleCreateProject_NameTooShort(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	body := `{"id":"proj-1","org_id":"org-1","name":"X"}`
 	w := httptest.NewRecorder()
@@ -94,8 +94,8 @@ func TestHandleCreateProject_NameTooShort(t *testing.T) {
 func TestHandleCreateProject_Idempotent(t *testing.T) {
 	t.Parallel()
 	var callCount atomic.Int32
-	ms := &mockAPIStore{
-		createProjectFn: func(_ context.Context, p *domain.Project) error {
+	ms := &APIStoreMock{
+		CreateProjectFunc: func(_ context.Context, p *domain.Project) error {
 			callCount.Add(1)
 			p.CreatedAt = time.Now()
 			p.UpdatedAt = time.Now()
@@ -119,8 +119,8 @@ func TestHandleCreateProject_Idempotent(t *testing.T) {
 
 func TestHandleCreateProject_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createProjectFn: func(_ context.Context, _ *domain.Project) error {
+	ms := &APIStoreMock{
+		CreateProjectFunc: func(_ context.Context, _ *domain.Project) error {
 			return fmt.Errorf("db error")
 		},
 	}
@@ -138,8 +138,8 @@ func TestHandleCreateProject_StoreError(t *testing.T) {
 func TestHandleGetProject_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Truncate(time.Second)
-	ms := &mockAPIStore{
-		getProjectFn: func(_ context.Context, id string) (*domain.Project, error) {
+	ms := &APIStoreMock{
+		GetProjectFunc: func(_ context.Context, id string) (*domain.Project, error) {
 			return &domain.Project{
 				ID: id, OrgID: "org-1", Name: "Test",
 				CreatedAt: now, UpdatedAt: now,
@@ -166,8 +166,8 @@ func TestHandleGetProject_Success(t *testing.T) {
 
 func TestHandleGetProject_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getProjectFn: func(_ context.Context, _ string) (*domain.Project, error) {
+	ms := &APIStoreMock{
+		GetProjectFunc: func(_ context.Context, _ string) (*domain.Project, error) {
 			return nil, store.ErrProjectNotFound
 		},
 	}
@@ -183,8 +183,8 @@ func TestHandleGetProject_NotFound(t *testing.T) {
 
 func TestHandleGetProject_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getProjectFn: func(_ context.Context, _ string) (*domain.Project, error) {
+	ms := &APIStoreMock{
+		GetProjectFunc: func(_ context.Context, _ string) (*domain.Project, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -201,8 +201,8 @@ func TestHandleGetProject_StoreError(t *testing.T) {
 func TestHandleListProjects_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Truncate(time.Second)
-	ms := &mockAPIStore{
-		listProjectsByOrgFn: func(_ context.Context, orgID string) ([]domain.Project, error) {
+	ms := &APIStoreMock{
+		ListProjectsByOrgFunc: func(_ context.Context, orgID string) ([]domain.Project, error) {
 			return []domain.Project{
 				{ID: "p1", OrgID: orgID, Name: "Project 1", CreatedAt: now, UpdatedAt: now},
 				{ID: "p2", OrgID: orgID, Name: "Project 2", CreatedAt: now, UpdatedAt: now},
@@ -229,7 +229,7 @@ func TestHandleListProjects_Success(t *testing.T) {
 
 func TestHandleListProjects_MissingOrgID(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/", ""))
@@ -241,8 +241,8 @@ func TestHandleListProjects_MissingOrgID(t *testing.T) {
 
 func TestHandleListProjects_Empty(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		listProjectsByOrgFn: func(_ context.Context, _ string) ([]domain.Project, error) {
+	ms := &APIStoreMock{
+		ListProjectsByOrgFunc: func(_ context.Context, _ string) ([]domain.Project, error) {
 			return nil, nil
 		},
 	}
@@ -267,8 +267,8 @@ func TestHandleListProjects_Empty(t *testing.T) {
 func TestHandleDeleteProject_Success(t *testing.T) {
 	t.Parallel()
 	var deleted atomic.Bool
-	ms := &mockAPIStore{
-		deleteProjectFn: func(_ context.Context, id string) error {
+	ms := &APIStoreMock{
+		DeleteProjectFunc: func(_ context.Context, id string) error {
 			if id != "proj-1" {
 				return fmt.Errorf("unexpected id: %s", id)
 			}
@@ -291,8 +291,8 @@ func TestHandleDeleteProject_Success(t *testing.T) {
 
 func TestHandleDeleteProject_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		deleteProjectFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		DeleteProjectFunc: func(_ context.Context, _ string) error {
 			return store.ErrProjectNotFound
 		},
 	}
@@ -308,8 +308,8 @@ func TestHandleDeleteProject_NotFound(t *testing.T) {
 
 func TestHandleDeleteProject_StoreError(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		deleteProjectFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		DeleteProjectFunc: func(_ context.Context, _ string) error {
 			return fmt.Errorf("db error")
 		},
 	}
@@ -325,7 +325,7 @@ func TestHandleDeleteProject_StoreError(t *testing.T) {
 
 func TestProjectEndpoints_RequireAuth(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	endpoints := []struct {
 		method string
@@ -352,15 +352,15 @@ func TestProjectEndpoints_RequireAuth(t *testing.T) {
 
 func TestProjectEndpoints_APIKey_CreateForbidden(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{
 				ID:        "key-1",
 				ProjectID: "proj-1",
 				Scopes:    []string{domain.ScopeProjectsManage, domain.ScopeProjectsRead},
 			}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
@@ -378,15 +378,15 @@ func TestProjectEndpoints_APIKey_CreateForbidden(t *testing.T) {
 
 func TestProjectEndpoints_APIKey_ListForbidden(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{
 				ID:        "key-1",
 				ProjectID: "proj-1",
 				Scopes:    []string{domain.ScopeProjectsRead},
 			}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
@@ -403,16 +403,16 @@ func TestProjectEndpoints_APIKey_ListForbidden(t *testing.T) {
 func TestProjectEndpoints_APIKey_GetOwnProject(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Truncate(time.Second)
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{
 				ID:        "key-1",
 				ProjectID: "proj-1",
 				Scopes:    []string{domain.ScopeProjectsRead},
 			}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
-		getProjectFn: func(_ context.Context, id string) (*domain.Project, error) {
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
+		GetProjectFunc: func(_ context.Context, id string) (*domain.Project, error) {
 			return &domain.Project{ID: id, OrgID: "org-1", Name: "Test", CreatedAt: now, UpdatedAt: now}, nil
 		},
 	}
@@ -430,15 +430,15 @@ func TestProjectEndpoints_APIKey_GetOwnProject(t *testing.T) {
 
 func TestProjectEndpoints_APIKey_GetCrossProjectForbidden(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{
 				ID:        "key-1",
 				ProjectID: "proj-1",
 				Scopes:    []string{domain.ScopeProjectsRead},
 			}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
@@ -454,15 +454,15 @@ func TestProjectEndpoints_APIKey_GetCrossProjectForbidden(t *testing.T) {
 
 func TestProjectEndpoints_APIKey_DeleteCrossProjectForbidden(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
 			return &domain.APIKey{
 				ID:        "key-1",
 				ProjectID: "proj-1",
 				Scopes:    []string{domain.ScopeProjectsManage},
 			}, nil
 		},
-		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
@@ -478,19 +478,19 @@ func TestProjectEndpoints_APIKey_DeleteCrossProjectForbidden(t *testing.T) {
 func TestProjectEndpoints_InternalSecret(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Truncate(time.Second)
-	ms := &mockAPIStore{
-		createProjectFn: func(_ context.Context, p *domain.Project) error {
+	ms := &APIStoreMock{
+		CreateProjectFunc: func(_ context.Context, p *domain.Project) error {
 			p.CreatedAt = now
 			p.UpdatedAt = now
 			return nil
 		},
-		getProjectFn: func(_ context.Context, id string) (*domain.Project, error) {
+		GetProjectFunc: func(_ context.Context, id string) (*domain.Project, error) {
 			return &domain.Project{ID: id, OrgID: "org-1", Name: "Test", CreatedAt: now, UpdatedAt: now}, nil
 		},
-		listProjectsByOrgFn: func(_ context.Context, _ string) ([]domain.Project, error) {
+		ListProjectsByOrgFunc: func(_ context.Context, _ string) ([]domain.Project, error) {
 			return []domain.Project{}, nil
 		},
-		deleteProjectFn: func(_ context.Context, _ string) error {
+		DeleteProjectFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}
@@ -533,8 +533,8 @@ func TestGetProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
 			"proj-B": "org-B",
 		},
 	}
-	ms := &mockAPIStore{
-		getProjectFn: func(_ context.Context, id string) (*domain.Project, error) {
+	ms := &APIStoreMock{
+		GetProjectFunc: func(_ context.Context, id string) (*domain.Project, error) {
 			return &domain.Project{ID: id, OrgID: "org-B", Name: "Test"}, nil
 		},
 	}
@@ -559,8 +559,8 @@ func TestGetProject_InternalSecret_SameOrgAllowed(t *testing.T) {
 			"proj-A2": "org-A",
 		},
 	}
-	ms := &mockAPIStore{
-		getProjectFn: func(_ context.Context, id string) (*domain.Project, error) {
+	ms := &APIStoreMock{
+		GetProjectFunc: func(_ context.Context, id string) (*domain.Project, error) {
 			return &domain.Project{ID: id, OrgID: "org-A", Name: "Test", CreatedAt: now, UpdatedAt: now}, nil
 		},
 	}
@@ -584,8 +584,8 @@ func TestDeleteProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
 			"proj-B": "org-B",
 		},
 	}
-	ms := &mockAPIStore{
-		deleteProjectFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		DeleteProjectFunc: func(_ context.Context, _ string) error {
 			t.Fatal("delete should not be called for cross-org access")
 			return nil
 		},
@@ -610,8 +610,8 @@ func TestDeleteProject_InternalSecret_SameOrgAllowed(t *testing.T) {
 			"proj-A2": "org-A",
 		},
 	}
-	ms := &mockAPIStore{
-		deleteProjectFn: func(_ context.Context, _ string) error {
+	ms := &APIStoreMock{
+		DeleteProjectFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}

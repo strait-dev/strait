@@ -79,6 +79,7 @@ export type OperationPathParamsById = {
   "getV1AuditEventsExport": undefined;
   "getV1BatchOperations": undefined;
   "getV1BatchOperationsByBatchID": { "batchID": string };
+  "getV1BillingCheckOrgLimit": undefined;
   "postV1CliAuthDeviceCode": undefined;
   "postV1CliAuthToken": undefined;
   "postV1CliDeviceCodesApprove": undefined;
@@ -155,6 +156,7 @@ export type OperationPathParamsById = {
   "getV1NotificationDeliveries": undefined;
   "getV1OrganizationsByOrgIDJobs": { "orgID": string };
   "getV1OrganizationsByOrgIDRuns": { "orgID": string };
+  "getV1Plans": undefined;
   "getV1ProjectBudget": undefined;
   "putV1ProjectBudget": undefined;
   "getV1Projects": undefined;
@@ -342,6 +344,7 @@ export type OperationQueryParamsById = {
   "getV1AuditEventsExport": { "from": string; "to": string; "format"?: "json" | "csv" | "ndjson" };
   "getV1BatchOperations": { "project_id": string; "limit"?: number; "cursor"?: string };
   "getV1BatchOperationsByBatchID": { "project_id": string };
+  "getV1BillingCheckOrgLimit": { "user_id": string };
   "postV1CliAuthDeviceCode": undefined;
   "postV1CliAuthToken": undefined;
   "postV1CliDeviceCodesApprove": undefined;
@@ -418,6 +421,7 @@ export type OperationQueryParamsById = {
   "getV1NotificationDeliveries": { "limit"?: number; "cursor"?: string };
   "getV1OrganizationsByOrgIDJobs": { "limit"?: number; "cursor"?: string };
   "getV1OrganizationsByOrgIDRuns": { "limit"?: number; "cursor"?: string };
+  "getV1Plans": undefined;
   "getV1ProjectBudget": { "project_id": string };
   "putV1ProjectBudget": undefined;
   "getV1Projects": { "org_id": string };
@@ -605,6 +609,7 @@ export type OperationHeaderParamsById = {
   "getV1AuditEventsExport": undefined;
   "getV1BatchOperations": undefined;
   "getV1BatchOperationsByBatchID": undefined;
+  "getV1BillingCheckOrgLimit": undefined;
   "postV1CliAuthDeviceCode": undefined;
   "postV1CliAuthToken": undefined;
   "postV1CliDeviceCodesApprove": undefined;
@@ -681,6 +686,7 @@ export type OperationHeaderParamsById = {
   "getV1NotificationDeliveries": undefined;
   "getV1OrganizationsByOrgIDJobs": undefined;
   "getV1OrganizationsByOrgIDRuns": undefined;
+  "getV1Plans": undefined;
   "getV1ProjectBudget": undefined;
   "putV1ProjectBudget": undefined;
   "getV1Projects": undefined;
@@ -890,6 +896,7 @@ export const generatedOperationMetadataById = {
   "getV1AuditEventsExport": { functionName: "getExport", domainName: "rbac", domainMethodName: "getExport", pathParamNames: [], summary: "Export audit events in CSV, JSON, or NDJSON format" },
   "getV1BatchOperations": { functionName: "listBatchOperations", domainName: "batchOperations", domainMethodName: "list", pathParamNames: [], summary: "List batch operations" },
   "getV1BatchOperationsByBatchID": { functionName: "getBatchOperation", domainName: "batchOperations", domainMethodName: "get", pathParamNames: ["batchID"], summary: "Get a batch operation" },
+  "getV1BillingCheckOrgLimit": { functionName: "getCheckOrgLimit", domainName: "billing", domainMethodName: "getCheckOrgLimit", pathParamNames: [], summary: "Check if user can create another organization" },
   "postV1CliAuthDeviceCode": { functionName: "deviceCodeAuth", domainName: "cliAuth", domainMethodName: "deviceCodeAuth", pathParamNames: [], summary: "Request a device code for CLI authentication" },
   "postV1CliAuthToken": { functionName: "tokenAuth", domainName: "cliAuth", domainMethodName: "tokenAuth", pathParamNames: [], summary: "Exchange device code for API token" },
   "postV1CliDeviceCodesApprove": { functionName: "approveDeviceCode", domainName: "cliAuth", domainMethodName: "approveDeviceCode", pathParamNames: [], summary: "Approve a device code" },
@@ -966,6 +973,7 @@ export const generatedOperationMetadataById = {
   "getV1NotificationDeliveries": { functionName: "listNotificationDeliveries", domainName: "notificationChannels", domainMethodName: "listNotificationDeliveries", pathParamNames: [], summary: "List notification deliveries" },
   "getV1OrganizationsByOrgIDJobs": { functionName: "listJobsByOrgID", domainName: "organizations", domainMethodName: "listJobsByOrgId", pathParamNames: ["orgID"], summary: "List jobs across all projects in an organization" },
   "getV1OrganizationsByOrgIDRuns": { functionName: "listRunsByOrgID", domainName: "organizations", domainMethodName: "listRunsByOrgId", pathParamNames: ["orgID"], summary: "List runs across all projects in an organization" },
+  "getV1Plans": { functionName: "listPlans", domainName: "plans", domainMethodName: "list", pathParamNames: [], summary: "List all available plan tiers and their limits" },
   "getV1ProjectBudget": { functionName: "listProjectBudget", domainName: "usage", domainMethodName: "listProjectBudget", pathParamNames: [], summary: "Get project budget" },
   "putV1ProjectBudget": { functionName: "upsertProjectBudget", domainName: "usage", domainMethodName: "upsertProjectBudget", pathParamNames: [], summary: "Set project budget" },
   "getV1Projects": { functionName: "listProjects", domainName: "projects", domainMethodName: "list", pathParamNames: [], summary: "List projects by organization" },

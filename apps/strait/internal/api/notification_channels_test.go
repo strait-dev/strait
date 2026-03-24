@@ -15,8 +15,8 @@ import (
 
 func TestHandleCreateNotificationChannel_Success(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createNotificationChannelFn: func(_ context.Context, ch *domain.NotificationChannel) error {
+	ms := &APIStoreMock{
+		CreateNotificationChannelFunc: func(_ context.Context, ch *domain.NotificationChannel) error {
 			ch.ID = "ch-1"
 			if ch.ChannelType != "slack" {
 				t.Fatalf("expected slack, got %s", ch.ChannelType)
@@ -38,8 +38,8 @@ func TestHandleCreateNotificationChannel_Success(t *testing.T) {
 
 func TestHandleCreateNotificationChannel_SuccessDiscord(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createNotificationChannelFn: func(_ context.Context, ch *domain.NotificationChannel) error {
+	ms := &APIStoreMock{
+		CreateNotificationChannelFunc: func(_ context.Context, ch *domain.NotificationChannel) error {
 			ch.ID = "ch-2"
 			return nil
 		},
@@ -55,8 +55,8 @@ func TestHandleCreateNotificationChannel_SuccessDiscord(t *testing.T) {
 
 func TestHandleCreateNotificationChannel_SuccessWebhook(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createNotificationChannelFn: func(_ context.Context, ch *domain.NotificationChannel) error {
+	ms := &APIStoreMock{
+		CreateNotificationChannelFunc: func(_ context.Context, ch *domain.NotificationChannel) error {
 			ch.ID = "ch-3"
 			return nil
 		},
@@ -72,7 +72,7 @@ func TestHandleCreateNotificationChannel_SuccessWebhook(t *testing.T) {
 
 func TestHandleCreateNotificationChannel_RejectsPrivateIP(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	body := `{"channel_type":"slack","name":"alerts","config":{"webhook_url":"http://127.0.0.1/hook"}}`
@@ -84,7 +84,7 @@ func TestHandleCreateNotificationChannel_RejectsPrivateIP(t *testing.T) {
 
 func TestHandleCreateNotificationChannel_RejectsLocalhostURL(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	body := `{"channel_type":"webhook","name":"alerts","config":{"url":"http://localhost:9090/hook"}}`
@@ -96,7 +96,7 @@ func TestHandleCreateNotificationChannel_RejectsLocalhostURL(t *testing.T) {
 
 func TestHandleCreateNotificationChannel_RejectsMetadataEndpoint(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	body := `{"channel_type":"discord","name":"alerts","config":{"webhook_url":"http://169.254.169.254/metadata"}}`
@@ -108,7 +108,7 @@ func TestHandleCreateNotificationChannel_RejectsMetadataEndpoint(t *testing.T) {
 
 func TestHandleCreateNotificationChannel_RejectsMissingWebhookURL(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	body := `{"channel_type":"slack","name":"alerts","config":{"other":"val"}}`
@@ -120,7 +120,7 @@ func TestHandleCreateNotificationChannel_RejectsMissingWebhookURL(t *testing.T) 
 
 func TestHandleCreateNotificationChannel_RejectsMissingURL(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	body := `{"channel_type":"webhook","name":"alerts","config":{"secret":"s3cret"}}`
@@ -132,7 +132,7 @@ func TestHandleCreateNotificationChannel_RejectsMissingURL(t *testing.T) {
 
 func TestHandleCreateNotificationChannel_RejectsInvalidConfig(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	body := `{"channel_type":"slack","name":"alerts","config":"not-json-object"}`
@@ -144,7 +144,7 @@ func TestHandleCreateNotificationChannel_RejectsInvalidConfig(t *testing.T) {
 
 func TestHandleCreateNotificationChannel_RejectsMissingProjectID(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	body := `{"channel_type":"slack","name":"alerts","config":{"webhook_url":"https://hooks.slack.com/services/T00/B00/abc"}}`
@@ -156,7 +156,7 @@ func TestHandleCreateNotificationChannel_RejectsMissingProjectID(t *testing.T) {
 
 func TestHandleCreateNotificationChannel_RejectsUnsupportedChannelType(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	body := `{"channel_type":"email","name":"alerts","config":{"address":"test@example.com"}}`
@@ -168,8 +168,8 @@ func TestHandleCreateNotificationChannel_RejectsUnsupportedChannelType(t *testin
 
 func TestHandleUpdateNotificationChannel_ValidatesNewConfig(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getNotificationChannelFn: func(_ context.Context, id, projectID string) (*domain.NotificationChannel, error) {
+	ms := &APIStoreMock{
+		GetNotificationChannelFunc: func(_ context.Context, id, projectID string) (*domain.NotificationChannel, error) {
 			return &domain.NotificationChannel{
 				ID:          id,
 				ProjectID:   projectID,
@@ -190,8 +190,8 @@ func TestHandleUpdateNotificationChannel_ValidatesNewConfig(t *testing.T) {
 
 func TestHandleUpdateNotificationChannel_AcceptsValidConfig(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getNotificationChannelFn: func(_ context.Context, id, projectID string) (*domain.NotificationChannel, error) {
+	ms := &APIStoreMock{
+		GetNotificationChannelFunc: func(_ context.Context, id, projectID string) (*domain.NotificationChannel, error) {
 			return &domain.NotificationChannel{
 				ID:          id,
 				ProjectID:   projectID,
@@ -200,7 +200,7 @@ func TestHandleUpdateNotificationChannel_AcceptsValidConfig(t *testing.T) {
 				Config:      json.RawMessage(`{"webhook_url":"https://hooks.slack.com/old"}`),
 			}, nil
 		},
-		updateNotificationChannelFn: func(_ context.Context, _ *domain.NotificationChannel) error {
+		UpdateNotificationChannelFunc: func(_ context.Context, _ *domain.NotificationChannel) error {
 			return nil
 		},
 	}
@@ -215,8 +215,8 @@ func TestHandleUpdateNotificationChannel_AcceptsValidConfig(t *testing.T) {
 
 func TestHandleUpdateNotificationChannel_SkipsValidationWhenConfigUnchanged(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getNotificationChannelFn: func(_ context.Context, id, projectID string) (*domain.NotificationChannel, error) {
+	ms := &APIStoreMock{
+		GetNotificationChannelFunc: func(_ context.Context, id, projectID string) (*domain.NotificationChannel, error) {
 			return &domain.NotificationChannel{
 				ID:          id,
 				ProjectID:   projectID,
@@ -225,7 +225,7 @@ func TestHandleUpdateNotificationChannel_SkipsValidationWhenConfigUnchanged(t *t
 				Config:      json.RawMessage(`{"webhook_url":"https://hooks.slack.com/old"}`),
 			}, nil
 		},
-		updateNotificationChannelFn: func(_ context.Context, _ *domain.NotificationChannel) error {
+		UpdateNotificationChannelFunc: func(_ context.Context, _ *domain.NotificationChannel) error {
 			return nil
 		},
 	}
@@ -240,8 +240,8 @@ func TestHandleUpdateNotificationChannel_SkipsValidationWhenConfigUnchanged(t *t
 
 func TestHandleUpdateNotificationChannel_NotFound(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		getNotificationChannelFn: func(_ context.Context, _, _ string) (*domain.NotificationChannel, error) {
+	ms := &APIStoreMock{
+		GetNotificationChannelFunc: func(_ context.Context, _, _ string) (*domain.NotificationChannel, error) {
 			return nil, store.ErrNotificationChannelNotFound
 		},
 	}
@@ -256,8 +256,8 @@ func TestHandleUpdateNotificationChannel_NotFound(t *testing.T) {
 
 func TestHandleCreateNotificationChannel_ReturnsConfig(t *testing.T) {
 	t.Parallel()
-	ms := &mockAPIStore{
-		createNotificationChannelFn: func(_ context.Context, ch *domain.NotificationChannel) error {
+	ms := &APIStoreMock{
+		CreateNotificationChannelFunc: func(_ context.Context, ch *domain.NotificationChannel) error {
 			ch.ID = "ch-1"
 			return nil
 		},
@@ -284,8 +284,8 @@ func TestHandleCreateNotificationChannel_ReturnsConfig(t *testing.T) {
 func TestHandleGetNotificationChannel_ReturnsConfig(t *testing.T) {
 	t.Parallel()
 	cfgJSON := json.RawMessage(`{"webhook_url":"https://hooks.slack.com/services/T00/B00/abc"}`)
-	ms := &mockAPIStore{
-		getNotificationChannelFn: func(_ context.Context, _, _ string) (*domain.NotificationChannel, error) {
+	ms := &APIStoreMock{
+		GetNotificationChannelFunc: func(_ context.Context, _, _ string) (*domain.NotificationChannel, error) {
 			return &domain.NotificationChannel{
 				ID:          "ch-1",
 				ProjectID:   "proj-1",
@@ -316,8 +316,8 @@ func TestHandleGetNotificationChannel_ReturnsConfig(t *testing.T) {
 func TestHandleListNotificationChannels_ReturnsConfig(t *testing.T) {
 	t.Parallel()
 	cfgJSON := json.RawMessage(`{"webhook_url":"https://hooks.slack.com/services/T00/B00/abc"}`)
-	ms := &mockAPIStore{
-		listNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+	ms := &APIStoreMock{
+		ListNotificationChannelsFunc: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
 			return []domain.NotificationChannel{
 				{ID: "ch-1", ProjectID: "proj-1", ChannelType: "slack", Name: "alerts", Config: cfgJSON},
 			}, nil
@@ -341,7 +341,7 @@ func TestGlobalAllowPrivateEndpoints_ResetBetweenServers(t *testing.T) {
 		JWTSigningKey:         "01234567890123456789012345678901",
 		AllowPrivateEndpoints: true,
 	}
-	srv1 := NewServer(ServerDeps{Config: cfg1, Store: &mockAPIStore{}, Queue: &mockQueue{}})
+	srv1 := NewServer(ServerDeps{Config: cfg1, Store: &APIStoreMock{}, Queue: &mockQueue{}})
 	t.Cleanup(srv1.Close)
 	if !globalAllowPrivateEndpoints.Load() {
 		t.Fatal("expected globalAllowPrivateEndpoints to be true after first server")
@@ -353,7 +353,7 @@ func TestGlobalAllowPrivateEndpoints_ResetBetweenServers(t *testing.T) {
 		JWTSigningKey:         "01234567890123456789012345678901",
 		AllowPrivateEndpoints: false,
 	}
-	srv2 := NewServer(ServerDeps{Config: cfg2, Store: &mockAPIStore{}, Queue: &mockQueue{}})
+	srv2 := NewServer(ServerDeps{Config: cfg2, Store: &APIStoreMock{}, Queue: &mockQueue{}})
 	t.Cleanup(srv2.Close)
 	if globalAllowPrivateEndpoints.Load() {
 		t.Fatal("expected globalAllowPrivateEndpoints to be false after second server")
@@ -366,7 +366,7 @@ func TestGlobalAllowPrivateEndpoints_DefaultFalse(t *testing.T) {
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       "01234567890123456789012345678901",
 	}
-	srv := NewServer(ServerDeps{Config: cfg, Store: &mockAPIStore{}, Queue: &mockQueue{}})
+	srv := NewServer(ServerDeps{Config: cfg, Store: &APIStoreMock{}, Queue: &mockQueue{}})
 	t.Cleanup(srv.Close)
 	if globalAllowPrivateEndpoints.Load() {
 		t.Fatal("expected globalAllowPrivateEndpoints to be false by default")

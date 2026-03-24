@@ -15,7 +15,7 @@ import (
 func TestSecurityHeaders_HTTPResponse(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
@@ -44,7 +44,7 @@ func TestSecurityHeaders_HTTPResponse(t *testing.T) {
 func TestSecurityHeaders_HTTPSIncludesHSTS(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	req.TLS = &tls.ConnectionState{}
 	w := httptest.NewRecorder()
@@ -59,7 +59,7 @@ func TestSecurityHeaders_HTTPSIncludesHSTS(t *testing.T) {
 func TestHandleCreateJob_RejectsLongNameAndSlug(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	nameBody := `{"project_id":"proj-1","name":"` + strings.Repeat("a", 256) + `","slug":"valid-slug","endpoint_url":"https://example.com/callback"}`
 	w1 := httptest.NewRecorder()
@@ -79,7 +79,7 @@ func TestHandleCreateJob_RejectsLongNameAndSlug(t *testing.T) {
 func TestHandleCreateJob_RejectsCGNATEndpointURL(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	body := `{"project_id":"proj-1","name":"Test","slug":"test-job","endpoint_url":"http://100.64.0.1/callback"}`
 	w := httptest.NewRecorder()
 
@@ -93,8 +93,8 @@ func TestHandleCreateJob_RejectsCGNATEndpointURL(t *testing.T) {
 func TestHandleTriggerJob_RejectsPayloadOver5MB(t *testing.T) {
 	t.Parallel()
 
-	store := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+	store := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 30}, nil
 		},
 	}
@@ -124,11 +124,11 @@ func TestHandleTriggerJob_RejectsPayloadOver5MB(t *testing.T) {
 func TestHandleSDKSpawn_RejectsEmptyResolvedJobID(t *testing.T) {
 	t.Parallel()
 
-	store := &mockAPIStore{
-		getJobBySlugFn: func(_ context.Context, _, _ string) (*domain.Job, error) {
+	store := &APIStoreMock{
+		GetJobBySlugFunc: func(_ context.Context, _, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "", ProjectID: "proj-1", Enabled: true}, nil
 		},
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: "run-parent", Status: domain.StatusWaiting}, nil
 		},
 	}

@@ -17,7 +17,7 @@ func BenchmarkEncrypt(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		if _, err := encryptor.Encrypt(payload); err != nil {
 			b.Fatalf("Encrypt() error = %v", err)
 		}
@@ -38,7 +38,7 @@ func BenchmarkDecrypt(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		if _, err := encryptor.Decrypt(ciphertext); err != nil {
 			b.Fatalf("Decrypt() error = %v", err)
 		}
@@ -55,7 +55,7 @@ func BenchmarkEncryptString(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		ciphertext, err := encryptor.EncryptString(plaintext)
 		if err != nil {
 			b.Fatalf("EncryptString() error = %v", err)
@@ -89,7 +89,7 @@ func BenchmarkKeyRotatorDecrypt_OldKeyFallback(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		if _, err := rotator.Decrypt(ciphertext); err != nil {
 			b.Fatalf("Decrypt() error = %v", err)
 		}

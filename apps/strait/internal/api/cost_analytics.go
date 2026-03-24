@@ -1,159 +1,120 @@
 package api
 
 import (
-	"net/http"
-	"strconv"
+	"context"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func (s *Server) handleGetCostAnalytics(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.GetCostAnalytics")
-	defer span.End()
-
-	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-	)
-
-	analytics, err := s.analytics().GetCostAnalytics(ctx, projectID, from, to)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get cost analytics")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, analytics)
+type CostTimeRangeInput struct {
+	From string `query:"from"`
+	To   string `query:"to"`
 }
 
-func (s *Server) handleGetCostTrends(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.GetCostTrends")
-	defer span.End()
-
-	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-	)
-
-	trends, err := s.analytics().GetCostTrends(ctx, projectID, from, to)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get cost trends")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, trends)
+type CostAnalyticsOutput struct {
+	Body any
 }
 
-func (s *Server) handleGetTopCosts(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.GetTopCosts")
+func (s *Server) handleGetCostAnalytics(ctx context.Context, input *CostTimeRangeInput) (*CostAnalyticsOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.GetCostAnalytics")
 	defer span.End()
 
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	limit := 10
-	if v := r.URL.Query().Get("limit"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil || parsed < 1 || parsed > 100 {
-			respondError(w, r, http.StatusBadRequest, "limit must be between 1 and 100")
-			return
-		}
-		limit = parsed
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-		attribute.Int("limit", limit),
-	)
-
-	items, err := s.analytics().GetTopCosts(ctx, projectID, from, to, limit)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get top costs")
-		return
+		return nil, err
 	}
 
-	respondJSON(w, http.StatusOK, items)
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)))
+
+	analytics, aErr := s.analytics().GetCostAnalytics(ctx, projectID, from, to)
+	if aErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get cost analytics")
+	}
+	return &CostAnalyticsOutput{Body: analytics}, nil
 }
 
-func (s *Server) handleGetComputeCostAnalytics(w http.ResponseWriter, r *http.Request) {
-	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.GetComputeCostAnalytics")
+type CostTrendsInput struct {
+	From string `query:"from"`
+	To   string `query:"to"`
+}
+type CostTrendsOutput struct{ Body any }
+
+func (s *Server) handleGetCostTrends(ctx context.Context, input *CostTrendsInput) (*CostTrendsOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.GetCostTrends")
 	defer span.End()
 
 	projectID := projectIDFromContext(ctx)
-
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
-
-	span.SetAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", to.Format(time.RFC3339)),
-	)
-
-	analytics, err := s.analytics().GetComputeCostAnalytics(ctx, projectID, from, to)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get compute cost analytics")
-		return
+		return nil, err
 	}
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)))
 
-	respondJSON(w, http.StatusOK, analytics)
+	trends, tErr := s.analytics().GetCostTrends(ctx, projectID, from, to)
+	if tErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get cost trends")
+	}
+	return &CostTrendsOutput{Body: trends}, nil
+}
+
+type TopCostsInput struct {
+	From  string `query:"from"`
+	To    string `query:"to"`
+	Limit int    `query:"limit"`
+}
+type TopCostsOutput struct{ Body any }
+
+func (s *Server) handleGetTopCosts(ctx context.Context, input *TopCostsInput) (*TopCostsOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.GetTopCosts")
+	defer span.End()
+
+	projectID := projectIDFromContext(ctx)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
+	if err != nil {
+		return nil, err
+	}
+	limit := input.Limit
+	if limit == 0 {
+		limit = 10
+	}
+	if limit < 1 || limit > 100 {
+		return nil, huma.Error400BadRequest("limit must be between 1 and 100")
+	}
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.Int("limit", limit))
+
+	items, iErr := s.analytics().GetTopCosts(ctx, projectID, from, to, limit)
+	if iErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get top costs")
+	}
+	return &TopCostsOutput{Body: items}, nil
+}
+
+type ComputeCostInput struct {
+	From string `query:"from"`
+	To   string `query:"to"`
+}
+type ComputeCostOutput struct{ Body any }
+
+func (s *Server) handleGetComputeCostAnalytics(ctx context.Context, input *ComputeCostInput) (*ComputeCostOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "api.GetComputeCostAnalytics")
+	defer span.End()
+
+	projectID := projectIDFromContext(ctx)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
+	if err != nil {
+		return nil, err
+	}
+	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)))
+
+	analytics, aErr := s.analytics().GetComputeCostAnalytics(ctx, projectID, from, to)
+	if aErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get compute cost analytics")
+	}
+	return &ComputeCostOutput{Body: analytics}, nil
 }
 
 const maxCostWindow = 90 * 24 * time.Hour
-
-// parseCostTimeRange extracts and validates from/to query parameters.
-// Returns false if validation failed (error already written to response).
-func parseCostTimeRange(w http.ResponseWriter, r *http.Request) (time.Time, time.Time, bool) {
-	fromStr := r.URL.Query().Get("from")
-	toStr := r.URL.Query().Get("to")
-
-	if fromStr == "" || toStr == "" {
-		respondError(w, r, http.StatusBadRequest, "from and to query parameters are required (RFC3339 format)")
-		return time.Time{}, time.Time{}, false
-	}
-
-	from, err := time.Parse(time.RFC3339, fromStr)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "from must be in RFC3339 format")
-		return time.Time{}, time.Time{}, false
-	}
-
-	to, err := time.Parse(time.RFC3339, toStr)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "to must be in RFC3339 format")
-		return time.Time{}, time.Time{}, false
-	}
-
-	if !to.After(from) {
-		respondError(w, r, http.StatusBadRequest, "to must be after from")
-		return time.Time{}, time.Time{}, false
-	}
-
-	if to.Sub(from) > maxCostWindow {
-		respondError(w, r, http.StatusBadRequest, "time range must not exceed 90 days")
-		return time.Time{}, time.Time{}, false
-	}
-
-	return from, to, true
-}

@@ -14,8 +14,8 @@ func TestHandlePauseAllJobsByGroup_Success(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	ms := &mockAPIStore{
-		pauseJobsByGroupFn: func(_ context.Context, groupID string) error {
+	ms := &APIStoreMock{
+		PauseJobsByGroupFunc: func(_ context.Context, groupID string) error {
 			called = true
 			if groupID != "group-1" {
 				t.Fatalf("groupID = %q, want %q", groupID, "group-1")
@@ -41,8 +41,8 @@ func TestHandleResumeAllJobsByGroup_Success(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	ms := &mockAPIStore{
-		resumeJobsByGroupFn: func(_ context.Context, groupID string) error {
+	ms := &APIStoreMock{
+		ResumeJobsByGroupFunc: func(_ context.Context, groupID string) error {
 			called = true
 			if groupID != "group-1" {
 				t.Fatalf("groupID = %q, want %q", groupID, "group-1")
@@ -67,8 +67,8 @@ func TestHandleResumeAllJobsByGroup_Success(t *testing.T) {
 func TestHandleGetJobGroupStats_Success(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{
-		getJobGroupStatsFn: func(_ context.Context, groupID string) (*store.JobGroupStats, error) {
+	ms := &APIStoreMock{
+		GetJobGroupStatsFunc: func(_ context.Context, groupID string) (*store.JobGroupStats, error) {
 			return &store.JobGroupStats{GroupID: groupID, RunCounts: map[string]int{"completed": 4, "failed": 1}}, nil
 		},
 	}

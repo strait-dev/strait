@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/failsafe-go/failsafe-go/retrypolicy"
 )
 
 func TestClientReceiveSuccess(t *testing.T) {
@@ -436,5 +438,117 @@ func TestClientNackServerError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "status 503") {
 		t.Fatalf("error = %q, want status 503", err.Error())
+	}
+}
+
+func newTestRetryPolicy() retrypolicy.RetryPolicy[*http.Response] {
+	return retrypolicy.NewBuilder[*http.Response]().
+		WithMaxRetries(2).
+		WithBackoff(time.Millisecond, 10*time.Millisecond).
+		HandleIf(func(resp *http.Response, err error) bool {
+			if err != nil {
+				return true
+			}
+			return resp.StatusCode >= 500
+		}).
+		ReturnLastFailure().
+		Build()
+}
+
+func TestClient_Receive_RetriesOn503(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := hits.Add(1)
+		if n == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("unavailable"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"ack_id":"a1","record":{"id":1},"action":"insert","metadata":{"table_schema":"public","table_name":"jobs","commit_timestamp":"2025-01-01T00:00:00Z","idempotency_key":"key-1"}}]}`))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "consumer-1", "token-1", WithRetryPolicy(newTestRetryPolicy()), WithCircuitBreaker(nil))
+	messages, err := client.Receive(context.Background(), 1, 0)
+	if err != nil {
+		t.Fatalf("Receive returned error: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(messages))
+	}
+	if got := hits.Load(); got != 2 {
+		t.Fatalf("hits = %d, want 2", got)
+	}
+}
+
+func TestClient_Receive_NoRetryOn400(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("bad request"))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "consumer-1", "token-1", WithRetryPolicy(newTestRetryPolicy()), WithCircuitBreaker(nil))
+	_, err := client.Receive(context.Background(), 1, 0)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "status 400") {
+		t.Fatalf("error = %q, want status 400", err.Error())
+	}
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("hits = %d, want 1", got)
+	}
+}
+
+func TestClient_Receive_ExhaustsRetries(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("unavailable"))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "consumer-1", "token-1", WithRetryPolicy(newTestRetryPolicy()), WithCircuitBreaker(nil))
+	_, err := client.Receive(context.Background(), 1, 0)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "status 503") {
+		t.Fatalf("error = %q, want status 503", err.Error())
+	}
+	if got := hits.Load(); got != 3 {
+		t.Fatalf("hits = %d, want 3", got)
+	}
+}
+
+func TestClient_Ack_RetriesOn503(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := hits.Add(1)
+		if n == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("unavailable"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "consumer-1", "token-1", WithRetryPolicy(newTestRetryPolicy()), WithCircuitBreaker(nil))
+	err := client.Ack(context.Background(), []string{"a1"})
+	if err != nil {
+		t.Fatalf("Ack returned error: %v", err)
+	}
+	if got := hits.Load(); got != 2 {
+		t.Fatalf("hits = %d, want 2", got)
 	}
 }

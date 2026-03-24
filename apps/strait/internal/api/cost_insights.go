@@ -1,36 +1,44 @@
 package api
 
 import (
-	"net/http"
-	"strconv"
+	"context"
+
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleGetCostInsights(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+type CostInsightsInput struct {
+	From      string  `query:"from"`
+	To        string  `query:"to"`
+	Threshold float64 `query:"threshold"`
+}
 
-	from, to, ok := parseCostTimeRange(w, r)
-	if !ok {
-		return
-	}
+type CostInsightsOutput struct {
+	Body any
+}
 
-	threshold := 2.0
-	if v := r.URL.Query().Get("threshold"); v != "" {
-		parsed, parseErr := strconv.ParseFloat(v, 64)
-		if parseErr != nil || parsed <= 0 {
-			respondError(w, r, http.StatusBadRequest, "threshold must be a positive number")
-			return
-		}
-		threshold = parsed
-	}
+func (s *Server) handleGetCostInsights(ctx context.Context, input *CostInsightsInput) (*CostInsightsOutput, error) {
+	projectID := projectIDFromContext(ctx)
 
-	outliers, err := s.analytics().GetCostOutliers(r.Context(), projectID, from, to, threshold)
+	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get cost insights")
-		return
+		return nil, err
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{
+	threshold := input.Threshold
+	if threshold == 0 {
+		threshold = 2.0
+	}
+	if threshold <= 0 {
+		return nil, huma.Error400BadRequest("threshold must be a positive number")
+	}
+
+	outliers, oErr := s.analytics().GetCostOutliers(ctx, projectID, from, to, threshold)
+	if oErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get cost insights")
+	}
+
+	return &CostInsightsOutput{Body: map[string]any{
 		"outliers":  outliers,
 		"threshold": threshold,
-	})
+	}}, nil
 }

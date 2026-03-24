@@ -112,7 +112,7 @@ func (d *DockerRuntime) Create(ctx context.Context, req RunRequest) (string, err
 
 	args = append(args, req.ImageURI)
 
-	cmd := exec.CommandContext(ctx, "docker", args...) //nolint:gosec // Args from trusted input.
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", NewRetryableError(0, fmt.Sprintf("docker create failed: %s", string(output)), err)
 	}
@@ -135,7 +135,7 @@ func (d *DockerRuntime) Wait(ctx context.Context, containerName string, timeoutS
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(waitCtx, "docker", "wait", containerName) //nolint:gosec // Container name from internal state.
+	cmd := exec.CommandContext(waitCtx, "docker", "wait", containerName)
 	output, err := cmd.Output()
 
 	finished := time.Now()
@@ -210,7 +210,7 @@ func (d *DockerRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, er
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(timeoutCtx, "docker", args...) //nolint:gosec // Args are constructed from trusted input (image URI, env vars).
+	cmd := exec.CommandContext(timeoutCtx, "docker", args...)
 	output, err := cmd.CombinedOutput()
 
 	finished := time.Now()
@@ -241,19 +241,19 @@ func (d *DockerRuntime) Start(_ context.Context, _ string, _ map[string]string) 
 
 // Stop sends a stop signal to a Docker container.
 func (d *DockerRuntime) Stop(ctx context.Context, containerName string) error {
-	cmd := exec.CommandContext(ctx, "docker", "stop", containerName) //nolint:gosec // Container name from internal state.
+	cmd := exec.CommandContext(ctx, "docker", "stop", containerName)
 	return cmd.Run()
 }
 
 // Destroy removes a Docker container.
 func (d *DockerRuntime) Destroy(ctx context.Context, containerName string) error {
-	cmd := exec.CommandContext(ctx, "docker", "rm", "-f", containerName) //nolint:gosec // Container name from internal state.
+	cmd := exec.CommandContext(ctx, "docker", "rm", "-f", containerName)
 	return cmd.Run()
 }
 
 // Status returns the current state of a Docker container.
 func (d *DockerRuntime) Status(ctx context.Context, containerName string) (MachineStatus, error) {
-	cmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Status}}", containerName) //nolint:gosec // Container name from internal state.
+	cmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Status}}", containerName)
 	output, err := cmd.Output()
 	if err != nil {
 		return MachineStatusUnknown, err

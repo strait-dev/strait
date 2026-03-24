@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -780,4 +781,180 @@ func TestGracePeriod_ConcurrentLimit_StillChecked_DuringGrace(t *testing.T) {
 	if le.Code != "payment_restricted" {
 		t.Errorf("code = %q, want payment_restricted", le.Code)
 	}
+}
+
+// Org billing cache tests.
+
+func TestOrgCache_CacheHitAvoidsDatabaseCall(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	var dbCalls int
+	store.getOrgSubscriptionFn = func(_ context.Context, _ string) (*OrgSubscription, error) {
+		dbCalls++
+		return nil, ErrSubscriptionNotFound
+	}
+
+	ctx := context.Background()
+
+	// First call: cache miss, hits DB.
+	_, err2 := enforcer.GetOrgPlanLimits(ctx, "org-cache-test")
+	if err2 != nil {
+		t.Fatalf("first call: %v", err2)
+	}
+	firstDBCalls := dbCalls
+
+	// Second call: cache hit, no additional DB call.
+	_, err2 = enforcer.GetOrgPlanLimits(ctx, "org-cache-test")
+	if err2 != nil {
+		t.Fatalf("second call: %v", err2)
+	}
+	if dbCalls != firstDBCalls {
+		t.Fatalf("DB calls = %d after second call, want %d (cache hit)", dbCalls, firstDBCalls)
+	}
+}
+
+func TestOrgCache_InvalidateForcesRefresh(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-inv": {OrgID: "org-inv", PlanTier: "pro", Status: "active"},
+	}
+
+	ctx := context.Background()
+
+	// Populate cache.
+	limits1, _ := enforcer.GetOrgPlanLimits(ctx, "org-inv")
+	if limits1.PlanTier != domain.PlanPro {
+		t.Fatalf("expected pro, got %q", limits1.PlanTier)
+	}
+
+	// Change underlying data.
+	store.subscriptions["org-inv"].PlanTier = "starter"
+
+	// Without invalidation, should still return cached pro.
+	limits2, _ := enforcer.GetOrgPlanLimits(ctx, "org-inv")
+	if limits2.PlanTier != domain.PlanPro {
+		t.Fatalf("expected cached pro, got %q", limits2.PlanTier)
+	}
+
+	// After invalidation, should reflect new plan.
+	enforcer.InvalidateOrgCache("org-inv")
+	limits3, _ := enforcer.GetOrgPlanLimits(ctx, "org-inv")
+	if limits3.PlanTier != domain.PlanStarter {
+		t.Fatalf("expected starter after invalidation, got %q", limits3.PlanTier)
+	}
+}
+
+func TestOrgCache_EmptyOrgIDReturnsFree(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+
+	limits, err2 := enforcer.GetOrgPlanLimits(context.Background(), "")
+	if err2 != nil {
+		t.Fatalf("unexpected error: %v", err2)
+	}
+	if limits.PlanTier != domain.PlanFree {
+		t.Fatalf("expected free for empty org ID, got %q", limits.PlanTier)
+	}
+}
+
+func TestOrgCache_SubscriptionNotFoundCachesFree(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	var dbCalls int
+	store.getOrgSubscriptionFn = func(_ context.Context, _ string) (*OrgSubscription, error) {
+		dbCalls++
+		return nil, ErrSubscriptionNotFound
+	}
+
+	ctx := context.Background()
+
+	// First call: DB miss -> free plan cached.
+	limits, _ := enforcer.GetOrgPlanLimits(ctx, "org-nosub")
+	if limits.PlanTier != domain.PlanFree {
+		t.Fatalf("expected free, got %q", limits.PlanTier)
+	}
+	if dbCalls != 1 {
+		t.Fatalf("DB calls = %d, want 1", dbCalls)
+	}
+
+	// Second call: cache hit, no DB call.
+	_, _ = enforcer.GetOrgPlanLimits(ctx, "org-nosub")
+	if dbCalls != 1 {
+		t.Fatalf("DB calls = %d, want 1 (cached free)", dbCalls)
+	}
+}
+
+func TestOrgCache_EnforcementModeFromCache(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-mode": {OrgID: "org-mode", PlanTier: "pro", Status: "active", EnforcementMode: "warn"},
+	}
+
+	ctx := context.Background()
+
+	// Populate cache via GetOrgPlanLimits.
+	_, _ = enforcer.GetOrgPlanLimits(ctx, "org-mode")
+
+	// getEnforcementMode should read from cache.
+	mode := enforcer.getEnforcementMode("org-mode")
+	if mode != "warn" {
+		t.Fatalf("enforcement mode = %q, want warn", mode)
+	}
+}
+
+func TestOrgCache_EnforcementModeFallsBackToEnforce(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+
+	// No cache entry for this org.
+	mode := enforcer.getEnforcementMode("org-uncached")
+	if mode != "enforce" {
+		t.Fatalf("enforcement mode = %q, want enforce (default)", mode)
+	}
+}
+
+func TestOrgCache_InvalidateNonexistentKey(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+
+	// Should not panic.
+	enforcer.InvalidateOrgCache("org-nonexistent")
+}
+
+func TestOrgCache_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+
+	ctx := context.Background()
+	const goroutines = 50
+	var wg sync.WaitGroup
+
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			for range 20 {
+				_, _ = enforcer.GetOrgPlanLimits(ctx, "org-conc-cache")
+			}
+		}()
+	}
+
+	// Invalidators running concurrently.
+	wg.Add(10)
+	for range 10 {
+		go func() {
+			defer wg.Done()
+			for range 20 {
+				enforcer.InvalidateOrgCache("org-conc-cache")
+			}
+		}()
+	}
+
+	wg.Wait()
 }

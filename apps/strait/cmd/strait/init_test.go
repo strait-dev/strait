@@ -30,7 +30,6 @@ func TestInit_NonInteractive_AllFlags(t *testing.T) {
 }
 
 func TestInit_NonInteractive_RequiresName(t *testing.T) {
-
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
@@ -50,7 +49,6 @@ func TestInit_NonInteractive_RequiresName(t *testing.T) {
 }
 
 func TestInit_WritesValidConfig(t *testing.T) {
-
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
@@ -83,7 +81,6 @@ func TestInit_WritesValidConfig(t *testing.T) {
 }
 
 func TestInit_WithJob_AddsJobToConfig(t *testing.T) {
-
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
@@ -127,7 +124,6 @@ func TestInit_WithJob_AddsJobToConfig(t *testing.T) {
 }
 
 func TestInit_WithJob_ValidatesEndpoint(t *testing.T) {
-
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
@@ -148,7 +144,6 @@ func TestInit_WithJob_ValidatesEndpoint(t *testing.T) {
 }
 
 func TestInit_ConfigAlreadyExists_Errors(t *testing.T) {
-
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
@@ -173,7 +168,6 @@ func TestInit_ConfigAlreadyExists_Errors(t *testing.T) {
 }
 
 func TestInit_ConfigAlreadyExists_Force(t *testing.T) {
-
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
@@ -202,7 +196,6 @@ func TestInit_ConfigAlreadyExists_Force(t *testing.T) {
 }
 
 func TestInit_UpdatesGitignore(t *testing.T) {
-
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
@@ -226,7 +219,6 @@ func TestInit_UpdatesGitignore(t *testing.T) {
 }
 
 func TestInit_GitignoreAlreadyHasEntry(t *testing.T) {
-
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
@@ -289,7 +281,6 @@ func TestInit_RuntimeAffectsConfig(t *testing.T) {
 }
 
 func TestInit_InvalidRuntime(t *testing.T) {
-
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
@@ -309,7 +300,6 @@ func TestInit_InvalidRuntime(t *testing.T) {
 }
 
 func TestInit_InvalidProjectName(t *testing.T) {
-
 	tests := []struct {
 		name  string
 		value string
@@ -321,7 +311,6 @@ func TestInit_InvalidProjectName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-
 			dir := t.TempDir()
 			origDir, _ := os.Getwd()
 			t.Cleanup(func() { _ = os.Chdir(origDir) })
@@ -340,7 +329,6 @@ func TestInit_InvalidProjectName(t *testing.T) {
 }
 
 func TestInit_TemplateFullCreatesDefinitions(t *testing.T) {
-
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })

@@ -12,8 +12,8 @@ import (
 func TestRequirePermission_AdminAllowsAll(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return []string{"*"}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -34,8 +34,8 @@ func TestRequirePermission_AdminAllowsAll(t *testing.T) {
 func TestRequirePermission_ViewerBlocksWrite(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return domain.SystemRolePermissions["viewer"], nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -56,8 +56,8 @@ func TestRequirePermission_ViewerBlocksWrite(t *testing.T) {
 func TestRequirePermission_OperatorCanTrigger(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return domain.SystemRolePermissions["operator"], nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -78,7 +78,7 @@ func TestRequirePermission_OperatorCanTrigger(t *testing.T) {
 func TestRequirePermission_APIKeyUsesScopes(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, nil, nil)
 
 	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -101,8 +101,8 @@ func TestRequirePermission_APIKeyUsesScopes(t *testing.T) {
 func TestRequirePermission_UnknownUserDenied(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
-	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
 		return nil, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -123,7 +123,7 @@ func TestRequirePermission_UnknownUserDenied(t *testing.T) {
 func TestRequirePermission_InternalSecretAllowed(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockAPIStore{}
+	ms := &APIStoreMock{}
 	srv := newTestServer(t, ms, nil, nil)
 
 	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

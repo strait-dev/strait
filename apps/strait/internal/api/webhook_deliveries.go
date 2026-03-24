@@ -1,105 +1,104 @@
 package api
 
 import (
-	"net/http"
+	"context"
 	"strings"
 	"time"
 
 	"strait/internal/domain"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/danielgtaylor/huma/v2"
 )
 
-func (s *Server) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+type ListWebhookDeliveriesInput struct {
+	Status string `query:"status"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
 
-	status := r.URL.Query().Get("status")
+type ListWebhookDeliveriesOutput struct {
+	Body PaginatedResponse
+}
+
+func (s *Server) handleListWebhookDeliveries(ctx context.Context, input *ListWebhookDeliveriesInput) (*ListWebhookDeliveriesOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	status := input.Status
 	if status != "" {
 		switch status {
 		case domain.WebhookStatusPending, domain.WebhookStatusDelivered, domain.WebhookStatusFailed, domain.WebhookStatusDead:
 		default:
-			respondError(w, r, http.StatusBadRequest, "status is invalid")
-			return
+			return nil, huma.Error400BadRequest("status is invalid")
 		}
 	}
-
-	limit, cursor, err := parsePaginationParams(r)
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
-
-	deliveries, err := s.store.ListWebhookDeliveries(r.Context(), projectID, status, limit+1, cursor)
+	deliveries, err := s.store.ListWebhookDeliveries(ctx, projectID, status, limit+1, cursor)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list webhook deliveries")
-		return
+		return nil, huma.Error500InternalServerError("failed to list webhook deliveries")
 	}
-
-	respondJSON(w, http.StatusOK, paginatedResult(deliveries, limit, func(d domain.WebhookDelivery) string {
+	return &ListWebhookDeliveriesOutput{Body: paginatedResult(deliveries, limit, func(d domain.WebhookDelivery) string {
 		return d.CreatedAt.Format(time.RFC3339Nano)
-	}))
+	})}, nil
 }
 
-func (s *Server) handleGetWebhookDelivery(w http.ResponseWriter, r *http.Request) {
-	deliveryID := webhookDeliveryIDParam(r)
-	if deliveryID == "" {
-		respondError(w, r, http.StatusBadRequest, "delivery ID is required")
-		return
-	}
+type GetWebhookDeliveryInput struct {
+	ID string `path:"id"`
+}
 
-	delivery, err := s.store.GetWebhookDelivery(r.Context(), deliveryID)
+type GetWebhookDeliveryOutput struct {
+	Body *domain.WebhookDelivery
+}
+
+func (s *Server) handleGetWebhookDelivery(ctx context.Context, input *GetWebhookDeliveryInput) (*GetWebhookDeliveryOutput, error) {
+	deliveryID := input.ID
+	if deliveryID == "" {
+		return nil, huma.Error400BadRequest("delivery ID is required")
+	}
+	delivery, err := s.store.GetWebhookDelivery(ctx, deliveryID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			respondError(w, r, http.StatusNotFound, "delivery not found")
-			return
+			return nil, huma.Error404NotFound("delivery not found")
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get delivery")
-		return
+		return nil, huma.Error500InternalServerError("failed to get delivery")
 	}
 	if delivery == nil {
-		respondError(w, r, http.StatusNotFound, "delivery not found")
-		return
+		return nil, huma.Error404NotFound("delivery not found")
 	}
-
-	respondJSON(w, http.StatusOK, delivery)
+	return &GetWebhookDeliveryOutput{Body: delivery}, nil
 }
 
-// handleRetryWebhookDelivery resets a failed delivery for retry.
-func (s *Server) handleRetryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
-	deliveryID := webhookDeliveryIDParam(r)
-	if deliveryID == "" {
-		respondError(w, r, http.StatusBadRequest, "delivery ID is required")
-		return
-	}
+type RetryWebhookDeliveryInput struct {
+	DeliveryID string `path:"deliveryID"`
+	ID         string `path:"id"`
+}
 
-	d, err := s.store.GetWebhookDelivery(r.Context(), deliveryID)
+type RetryWebhookDeliveryOutput struct {
+	Body *domain.WebhookDelivery
+}
+
+func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWebhookDeliveryInput) (*RetryWebhookDeliveryOutput, error) {
+	deliveryID := input.DeliveryID
+	if deliveryID == "" {
+		deliveryID = input.ID
+	}
+	if deliveryID == "" {
+		return nil, huma.Error400BadRequest("delivery ID is required")
+	}
+	d, err := s.store.GetWebhookDelivery(ctx, deliveryID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to get delivery")
-		return
+		return nil, huma.Error500InternalServerError("failed to get delivery")
 	}
 	if d == nil {
-		respondError(w, r, http.StatusNotFound, "delivery not found")
-		return
+		return nil, huma.Error404NotFound("delivery not found")
 	}
-
 	if d.Status != domain.WebhookStatusFailed && d.Status != domain.WebhookStatusDead {
-		respondError(w, r, http.StatusConflict, "only failed or dead deliveries can be retried")
-		return
+		return nil, huma.Error409Conflict("only failed or dead deliveries can be retried")
 	}
-
-	retried, err := s.store.RetryWebhookDelivery(r.Context(), deliveryID)
+	retried, err := s.store.RetryWebhookDelivery(ctx, deliveryID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to retry delivery")
-		return
+		return nil, huma.Error500InternalServerError("failed to retry delivery")
 	}
-
-	respondJSON(w, http.StatusOK, retried)
-}
-
-func webhookDeliveryIDParam(r *http.Request) string {
-	id := chi.URLParam(r, "id")
-	if id != "" {
-		return id
-	}
-	return chi.URLParam(r, "deliveryID")
+	return &RetryWebhookDeliveryOutput{Body: retried}, nil
 }

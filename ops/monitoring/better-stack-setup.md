@@ -11,7 +11,7 @@ When ready, run `ops/monitoring/setup-alert-routing.sh` with your webhook URL.
 1. Log in to Better Stack (https://betterstack.com)
 2. Go to **Monitors** > **Create monitor**
 3. Configure:
-   - **URL**: `https://strait.fly.dev/health`
+   - **URL**: `https://api.strait.dev/health`
    - **Check interval**: 60 seconds
    - **Request method**: GET
    - **Expected status code**: 200

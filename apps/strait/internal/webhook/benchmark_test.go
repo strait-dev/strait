@@ -23,7 +23,7 @@ func BenchmarkRedisWebhookCircuitBreaker_RecordFailureThenCanDeliver(b *testing.
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		breaker.RecordFailure(ctx, url)
 		if _, err := breaker.CanDeliver(ctx, url); err != nil {
 			b.Fatalf("CanDeliver() error = %v", err)

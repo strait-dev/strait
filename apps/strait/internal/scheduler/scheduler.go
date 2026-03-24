@@ -31,23 +31,24 @@ type SchedulerStore interface {
 }
 
 type Scheduler struct {
-	cron                  *CronScheduler
-	poller                *DelayedPoller
-	reaper                *Reaper
-	indexMaintainer       *IndexMaintainer
-	debouncePoller        *DebouncePoller
-	batchFlusher          *BatchFlusher
-	statsAggregator       *StatsAggregator
-	budgetMonitor         *BudgetMonitor
-	anomalyMonitor        *AnomalyMonitor
-	usageFlusher          *UsageFlusher
-	concurrentReconciler  *ConcurrentReconciler
-	downgradeApplier      *DowngradeApplier
-	costEstimateRefresher *CostEstimateRefresher
-	memoryCleanup         *MemoryCleanup
-	referralExpiry        *ReferralExpiry
-	gracePeriodEnforcer   *GracePeriodEnforcer
-	wg                    conc.WaitGroup
+	cron                     *CronScheduler
+	poller                   *DelayedPoller
+	reaper                   *Reaper
+	indexMaintainer          *IndexMaintainer
+	debouncePoller           *DebouncePoller
+	batchFlusher             *BatchFlusher
+	statsAggregator          *StatsAggregator
+	budgetMonitor            *BudgetMonitor
+	anomalyMonitor           *AnomalyMonitor
+	usageFlusher             *UsageFlusher
+	concurrentReconciler     *ConcurrentReconciler
+	downgradeApplier         *DowngradeApplier
+	costEstimateRefresher    *CostEstimateRefresher
+	memoryCleanup            *MemoryCleanup
+	referralExpiry           *ReferralExpiry
+	gracePeriodEnforcer      *GracePeriodEnforcer
+	staleSubscriptionChecker *StaleSubscriptionChecker
+	wg                       conc.WaitGroup
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
@@ -141,6 +142,13 @@ func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
 	}
 }
 
+// WithStaleSubscriptionChecker enables periodic detection of stale subscriptions.
+func WithStaleSubscriptionChecker(checker *StaleSubscriptionChecker) SchedulerOption {
+	return func(s *Scheduler) {
+		s.staleSubscriptionChecker = checker
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
@@ -173,6 +181,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.gracePeriodEnforcer != nil {
 		safeGo(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
+	}
+	if s.staleSubscriptionChecker != nil {
+		safeGo(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")
