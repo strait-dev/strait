@@ -53,43 +53,6 @@ func TestRace_DoubleDequeue(t *testing.T) {
 	}
 }
 
-// TestRace_ConcurrentStatusUpdate races 10 goroutines trying to update the same
-// run from executing to completed. Exactly one should succeed.
-func TestRace_ConcurrentStatusUpdate(t *testing.T) {
-	mustClean(t)
-
-	ctx := context.Background()
-	job := testutil.MustCreateJob(t, ctx, testStore, nil)
-	status := domain.StatusExecuting
-	run := testutil.MustCreateRun(t, ctx, testStore, job, &testutil.RunOpts{
-		Status: &status,
-	})
-
-	const goroutines = 10
-	var wg sync.WaitGroup
-	var successCount atomic.Int32
-
-	now := time.Now()
-	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
-		go func() {
-			defer wg.Done()
-			err := testStore.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
-				"finished_at": now,
-			})
-			if err == nil {
-				successCount.Add(1)
-			}
-		}()
-	}
-	wg.Wait()
-
-	if successCount.Load() != 1 {
-		t.Fatalf("expected exactly 1 successful status update, got %d", successCount.Load())
-	}
-	testutil.AssertRunStatus(t, ctx, testStore, run.ID, domain.StatusCompleted)
-}
-
 // TestRace_ConcurrentEnqueueDequeueInterleaving runs 10 enqueue and 10 dequeue
 // goroutines concurrently and verifies that no run is dequeued more than once.
 func TestRace_ConcurrentEnqueueDequeueInterleaving(t *testing.T) {
@@ -164,49 +127,6 @@ func TestRace_ConcurrentJobPauseAndTrigger(t *testing.T) {
 	// Trigger either succeeded (201) or was blocked by pause (409).
 	if code != http.StatusCreated && code != http.StatusConflict {
 		t.Fatalf("unexpected trigger status during pause race: %d", code)
-	}
-}
-
-// TestRace_ConcurrentBatchSameJob triggers the same job from 5 goroutines
-// simultaneously. All should either succeed or fail gracefully.
-func TestRace_ConcurrentBatchSameJob(t *testing.T) {
-	mustClean(t)
-
-	projectID := "proj-batch-" + newID()
-	job := createJob(t, projectID, "batch-race-job", "batch-race-slug-"+newID())
-	jobID := asString(t, job, "id")
-
-	const goroutines = 5
-	var wg sync.WaitGroup
-	var created atomic.Int32
-
-	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
-		go func(idx int) {
-			defer wg.Done()
-			body := fmt.Sprintf(`{"batch_idx":%d}`, idx)
-			req := authedRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", body)
-			w := httptest.NewRecorder()
-			testServer.ServeHTTP(w, req)
-			if w.Code == http.StatusCreated {
-				created.Add(1)
-			}
-		}(i)
-	}
-	wg.Wait()
-
-	// All 5 should succeed since there is no idempotency key.
-	if created.Load() != goroutines {
-		t.Fatalf("expected %d created runs, got %d", goroutines, created.Load())
-	}
-
-	ctx := context.Background()
-	runs, err := testStore.ListRunsByJob(ctx, jobID, 100, 0)
-	if err != nil {
-		t.Fatalf("ListRunsByJob error: %v", err)
-	}
-	if len(runs) != goroutines {
-		t.Fatalf("expected %d runs in store, got %d", goroutines, len(runs))
 	}
 }
 

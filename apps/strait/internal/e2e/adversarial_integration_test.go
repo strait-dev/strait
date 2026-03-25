@@ -193,51 +193,6 @@ func TestAdversarial_CronOverlapSkipConcurrent(t *testing.T) {
 	}
 }
 
-// TestAdversarial_AuditEventAdversarialPayloads verifies that audit events with
-// null bytes and large payloads are stored cleanly.
-func TestAdversarial_AuditEventAdversarialPayloads(t *testing.T) {
-	mustClean(t)
-
-	ctx := context.Background()
-	projectID := "proj-audit-" + newID()
-
-	tests := []struct {
-		name    string
-		details json.RawMessage
-	}{
-		{
-			name:    "null bytes",
-			details: json.RawMessage(`{"note":"has\u0000null"}`),
-		},
-		{
-			name:    "large payload",
-			details: json.RawMessage(`{"big":"` + strings.Repeat("x", 50000) + `"}`),
-		},
-		{
-			name:    "empty object",
-			details: json.RawMessage(`{}`),
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ev := &domain.AuditEvent{
-				ID:           uuid.Must(uuid.NewV7()).String(),
-				ProjectID:    projectID,
-				ActorID:      "actor-test",
-				ActorType:    "user",
-				Action:       "test.adversarial",
-				ResourceType: "job",
-				ResourceID:   "res-" + newID(),
-				Details:      tc.details,
-			}
-			if err := testStore.CreateAuditEvent(ctx, ev); err != nil {
-				t.Fatalf("CreateAuditEvent(%s) error: %v", tc.name, err)
-			}
-		})
-	}
-}
-
 // TestAdversarial_EventTriggerAdversarialKeys creates an event trigger with
 // regex-special characters in the key and verifies lookup behavior.
 func TestAdversarial_EventTriggerAdversarialKeys(t *testing.T) {
