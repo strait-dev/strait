@@ -73,6 +73,9 @@ var _ APIStore = &APIStoreMock{}
 //			CountActiveEventTriggersByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
 //				panic("mock out the CountActiveEventTriggersByProject method")
 //			},
+//			CountActiveWorkflowRunsByVersionFunc: func(ctx context.Context, workflowID string, versionID string) (int, error) {
+//				panic("mock out the CountActiveWorkflowRunsByVersion method")
+//			},
 //			CountBatchBufferItemsFunc: func(ctx context.Context, jobID string, batchKey string) (int, error) {
 //				panic("mock out the CountBatchBufferItems method")
 //			},
@@ -414,6 +417,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			ListAPIKeysByProjectFunc: func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error) {
 //				panic("mock out the ListAPIKeysByProject method")
+//			},
+//			ListActiveWorkflowVersionsFunc: func(ctx context.Context, workflowID string) ([]store.ActiveVersion, error) {
+//				panic("mock out the ListActiveWorkflowVersions method")
 //			},
 //			ListAuditEventsFunc: func(ctx context.Context, projectID string, actorID string, resourceType string, resourceID string, limit int, cursor *time.Time, from *time.Time, to *time.Time, ascending bool) ([]domain.AuditEvent, error) {
 //				panic("mock out the ListAuditEvents method")
@@ -782,6 +788,9 @@ type APIStoreMock struct {
 	// CountActiveEventTriggersByProjectFunc mocks the CountActiveEventTriggersByProject method.
 	CountActiveEventTriggersByProjectFunc func(ctx context.Context, projectID string) (int, error)
 
+	// CountActiveWorkflowRunsByVersionFunc mocks the CountActiveWorkflowRunsByVersion method.
+	CountActiveWorkflowRunsByVersionFunc func(ctx context.Context, workflowID string, versionID string) (int, error)
+
 	// CountBatchBufferItemsFunc mocks the CountBatchBufferItems method.
 	CountBatchBufferItemsFunc func(ctx context.Context, jobID string, batchKey string) (int, error)
 
@@ -1123,6 +1132,9 @@ type APIStoreMock struct {
 
 	// ListAPIKeysByProjectFunc mocks the ListAPIKeysByProject method.
 	ListAPIKeysByProjectFunc func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
+
+	// ListActiveWorkflowVersionsFunc mocks the ListActiveWorkflowVersions method.
+	ListActiveWorkflowVersionsFunc func(ctx context.Context, workflowID string) ([]store.ActiveVersion, error)
 
 	// ListAuditEventsFunc mocks the ListAuditEvents method.
 	ListAuditEventsFunc func(ctx context.Context, projectID string, actorID string, resourceType string, resourceID string, limit int, cursor *time.Time, from *time.Time, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
@@ -1593,6 +1605,15 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ProjectID is the projectID argument value.
 			ProjectID string
+		}
+		// CountActiveWorkflowRunsByVersion holds details about calls to the CountActiveWorkflowRunsByVersion method.
+		CountActiveWorkflowRunsByVersion []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WorkflowID is the workflowID argument value.
+			WorkflowID string
+			// VersionID is the versionID argument value.
+			VersionID string
 		}
 		// CountBatchBufferItems holds details about calls to the CountBatchBufferItems method.
 		CountBatchBufferItems []struct {
@@ -2513,6 +2534,13 @@ type APIStoreMock struct {
 			Limit int
 			// Cursor is the cursor argument value.
 			Cursor *time.Time
+		}
+		// ListActiveWorkflowVersions holds details about calls to the ListActiveWorkflowVersions method.
+		ListActiveWorkflowVersions []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WorkflowID is the workflowID argument value.
+			WorkflowID string
 		}
 		// ListAuditEvents holds details about calls to the ListAuditEvents method.
 		ListAuditEvents []struct {
@@ -3583,6 +3611,7 @@ type APIStoreMock struct {
 	lockCancelNonTerminalStepRuns          sync.RWMutex
 	lockCleanupExpiredDeviceCodes          sync.RWMutex
 	lockCountActiveEventTriggersByProject  sync.RWMutex
+	lockCountActiveWorkflowRunsByVersion   sync.RWMutex
 	lockCountBatchBufferItems              sync.RWMutex
 	lockCountEventTriggersFinishedBefore   sync.RWMutex
 	lockCountProjectActiveRuns             sync.RWMutex
@@ -3697,6 +3726,7 @@ type APIStoreMock struct {
 	lockInsertEvent                        sync.RWMutex
 	lockListAPIKeysByOrg                   sync.RWMutex
 	lockListAPIKeysByProject               sync.RWMutex
+	lockListActiveWorkflowVersions         sync.RWMutex
 	lockListAuditEvents                    sync.RWMutex
 	lockListBatchOperations                sync.RWMutex
 	lockListChildRuns                      sync.RWMutex
@@ -4556,6 +4586,50 @@ func (mock *APIStoreMock) CountActiveEventTriggersByProjectCalls() []struct {
 	mock.lockCountActiveEventTriggersByProject.RLock()
 	calls = mock.calls.CountActiveEventTriggersByProject
 	mock.lockCountActiveEventTriggersByProject.RUnlock()
+	return calls
+}
+
+// CountActiveWorkflowRunsByVersion calls CountActiveWorkflowRunsByVersionFunc.
+func (mock *APIStoreMock) CountActiveWorkflowRunsByVersion(ctx context.Context, workflowID string, versionID string) (int, error) {
+	callInfo := struct {
+		Ctx        context.Context
+		WorkflowID string
+		VersionID  string
+	}{
+		Ctx:        ctx,
+		WorkflowID: workflowID,
+		VersionID:  versionID,
+	}
+	mock.lockCountActiveWorkflowRunsByVersion.Lock()
+	mock.calls.CountActiveWorkflowRunsByVersion = append(mock.calls.CountActiveWorkflowRunsByVersion, callInfo)
+	mock.lockCountActiveWorkflowRunsByVersion.Unlock()
+	if mock.CountActiveWorkflowRunsByVersionFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountActiveWorkflowRunsByVersionFunc(ctx, workflowID, versionID)
+}
+
+// CountActiveWorkflowRunsByVersionCalls gets all the calls that were made to CountActiveWorkflowRunsByVersion.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountActiveWorkflowRunsByVersionCalls())
+func (mock *APIStoreMock) CountActiveWorkflowRunsByVersionCalls() []struct {
+	Ctx        context.Context
+	WorkflowID string
+	VersionID  string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		WorkflowID string
+		VersionID  string
+	}
+	mock.lockCountActiveWorkflowRunsByVersion.RLock()
+	calls = mock.calls.CountActiveWorkflowRunsByVersion
+	mock.lockCountActiveWorkflowRunsByVersion.RUnlock()
 	return calls
 }
 
@@ -9311,6 +9385,46 @@ func (mock *APIStoreMock) ListAPIKeysByProjectCalls() []struct {
 	mock.lockListAPIKeysByProject.RLock()
 	calls = mock.calls.ListAPIKeysByProject
 	mock.lockListAPIKeysByProject.RUnlock()
+	return calls
+}
+
+// ListActiveWorkflowVersions calls ListActiveWorkflowVersionsFunc.
+func (mock *APIStoreMock) ListActiveWorkflowVersions(ctx context.Context, workflowID string) ([]store.ActiveVersion, error) {
+	callInfo := struct {
+		Ctx        context.Context
+		WorkflowID string
+	}{
+		Ctx:        ctx,
+		WorkflowID: workflowID,
+	}
+	mock.lockListActiveWorkflowVersions.Lock()
+	mock.calls.ListActiveWorkflowVersions = append(mock.calls.ListActiveWorkflowVersions, callInfo)
+	mock.lockListActiveWorkflowVersions.Unlock()
+	if mock.ListActiveWorkflowVersionsFunc == nil {
+		var (
+			activeVersionsOut []store.ActiveVersion
+			errOut            error
+		)
+		return activeVersionsOut, errOut
+	}
+	return mock.ListActiveWorkflowVersionsFunc(ctx, workflowID)
+}
+
+// ListActiveWorkflowVersionsCalls gets all the calls that were made to ListActiveWorkflowVersions.
+// Check the length with:
+//
+//	len(mockedAPIStore.ListActiveWorkflowVersionsCalls())
+func (mock *APIStoreMock) ListActiveWorkflowVersionsCalls() []struct {
+	Ctx        context.Context
+	WorkflowID string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		WorkflowID string
+	}
+	mock.lockListActiveWorkflowVersions.RLock()
+	calls = mock.calls.ListActiveWorkflowVersions
+	mock.lockListActiveWorkflowVersions.RUnlock()
 	return calls
 }
 

@@ -160,15 +160,41 @@ Response:
 
 ## Workflow Versioning
 
-Workflows use the same dual version model (`version` + `version_id`) and snapshot workflow definitions, including step graphs.
+Workflows use the same dual version model (`version` + `version_id`) and snapshot workflow definitions, including step graphs. Every time you update a workflow via `PATCH /v1/workflows/{workflowID}`, the `version` increments and the previous step graph is preserved.
 
-Useful endpoints:
+### Inspecting versions
 
-- `GET /v1/workflows/{workflowID}/versions`
-- `GET /v1/workflows/{workflowID}/versions/{versionID}`
-- `GET /v1/workflows/{workflowID}/versions/{versionID}/steps`
+- `GET /v1/workflows/{workflowID}/versions` — list all version snapshots
+- `GET /v1/workflows/{workflowID}/versions/{versionID}` — get a specific version
+- `GET /v1/workflows/{workflowID}/versions/{versionID}/steps` — get the step graph for a version
+- `GET /v1/workflows/{workflowID}/active-versions` — list versions that have active (pending, running, or paused) runs, with status breakdowns
 
-This lets you inspect the exact workflow graph and step configuration used by a historical workflow run.
+### Breaking change detection
+
+When you update a workflow, the response includes information about in-flight runs on the previous version:
+
+```json
+{
+  "id": "wf_abc",
+  "version": 4,
+  "active_runs_on_previous_version": 3,
+  "previous_version_id": "ver_xyz"
+}
+```
+
+The `active_runs_on_previous_version` field appears whenever there are non-terminal runs still executing on the version that was just replaced. This gives you immediate visibility into whether your update might affect running workflows.
+
+To explicitly acknowledge a breaking update, set `breaking_change` to `true` in the request body:
+
+```json
+PATCH /v1/workflows/{workflowID}
+{
+  "steps": [...],
+  "breaking_change": true
+}
+```
+
+When `breaking_change` is `true` and active runs exist on the previous version, Strait records a `workflow.updated_breaking` audit event with the previous version ID, active run count, and new version number. This makes breaking deployments visible in your audit log.
 
 ## Run Provenance
 

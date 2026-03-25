@@ -1,10 +1,12 @@
 name: Benchmarks
 
+# Disabled: benchmarks are kept but not run automatically.
+# To re-enable, uncomment the triggers below and remove the `if: false` from the job.
 on:
-  pull_request:
-    paths:
-      - "apps/strait/**"
-      - ".github/workflows/benchmarks.yml"
+  # pull_request:
+  #   paths:
+  #     - "apps/strait/**"
+  #     - ".github/workflows/benchmarks.yml"
   workflow_dispatch:
 
 permissions:

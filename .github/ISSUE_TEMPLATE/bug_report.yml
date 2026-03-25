@@ -1,0 +1,85 @@
+name: Bug Report
+description: Report a bug in Strait
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill out the sections below so we can reproduce and fix it quickly.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the bug.
+      placeholder: What happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the behavior.
+      placeholder: |
+        1. Create a workflow with ...
+        2. Trigger it with ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen instead.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of Strait is affected?
+      options:
+        - API
+        - Worker / Scheduler
+        - Queue
+        - Workflows
+        - CLI / SDK
+        - Dashboard
+        - Migrations / Database
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Strait version
+      description: Output of `strait version` or the Docker image tag.
+      placeholder: v0.12.0
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Any relevant environment details (OS, Go version, database version, deployment method).
+      placeholder: |
+        - OS: macOS 15.4
+        - Go: 1.26
+        - PostgreSQL: 16.2
+        - Deployment: Fly.io
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or errors
+      description: Paste any error messages, stack traces, or log output.
+      render: shell
+    validations:
+      required: false
