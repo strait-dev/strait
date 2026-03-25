@@ -59,18 +59,16 @@ func TestOIDCVerify_ExpiredToken(t *testing.T) {
 	}
 }
 
-// TestOIDCVerify_ExpiryBoundary checks behaviour around the expiry edge. The
-// production code passes a raw integer 30 to jwt.WithLeeway, which is
-// interpreted as 30 nanoseconds (not seconds). A token that expired even one
-// second ago should therefore be rejected, while a token that expires one
-// second from now should pass.
+// TestOIDCVerify_ExpiryBoundary checks behaviour around the 30-second leeway.
+// A token expired 1s ago is within the 30s window and should be accepted.
+// A token expired 31s ago is outside the window and should be rejected.
 func TestOIDCVerify_ExpiryBoundary(t *testing.T) {
 	t.Parallel()
 
 	key, pubPEM := mustOIDCKeyPair(t)
 	v := mustOIDCVerifier(t, pubPEM, "https://issuer.test", "aud-test")
 
-	t.Run("expired 1s ago rejected", func(t *testing.T) {
+	t.Run("expired 1s ago accepted within 30s leeway", func(t *testing.T) {
 		t.Parallel()
 		signed := mustSignOIDCToken(t, key, jwt.RegisteredClaims{
 			Subject:   "user-boundary-past",
@@ -78,9 +76,26 @@ func TestOIDCVerify_ExpiryBoundary(t *testing.T) {
 			Audience:  []string{"aud-test"},
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-1 * time.Second)),
 		})
+		claims, err := v.verify(signed)
+		if err != nil {
+			t.Fatalf("token expired 1s ago should be accepted with 30s leeway: %v", err)
+		}
+		if claims.Subject != "user-boundary-past" {
+			t.Fatalf("subject = %q, want %q", claims.Subject, "user-boundary-past")
+		}
+	})
+
+	t.Run("expired 31s ago rejected beyond leeway", func(t *testing.T) {
+		t.Parallel()
+		signed := mustSignOIDCToken(t, key, jwt.RegisteredClaims{
+			Subject:   "user-boundary-past-31",
+			Issuer:    "https://issuer.test",
+			Audience:  []string{"aud-test"},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-31 * time.Second)),
+		})
 		_, err := v.verify(signed)
 		if err == nil {
-			t.Fatal("expected expired token to be rejected")
+			t.Fatal("token expired 31s ago should be rejected")
 		}
 	})
 

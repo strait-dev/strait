@@ -4,6 +4,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"strings"
+	"time"
 
 	"strait/internal/config"
 
@@ -58,7 +59,7 @@ func (v *oidcVerifier) verify(token string) (*oidcClaims, error) {
 	},
 		jwt.WithIssuer(v.issuer),
 		jwt.WithAudience(v.audience),
-		jwt.WithLeeway(30),
+		jwt.WithLeeway(30*time.Second),
 	)
 	if err != nil {
 		return nil, err
