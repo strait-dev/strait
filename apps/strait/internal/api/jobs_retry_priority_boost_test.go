@@ -88,14 +88,13 @@ func TestCreateJob_DefaultRetryPriorityBoost(t *testing.T) {
 	if captured == nil {
 		t.Fatal("CreateJob was not called")
 	}
-	// When omitted from request, the Go zero value (0) is passed to CreateJob.
-	// The DB default of 1 is applied at the database level.
-	if captured.RetryPriorityBoost != 0 {
-		t.Fatalf("expected retry_priority_boost=0 (zero value, DB applies default), got %d", captured.RetryPriorityBoost)
+	// When omitted from request, the handler defaults to 1 (matching DB default).
+	if captured.RetryPriorityBoost != 1 {
+		t.Fatalf("expected retry_priority_boost=1 (handler default), got %d", captured.RetryPriorityBoost)
 	}
 }
 
-func TestCreateJob_RetryPriorityBoostZero(t *testing.T) {
+func TestCreateJob_RetryPriorityBoostZeroDefaultsToOne(t *testing.T) {
 	t.Parallel()
 
 	var captured *domain.Job
@@ -111,6 +110,8 @@ func TestCreateJob_RetryPriorityBoostZero(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
+	// Sending 0 on create is treated the same as omitting (defaults to 1).
+	// To disable boost, create with default then update to 0 via PATCH.
 	body := `{
 		"project_id": "proj-1",
 		"name": "Zero Boost Job",
@@ -127,8 +128,8 @@ func TestCreateJob_RetryPriorityBoostZero(t *testing.T) {
 	if captured == nil {
 		t.Fatal("CreateJob was not called")
 	}
-	if captured.RetryPriorityBoost != 0 {
-		t.Fatalf("expected retry_priority_boost=0, got %d", captured.RetryPriorityBoost)
+	if captured.RetryPriorityBoost != 1 {
+		t.Fatalf("expected retry_priority_boost=1 (default, 0 is indistinguishable from omitted), got %d", captured.RetryPriorityBoost)
 	}
 }
 
@@ -377,8 +378,9 @@ func TestBatchCreateJobs_RetryPriorityBoost(t *testing.T) {
 	if captured[0].RetryPriorityBoost != 5 {
 		t.Fatalf("batch job 1: expected retry_priority_boost=5, got %d", captured[0].RetryPriorityBoost)
 	}
-	if captured[1].RetryPriorityBoost != 0 {
-		t.Fatalf("batch job 2: expected retry_priority_boost=0, got %d", captured[1].RetryPriorityBoost)
+	// Sending 0 on batch create defaults to 1 (same as omitting).
+	if captured[1].RetryPriorityBoost != 1 {
+		t.Fatalf("batch job 2: expected retry_priority_boost=1 (default), got %d", captured[1].RetryPriorityBoost)
 	}
 }
 
@@ -436,7 +438,7 @@ func TestCreateJob_RetryPriorityBoostBoundaryValues(t *testing.T) {
 		boost      int
 		wantStatus int
 	}{
-		{"min_valid_zero", 0, http.StatusCreated},
+		{"zero_defaults_to_one", 0, http.StatusCreated},
 		{"valid_one", 1, http.StatusCreated},
 		{"valid_five", 5, http.StatusCreated},
 		{"max_valid_ten", 10, http.StatusCreated},

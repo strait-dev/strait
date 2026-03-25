@@ -139,6 +139,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	if req.TimeoutSecs == 0 {
 		req.TimeoutSecs = s.defaultJobTimeoutSecs()
 	}
+	if req.RetryPriorityBoost == 0 {
+		req.RetryPriorityBoost = 1
+	}
 
 	if req.Cron != "" {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
@@ -788,6 +791,9 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 		}
 		if jobReq.TimeoutSecs == 0 {
 			jobReq.TimeoutSecs = s.defaultJobTimeoutSecs()
+		}
+		if jobReq.RetryPriorityBoost == 0 {
+			jobReq.RetryPriorityBoost = 1
 		}
 
 		if len(jobReq.Tags) > 0 {
