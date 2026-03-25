@@ -1097,15 +1097,18 @@ func scanUsageRecords(rows pgx.Rows) ([]UsageRecord, error) {
 	return records, rows.Err()
 }
 
-// ListOrgAdminEmails returns email addresses for org admins (owner/admin roles only).
+// ListOrgAdminEmails returns email addresses for org admins.
+// Joins through project_roles to filter by the 'admin' system role (which has wildcard permissions).
+// Schema: project_member_roles.role_id -> project_roles.id; project_roles.name = 'admin'.
 func (s *PgStore) ListOrgAdminEmails(ctx context.Context, orgID string) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT u.email
 		FROM project_member_roles pmr
 		JOIN projects p ON p.id = pmr.project_id
+		JOIN project_roles pr ON pr.id = pmr.role_id
 		JOIN users u ON u.id = pmr.user_id
 		WHERE p.org_id = $1
-		  AND pmr.role IN ('owner', 'admin')
+		  AND pr.name = 'admin'
 		  AND u.email IS NOT NULL
 		  AND u.email != ''
 	`, orgID)

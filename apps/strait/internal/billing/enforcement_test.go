@@ -1109,3 +1109,55 @@ func TestEnforcer_CheckDailyRunLimit_ProOverageAllowed(t *testing.T) {
 		t.Fatalf("expected overage to be allowed for pro plan, got: %v", err)
 	}
 }
+
+func TestEnforcer_GetOrgPlanLimits_AllowsHTTPMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		planTier string
+		want     bool
+	}{
+		{"free", "free", false},
+		{"starter", "starter", false},
+		{"pro", "pro", true},
+		{"enterprise", "enterprise", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			enforcer, store, _ := setupEnforcer(t)
+
+			orgID := "org_" + tt.name
+			store.subscriptions = map[string]*OrgSubscription{
+				orgID: {OrgID: orgID, PlanTier: tt.planTier, Status: "active"},
+			}
+
+			limits, err := enforcer.GetOrgPlanLimits(context.Background(), orgID)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if limits.AllowsHTTPMode != tt.want {
+				t.Errorf("AllowsHTTPMode = %v, want %v for %s plan", limits.AllowsHTTPMode, tt.want, tt.name)
+			}
+		})
+	}
+}
+
+func TestEnforcer_GetOrgPlanLimits_NoSubscription_DefaultsFree(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+
+	// No subscription = defaults to free plan.
+	limits, err := enforcer.GetOrgPlanLimits(context.Background(), "org_unknown")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if limits.AllowsHTTPMode != false {
+		t.Error("AllowsHTTPMode should be false for org with no subscription")
+	}
+	if limits.PlanTier != domain.PlanFree {
+		t.Errorf("PlanTier = %q, want %q", limits.PlanTier, domain.PlanFree)
+	}
+}

@@ -142,7 +142,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 
 	// Billing enforcement: daily and concurrent run limits apply to ALL dispatch modes.
 	// Managed-only limits (managed run cap, spending) are checked in managedDispatch.
-	if e.billingEnforcer != nil {
+	if e.billingEnforcer != nil { //nolint:nestif // billing enforcement is inherently nested with multiple sequential checks
 		// Check if the project is suspended due to a plan downgrade.
 		if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
 			e.logger.Warn("project suspended",
@@ -170,6 +170,19 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				e.handleSystemFailure(ctx, run, err.Error())
 				return
 			}
+
+			// HTTP mode plan gating at dispatch time.
+			// Catches jobs created on Pro that continue after downgrade to Starter/Free.
+			if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
+				limits, limErr := e.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+				if limErr == nil && !limits.AllowsHTTPMode {
+					e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+					e.handleSystemFailure(ctx, run,
+						"HTTP execution mode requires the Pro plan. Upgrade at /settings/billing")
+					return
+				}
+			}
+
 			decrCtx := context.WithoutCancel(ctx)
 			defer e.billingEnforcer.DecrConcurrentRunCount(decrCtx, orgID)
 		}

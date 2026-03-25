@@ -123,3 +123,24 @@ func TestCheckHTTPModeAllowed_NoBillingEnforcerAllowed(t *testing.T) {
 		t.Fatalf("expected no error with nil enforcer, got: %v", err)
 	}
 }
+
+func TestCheckHTTPModeAllowed_EnterprisePlanAllowed(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockHTTPModeEnforcer{
+		mockBillingEnforcer: mockBillingEnforcer{
+			projectOrgMap: map[string]string{"proj-1": "org-1"},
+		},
+		planLimits: billing.GetPlanLimits(domain.PlanEnterprise),
+	}
+
+	s := &Server{
+		edition:         domain.EditionCloud,
+		billingEnforcer: enforcer,
+	}
+
+	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
+	if err != nil {
+		t.Fatalf("expected no error for enterprise plan, got: %v", err)
+	}
+}
