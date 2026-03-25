@@ -3,7 +3,8 @@
 # Quick start:
 #   1. ./scripts/selfhost-init.sh   (generates secrets)
 #   2. docker compose -f docker-compose.selfhost.yml up -d
-#   3. curl http://localhost:8080/health
+#   3. curl http://localhost:8080/health  (API)
+#   4. open http://localhost:3000         (Dashboard)
 #
 # See SELFHOST.md for full documentation.
 
@@ -85,6 +86,23 @@ services:
       redis:
         condition: service_healthy
       sequin:
+        condition: service_healthy
+
+  strait-app:
+    image: ghcr.io/strait-dev/strait-app:latest
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.selfhost
+    environment:
+      STRAIT_API_URL: http://strait:8080
+      AUTH_DATABASE_URL: postgres://strait:strait@postgres:5432/strait?sslmode=disable
+      BETTER_AUTH_URL: http://localhost:3000
+      PORT: "3000"
+    depends_on:
+      strait:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
 volumes:

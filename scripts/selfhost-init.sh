@@ -20,6 +20,7 @@ INTERNAL_SECRET=$(gen_hex)
 JWT_SIGNING_KEY=$(gen_hex)
 ENCRYPTION_KEY=$(gen_base64)
 SECRET_ENCRYPTION_KEY=$(gen_base64)
+BETTER_AUTH_SECRET=$(gen_hex)
 SEQUIN_SECRET_KEY_BASE=$(gen_hex)$(gen_hex)
 SEQUIN_VAULT_KEY=$(gen_base64)
 
@@ -27,11 +28,14 @@ cat > "$ENV_FILE" <<EOF
 # Auto-generated secrets for Strait self-hosted deployment.
 # Do NOT commit this file to version control.
 
-# Strait secrets
+# Strait API secrets
 INTERNAL_SECRET=${INTERNAL_SECRET}
 JWT_SIGNING_KEY=${JWT_SIGNING_KEY}
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 SECRET_ENCRYPTION_KEY=${SECRET_ENCRYPTION_KEY}
+
+# Dashboard (Better Auth) secrets
+BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
 
 # Sequin secrets
 SEQUIN_SECRET_KEY_BASE=${SEQUIN_SECRET_KEY_BASE}
@@ -45,4 +49,5 @@ echo "  $INTERNAL_SECRET"
 echo ""
 echo "Next steps:"
 echo "  docker compose -f docker-compose.selfhost.yml up -d"
-echo "  curl http://localhost:8080/health"
+echo "  API:       http://localhost:8080/health"
+echo "  Dashboard: http://localhost:3000"

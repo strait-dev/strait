@@ -6,7 +6,7 @@ Run Strait on your own infrastructure with a single command.
 
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) v2+
 - 2 GB RAM minimum (4 GB recommended)
-- Ports 8080 (API), 5432 (Postgres), 6379 (Redis), 7376 (Sequin) available
+- Ports 3000 (Dashboard), 8080 (API), 5432 (Postgres), 6379 (Redis), 7376 (Sequin) available
 
 ## Quick Start
 
@@ -24,9 +24,14 @@ docker compose -f docker-compose.selfhost.yml up -d
 # 4. Verify.
 curl http://localhost:8080/health
 # {"edition":"community","status":"ok"}
+
+# 5. Open the dashboard.
+open http://localhost:3000
 ```
 
 The init script prints your `INTERNAL_SECRET` -- save it. You need it to create projects and API keys.
+
+The dashboard is available at **http://localhost:3000**. Sign up to create your account, then use the UI to manage jobs, runs, and workflows.
 
 ## Creating Your First Job
 
@@ -70,12 +75,13 @@ curl -X POST "http://localhost:8080/v1/jobs/$JOB_ID/trigger" \
 
 ## What Gets Deployed
 
-| Service | Image | Purpose |
-|---|---|---|
-| `strait` | `ghcr.io/strait-dev/strait:latest` | API server + worker |
-| `postgres` | `postgres:18-alpine` | Primary database |
-| `redis` | `redis:8-alpine` | Pub/sub, caching |
-| `sequin` | `sequin/sequin:latest` | CDC (Change Data Capture) |
+| Service | Image | Port | Purpose |
+|---|---|---|---|
+| `strait` | `ghcr.io/strait-dev/strait:latest` | 8080 | API server + worker |
+| `strait-app` | `ghcr.io/strait-dev/strait-app:latest` | 3000 | Dashboard UI |
+| `postgres` | `postgres:18-alpine` | 5432 | Primary database |
+| `redis` | `redis:8-alpine` | 6379 | Pub/sub, caching |
+| `sequin` | `sequin/sequin:latest` | 7376 | CDC (Change Data Capture) |
 
 ## Community Edition
 
