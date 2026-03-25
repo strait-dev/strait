@@ -2,11 +2,15 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"strait/internal/domain"
 )
 
 func FuzzDecodeJSON(f *testing.F) {
@@ -128,6 +132,56 @@ func FuzzValidateRetryConfig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, strategy string, delay int) {
 		// validateRetryConfig should never panic regardless of input.
 		_ = validateRetryConfig(strategy, []int{delay})
+	})
+}
+
+func FuzzCreateJobRetryPriorityBoost(f *testing.F) {
+	f.Add(0)
+	f.Add(1)
+	f.Add(5)
+	f.Add(10)
+	f.Add(11)
+	f.Add(-1)
+	f.Add(-100)
+	f.Add(100)
+	f.Add(1<<31 - 1)
+	f.Add(-(1 << 31))
+
+	f.Fuzz(func(t *testing.T, boost int) {
+		ms := &APIStoreMock{
+			CreateJobFunc: func(_ context.Context, job *domain.Job) error {
+				// Verify invariant: if validation passed, boost must be in [1,10].
+				// (0 is defaulted to 1 before reaching the store.)
+				if job.RetryPriorityBoost < 0 || job.RetryPriorityBoost > 10 {
+					t.Errorf("invalid retry_priority_boost %d reached store", job.RetryPriorityBoost)
+				}
+				job.ID = "job-fuzz"
+				job.Version = 1
+				return nil
+			},
+		}
+		srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+		body := fmt.Sprintf(`{
+			"project_id": "proj-1",
+			"name": "Fuzz Job",
+			"slug": "fuzz-job-%d",
+			"endpoint_url": "https://example.com/cb",
+			"retry_priority_boost": %d
+		}`, boost, boost)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+
+		// Must never panic. Valid range [0,10] should succeed, others should 400.
+		if boost >= 0 && boost <= 10 {
+			if w.Code != http.StatusCreated {
+				t.Errorf("boost=%d: expected 201, got %d", boost, w.Code)
+			}
+		} else {
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("boost=%d: expected 400, got %d", boost, w.Code)
+			}
+		}
 	})
 }
 
