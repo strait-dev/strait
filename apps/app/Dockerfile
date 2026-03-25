@@ -17,15 +17,18 @@ FROM oven/bun:1 AS install
 
 WORKDIR /app
 
-# Copy workspace structure for dependency resolution.
+# Copy all workspace package.json files for lockfile resolution.
 COPY package.json bun.lock ./
 COPY apps/app/package.json apps/app/package.json
-COPY packages/ui/package.json packages/ui/package.json
-COPY packages/utils/package.json packages/utils/package.json
-COPY packages/transactional/package.json packages/transactional/package.json
+COPY apps/docs/package.json apps/docs/package.json
+COPY apps/strait/package.json apps/strait/package.json
+COPY apps/website/package.json apps/website/package.json
 COPY packages/billing/package.json packages/billing/package.json
 COPY packages/config/package.json packages/config/package.json
-COPY packages/kv/package.json packages/kv/package.json
+COPY packages/transactional/package.json packages/transactional/package.json
+COPY packages/typescript-sdk/package.json packages/typescript-sdk/package.json
+COPY packages/ui/package.json packages/ui/package.json
+COPY packages/utils/package.json packages/utils/package.json
 
 RUN bun install --frozen-lockfile
 
@@ -34,15 +37,14 @@ FROM oven/bun:1 AS build
 
 WORKDIR /app
 
-COPY --from=install /app/node_modules ./node_modules
-COPY --from=install /app/apps/app/node_modules ./apps/app/node_modules
+# Copy installed dependencies (root + workspace node_modules).
+COPY --from=install /app/ ./
 
 # Copy all source (workspace packages needed for build).
-COPY package.json bun.lock ./
 COPY apps/app/ apps/app/
 COPY packages/ packages/
 
-# Build with node-server preset for Docker (overrides Vercel preset).
+# Build with node-server preset for Docker (vite.config.ts reads NITRO_PRESET).
 ENV NITRO_PRESET=node-server
 RUN cd apps/app && bun run build
 

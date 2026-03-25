@@ -1,0 +1,42 @@
+# Root .dockerignore for monorepo Docker builds.
+# Used when building the TanStack Start app (context = repo root).
+
+.git
+.github
+.claude
+.cursor
+.windsurf
+.pi
+.factory
+.context
+.agents
+.agent
+.opencode.jsonc
+.goreleaser.yaml
+.changeset
+
+# Go service test artifacts.
+apps/strait/test
+apps/strait/internal/loadtest
+loadtest-jobs
+
+# Docs and website source (keep package.json for lockfile).
+apps/docs/app
+apps/docs/lib
+apps/docs/scripts
+apps/docs/public
+apps/website/src
+apps/website/public
+
+# Build artifacts and logs.
+**/node_modules
+**/.turbo
+**/.output
+**/.vercel
+**/dist
+**/coverage
+*.log
+e2e_stress_report_*
+
+# Ops and scripts.
+ops

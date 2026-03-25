@@ -99,6 +99,27 @@ The self-hosted version runs the **community edition** which includes:
 
 Cloud-only features (managed container execution, advanced analytics, multi-region) are available on [strait.dev](https://strait.dev).
 
+## Real-Time Updates (CDC)
+
+Strait uses [Sequin](https://sequinstream.com) for Change Data Capture. Sequin monitors four Postgres tables and pushes changes to Strait via an HTTP Pull Consumer:
+
+| Table | Purpose |
+|---|---|
+| `job_runs` | Job execution status changes |
+| `workflow_runs` | Workflow orchestration updates |
+| `workflow_step_runs` | Individual step completions |
+| `event_triggers` | Event-driven trigger status |
+
+CDC is **auto-configured** -- the Sequin consumer is provisioned via `configs/sequin.yml` which is mounted into the Sequin container. No manual setup needed.
+
+To verify CDC is working:
+```bash
+curl http://localhost:7376/health
+# Should return healthy
+```
+
+CDC enables SSE real-time streaming (`GET /v1/runs/{runID}/stream`) and instant dashboard updates.
+
 ## Environment Overrides
 
 Override any default by adding variables to `.env.selfhost` or passing them in the `environment` section of `docker-compose.selfhost.yml`.
@@ -124,16 +145,23 @@ Migrations run automatically on startup.
 
 ## Backup
 
-Back up the Postgres data:
+Use the included backup script:
 
 ```bash
-docker exec strait-postgres-1 pg_dump -U strait strait > backup.sql
+# Create a backup.
+./scripts/selfhost-backup.sh
+# Backup saved to ./backups/strait_20260325_120000.sql.gz
+
+# Schedule daily backups (add to crontab).
+# 0 3 * * * cd /path/to/strait && ./scripts/selfhost-backup.sh
 ```
 
-Restore:
+Backups older than 30 days are automatically cleaned up.
+
+Restore from backup:
 
 ```bash
-docker exec -i strait-postgres-1 psql -U strait strait < backup.sql
+gunzip -c backups/strait_20260325_120000.sql.gz | docker exec -i strait-postgres-1 psql -U strait strait
 ```
 
 ## Load Testing

@@ -1,16 +1,17 @@
 # Strait Self-Hosted Deployment
 #
 # Quick start:
-#   1. ./scripts/selfhost-init.sh   (generates secrets)
+#   1. ./scripts/selfhost-init.sh   (generates secrets, one-time)
 #   2. docker compose -f docker-compose.selfhost.yml up -d
-#   3. curl http://localhost:8080/health  (API)
-#   4. open http://localhost:3000         (Dashboard)
+#   3. open http://localhost:3000   (Dashboard)
 #
+# Services: Postgres, Redis, Sequin (CDC), Strait API, Dashboard.
 # See SELFHOST.md for full documentation.
 
 services:
   postgres:
     image: postgres:18-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: strait
       POSTGRES_PASSWORD: strait
@@ -27,6 +28,7 @@ services:
 
   redis:
     image: redis:8-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
     healthcheck:
@@ -36,7 +38,8 @@ services:
       retries: 5
 
   sequin:
-    image: sequin/sequin:latest
+    image: sequin/sequin@sha256:336759c1c632ebdc87939bcea70b26b46df6593e666088e1bf29058209437d3e
+    restart: unless-stopped
     ports:
       - "7376:7376"
     environment:
@@ -47,6 +50,8 @@ services:
       PG_DATABASE: strait
       SECRET_KEY_BASE: ${SEQUIN_SECRET_KEY_BASE}
       VAULT_KEY: ${SEQUIN_VAULT_KEY}
+    volumes:
+      - ./configs/sequin.yml:/etc/sequin/config.yml:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,12 +66,12 @@ services:
 
   strait:
     image: ghcr.io/strait-dev/strait:latest
+    restart: unless-stopped
     ports:
       - "8080:8080"
     env_file:
       - .env.selfhost
     environment:
-      # Core.
       STRAIT_EDITION: community
       DATABASE_URL: postgres://strait:strait@postgres:5432/strait?sslmode=disable
       REDIS_URL: redis://redis:6379
@@ -76,10 +81,9 @@ services:
       LOG_FORMAT: json
       MIGRATION_MODE: auto
       ALLOW_PRIVATE_ENDPOINTS: "true"
-      # Worker.
       WORKER_CONCURRENCY: "25"
-      # Sequin CDC.
       SEQUIN_BASE_URL: http://sequin:7376
+      SEQUIN_CONSUMER_NAME: strait-cdc
     depends_on:
       postgres:
         condition: service_healthy
@@ -87,9 +91,16 @@ services:
         condition: service_healthy
       sequin:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "strait", "health", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   strait-app:
     image: ghcr.io/strait-dev/strait-app:latest
+    restart: unless-stopped
     ports:
       - "3000:3000"
     env_file:

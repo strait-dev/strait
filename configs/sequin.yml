@@ -1,0 +1,36 @@
+# Sequin CDC configuration for Strait self-hosted deployment.
+# Auto-provisions the database connection and HTTP Pull Consumer
+# that Strait needs for real-time Change Data Capture.
+#
+# Mounted into the Sequin container at /etc/sequin/config.yml.
+# Tables watched: job_runs, workflow_runs, workflow_step_runs, event_triggers.
+
+databases:
+  - name: strait
+    hostname: postgres
+    port: 5432
+    username: strait
+    password: strait
+    database: strait
+    slot_name: sequin_strait_slot
+    publication_name: sequin_strait_pub
+    tables:
+      - schema: public
+        name: job_runs
+      - schema: public
+        name: workflow_runs
+      - schema: public
+        name: workflow_step_runs
+      - schema: public
+        name: event_triggers
+
+consumers:
+  - name: strait-cdc
+    type: http_pull
+    database: strait
+    batch_size: 10
+    tables:
+      - public.job_runs
+      - public.workflow_runs
+      - public.workflow_step_runs
+      - public.event_triggers

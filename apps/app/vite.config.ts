@@ -20,7 +20,10 @@ export default defineConfig({
       },
       srcDirectory: "src",
     }),
-    nitroV2Plugin({ preset: "vercel", compatibilityDate: "2025-10-27" }),
+    nitroV2Plugin({
+      preset: (process.env.NITRO_PRESET as string) || "vercel",
+      compatibilityDate: "2025-10-27",
+    }),
     viteReact(),
     sentryTanstackStart({
       org: process.env.SENTRY_ORG,
