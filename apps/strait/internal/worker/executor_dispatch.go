@@ -550,11 +550,15 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	defer e.heartbeat.Deregister(run.ID)
 
 	// 7. Build environment variables.
+	// Both canonical (STRAIT_API_URL, STRAIT_SDK_TOKEN) and legacy aliases
+	// (STRAIT_SDK_URL, STRAIT_RUN_TOKEN) are set for backward compatibility
+	// with existing container images.
 	env := map[string]string{
 		"STRAIT_RUN_ID":   run.ID,
 		"STRAIT_JOB_SLUG": job.Slug,
 		"STRAIT_ATTEMPT":  strconv.Itoa(run.Attempt),
 		"STRAIT_API_URL":  e.externalAPIURL,
+		"STRAIT_SDK_URL":  e.externalAPIURL,
 	}
 
 	// JWT token for SDK callbacks.
@@ -571,6 +575,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
 			env["STRAIT_SDK_TOKEN"] = signed
+			env["STRAIT_RUN_TOKEN"] = signed
 		}
 	}
 

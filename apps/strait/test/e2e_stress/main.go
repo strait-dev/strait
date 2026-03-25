@@ -1422,13 +1422,18 @@ func envInt(key string, def int) int {
 
 func main() {
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
-	log.Printf("=== Strait E2E Stress Test ===")
+
+	phase := envOr("PHASE", "1")
+	log.Printf("=== Strait E2E Stress Test (Phase %s) ===", phase)
 	log.Printf("Target: %s", straitURL)
 	log.Printf("Echo server: %s", echoBaseURL)
 	log.Printf("Iterations: %d", iterations)
 	log.Printf("Concurrency: %d", concurrency)
-	log.Printf("Scenarios: %d", len(allScenarios))
-	log.Printf("Total scenario runs: %d", iterations*len(allScenarios))
+	if phase == "1" {
+		log.Printf("Scenarios: %d", len(allScenarios))
+	} else {
+		log.Printf("Scenarios: %d (phase 2: managed + deep integration)", len(phase2Scenarios))
+	}
 
 	// Step 1: Create test project.
 	log.Println("Setting up test project...")
@@ -1461,6 +1466,12 @@ func main() {
 	}
 
 	// Step 3: Run iterations.
+	if phase == "2" {
+		runPhase2(ctx, iterations, concurrency)
+		printReport(time.Now())
+		return
+	}
+
 	startTime := time.Now()
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
@@ -1504,9 +1515,12 @@ func main() {
 	}
 
 	wg.Wait()
+	printReport(startTime)
+}
+
+func printReport(startTime time.Time) {
 	elapsed := time.Since(startTime)
 
-	// Step 4: Print report.
 	log.Println()
 	log.Println("============================================================")
 	log.Println("                    STRESS TEST REPORT")
@@ -1517,8 +1531,8 @@ func main() {
 	log.Printf("Failed:            %d", stats.scenariosFail.Load())
 	log.Printf("Bugs found:        %d", stats.bugsFound.Load())
 	log.Printf("Total API calls:   %d", stats.apiCalls.Load())
-	log.Printf("Throughput:        %.1f scenarios/sec", float64(stats.scenariosRun.Load())/elapsed.Seconds())
-	log.Printf("API call rate:     %.1f calls/sec", float64(stats.apiCalls.Load())/elapsed.Seconds())
+	log.Printf("Throughput:        %.1f scenarios/sec", float64(stats.scenariosRun.Load())/max(elapsed.Seconds(), 0.001))
+	log.Printf("API call rate:     %.1f calls/sec", float64(stats.apiCalls.Load())/max(elapsed.Seconds(), 0.001))
 	log.Println()
 
 	log.Println("--- Per-Scenario Results ---")
@@ -1528,14 +1542,13 @@ func main() {
 		if r.Runs > 0 {
 			passRate = float64(r.Passes) / float64(r.Runs) * 100
 		}
-		log.Printf("  %-35s runs=%-5d pass=%-5d fail=%-5d (%.1f%%)", r.Name, r.Runs, r.Passes, r.Failures, passRate)
+		log.Printf("  %-40s runs=%-5d pass=%-5d fail=%-5d (%.1f%%)", r.Name, r.Runs, r.Passes, r.Failures, passRate)
 	}
 	resultMu.Unlock()
 
 	if len(bugs) > 0 {
 		log.Println()
 		log.Println("--- Bugs Found ---")
-		// Deduplicate by scenario+description.
 		seen := map[string]int{}
 		for _, b := range bugs {
 			key := b.Scenario + "|" + b.Description
@@ -1547,7 +1560,6 @@ func main() {
 		}
 	}
 
-	// Write report to file.
 	report := map[string]any{
 		"duration_secs":    elapsed.Seconds(),
 		"total_iterations": stats.scenariosRun.Load(),
