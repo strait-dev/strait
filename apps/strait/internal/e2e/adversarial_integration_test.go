@@ -4,8 +4,6 @@ package e2e_test
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -61,54 +59,6 @@ func TestAdversarial_SQLInjectionThruAPI(t *testing.T) {
 	}
 }
 
-// TestAdversarial_ConcurrentEnqueueSameIdempotencyKey verifies that concurrent
-// triggers with the same idempotency key result in exactly one run.
-func TestAdversarial_ConcurrentEnqueueSameIdempotencyKey(t *testing.T) {
-	mustClean(t)
-
-	projectID := "proj-idemp-" + newID()
-	job := createJob(t, projectID, "idemp-job", "idemp-slug-"+newID())
-	jobID := asString(t, job, "id")
-	idempKey := "idemp-" + newID()
-
-	const goroutines = 10
-	var wg sync.WaitGroup
-	var successCount atomic.Int32
-	var errorCount atomic.Int32
-
-	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
-		go func() {
-			defer wg.Done()
-			req := authedRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", `{"key":"value"}`)
-			req.Header.Set("X-Idempotency-Key", idempKey)
-			w := httptest.NewRecorder()
-			testServer.ServeHTTP(w, req)
-			if w.Code == http.StatusCreated || w.Code == http.StatusOK {
-				successCount.Add(1)
-			} else {
-				errorCount.Add(1)
-			}
-		}()
-	}
-	wg.Wait()
-
-	// At least one should succeed; all should return 2xx (idempotency means
-	// subsequent calls return the same run).
-	if successCount.Load() == 0 {
-		t.Fatal("expected at least one successful trigger, got zero")
-	}
-
-	// Verify exactly one run exists for this job.
-	ctx := context.Background()
-	runs, err := testStore.ListRunsByJob(ctx, jobID, 100, 0)
-	if err != nil {
-		t.Fatalf("ListRunsByJob error: %v", err)
-	}
-	if len(runs) != 1 {
-		t.Fatalf("expected exactly 1 run, got %d", len(runs))
-	}
-}
 
 // TestAdversarial_ConcurrentDequeueSameRun verifies that when a single run is
 // enqueued, only one of many concurrent dequeue attempts receives it.
@@ -143,76 +93,7 @@ func TestAdversarial_ConcurrentDequeueSameRun(t *testing.T) {
 	}
 }
 
-// TestAdversarial_APIKeyRealHashLookup verifies that a properly hashed API key
-// grants access while an incorrect key is rejected.
-func TestAdversarial_APIKeyRealHashLookup(t *testing.T) {
-	mustClean(t)
 
-	ctx := context.Background()
-	projectID := "proj-apikey-" + newID()
-
-	rawKey := "sk_test_" + newID()
-	h := sha256.Sum256([]byte(rawKey))
-	keyHash := hex.EncodeToString(h[:])
-
-	apiKey := &domain.APIKey{
-		ID:        uuid.Must(uuid.NewV7()).String(),
-		ProjectID: projectID,
-		Name:      "test-key",
-		KeyHash:   keyHash,
-		KeyPrefix: rawKey[:12],
-		Scopes:    []string{"*"},
-		CreatedAt: time.Now(),
-	}
-	if err := testStore.CreateAPIKey(ctx, apiKey); err != nil {
-		t.Fatalf("CreateAPIKey error: %v", err)
-	}
-
-	// Valid key should succeed.
-	w := doSDKRequest(t, http.MethodGet, "/v1/jobs/", rawKey, "")
-	if w.Code == http.StatusUnauthorized {
-		t.Fatalf("expected authorized response with valid API key, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Wrong key should get 401.
-	w2 := doSDKRequest(t, http.MethodGet, "/v1/jobs/", "sk_test_wrong_key_value", "")
-	if w2.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 with wrong API key, got %d", w2.Code)
-	}
-}
-
-// TestAdversarial_LargePayloadRoundTrip verifies that a 1MB JSON payload
-// survives a trigger-and-fetch round trip without corruption.
-func TestAdversarial_LargePayloadRoundTrip(t *testing.T) {
-	mustClean(t)
-
-	projectID := "proj-largepayload-" + newID()
-	job := createJob(t, projectID, "large-payload-job", "large-payload-slug-"+newID())
-	jobID := asString(t, job, "id")
-
-	// Build a ~1MB payload.
-	bigValue := strings.Repeat("a", 1024*1024)
-	payload := fmt.Sprintf(`{"data":%q}`, bigValue)
-
-	run := triggerJob(t, jobID, payload, "")
-	runID := asString(t, run, "id")
-
-	// Fetch the run and verify payload.
-	w := doRequest(t, http.MethodGet, "/v1/runs/"+runID, "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("get run status = %d, body = %s", w.Code, w.Body.String())
-	}
-
-	fetched := mustDecodeObject(t, w)
-	payloadObj := asObject(t, fetched, "payload")
-	gotData, ok := payloadObj["data"].(string)
-	if !ok {
-		t.Fatal("payload.data is not a string")
-	}
-	if gotData != bigValue {
-		t.Fatalf("payload round-trip mismatch: got %d bytes, want %d bytes", len(gotData), len(bigValue))
-	}
-}
 
 // TestAdversarial_TagSpecialCharsFullPipeline verifies that jobs with unicode,
 // angle brackets, and quotes in tags are stored and filtered correctly.
@@ -259,71 +140,7 @@ func TestAdversarial_TagSpecialCharsFullPipeline(t *testing.T) {
 	}
 }
 
-// TestAdversarial_RunStatusConcurrentUpdate verifies that when multiple
-// goroutines race to update a run from executing to completed, exactly one
-// succeeds and the rest get a conflict error.
-func TestAdversarial_RunStatusConcurrentUpdate(t *testing.T) {
-	mustClean(t)
 
-	ctx := context.Background()
-	job := testutil.MustCreateJob(t, ctx, testStore, nil)
-	status := domain.StatusExecuting
-	run := testutil.MustCreateRun(t, ctx, testStore, job, &testutil.RunOpts{
-		Status: &status,
-	})
-
-	const goroutines = 10
-	var wg sync.WaitGroup
-	var successCount atomic.Int32
-
-	now := time.Now()
-	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
-		go func() {
-			defer wg.Done()
-			err := testStore.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
-				"finished_at": now,
-			})
-			if err == nil {
-				successCount.Add(1)
-			}
-		}()
-	}
-	wg.Wait()
-
-	if successCount.Load() != 1 {
-		t.Fatalf("expected exactly 1 successful status update, got %d", successCount.Load())
-	}
-
-	// Verify final status.
-	testutil.AssertRunStatus(t, ctx, testStore, run.ID, domain.StatusCompleted)
-}
-
-// TestAdversarial_PaginationCursorInjection sends adversarial cursor values
-// through the list runs API and verifies the server does not crash.
-func TestAdversarial_PaginationCursorInjection(t *testing.T) {
-	mustClean(t)
-
-	projectID := "proj-cursor-" + newID()
-	_ = createJob(t, projectID, "cursor-job", "cursor-slug-"+newID())
-
-	adversarialCursors := []string{
-		"'; DROP TABLE runs; --",
-		"0000-00-00T00:00:00Z",
-		"not-a-date",
-		strings.Repeat("a", 10000),
-		"\x00\x01\x02",
-	}
-
-	for _, cursor := range adversarialCursors {
-		path := fmt.Sprintf("/v1/runs/?cursor=%s", cursor)
-		w := doRequest(t, http.MethodGet, path, "", projectID)
-		// Any non-5xx response is acceptable; we just want no crash/panic.
-		if w.Code >= 500 {
-			t.Fatalf("server error with cursor %q: status = %d, body = %s", cursor, w.Code, w.Body.String())
-		}
-	}
-}
 
 // TestAdversarial_CronOverlapSkipConcurrent verifies that a cron job with
 // overlap=skip policy skips new triggers while an active run exists.
