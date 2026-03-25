@@ -47,7 +47,6 @@ type mockExecutorStore struct {
 	getJobHealthStatsFn       func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
 	getResolvedEnvVarsFn      func(ctx context.Context, id string) (map[string]string, error)
 	getLatestCheckpointFn     func(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
-	getRunErrorClassFn        func(ctx context.Context, runID string) (string, error)
 	getRunFn                  func(ctx context.Context, id string) (*domain.JobRun, error)
 	getProjectQuotaFn         func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
 	sumDailyComputeCostFn     func(ctx context.Context, projectID, timezone string) (int64, error)
@@ -182,13 +181,6 @@ func (m *mockExecutorStore) GetLatestCheckpoint(ctx context.Context, runID strin
 		return nil, nil
 	}
 	return m.getLatestCheckpointFn(ctx, runID)
-}
-
-func (m *mockExecutorStore) GetRunErrorClass(ctx context.Context, runID string) (string, error) {
-	if m.getRunErrorClassFn == nil {
-		return "", nil
-	}
-	return m.getRunErrorClassFn(ctx, runID)
 }
 
 func (m *mockExecutorStore) GetRun(ctx context.Context, id string) (*domain.JobRun, error) {
@@ -3217,11 +3209,7 @@ func TestHandleFailure_BoostOnHighAttempt(t *testing.T) {
 	}))
 	defer server.Close()
 
-	store := &mockExecutorStore{
-		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
-			return "transient", nil // different from "server" so poison pill doesn't trigger
-		},
-	}
+	store := &mockExecutorStore{}
 	job := testJob(server.URL, 6, 5)
 	job.RetryPriorityBoost = 1
 	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
@@ -3254,21 +3242,23 @@ func TestHandleFailure_BoostOnHighAttempt(t *testing.T) {
 func TestHandleFailure_BoostNotAppliedWhenPoisonPill(t *testing.T) {
 	t.Parallel()
 
-	store := &mockExecutorStore{
-		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
-			return "server", nil // same class triggers poison pill
-		},
-	}
+	store := &mockExecutorStore{}
 	exec := NewExecutor(ExecutorConfig{
 		Pool:         NewPool(10),
 		Queue:        &mockExecQueue{},
 		Store:        store,
 		PollInterval: time.Hour,
 	})
-	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Priority: 3}
-	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2}
+	threshold := 3
+	errBody := "fail"
+	endpointErr := &domain.EndpointError{StatusCode: 500, Body: errBody}
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Priority: 3, Metadata: map[string]string{
+		"_error_hash":       errorHash(endpointErr.Error()),
+		"_error_hash_count": "2",
+	}}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2, PoisonPillThreshold: &threshold}
 	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
-	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+	exec.handleFailure(context.Background(), run, job, policy, endpointErr, nil)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {
@@ -3286,17 +3276,14 @@ func TestHandleFailure_BoostNotAppliedWhenPoisonPill(t *testing.T) {
 func TestHandleFailure_BoostAppliedWhenPoisonPillNotTriggered(t *testing.T) {
 	t.Parallel()
 
-	store := &mockExecutorStore{
-		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
-			return "transient", nil // different class from "server"
-		},
-	}
+	store := &mockExecutorStore{}
 	exec := NewExecutor(ExecutorConfig{
 		Pool:         NewPool(10),
 		Queue:        &mockExecQueue{},
 		Store:        store,
 		PollInterval: time.Hour,
 	})
+	// No PoisonPillThreshold set, so poison pill is disabled.
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Priority: 3}
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2}
 	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
@@ -4234,21 +4221,23 @@ func TestPoll_MemoryPressure_DisabledByDefault(t *testing.T) {
 
 func TestHandleFailure_PoisonPillDetected(t *testing.T) {
 	t.Parallel()
-	store := &mockExecutorStore{
-		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
-			return "server", nil // same class as current error
-		},
-	}
+	store := &mockExecutorStore{}
 	exec := NewExecutor(ExecutorConfig{
 		Pool:         NewPool(10),
 		Queue:        &mockExecQueue{},
 		Store:        store,
 		PollInterval: time.Hour,
 	})
-	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3}
-	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	threshold := 3
+	errBody := "fail"
+	endpointErr := &domain.EndpointError{StatusCode: 500, Body: errBody}
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Metadata: map[string]string{
+		"_error_hash":       errorHash(endpointErr.Error()),
+		"_error_hash_count": "2",
+	}}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", PoisonPillThreshold: &threshold}
 	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
-	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+	exec.handleFailure(context.Background(), run, job, policy, endpointErr, nil)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {
@@ -4260,21 +4249,21 @@ func TestHandleFailure_PoisonPillDetected(t *testing.T) {
 	}
 }
 
-func TestHandleFailure_PoisonPillNotTriggeredOnDifferentClass(t *testing.T) {
+func TestHandleFailure_PoisonPillNotTriggeredOnDifferentError(t *testing.T) {
 	t.Parallel()
-	store := &mockExecutorStore{
-		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
-			return "transient", nil // different from current "server" class
-		},
-	}
+	store := &mockExecutorStore{}
 	exec := NewExecutor(ExecutorConfig{
 		Pool:         NewPool(10),
 		Queue:        &mockExecQueue{},
 		Store:        store,
 		PollInterval: time.Hour,
 	})
-	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3}
-	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	threshold := 3
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Metadata: map[string]string{
+		"_error_hash":       errorHash("different error"),
+		"_error_hash_count": "2",
+	}}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", PoisonPillThreshold: &threshold}
 	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
@@ -4288,23 +4277,24 @@ func TestHandleFailure_PoisonPillNotTriggeredOnDifferentClass(t *testing.T) {
 	}
 }
 
-func TestHandleFailure_PoisonPillNotTriggeredBelowThreshold(t *testing.T) {
+func TestHandleFailure_PoisonPillNotTriggeredWhenDisabled(t *testing.T) {
 	t.Parallel()
-	store := &mockExecutorStore{
-		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
-			return "server", nil // same class
-		},
-	}
+	store := &mockExecutorStore{}
 	exec := NewExecutor(ExecutorConfig{
 		Pool:         NewPool(10),
 		Queue:        &mockExecQueue{},
 		Store:        store,
 		PollInterval: time.Hour,
 	})
-	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 2} // below threshold of 3
+	errMsg := "fail"
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Metadata: map[string]string{
+		"_error_hash":       errorHash(errMsg),
+		"_error_hash_count": "2",
+	}}
+	// nil threshold = disabled
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
 	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
-	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: errMsg}, nil)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {

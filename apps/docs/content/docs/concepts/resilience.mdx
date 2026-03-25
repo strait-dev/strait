@@ -113,6 +113,39 @@ When `attempt >= max_attempts`, the run transitions to `dead_letter` instead of 
 
 For detailed retry configuration, see [Retry Strategies](/docs/concepts/retry-strategies).
 
+## Poison Pill Detection
+
+A poison pill run is one that consistently crashes with the same error across retries (e.g., a malformed payload that always triggers a 500). Without detection, these runs exhaust all retry attempts, waste worker capacity, and can trip the circuit breaker -- blocking healthy runs to the same endpoint.
+
+### How It Works
+
+When `poison_pill_threshold` is configured on a job, Strait tracks consecutive identical errors using a hash of the error message stored in run metadata:
+
+1. On each failure, the first 200 characters of the error message are hashed (SHA-256, truncated to 64 bits).
+2. The hash is stored in the run's metadata as `_error_hash`, alongside a `_error_hash_count` counter.
+3. If the hash matches the previous attempt's hash, the counter increments. If it differs, the counter resets to 1.
+4. When the counter reaches `poison_pill_threshold`, the run is routed directly to the dead letter queue with a `poison pill detected` error message instead of retrying.
+
+### Configuration
+
+Set `poison_pill_threshold` on the job definition:
+
+```json
+{
+  "poison_pill_threshold": 3
+}
+```
+
+- **`null` or `0`**: Detection disabled (default). Runs follow normal retry behavior.
+- **`1`**: Aggressive -- the first failure immediately routes to DLQ.
+- **`3`** (recommended): Tolerates transient variations but catches persistent failures before wasting retry budget.
+
+### Interaction with Other Resilience Features
+
+- **Circuit breaker**: Poison pill detection runs after circuit breaker recording. A poison-pill DLQ still counts as a circuit breaker failure, but prevents the run from continuing to hammer the endpoint across remaining retries.
+- **Error classification**: Non-retryable error classes (client errors, auth failures) bypass poison pill detection entirely -- they go directly to DLQ via class-based routing.
+- **Retry strategies**: When poison pill is below threshold, normal retry backoff applies. The metadata counter persists across retries so the count is accurate even with exponential delays between attempts.
+
 ## Graceful Shutdown
 
 Strait implements structured shutdown to protect in-flight work:

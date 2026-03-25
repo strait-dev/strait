@@ -2,11 +2,14 @@ package worker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -182,6 +185,22 @@ func isBudgetError(err error) bool {
 		strings.Contains(msg, "cost limit")
 }
 
+// errorHash returns a 16-char hex digest of the first 200 characters of an
+// error message. Used for poison pill detection to identify identical errors
+// across retry attempts without storing the full error string in metadata.
+func errorHash(errMsg string) string {
+	prefix := errMsg
+	if len(prefix) > 200 {
+		// Truncate by runes so multi-byte UTF-8 sequences are not split.
+		runes := []rune(prefix)
+		if len(runes) > 200 {
+			prefix = string(runes[:200])
+		}
+	}
+	h := sha256.Sum256([]byte(prefix))
+	return hex.EncodeToString(h[:8])
+}
+
 // boostPriority adds boost to current priority, capping at 10 and
 // guarding against integer overflow.
 func boostPriority(current, boost int) int {
@@ -245,13 +264,34 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		shouldRetry = false
 	}
 
-	const poisonPillThreshold = 3
-	if shouldRetry && run.Attempt >= poisonPillThreshold {
-		prevClass, err := e.store.GetRunErrorClass(ctx, run.ID)
-		if err == nil && prevClass == errClass {
+	// Poison pill detection: count consecutive same-error-hash failures.
+	// When a run keeps hitting the same error, fast-track to DLQ instead of
+	// wasting retries and risking circuit breaker trips.
+	var metadataModified bool
+	if shouldRetry && job.PoisonPillThreshold != nil && *job.PoisonPillThreshold > 0 {
+		hash := errorHash(errMsg)
+		prevHash := run.Metadata["_error_hash"]
+		count := 1
+		if prevHash == hash {
+			if raw, ok := run.Metadata["_error_hash_count"]; ok {
+				if n, parseErr := strconv.Atoi(raw); parseErr == nil {
+					count = n + 1
+				}
+			}
+		}
+		if run.Metadata == nil {
+			run.Metadata = make(map[string]string)
+		}
+		run.Metadata["_error_hash"] = hash
+		run.Metadata["_error_hash_count"] = strconv.Itoa(count)
+		metadataModified = true
+
+		if count >= *job.PoisonPillThreshold {
 			shouldRetry = false
-			e.logger.Warn("poison pill detected: consecutive same-class errors",
-				"run_id", run.ID, "error_class", errClass, "attempt", run.Attempt)
+			errMsg = fmt.Sprintf("poison pill detected (same error %d times): %s", count, errMsg)
+			e.logger.Warn("poison pill detected: consecutive same-error failures",
+				"run_id", run.ID, "error_hash", hash, "count", count,
+				"threshold", *job.PoisonPillThreshold)
 		}
 	}
 
@@ -264,6 +304,9 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 			"error_class":   errClass,
 			"started_at":    nil,
 			"finished_at":   nil,
+		}
+		if metadataModified {
+			fields["metadata"] = run.Metadata
 		}
 		if job.RetryPriorityBoost > 0 {
 			fields["priority"] = boostPriority(run.Priority, job.RetryPriorityBoost)
@@ -298,6 +341,9 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		"finished_at": now,
 		"error":       errMsg,
 		"error_class": errClass,
+	}
+	if metadataModified {
+		fields["metadata"] = run.Metadata
 	}
 	if execTrace != nil {
 		fields["execution_trace"] = execTrace
