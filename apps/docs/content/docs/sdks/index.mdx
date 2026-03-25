@@ -7,7 +7,7 @@ Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, 
 
 ## Installation
 
-<Tabs items={["TypeScript","Python","Go","Ruby","Rust"]}>
+<Tabs items={["TypeScript","Python","Go"]}>
   <Tab value="TypeScript">
     ```bash
   npm install @strait/ts
@@ -25,17 +25,11 @@ Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, 
   go get github.com/strait-dev/strait-go
   ```
   </Tab>
-  <Tab value="Ruby">
-    ```bash
-  gem install strait
-  ```
-  </Tab>
-  <Tab value="Rust">
-    ```bash
-  cargo add strait
-  ```
-  </Tab>
 </Tabs>
+
+Ruby and Rust SDKs are available in their dedicated repositories:
+- [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby)
+- [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust)
 
 ## Feature Parity
 
@@ -74,7 +68,7 @@ export STRAIT_API_KEY="sk_live_..."
 
 **3. Create a client:**
 
-<Tabs items={["TypeScript","Python","Go","Ruby","Rust"]}>
+<Tabs items={["TypeScript","Python","Go"]}>
   <Tab value="TypeScript">
     ```ts
   import { createClientFromConfigFile } from "@strait/ts/node";
@@ -101,22 +95,6 @@ export STRAIT_API_KEY="sk_live_..."
   client, err := strait.NewClientFromFile(nil)
   jobs := operations.NewJobsService(client)
   result, err := jobs.List(ctx, nil)
-  ```
-  </Tab>
-  <Tab value="Ruby">
-    ```ruby
-  require "strait"
-
-  client = Strait::Client.from_file
-  jobs = client.jobs.list
-  ```
-  </Tab>
-  <Tab value="Rust">
-    ```rust
-  use strait_sdk::client::StraitClient;
-
-  let client = StraitClient::from_file(None, None)?;
-  let jobs = client.jobs().list(None).await?;
   ```
   </Tab>
 </Tabs>
@@ -178,18 +156,18 @@ All 186 API operations are organized into typed service classes:
 
 <Cards>
   <Card title="Python SDK" href="/docs/sdks/python">
-    Sync and async clients with httpx, authoring DSL, and composition helpers.
+    Now in its own repository at github.com/strait-dev/strait-python.
   </Card>
   <Card title="Go SDK" href="/docs/sdks/go">
-    Functional options pattern, typed error handling, and full API coverage.
+    Now in its own repository at github.com/strait-dev/strait-go.
   </Card>
 </Cards>
 
 <Cards>
   <Card title="Ruby SDK" href="/docs/sdks/ruby">
-    Idiomatic Ruby DSL, typed errors, and full API coverage.
+    Now in its own repository at github.com/strait-dev/strait-ruby.
   </Card>
   <Card title="Rust SDK" href="/docs/sdks/rust">
-    Async/await, builder pattern, type-safe errors, and full API coverage.
+    Now in its own repository at github.com/strait-dev/strait-rust.
   </Card>
 </Cards>

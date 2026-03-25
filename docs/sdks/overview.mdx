@@ -5,7 +5,7 @@ description: "Official Strait SDKs for TypeScript, Python, Go, Ruby, and Rust â€
 
 Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust**. All five SDKs share the same feature set, configuration model, and API coverage.
 
-The **Python**, **Go**, and **MCP** SDKs have moved to dedicated repositories. The TypeScript, Ruby, and Rust SDKs remain in this monorepo.
+The **Python**, **Go**, **Ruby**, **Rust**, and **MCP** SDKs have moved to dedicated repositories. The TypeScript SDK remains in this monorepo.
 
 ## Repositories
 
@@ -14,8 +14,8 @@ The **Python**, **Go**, and **MCP** SDKs have moved to dedicated repositories. T
 | **TypeScript** | [packages/typescript-sdk](https://github.com/strait-dev/strait/tree/master/packages/typescript-sdk) (monorepo) | `npm install @strait/ts` |
 | **Python** | [strait-dev/strait-python](https://github.com/strait-dev/strait-python) | `pip install strait-python` |
 | **Go** | [strait-dev/strait-go](https://github.com/strait-dev/strait-go) | `go get github.com/strait-dev/strait-go` |
-| **Ruby** | [packages/ruby-sdk](https://github.com/strait-dev/strait/tree/master/packages/ruby-sdk) (monorepo) | `gem install strait` |
-| **Rust** | [packages/rust-sdk](https://github.com/strait-dev/strait/tree/master/packages/rust-sdk) (monorepo) | `cargo add strait` |
+| **Ruby** | [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby) | `gem install strait` |
+| **Rust** | [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust) | `cargo add strait` |
 | **MCP** | [strait-dev/mcp](https://github.com/strait-dev/mcp) | See repository README |
 
 ## Feature Parity
@@ -70,20 +70,6 @@ export STRAIT_API_KEY="sk_live_..."
   client, err := strait.NewClientFromFile(nil)
   jobs := operations.NewJobsService(client)
   result, err := jobs.List(ctx, nil)
-  ```
-
-  ```ruby Ruby
-  require "strait"
-
-  client = Strait::Client.from_file
-  jobs = client.jobs.list
-  ```
-
-  ```rust Rust
-  use strait_sdk::client::StraitClient;
-
-  let client = StraitClient::from_file(None, None)?;
-  let jobs = client.jobs().list(None).await?;
   ```
 </CodeGroup>
 
@@ -153,9 +139,9 @@ All 186 API operations are organized into typed service classes:
 
 <CardGroup cols={2}>
   <Card title="Ruby SDK" icon="gem" href="/docs/sdks/ruby">
-    Idiomatic Ruby DSL, typed errors, and full API coverage.
+    Now in its own repository at github.com/strait-dev/strait-ruby.
   </Card>
   <Card title="Rust SDK" icon="rust" href="/docs/sdks/rust">
-    Async/await, builder pattern, type-safe errors, and full API coverage.
+    Now in its own repository at github.com/strait-dev/strait-rust.
   </Card>
 </CardGroup>
