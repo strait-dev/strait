@@ -5,6 +5,10 @@ description: "Recent platform and API updates in Strait."
 
 ## 2026-03
 
+### Queue & Retry
+
+- **Retry Priority Boost**: Retried runs now increase in queue priority with each retry attempt, reducing end-to-end latency for failing jobs in deep queues. Configurable per job via `retry_priority_boost` (0-10, default: 1). Set to 0 to preserve previous behavior. Applies to both failure and timeout retries. Priority is capped at 10.
+
 ### Auth / RBAC / Audit / Rotation Updates
 
 - Added optional OIDC bearer-token authentication path for user traffic.
