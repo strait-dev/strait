@@ -39,9 +39,10 @@ func (p *MachinePool) SetOnEvict(fn func(machineID string)) {
 	p.onEvict = fn
 }
 
-// PoolKey returns the cache key for a given image and region.
-func PoolKey(imageURI, region string) string {
-	return imageURI + ":" + region
+// PoolKey returns the cache key for a given project, image, and region.
+// It uses null byte separators to prevent key collisions.
+func PoolKey(projectID, imageURI, region string) string {
+	return projectID + "\x00" + imageURI + "\x00" + region
 }
 
 // AcquireResult holds the machine ID and metadata from a pool Acquire.
@@ -52,8 +53,8 @@ type AcquireResult struct {
 
 // Acquire removes and returns the oldest machine from the pool for the given key.
 // Returns empty string and false if no machine is available.
-func (p *MachinePool) Acquire(imageURI, region string) (string, bool) {
-	key := PoolKey(imageURI, region)
+func (p *MachinePool) Acquire(projectID, imageURI, region string) (string, bool) {
+	key := PoolKey(projectID, imageURI, region)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -71,12 +72,12 @@ func (p *MachinePool) Acquire(imageURI, region string) (string, bool) {
 
 // Release returns a stopped machine to the pool. If the pool is at capacity
 // for this key, the oldest entry is evicted.
-func (p *MachinePool) Release(imageURI, region, machineID string) {
+func (p *MachinePool) Release(projectID, imageURI, region, machineID string) {
 	if machineID == "" {
 		return
 	}
 
-	key := PoolKey(imageURI, region)
+	key := PoolKey(projectID, imageURI, region)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()

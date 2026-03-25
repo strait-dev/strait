@@ -9,30 +9,32 @@ import (
 	"time"
 )
 
-// TestPool_CrossProjectSameImage verifies that the pool key is based on image
-// URI and region only. Machines from different "projects" sharing the same image
-// and region will share a pool slot, because PoolKey does not include project.
+// TestPool_CrossProjectSameImage verifies that different projects using the same
+// image and region get isolated pool slots.
 func TestPool_CrossProjectSameImage(t *testing.T) {
 	t.Parallel()
 
 	pool := NewMachinePool(3)
 
-	// Simulate project-A releasing a machine.
-	pool.Release("myapp:v1", "iad", "m-projectA")
+	// Project-A releases a machine.
+	pool.Release("project-A", "myapp:v1", "iad", "m-projectA")
 
-	// Project-B acquires from the same image+region key.
-	id, ok := pool.Acquire("myapp:v1", "iad")
-	if !ok {
-		t.Fatal("expected Acquire to succeed for same image+region from different project")
-	}
-	if id != "m-projectA" {
-		t.Fatalf("expected m-projectA, got %q", id)
+	// Project-B cannot acquire from project-A's pool.
+	_, ok := pool.Acquire("project-B", "myapp:v1", "iad")
+	if ok {
+		t.Fatal("expected Acquire to fail for different project with same image+region")
 	}
 
-	// Verify that PoolKey does not include any project identifier.
-	key := PoolKey("myapp:v1", "iad")
-	if strings.Contains(key, "project") {
-		t.Fatalf("PoolKey should not contain project identifier, got %q", key)
+	// Project-A can still acquire its own machine.
+	id, ok := pool.Acquire("project-A", "myapp:v1", "iad")
+	if !ok || id != "m-projectA" {
+		t.Fatalf("expected m-projectA, got %q ok=%v", id, ok)
+	}
+
+	// Verify that PoolKey includes the project identifier.
+	key := PoolKey("project-A", "myapp:v1", "iad")
+	if !strings.Contains(key, "project-A") {
+		t.Fatalf("PoolKey should contain project identifier, got %q", key)
 	}
 }
 
@@ -45,19 +47,19 @@ func TestPool_EnvironmentCleanupOnReuse(t *testing.T) {
 	pool := NewMachinePool(3)
 
 	// Release a machine -- pool only stores MachineID and StoppedAt.
-	pool.Release("myapp:v1", "iad", "m-1")
+	pool.Release("proj-1", "myapp:v1", "iad", "m-1")
 
 	// Acquire returns only the machine ID.
-	id, ok := pool.Acquire("myapp:v1", "iad")
+	id, ok := pool.Acquire("proj-1", "myapp:v1", "iad")
 	if !ok || id != "m-1" {
 		t.Fatalf("expected m-1, got %q ok=%v", id, ok)
 	}
 
 	// The pool entry (poolEntry) has no Env field, so no stale environment
 	// leaks through the pool itself. The caller must supply fresh env on
-	// Start(). This is verified by inspecting the pool key format.
-	key := PoolKey("myapp:v1", "iad")
-	if key != "myapp:v1:iad" {
+	// Start(). Verify key uses null byte separator.
+	key := PoolKey("proj-1", "myapp:v1", "iad")
+	if key != "proj-1\x00myapp:v1\x00iad" {
 		t.Fatalf("unexpected pool key format: %q", key)
 	}
 }
@@ -71,8 +73,8 @@ func TestPool_FilesystemIsolation(t *testing.T) {
 	pool := NewMachinePool(3)
 
 	// Release and re-acquire the same machine.
-	pool.Release("myapp:v1", "iad", "m-1")
-	id, ok := pool.Acquire("myapp:v1", "iad")
+	pool.Release("proj-1", "myapp:v1", "iad", "m-1")
+	id, ok := pool.Acquire("proj-1", "myapp:v1", "iad")
 	if !ok || id != "m-1" {
 		t.Fatalf("expected m-1, got %q ok=%v", id, ok)
 	}
@@ -91,9 +93,9 @@ func TestPool_SecretLeakageBetweenRuns(t *testing.T) {
 
 	// Release a machine. The poolEntry struct only contains MachineID,
 	// StoppedAt, and LastRunID -- no env, secrets, or request data.
-	pool.Release("myapp:v1", "iad", "m-secret-run")
+	pool.Release("proj-1", "myapp:v1", "iad", "m-secret-run")
 
-	id, ok := pool.Acquire("myapp:v1", "iad")
+	id, ok := pool.Acquire("proj-1", "myapp:v1", "iad")
 	if !ok || id != "m-secret-run" {
 		t.Fatalf("expected m-secret-run, got %q ok=%v", id, ok)
 	}
@@ -122,7 +124,7 @@ func TestPool_MaxPoolSize(t *testing.T) {
 
 	// Release more machines than the max.
 	for i := range 6 {
-		pool.Release("myapp:v1", "iad", fmt.Sprintf("m-%d", i))
+		pool.Release("proj-1", "myapp:v1", "iad", fmt.Sprintf("m-%d", i))
 	}
 
 	// Allow async eviction goroutines to complete.
@@ -151,11 +153,11 @@ func TestPool_ConcurrentAcquireRelease(t *testing.T) {
 		wg.Add(2)
 		go func(idx int) {
 			defer wg.Done()
-			pool.Release("myapp:v1", "iad", fmt.Sprintf("m-%d", idx))
+			pool.Release("proj-1", "myapp:v1", "iad", fmt.Sprintf("m-%d", idx))
 		}(i)
 		go func(idx int) {
 			defer wg.Done()
-			pool.Acquire("myapp:v1", "iad")
+			pool.Acquire("proj-1", "myapp:v1", "iad")
 		}(i)
 	}
 	wg.Wait()
@@ -166,32 +168,23 @@ func TestPool_ConcurrentAcquireRelease(t *testing.T) {
 	}
 }
 
-// TestPool_KeyCollision verifies that special characters in image URIs used as
-// pool keys do not cause collisions or unexpected behavior.
+// TestPool_KeyCollision verifies that null byte separators prevent collisions
+// between image URIs containing colons.
 func TestPool_KeyCollision(t *testing.T) {
 	t.Parallel()
 
 	pool := NewMachinePool(3)
 
-	// Keys that might collide if separators are not handled carefully.
-	pool.Release("img:latest", "iad", "m-1")
-	pool.Release("img", "latest:iad", "m-2")
+	// Keys that would collide with colon separator but not with null byte.
+	pool.Release("proj-1", "img:latest", "iad", "m-1")
+	pool.Release("proj-1", "img", "latest\x00iad", "m-2")
 
 	// These should be stored under different keys.
-	key1 := PoolKey("img:latest", "iad")
-	key2 := PoolKey("img", "latest:iad")
+	key1 := PoolKey("proj-1", "img:latest", "iad")
+	key2 := PoolKey("proj-1", "img", "latest\x00iad")
 
-	// The keys will be "img:latest:iad" and "img:latest:iad" -- they collide
-	// because the separator is ":" and the image URI can contain ":".
 	if key1 == key2 {
-		// This is a documented key collision. PoolKey uses simple concatenation
-		// with ":" which can produce identical keys for different inputs.
-		t.Logf("key collision detected: %q == %q (known limitation)", key1, key2)
-
-		// Both machines end up in the same bucket.
-		if pool.Size() != 2 {
-			t.Fatalf("expected 2 entries in collided bucket, got %d", pool.Size())
-		}
+		t.Fatalf("keys should not collide: %q == %q", key1, key2)
 	}
 }
 
@@ -204,10 +197,10 @@ func TestPool_StalePoolEntry(t *testing.T) {
 	pool := NewMachinePool(3)
 
 	// Release a machine that "no longer exists" externally.
-	pool.Release("myapp:v1", "iad", "m-destroyed-externally")
+	pool.Release("proj-1", "myapp:v1", "iad", "m-destroyed-externally")
 
 	// Pool returns the stale ID. Caller must handle ErrMachineGone from Start().
-	id, ok := pool.Acquire("myapp:v1", "iad")
+	id, ok := pool.Acquire("proj-1", "myapp:v1", "iad")
 	if !ok {
 		t.Fatal("expected Acquire to return the stale entry")
 	}
@@ -232,12 +225,12 @@ func TestPool_EvictionUnderPressure(t *testing.T) {
 	})
 
 	// Fill to capacity.
-	pool.Release("myapp:v1", "iad", "m-oldest")
-	pool.Release("myapp:v1", "iad", "m-middle")
-	pool.Release("myapp:v1", "iad", "m-newest")
+	pool.Release("proj-1", "myapp:v1", "iad", "m-oldest")
+	pool.Release("proj-1", "myapp:v1", "iad", "m-middle")
+	pool.Release("proj-1", "myapp:v1", "iad", "m-newest")
 
 	// One more triggers eviction of the oldest.
-	pool.Release("myapp:v1", "iad", "m-pressure")
+	pool.Release("proj-1", "myapp:v1", "iad", "m-pressure")
 
 	// Allow async eviction.
 	time.Sleep(100 * time.Millisecond)
@@ -252,7 +245,7 @@ func TestPool_EvictionUnderPressure(t *testing.T) {
 	}
 
 	// Verify the remaining entries are the newer ones.
-	id, _ := pool.Acquire("myapp:v1", "iad")
+	id, _ := pool.Acquire("proj-1", "myapp:v1", "iad")
 	if id != "m-middle" {
 		t.Fatalf("expected m-middle as oldest remaining, got %q", id)
 	}
@@ -261,18 +254,21 @@ func TestPool_EvictionUnderPressure(t *testing.T) {
 // FuzzPoolKey sends random image and region strings through PoolKey to ensure
 // it never panics.
 func FuzzPoolKey(f *testing.F) {
-	f.Add("nginx:latest", "iad")
-	f.Add("", "")
-	f.Add("img:tag", "region:with:colons")
-	f.Add(strings.Repeat("a", 10000), strings.Repeat("b", 10000))
-	f.Add("image/with/slashes", "us-east-1")
-	f.Add("registry.com:5000/org/img@sha256:abc", "eu-west-1")
+	f.Add("proj-1", "nginx:latest", "iad")
+	f.Add("", "", "")
+	f.Add("proj-1", "img:tag", "region:with:colons")
+	f.Add("proj-1", strings.Repeat("a", 10000), strings.Repeat("b", 10000))
+	f.Add("proj-1", "image/with/slashes", "us-east-1")
+	f.Add("proj-1", "registry.com:5000/org/img@sha256:abc", "eu-west-1")
 
-	f.Fuzz(func(t *testing.T, image, region string) {
+	f.Fuzz(func(t *testing.T, projectID, image, region string) {
 		// Must not panic regardless of input.
-		key := PoolKey(image, region)
+		key := PoolKey(projectID, image, region)
 
-		// Key must contain both inputs when they are non-empty.
+		// Key must contain all inputs when they are non-empty.
+		if projectID != "" && !strings.Contains(key, projectID) {
+			t.Errorf("key %q does not contain projectID %q", key, projectID)
+		}
 		if image != "" && !strings.Contains(key, image) {
 			t.Errorf("key %q does not contain image %q", key, image)
 		}
@@ -283,8 +279,8 @@ func FuzzPoolKey(f *testing.F) {
 		// Key must be usable as a map key without issues.
 		var released atomic.Int32
 		pool := NewMachinePool(1)
-		pool.Release(image, region, "m-fuzz")
-		if _, ok := pool.Acquire(image, region); ok {
+		pool.Release(projectID, image, region, "m-fuzz")
+		if _, ok := pool.Acquire(projectID, image, region); ok {
 			released.Add(1)
 		}
 	})

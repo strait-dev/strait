@@ -48,18 +48,17 @@ func TestImageURI_TagMutation(t *testing.T) {
 }
 
 // TestImageURI_PrivateRegistryCredentials verifies that credentials embedded in
-// a URI via user:pass@host are accepted because @ is in the safe character set.
-// This documents that the validator does not reject credential-bearing URIs.
+// a URI via user:pass@host are rejected to prevent credential leakage.
 func TestImageURI_PrivateRegistryCredentials(t *testing.T) {
 	t.Parallel()
 
-	// The @ character is allowed by isDockerSafeChar, so user:pass@registry
-	// passes validation. This is documented behavior -- the function only
-	// blocks shell metacharacters.
 	uri := "user:pass@registry.com/image:tag"
 	err := validateImageURI(uri)
-	if err != nil {
-		t.Fatalf("expected credential URI to be accepted (@ is a safe char), got: %v", err)
+	if err == nil {
+		t.Fatal("expected credential URI to be rejected")
+	}
+	if !strings.Contains(err.Error(), "embedded credentials") {
+		t.Fatalf("expected embedded credentials error, got: %v", err)
 	}
 }
 

@@ -213,7 +213,7 @@ func TestPoolPruner_DestroyCallbackPanic(t *testing.T) {
 	t.Parallel()
 
 	pool := compute.NewMachinePool(5)
-	pool.Release("img:latest", "iad", "m-panic")
+	pool.Release("test-project", "img:latest", "iad", "m-panic")
 
 	// Wait for the entry to become stale.
 	time.Sleep(5 * time.Millisecond)

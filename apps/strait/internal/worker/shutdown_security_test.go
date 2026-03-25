@@ -128,8 +128,8 @@ func TestShutdown_PoolCleanupOnShutdown(t *testing.T) {
 
 	var destroyCalled atomic.Int32
 	pool := compute.NewMachinePool(5)
-	pool.Release("img:latest", "iad", "m-1")
-	pool.Release("img:latest", "iad", "m-2")
+	pool.Release("proj-1", "img:latest", "iad", "m-1")
+	pool.Release("proj-1", "img:latest", "iad", "m-2")
 
 	exec := NewExecutor(ExecutorConfig{
 		Pool:                  NewPool(2),

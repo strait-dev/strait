@@ -194,6 +194,17 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		if req.ImageURI == "" {
 			return nil, huma.Error400BadRequest("image_uri is required for managed execution")
 		}
+		if len(s.config.AllowedImageRegistries) == 0 {
+			return nil, huma.Error400BadRequest("ALLOWED_IMAGE_REGISTRIES must be configured for managed execution")
+		}
+		if err := compute.ValidateImageRegistry(req.ImageURI, s.config.AllowedImageRegistries); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		if s.config.RequireImageDigest {
+			if err := compute.ValidateImageDigest(req.ImageURI); err != nil {
+				return nil, huma.Error400BadRequest(err.Error())
+			}
+		}
 		preset := domain.MachinePreset(req.MachinePreset)
 		if req.MachinePreset != "" && !preset.IsValid() {
 			return nil, huma.Error400BadRequest("invalid machine_preset")

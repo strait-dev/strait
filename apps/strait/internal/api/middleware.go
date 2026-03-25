@@ -155,6 +155,16 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 		ctx = context.WithValue(ctx, ctxScopesKey, []string{}) // non-nil => enforce RBAC path in requirePermission
 		if projectID := strings.TrimSpace(r.Header.Get("X-Project-Id")); projectID != "" {
+			hasAccess, accessErr := s.store.UserHasProjectAccess(ctx, claims.Subject, projectID)
+			if accessErr != nil {
+				slog.Warn("failed to check project access", "user", claims.Subject, "project", projectID, "error", accessErr)
+				respondError(w, r, http.StatusForbidden, "unable to verify project access")
+				return
+			}
+			if !hasAccess {
+				respondError(w, r, http.StatusForbidden, "no access to project")
+				return
+			}
 			ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
 		}
 
