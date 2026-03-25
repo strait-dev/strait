@@ -293,7 +293,8 @@ func (s *Server) handleGetEmailPreferences(ctx context.Context, input *GetEmailP
 	}
 	prefs, pErr := s.usageService.GetEmailPreferences(ctx, orgID)
 	if pErr != nil {
-		return &GetEmailPreferencesOutput{Body: &billing.EmailPreferencesResponse{MonthlyUsageEmail: true}}, nil //nolint:nilerr // default to enabled on error
+		slog.Warn("failed to get email preferences", "org_id", orgID, "error", pErr)
+		return nil, huma.Error500InternalServerError("failed to get email preferences")
 	}
 	return &GetEmailPreferencesOutput{Body: prefs}, nil
 }

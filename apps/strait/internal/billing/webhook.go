@@ -243,6 +243,7 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		CurrentPeriodEnd:      sub.CurrentPeriodEnd,
 		SpendingLimitMicrousd: -1,
 		LimitAction:           "reject",
+		MonthlyUsageEmail:     tier != domain.PlanFree, // opt-in for paid plans only
 		CreatedAt:             now,
 		UpdatedAt:             now,
 	}
@@ -266,17 +267,22 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		"polar_subscription_id", sub.ID,
 	)
 
-	// Send welcome email for paid plan subscriptions.
+	// Send welcome email for paid plan subscriptions (async to avoid blocking webhook response).
 	if h.welcomeEmail != nil && tier != domain.PlanFree {
 		customerEmail := ""
-		if sub.Customer != nil {
+		if sub.Customer != nil && sub.Customer.Email != "" {
 			customerEmail = sub.Customer.Email
 		}
 		if customerEmail != "" {
-			if err := h.welcomeEmail(ctx, orgID, tier, customerEmail); err != nil {
-				h.logger.Warn("failed to send welcome email",
-					"org_id", orgID, "plan_tier", tier, "error", err)
-			}
+			welcomeFn := h.welcomeEmail
+			go func() { //nolint:gosec // intentional: async email with own timeout, webhook ctx may expire
+				emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := welcomeFn(emailCtx, orgID, tier, customerEmail); err != nil {
+					h.logger.Warn("failed to send welcome email",
+						"org_id", orgID, "plan_tier", tier, "error", err)
+				}
+			}()
 		}
 	}
 

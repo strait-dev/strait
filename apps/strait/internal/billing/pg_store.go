@@ -1097,7 +1097,7 @@ func scanUsageRecords(rows pgx.Rows) ([]UsageRecord, error) {
 	return records, rows.Err()
 }
 
-// ListOrgAdminEmails returns email addresses for all members of an org.
+// ListOrgAdminEmails returns email addresses for org admins (owner/admin roles only).
 func (s *PgStore) ListOrgAdminEmails(ctx context.Context, orgID string) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT u.email
@@ -1105,6 +1105,7 @@ func (s *PgStore) ListOrgAdminEmails(ctx context.Context, orgID string) ([]strin
 		JOIN projects p ON p.id = pmr.project_id
 		JOIN users u ON u.id = pmr.user_id
 		WHERE p.org_id = $1
+		  AND pmr.role IN ('owner', 'admin')
 		  AND u.email IS NOT NULL
 		  AND u.email != ''
 	`, orgID)

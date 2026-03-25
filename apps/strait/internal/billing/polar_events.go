@@ -48,7 +48,7 @@ func NewPolarEventIngester(baseURL, accessToken string, logger *slog.Logger, opt
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
-				MaxIdleConns:        100,
+				MaxIdleConns:        10,
 				MaxIdleConnsPerHost: 10,
 				IdleConnTimeout:     90 * time.Second,
 			},

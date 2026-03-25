@@ -153,6 +153,8 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		return
 	}
 	if len(emails) == 0 {
+		// Record as sent to avoid retrying every day for orgs with no email recipients.
+		_ = re.store.RecordSentUsageReport(ctx, orgID, periodEnd)
 		re.logger.Debug("usage report emailer: no admin emails for org, skipping",
 			"org_id", orgID)
 		return
