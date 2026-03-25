@@ -61,7 +61,7 @@ func TestProject_ConcurrentCreationSameOrg(t *testing.T) {
 func TestProject_OrgLimitEnforcement(t *testing.T) {
 	t.Parallel()
 
-	var limitChecked atomic.Bool
+	// limitChecked tracks whether the billing enforcer was invoked.
 	enforcer := &mockBillingEnforcer{
 		activeProjectOrgMap: map[string]string{"proj-existing": "org-limited"},
 	}
@@ -79,7 +79,6 @@ func TestProject_OrgLimitEnforcement(t *testing.T) {
 	// The mockBillingEnforcer.CheckProjectLimit always returns nil, so the
 	// create will succeed. We wrap the store to detect whether the limit
 	// path is exercised at all by verifying the create is called.
-	_ = limitChecked // Avoid unused variable.
 	srv := newUsageTestServerFull(t, usageTestServerOpts{
 		enforcer: enforcer,
 		store:    ms,
