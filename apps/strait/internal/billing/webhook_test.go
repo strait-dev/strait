@@ -632,6 +632,244 @@ func TestWebhook_CanceledWithNoPriorSubscription(t *testing.T) {
 	}
 }
 
+func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) {
+	t.Parallel()
+
+	t.Run("starter_plan_enables_monthly_usage_email", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockBillingStore{}
+		mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+		payload := PolarWebhookPayload{
+			Type: "subscription.created",
+			Data: mustJSON(t, PolarSubscriptionData{
+				ID:         "sub_starter",
+				ProductID:  "starter-id",
+				CustomerID: "cust_starter",
+				Metadata:   map[string]string{"org_id": "org_starter"},
+			}),
+		}
+
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+
+		if store.lastUpserted == nil {
+			t.Fatal("expected subscription to be upserted")
+		}
+		if !store.lastUpserted.MonthlyUsageEmail {
+			t.Error("expected MonthlyUsageEmail to be true for starter plan")
+		}
+	})
+
+	t.Run("pro_plan_enables_monthly_usage_email", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockBillingStore{}
+		mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+		payload := PolarWebhookPayload{
+			Type: "subscription.created",
+			Data: mustJSON(t, PolarSubscriptionData{
+				ID:         "sub_pro",
+				ProductID:  "pro-id",
+				CustomerID: "cust_pro",
+				Metadata:   map[string]string{"org_id": "org_pro"},
+			}),
+		}
+
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+
+		if store.lastUpserted == nil {
+			t.Fatal("expected subscription to be upserted")
+		}
+		if !store.lastUpserted.MonthlyUsageEmail {
+			t.Error("expected MonthlyUsageEmail to be true for pro plan")
+		}
+	})
+}
+
+func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
+	t.Parallel()
+
+	t.Run("paid_plan_calls_welcome_email", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockBillingStore{}
+		mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+
+		type welcomeCall struct {
+			orgID         string
+			tier          domain.PlanTier
+			customerEmail string
+		}
+		var calls []welcomeCall
+		done := make(chan struct{}, 1)
+
+		welcomeFn := func(_ context.Context, orgID string, tier domain.PlanTier, email string) error {
+			calls = append(calls, welcomeCall{orgID: orgID, tier: tier, customerEmail: email})
+			done <- struct{}{}
+			return nil
+		}
+
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
+			WithWelcomeEmail(welcomeFn))
+
+		payload := PolarWebhookPayload{
+			Type: "subscription.created",
+			Data: mustJSON(t, PolarSubscriptionData{
+				ID:         "sub_welcome",
+				ProductID:  "starter-id",
+				CustomerID: "cust_welcome",
+				Customer: &PolarCustomerData{
+					ID:    "cust_welcome",
+					Email: "user@example.com",
+				},
+				Metadata: map[string]string{"org_id": "org_welcome"},
+			}),
+		}
+
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+
+		// Wait for the async goroutine to complete.
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for welcome email callback")
+		}
+
+		if len(calls) != 1 {
+			t.Fatalf("expected 1 welcome email call, got %d", len(calls))
+		}
+		if calls[0].orgID != "org_welcome" {
+			t.Errorf("orgID = %q, want org_welcome", calls[0].orgID)
+		}
+		if calls[0].tier != domain.PlanStarter {
+			t.Errorf("tier = %q, want starter", calls[0].tier)
+		}
+		if calls[0].customerEmail != "user@example.com" {
+			t.Errorf("email = %q, want user@example.com", calls[0].customerEmail)
+		}
+	})
+
+	t.Run("no_customer_email_skips_welcome", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockBillingStore{}
+		mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+
+		called := false
+		welcomeFn := func(_ context.Context, _ string, _ domain.PlanTier, _ string) error {
+			called = true
+			return nil
+		}
+
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
+			WithWelcomeEmail(welcomeFn))
+
+		payload := PolarWebhookPayload{
+			Type: "subscription.created",
+			Data: mustJSON(t, PolarSubscriptionData{
+				ID:         "sub_noemail",
+				ProductID:  "starter-id",
+				CustomerID: "cust_noemail",
+				Metadata:   map[string]string{"org_id": "org_noemail"},
+			}),
+		}
+
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+
+		// Give async goroutine a chance to run (it should not).
+		time.Sleep(100 * time.Millisecond)
+
+		if called {
+			t.Error("welcome email should not be called when customer email is empty")
+		}
+	})
+
+	t.Run("no_welcome_fn_configured", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockBillingStore{}
+		mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+
+		// No WithWelcomeEmail option -- should not panic.
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+		payload := PolarWebhookPayload{
+			Type: "subscription.created",
+			Data: mustJSON(t, PolarSubscriptionData{
+				ID:         "sub_nofn",
+				ProductID:  "starter-id",
+				CustomerID: "cust_nofn",
+				Customer: &PolarCustomerData{
+					ID:    "cust_nofn",
+					Email: "user@example.com",
+				},
+				Metadata: map[string]string{"org_id": "org_nofn"},
+			}),
+		}
+
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200 when no welcome fn configured, got %d", rr.Code)
+		}
+	})
+}
+
 func mustJSON(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(v)

@@ -2,37 +2,39 @@ package billing
 
 import (
 	"testing"
+
+	"strait/internal/compute"
 )
 
 func TestEstimateJobCost_ValidPreset(t *testing.T) {
-	// micro preset: 17 micro-USD/sec, 60 sec timeout = 1020 micro-USD.
+	wantCost := compute.CostMicro * 60
 	est, err := EstimateJobCost("micro", 60, 10000)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if est.CostMicro != 1020 {
-		t.Errorf("expected cost 1020, got %d", est.CostMicro)
+	if est.CostMicro != wantCost {
+		t.Errorf("expected cost %d, got %d", wantCost, est.CostMicro)
 	}
-	if est.RateMicroPerSec != 17 {
-		t.Errorf("expected rate 17, got %d", est.RateMicroPerSec)
+	if est.RateMicroPerSec != compute.CostMicro {
+		t.Errorf("expected rate %d, got %d", compute.CostMicro, est.RateMicroPerSec)
 	}
-	if est.CreditRunsRemaining != 9 {
-		t.Errorf("expected 9 runs remaining (10000/1020=9), got %d", est.CreditRunsRemaining)
+	wantRuns := int64(10000) / wantCost
+	if est.CreditRunsRemaining != wantRuns {
+		t.Errorf("expected %d runs remaining, got %d", wantRuns, est.CreditRunsRemaining)
 	}
-	// micro is the smallest preset, so no cheaper alternative.
 	if est.CheaperAlternative != nil {
 		t.Errorf("expected no cheaper alternative for micro preset")
 	}
 }
 
 func TestEstimateJobCost_WithCheaperAlternative(t *testing.T) {
-	// medium-1x preset: 85 micro-USD/sec.
+	wantCost := compute.CostMedium1x * 60
 	est, err := EstimateJobCost("medium-1x", 60, 100000)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if est.CostMicro != 5100 {
-		t.Errorf("expected cost 5100, got %d", est.CostMicro)
+	if est.CostMicro != wantCost {
+		t.Errorf("expected cost %d, got %d", wantCost, est.CostMicro)
 	}
 	if est.CheaperAlternative == nil {
 		t.Fatal("expected a cheaper alternative")

@@ -152,6 +152,22 @@ func (m *mockEnforcerStore) SuspendExcessProjects(_ context.Context, _ string, _
 	return 0, nil
 }
 
+func (m *mockEnforcerStore) ListOrgAdminEmails(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockEnforcerStore) HasSentUsageReport(_ context.Context, _ string, _ time.Time) (bool, error) {
+	return false, nil
+}
+
+func (m *mockEnforcerStore) RecordSentUsageReport(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (m *mockEnforcerStore) UpdateMonthlyUsageEmail(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+
 func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 	t.Parallel()
 

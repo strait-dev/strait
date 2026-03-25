@@ -17,9 +17,9 @@ var SpendingLimitPresets = []int64{
 func MaxSpendingLimit(tier domain.PlanTier) int64 {
 	switch tier {
 	case domain.PlanStarter:
-		return 500000000 // $500
+		return MaxSpendingStarter
 	case domain.PlanPro:
-		return 2000000000 // $2,000
+		return MaxSpendingPro
 	case domain.PlanEnterprise:
 		return -1 // custom
 	default:

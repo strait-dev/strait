@@ -513,6 +513,7 @@ type BillingEnforcer interface {
 	CheckProjectBudgetLimit(ctx context.Context, projectID string) error
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
+	GetOrgPlanLimits(ctx context.Context, orgID string) (billing.OrgPlanLimits, error)
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
 }
 
@@ -532,6 +533,8 @@ type UsageService interface {
 	SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error
 	GetAnomalyConfig(ctx context.Context, orgID string) (*billing.AnomalyConfigResponse, error)
 	SetAnomalyConfig(ctx context.Context, orgID string, warning, critical float64) error
+	GetEmailPreferences(ctx context.Context, orgID string) (*billing.EmailPreferencesResponse, error)
+	UpdateEmailPreferences(ctx context.Context, orgID string, enabled bool) error
 }
 
 // ReferralService handles referral code management.

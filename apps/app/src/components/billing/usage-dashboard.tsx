@@ -448,6 +448,31 @@ const UsageDashboard = () => {
         </CardContent>
       </Card>
 
+      {/* Overage Warning */}
+      {usage.overage_microusd > 0 && usage.plan !== "free" && (
+        <Card className="border-yellow-200 dark:border-yellow-800">
+          <CardContent className="flex items-center justify-between py-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="font-medium text-sm text-yellow-800 dark:text-yellow-200">
+                You are in overage
+              </span>
+              <span className="text-muted-foreground text-xs">
+                ${(usage.overage_microusd / 1_000_000).toFixed(2)} over your
+                included ${(usage.included_credit_microusd / 1_000_000).toFixed(2)} credit.
+                Set a spending limit to control costs.
+              </span>
+            </div>
+            <Button
+              onClick={() => navigate({ to: "/app/billing", search: { tab: "spending" } })}
+              size="sm"
+              variant="outline"
+            >
+              Set Limit
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Alerts */}
       {usage.alerts.length > 0 && (
         <Card className="border-yellow-200 dark:border-yellow-800">

@@ -158,6 +158,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleUpdateAnomalyConfig)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "get-email-preferences", Method: http.MethodGet, Path: "/v1/usage/email-preferences",
+		Summary: "Get email preferences", Description: "Returns email notification preferences for the organization.",
+		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{401, 500},
+	}, s.handleGetEmailPreferences)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-email-preferences", Method: http.MethodPut, Path: "/v1/usage/email-preferences",
+		Summary: "Update email preferences", Description: "Updates email notification preferences for the organization.",
+		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
+	}, s.handleUpdateEmailPreferences)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "check-org-limit", Method: http.MethodGet, Path: "/v1/billing/check-org-limit",
 		Summary: "Check organization limit", Description: "Checks whether the organization has reached its plan limits.",
 		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{401, 404, 500},

@@ -26,6 +26,7 @@ type OrgSubscription struct {
 	OverrideDailyRunLimit      *int
 	OverrideConcurrentRunLimit *int
 	EnforcementMode            string // "enforce" (default), "warn", "disabled"
+	MonthlyUsageEmail          bool   // opt-in for monthly PDF usage report emails
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 }
@@ -99,4 +100,14 @@ type Store interface {
 	// Project suspension
 	IsProjectSuspended(ctx context.Context, projectID string) (bool, error)
 	SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error)
+
+	// Org admin emails (for usage report emails)
+	ListOrgAdminEmails(ctx context.Context, orgID string) ([]string, error)
+
+	// Usage report deduplication
+	HasSentUsageReport(ctx context.Context, orgID string, periodEnd time.Time) (bool, error)
+	RecordSentUsageReport(ctx context.Context, orgID string, periodEnd time.Time) error
+
+	// Email preference
+	UpdateMonthlyUsageEmail(ctx context.Context, orgID string, enabled bool) error
 }

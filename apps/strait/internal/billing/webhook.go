@@ -28,6 +28,10 @@ type AuditStore interface {
 	CreateAuditEvent(ctx context.Context, event *domain.AuditEvent) error
 }
 
+// WelcomeEmailFunc sends a welcome email to a new paid subscriber.
+// The email should mention spending limits and link to billing settings.
+type WelcomeEmailFunc func(ctx context.Context, orgID string, planTier domain.PlanTier, customerEmail string) error
+
 // WebhookHandler handles incoming Polar webhook events.
 type WebhookHandler struct {
 	store        Store
@@ -36,13 +40,22 @@ type WebhookHandler struct {
 	logger       *slog.Logger
 	enforcer     *Enforcer
 	auditStore   AuditStore
+	welcomeEmail WelcomeEmailFunc
+}
+
+// WebhookOption configures optional WebhookHandler behavior.
+type WebhookOption func(*WebhookHandler)
+
+// WithWelcomeEmail sets a function to send welcome emails on paid plan subscription.
+func WithWelcomeEmail(fn WelcomeEmailFunc) WebhookOption {
+	return func(h *WebhookHandler) { h.welcomeEmail = fn }
 }
 
 // NewWebhookHandler creates a new Polar webhook handler.
 // The enforcer is optional; when non-nil, org caches are invalidated on plan changes.
 // The auditStore is optional; when non-nil, audit events are recorded for plan changes.
-func NewWebhookHandler(store Store, mapping *PolarMapping, secret string, logger *slog.Logger, enforcer *Enforcer, auditStore AuditStore) *WebhookHandler {
-	return &WebhookHandler{
+func NewWebhookHandler(store Store, mapping *PolarMapping, secret string, logger *slog.Logger, enforcer *Enforcer, auditStore AuditStore, opts ...WebhookOption) *WebhookHandler {
+	h := &WebhookHandler{
 		store:        store,
 		polarMapping: mapping,
 		secret:       secret,
@@ -50,6 +63,10 @@ func NewWebhookHandler(store Store, mapping *PolarMapping, secret string, logger
 		enforcer:     enforcer,
 		auditStore:   auditStore,
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 // PolarWebhookPayload represents the top-level Polar webhook envelope.
@@ -226,6 +243,7 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		CurrentPeriodEnd:      sub.CurrentPeriodEnd,
 		SpendingLimitMicrousd: -1,
 		LimitAction:           "reject",
+		MonthlyUsageEmail:     tier != domain.PlanFree, // opt-in for paid plans only
 		CreatedAt:             now,
 		UpdatedAt:             now,
 	}
@@ -248,6 +266,26 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		"plan_tier", tier,
 		"polar_subscription_id", sub.ID,
 	)
+
+	// Send welcome email for paid plan subscriptions (async to avoid blocking webhook response).
+	if h.welcomeEmail != nil && tier != domain.PlanFree {
+		customerEmail := ""
+		if sub.Customer != nil && sub.Customer.Email != "" {
+			customerEmail = sub.Customer.Email
+		}
+		if customerEmail != "" {
+			welcomeFn := h.welcomeEmail
+			go func() { //nolint:gosec // intentional: async email with own timeout, webhook ctx may expire
+				emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := welcomeFn(emailCtx, orgID, tier, customerEmail); err != nil {
+					h.logger.Warn("failed to send welcome email",
+						"org_id", orgID, "plan_tier", tier, "error", err)
+				}
+			}()
+		}
+	}
+
 	return nil
 }
 

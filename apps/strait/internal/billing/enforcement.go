@@ -286,6 +286,24 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	currentCount, _ := vals[1].(int64)
 
 	if allowed == 0 {
+		// Paid plans (Starter/Pro/Enterprise) allow overage — log but don't reject.
+		// Overage is tracked via Polar metered billing.
+		if limits.PlanTier != domain.PlanFree {
+			e.logger.Info("daily run limit exceeded on paid plan (overage allowed)",
+				"org_id", orgID,
+				"plan", limits.DisplayName,
+				"limit", limits.MaxRunsPerDay,
+				"current", currentCount,
+			)
+			if e.metrics != nil && e.metrics.OverageEntered != nil {
+				e.metrics.OverageEntered.Add(ctx, 1,
+					metric.WithAttributes(attribute.String("plan_tier", string(limits.PlanTier))),
+				)
+			}
+			return nil
+		}
+
+		// Free tier: hard reject.
 		e.recordRejection(ctx, "daily_run_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "org_daily_run_limit_exceeded",
@@ -630,6 +648,19 @@ func (e *Enforcer) GetProjectOrgID(ctx context.Context, projectID string) (strin
 // GetActiveProjectOrgID resolves the org ID for an active project via the billing store.
 func (e *Enforcer) GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error) {
 	return e.store.GetActiveProjectOrgID(ctx, projectID)
+}
+
+// GetPolarCustomerID returns the Polar customer ID for an org's subscription.
+// Returns empty string if the org has no subscription or no Polar customer.
+func (e *Enforcer) GetPolarCustomerID(ctx context.Context, orgID string) (string, error) {
+	sub, err := e.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		return "", err
+	}
+	if sub.PolarCustomerID == nil || *sub.PolarCustomerID == "" {
+		return "", nil
+	}
+	return *sub.PolarCustomerID, nil
 }
 
 // ExecutingRunCounter provides ground-truth executing run counts from the database.

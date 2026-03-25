@@ -64,9 +64,10 @@ func TestEnforcer_CheckDailyRunLimit_Starter(t *testing.T) {
 		}
 	}
 
+	// Paid plans allow overage — no error expected past the daily limit.
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org_starter")
-	if err == nil {
-		t.Fatal("expected limit error")
+	if err != nil {
+		t.Fatalf("expected overage to be allowed for paid plan, got: %v", err)
 	}
 }
 
@@ -83,6 +84,67 @@ func TestEnforcer_CheckDailyRunLimit_Enterprise(t *testing.T) {
 		if err := enforcer.CheckDailyRunLimit(context.Background(), "org_ent"); err != nil {
 			t.Fatalf("enterprise should be unlimited: %v", err)
 		}
+	}
+}
+
+// TestEnforcer_Integration_FreeTierDailyRunLimit is the integration test for STR-145.
+// It exercises the full path through Redis (atomic Lua scripts) and the subscription
+// lookup (explicit free-tier subscription record), verifying that the 5001st run
+// returns a structured LimitError with upgrade context.
+func TestEnforcer_Integration_FreeTierDailyRunLimit(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	// Explicit free-tier subscription record (not just the default/missing path).
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_free_explicit": {
+			OrgID:    "org_free_explicit",
+			PlanTier: string(domain.PlanFree),
+			Status:   "active",
+		},
+	}
+
+	ctx := context.Background()
+	limits := GetPlanLimits(domain.PlanFree)
+
+	// Exhaust the daily limit (5,000 runs).
+	for i := range limits.MaxRunsPerDay {
+		if err := enforcer.CheckDailyRunLimit(ctx, "org_free_explicit"); err != nil {
+			t.Fatalf("unexpected error at run %d: %v", i+1, err)
+		}
+	}
+
+	// Run 5001 must be rejected.
+	err := enforcer.CheckDailyRunLimit(ctx, "org_free_explicit")
+	if err == nil {
+		t.Fatal("expected rejection at run 5001, got nil")
+	}
+
+	// Verify structured LimitError fields.
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "org_daily_run_limit_exceeded" {
+		t.Errorf("Code = %q, want org_daily_run_limit_exceeded", le.Code)
+	}
+	if le.Limit != limits.MaxRunsPerDay {
+		t.Errorf("Limit = %d, want %d", le.Limit, limits.MaxRunsPerDay)
+	}
+	if le.CurrentUsage != limits.MaxRunsPerDay {
+		t.Errorf("CurrentUsage = %d, want %d", le.CurrentUsage, limits.MaxRunsPerDay)
+	}
+	if le.Plan != string(domain.PlanFree) {
+		t.Errorf("Plan = %q, want %q", le.Plan, domain.PlanFree)
+	}
+	if le.UpgradeURL == "" {
+		t.Error("UpgradeURL should not be empty")
+	}
+
+	// Verify the rejection is persistent (run 5002 also rejected).
+	err = enforcer.CheckDailyRunLimit(ctx, "org_free_explicit")
+	if err == nil {
+		t.Fatal("expected rejection at run 5002")
 	}
 }
 
@@ -957,4 +1019,145 @@ func TestOrgCache_ConcurrentAccess(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestEnforcer_GetPolarCustomerID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns_customer_id", func(t *testing.T) {
+		t.Parallel()
+		enforcer, store, _ := setupEnforcer(t)
+		custID := "cust_abc123"
+		store.subscriptions = map[string]*OrgSubscription{
+			"org-polar": {OrgID: "org-polar", PlanTier: "pro", Status: "active", PolarCustomerID: &custID},
+		}
+
+		got, err := enforcer.GetPolarCustomerID(context.Background(), "org-polar")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "cust_abc123" {
+			t.Errorf("got %q, want %q", got, "cust_abc123")
+		}
+	})
+
+	t.Run("returns_empty_when_nil", func(t *testing.T) {
+		t.Parallel()
+		enforcer, store, _ := setupEnforcer(t)
+		store.subscriptions = map[string]*OrgSubscription{
+			"org-nil": {OrgID: "org-nil", PlanTier: "starter", Status: "active", PolarCustomerID: nil},
+		}
+
+		got, err := enforcer.GetPolarCustomerID(context.Background(), "org-nil")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "" {
+			t.Errorf("got %q, want empty string", got)
+		}
+	})
+
+	t.Run("returns_empty_when_empty_string", func(t *testing.T) {
+		t.Parallel()
+		enforcer, store, _ := setupEnforcer(t)
+		empty := ""
+		store.subscriptions = map[string]*OrgSubscription{
+			"org-empty": {OrgID: "org-empty", PlanTier: "starter", Status: "active", PolarCustomerID: &empty},
+		}
+
+		got, err := enforcer.GetPolarCustomerID(context.Background(), "org-empty")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "" {
+			t.Errorf("got %q, want empty string", got)
+		}
+	})
+
+	t.Run("returns_error_when_not_found", func(t *testing.T) {
+		t.Parallel()
+		enforcer, _, _ := setupEnforcer(t)
+
+		_, err := enforcer.GetPolarCustomerID(context.Background(), "org-nonexistent")
+		if err == nil {
+			t.Fatal("expected error for missing subscription")
+		}
+		if !errors.Is(err, ErrSubscriptionNotFound) {
+			t.Errorf("expected ErrSubscriptionNotFound, got %v", err)
+		}
+	})
+}
+
+func TestEnforcer_CheckDailyRunLimit_ProOverageAllowed(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_pro": {OrgID: "org_pro", PlanTier: "pro", Status: "active"},
+	}
+
+	limits := GetPlanLimits(domain.PlanPro)
+	for range limits.MaxRunsPerDay {
+		if err := enforcer.CheckDailyRunLimit(context.Background(), "org_pro"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	// Pro plans allow overage -- no error expected past the daily limit.
+	err := enforcer.CheckDailyRunLimit(context.Background(), "org_pro")
+	if err != nil {
+		t.Fatalf("expected overage to be allowed for pro plan, got: %v", err)
+	}
+}
+
+func TestEnforcer_GetOrgPlanLimits_AllowsHTTPMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		planTier string
+		want     bool
+	}{
+		{"free", "free", false},
+		{"starter", "starter", false},
+		{"pro", "pro", true},
+		{"enterprise", "enterprise", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			enforcer, store, _ := setupEnforcer(t)
+
+			orgID := "org_" + tt.name
+			store.subscriptions = map[string]*OrgSubscription{
+				orgID: {OrgID: orgID, PlanTier: tt.planTier, Status: "active"},
+			}
+
+			limits, err := enforcer.GetOrgPlanLimits(context.Background(), orgID)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if limits.AllowsHTTPMode != tt.want {
+				t.Errorf("AllowsHTTPMode = %v, want %v for %s plan", limits.AllowsHTTPMode, tt.want, tt.name)
+			}
+		})
+	}
+}
+
+func TestEnforcer_GetOrgPlanLimits_NoSubscription_DefaultsFree(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+
+	// No subscription = defaults to free plan.
+	limits, err := enforcer.GetOrgPlanLimits(context.Background(), "org_unknown")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if limits.AllowsHTTPMode != false {
+		t.Error("AllowsHTTPMode should be false for org with no subscription")
+	}
+	if limits.PlanTier != domain.PlanFree {
+		t.Errorf("PlanTier = %q, want %q", limits.PlanTier, domain.PlanFree)
+	}
 }

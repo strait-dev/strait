@@ -28,3 +28,7 @@ func (e Edition) AllowsAdvancedAnalytics() bool { return e == EditionCloud }
 
 // AllowsWarmPool returns true when warm machine pool management is available.
 func (e Edition) AllowsWarmPool() bool { return e == EditionCloud }
+
+// RequiresHTTPModeGating returns true when HTTP execution mode should be gated by plan.
+// On cloud, HTTP mode is restricted to Pro+. On community (self-hosted), HTTP mode is unrestricted.
+func (e Edition) RequiresHTTPModeGating() bool { return e == EditionCloud }

@@ -11,13 +11,16 @@ import (
 
 // CurrentUsageResponse is the response for GET /v1/usage/current.
 type CurrentUsageResponse struct {
-	OrgID          string          `json:"org_id"`
-	Plan           string          `json:"plan"`
-	Period         PeriodInfo      `json:"period"`
-	Usage          UsageDimensions `json:"usage"`
-	Alerts         []UsageAlert    `json:"alerts,omitempty"`
-	PaymentStatus  string          `json:"payment_status,omitempty"`
-	GracePeriodEnd *string         `json:"grace_period_end,omitempty"`
+	OrgID               string          `json:"org_id"`
+	Plan                string          `json:"plan"`
+	Period              PeriodInfo      `json:"period"`
+	Usage               UsageDimensions `json:"usage"`
+	IncludedCreditMicro int64           `json:"included_credit_microusd"`
+	PeriodSpendMicro    int64           `json:"period_spend_microusd"`
+	OverageMicro        int64           `json:"overage_microusd"`
+	Alerts              []UsageAlert    `json:"alerts,omitempty"`
+	PaymentStatus       string          `json:"payment_status,omitempty"`
+	GracePeriodEnd      *string         `json:"grace_period_end,omitempty"`
 }
 
 // PeriodInfo describes the billing period.
@@ -147,7 +150,7 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	// Region count
 	regionCount := len(limits.AllowedRegions)
 	if regionCount == 0 {
-		regionCount = 25 // all regions
+		regionCount = TotalRegions
 	}
 
 	aiModelCalls := UsageDimension{
@@ -197,8 +200,22 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		},
 	}
 
+	// Compute overage breakdown.
+	resp.IncludedCreditMicro = computeLimit
+	resp.PeriodSpendMicro = periodSpend
+	resp.OverageMicro = max(periodSpend-computeLimit, 0)
+
 	// Add alerts for dimensions approaching limits
 	resp.Alerts = s.buildAlerts(resp.Usage)
+
+	// Add overage alert for paid plans.
+	if resp.OverageMicro > 0 && limits.PlanTier != domain.PlanFree {
+		resp.Alerts = append(resp.Alerts, UsageAlert{
+			Type:      "warning",
+			Dimension: "overage",
+			Message:   fmt.Sprintf("You're in overage ($%.2f over included credit). Set a spending limit to control costs.", float64(resp.OverageMicro)/1000000),
+		})
+	}
 
 	// Surface payment status to the frontend for banners.
 	if sub != nil && sub.PaymentStatus != "" && sub.PaymentStatus != "ok" {
@@ -551,6 +568,28 @@ func (s *UsageService) buildAlerts(usage UsageDimensions) []UsageAlert {
 	return alerts
 }
 
+// EmailPreferencesResponse is the response for email preferences queries.
+type EmailPreferencesResponse struct {
+	MonthlyUsageEmail bool `json:"monthly_usage_email"`
+}
+
+// GetEmailPreferences returns the email preferences for an org.
+func (s *UsageService) GetEmailPreferences(ctx context.Context, orgID string) (*EmailPreferencesResponse, error) {
+	sub, err := s.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return &EmailPreferencesResponse{MonthlyUsageEmail: true}, nil
+		}
+		return nil, fmt.Errorf("getting email preferences: %w", err)
+	}
+	return &EmailPreferencesResponse{MonthlyUsageEmail: sub.MonthlyUsageEmail}, nil
+}
+
+// UpdateEmailPreferences updates the monthly usage email preference for an org.
+func (s *UsageService) UpdateEmailPreferences(ctx context.Context, orgID string, monthlyUsageEmail bool) error {
+	return s.store.UpdateMonthlyUsageEmail(ctx, orgID, monthlyUsageEmail)
+}
+
 func safePercent(used, limit int64) float64 {
 	if limit <= 0 {
 		return 0
@@ -559,13 +598,13 @@ func safePercent(used, limit int64) float64 {
 }
 
 func recommendPlan(monthlyRuns int64, monthlyComputeMicro int64) string {
-	if monthlyRuns <= 5000*30 && monthlyComputeMicro <= 0 {
+	if monthlyRuns <= DailyRunsFree*30 && monthlyComputeMicro <= 0 {
 		return string(domain.PlanFree)
 	}
-	if monthlyRuns <= 25000*30 && monthlyComputeMicro <= 19990000 {
+	if monthlyRuns <= DailyRunsStarter*30 && monthlyComputeMicro <= CreditStarterMicrousd {
 		return string(domain.PlanStarter)
 	}
-	if monthlyRuns <= 100000*30 && monthlyComputeMicro <= 49990000 {
+	if monthlyRuns <= DailyRunsPro*30 && monthlyComputeMicro <= CreditProMicrousd {
 		return string(domain.PlanPro)
 	}
 	return string(domain.PlanEnterprise)

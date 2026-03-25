@@ -8,16 +8,22 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { Shell } from "@strait/ui/components/shell";
+import { Switch } from "@strait/ui/components/switch";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import Account from "@/components/(settings)/account";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
+import {
+  emailPreferencesQueryOptions,
+  useUpdateEmailPreferences,
+} from "@/hooks/billing/use-email-preferences";
 import { CreditCardIcon, UserIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -32,6 +38,43 @@ export const Route = createFileRoute("/app/settings/")({
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,
 });
+
+function EmailPreferencesCard() {
+  const { data: prefs } = useQuery(emailPreferencesQueryOptions());
+  const updatePrefs = useUpdateEmailPreferences();
+
+  const monthlyEmail = prefs?.monthly_usage_email ?? true;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Email Notifications</CardTitle>
+        <CardDescription>
+          Configure which billing emails you receive for your organization.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-0.5">
+            <span className="font-medium text-sm">
+              Monthly usage report
+            </span>
+            <span className="text-muted-foreground text-xs">
+              Receive a PDF usage summary email when your billing period ends.
+            </span>
+          </div>
+          <Switch
+            checked={monthlyEmail}
+            disabled={updatePrefs.isPending}
+            onCheckedChange={(checked: boolean) => {
+              updatePrefs.mutate({ monthlyUsageEmail: checked });
+            }}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function RouteComponent() {
   const { session } = Route.useLoaderData();
@@ -70,6 +113,8 @@ function RouteComponent() {
                 </Button>
               </CardContent>
             </Card>
+
+            <EmailPreferencesCard />
           </TabsContent>
         </Tabs>
       </div>

@@ -385,3 +385,130 @@ func TestSafePercent(t *testing.T) {
 		t.Errorf("safePercent(100, -1) = %f, want 0.0", got)
 	}
 }
+
+func TestUsageService_OverageCalculation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		spend       int64
+		credit      int64
+		wantOverage int64
+	}{
+		{"spend_exceeds_credit", 30_000_000, 19_990_000, 10_010_000},
+		{"spend_equals_credit", 19_990_000, 19_990_000, 0},
+		{"spend_below_credit", 10_000_000, 19_990_000, 0},
+		{"zero_spend_zero_credit", 0, 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := max(tt.spend-tt.credit, 0)
+			if got != tt.wantOverage {
+				t.Errorf("overage = %d, want %d", got, tt.wantOverage)
+			}
+		})
+	}
+}
+
+func TestUsageService_OverageAlertForPaidPlan(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_starter": {OrgID: "org_starter", PlanTier: "starter", Status: "active"},
+		},
+		periodSpendByOrg: map[string]int64{
+			"org_starter": 25_000_000, // exceeds starter credit of 19,990,000
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	resp, err := svc.GetCurrentUsage(context.Background(), "org_starter")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resp.OverageMicro <= 0 {
+		t.Fatalf("expected positive overage, got %d", resp.OverageMicro)
+	}
+
+	var foundOverageAlert bool
+	for _, alert := range resp.Alerts {
+		if alert.Dimension == "overage" {
+			foundOverageAlert = true
+			break
+		}
+	}
+	if !foundOverageAlert {
+		t.Error("expected overage alert for paid plan with spend exceeding credit")
+	}
+}
+
+func TestUsageService_NoOverageAlertForFreePlan(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		periodSpendByOrg: map[string]int64{
+			"org_free": 1_000_000,
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	resp, err := svc.GetCurrentUsage(context.Background(), "org_free")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, alert := range resp.Alerts {
+		if alert.Dimension == "overage" {
+			t.Error("free plan should not have overage alert")
+		}
+	}
+}
+
+func TestUsageService_GetEmailPreferences(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-email": {OrgID: "org-email", PlanTier: "pro", Status: "active", MonthlyUsageEmail: false},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	resp, err := svc.GetEmailPreferences(context.Background(), "org-email")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.MonthlyUsageEmail != false {
+		t.Errorf("MonthlyUsageEmail = %v, want false", resp.MonthlyUsageEmail)
+	}
+}
+
+func TestUsageService_GetEmailPreferences_NotFound(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+
+	resp, err := svc.GetEmailPreferences(context.Background(), "org-missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.MonthlyUsageEmail != true {
+		t.Errorf("MonthlyUsageEmail = %v, want true (default)", resp.MonthlyUsageEmail)
+	}
+}
+
+func TestUsageService_UpdateEmailPreferences(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	svc, _ := newUsageServiceTest(t, store)
+
+	err := svc.UpdateEmailPreferences(context.Background(), "org-update", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
