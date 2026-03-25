@@ -63,7 +63,7 @@ const (
 	ConcurrentPro     = 100
 
 	// Overage cost per 1K runs in micro-USD ($0.20/1K runs).
-	OveragePerKRunsMicrousd int64 = 200_000
+	DefaultOveragePerKRunsMicrousd int64 = 200_000
 
 	// Data retention in days.
 	RetentionFree       = 1
@@ -72,15 +72,15 @@ const (
 	RetentionEnterprise = 90
 
 	// Organization limits.
-	MaxOrgsFree       = 1
-	MaxOrgsStarter    = 2
-	MaxOrgsPro        = 5
-	MaxProjectsFree   = 2
-	MaxProjectsStart  = 5
-	MaxProjectsPro    = 15
-	MaxMembersFree    = 3
-	MaxMembersStarter = 10
-	MaxMembersPro     = 25
+	MaxOrgsFree        = 1
+	MaxOrgsStarter     = 2
+	MaxOrgsPro         = 5
+	MaxProjectsFree    = 2
+	MaxProjectsStarter = 5
+	MaxProjectsPro     = 15
+	MaxMembersFree     = 3
+	MaxMembersStarter  = 10
+	MaxMembersPro      = 25
 
 	// Free tier managed execution limits.
 	FreeManagedRunsPerMonth = 100
@@ -133,7 +133,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		PriceMonthlyUsd:         PriceStarterMonthlyCents,
 		PriceAnnualUsd:          PriceStarterAnnualCents,
 		MaxOrgsPerUser:          MaxOrgsStarter,
-		MaxProjectsPerOrg:       MaxProjectsStart,
+		MaxProjectsPerOrg:       MaxProjectsStarter,
 		MaxMembersPerOrg:        MaxMembersStarter,
 		MaxRunsPerDay:           DailyRunsStarter,
 		MaxConcurrentRuns:       ConcurrentStarter,
@@ -154,7 +154,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: OveragePerKRunsMicrousd,
+		OveragePerKRunsMicrousd: DefaultOveragePerKRunsMicrousd,
 		AllowsHTTPMode:          false,
 		SupportLevel:            "email_48h",
 	},
@@ -185,7 +185,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: OveragePerKRunsMicrousd,
+		OveragePerKRunsMicrousd: DefaultOveragePerKRunsMicrousd,
 		AllowsHTTPMode:          true,
 		SupportLevel:            "priority_24h",
 	},

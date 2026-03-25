@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 )
 
 // PolarEventIngester sends usage events to the Polar billing meter.
+// Safe for concurrent use from multiple goroutines.
 type PolarEventIngester struct {
 	client    *http.Client
 	baseURL   string
@@ -29,6 +31,11 @@ func NewPolarEventIngester(baseURL, accessToken string, logger *slog.Logger) *Po
 	return &PolarEventIngester{
 		client: &http.Client{
 			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
 		},
 		baseURL:   baseURL,
 		token:     accessToken,
@@ -99,10 +106,14 @@ func (p *PolarEventIngester) ingest(ctx context.Context, events []polarEvent) er
 	}
 	defer resp.Body.Close()
 
+	// Drain the body to allow connection reuse by the pool.
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+
 	if resp.StatusCode >= 400 {
 		p.logger.Warn("polar event ingestion failed",
 			"status", resp.StatusCode,
 			"event_count", len(events),
+			"response", string(respBody),
 		)
 		return fmt.Errorf("polar event ingestion returned status %d", resp.StatusCode)
 	}

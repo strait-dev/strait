@@ -132,9 +132,14 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 
 	// Get admin emails.
 	emails, err := re.store.ListOrgAdminEmails(ctx, orgID)
-	if err != nil || len(emails) == 0 {
-		re.logger.Warn("usage report emailer: no admin emails found",
+	if err != nil {
+		re.logger.Warn("usage report emailer: failed to list admin emails",
 			"org_id", orgID, "error", err)
+		return
+	}
+	if len(emails) == 0 {
+		re.logger.Debug("usage report emailer: no admin emails for org, skipping",
+			"org_id", orgID)
 		return
 	}
 

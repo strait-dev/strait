@@ -363,16 +363,21 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 func (e *Executor) recordHTTPRunCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
 	cost := billing.HTTPCostPerRunMicrousd
 
-	now := time.Now()
+	finishedAt := time.Now()
+	startedAt := run.StartedAt
+	if startedAt == nil {
+		startedAt = &run.CreatedAt
+	}
+
 	usage := &domain.RunComputeUsage{
 		RunID:         run.ID,
 		ProjectID:     job.ProjectID,
 		JobID:         job.ID,
 		MachinePreset: "http",
-		DurationSecs:  0,
+		DurationSecs:  finishedAt.Sub(*startedAt).Seconds(),
 		CostMicrousd:  cost,
-		StartedAt:     &now,
-		FinishedAt:    &now,
+		StartedAt:     startedAt,
+		FinishedAt:    &finishedAt,
 	}
 	if err := e.store.CreateRunComputeUsage(ctx, usage); err != nil {
 		e.logger.Warn("failed to record HTTP run cost", "run_id", run.ID, "error", err)

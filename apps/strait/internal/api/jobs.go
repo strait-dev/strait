@@ -497,6 +497,16 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		if mode == domain.ExecutionModeManaged && (s.config.ComputeRuntime == "" || s.config.ComputeRuntime == "none") {
 			return nil, huma.Error400BadRequest("managed execution is not available: COMPUTE_RUNTIME not configured")
 		}
+		// Gate HTTP mode to Pro+ on cloud edition (same check as job creation).
+		if mode == domain.ExecutionModeHTTP && s.edition.RequiresHTTPModeGating() && s.billingEnforcer != nil {
+			orgID, orgErr := s.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+			if orgErr == nil && orgID != "" {
+				limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+				if limErr == nil && !limits.AllowsHTTPMode {
+					return nil, huma.Error400BadRequest("HTTP execution mode requires the Pro plan ($49.99/mo). Upgrade at /settings/billing")
+				}
+			}
+		}
 		job.ExecutionMode = mode
 	}
 	if req.MachinePreset != nil {

@@ -286,9 +286,9 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	currentCount, _ := vals[1].(int64)
 
 	if allowed == 0 {
-		// Paid plans allow overage — log warning but don't reject.
+		// Paid plans (Starter/Pro/Enterprise) allow overage — log but don't reject.
 		// Overage is tracked via Polar metered billing.
-		if limits.PlanTier != domain.PlanFree && limits.OveragePerKRunsMicrousd > 0 {
+		if limits.PlanTier != domain.PlanFree {
 			e.logger.Info("daily run limit exceeded on paid plan (overage allowed)",
 				"org_id", orgID,
 				"plan", limits.DisplayName,
@@ -652,7 +652,7 @@ func (e *Enforcer) GetPolarCustomerID(ctx context.Context, orgID string) (string
 	if err != nil {
 		return "", err
 	}
-	if sub.PolarCustomerID == nil {
+	if sub.PolarCustomerID == nil || *sub.PolarCustomerID == "" {
 		return "", nil
 	}
 	return *sub.PolarCustomerID, nil
