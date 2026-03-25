@@ -330,6 +330,104 @@ func TestUpdateJob_RejectBoostOver10(t *testing.T) {
 	}
 }
 
+func TestBatchCreateJobs_RetryPriorityBoost(t *testing.T) {
+	t.Parallel()
+
+	var captured []*domain.Job
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
+			cp := *job
+			captured = append(captured, &cp)
+			job.ID = fmt.Sprintf("job-batch-%d", len(captured))
+			job.Version = 1
+			job.CreatedAt = time.Now()
+			job.UpdatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{
+		"jobs": [
+			{
+				"project_id": "proj-1",
+				"name": "Batch Job 1",
+				"slug": "batch-job-1",
+				"endpoint_url": "https://example.com/callback",
+				"retry_priority_boost": 5
+			},
+			{
+				"project_id": "proj-1",
+				"name": "Batch Job 2",
+				"slug": "batch-job-2",
+				"endpoint_url": "https://example.com/callback",
+				"retry_priority_boost": 0
+			}
+		]
+	}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(captured) != 2 {
+		t.Fatalf("expected 2 jobs created, got %d", len(captured))
+	}
+	if captured[0].RetryPriorityBoost != 5 {
+		t.Fatalf("batch job 1: expected retry_priority_boost=5, got %d", captured[0].RetryPriorityBoost)
+	}
+	if captured[1].RetryPriorityBoost != 0 {
+		t.Fatalf("batch job 2: expected retry_priority_boost=0, got %d", captured[1].RetryPriorityBoost)
+	}
+}
+
+func TestBatchCreateJobs_RejectInvalidBoost(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
+			job.ID = "job-batch-valid"
+			job.Version = 1
+			job.CreatedAt = time.Now()
+			job.UpdatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{
+		"jobs": [
+			{
+				"project_id": "proj-1",
+				"name": "Valid Job",
+				"slug": "valid-job",
+				"endpoint_url": "https://example.com/callback",
+				"retry_priority_boost": 3
+			},
+			{
+				"project_id": "proj-1",
+				"name": "Invalid Job",
+				"slug": "invalid-job",
+				"endpoint_url": "https://example.com/callback",
+				"retry_priority_boost": 15
+			}
+		]
+	}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", body))
+
+	// Batch create should create the valid job and report error for invalid one
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	errs, _ := resp["errors"].([]any)
+	if len(errs) == 0 {
+		t.Fatal("expected validation error for invalid boost in batch, got none")
+	}
+}
+
 func TestCreateJob_RetryPriorityBoostBoundaryValues(t *testing.T) {
 	t.Parallel()
 

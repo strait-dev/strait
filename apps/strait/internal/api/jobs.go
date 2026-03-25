@@ -831,6 +831,7 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			RunTTLSecs:          jobReq.RunTTLSecs,
 			RetryStrategy:       jobReq.RetryStrategy,
 			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
+			RetryPriorityBoost:  jobReq.RetryPriorityBoost,
 			EnvironmentID:       jobReq.EnvironmentID,
 			Region:              jobReq.Region,
 			PreferredRegions:    jobReq.PreferredRegions,
