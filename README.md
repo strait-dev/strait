@@ -15,7 +15,7 @@ Strait solves the complexity of background job processing by combining queue, st
 - **Zero Dependencies**: No RabbitMQ, SQS, or Kafka. PostgreSQL handles queuing with lock-free concurrent workers.
 - **Production-Grade Concurrency**: Go goroutines provide parallel job execution with structured panic recovery and graceful shutdown.
 - **Built for AI**: SDK endpoints for logging, heartbeats, progress checkpoints, continuation, and child job spawning. Cost budgets with micro-USD precision.
-- **Multi-Language SDKs**: Official SDKs for [TypeScript](packages/typescript-sdk), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](packages/ruby-sdk), and [Rust](packages/rust-sdk) — all with full feature parity.
+- **Multi-Language SDKs**: Official SDKs for [TypeScript](packages/typescript-sdk), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), and [Rust](https://github.com/strait-dev/strait-rust) — all with full feature parity.
 - **Workflow Orchestration**: Complex DAGs with step conditions, output transforms, template variables, and human approval gates.
 - **Observability First**: OpenTelemetry tracing, Prometheus metrics, structured JSON logging, and real-time SSE streaming.
 
@@ -29,7 +29,7 @@ Strait solves the complexity of background job processing by combining queue, st
 | [CLI](https://github.com/strait-dev/cli) | Command-line interface (dedicated repository) |
 | [API Reference](docs/api-reference/overview.mdx) | REST API endpoints for job and workflow management |
 | [Concepts](docs/concepts/jobs.mdx) | Jobs, runs, workflows, scheduling, retry strategies, and cost budgets |
-| [SDK Reference](docs/sdks/overview.mdx) | Official SDKs for TypeScript, Ruby, and Rust (monorepo) + Python, Go (dedicated repos) |
+| [SDK Reference](docs/sdks/overview.mdx) | Official SDKs for TypeScript (monorepo) + Python, Go, Ruby, Rust (dedicated repos) |
 | [Guides](docs/guides/authentication.mdx) | Authentication, deployment, security, and production patterns |
 
 ## Monorepo Layout
@@ -38,9 +38,6 @@ This repository is structured as a Turborepo monorepo managed with Bun.
 
 - `apps/strait`: Go service (API + worker)
 - `packages/typescript-sdk`: TypeScript/Node.js SDK
-- `packages/ruby-sdk`: Ruby SDK
-- `packages/rust-sdk`: Rust SDK
-
 The following have moved to dedicated repositories:
 
 | Component | Repository |
@@ -48,6 +45,8 @@ The following have moved to dedicated repositories:
 | CLI | [strait-dev/cli](https://github.com/strait-dev/cli) |
 | Python SDK | [strait-dev/strait-python](https://github.com/strait-dev/strait-python) |
 | Go SDK | [strait-dev/strait-go](https://github.com/strait-dev/strait-go) |
+| Ruby SDK | [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby) |
+| Rust SDK | [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust) |
 | MCP | [strait-dev/mcp](https://github.com/strait-dev/mcp) |
 
 ```bash

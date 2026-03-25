@@ -271,6 +271,7 @@ type Job struct {
 	RetryPriorityBoost        int               `json:"retry_priority_boost,omitempty"`
 	DLQAlertThreshold         *int              `json:"dlq_alert_threshold,omitempty"`
 	QueueDepthAlertThreshold  *int              `json:"queue_depth_alert_threshold,omitempty"`
+	PoisonPillThreshold       *int              `json:"poison_pill_threshold,omitempty"`
 	EnvironmentID             string            `json:"environment_id,omitempty"`
 	DefaultRunMetadata        map[string]string `json:"default_run_metadata,omitempty"`
 	Version                   int               `json:"version"`

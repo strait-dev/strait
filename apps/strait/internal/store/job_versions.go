@@ -152,6 +152,7 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       COALESCE(jv.retry_priority_boost, j.retry_priority_boost),
 		       COALESCE(jv.dlq_alert_threshold, j.dlq_alert_threshold),
 		       COALESCE(jv.queue_depth_alert_threshold, j.queue_depth_alert_threshold),
+		       j.poison_pill_threshold,
 		       COALESCE(jv.cron_overlap_policy, j.cron_overlap_policy),
 		       COALESCE(jv.result_schema, j.result_schema),
 		       j.debounce_window_secs,

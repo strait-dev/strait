@@ -39,6 +39,8 @@ The `Job` struct (defined in `apps/strait/internal/domain/types.go`) contains th
 | `run_ttl_secs` | `int` | Time-to-live for runs before they are considered expired. |
 | `retry_strategy` | `string` | Strategy: `exponential`, `linear`, `fixed`, or `custom`. |
 | `retry_delays_secs` | `[]int` | Array of delays for the `custom` retry strategy. |
+| `retry_priority_boost` | `int` | Priority increase per retry attempt (0-10, default: 1). Set to 0 to disable. See [Retry Strategies](/docs/concepts/retry-strategies#priority-boost). |
+| `poison_pill_threshold` | `*int` | Consecutive identical errors before auto-quarantine to DLQ. `null` or `0` disables. See [Resilience](/docs/concepts/resilience#poison-pill-detection). |
 | `environment_id` | `string` | The environment (e.g., Staging, Production) this job is bound to. |
 | `version` | `int` | Auto-incrementing version number (starts at 1). |
 | `version_id` | `string` | Unique nanoid for this version (`ver_k8f2m9x1p3`). Changes on every update. |

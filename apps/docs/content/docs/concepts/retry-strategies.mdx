@@ -59,14 +59,41 @@ A **±20% jitter** is applied to all calculated delays. This prevents "thunderin
 ### Next Retry Gating
 The calculated delay is added to the current time to set the `next_retry_at` field on the run. The queue will not dequeue the run until this time has passed.
 
+## Priority Boost
+
+By default, retried runs re-enter the queue at their original priority. In a deep queue, this means retries wait behind new runs, increasing end-to-end latency for failing jobs.
+
+The `retry_priority_boost` field increases a run's queue priority on each retry, so retried runs are dequeued sooner.
+
+| Value | Behavior |
+| :--- | :--- |
+| `1` (default) | Each retry increases priority by 1. A run starting at priority 0 reaches priority 3 after 3 retries. |
+| `0` | No boost. Retries re-enter at their original priority. |
+| `2`-`10` | Aggressive boost for latency-sensitive jobs. A boost of 2 reaches priority 6 after 3 retries. |
+
+Priority is always capped at 10 (the maximum queue priority). The boost applies to both failure retries and timeout retries.
+
+**Example:**
+```json
+{
+  "retry_strategy": "exponential",
+  "max_attempts": 5,
+  "retry_priority_boost": 2
+}
+```
+
+With this configuration, a run starting at priority 0 would be retried at priorities 2, 4, 6, 8 across its 4 retry attempts. To disable boost after job creation, update the job with `retry_priority_boost: 0` via PATCH.
+
 ## Configuration
 
 Retries can be configured at multiple levels:
 
-- **Job Level**: Set `retry_strategy` and `retry_delays_secs` on the Job definition.
+- **Job Level**: Set `retry_strategy`, `retry_delays_secs`, and `retry_priority_boost` on the Job definition.
 - **Workflow Step Level**: Steps can override the job's strategy using `retry_backoff`, `retry_initial_delay_secs`, and `retry_max_delay_secs`.
 - **Run Override**: Individual runs can be triggered with overrides for `max_attempts`, `retry_backoff`, etc.
 
 ## Dead Letter Queue (DLQ)
 
 When a run exhausts its `max_attempts`, it transitions to the `dead_letter` state instead of `failed`. This allows engineers to inspect the failure and manually "replay" the run (resetting it to `queued`) once the underlying issue is resolved.
+
+Runs can also be routed to the DLQ early via **poison pill detection**. When a job has `poison_pill_threshold` configured and the same error repeats consecutively across that many attempts, the run is fast-tracked to DLQ instead of continuing to retry. See [Resilience: Poison Pill Detection](/docs/concepts/resilience#poison-pill-detection) for details.

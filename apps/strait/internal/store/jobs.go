@@ -45,7 +45,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			rate_limit_max, rate_limit_window_secs, dedup_window_secs, enabled,
 			webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version,
 			version_id, version_policy, backwards_compatible, created_by, updated_by,
-			max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, cron_overlap_policy, result_schema,
+			max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema,
 			debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions,
 			on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 			paused, paused_at, pause_reason
@@ -55,7 +55,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			$32, $33::jsonb, $34::jsonb, $35, $36, $37, $38, $39,
 			$40, $41, $42, $43, $44, $45, $46, $47,
 			$48, $49, $50, $51, $52, $53, $54,
-			$55, $56, $57)
+			$55, $56, $57, $58)
 		RETURNING created_at, updated_at, version`
 
 	tagsJSON, err := marshalTags(job.Tags)
@@ -108,6 +108,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		job.RetryPriorityBoost,
 		job.DLQAlertThreshold,
 		job.QueueDepthAlertThreshold,
+		job.PoisonPillThreshold,
 		string(job.CronOverlapPolicy),
 		dbscan.NilIfEmptyRawMessage(job.ResultSchema),
 		job.DebounceWindowSecs,
@@ -149,7 +150,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE id = $1`
@@ -174,7 +175,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
@@ -199,7 +200,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string, limit int, cur
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE project_id = $1`
@@ -292,23 +293,24 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    retry_priority_boost = $34,
 		    dlq_alert_threshold = $35,
 		    queue_depth_alert_threshold = $36,
-		    cron_overlap_policy = $37,
-		    result_schema = $38,
-		    debounce_window_secs = $39,
-		    batch_window_secs = $40,
-		    batch_max_size = $41,
-		    execution_mode = $42,
-		    machine_preset = $43,
-		    image_uri = $44,
-		    region = $45,
-		    preferred_regions = $46,
-		    on_complete_trigger_workflow = $47,
-		    on_complete_payload_mapping = $48,
-		    max_tokens_per_run = $49,
-		    max_tool_calls_per_run = $50,
-		    max_iterations_per_run = $51,
-		    allowed_tools = $52,
-		    blocked_tools = $53,
+		    poison_pill_threshold = $37,
+		    cron_overlap_policy = $38,
+		    result_schema = $39,
+		    debounce_window_secs = $40,
+		    batch_window_secs = $41,
+		    batch_max_size = $42,
+		    execution_mode = $43,
+		    machine_preset = $44,
+		    image_uri = $45,
+		    region = $46,
+		    preferred_regions = $47,
+		    on_complete_trigger_workflow = $48,
+		    on_complete_payload_mapping = $49,
+		    max_tokens_per_run = $50,
+		    max_tool_calls_per_run = $51,
+		    max_iterations_per_run = $52,
+		    allowed_tools = $53,
+		    blocked_tools = $54,
 		    updated_at = NOW()
 		WHERE id = $25
 		RETURNING updated_at, version, version_id`
@@ -362,6 +364,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		job.RetryPriorityBoost,
 		job.DLQAlertThreshold,
 		job.QueueDepthAlertThreshold,
+		job.PoisonPillThreshold,
 		string(job.CronOverlapPolicy),
 		dbscan.NilIfEmptyRawMessage(job.ResultSchema),
 		job.DebounceWindowSecs,
@@ -478,7 +481,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE enabled = TRUE AND NOT paused AND cron IS NOT NULL AND cron <> ''
@@ -839,6 +842,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&job.RetryPriorityBoost,
 		&job.DLQAlertThreshold,
 		&job.QueueDepthAlertThreshold,
+		&job.PoisonPillThreshold,
 		&cronOverlapPolicy,
 		&resultSchema,
 		&debounceWindowSecs,
@@ -1014,7 +1018,7 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE project_id = $1`
