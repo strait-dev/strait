@@ -40,6 +40,9 @@ export type RawOrgUsageData = {
     end: string;
   };
   usage: RawOrgUsageDimensions;
+  included_credit_microusd: number;
+  period_spend_microusd: number;
+  overage_microusd: number;
   alerts: UsageAlert[];
   payment_status?: string;
   grace_period_end?: string;
@@ -61,6 +64,9 @@ export const EMPTY_ORG_USAGE: OrgUsageData = {
   org_id: "",
   plan: "free",
   period: { start: "", end: "" },
+  included_credit_microusd: 0,
+  period_spend_microusd: 0,
+  overage_microusd: 0,
   usage: {
     runs_today: { used: 0, limit: 5000, percent: 0, display: "0" },
     concurrent_runs: { used: 0, limit: 5, percent: 0, display: "0" },

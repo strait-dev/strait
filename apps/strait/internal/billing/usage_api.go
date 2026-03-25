@@ -568,6 +568,28 @@ func (s *UsageService) buildAlerts(usage UsageDimensions) []UsageAlert {
 	return alerts
 }
 
+// EmailPreferencesResponse is the response for email preferences queries.
+type EmailPreferencesResponse struct {
+	MonthlyUsageEmail bool `json:"monthly_usage_email"`
+}
+
+// GetEmailPreferences returns the email preferences for an org.
+func (s *UsageService) GetEmailPreferences(ctx context.Context, orgID string) (*EmailPreferencesResponse, error) {
+	sub, err := s.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return &EmailPreferencesResponse{MonthlyUsageEmail: true}, nil
+		}
+		return nil, fmt.Errorf("getting email preferences: %w", err)
+	}
+	return &EmailPreferencesResponse{MonthlyUsageEmail: sub.MonthlyUsageEmail}, nil
+}
+
+// UpdateEmailPreferences updates the monthly usage email preference for an org.
+func (s *UsageService) UpdateEmailPreferences(ctx context.Context, orgID string, monthlyUsageEmail bool) error {
+	return s.store.UpdateMonthlyUsageEmail(ctx, orgID, monthlyUsageEmail)
+}
+
 func safePercent(used, limit int64) float64 {
 	if limit <= 0 {
 		return 0

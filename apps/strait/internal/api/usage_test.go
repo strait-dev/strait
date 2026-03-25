@@ -167,6 +167,14 @@ func (m *mockUsageService) SetAnomalyConfig(_ context.Context, _ string, _, _ fl
 	return nil
 }
 
+func (m *mockUsageService) GetEmailPreferences(_ context.Context, _ string) (*billing.EmailPreferencesResponse, error) {
+	return &billing.EmailPreferencesResponse{MonthlyUsageEmail: true}, nil
+}
+
+func (m *mockUsageService) UpdateEmailPreferences(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+
 type mockReferralService struct{}
 
 func (m *mockReferralService) GenerateCode(_ context.Context, orgID string) (*billing.Referral, error) {
