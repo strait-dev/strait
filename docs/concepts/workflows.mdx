@@ -32,6 +32,8 @@ For implementation-level behavior (scheduler decisions, explainability APIs, cri
 
 Workflows use a snapshotting mechanism. Every time a workflow's steps are updated, the `version` increments. The entire DAG definition is copied to a versioned table, ensuring that running workflows are not disrupted by changes to the definition.
 
+When you update a workflow that has active runs on a previous version, the update response includes `active_runs_on_previous_version` and `previous_version_id` so you can assess the impact. Set `breaking_change: true` in the update request to record a `workflow.updated_breaking` audit event. See [Versioning](/concepts/versioning#breaking-change-detection) for details.
+
 ## Step Conditions
 
 Steps can define a `condition` (JSON) that must evaluate to true before the step starts.

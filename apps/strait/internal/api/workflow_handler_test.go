@@ -436,6 +436,374 @@ func TestHandleUpdateWorkflow_NotFound(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateWorkflow_ActiveRunsReportedWithoutBreakingFlag(t *testing.T) {
+	t.Parallel()
+	var auditCalled bool
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Name: "old", Slug: "old", VersionID: "v-old", Version: 2}, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			return nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			return nil, nil
+		},
+		CreateWorkflowVersionSnapshotFunc: func(_ context.Context, _ string, _ int) error {
+			return nil
+		},
+		CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, workflowID, versionID string) (int, error) {
+			if workflowID != "wf-1" || versionID != "v-old" {
+				t.Fatalf("unexpected args: workflowID=%q versionID=%q", workflowID, versionID)
+			}
+			return 5, nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			auditCalled = true
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", `{"name":"updated"}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	count, ok := resp["active_runs_on_previous_version"]
+	if !ok {
+		t.Fatal("expected active_runs_on_previous_version in response")
+	}
+	if int(count.(float64)) != 5 {
+		t.Fatalf("active_runs_on_previous_version = %v, want 5", count)
+	}
+	if resp["previous_version_id"] != "v-old" {
+		t.Fatalf("previous_version_id = %v, want v-old", resp["previous_version_id"])
+	}
+	if auditCalled {
+		t.Fatal("expected no audit event without breaking_change flag")
+	}
+}
+
+func TestHandleUpdateWorkflow_BreakingChangeEmitsAudit(t *testing.T) {
+	t.Parallel()
+	var auditCalled bool
+	var capturedAction string
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Name: "old", Slug: "old", VersionID: "v-old", Version: 2}, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			return nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			return nil, nil
+		},
+		CreateWorkflowVersionSnapshotFunc: func(_ context.Context, _ string, _ int) error {
+			return nil
+		},
+		CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
+			return 5, nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			auditCalled = true
+			capturedAction = ev.Action
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", `{"name":"updated","breaking_change":true}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if int(resp["active_runs_on_previous_version"].(float64)) != 5 {
+		t.Fatalf("active_runs_on_previous_version = %v, want 5", resp["active_runs_on_previous_version"])
+	}
+	if !auditCalled {
+		t.Fatal("expected audit event to be emitted for breaking_change=true")
+	}
+	if capturedAction != "workflow.updated_breaking" {
+		t.Fatalf("audit action = %q, want workflow.updated_breaking", capturedAction)
+	}
+}
+
+func TestHandleUpdateWorkflow_BreakingChangeFalseNoAudit(t *testing.T) {
+	t.Parallel()
+	var auditCalled bool
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Name: "old", Slug: "old", VersionID: "v-old", Version: 2}, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			return nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			return nil, nil
+		},
+		CreateWorkflowVersionSnapshotFunc: func(_ context.Context, _ string, _ int) error {
+			return nil
+		},
+		CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
+			return 5, nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			auditCalled = true
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", `{"name":"updated","breaking_change":false}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if int(resp["active_runs_on_previous_version"].(float64)) != 5 {
+		t.Fatalf("active_runs_on_previous_version = %v, want 5", resp["active_runs_on_previous_version"])
+	}
+	if auditCalled {
+		t.Fatal("expected no audit event with breaking_change=false")
+	}
+}
+
+func TestHandleUpdateWorkflow_NoActiveRunsNoWarning(t *testing.T) {
+	t.Parallel()
+	var auditCalled bool
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Name: "old", Slug: "old", VersionID: "v-old", Version: 2}, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			return nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			return nil, nil
+		},
+		CreateWorkflowVersionSnapshotFunc: func(_ context.Context, _ string, _ int) error {
+			return nil
+		},
+		CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
+			return 0, nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			auditCalled = true
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", `{"name":"updated","breaking_change":true}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if _, ok := resp["active_runs_on_previous_version"]; ok {
+		t.Fatal("expected no active_runs_on_previous_version when count is 0")
+	}
+	if auditCalled {
+		t.Fatal("expected no audit event when no active runs")
+	}
+}
+
+func TestHandleUpdateWorkflow_FirstVersionSkipsActiveCheck(t *testing.T) {
+	t.Parallel()
+	var countCalled bool
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Name: "old", Slug: "old", VersionID: "", Version: 0}, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			return nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			return nil, nil
+		},
+		CreateWorkflowVersionSnapshotFunc: func(_ context.Context, _ string, _ int) error {
+			return nil
+		},
+		CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
+			countCalled = true
+			return 0, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", `{"name":"updated"}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if _, ok := resp["active_runs_on_previous_version"]; ok {
+		t.Fatal("expected no active_runs_on_previous_version for first version")
+	}
+	if countCalled {
+		t.Fatal("expected CountActiveWorkflowRunsByVersion not to be called for first version")
+	}
+}
+
+func TestHandleUpdateWorkflow_CountActiveRunsError(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Name: "old", Slug: "old", VersionID: "v-old", Version: 2}, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			return nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			return nil, nil
+		},
+		CreateWorkflowVersionSnapshotFunc: func(_ context.Context, _ string, _ int) error {
+			return nil
+		},
+		CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
+			return 0, fmt.Errorf("db connection lost")
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", `{"name":"updated","breaking_change":true}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (graceful degradation), got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if _, ok := resp["active_runs_on_previous_version"]; ok {
+		t.Fatal("expected no active_runs_on_previous_version when count query fails")
+	}
+}
+
+func TestHandleGetActiveVersions_ReturnsVersionBreakdown(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		ListActiveWorkflowVersionsFunc: func(_ context.Context, workflowID string) ([]store.ActiveVersion, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("workflowID = %q, want wf-1", workflowID)
+			}
+			return []store.ActiveVersion{
+				{VersionID: "v-2", Version: 2, Pending: 3, Running: 5, Paused: 1, Total: 9},
+				{VersionID: "v-1", Version: 1, Pending: 0, Running: 1, Paused: 0, Total: 1},
+			}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/active-versions", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["workflow_id"] != "wf-1" {
+		t.Fatalf("workflow_id = %v, want wf-1", resp["workflow_id"])
+	}
+	versions, ok := resp["versions"].([]any)
+	if !ok || len(versions) != 2 {
+		t.Fatalf("expected 2 versions, got %v", resp["versions"])
+	}
+	first := versions[0].(map[string]any)
+	if first["version_id"] != "v-2" {
+		t.Fatalf("first version_id = %v, want v-2", first["version_id"])
+	}
+	if int(first["total"].(float64)) != 9 {
+		t.Fatalf("first total = %v, want 9", first["total"])
+	}
+	if int(first["running"].(float64)) != 5 {
+		t.Fatalf("first running = %v, want 5", first["running"])
+	}
+}
+
+func TestHandleGetActiveVersions_Empty(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		ListActiveWorkflowVersionsFunc: func(_ context.Context, _ string) ([]store.ActiveVersion, error) {
+			return nil, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/active-versions", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["workflow_id"] != "wf-1" {
+		t.Fatalf("workflow_id = %v, want wf-1", resp["workflow_id"])
+	}
+	versions, ok := resp["versions"].([]any)
+	if !ok {
+		t.Fatalf("expected versions to be an array, got %T", resp["versions"])
+	}
+	if len(versions) != 0 {
+		t.Fatalf("expected 0 versions, got %d", len(versions))
+	}
+}
+
+func TestHandleGetActiveVersions_StoreError(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		ListActiveWorkflowVersionsFunc: func(_ context.Context, _ string) ([]store.ActiveVersion, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/active-versions", ""))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleDeleteWorkflow(t *testing.T) {
 	t.Parallel()
 	t.Run("success", func(t *testing.T) {

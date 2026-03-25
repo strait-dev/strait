@@ -164,14 +164,6 @@
       "name": "@strait/config",
       "version": "0.0.0",
     },
-    "packages/go-sdk": {
-      "name": "strait-go",
-      "version": "0.1.0",
-    },
-    "packages/python-sdk": {
-      "name": "strait-python",
-      "version": "0.1.0",
-    },
     "packages/ruby-sdk": {
       "name": "strait-ruby",
       "version": "0.1.0",
@@ -3532,10 +3524,6 @@
     "std-env": ["std-env@4.0.0", "", {}, "sha512-zUMPtQ/HBY3/50VbpkupYHbRroTRZJPRLvreamgErJVys0ceuzMkD44J/QjqhHjOzK42GQ3QZIeFG1OYfOtKqQ=="],
 
     "stdin-discarder": ["stdin-discarder@0.2.2", "", {}, "sha512-UhDfHmA92YAlNnCfhmq0VeNL5bDbiZGg7sZ2IvPsXubGkiNa9EC+tUTsjBRsYUAz87btI6/1wf4XoVvQ3uRnmQ=="],
-
-    "strait-go": ["strait-go@workspace:packages/go-sdk"],
-
-    "strait-python": ["strait-python@workspace:packages/python-sdk"],
 
     "strait-ruby": ["strait-ruby@workspace:packages/ruby-sdk"],
 

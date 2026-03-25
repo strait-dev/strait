@@ -5,6 +5,12 @@ description: "Recent platform and API updates in Strait."
 
 ## 2026-03
 
+### Workflow Versioning and Breaking Change Detection
+
+- Added `breaking_change` flag to `PATCH /v1/workflows/{workflowID}`. When `true` and active runs exist on the previous version, a `workflow.updated_breaking` audit event is recorded.
+- The update response now includes `active_runs_on_previous_version` and `previous_version_id` when in-flight runs exist on the replaced version.
+- Added `GET /v1/workflows/{workflowID}/active-versions` endpoint that returns all versions with active runs, including per-status breakdowns (pending, running, paused).
+
 ### Auth / RBAC / Audit / Rotation Updates
 
 - Added optional OIDC bearer-token authentication path for user traffic.
