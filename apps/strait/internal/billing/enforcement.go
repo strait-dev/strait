@@ -137,8 +137,24 @@ func (e *Enforcer) checkEnforcementMode(orgID, checkType string) (skip bool) {
 }
 
 // GetOrgPlanLimits returns plan limits for an org, with caching.
-func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (OrgPlanLimits, error) {
-	if orgID == "" {
+func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits OrgPlanLimits, retErr error) {
+	if e == nil || orgID == "" {
+		return GetPlanLimits(domain.PlanFree), nil
+	}
+
+	// Guard against nil orgCache or uninitialized otter internals that can
+	// panic (observed when the billing enforcer is created without a fully
+	// functional backing store, e.g. missing Polar configuration).
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("recovered panic in GetOrgPlanLimits, returning free-tier defaults",
+				"org_id", orgID, "panic", r)
+			limits = GetPlanLimits(domain.PlanFree)
+			retErr = nil
+		}
+	}()
+
+	if e.orgCache == nil {
 		return GetPlanLimits(domain.PlanFree), nil
 	}
 
@@ -183,7 +199,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (OrgPlanL
 	sub := result.(*OrgSubscription)
 
 	tier := domain.PlanTier(sub.PlanTier)
-	limits := GetPlanLimits(tier)
+	limits = GetPlanLimits(tier)
 
 	// Apply per-org overrides from support.
 	if sub.OverrideDailyRunLimit != nil {
@@ -507,7 +523,7 @@ func (e *Enforcer) DecrConcurrentRunCount(ctx context.Context, orgID string) {
 
 // CheckProjectLimit checks if org can create another project.
 func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
-	if orgID == "" {
+	if e == nil || orgID == "" {
 		return nil
 	}
 

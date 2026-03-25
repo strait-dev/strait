@@ -392,7 +392,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		Encryptor:        encryptor,
 		ContainerRuntime: apiContainerRuntime,
 		PolarWebhook:     polarWebhook,
-		BillingEnforcer:  billingEnforcer,
+		BillingEnforcer:  nilSafeBillingEnforcer(billingEnforcer),
 		UsageService:     usageSvc,
 		ReferralService:  referralSvc,
 		CHExporter:       chExporter,
@@ -727,4 +727,14 @@ func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {
 
 	slog.Info("migrations applied")
 	return nil
+}
+
+// nilSafeBillingEnforcer prevents the classic Go nil-interface trap where a
+// typed nil (*billing.Enforcer)(nil) assigned to an interface makes the
+// interface value non-nil, causing nil-pointer dereferences on method calls.
+func nilSafeBillingEnforcer(e *billing.Enforcer) api.BillingEnforcer {
+	if e == nil {
+		return nil
+	}
+	return e
 }
