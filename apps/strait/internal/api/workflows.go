@@ -78,6 +78,7 @@ type updateWorkflowRequest struct {
 	VersionPolicy       *string                `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 	BackwardsCompatible *bool                  `json:"backwards_compatible,omitempty"`
 	Steps               *[]workflowStepRequest `json:"steps,omitempty"`
+	BreakingChange      *bool                  `json:"breaking_change,omitempty"`
 }
 
 type dryRunWorkflowRequest struct {
@@ -399,20 +400,20 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 
 	// Check for active runs on the previous version to warn about breaking changes.
 	if previousVersionID != "" && previousVersion >= 1 {
-		type activeRunCounter interface {
-			CountActiveWorkflowRunsByVersion(ctx context.Context, workflowID, versionID string) (int, error)
+		count, countErr := s.store.CountActiveWorkflowRunsByVersion(ctx, wf.ID, previousVersionID)
+		if countErr != nil {
+			slog.Warn("failed to count active runs on previous version", "workflow_id", wf.ID, "version_id", previousVersionID, "error", countErr)
 		}
-		if counter, ok := s.store.(activeRunCounter); ok {
-			count, countErr := counter.CountActiveWorkflowRunsByVersion(ctx, wf.ID, previousVersionID)
-			if countErr == nil && count > 0 {
-				resp.ActiveRunsOnPreviousVersion = &count
-				resp.PreviousVersionID = previousVersionID
-				s.emitAuditEvent(ctx, "workflow.updated_breaking", "workflow", wf.ID, map[string]any{
-					"previous_version_id":             previousVersionID,
-					"active_runs_on_previous_version": count,
-					"new_version":                     wf.Version,
-				})
-			}
+		if countErr == nil && count > 0 {
+			resp.ActiveRunsOnPreviousVersion = &count
+			resp.PreviousVersionID = previousVersionID
+		}
+		if req.BreakingChange != nil && *req.BreakingChange && countErr == nil && count > 0 {
+			s.emitAuditEvent(ctx, "workflow.updated_breaking", "workflow", wf.ID, map[string]any{
+				"previous_version_id":             previousVersionID,
+				"active_runs_on_previous_version": count,
+				"new_version":                     wf.Version,
+			})
 		}
 	}
 
@@ -1137,26 +1138,27 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 type GetActiveVersionsInput struct {
 	WorkflowID string `path:"workflowID"`
 }
+type activeVersionsResponseBody struct {
+	WorkflowID string                `json:"workflow_id"`
+	Versions   []store.ActiveVersion `json:"versions"`
+}
+
 type GetActiveVersionsOutput struct {
-	Body any
+	Body activeVersionsResponseBody
 }
 
 func (s *Server) handleGetActiveVersions(ctx context.Context, input *GetActiveVersionsInput) (*GetActiveVersionsOutput, error) {
-	type activeVersionsLister interface {
-		ListActiveWorkflowVersions(ctx context.Context, workflowID string) ([]store.ActiveVersion, error)
-	}
-	lister, ok := s.store.(activeVersionsLister)
-	if !ok {
-		return nil, huma.Error501NotImplemented("active-versions not supported")
-	}
-
-	versions, err := lister.ListActiveWorkflowVersions(ctx, input.WorkflowID)
+	versions, err := s.store.ListActiveWorkflowVersions(ctx, input.WorkflowID)
 	if err != nil {
+		slog.Error("failed to list active versions", "workflow_id", input.WorkflowID, "error", err)
 		return nil, huma.Error500InternalServerError("failed to list active versions")
 	}
+	if versions == nil {
+		versions = []store.ActiveVersion{}
+	}
 
-	return &GetActiveVersionsOutput{Body: map[string]any{
-		"workflow_id": input.WorkflowID,
-		"versions":    versions,
+	return &GetActiveVersionsOutput{Body: activeVersionsResponseBody{
+		WorkflowID: input.WorkflowID,
+		Versions:   versions,
 	}}, nil
 }
