@@ -93,6 +93,15 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		}
 	}
 
+	var metadataJSON any
+	if len(run.Metadata) > 0 {
+		b, marshalErr := json.Marshal(run.Metadata)
+		if marshalErr != nil {
+			return fmt.Errorf("enqueue run: marshal metadata: %w", marshalErr)
+		}
+		metadataJSON = b
+	}
+
 	query := `
 		WITH idempotency_check AS (
 			SELECT 1 FROM job_runs
@@ -108,14 +117,14 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, machine_id
+			execution_mode, machine_id, metadata
 		)
 		SELECT
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
-			$29, $30
+			$29, $30, $31::jsonb
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 
@@ -157,6 +166,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
 		dbscan.NilIfEmptyString(run.MachineID),
+		metadataJSON,
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
@@ -179,7 +189,7 @@ var copyFromColumns = []string{
 	"next_retry_at", "expires_at", "parent_run_id", "priority", "idempotency_key",
 	"job_version", "workflow_step_run_id", "debug_mode", "continuation_of",
 	"lineage_depth", "tags", "job_version_id", "created_by", "concurrency_key", "batch_id",
-	"execution_mode", "machine_id",
+	"execution_mode", "machine_id", "metadata",
 }
 
 // EnqueueBatch inserts multiple runs using pgx.CopyFrom (COPY protocol) for
@@ -225,6 +235,15 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			}
 		}
 
+		var metaJSON any
+		if len(run.Metadata) > 0 {
+			b, err := json.Marshal(run.Metadata)
+			if err != nil {
+				return 0, fmt.Errorf("enqueue batch: marshal metadata for run %d: %w", i, err)
+			}
+			metaJSON = b
+		}
+
 		rows[i] = []any{
 			run.ID,
 			run.JobID,
@@ -256,6 +275,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			dbscan.NilIfEmptyString(run.BatchID),
 			string(run.ExecutionMode),
 			dbscan.NilIfEmptyString(run.MachineID),
+			metaJSON,
 		}
 	}
 

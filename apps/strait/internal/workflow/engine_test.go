@@ -7,13 +7,20 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	otelTrace "go.opentelemetry.io/otel/trace"
+	noopTrace "go.opentelemetry.io/otel/trace/noop"
 )
 
 type mockEngineStore struct {
@@ -6531,5 +6538,491 @@ func TestEnqueueApprovalNotification_StoreError(t *testing.T) {
 
 	if deliveryCalled {
 		t.Fatal("expected no deliveries on store error")
+	}
+}
+
+// 4f. Workflow engine trace capture.
+
+// traceTestSetup installs an in-memory TracerProvider into the global OTel
+// state and returns a cleanup function that restores the previous provider.
+// Tests that mutate global OTel state must not run in parallel.
+func traceTestSetup() (cleanup func()) {
+	prev := otel.GetTracerProvider()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()))
+	otel.SetTracerProvider(tp)
+	return func() {
+		_ = tp.Shutdown(context.Background())
+		otel.SetTracerProvider(prev)
+	}
+}
+
+// traceTestStore returns a minimal mockEngineStore that satisfies TriggerWorkflow.
+// capturedRun receives the WorkflowRun created during bootstrap.
+func traceTestStore(capturedRun **domain.WorkflowRun) *mockEngineStore {
+	return &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{
+				ID:        id,
+				ProjectID: "proj-1",
+				Enabled:   true,
+				Version:   1,
+			}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{ID: "step-1", JobID: "job-1", StepRef: "s1", StepType: domain.WorkflowStepTypeJob},
+			}, nil
+		},
+		createWorkflowRunBootstrapFn: func(_ context.Context, run *domain.WorkflowRun, _ []domain.WorkflowStepRun, _ time.Time) error {
+			if capturedRun != nil {
+				*capturedRun = run
+			}
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+}
+
+func TestTriggerWorkflow_CapturesTraceContext(t *testing.T) {
+	cleanup := traceTestSetup()
+	defer cleanup()
+
+	var capturedRun *domain.WorkflowRun
+	ms := traceTestStore(&capturedRun)
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	ctx := context.Background()
+	ctx, span := otel.Tracer("test").Start(ctx, "test-trigger")
+	inputTraceID := span.SpanContext().TraceID().String()
+	defer span.End()
+
+	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if capturedRun == nil {
+		t.Fatal("expected captured workflow run")
+	}
+	tp, ok := capturedRun.TraceContext["traceparent"]
+	if !ok {
+		t.Fatal("traceparent not found in TraceContext")
+	}
+	if !strings.Contains(tp, inputTraceID) {
+		t.Fatalf("traceparent %q does not contain input trace ID %s", tp, inputTraceID)
+	}
+}
+
+func TestTriggerWorkflow_CapturesTraceState(t *testing.T) {
+	cleanup := traceTestSetup()
+	defer cleanup()
+
+	var capturedRun *domain.WorkflowRun
+	ms := traceTestStore(&capturedRun)
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	// Build a remote span context with a tracestate entry.
+	traceID := otelTrace.TraceID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10}
+	spanID := otelTrace.SpanID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	ts, _ := otelTrace.ParseTraceState("vendor=opaque")
+	sc := otelTrace.NewSpanContext(otelTrace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: otelTrace.FlagsSampled,
+		TraceState: ts,
+		Remote:     true,
+	})
+	ctx := otelTrace.ContextWithRemoteSpanContext(context.Background(), sc)
+
+	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if capturedRun == nil {
+		t.Fatal("expected captured workflow run")
+	}
+	tsVal, ok := capturedRun.TraceContext["tracestate"]
+	if !ok {
+		t.Fatal("tracestate not found in TraceContext")
+	}
+	if tsVal != "vendor=opaque" {
+		t.Fatalf("tracestate = %q, want %q", tsVal, "vendor=opaque")
+	}
+}
+
+func TestTriggerWorkflow_NoActiveSpan(t *testing.T) {
+	// Use a no-op tracer provider so no valid spans are created.
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(noopTrace.NewTracerProvider())
+	defer otel.SetTracerProvider(prev)
+
+	var capturedRun *domain.WorkflowRun
+	ms := traceTestStore(&capturedRun)
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if capturedRun == nil {
+		t.Fatal("expected captured workflow run")
+	}
+	if capturedRun.TraceContext != nil {
+		t.Fatalf("expected nil TraceContext with no active span, got %v", capturedRun.TraceContext)
+	}
+}
+
+func TestTriggerWorkflow_TraceparentFormat(t *testing.T) {
+	cleanup := traceTestSetup()
+	defer cleanup()
+
+	var capturedRun *domain.WorkflowRun
+	ms := traceTestStore(&capturedRun)
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	ctx := context.Background()
+	ctx, span := otel.Tracer("test").Start(ctx, "format-test")
+	defer span.End()
+
+	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if capturedRun == nil {
+		t.Fatal("expected captured workflow run")
+	}
+	tp := capturedRun.TraceContext["traceparent"]
+	pattern := `^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$`
+	matched, _ := regexp.MatchString(pattern, tp)
+	if !matched {
+		t.Fatalf("traceparent %q does not match W3C format %s", tp, pattern)
+	}
+}
+
+func TestTriggerWorkflow_TraceStateTruncation(t *testing.T) {
+	cleanup := traceTestSetup()
+	defer cleanup()
+
+	var capturedRun *domain.WorkflowRun
+	ms := traceTestStore(&capturedRun)
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	// Build a tracestate that exceeds 512 characters by combining multiple
+	// members (W3C limits individual member values to 256 chars).
+	// Each "kN=<value>," entry is key(2) + "=" + value(250) + "," = 253 chars.
+	// Three entries: 253*3 - 1 (no trailing comma) = 758 > 512.
+	parts := make([]string, 3)
+	for i := range parts {
+		parts[i] = fmt.Sprintf("k%d=%s", i, strings.Repeat("a", 250))
+	}
+	tsStr := strings.Join(parts, ",")
+	ts, tsErr := otelTrace.ParseTraceState(tsStr)
+	if tsErr != nil {
+		t.Fatalf("failed to parse trace state: %v", tsErr)
+	}
+	if len(ts.String()) <= 512 {
+		t.Fatalf("tracestate length = %d, need > 512", len(ts.String()))
+	}
+
+	traceID := otelTrace.TraceID{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20}
+	spanID := otelTrace.SpanID{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18}
+	sc := otelTrace.NewSpanContext(otelTrace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: otelTrace.FlagsSampled,
+		TraceState: ts,
+		Remote:     true,
+	})
+	ctx := otelTrace.ContextWithRemoteSpanContext(context.Background(), sc)
+
+	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if capturedRun == nil {
+		t.Fatal("expected captured workflow run")
+	}
+	if _, ok := capturedRun.TraceContext["tracestate"]; ok {
+		t.Fatalf("tracestate should be omitted when length exceeds 512, got length %d", len(capturedRun.TraceContext["tracestate"]))
+	}
+}
+
+func TestTriggerWorkflow_TraceStateExactly512(t *testing.T) {
+	cleanup := traceTestSetup()
+	defer cleanup()
+
+	var capturedRun *domain.WorkflowRun
+	ms := traceTestStore(&capturedRun)
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	// Build a tracestate that is exactly 512 bytes when serialised.
+	// Use two members: "aa=<v1>,bb=<v2>" -- "aa=" (3) + v1(250) + "," (1) + "bb=" (3) + v2(255) = 512.
+	tsStr := fmt.Sprintf("aa=%s,bb=%s", strings.Repeat("x", 250), strings.Repeat("y", 255))
+	ts, tsErr := otelTrace.ParseTraceState(tsStr)
+	if tsErr != nil {
+		t.Fatalf("failed to parse trace state: %v", tsErr)
+	}
+	if len(ts.String()) != 512 {
+		t.Fatalf("tracestate length = %d, want 512 (adjust padding)", len(ts.String()))
+	}
+
+	traceID := otelTrace.TraceID{0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30}
+	spanID := otelTrace.SpanID{0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28}
+	sc := otelTrace.NewSpanContext(otelTrace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: otelTrace.FlagsSampled,
+		TraceState: ts,
+		Remote:     true,
+	})
+	ctx := otelTrace.ContextWithRemoteSpanContext(context.Background(), sc)
+
+	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if capturedRun == nil {
+		t.Fatal("expected captured workflow run")
+	}
+	tsVal, ok := capturedRun.TraceContext["tracestate"]
+	if !ok {
+		t.Fatal("tracestate should be present when length is exactly 512")
+	}
+	if len(tsVal) != 512 {
+		t.Fatalf("tracestate length = %d, want 512", len(tsVal))
+	}
+}
+
+// 4g. Workflow step trace propagation.
+
+func TestStartStep_PropagatesTraceContext(t *testing.T) {
+	cleanup := traceTestSetup()
+	defer cleanup()
+
+	var capturedRun *domain.WorkflowRun
+	var capturedJobRun *domain.JobRun
+	ms := traceTestStore(&capturedRun)
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			capturedJobRun = run
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	// Inject a remote span context with both traceparent and tracestate.
+	traceID := otelTrace.TraceID{0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40}
+	spanID := otelTrace.SpanID{0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38}
+	ts, _ := otelTrace.ParseTraceState("vendor=test123")
+	sc := otelTrace.NewSpanContext(otelTrace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: otelTrace.FlagsSampled,
+		TraceState: ts,
+		Remote:     true,
+	})
+	ctx := otelTrace.ContextWithRemoteSpanContext(context.Background(), sc)
+
+	wfRun, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if capturedJobRun == nil {
+		t.Fatal("expected job run to be enqueued")
+	}
+	if capturedJobRun.Metadata == nil {
+		t.Fatal("expected Metadata to be set on enqueued job run")
+	}
+
+	tp, ok := capturedJobRun.Metadata["_trace_parent"]
+	if !ok {
+		t.Fatal("_trace_parent not found in job run metadata")
+	}
+	wfTP := wfRun.TraceContext["traceparent"]
+	if tp != wfTP {
+		t.Fatalf("_trace_parent = %q, want %q (from workflow run)", tp, wfTP)
+	}
+
+	tsVal, ok := capturedJobRun.Metadata["_trace_state"]
+	if !ok {
+		t.Fatal("_trace_state not found in job run metadata")
+	}
+	wfTS := wfRun.TraceContext["tracestate"]
+	if tsVal != wfTS {
+		t.Fatalf("_trace_state = %q, want %q", tsVal, wfTS)
+	}
+}
+
+func TestStartStep_NoTraceContext(t *testing.T) {
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(noopTrace.NewTracerProvider())
+	defer otel.SetTracerProvider(prev)
+
+	var capturedJobRun *domain.JobRun
+	ms := traceTestStore(nil)
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			capturedJobRun = run
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if capturedJobRun == nil {
+		t.Fatal("expected job run to be enqueued")
+	}
+	if _, ok := capturedJobRun.Metadata["_trace_parent"]; ok {
+		t.Fatal("_trace_parent should not be present when no trace context exists")
+	}
+	if _, ok := capturedJobRun.Metadata["_trace_state"]; ok {
+		t.Fatal("_trace_state should not be present when no trace context exists")
+	}
+}
+
+func TestStartStep_OnlyTraceparent(t *testing.T) {
+	cleanup := traceTestSetup()
+	defer cleanup()
+
+	var capturedJobRun *domain.JobRun
+	ms := traceTestStore(nil)
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			capturedJobRun = run
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	// Remote span context without tracestate.
+	traceID := otelTrace.TraceID{0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50}
+	spanID := otelTrace.SpanID{0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48}
+	sc := otelTrace.NewSpanContext(otelTrace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: otelTrace.FlagsSampled,
+		Remote:     true,
+	})
+	ctx := otelTrace.ContextWithRemoteSpanContext(context.Background(), sc)
+
+	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if capturedJobRun == nil {
+		t.Fatal("expected job run to be enqueued")
+	}
+	if _, ok := capturedJobRun.Metadata["_trace_parent"]; !ok {
+		t.Fatal("_trace_parent should be present")
+	}
+	if _, ok := capturedJobRun.Metadata["_trace_state"]; ok {
+		t.Fatal("_trace_state should not be present when tracestate is empty")
+	}
+}
+
+func TestStartStep_MultipleSteps_SameTraceID(t *testing.T) {
+	cleanup := traceTestSetup()
+	defer cleanup()
+
+	var mu sync.Mutex
+	var capturedJobRuns []*domain.JobRun
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{
+				ID:        id,
+				ProjectID: "proj-1",
+				Enabled:   true,
+				Version:   1,
+			}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{ID: "step-1", JobID: "job-1", StepRef: "s1", StepType: domain.WorkflowStepTypeJob},
+				{ID: "step-2", JobID: "job-2", StepRef: "s2", StepType: domain.WorkflowStepTypeJob},
+				{ID: "step-3", JobID: "job-3", StepRef: "s3", StepType: domain.WorkflowStepTypeJob},
+			}, nil
+		},
+		createWorkflowRunBootstrapFn: func(_ context.Context, _ *domain.WorkflowRun, _ []domain.WorkflowStepRun, _ time.Time) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			mu.Lock()
+			capturedJobRuns = append(capturedJobRuns, run)
+			mu.Unlock()
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	ctx := context.Background()
+	ctx, span := otel.Tracer("test").Start(ctx, "multi-step")
+	defer span.End()
+
+	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if len(capturedJobRuns) != 3 {
+		t.Fatalf("expected 3 enqueued job runs, got %d", len(capturedJobRuns))
+	}
+
+	firstTP := capturedJobRuns[0].Metadata["_trace_parent"]
+	if firstTP == "" {
+		t.Fatal("first job run missing _trace_parent")
+	}
+	for i, jr := range capturedJobRuns[1:] {
+		tp := jr.Metadata["_trace_parent"]
+		if tp != firstTP {
+			t.Fatalf("job run %d _trace_parent = %q, want %q (same as first)", i+1, tp, firstTP)
+		}
 	}
 }

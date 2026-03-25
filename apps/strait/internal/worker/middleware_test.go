@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 // Chain() tests.
@@ -289,6 +290,192 @@ func TestTracingMiddleware(t *testing.T) {
 		spans := exporter.GetSpans()
 		if len(spans) != 1 {
 			t.Fatalf("expected 1 span even with nil metadata, got %d", len(spans))
+		}
+	})
+
+	t.Run("ExtractsTraceParentAndState", func(t *testing.T) {
+		exporter.Reset()
+		traceParent := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+		traceState := "congo=t61rcWkgMzE"
+
+		var capturedCtx context.Context
+		capturingHandler := func(ctx context.Context, _ *ExecutionContext) {
+			capturedCtx = ctx //nolint:fatcontext // test captures ctx for assertion
+		}
+
+		ec := &ExecutionContext{
+			Run: &domain.JobRun{
+				ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Attempt: 1,
+				Metadata: map[string]string{
+					"_trace_parent": traceParent,
+					"_trace_state":  traceState,
+				},
+			},
+			Start: time.Now(),
+		}
+		TracingMiddleware()(capturingHandler)(context.Background(), ec)
+
+		spans := exporter.GetSpans()
+		if len(spans) == 0 {
+			t.Fatal("expected at least 1 span")
+		}
+		gotTraceID := spans[0].SpanContext.TraceID().String()
+		if gotTraceID != "4bf92f3577b34da6a3ce929d0e0e4736" {
+			t.Fatalf("expected trace ID from traceparent, got %s", gotTraceID)
+		}
+
+		// Re-extract tracestate from the context the handler received.
+		carrier := propagation.MapCarrier{}
+		otel.GetTextMapPropagator().Inject(capturedCtx, carrier)
+		gotTS := carrier.Get("tracestate")
+		if gotTS != traceState {
+			t.Fatalf("expected tracestate %q, got %q", traceState, gotTS)
+		}
+	})
+
+	t.Run("EmptyTraceParent_Ignored", func(t *testing.T) {
+		exporter.Reset()
+		ec := &ExecutionContext{
+			Run: &domain.JobRun{
+				ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Attempt: 1,
+				Metadata: map[string]string{"_trace_parent": ""},
+			},
+			Start: time.Now(),
+		}
+		TracingMiddleware()(nopHandler)(context.Background(), ec)
+
+		spans := exporter.GetSpans()
+		if len(spans) == 0 {
+			t.Fatal("expected at least 1 span")
+		}
+		// An empty traceparent should not inject a parent; the span should be a root
+		// with a freshly generated trace ID (not matching any injected value).
+		gotTraceID := spans[0].SpanContext.TraceID().String()
+		if gotTraceID == "4bf92f3577b34da6a3ce929d0e0e4736" {
+			t.Fatal("expected a new root trace ID, but got the injected one")
+		}
+	})
+
+	t.Run("MalformedTraceParent_Graceful", func(t *testing.T) {
+		exporter.Reset()
+		ec := &ExecutionContext{
+			Run: &domain.JobRun{
+				ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Attempt: 1,
+				Metadata: map[string]string{"_trace_parent": "not-a-valid-traceparent"},
+			},
+			Start: time.Now(),
+		}
+		TracingMiddleware()(nopHandler)(context.Background(), ec)
+
+		spans := exporter.GetSpans()
+		if len(spans) == 0 {
+			t.Fatal("expected at least 1 span")
+		}
+		// Malformed traceparent is ignored by OTel; span should be root.
+		gotTraceID := spans[0].SpanContext.TraceID().String()
+		if gotTraceID == "4bf92f3577b34da6a3ce929d0e0e4736" {
+			t.Fatal("expected a new root trace ID, but got the injected one")
+		}
+	})
+
+	t.Run("AllZerosTraceID_Ignored", func(t *testing.T) {
+		exporter.Reset()
+		ec := &ExecutionContext{
+			Run: &domain.JobRun{
+				ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Attempt: 1,
+				Metadata: map[string]string{
+					"_trace_parent": "00-00000000000000000000000000000000-0000000000000000-01",
+				},
+			},
+			Start: time.Now(),
+		}
+		TracingMiddleware()(nopHandler)(context.Background(), ec)
+
+		spans := exporter.GetSpans()
+		if len(spans) == 0 {
+			t.Fatal("expected at least 1 span")
+		}
+		// All-zeros trace ID is invalid per W3C; span should be root.
+		gotTraceID := spans[0].SpanContext.TraceID().String()
+		if gotTraceID == "00000000000000000000000000000000" {
+			t.Fatal("expected a new root trace ID, not all-zeros")
+		}
+	})
+
+	t.Run("SampledFlagZero_StillPropagates", func(t *testing.T) {
+		exporter.Reset()
+		// sampled=0 (last byte 00), but trace ID should still be inherited.
+		traceParent := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
+
+		var capturedCtx context.Context
+		capturingHandler := func(ctx context.Context, _ *ExecutionContext) {
+			capturedCtx = ctx //nolint:fatcontext // test captures ctx for assertion
+		}
+
+		ec := &ExecutionContext{
+			Run: &domain.JobRun{
+				ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Attempt: 1,
+				Metadata: map[string]string{"_trace_parent": traceParent},
+			},
+			Start: time.Now(),
+		}
+		TracingMiddleware()(capturingHandler)(context.Background(), ec)
+
+		// The default ParentBased sampler respects sampled=0, so the span may
+		// not be exported. Instead, verify via the context that the trace ID
+		// was inherited from the parent.
+		sc := oteltrace.SpanFromContext(capturedCtx).SpanContext()
+		gotTraceID := sc.TraceID().String()
+		if gotTraceID != "4bf92f3577b34da6a3ce929d0e0e4736" {
+			t.Fatalf("expected trace ID to be inherited even with sampled=0, got %s", gotTraceID)
+		}
+	})
+
+	t.Run("OnlyTraceState_NoParent", func(t *testing.T) {
+		exporter.Reset()
+		ec := &ExecutionContext{
+			Run: &domain.JobRun{
+				ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Attempt: 1,
+				Metadata: map[string]string{"_trace_state": "congo=t61rcWkgMzE"},
+			},
+			Start: time.Now(),
+		}
+		TracingMiddleware()(nopHandler)(context.Background(), ec)
+
+		spans := exporter.GetSpans()
+		if len(spans) == 0 {
+			t.Fatal("expected at least 1 span")
+		}
+		// Without _trace_parent, the middleware should not inject any parent context.
+		// The span should be a root with a fresh trace ID.
+		gotTraceID := spans[0].SpanContext.TraceID().String()
+		if gotTraceID == "00000000000000000000000000000000" {
+			t.Fatal("expected a valid root trace ID")
+		}
+	})
+
+	t.Run("MetadataWithNonTraceKeys", func(t *testing.T) {
+		exporter.Reset()
+		traceParent := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+		ec := &ExecutionContext{
+			Run: &domain.JobRun{
+				ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Attempt: 1,
+				Metadata: map[string]string{
+					"foo":           "bar",
+					"_trace_parent": traceParent,
+				},
+			},
+			Start: time.Now(),
+		}
+		TracingMiddleware()(nopHandler)(context.Background(), ec)
+
+		spans := exporter.GetSpans()
+		if len(spans) == 0 {
+			t.Fatal("expected at least 1 span")
+		}
+		gotTraceID := spans[0].SpanContext.TraceID().String()
+		if gotTraceID != "4bf92f3577b34da6a3ce929d0e0e4736" {
+			t.Fatalf("expected trace ID from traceparent, got %s", gotTraceID)
 		}
 	})
 }

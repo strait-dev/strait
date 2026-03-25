@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -1135,6 +1136,403 @@ func BenchmarkEnqueueBatch_500_Integration(b *testing.B) {
 			b.Fatalf("cleanup error: %v", cleanErr)
 		}
 		b.StartTimer()
+	}
+}
+
+// --- Metadata round-trip integration tests ---
+
+func TestEnqueue_MetadataRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-metadata-roundtrip")
+	meta := map[string]string{
+		"_trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+		"foo":           "bar",
+	}
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Metadata:  meta,
+	}
+
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dequeued, err := q.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("Dequeue() error = %v", err)
+	}
+	if dequeued == nil {
+		t.Fatal("Dequeue() returned nil")
+	}
+	if dequeued.Metadata == nil {
+		t.Fatal("Dequeue() metadata is nil, want non-nil")
+	}
+	if dequeued.Metadata["_trace_parent"] != meta["_trace_parent"] {
+		t.Fatalf("metadata[_trace_parent] = %q, want %q", dequeued.Metadata["_trace_parent"], meta["_trace_parent"])
+	}
+	if dequeued.Metadata["foo"] != "bar" {
+		t.Fatalf("metadata[foo] = %q, want %q", dequeued.Metadata["foo"], "bar")
+	}
+}
+
+func TestEnqueue_NilMetadata(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-nil-metadata")
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Metadata:  nil,
+	}
+
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dequeued, err := q.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("Dequeue() error = %v", err)
+	}
+	if dequeued == nil {
+		t.Fatal("Dequeue() returned nil")
+	}
+	if dequeued.Metadata != nil {
+		t.Fatalf("Dequeue() metadata = %v, want nil", dequeued.Metadata)
+	}
+}
+
+func TestEnqueue_EmptyMetadata(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-empty-metadata")
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Metadata:  map[string]string{},
+	}
+
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dequeued, err := q.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("Dequeue() error = %v", err)
+	}
+	if dequeued == nil {
+		t.Fatal("Dequeue() returned nil")
+	}
+	if dequeued.Metadata != nil {
+		t.Fatalf("Dequeue() metadata = %v, want nil for empty map", dequeued.Metadata)
+	}
+}
+
+func TestEnqueueBatch_MetadataRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-batch-metadata")
+	runs := []*domain.JobRun{
+		{
+			ID:        newID(),
+			JobID:     job.ID,
+			ProjectID: job.ProjectID,
+			Metadata:  map[string]string{"env": "prod", "region": "us-west-2"},
+		},
+		{
+			ID:        newID(),
+			JobID:     job.ID,
+			ProjectID: job.ProjectID,
+			Metadata:  nil,
+		},
+		{
+			ID:        newID(),
+			JobID:     job.ID,
+			ProjectID: job.ProjectID,
+			Metadata:  map[string]string{},
+		},
+	}
+
+	n, err := q.EnqueueBatch(ctx, runs)
+	if err != nil {
+		t.Fatalf("EnqueueBatch() error = %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("EnqueueBatch() inserted = %d, want 3", n)
+	}
+
+	// Read back via store.GetRun and assert metadata for each.
+	got0, err := st.GetRun(ctx, runs[0].ID)
+	if err != nil {
+		t.Fatalf("GetRun(runs[0]) error = %v", err)
+	}
+	if got0.Metadata == nil {
+		t.Fatal("runs[0] metadata is nil, want non-nil")
+	}
+	if got0.Metadata["env"] != "prod" {
+		t.Fatalf("runs[0] metadata[env] = %q, want %q", got0.Metadata["env"], "prod")
+	}
+	if got0.Metadata["region"] != "us-west-2" {
+		t.Fatalf("runs[0] metadata[region] = %q, want %q", got0.Metadata["region"], "us-west-2")
+	}
+
+	got1, err := st.GetRun(ctx, runs[1].ID)
+	if err != nil {
+		t.Fatalf("GetRun(runs[1]) error = %v", err)
+	}
+	if got1.Metadata != nil {
+		t.Fatalf("runs[1] metadata = %v, want nil", got1.Metadata)
+	}
+
+	got2, err := st.GetRun(ctx, runs[2].ID)
+	if err != nil {
+		t.Fatalf("GetRun(runs[2]) error = %v", err)
+	}
+	if got2.Metadata != nil {
+		t.Fatalf("runs[2] metadata = %v, want nil for empty map", got2.Metadata)
+	}
+}
+
+// --- Metadata adversarial integration tests ---
+
+func TestEnqueue_MetadataLargeValue(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-metadata-large")
+	largeValue := strings.Repeat("a", 1024)
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Metadata:  map[string]string{"big": largeValue},
+	}
+
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Metadata["big"] != largeValue {
+		t.Fatalf("metadata[big] len = %d, want %d (silent truncation detected)", len(got.Metadata["big"]), len(largeValue))
+	}
+}
+
+func TestEnqueue_MetadataManyKeys(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-metadata-many-keys")
+	meta := make(map[string]string, 60)
+	for i := range 60 {
+		meta[fmt.Sprintf("key_%03d", i)] = fmt.Sprintf("value_%03d", i)
+	}
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Metadata:  meta,
+	}
+
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if len(got.Metadata) != 60 {
+		t.Fatalf("metadata key count = %d, want 60", len(got.Metadata))
+	}
+	for k, v := range meta {
+		if got.Metadata[k] != v {
+			t.Fatalf("metadata[%s] = %q, want %q", k, got.Metadata[k], v)
+		}
+	}
+}
+
+func TestEnqueue_MetadataSpecialChars(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-metadata-special")
+	meta := map[string]string{
+		"unicode_key_\u00e9\u00e8\u00ea":       "value with unicode \u2603\u2764",
+		"quotes_key_\"double\"":                 "value with 'single' and \"double\" quotes",
+		"backslash_key_\\\\":                    "back\\slash\\value",
+		"newline_key_\n":                        "value\nwith\nnewlines",
+		"tab_key_\t":                            "value\twith\ttabs",
+		"empty_value":                           "",
+		"json_like":                             `{"nested":"not really"}`,
+	}
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Metadata:  meta,
+	}
+
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if len(got.Metadata) != len(meta) {
+		t.Fatalf("metadata key count = %d, want %d", len(got.Metadata), len(meta))
+	}
+	for k, v := range meta {
+		if got.Metadata[k] != v {
+			t.Fatalf("metadata[%q] = %q, want %q", k, got.Metadata[k], v)
+		}
+	}
+}
+
+func TestEnqueue_MetadataOverwriteOnUpdate(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-metadata-overwrite")
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Metadata:  map[string]string{"original": "value1", "shared": "old"},
+	}
+
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	// Update metadata via store to merge new keys.
+	if err := st.UpdateRunMetadata(ctx, run.ID, map[string]string{"added": "new", "shared": "updated"}); err != nil {
+		t.Fatalf("UpdateRunMetadata() error = %v", err)
+	}
+
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Metadata["original"] != "value1" {
+		t.Fatalf("metadata[original] = %q, want %q (original key should be preserved)", got.Metadata["original"], "value1")
+	}
+	if got.Metadata["added"] != "new" {
+		t.Fatalf("metadata[added] = %q, want %q (new key should be added)", got.Metadata["added"], "new")
+	}
+	if got.Metadata["shared"] != "updated" {
+		t.Fatalf("metadata[shared] = %q, want %q (shared key should be updated)", got.Metadata["shared"], "updated")
+	}
+}
+
+func TestEnqueue_MetadataConcurrentDequeue(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-metadata-concurrent")
+
+	const n = 20
+	expectedMeta := make(map[string]map[string]string, n)
+	for i := range n {
+		id := newID()
+		meta := map[string]string{
+			"run_index": fmt.Sprintf("%d", i),
+			"unique_id": id,
+		}
+		expectedMeta[id] = meta
+		run := &domain.JobRun{
+			ID:        id,
+			JobID:     job.ID,
+			ProjectID: job.ProjectID,
+			Metadata:  meta,
+		}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue() run %d error = %v", i, err)
+		}
+	}
+
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		runs []domain.JobRun
+	)
+	errCh := make(chan error, 4)
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				dequeued, err := q.DequeueN(ctx, 5)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if len(dequeued) == 0 {
+					return
+				}
+				mu.Lock()
+				runs = append(runs, dequeued...)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("DequeueN() error = %v", err)
+		}
+	}
+
+	if len(runs) != n {
+		t.Fatalf("total dequeued = %d, want %d", len(runs), n)
+	}
+
+	for _, run := range runs {
+		expected, ok := expectedMeta[run.ID]
+		if !ok {
+			t.Fatalf("unexpected run ID %s in dequeued set", run.ID)
+		}
+		if run.Metadata == nil {
+			t.Fatalf("run %s metadata is nil", run.ID)
+		}
+		if run.Metadata["unique_id"] != expected["unique_id"] {
+			t.Fatalf("run %s metadata[unique_id] = %q, want %q (cross-contamination)", run.ID, run.Metadata["unique_id"], expected["unique_id"])
+		}
+		if run.Metadata["run_index"] != expected["run_index"] {
+			t.Fatalf("run %s metadata[run_index] = %q, want %q (cross-contamination)", run.ID, run.Metadata["run_index"], expected["run_index"])
+		}
 	}
 }
 
