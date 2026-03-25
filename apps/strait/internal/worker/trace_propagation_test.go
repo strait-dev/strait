@@ -106,13 +106,12 @@ func TestTraceChain(t *testing.T) {
 
 	t.Run("WorkflowToManagedDispatch", func(t *testing.T) {
 		// Create a span to get a known trace ID.
-		ctx, parentSpan := tp.Tracer("test").Start(context.Background(), "workflow.run.managed")
+		_, parentSpan := tp.Tracer("test").Start(context.Background(), "workflow.run.managed")
 		sc := parentSpan.SpanContext()
 		traceID := sc.TraceID().String()
 		spanID := sc.SpanID().String()
 		traceparent := fmt.Sprintf("00-%s-%s-01", traceID, spanID)
 		parentSpan.End()
-		_ = ctx
 
 		run := &domain.JobRun{
 			ID:        "run-managed-1",
@@ -157,7 +156,7 @@ func TestTraceChain(t *testing.T) {
 
 		// TracingMiddleware should create a root span without panic.
 		mw := TracingMiddleware()
-		handler := mw(func(ctx context.Context, ec *ExecutionContext) {})
+		handler := mw(func(_ context.Context, _ *ExecutionContext) {})
 		handler(context.Background(), &ExecutionContext{Run: run, Job: &domain.Job{EndpointURL: "http://example.com"}})
 
 		spans := exporter.GetSpans()
@@ -221,7 +220,7 @@ func TestTraceChain(t *testing.T) {
 
 		exporter.Reset()
 		mw := TracingMiddleware()
-		handler := mw(func(ctx context.Context, ec *ExecutionContext) {})
+		handler := mw(func(_ context.Context, _ *ExecutionContext) {})
 		handler(context.Background(), &ExecutionContext{Run: run, Job: &domain.Job{EndpointURL: "http://example.com"}})
 
 		spans := exporter.GetSpans()
@@ -261,7 +260,7 @@ func TestTraceChain(t *testing.T) {
 		exporter.Reset()
 		mw := TracingMiddleware()
 		for _, run := range runs {
-			handler := mw(func(ctx context.Context, ec *ExecutionContext) {})
+			handler := mw(func(_ context.Context, _ *ExecutionContext) {})
 			handler(context.Background(), &ExecutionContext{Run: run, Job: &domain.Job{EndpointURL: "http://example.com"}})
 		}
 
@@ -367,7 +366,7 @@ func TestTraceAdversarial(t *testing.T) {
 		// TracingMiddleware should not panic; OTel ignores invalid traceparent
 		// and falls back to creating a root span.
 		mw := TracingMiddleware()
-		handler := mw(func(ctx context.Context, ec *ExecutionContext) {})
+		handler := mw(func(_ context.Context, _ *ExecutionContext) {})
 		handler(context.Background(), &ExecutionContext{Run: run, Job: &domain.Job{EndpointURL: "http://example.com"}})
 
 		spans := exporter.GetSpans()
@@ -424,7 +423,7 @@ func TestTraceAdversarial(t *testing.T) {
 			},
 		}
 
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("{}"))
 		}))

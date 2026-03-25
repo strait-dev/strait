@@ -235,13 +235,13 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			}
 		}
 
-		var metaJSON any
+		var metadataJSON any
 		if len(run.Metadata) > 0 {
 			b, err := json.Marshal(run.Metadata)
 			if err != nil {
 				return 0, fmt.Errorf("enqueue batch: marshal metadata for run %d: %w", i, err)
 			}
-			metaJSON = b
+			metadataJSON = b
 		}
 
 		rows[i] = []any{
@@ -275,7 +275,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			dbscan.NilIfEmptyString(run.BatchID),
 			string(run.ExecutionMode),
 			dbscan.NilIfEmptyString(run.MachineID),
-			metaJSON,
+			metadataJSON,
 		}
 	}
 
