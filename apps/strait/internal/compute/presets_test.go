@@ -40,13 +40,13 @@ func TestPresetFromName_Invalid(t *testing.T) {
 func TestPresetFromName_CostRates(t *testing.T) {
 	t.Parallel()
 	expected := map[string]int64{
-		"micro":     17,
-		"small-1x":  34,
-		"small-2x":  68,
-		"medium-1x": 85,
-		"medium-2x": 170,
-		"large-1x":  340,
-		"large-2x":  680,
+		"micro":     CostMicro,
+		"small-1x":  CostSmall1x,
+		"small-2x":  CostSmall2x,
+		"medium-1x": CostMedium1x,
+		"medium-2x": CostMedium2x,
+		"large-1x":  CostLarge1x,
+		"large-2x":  CostLarge2x,
 	}
 	for name, cost := range expected {
 		p, _ := PresetFromName(name)

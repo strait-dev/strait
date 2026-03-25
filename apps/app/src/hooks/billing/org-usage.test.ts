@@ -10,6 +10,9 @@ function baseUsage(): RawOrgUsageData {
     org_id: "org-1",
     plan: "starter",
     period: { start: "2026-03-01", end: "2026-03-31" },
+    included_credit_microusd: 19_990_000,
+    period_spend_microusd: 0,
+    overage_microusd: 0,
     usage: {
       runs_today: { used: 10, limit: 100, percent: 10 },
       concurrent_runs: { used: 1, limit: 5, percent: 20 },

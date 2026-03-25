@@ -276,6 +276,52 @@ func (s *Server) handleUpdateSpendingLimit(ctx context.Context, input *UpdateSpe
 	return &UpdateSpendingLimitOutput{Body: map[string]string{"status": "updated"}}, nil
 }
 
+// Email Preferences.
+
+type GetEmailPreferencesInput struct {
+	OrgID string `query:"org_id"`
+}
+type GetEmailPreferencesOutput struct{ Body any }
+
+func (s *Server) handleGetEmailPreferences(ctx context.Context, input *GetEmailPreferencesInput) (*GetEmailPreferencesOutput, error) {
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	if s.usageService == nil {
+		return &GetEmailPreferencesOutput{Body: &billing.EmailPreferencesResponse{MonthlyUsageEmail: true}}, nil
+	}
+	prefs, pErr := s.usageService.GetEmailPreferences(ctx, orgID)
+	if pErr != nil {
+		slog.Warn("failed to get email preferences", "org_id", orgID, "error", pErr)
+		return nil, huma.Error500InternalServerError("failed to get email preferences")
+	}
+	return &GetEmailPreferencesOutput{Body: prefs}, nil
+}
+
+type updateEmailPreferencesRequest struct {
+	MonthlyUsageEmail bool `json:"monthly_usage_email"`
+}
+type UpdateEmailPreferencesInput struct {
+	OrgID string `query:"org_id"`
+	Body  updateEmailPreferencesRequest
+}
+type UpdateEmailPreferencesOutput struct{ Body map[string]string }
+
+func (s *Server) handleUpdateEmailPreferences(ctx context.Context, input *UpdateEmailPreferencesInput) (*UpdateEmailPreferencesOutput, error) {
+	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	if s.usageService == nil {
+		return nil, huma.Error501NotImplemented("usage service not configured")
+	}
+	if err := s.usageService.UpdateEmailPreferences(ctx, orgID, input.Body.MonthlyUsageEmail); err != nil {
+		return nil, huma.Error500InternalServerError("failed to update email preferences")
+	}
+	return &UpdateEmailPreferencesOutput{Body: map[string]string{"status": "updated"}}, nil
+}
+
 type GetDowngradePreviewInput struct {
 	OrgID      string `query:"org_id"`
 	TargetTier string `query:"target_tier"`

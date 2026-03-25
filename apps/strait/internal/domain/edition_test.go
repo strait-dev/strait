@@ -40,6 +40,8 @@ func TestEditionCapabilities(t *testing.T) {
 		{EditionCloud, "AllowsMultiRegion", EditionCloud.AllowsMultiRegion, true},
 		{EditionCloud, "AllowsAdvancedAnalytics", EditionCloud.AllowsAdvancedAnalytics, true},
 		{EditionCloud, "AllowsWarmPool", EditionCloud.AllowsWarmPool, true},
+		{EditionCommunity, "RequiresHTTPModeGating", EditionCommunity.RequiresHTTPModeGating, false},
+		{EditionCloud, "RequiresHTTPModeGating", EditionCloud.RequiresHTTPModeGating, true},
 	}
 
 	for _, tt := range tests {

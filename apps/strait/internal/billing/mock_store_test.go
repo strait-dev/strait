@@ -310,3 +310,19 @@ func (m *mockBillingStore) IsProjectSuspended(_ context.Context, _ string) (bool
 func (m *mockBillingStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
 	return 0, nil
 }
+
+func (m *mockBillingStore) ListOrgAdminEmails(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockBillingStore) HasSentUsageReport(_ context.Context, _ string, _ time.Time) (bool, error) {
+	return false, nil
+}
+
+func (m *mockBillingStore) RecordSentUsageReport(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (m *mockBillingStore) UpdateMonthlyUsageEmail(_ context.Context, _ string, _ bool) error {
+	return nil
+}

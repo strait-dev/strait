@@ -205,6 +205,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
+		if err := s.checkHTTPModeAllowed(ctx, execMode, req.ProjectID); err != nil {
+			return nil, err
+		}
 	}
 
 	job := &domain.Job{
@@ -498,6 +501,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		mode := domain.ExecutionMode(*req.ExecutionMode)
 		if mode == domain.ExecutionModeManaged && (s.config.ComputeRuntime == "" || s.config.ComputeRuntime == "none") {
 			return nil, huma.Error400BadRequest("managed execution is not available: COMPUTE_RUNTIME not configured")
+		}
+		if err := s.checkHTTPModeAllowed(ctx, mode, job.ProjectID); err != nil {
+			return nil, err
 		}
 		job.ExecutionMode = mode
 	}
@@ -1105,4 +1111,34 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 	}
 
 	return &ResumeJobOutput{Body: updated}, nil
+}
+
+// checkHTTPModeAllowed verifies that HTTP execution mode is allowed for the org's plan.
+// Returns nil if allowed, or a 400 error if the plan doesn't support HTTP mode.
+// Fails open on errors (returns nil) to avoid blocking jobs when billing is unavailable.
+func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.ExecutionMode, projectID string) error {
+	if mode != domain.ExecutionModeHTTP {
+		return nil
+	}
+	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
+		return nil
+	}
+
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return nil //nolint:nilerr // fail open: billing unavailable should not block job creation
+	}
+
+	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		return nil //nolint:nilerr // fail open: billing unavailable should not block job creation
+	}
+
+	if !limits.AllowsHTTPMode {
+		if s.metrics != nil && s.metrics.HTTPModeGateRejected != nil {
+			s.metrics.HTTPModeGateRejected.Add(ctx, 1)
+		}
+		return huma.Error400BadRequest("HTTP execution mode requires the Pro plan ($49.99/mo). Upgrade at /settings/billing")
+	}
+	return nil
 }

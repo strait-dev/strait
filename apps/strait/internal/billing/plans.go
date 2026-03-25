@@ -31,8 +31,68 @@ type OrgPlanLimits struct {
 	HasSLA                  bool
 	RequiresCreditCard      bool
 	OveragePerKRunsMicrousd int64  // cost per 1K runs overage in micro-USD
+	AllowsHTTPMode          bool   // whether HTTP execution mode is available
 	SupportLevel            string // "community", "email_48h", "priority_24h", "dedicated"
 }
+
+// Pricing constants in their respective units.
+// These are the canonical values — all plan definitions below reference them.
+const (
+	// HTTPCostPerRunMicrousd is the per-run cost for HTTP execution mode.
+	// 20 micro-USD = $0.00002/run = $20/1M runs.
+	HTTPCostPerRunMicrousd int64 = 20
+
+	// Plan prices in cents (USD).
+	PriceStarterMonthlyCents = 1999  // $19.99
+	PriceStarterAnnualCents  = 19999 // $199.99
+	PriceProMonthlyCents     = 4999  // $49.99
+	PriceProAnnualCents      = 49999 // $499.99
+
+	// Compute credits in micro-USD, matching subscription price.
+	CreditStarterMicrousd int64 = 19_990_000 // $19.99
+	CreditProMicrousd     int64 = 49_990_000 // $49.99
+
+	// Daily run limits per plan.
+	DailyRunsFree    int64 = 5_000
+	DailyRunsStarter int64 = 25_000
+	DailyRunsPro     int64 = 100_000
+
+	// Concurrent run limits per plan.
+	ConcurrentFree    = 5
+	ConcurrentStarter = 25
+	ConcurrentPro     = 100
+
+	// Overage cost per 1K runs in micro-USD ($0.20/1K runs).
+	DefaultOveragePerKRunsMicrousd int64 = 200_000
+
+	// Data retention in days.
+	RetentionFree       = 1
+	RetentionStarter    = 7
+	RetentionPro        = 30
+	RetentionEnterprise = 90
+
+	// Organization limits.
+	MaxOrgsFree        = 1
+	MaxOrgsStarter     = 2
+	MaxOrgsPro         = 5
+	MaxProjectsFree    = 2
+	MaxProjectsStarter = 5
+	MaxProjectsPro     = 15
+	MaxMembersFree     = 3
+	MaxMembersStarter  = 10
+	MaxMembersPro      = 25
+
+	// Free tier managed execution limits.
+	FreeManagedRunsPerMonth = 100
+	FreeManagedMaxTimeout   = 10 // seconds
+
+	// Spending limit caps per tier in micro-USD.
+	MaxSpendingStarter int64 = 500_000_000   // $500
+	MaxSpendingPro     int64 = 2_000_000_000 // $2,000
+
+	// Total available regions (used when AllowedRegions is nil = all).
+	TotalRegions = 25
+)
 
 // Plans maps plan tiers to their limits.
 var Plans = map[domain.PlanTier]OrgPlanLimits{
@@ -41,16 +101,16 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		DisplayName:             "Free",
 		PriceMonthlyUsd:         0,
 		PriceAnnualUsd:          0,
-		MaxOrgsPerUser:          1,
-		MaxProjectsPerOrg:       2,
-		MaxMembersPerOrg:        3,
-		MaxRunsPerDay:           5000,
-		MaxConcurrentRuns:       5,
+		MaxOrgsPerUser:          MaxOrgsFree,
+		MaxProjectsPerOrg:       MaxProjectsFree,
+		MaxMembersPerOrg:        MaxMembersFree,
+		MaxRunsPerDay:           DailyRunsFree,
+		MaxConcurrentRuns:       ConcurrentFree,
 		ComputeCreditMicrousd:   0,
-		FreeManagedRunsPerMonth: 100,
+		FreeManagedRunsPerMonth: FreeManagedRunsPerMonth,
 		FreeManagedPreset:       "micro",
-		FreeManagedMaxTimeout:   10,
-		RetentionDays:           1,
+		FreeManagedMaxTimeout:   FreeManagedMaxTimeout,
+		RetentionDays:           RetentionFree,
 		AllowedRegions:          []string{"iad"},
 		MaxAlertRulesPerProj:    3,
 		MaxWebhookSubsPerProj:   2,
@@ -64,23 +124,24 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  false,
 		RequiresCreditCard:      false,
 		OveragePerKRunsMicrousd: 0,
+		AllowsHTTPMode:          false,
 		SupportLevel:            "community",
 	},
 	domain.PlanStarter: {
 		PlanTier:                domain.PlanStarter,
 		DisplayName:             "Starter",
-		PriceMonthlyUsd:         1999,
-		PriceAnnualUsd:          19999,
-		MaxOrgsPerUser:          2,
-		MaxProjectsPerOrg:       5,
-		MaxMembersPerOrg:        10,
-		MaxRunsPerDay:           25000,
-		MaxConcurrentRuns:       25,
-		ComputeCreditMicrousd:   19990000,
+		PriceMonthlyUsd:         PriceStarterMonthlyCents,
+		PriceAnnualUsd:          PriceStarterAnnualCents,
+		MaxOrgsPerUser:          MaxOrgsStarter,
+		MaxProjectsPerOrg:       MaxProjectsStarter,
+		MaxMembersPerOrg:        MaxMembersStarter,
+		MaxRunsPerDay:           DailyRunsStarter,
+		MaxConcurrentRuns:       ConcurrentStarter,
+		ComputeCreditMicrousd:   CreditStarterMicrousd,
 		FreeManagedRunsPerMonth: 0,
 		FreeManagedPreset:       "",
 		FreeManagedMaxTimeout:   0,
-		RetentionDays:           7,
+		RetentionDays:           RetentionStarter,
 		AllowedRegions:          []string{"iad", "lax", "lhr", "fra", "nrt", "syd"},
 		MaxAlertRulesPerProj:    10,
 		MaxWebhookSubsPerProj:   10,
@@ -93,24 +154,25 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: 200000,
+		OveragePerKRunsMicrousd: DefaultOveragePerKRunsMicrousd,
+		AllowsHTTPMode:          false,
 		SupportLevel:            "email_48h",
 	},
 	domain.PlanPro: {
 		PlanTier:                domain.PlanPro,
 		DisplayName:             "Pro",
-		PriceMonthlyUsd:         4999,
-		PriceAnnualUsd:          49999,
-		MaxOrgsPerUser:          5,
-		MaxProjectsPerOrg:       15,
-		MaxMembersPerOrg:        25,
-		MaxRunsPerDay:           100000,
-		MaxConcurrentRuns:       100,
-		ComputeCreditMicrousd:   49990000,
+		PriceMonthlyUsd:         PriceProMonthlyCents,
+		PriceAnnualUsd:          PriceProAnnualCents,
+		MaxOrgsPerUser:          MaxOrgsPro,
+		MaxProjectsPerOrg:       MaxProjectsPro,
+		MaxMembersPerOrg:        MaxMembersPro,
+		MaxRunsPerDay:           DailyRunsPro,
+		MaxConcurrentRuns:       ConcurrentPro,
+		ComputeCreditMicrousd:   CreditProMicrousd,
 		FreeManagedRunsPerMonth: 0,
 		FreeManagedPreset:       "",
 		FreeManagedMaxTimeout:   0,
-		RetentionDays:           30,
+		RetentionDays:           RetentionPro,
 		AllowedRegions:          nil,
 		MaxAlertRulesPerProj:    50,
 		MaxWebhookSubsPerProj:   50,
@@ -123,7 +185,8 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: 200000,
+		OveragePerKRunsMicrousd: DefaultOveragePerKRunsMicrousd,
+		AllowsHTTPMode:          true,
 		SupportLevel:            "priority_24h",
 	},
 	domain.PlanEnterprise: {
@@ -140,7 +203,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		FreeManagedRunsPerMonth: 0,
 		FreeManagedPreset:       "",
 		FreeManagedMaxTimeout:   0,
-		RetentionDays:           90,
+		RetentionDays:           RetentionEnterprise,
 		AllowedRegions:          nil,
 		MaxAlertRulesPerProj:    -1,
 		MaxWebhookSubsPerProj:   -1,
@@ -154,6 +217,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  true,
 		RequiresCreditCard:      false,
 		OveragePerKRunsMicrousd: 0,
+		AllowsHTTPMode:          true,
 		SupportLevel:            "dedicated",
 	},
 }

@@ -9,14 +9,14 @@ func TestCalculateCost(t *testing.T) {
 		duration float64
 		want     int64
 	}{
-		{"micro", 1.0, 17},
-		{"micro", 60.0, 1020},
-		{"small-1x", 30.0, 1020},
-		{"small-2x", 30.0, 2040},
-		{"medium-1x", 120.0, 10200},
-		{"medium-2x", 120.0, 20400},
-		{"large-1x", 60.0, 20400},
-		{"large-2x", 60.0, 40800},
+		{"micro", 1.0, CostMicro},
+		{"micro", 60.0, CostMicro * 60},
+		{"small-1x", 30.0, CostSmall1x * 30},
+		{"small-2x", 30.0, CostSmall2x * 30},
+		{"medium-1x", 120.0, CostMedium1x * 120},
+		{"medium-2x", 120.0, CostMedium2x * 120},
+		{"large-1x", 60.0, CostLarge1x * 60},
+		{"large-2x", 60.0, CostLarge2x * 60},
 		{"micro", 0, 0},
 		{"micro", 1.5, 26}, // 17 * 1.5 = 25.5 → rounds to 26
 	}
@@ -65,13 +65,14 @@ func TestCalculateCost_VerySmallFraction(t *testing.T) {
 
 func TestCalculateCost_LargeDuration(t *testing.T) {
 	t.Parallel()
-	// large-2x for 1 hour: 680 * 3600 = 2,448,000 micro-USD
+	// large-2x for 1 hour
+	want := CostLarge2x * 3600
 	cost, err := CalculateCost("large-2x", 3600)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cost != 2448000 {
-		t.Errorf("cost = %d, want 2448000", cost)
+	if cost != want {
+		t.Errorf("cost = %d, want %d", cost, want)
 	}
 }
 
@@ -82,7 +83,7 @@ func TestEstimateCost(t *testing.T) {
 		timeout int
 		want    int64
 	}{
-		{"small-1x", 300, 10200},
+		{"small-1x", 300, CostSmall1x * 300},
 		{"micro", 0, 0},
 	}
 	for _, tt := range tests {

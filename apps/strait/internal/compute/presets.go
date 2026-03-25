@@ -2,6 +2,17 @@ package compute
 
 import "fmt"
 
+// Per-second compute costs in micro-USD ($0.000001) for each machine preset.
+const (
+	CostMicro    int64 = 17   // 1 vCPU / 256 MB  — $0.061/hr
+	CostSmall1x  int64 = 34   // 1 vCPU / 512 MB  — $0.122/hr
+	CostSmall2x  int64 = 68   // 2 vCPU / 1 GB    — $0.245/hr
+	CostMedium1x int64 = 130  // 2 vCPU / 4 GB    — $0.468/hr
+	CostMedium2x int64 = 260  // 4 vCPU / 8 GB    — $0.936/hr
+	CostLarge1x  int64 = 525  // 8 vCPU / 16 GB   — $1.890/hr
+	CostLarge2x  int64 = 1050 // 16 vCPU / 32 GB  — $3.780/hr
+)
+
 // Preset defines the resource allocation for a machine preset.
 type Preset struct {
 	Name          string // e.g. "micro", "small-1x"
@@ -13,13 +24,13 @@ type Preset struct {
 
 // AllPresets is the canonical list of supported machine presets.
 var AllPresets = map[string]Preset{
-	"micro":     {Name: "micro", CPUs: 1, MemoryMB: 256, FlyGuestSize: "shared-cpu-1x", CostPerSecond: 17},
-	"small-1x":  {Name: "small-1x", CPUs: 1, MemoryMB: 512, FlyGuestSize: "shared-cpu-1x", CostPerSecond: 34},
-	"small-2x":  {Name: "small-2x", CPUs: 2, MemoryMB: 1024, FlyGuestSize: "shared-cpu-2x", CostPerSecond: 68},
-	"medium-1x": {Name: "medium-1x", CPUs: 2, MemoryMB: 4096, FlyGuestSize: "performance-1x", CostPerSecond: 85},
-	"medium-2x": {Name: "medium-2x", CPUs: 4, MemoryMB: 8192, FlyGuestSize: "performance-2x", CostPerSecond: 170},
-	"large-1x":  {Name: "large-1x", CPUs: 8, MemoryMB: 16384, FlyGuestSize: "performance-4x", CostPerSecond: 340},
-	"large-2x":  {Name: "large-2x", CPUs: 16, MemoryMB: 32768, FlyGuestSize: "performance-8x", CostPerSecond: 680},
+	"micro":     {Name: "micro", CPUs: 1, MemoryMB: 256, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostMicro},
+	"small-1x":  {Name: "small-1x", CPUs: 1, MemoryMB: 512, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostSmall1x},
+	"small-2x":  {Name: "small-2x", CPUs: 2, MemoryMB: 1024, FlyGuestSize: "shared-cpu-2x", CostPerSecond: CostSmall2x},
+	"medium-1x": {Name: "medium-1x", CPUs: 2, MemoryMB: 4096, FlyGuestSize: "performance-1x", CostPerSecond: CostMedium1x},
+	"medium-2x": {Name: "medium-2x", CPUs: 4, MemoryMB: 8192, FlyGuestSize: "performance-2x", CostPerSecond: CostMedium2x},
+	"large-1x":  {Name: "large-1x", CPUs: 8, MemoryMB: 16384, FlyGuestSize: "performance-4x", CostPerSecond: CostLarge1x},
+	"large-2x":  {Name: "large-2x", CPUs: 16, MemoryMB: 32768, FlyGuestSize: "performance-8x", CostPerSecond: CostLarge2x},
 }
 
 // PresetOrder defines the canonical ordering of presets from smallest to largest.

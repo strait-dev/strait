@@ -81,6 +81,7 @@ export const queryKeys = createQueryKeyStore({
     referrals: null,
     projectBudget: (projectId: string) => [projectId],
     anomalyConfig: null,
+    emailPreferences: null,
   },
 
   projects: {

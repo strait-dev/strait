@@ -54,6 +54,10 @@ func (m *mockBillingEnforcer) CheckProjectBudgetLimit(_ context.Context, _ strin
 	return nil
 }
 
+func (m *mockBillingEnforcer) GetOrgPlanLimits(_ context.Context, _ string) (billing.OrgPlanLimits, error) {
+	return billing.GetPlanLimits(domain.PlanFree), nil
+}
+
 func (m *mockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
 
 type mockUsageService struct {
@@ -160,6 +164,14 @@ func (m *mockUsageService) GetAnomalyConfig(_ context.Context, _ string) (*billi
 }
 
 func (m *mockUsageService) SetAnomalyConfig(_ context.Context, _ string, _, _ float64) error {
+	return nil
+}
+
+func (m *mockUsageService) GetEmailPreferences(_ context.Context, _ string) (*billing.EmailPreferencesResponse, error) {
+	return &billing.EmailPreferencesResponse{MonthlyUsageEmail: true}, nil
+}
+
+func (m *mockUsageService) UpdateEmailPreferences(_ context.Context, _ string, _ bool) error {
 	return nil
 }
 

@@ -178,6 +178,90 @@ func TestIsDowngrade(t *testing.T) {
 	}
 }
 
+func TestPlanLimits_AllowsHTTPMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		tier domain.PlanTier
+		want bool
+	}{
+		{"free", domain.PlanFree, false},
+		{"starter", domain.PlanStarter, false},
+		{"pro", domain.PlanPro, true},
+		{"enterprise", domain.PlanEnterprise, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			limits := GetPlanLimits(tt.tier)
+			if limits.AllowsHTTPMode != tt.want {
+				t.Errorf("AllowsHTTPMode = %v, want %v", limits.AllowsHTTPMode, tt.want)
+			}
+		})
+	}
+}
+
+func TestPlanLimits_Constants(t *testing.T) {
+	t.Parallel()
+
+	t.Run("free_uses_constants", func(t *testing.T) {
+		t.Parallel()
+		free := GetPlanLimits(domain.PlanFree)
+		if free.MaxRunsPerDay != DailyRunsFree {
+			t.Errorf("MaxRunsPerDay = %d, want DailyRunsFree (%d)", free.MaxRunsPerDay, DailyRunsFree)
+		}
+		if free.MaxConcurrentRuns != ConcurrentFree {
+			t.Errorf("MaxConcurrentRuns = %d, want ConcurrentFree (%d)", free.MaxConcurrentRuns, ConcurrentFree)
+		}
+		if free.ComputeCreditMicrousd != 0 {
+			t.Errorf("ComputeCreditMicrousd = %d, want 0", free.ComputeCreditMicrousd)
+		}
+	})
+
+	t.Run("starter_uses_constants", func(t *testing.T) {
+		t.Parallel()
+		starter := GetPlanLimits(domain.PlanStarter)
+		if starter.MaxRunsPerDay != DailyRunsStarter {
+			t.Errorf("MaxRunsPerDay = %d, want DailyRunsStarter (%d)", starter.MaxRunsPerDay, DailyRunsStarter)
+		}
+		if starter.ComputeCreditMicrousd != CreditStarterMicrousd {
+			t.Errorf("ComputeCreditMicrousd = %d, want CreditStarterMicrousd (%d)", starter.ComputeCreditMicrousd, CreditStarterMicrousd)
+		}
+		if starter.PriceMonthlyUsd != PriceStarterMonthlyCents {
+			t.Errorf("PriceMonthlyUsd = %d, want PriceStarterMonthlyCents (%d)", starter.PriceMonthlyUsd, PriceStarterMonthlyCents)
+		}
+		if starter.OveragePerKRunsMicrousd != DefaultOveragePerKRunsMicrousd {
+			t.Errorf("OveragePerKRunsMicrousd = %d, want DefaultOveragePerKRunsMicrousd (%d)", starter.OveragePerKRunsMicrousd, DefaultOveragePerKRunsMicrousd)
+		}
+	})
+
+	t.Run("pro_uses_constants", func(t *testing.T) {
+		t.Parallel()
+		pro := GetPlanLimits(domain.PlanPro)
+		if pro.MaxRunsPerDay != DailyRunsPro {
+			t.Errorf("MaxRunsPerDay = %d, want DailyRunsPro (%d)", pro.MaxRunsPerDay, DailyRunsPro)
+		}
+		if pro.ComputeCreditMicrousd != CreditProMicrousd {
+			t.Errorf("ComputeCreditMicrousd = %d, want CreditProMicrousd (%d)", pro.ComputeCreditMicrousd, CreditProMicrousd)
+		}
+		if pro.PriceMonthlyUsd != PriceProMonthlyCents {
+			t.Errorf("PriceMonthlyUsd = %d, want PriceProMonthlyCents (%d)", pro.PriceMonthlyUsd, PriceProMonthlyCents)
+		}
+		if pro.OveragePerKRunsMicrousd != DefaultOveragePerKRunsMicrousd {
+			t.Errorf("OveragePerKRunsMicrousd = %d, want DefaultOveragePerKRunsMicrousd (%d)", pro.OveragePerKRunsMicrousd, DefaultOveragePerKRunsMicrousd)
+		}
+	})
+}
+
+func TestHTTPCostPerRunMicrousd(t *testing.T) {
+	t.Parallel()
+	if HTTPCostPerRunMicrousd != 20 {
+		t.Errorf("HTTPCostPerRunMicrousd = %d, want 20", HTTPCostPerRunMicrousd)
+	}
+}
+
 func TestAllPlansHaveEntries(t *testing.T) {
 	t.Parallel()
 	tiers := []domain.PlanTier{
