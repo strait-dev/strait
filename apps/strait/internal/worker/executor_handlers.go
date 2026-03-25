@@ -182,6 +182,16 @@ func isBudgetError(err error) bool {
 		strings.Contains(msg, "cost limit")
 }
 
+// boostPriority adds boost to current priority, capping at 10 and
+// guarding against integer overflow.
+func boostPriority(current, boost int) int {
+	boosted := current + boost
+	if boosted < current { // integer overflow
+		return 10
+	}
+	return min(boosted, 10)
+}
+
 func shouldRetryForClass(errClass string) bool {
 	switch errClass {
 	case domain.ErrorClassClient, domain.ErrorClassAuth, domain.ErrorClassBudget, domain.ErrorClassOOM:
@@ -256,7 +266,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 			"finished_at":   nil,
 		}
 		if job.RetryPriorityBoost > 0 {
-			fields["priority"] = min(run.Priority+job.RetryPriorityBoost, 10)
+			fields["priority"] = boostPriority(run.Priority, job.RetryPriorityBoost)
 		}
 		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields)
 		if err != nil {
@@ -359,14 +369,18 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 
 	if run.Attempt < policy.maxAttempts {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
-		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
+		fields := map[string]any{
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,
 			"error":         "execution timed out",
 			"error_class":   "transient",
 			"started_at":    nil,
 			"finished_at":   nil,
-		})
+		}
+		if job.RetryPriorityBoost > 0 {
+			fields["priority"] = boostPriority(run.Priority, job.RetryPriorityBoost)
+		}
+		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields)
 		if err != nil {
 			e.logger.Error(
 				"failed to re-enqueue timed out run",

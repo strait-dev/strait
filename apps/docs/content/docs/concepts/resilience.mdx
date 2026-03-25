@@ -105,6 +105,10 @@ Strait supports four retry strategies configurable per job:
 
 All strategies apply +/-20% jitter to prevent thundering herd when many runs retry simultaneously.
 
+### Priority Boost
+
+Retried runs can be boosted in queue priority via `retry_priority_boost` (default: 1). This ensures retries are dequeued before new runs at the same base priority, reducing end-to-end latency for failing jobs. Priority is capped at 10. Set `retry_priority_boost: 0` to disable.
+
 When `attempt >= max_attempts`, the run transitions to `dead_letter` instead of `failed`. Dead-lettered runs can be replayed via the DLQ management API.
 
 For detailed retry configuration, see [Retry Strategies](/docs/concepts/retry-strategies).
