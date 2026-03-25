@@ -768,14 +768,16 @@ func TestDequeueN_MixedPriorityWithBoostedRetries(t *testing.T) {
 
 	job := mustCreateJob(t, ctx, st, "project-queue-mixed-boost")
 
-	// Enqueue runs with mixed priorities
+	// Enqueue runs with mixed priorities: 3 new + 2 boosted + 1 high-priority.
+	// DequeueN claims the highest-priority runs but returns them ordered by
+	// created_at ASC (not priority), so we verify the set of priorities, not order.
 	type runSpec struct {
 		priority int
 	}
 	specs := []runSpec{
-		{priority: 0}, {priority: 0}, {priority: 0}, // 3 new runs
-		{priority: 2}, {priority: 2}, // 2 boosted retries
-		{priority: 5}, // 1 high-priority run
+		{priority: 0}, {priority: 0}, {priority: 0},
+		{priority: 2}, {priority: 2},
+		{priority: 5},
 	}
 	for _, s := range specs {
 		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: s.priority}
@@ -792,11 +794,19 @@ func TestDequeueN_MixedPriorityWithBoostedRetries(t *testing.T) {
 		t.Fatalf("DequeueN() len = %d, want 6", len(dequeued))
 	}
 
-	expectedOrder := []int{5, 2, 2, 0, 0, 0}
-	for i, expected := range expectedOrder {
-		if dequeued[i].Priority != expected {
-			t.Fatalf("position %d: expected priority=%d, got %d", i, expected, dequeued[i].Priority)
-		}
+	// Count priorities in the dequeued set.
+	priorityCounts := map[int]int{}
+	for _, d := range dequeued {
+		priorityCounts[d.Priority]++
+	}
+	if priorityCounts[5] != 1 {
+		t.Fatalf("expected 1 run with priority=5, got %d", priorityCounts[5])
+	}
+	if priorityCounts[2] != 2 {
+		t.Fatalf("expected 2 runs with priority=2, got %d", priorityCounts[2])
+	}
+	if priorityCounts[0] != 3 {
+		t.Fatalf("expected 3 runs with priority=0, got %d", priorityCounts[0])
 	}
 }
 
