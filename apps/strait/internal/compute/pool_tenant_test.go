@@ -56,9 +56,9 @@ func TestPoolKey_NullByteSeparator(t *testing.T) {
 		}
 	}
 
-	// Verify the separator is null byte.
-	if !strings.Contains(k1, "\x00") {
-		t.Fatalf("expected null byte separator in key, got %q", k1)
+	// Verify the key is a hex-encoded SHA-256 hash (64 chars).
+	if len(k1) != 64 {
+		t.Fatalf("expected 64-char hex hash key, got %d chars: %q", len(k1), k1)
 	}
 }
 

@@ -31,10 +31,10 @@ func TestPool_CrossProjectSameImage(t *testing.T) {
 		t.Fatalf("expected m-projectA, got %q ok=%v", id, ok)
 	}
 
-	// Verify that PoolKey includes the project identifier.
+	// Verify that PoolKey returns a 64-char hex SHA-256 hash.
 	key := PoolKey("project-A", "myapp:v1", "iad")
-	if !strings.Contains(key, "project-A") {
-		t.Fatalf("PoolKey should contain project identifier, got %q", key)
+	if len(key) != 64 {
+		t.Fatalf("PoolKey should be a 64-char hex hash, got %d chars: %q", len(key), key)
 	}
 }
 
@@ -57,10 +57,10 @@ func TestPool_EnvironmentCleanupOnReuse(t *testing.T) {
 
 	// The pool entry (poolEntry) has no Env field, so no stale environment
 	// leaks through the pool itself. The caller must supply fresh env on
-	// Start(). Verify key uses null byte separator.
+	// Start(). Verify key is a 64-char hex SHA-256 hash.
 	key := PoolKey("proj-1", "myapp:v1", "iad")
-	if key != "proj-1\x00myapp:v1\x00iad" {
-		t.Fatalf("unexpected pool key format: %q", key)
+	if len(key) != 64 {
+		t.Fatalf("expected 64-char hex hash key, got %d chars: %q", len(key), key)
 	}
 }
 
@@ -265,15 +265,15 @@ func FuzzPoolKey(f *testing.F) {
 		// Must not panic regardless of input.
 		key := PoolKey(projectID, image, region)
 
-		// Key must contain all inputs when they are non-empty.
-		if projectID != "" && !strings.Contains(key, projectID) {
-			t.Errorf("key %q does not contain projectID %q", key, projectID)
+		// Key must be a 64-char hex SHA-256 hash.
+		if len(key) != 64 {
+			t.Errorf("expected 64-char hex hash, got %d chars: %q", len(key), key)
 		}
-		if image != "" && !strings.Contains(key, image) {
-			t.Errorf("key %q does not contain image %q", key, image)
-		}
-		if region != "" && !strings.Contains(key, region) {
-			t.Errorf("key %q does not contain region %q", key, region)
+
+		// Same inputs must always produce the same key.
+		key2 := PoolKey(projectID, image, region)
+		if key != key2 {
+			t.Errorf("same inputs produced different keys: %q vs %q", key, key2)
 		}
 
 		// Key must be usable as a map key without issues.

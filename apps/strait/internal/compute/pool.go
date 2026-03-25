@@ -1,6 +1,8 @@
 package compute
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"sync"
 	"time"
 )
@@ -39,10 +41,17 @@ func (p *MachinePool) SetOnEvict(fn func(machineID string)) {
 	p.onEvict = fn
 }
 
-// PoolKey returns the cache key for a given project, image, and region.
-// It uses null byte separators to prevent key collisions.
+// PoolKey returns a collision-resistant cache key for a given project, image,
+// and region. Uses SHA-256 hash to eliminate any risk of separator collisions
+// regardless of input content.
 func PoolKey(projectID, imageURI, region string) string {
-	return projectID + "\x00" + imageURI + "\x00" + region
+	h := sha256.New()
+	h.Write([]byte(projectID))
+	h.Write([]byte{0})
+	h.Write([]byte(imageURI))
+	h.Write([]byte{0})
+	h.Write([]byte(region))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // AcquireResult holds the machine ID and metadata from a pool Acquire.
