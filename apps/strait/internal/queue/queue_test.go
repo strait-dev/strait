@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -478,5 +479,12 @@ func TestLoad_DefaultStatementTimeout(t *testing.T) {
 	q := NewPostgresQueue(&mockDBTX{}, WithStatementTimeout(30*time.Second))
 	if q.statementTimeout != 30*time.Second {
 		t.Fatalf("expected 30s, got %v", q.statementTimeout)
+	}
+}
+
+func TestCopyFromColumnsIncludesMetadata(t *testing.T) {
+	t.Parallel()
+	if !slices.Contains(copyFromColumns, "metadata") {
+		t.Fatalf("copyFromColumns does not contain \"metadata\"; columns = %v", copyFromColumns)
 	}
 }

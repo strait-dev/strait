@@ -1,0 +1,311 @@
+package worker
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"testing"
+
+	"strait/internal/domain"
+)
+
+func TestHTTPDispatch_InjectsTraceparentHeader(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var capturedHeaders http.Header
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedHeaders = r.Header.Clone()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client()}
+
+	run := &domain.JobRun{
+		ID:      "run-1",
+		JobID:   "job-1",
+		Attempt: 1,
+		Metadata: map[string]string{
+			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+		},
+	}
+
+	_, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, nil)
+	if err != nil {
+		t.Fatalf("dispatchToEndpoint returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	got := capturedHeaders.Get("Traceparent")
+	if got != "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01" {
+		t.Errorf("Traceparent header = %q, want %q", got, "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01")
+	}
+}
+
+func TestHTTPDispatch_InjectsTracestateHeader(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var capturedHeaders http.Header
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedHeaders = r.Header.Clone()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client()}
+
+	run := &domain.JobRun{
+		ID:      "run-1",
+		JobID:   "job-1",
+		Attempt: 1,
+		Metadata: map[string]string{
+			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+			"_trace_state":  "congo=t61rcWkgMzE",
+		},
+	}
+
+	_, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, nil)
+	if err != nil {
+		t.Fatalf("dispatchToEndpoint returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if tp := capturedHeaders.Get("Traceparent"); tp != "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01" {
+		t.Errorf("Traceparent header = %q, want traceparent value", tp)
+	}
+	if ts := capturedHeaders.Get("Tracestate"); ts != "congo=t61rcWkgMzE" {
+		t.Errorf("Tracestate header = %q, want %q", ts, "congo=t61rcWkgMzE")
+	}
+}
+
+func TestHTTPDispatch_NoTraceMetadata(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var capturedHeaders http.Header
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedHeaders = r.Header.Clone()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client()}
+
+	run := &domain.JobRun{
+		ID:       "run-1",
+		JobID:    "job-1",
+		Attempt:  1,
+		Metadata: map[string]string{"some_key": "some_value"},
+	}
+
+	_, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, nil)
+	if err != nil {
+		t.Fatalf("dispatchToEndpoint returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if tp := capturedHeaders.Get("Traceparent"); tp != "" {
+		t.Errorf("expected no Traceparent header, got %q", tp)
+	}
+	if ts := capturedHeaders.Get("Tracestate"); ts != "" {
+		t.Errorf("expected no Tracestate header, got %q", ts)
+	}
+}
+
+func TestHTTPDispatch_EmptyTraceParent(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var capturedHeaders http.Header
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedHeaders = r.Header.Clone()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client()}
+
+	run := &domain.JobRun{
+		ID:      "run-1",
+		JobID:   "job-1",
+		Attempt: 1,
+		Metadata: map[string]string{
+			"_trace_parent": "",
+		},
+	}
+
+	_, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, nil)
+	if err != nil {
+		t.Fatalf("dispatchToEndpoint returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if tp := capturedHeaders.Get("Traceparent"); tp != "" {
+		t.Errorf("expected no Traceparent header when _trace_parent is empty, got %q", tp)
+	}
+}
+
+func TestHTTPDispatch_NilMetadata(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var capturedHeaders http.Header
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedHeaders = r.Header.Clone()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client()}
+
+	run := &domain.JobRun{
+		ID:       "run-1",
+		JobID:    "job-1",
+		Attempt:  1,
+		Metadata: nil,
+	}
+
+	_, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, nil)
+	if err != nil {
+		t.Fatalf("dispatchToEndpoint returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if tp := capturedHeaders.Get("Traceparent"); tp != "" {
+		t.Errorf("expected no Traceparent header when metadata is nil, got %q", tp)
+	}
+	if ts := capturedHeaders.Get("Tracestate"); ts != "" {
+		t.Errorf("expected no Tracestate header when metadata is nil, got %q", ts)
+	}
+}
+
+func TestHTTPDispatch_TraceHeadersCoexistWithExtraHeaders(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var capturedHeaders http.Header
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedHeaders = r.Header.Clone()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client()}
+
+	run := &domain.JobRun{
+		ID:      "run-1",
+		JobID:   "job-1",
+		Attempt: 1,
+		Metadata: map[string]string{
+			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+		},
+	}
+
+	extraHeaders := map[string]string{
+		"X-Custom-Header": "custom-value",
+	}
+
+	_, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, extraHeaders)
+	if err != nil {
+		t.Fatalf("dispatchToEndpoint returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if tp := capturedHeaders.Get("Traceparent"); tp != "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01" {
+		t.Errorf("Traceparent header = %q, want traceparent value", tp)
+	}
+	if ch := capturedHeaders.Get("X-Custom-Header"); ch != "custom-value" {
+		t.Errorf("X-Custom-Header = %q, want %q", ch, "custom-value")
+	}
+}
+
+func TestHTTPDispatch_NonTraceMetadataNotLeaked(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var capturedHeaders http.Header
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedHeaders = r.Header.Clone()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client()}
+
+	run := &domain.JobRun{
+		ID:      "run-1",
+		JobID:   "job-1",
+		Attempt: 1,
+		Metadata: map[string]string{
+			"secret":        "super-secret-value",
+			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+		},
+	}
+
+	_, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, nil)
+	if err != nil {
+		t.Fatalf("dispatchToEndpoint returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if v := capturedHeaders.Get("Secret"); v != "" {
+		t.Errorf("non-trace metadata 'secret' leaked as header: %q", v)
+	}
+	if _, ok := capturedHeaders["Secret"]; ok {
+		t.Error("non-trace metadata 'secret' should not appear as a request header")
+	}
+	if tp := capturedHeaders.Get("Traceparent"); tp != "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01" {
+		t.Errorf("Traceparent header = %q, want traceparent value", tp)
+	}
+}

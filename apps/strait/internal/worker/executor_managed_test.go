@@ -3696,3 +3696,206 @@ func TestManagedDispatch_RecommendationLowerThanCurrent(t *testing.T) {
 		t.Errorf("expected current preset small-2x (recommendation ignored), got %s", preset)
 	}
 }
+
+// Trace propagation env var tests.
+
+func TestManagedDispatch_InjectsTraceparent(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedEnv map[string]string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Metadata = map[string]string{
+		"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+	}
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedEnv == nil {
+		t.Fatal("expected createFn to be called and env captured")
+	}
+	got, ok := capturedEnv["TRACEPARENT"]
+	if !ok {
+		t.Fatal("expected TRACEPARENT env var to be set")
+	}
+	if got != "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01" {
+		t.Errorf("TRACEPARENT = %q, want %q", got, "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01")
+	}
+}
+
+func TestManagedDispatch_InjectsTracestate(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedEnv map[string]string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Metadata = map[string]string{
+		"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+		"_trace_state":  "congo=t61rcWkgMzE",
+	}
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedEnv == nil {
+		t.Fatal("expected createFn to be called and env captured")
+	}
+	if tp := capturedEnv["TRACEPARENT"]; tp != "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01" {
+		t.Errorf("TRACEPARENT = %q, want traceparent value", tp)
+	}
+	if ts := capturedEnv["TRACESTATE"]; ts != "congo=t61rcWkgMzE" {
+		t.Errorf("TRACESTATE = %q, want %q", ts, "congo=t61rcWkgMzE")
+	}
+}
+
+func TestManagedDispatch_NoTraceContext(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedEnv map[string]string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Metadata = nil
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedEnv == nil {
+		t.Fatal("expected createFn to be called and env captured")
+	}
+	if _, ok := capturedEnv["TRACEPARENT"]; ok {
+		t.Error("expected TRACEPARENT not to be set when metadata is nil")
+	}
+	if _, ok := capturedEnv["TRACESTATE"]; ok {
+		t.Error("expected TRACESTATE not to be set when metadata is nil")
+	}
+}
+
+func TestManagedDispatch_EmptyTraceParent(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedEnv map[string]string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Metadata = map[string]string{
+		"_trace_parent": "",
+	}
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedEnv == nil {
+		t.Fatal("expected createFn to be called and env captured")
+	}
+	if _, ok := capturedEnv["TRACEPARENT"]; ok {
+		t.Error("expected TRACEPARENT not to be set when _trace_parent is empty")
+	}
+}
+
+func TestManagedDispatch_NonTraceMetadataNotLeaked(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedEnv map[string]string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Metadata = map[string]string{
+		"custom_key":    "secret",
+		"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+	}
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedEnv == nil {
+		t.Fatal("expected createFn to be called and env captured")
+	}
+	if _, ok := capturedEnv["custom_key"]; ok {
+		t.Error("non-trace metadata key 'custom_key' should not be leaked into container env")
+	}
+	if _, ok := capturedEnv["CUSTOM_KEY"]; ok {
+		t.Error("non-trace metadata key 'CUSTOM_KEY' should not be leaked into container env")
+	}
+	if _, ok := capturedEnv["TRACEPARENT"]; !ok {
+		t.Error("expected TRACEPARENT to be set")
+	}
+}
