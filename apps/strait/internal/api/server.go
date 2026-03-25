@@ -512,6 +512,7 @@ type BillingEnforcer interface {
 	CheckProjectBudgetLimit(ctx context.Context, projectID string) error
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
+	GetOrgPlanLimits(ctx context.Context, orgID string) (billing.OrgPlanLimits, error)
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
 }
 

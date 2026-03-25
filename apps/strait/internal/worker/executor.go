@@ -117,6 +117,7 @@ type Executor struct {
 	externalAPIURL           string
 	defaultFlyRegion         string
 	billingEnforcer          *billing.Enforcer
+	polarIngester            *billing.PolarEventIngester
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -164,7 +165,8 @@ type ExecutorConfig struct {
 	WarmPoolMaxPerJob          int
 	WorkflowLookup             WorkflowLookup
 	WorkflowTriggerer          WorkflowTriggerer
-	BillingEnforcer            *billing.Enforcer // Optional: org-level billing enforcement (cloud only).
+	BillingEnforcer            *billing.Enforcer           // Optional: org-level billing enforcement (cloud only).
+	PolarIngester              *billing.PolarEventIngester // Optional: Polar usage event ingestion (cloud only).
 }
 
 const (
@@ -265,6 +267,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		externalAPIURL:           cfg.ExternalAPIURL,
 		defaultFlyRegion:         cfg.DefaultFlyRegion,
 		billingEnforcer:          cfg.BillingEnforcer,
+		polarIngester:            cfg.PolarIngester,
 		healthScorer:             NewHealthScorer(cfg.Store),
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, slog.Default()),
 		stop:                     make(chan struct{}),

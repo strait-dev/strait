@@ -198,6 +198,16 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
+		// Gate HTTP mode to Pro+ on cloud edition.
+		if s.edition.RequiresHTTPModeGating() && s.billingEnforcer != nil {
+			orgID, orgErr := s.billingEnforcer.GetProjectOrgID(ctx, req.ProjectID)
+			if orgErr == nil && orgID != "" {
+				limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+				if limErr == nil && !limits.AllowsHTTPMode {
+					return nil, huma.Error400BadRequest("HTTP execution mode requires the Pro plan ($49.99/mo). Upgrade at /settings/billing")
+				}
+			}
+		}
 	}
 
 	job := &domain.Job{

@@ -54,6 +54,10 @@ func (m *mockBillingEnforcer) CheckProjectBudgetLimit(_ context.Context, _ strin
 	return nil
 }
 
+func (m *mockBillingEnforcer) GetOrgPlanLimits(_ context.Context, _ string) (billing.OrgPlanLimits, error) {
+	return billing.GetPlanLimits(domain.PlanFree), nil
+}
+
 func (m *mockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
 
 type mockUsageService struct {
