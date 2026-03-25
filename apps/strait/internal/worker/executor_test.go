@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -3087,6 +3088,713 @@ func TestHandleFailure_DefaultBoostIsOne(t *testing.T) {
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 1 {
 		t.Fatalf("expected priority=1 (0+1 default boost), got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_BoostFromMaxPriority(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 2
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 10
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition (executing -> queued)")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 10 {
+		t.Fatalf("expected priority=10 (already at max), got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_BoostExactlyToMax(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 2
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 8
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 10 {
+		t.Fatalf("expected priority=10 (8+2 exactly at max), got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_LargeBoostValue(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 10
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 0
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 10 {
+		t.Fatalf("expected priority=10 (0+10 capped at max), got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_BoostOnHighAttempt(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{
+		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
+			return "transient", nil // different from "server" so poison pill doesn't trigger
+		},
+	}
+	job := testJob(server.URL, 6, 5)
+	job.RetryPriorityBoost = 1
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(4) // high attempt, still retryable
+	run.Priority = 2
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition on high attempt")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 3 {
+		t.Fatalf("expected priority=3 (2+1), got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_BoostNotAppliedWhenPoisonPill(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
+			return "server", nil // same class triggers poison pill
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Priority: 3}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected at least one status update")
+	}
+	last := calls[len(calls)-1]
+	if last.to != domain.StatusDeadLetter {
+		t.Errorf("expected dead_letter due to poison pill, got %s", last.to)
+	}
+	if _, ok := last.fields["priority"]; ok {
+		t.Error("expected no priority field when poison pill triggers")
+	}
+}
+
+func TestHandleFailure_BoostAppliedWhenPoisonPillNotTriggered(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
+			return "transient", nil // different class from "server"
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Priority: 3}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition when poison pill doesn't trigger")
+	}
+	gotPriority, ok := retryCall.fields["priority"].(int)
+	if !ok {
+		t.Fatal("expected priority field in retry")
+	}
+	if gotPriority != 5 {
+		t.Fatalf("expected priority=5 (3+2), got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_BoostNotAppliedOnLastAttempt(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 2
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(3) // last attempt
+	run.Priority = 3
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	// Should go to dead_letter, not queued
+	for _, c := range calls {
+		if c.to == domain.StatusQueued {
+			t.Fatal("should not retry on last attempt")
+		}
+	}
+	foundDL := false
+	for _, c := range calls {
+		if c.to == domain.StatusDeadLetter {
+			foundDL = true
+			break
+		}
+	}
+	if !foundDL {
+		t.Fatal("expected dead_letter on last attempt")
+	}
+}
+
+func TestHandleFailure_BoostWithNonRetryableError(t *testing.T) {
+	t.Parallel()
+
+	// 400 status code -> client error class -> non-retryable
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`bad request`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 2
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 3
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	for _, c := range calls {
+		if c.to == domain.StatusQueued {
+			t.Fatal("should not retry on non-retryable client error")
+		}
+	}
+	foundDL := false
+	for _, c := range calls {
+		if c.to == domain.StatusDeadLetter {
+			foundDL = true
+			break
+		}
+	}
+	if !foundDL {
+		t.Fatal("expected dead_letter for non-retryable error")
+	}
+}
+
+// handleTimeout boost tests.
+
+func TestHandleTimeout_RetryBoostsPriority(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := newSnoozeTestExecutor(t, store, 0)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	run.Priority = 3
+	job := testJob("http://localhost", 3, 30)
+	job.RetryPriorityBoost = 2
+	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+
+	exec.handleTimeout(context.Background(), run, job, policy, nil)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition (executing -> queued)")
+	}
+	gotPriority, ok := retryCall.fields["priority"].(int)
+	if !ok {
+		t.Fatalf("expected priority field in timeout retry, got %v", retryCall.fields["priority"])
+	}
+	if gotPriority != 5 {
+		t.Fatalf("expected priority=5 (3+2), got %d", gotPriority)
+	}
+}
+
+func TestHandleTimeout_RetryPriorityCappedAt10(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := newSnoozeTestExecutor(t, store, 0)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	run.Priority = 9
+	job := testJob("http://localhost", 3, 30)
+	job.RetryPriorityBoost = 3
+	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+
+	exec.handleTimeout(context.Background(), run, job, policy, nil)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 10 {
+		t.Fatalf("expected priority capped at 10, got %d", gotPriority)
+	}
+}
+
+func TestHandleTimeout_ZeroBoostNoChange(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := newSnoozeTestExecutor(t, store, 0)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	run.Priority = 3
+	job := testJob("http://localhost", 3, 30)
+	job.RetryPriorityBoost = 0
+	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+
+	exec.handleTimeout(context.Background(), run, job, policy, nil)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	if _, ok := retryCall.fields["priority"]; ok {
+		t.Fatal("expected no priority field when boost is 0")
+	}
+}
+
+func TestHandleTimeout_BoostFromMaxPriority(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := newSnoozeTestExecutor(t, store, 0)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	run.Priority = 10
+	job := testJob("http://localhost", 3, 30)
+	job.RetryPriorityBoost = 1
+	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+
+	exec.handleTimeout(context.Background(), run, job, policy, nil)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 10 {
+		t.Fatalf("expected priority=10 (already at max), got %d", gotPriority)
+	}
+}
+
+func TestHandleTimeout_BoostNotAppliedOnLastAttempt(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := newSnoozeTestExecutor(t, store, 0)
+
+	run := testRun(3) // last attempt
+	run.Status = domain.StatusExecuting
+	run.Priority = 3
+	job := testJob("http://localhost", 3, 30)
+	job.RetryPriorityBoost = 2
+	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+
+	exec.handleTimeout(context.Background(), run, job, policy, nil)
+
+	calls := store.statusUpdates()
+	for _, c := range calls {
+		if c.to == domain.StatusQueued {
+			t.Fatal("should not retry on last attempt")
+		}
+	}
+	foundTimeout := false
+	for _, c := range calls {
+		if c.to == domain.StatusTimedOut {
+			foundTimeout = true
+			break
+		}
+	}
+	if !foundTimeout {
+		t.Fatal("expected timed_out status on last attempt")
+	}
+}
+
+// Cumulative boost simulation tests.
+
+func TestHandleFailure_CumulativeBoostAcrossRetries(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2, MaxAttempts: 6}
+	policy := executionPolicy{maxAttempts: 6, timeoutSecs: 30}
+	expectedPriorities := []int{2, 4, 6, 8, 10}
+
+	priority := 0
+	for i, expected := range expectedPriorities {
+		store.mu.Lock()
+		store.statusCalls = nil
+		store.mu.Unlock()
+
+		run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: i + 1, Priority: priority}
+		exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+		calls := store.statusUpdates()
+		var retryCall *statusUpdateCall
+		for j, c := range calls {
+			if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+				retryCall = &calls[j]
+				break
+			}
+		}
+		if retryCall == nil {
+			t.Fatalf("attempt %d: expected retry transition", i+1)
+		}
+		gotPriority := retryCall.fields["priority"].(int)
+		if gotPriority != expected {
+			t.Fatalf("attempt %d: expected priority=%d, got %d", i+1, expected, gotPriority)
+		}
+		priority = gotPriority
+	}
+}
+
+func TestHandleFailure_CumulativeBoostWithBoostOne(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 1, MaxAttempts: 5}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	expectedPriorities := []int{1, 2, 3}
+
+	priority := 0
+	for i, expected := range expectedPriorities {
+		store.mu.Lock()
+		store.statusCalls = nil
+		store.mu.Unlock()
+
+		run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: i + 1, Priority: priority}
+		exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+		calls := store.statusUpdates()
+		var retryCall *statusUpdateCall
+		for j, c := range calls {
+			if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+				retryCall = &calls[j]
+				break
+			}
+		}
+		if retryCall == nil {
+			t.Fatalf("attempt %d: expected retry transition", i+1)
+		}
+		gotPriority := retryCall.fields["priority"].(int)
+		if gotPriority != expected {
+			t.Fatalf("attempt %d: expected priority=%d, got %d", i+1, expected, gotPriority)
+		}
+		priority = gotPriority
+	}
+}
+
+func TestHandleTimeout_CumulativeBoostAcrossRetries(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 3, MaxAttempts: 5}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	expectedPriorities := []int{3, 6, 9, 10}
+
+	priority := 0
+	for i, expected := range expectedPriorities {
+		store.mu.Lock()
+		store.statusCalls = nil
+		store.mu.Unlock()
+
+		run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: i + 1, Priority: priority, Status: domain.StatusExecuting}
+		exec.handleTimeout(context.Background(), run, job, policy, nil)
+
+		calls := store.statusUpdates()
+		var retryCall *statusUpdateCall
+		for j, c := range calls {
+			if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+				retryCall = &calls[j]
+				break
+			}
+		}
+		if retryCall == nil {
+			t.Fatalf("attempt %d: expected retry transition", i+1)
+		}
+		gotPriority := retryCall.fields["priority"].(int)
+		if gotPriority != expected {
+			t.Fatalf("attempt %d: expected priority=%d, got %d", i+1, expected, gotPriority)
+		}
+		priority = gotPriority
+	}
+}
+
+// Adversarial and edge case tests.
+
+func TestHandleFailure_BoostWithMaxIntPriority(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1, Priority: math.MaxInt}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 1, MaxAttempts: 3}
+	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 10 {
+		t.Fatalf("expected priority capped at 10 even with MaxInt input, got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_BoostDoesNotMutateOriginalRun(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1, Priority: 3}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 5, MaxAttempts: 3}
+	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	// The in-memory run struct should NOT be mutated
+	if run.Priority != 3 {
+		t.Fatalf("expected run.Priority to remain 3 (not mutated), got %d", run.Priority)
+	}
+}
+
+func TestHandleTimeout_BoostFieldsMapIsolation(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2, MaxAttempts: 5}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+
+	// Two consecutive timeout retries should each have their own fields map
+	run1 := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1, Priority: 0, Status: domain.StatusExecuting}
+	exec.handleTimeout(context.Background(), run1, job, policy, nil)
+
+	run2 := &domain.JobRun{ID: "run-2", JobID: "job-1", Attempt: 1, Priority: 5, Status: domain.StatusExecuting}
+	exec.handleTimeout(context.Background(), run2, job, policy, nil)
+
+	calls := store.statusUpdates()
+	var priorities []int
+	for _, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			if p, ok := c.fields["priority"].(int); ok {
+				priorities = append(priorities, p)
+			}
+		}
+	}
+	if len(priorities) != 2 {
+		t.Fatalf("expected 2 retry calls with priority, got %d", len(priorities))
+	}
+	if priorities[0] != 2 {
+		t.Fatalf("first retry: expected priority=2 (0+2), got %d", priorities[0])
+	}
+	if priorities[1] != 7 {
+		t.Fatalf("second retry: expected priority=7 (5+2), got %d", priorities[1])
 	}
 }
 
