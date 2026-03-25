@@ -8,14 +8,8 @@ const (
 	EditionCloud     Edition = "cloud"
 )
 
-// ParseEdition normalizes a string into a known Edition value.
-// Unknown values default to EditionCommunity.
-func ParseEdition(s string) Edition {
-	if s == "cloud" {
-		return EditionCloud
-	}
-	return EditionCommunity
-}
+// ParseEdition is defined in edition_community.go (default) or
+// edition_cloud.go (when built with -tags cloud).
 
 // AllowsManagedExecution returns true when managed container execution is available.
 func (e Edition) AllowsManagedExecution() bool { return e == EditionCloud }

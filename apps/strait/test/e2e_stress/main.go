@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -1422,6 +1423,26 @@ func envInt(key string, def int) int {
 
 func main() {
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
+
+	// CLI flags override env vars.
+	flagTarget := flag.String("target", "", "Strait API URL (overrides STRAIT_URL)")
+	flagSecret := flag.String("secret", "", "Internal secret (overrides INTERNAL_SECRET)")
+	flagIters := flag.Int("iterations", 0, "Number of iterations (overrides ITERATIONS)")
+	flagConc := flag.Int("concurrency", 0, "Concurrency level (overrides CONCURRENCY)")
+	flag.Parse()
+
+	if *flagTarget != "" {
+		straitURL = *flagTarget
+	}
+	if *flagSecret != "" {
+		internalSecret = *flagSecret
+	}
+	if *flagIters > 0 {
+		iterations = *flagIters
+	}
+	if *flagConc > 0 {
+		concurrency = *flagConc
+	}
 
 	phase := envOr("PHASE", "1")
 	log.Printf("=== Strait E2E Stress Test (Phase %s) ===", phase)

@@ -1,0 +1,91 @@
+# Strait Self-Hosted Deployment
+#
+# Quick start:
+#   1. ./scripts/selfhost-init.sh   (generates secrets)
+#   2. docker compose -f docker-compose.selfhost.yml up -d
+#   3. curl http://localhost:8080/health
+#
+# See SELFHOST.md for full documentation.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: strait
+      POSTGRES_PASSWORD: strait
+      POSTGRES_DB: strait
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U strait -d strait"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  sequin:
+    image: sequin/sequin:latest
+    ports:
+      - "7376:7376"
+    environment:
+      PG_HOSTNAME: postgres
+      PG_PORT: "5432"
+      PG_USERNAME: strait
+      PG_PASSWORD: strait
+      PG_DATABASE: strait
+      SECRET_KEY_BASE: ${SEQUIN_SECRET_KEY_BASE}
+      VAULT_KEY: ${SEQUIN_VAULT_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7376/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  strait:
+    image: ghcr.io/strait-dev/strait:latest
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.selfhost
+    environment:
+      # Core.
+      STRAIT_EDITION: community
+      DATABASE_URL: postgres://strait:strait@postgres:5432/strait?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      MODE: all
+      PORT: "8080"
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+      MIGRATION_MODE: auto
+      ALLOW_PRIVATE_ENDPOINTS: "true"
+      # Worker.
+      WORKER_CONCURRENCY: "25"
+      # Sequin CDC.
+      SEQUIN_BASE_URL: http://sequin:7376
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sequin:
+        condition: service_healthy
+
+volumes:
+  pgdata:

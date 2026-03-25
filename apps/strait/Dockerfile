@@ -13,7 +13,9 @@ COPY . .
 ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown
+ARG BUILD_TAGS=""
 RUN CGO_ENABLED=0 GOOS=linux go build \
+    -tags "${BUILD_TAGS}" \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o /strait ./cmd/strait
 
