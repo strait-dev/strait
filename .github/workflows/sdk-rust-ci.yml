@@ -1,0 +1,48 @@
+name: SDK Rust CI
+
+on:
+  push:
+    paths:
+      - "packages/rust-sdk/**"
+  pull_request:
+    paths:
+      - "packages/rust-sdk/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-rust-ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/rust-sdk
+
+      - name: Format check
+        working-directory: packages/rust-sdk
+        run: cargo fmt -- --check
+
+      - name: Clippy
+        working-directory: packages/rust-sdk
+        run: cargo clippy -- -D warnings
+
+      - name: Build
+        working-directory: packages/rust-sdk
+        run: cargo build
+
+      - name: Test
+        working-directory: packages/rust-sdk
+        run: cargo test

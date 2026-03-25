@@ -1,0 +1,34 @@
+name: SDK Ruby CI
+
+on:
+  push:
+    paths:
+      - "packages/ruby-sdk/**"
+  pull_request:
+    paths:
+      - "packages/ruby-sdk/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-ruby-ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: packages/ruby-sdk
+
+      - name: Test
+        working-directory: packages/ruby-sdk
+        run: bundle exec rspec

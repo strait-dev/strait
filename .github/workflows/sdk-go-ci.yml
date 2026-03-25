@@ -1,0 +1,50 @@
+name: SDK Go CI
+
+on:
+  push:
+    paths:
+      - "packages/go-sdk/**"
+  pull_request:
+    paths:
+      - "packages/go-sdk/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-go-ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: |
+            packages/go-sdk/go.sum
+
+      - name: Build
+        working-directory: packages/go-sdk
+        run: go build ./...
+
+      - name: Vet
+        working-directory: packages/go-sdk
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.1
+          working-directory: packages/go-sdk
+          args: --timeout=5m ./...
+
+      - name: Test
+        working-directory: packages/go-sdk
+        run: go test -race ./...
