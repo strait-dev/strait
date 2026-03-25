@@ -42,6 +42,7 @@ type CreateJobRequest struct {
 	RunTTLSecs           int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
 	RetryStrategy        string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
 	RetryDelaysSecs      []int             `json:"retry_delays_secs,omitempty"`
+	RetryPriorityBoost   int               `json:"retry_priority_boost,omitempty" validate:"omitempty,min=0,max=10"`
 	EnvironmentID        string            `json:"environment_id,omitempty"`
 	VersionPolicy        string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 	DefaultRunMetadata   map[string]string `json:"default_run_metadata,omitempty"`
@@ -80,6 +81,7 @@ type UpdateJobRequest struct {
 	RunTTLSecs           *int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
 	RetryStrategy        *string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
 	RetryDelaysSecs      *[]int             `json:"retry_delays_secs,omitempty"`
+	RetryPriorityBoost   *int               `json:"retry_priority_boost,omitempty" validate:"omitempty,min=0,max=10"`
 	EnvironmentID        *string            `json:"environment_id,omitempty"`
 	Enabled              *bool              `json:"enabled,omitempty"`
 	VersionPolicy        *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
@@ -138,6 +140,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	}
 	if req.TimeoutSecs == 0 {
 		req.TimeoutSecs = s.defaultJobTimeoutSecs()
+	}
+	if req.RetryPriorityBoost == 0 {
+		req.RetryPriorityBoost = 1
 	}
 
 	if req.Cron != "" {
@@ -225,6 +230,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		RunTTLSecs:           req.RunTTLSecs,
 		RetryStrategy:        req.RetryStrategy,
 		RetryDelaysSecs:      req.RetryDelaysSecs,
+		RetryPriorityBoost:   req.RetryPriorityBoost,
 		EnvironmentID:        req.EnvironmentID,
 		DefaultRunMetadata:   req.DefaultRunMetadata,
 		ResultSchema:         req.ResultSchema,
@@ -464,6 +470,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	if req.RetryDelaysSecs != nil {
 		job.RetryDelaysSecs = *req.RetryDelaysSecs
 	}
+	if req.RetryPriorityBoost != nil {
+		job.RetryPriorityBoost = *req.RetryPriorityBoost
+	}
 	if req.EnvironmentID != nil {
 		job.EnvironmentID = *req.EnvironmentID
 	}
@@ -638,8 +647,13 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		RunTTLSecs:           source.RunTTLSecs,
 		RetryStrategy:        source.RetryStrategy,
 		RetryDelaysSecs:      source.RetryDelaysSecs,
+		RetryPriorityBoost:   source.RetryPriorityBoost,
 		EnvironmentID:        source.EnvironmentID,
 		DefaultRunMetadata:   source.DefaultRunMetadata,
+		ResultSchema:         source.ResultSchema,
+		DebounceWindowSecs:   source.DebounceWindowSecs,
+		BatchWindowSecs:      source.BatchWindowSecs,
+		BatchMaxSize:         source.BatchMaxSize,
 		Enabled:              true,
 		VersionPolicy:        source.VersionPolicy,
 		BackwardsCompatible:  source.BackwardsCompatible,
@@ -789,6 +803,9 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 		if jobReq.TimeoutSecs == 0 {
 			jobReq.TimeoutSecs = s.defaultJobTimeoutSecs()
 		}
+		if jobReq.RetryPriorityBoost == 0 {
+			jobReq.RetryPriorityBoost = 1
+		}
 
 		if len(jobReq.Tags) > 0 {
 			if err := validateTags(jobReq.Tags); err != nil {
@@ -831,6 +848,7 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			RunTTLSecs:          jobReq.RunTTLSecs,
 			RetryStrategy:       jobReq.RetryStrategy,
 			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
+			RetryPriorityBoost:  jobReq.RetryPriorityBoost,
 			EnvironmentID:       jobReq.EnvironmentID,
 			Region:              jobReq.Region,
 			PreferredRegions:    jobReq.PreferredRegions,

@@ -685,6 +685,231 @@ func TestDequeueN_EmptyTags(t *testing.T) {
 	}
 }
 
+// Retry priority boost integration tests.
+
+func TestDequeue_RetryPriorityBoostOrdering(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-retry-boost-ordering")
+
+	// Enqueue 5 "new" runs at priority 0
+	for range 5 {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 0}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue() error = %v", err)
+		}
+	}
+
+	// Enqueue 1 "retried" run at priority 2 (simulating boost after 1 retry with boost=2)
+	boostedID := newID()
+	boostedRun := &domain.JobRun{ID: boostedID, JobID: job.ID, ProjectID: job.ProjectID, Priority: 2}
+	if err := q.Enqueue(ctx, boostedRun); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	// Dequeue should return the boosted run first
+	dequeued, err := q.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("Dequeue() error = %v", err)
+	}
+	if dequeued == nil {
+		t.Fatal("Dequeue() returned nil")
+	}
+	if dequeued.ID != boostedID {
+		t.Fatalf("expected boosted run %s to dequeue first, got %s", boostedID, dequeued.ID)
+	}
+	if dequeued.Priority != 2 {
+		t.Fatalf("expected priority=2, got %d", dequeued.Priority)
+	}
+}
+
+func TestDequeue_RetryBoostDoesNotJumpHigherPriority(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-boost-no-jump")
+
+	// High-priority new run
+	highPriorityID := newID()
+	highRun := &domain.JobRun{ID: highPriorityID, JobID: job.ID, ProjectID: job.ProjectID, Priority: 5}
+	if err := q.Enqueue(ctx, highRun); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	// Boosted retry run at lower priority
+	boostedRun := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 2}
+	if err := q.Enqueue(ctx, boostedRun); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	// Natural high-priority run should still win
+	dequeued, err := q.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("Dequeue() error = %v", err)
+	}
+	if dequeued.ID != highPriorityID {
+		t.Fatalf("expected high-priority run %s to dequeue first, got %s", highPriorityID, dequeued.ID)
+	}
+	if dequeued.Priority != 5 {
+		t.Fatalf("expected priority=5, got %d", dequeued.Priority)
+	}
+}
+
+func TestDequeueN_MixedPriorityWithBoostedRetries(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-mixed-boost")
+
+	// Enqueue runs with mixed priorities: 3 new + 2 boosted + 1 high-priority.
+	// DequeueN claims the highest-priority runs but returns them ordered by
+	// created_at ASC (not priority), so we verify the set of priorities, not order.
+	type runSpec struct {
+		priority int
+	}
+	specs := []runSpec{
+		{priority: 0}, {priority: 0}, {priority: 0},
+		{priority: 2}, {priority: 2},
+		{priority: 5},
+	}
+	for _, s := range specs {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: s.priority}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue() error = %v", err)
+		}
+	}
+
+	dequeued, err := q.DequeueN(ctx, 6)
+	if err != nil {
+		t.Fatalf("DequeueN() error = %v", err)
+	}
+	if len(dequeued) != 6 {
+		t.Fatalf("DequeueN() len = %d, want 6", len(dequeued))
+	}
+
+	// Count priorities in the dequeued set.
+	priorityCounts := map[int]int{}
+	for _, d := range dequeued {
+		priorityCounts[d.Priority]++
+	}
+	if priorityCounts[5] != 1 {
+		t.Fatalf("expected 1 run with priority=5, got %d", priorityCounts[5])
+	}
+	if priorityCounts[2] != 2 {
+		t.Fatalf("expected 2 runs with priority=2, got %d", priorityCounts[2])
+	}
+	if priorityCounts[0] != 3 {
+		t.Fatalf("expected 3 runs with priority=0, got %d", priorityCounts[0])
+	}
+}
+
+func TestDequeue_SamePriorityFIFO(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-same-priority-fifo")
+
+	// Enqueue 3 runs at the same boosted priority, sequentially
+	ids := make([]string, 3)
+	for i := range 3 {
+		ids[i] = newID()
+		run := &domain.JobRun{ID: ids[i], JobID: job.ID, ProjectID: job.ProjectID, Priority: 2}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue() error = %v", err)
+		}
+		// Small sleep to ensure created_at ordering
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Dequeue all 3 and verify FIFO ordering (earliest created_at first)
+	dequeued, err := q.DequeueN(ctx, 3)
+	if err != nil {
+		t.Fatalf("DequeueN() error = %v", err)
+	}
+	if len(dequeued) != 3 {
+		t.Fatalf("DequeueN() len = %d, want 3", len(dequeued))
+	}
+	for i, id := range ids {
+		if dequeued[i].ID != id {
+			t.Fatalf("position %d: expected run %s (FIFO), got %s", i, id, dequeued[i].ID)
+		}
+	}
+}
+
+func TestDequeue_BoostSaturationDoesNotStarve(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-boost-no-starve")
+
+	// Enqueue 10 boosted runs at priority 2
+	for range 10 {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 2}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue() error = %v", err)
+		}
+	}
+
+	// Enqueue 1 new run at priority 5
+	highPriorityID := newID()
+	highRun := &domain.JobRun{ID: highPriorityID, JobID: job.ID, ProjectID: job.ProjectID, Priority: 5}
+	if err := q.Enqueue(ctx, highRun); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	// High-priority run should dequeue first despite many boosted runs
+	dequeued, err := q.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("Dequeue() error = %v", err)
+	}
+	if dequeued.ID != highPriorityID {
+		t.Fatalf("expected high-priority run to dequeue first, got run with priority %d", dequeued.Priority)
+	}
+}
+
+func TestDequeue_BoostedRunTimingTiebreaker(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-boost-timing")
+
+	// Two runs at same priority but different created_at
+	firstID := newID()
+	first := &domain.JobRun{ID: firstID, JobID: job.ID, ProjectID: job.ProjectID, Priority: 2}
+	if err := q.Enqueue(ctx, first); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	secondID := newID()
+	second := &domain.JobRun{ID: secondID, JobID: job.ID, ProjectID: job.ProjectID, Priority: 2}
+	if err := q.Enqueue(ctx, second); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	// First enqueued should dequeue first (FIFO tiebreaker)
+	dequeued, err := q.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("Dequeue() error = %v", err)
+	}
+	if dequeued.ID != firstID {
+		t.Fatalf("expected first-enqueued run %s to dequeue first (created_at tiebreaker), got %s", firstID, dequeued.ID)
+	}
+}
+
 func mustQueue(t *testing.T) *queue.PostgresQueue {
 	t.Helper()
 
