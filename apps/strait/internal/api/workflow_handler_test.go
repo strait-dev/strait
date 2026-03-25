@@ -673,6 +673,43 @@ func TestHandleUpdateWorkflow_FirstVersionSkipsActiveCheck(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateWorkflow_CountActiveRunsError(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Name: "old", Slug: "old", VersionID: "v-old", Version: 2}, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			return nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			return nil, nil
+		},
+		CreateWorkflowVersionSnapshotFunc: func(_ context.Context, _ string, _ int) error {
+			return nil
+		},
+		CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
+			return 0, fmt.Errorf("db connection lost")
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", `{"name":"updated","breaking_change":true}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (graceful degradation), got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if _, ok := resp["active_runs_on_previous_version"]; ok {
+		t.Fatal("expected no active_runs_on_previous_version when count query fails")
+	}
+}
+
 func TestHandleGetActiveVersions_ReturnsVersionBreakdown(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
@@ -740,6 +777,13 @@ func TestHandleGetActiveVersions_Empty(t *testing.T) {
 	}
 	if resp["workflow_id"] != "wf-1" {
 		t.Fatalf("workflow_id = %v, want wf-1", resp["workflow_id"])
+	}
+	versions, ok := resp["versions"].([]any)
+	if !ok {
+		t.Fatalf("expected versions to be an array, got %T", resp["versions"])
+	}
+	if len(versions) != 0 {
+		t.Fatalf("expected 0 versions, got %d", len(versions))
 	}
 }
 
