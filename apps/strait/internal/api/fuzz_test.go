@@ -2,11 +2,16 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+
+	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func FuzzDecodeJSON(f *testing.F) {
@@ -53,6 +58,186 @@ func FuzzValidatePayloadAgainstSchema(f *testing.F) {
 	f.Fuzz(func(t *testing.T, payload, schema []byte) {
 		// validatePayloadAgainstSchema should never panic regardless of input
 		_ = validatePayloadAgainstSchema(json.RawMessage(payload), json.RawMessage(schema))
+	})
+}
+
+func FuzzUpdateWorkflowRequest(f *testing.F) {
+	f.Add(`{"name":"new"}`)
+	f.Add(`{"name":"new","breaking_change":true}`)
+	f.Add(`{"name":"new","breaking_change":false}`)
+	f.Add(`{"name":"new","breaking_change":null}`)
+	f.Add(`{"breaking_change":true}`)
+	f.Add(`{"breaking_change":"not-a-bool"}`)
+	f.Add(`{"breaking_change":1}`)
+	f.Add(`{"breaking_change":0}`)
+	f.Add(`{}`)
+	f.Add(`{"name":"","slug":"","enabled":false,"breaking_change":true}`)
+	f.Add(`{"steps":[],"breaking_change":true}`)
+	f.Add(`{"steps":null,"breaking_change":true}`)
+	f.Add(`null`)
+	f.Add(``)
+	f.Add(`{invalid`)
+	f.Add(`{"name":"\x00\xff","breaking_change":true}`)
+
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{
+				ID: id, Name: "old", Slug: "old", Enabled: true,
+				VersionID: "v-prev", Version: 3,
+			}, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			return nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			return nil, nil
+		},
+		CreateWorkflowVersionSnapshotFunc: func(_ context.Context, _ string, _ int) error {
+			return nil
+		},
+		CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
+			return 3, nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			return nil
+		},
+	}
+
+	f.Fuzz(func(t *testing.T, body string) {
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", body))
+
+		// Handler must never panic. Any status code is acceptable.
+		if w.Code == 0 {
+			t.Fatal("expected a response status code")
+		}
+
+		// If 200, the response must be valid JSON.
+		if w.Code == http.StatusOK {
+			var resp map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("200 response is not valid JSON: %v", err)
+			}
+		}
+	})
+}
+
+func FuzzActiveVersionsResponse(f *testing.F) {
+	f.Add("wf-1")
+	f.Add("")
+	f.Add(strings.Repeat("a", 1000))
+	f.Add("wf-with-special-chars")
+	f.Add("\x00")
+
+	ms := &APIStoreMock{
+		ListActiveWorkflowVersionsFunc: func(_ context.Context, _ string) ([]store.ActiveVersion, error) {
+			return []store.ActiveVersion{
+				{VersionID: "v-1", Version: 1, Pending: 0, Running: 2, Paused: 0, Total: 2},
+			}, nil
+		},
+	}
+
+	f.Fuzz(func(t *testing.T, workflowID string) {
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/"+url.PathEscape(workflowID)+"/active-versions", ""))
+
+		// Handler must never panic.
+		if w.Code == 0 {
+			t.Fatal("expected a response status code")
+		}
+
+		// If 200, the response must be valid JSON with a versions array.
+		if w.Code == http.StatusOK {
+			var resp map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("200 response is not valid JSON: %v", err)
+			}
+			if _, ok := resp["versions"]; !ok {
+				t.Fatal("200 response missing versions field")
+			}
+		}
+	})
+}
+
+func FuzzBreakingChangeDetectionLogic(f *testing.F) {
+	// Fuzz the combination of version state and active run count
+	// to ensure the breaking change detection never panics.
+	f.Add("v-old", 2, 5, true)
+	f.Add("v-old", 2, 0, true)
+	f.Add("v-old", 2, 5, false)
+	f.Add("", 0, 0, false)
+	f.Add("", 0, 5, true)
+	f.Add("v-1", 1, 1, true)
+	f.Add("v-1", 0, 3, true) // version 0 with non-empty ID (edge case)
+	f.Add("", 1, 3, true)    // version 1 with empty ID (edge case)
+	f.Add("v-old", -1, 5, true)
+	f.Add("v-old", 2, -1, true)
+
+	f.Fuzz(func(t *testing.T, versionID string, version int, activeCount int, breakingChange bool) {
+		var auditCalled bool
+		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{
+					ID: id, Name: "old", Slug: "old",
+					VersionID: versionID, Version: version,
+				}, nil
+			},
+			UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+				return nil
+			},
+			ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+				return nil, nil
+			},
+			CreateWorkflowVersionSnapshotFunc: func(_ context.Context, _ string, _ int) error {
+				return nil
+			},
+			CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
+				return activeCount, nil
+			},
+			CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+				auditCalled = true
+				return nil
+			},
+		}
+
+		body := `{"name":"updated"}`
+		if breakingChange {
+			body = `{"name":"updated","breaking_change":true}`
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", body))
+
+		// Must never panic and must return 200.
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		// Verify invariants:
+		var resp map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("response is not valid JSON: %v", err)
+		}
+
+		hasCount := resp["active_runs_on_previous_version"] != nil
+
+		// active_runs_on_previous_version should only appear when:
+		// versionID != "" AND version >= 1 AND activeCount > 0
+		shouldHaveCount := versionID != "" && version >= 1 && activeCount > 0
+		if hasCount != shouldHaveCount {
+			t.Fatalf("active_runs_on_previous_version present=%v, want=%v (versionID=%q version=%d count=%d)",
+				hasCount, shouldHaveCount, versionID, version, activeCount)
+		}
+
+		// Audit should only fire when breaking_change=true AND count > 0 AND version guard passes
+		shouldAudit := breakingChange && versionID != "" && version >= 1 && activeCount > 0
+		if auditCalled != shouldAudit {
+			t.Fatalf("auditCalled=%v, want=%v (breaking=%v versionID=%q version=%d count=%d)",
+				auditCalled, shouldAudit, breakingChange, versionID, version, activeCount)
+		}
 	})
 }
 
