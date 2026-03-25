@@ -83,6 +83,18 @@ func TestErrorHash(t *testing.T) {
 			b:      strings.Repeat("z", 200) + "BBB",
 			expect: "same", // by design: only first 200 chars are hashed
 		},
+		{
+			name:   "rune-based truncation: 201 multi-byte runes truncated at rune boundary",
+			a:      strings.Repeat("\U0001f600", 201), // 201 runes, 804 bytes
+			b:      strings.Repeat("\U0001f600", 200), // 200 runes, 800 bytes
+			expect: "same",                            // truncated to 200 runes, not 200 bytes
+		},
+		{
+			name:   "rune-based: 199 multi-byte runes differ from 200",
+			a:      strings.Repeat("\U0001f600", 199),
+			b:      strings.Repeat("\U0001f600", 200),
+			expect: "different", // 199 runes != 200 runes
+		},
 	}
 
 	for _, tc := range tests {
@@ -216,9 +228,8 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 			errInput:     &domain.EndpointError{StatusCode: 500, Body: "err"},
 			expectStatus: domain.StatusDeadLetter,
 			// DLQ'd via max attempts (shouldRetry=false before poison pill runs),
-			// so metadata stays at previous count
+			// metadata is not modified so not included in update fields
 			expectPoisoned: false,
-			expectCount:    "2",
 		},
 		{
 			name:         "non-retryable class (client 400) skips poison pill",
@@ -345,6 +356,83 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 // --------------------------------------------------------------------------.
 // Adversarial / edge case tests
 // --------------------------------------------------------------------------.
+
+func TestPoisonPill_DisabledDoesNotWriteMetadata(t *testing.T) {
+	t.Parallel()
+	st := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool: NewPool(10), Queue: &mockExecQueue{}, Store: st, PollInterval: time.Hour,
+	})
+
+	run := &domain.JobRun{
+		ID: "run-1", JobID: "job-1", Attempt: 2,
+		Metadata: map[string]string{"user_key": "preserved"},
+	}
+	// No poison pill threshold set.
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "err"}, nil)
+
+	calls := st.statusUpdates()
+	last := calls[len(calls)-1]
+	if last.to != domain.StatusQueued {
+		t.Fatalf("expected queued, got %s", last.to)
+	}
+	// metadata must NOT be in the update fields when poison pill is disabled,
+	// otherwise a nil/empty metadata would overwrite existing DB metadata.
+	if _, exists := last.fields["metadata"]; exists {
+		t.Error("metadata should not be in update fields when poison pill is disabled")
+	}
+}
+
+func TestPoisonPill_DisabledNilMetadataDoesNotOverwrite(t *testing.T) {
+	t.Parallel()
+	st := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool: NewPool(10), Queue: &mockExecQueue{}, Store: st, PollInterval: time.Hour,
+	})
+
+	// nil metadata with disabled poison pill must not overwrite DB metadata.
+	run := &domain.JobRun{
+		ID: "run-1", JobID: "job-1", Attempt: 2,
+		Metadata: nil,
+	}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "err"}, nil)
+
+	calls := st.statusUpdates()
+	last := calls[len(calls)-1]
+	if _, exists := last.fields["metadata"]; exists {
+		t.Error("nil metadata should not be sent to DB when poison pill is disabled")
+	}
+}
+
+func TestPoisonPill_DLQWithoutPoisonPillDoesNotWriteMetadata(t *testing.T) {
+	t.Parallel()
+	st := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool: NewPool(10), Queue: &mockExecQueue{}, Store: st, PollInterval: time.Hour,
+	})
+
+	// Client error -> DLQ via class, no poison pill involved.
+	run := &domain.JobRun{
+		ID: "run-1", JobID: "job-1", Attempt: 1,
+		Metadata: nil,
+	}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 400, Body: "bad"}, nil)
+
+	calls := st.statusUpdates()
+	last := calls[len(calls)-1]
+	if last.to != domain.StatusDeadLetter {
+		t.Fatalf("expected dead_letter, got %s", last.to)
+	}
+	if _, exists := last.fields["metadata"]; exists {
+		t.Error("metadata should not be in DLQ fields when poison pill was not active")
+	}
+}
 
 func TestPoisonPill_CorruptMetadataCount(t *testing.T) {
 	t.Parallel()

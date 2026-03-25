@@ -185,13 +185,17 @@ func isBudgetError(err error) bool {
 		strings.Contains(msg, "cost limit")
 }
 
-// errorHash returns a 16-char hex digest of the first 200 bytes of an error
-// message. Used for poison pill detection to identify identical errors across
-// retry attempts without storing the full error string in metadata.
+// errorHash returns a 16-char hex digest of the first 200 characters of an
+// error message. Used for poison pill detection to identify identical errors
+// across retry attempts without storing the full error string in metadata.
 func errorHash(errMsg string) string {
 	prefix := errMsg
 	if len(prefix) > 200 {
-		prefix = prefix[:200]
+		// Truncate by runes so multi-byte UTF-8 sequences are not split.
+		runes := []rune(prefix)
+		if len(runes) > 200 {
+			prefix = string(runes[:200])
+		}
 	}
 	h := sha256.Sum256([]byte(prefix))
 	return hex.EncodeToString(h[:8])
@@ -253,6 +257,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	// Poison pill detection: count consecutive same-error-hash failures.
 	// When a run keeps hitting the same error, fast-track to DLQ instead of
 	// wasting retries and risking circuit breaker trips.
+	var metadataModified bool
 	if shouldRetry && job.PoisonPillThreshold != nil && *job.PoisonPillThreshold > 0 {
 		hash := errorHash(errMsg)
 		prevHash := run.Metadata["_error_hash"]
@@ -269,6 +274,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		}
 		run.Metadata["_error_hash"] = hash
 		run.Metadata["_error_hash_count"] = strconv.Itoa(count)
+		metadataModified = true
 
 		if count >= *job.PoisonPillThreshold {
 			shouldRetry = false
@@ -288,7 +294,9 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 			"error_class":   errClass,
 			"started_at":    nil,
 			"finished_at":   nil,
-			"metadata":      run.Metadata,
+		}
+		if metadataModified {
+			fields["metadata"] = run.Metadata
 		}
 		if job.RetryPriorityBoost > 0 {
 			fields["priority"] = min(run.Priority+job.RetryPriorityBoost, 10)
@@ -323,7 +331,9 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		"finished_at": now,
 		"error":       errMsg,
 		"error_class": errClass,
-		"metadata":    run.Metadata,
+	}
+	if metadataModified {
+		fields["metadata"] = run.Metadata
 	}
 	if execTrace != nil {
 		fields["execution_trace"] = execTrace
