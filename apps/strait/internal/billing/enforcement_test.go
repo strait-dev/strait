@@ -1020,3 +1020,92 @@ func TestOrgCache_ConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestEnforcer_GetPolarCustomerID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns_customer_id", func(t *testing.T) {
+		t.Parallel()
+		enforcer, store, _ := setupEnforcer(t)
+		custID := "cust_abc123"
+		store.subscriptions = map[string]*OrgSubscription{
+			"org-polar": {OrgID: "org-polar", PlanTier: "pro", Status: "active", PolarCustomerID: &custID},
+		}
+
+		got, err := enforcer.GetPolarCustomerID(context.Background(), "org-polar")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "cust_abc123" {
+			t.Errorf("got %q, want %q", got, "cust_abc123")
+		}
+	})
+
+	t.Run("returns_empty_when_nil", func(t *testing.T) {
+		t.Parallel()
+		enforcer, store, _ := setupEnforcer(t)
+		store.subscriptions = map[string]*OrgSubscription{
+			"org-nil": {OrgID: "org-nil", PlanTier: "starter", Status: "active", PolarCustomerID: nil},
+		}
+
+		got, err := enforcer.GetPolarCustomerID(context.Background(), "org-nil")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "" {
+			t.Errorf("got %q, want empty string", got)
+		}
+	})
+
+	t.Run("returns_empty_when_empty_string", func(t *testing.T) {
+		t.Parallel()
+		enforcer, store, _ := setupEnforcer(t)
+		empty := ""
+		store.subscriptions = map[string]*OrgSubscription{
+			"org-empty": {OrgID: "org-empty", PlanTier: "starter", Status: "active", PolarCustomerID: &empty},
+		}
+
+		got, err := enforcer.GetPolarCustomerID(context.Background(), "org-empty")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "" {
+			t.Errorf("got %q, want empty string", got)
+		}
+	})
+
+	t.Run("returns_error_when_not_found", func(t *testing.T) {
+		t.Parallel()
+		enforcer, _, _ := setupEnforcer(t)
+
+		_, err := enforcer.GetPolarCustomerID(context.Background(), "org-nonexistent")
+		if err == nil {
+			t.Fatal("expected error for missing subscription")
+		}
+		if !errors.Is(err, ErrSubscriptionNotFound) {
+			t.Errorf("expected ErrSubscriptionNotFound, got %v", err)
+		}
+	})
+}
+
+func TestEnforcer_CheckDailyRunLimit_ProOverageAllowed(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_pro": {OrgID: "org_pro", PlanTier: "pro", Status: "active"},
+	}
+
+	limits := GetPlanLimits(domain.PlanPro)
+	for range limits.MaxRunsPerDay {
+		if err := enforcer.CheckDailyRunLimit(context.Background(), "org_pro"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	// Pro plans allow overage -- no error expected past the daily limit.
+	err := enforcer.CheckDailyRunLimit(context.Background(), "org_pro")
+	if err != nil {
+		t.Fatalf("expected overage to be allowed for pro plan, got: %v", err)
+	}
+}

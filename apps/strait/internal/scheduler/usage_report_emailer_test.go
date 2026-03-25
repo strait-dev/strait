@@ -11,10 +11,13 @@ import (
 )
 
 type mockReportStore struct {
-	orgIDs        []string
-	subscriptions map[string]*billing.OrgSubscription
-	adminEmails   map[string][]string
-	usageRecords  []billing.UsageRecord
+	orgIDs               []string
+	subscriptions        map[string]*billing.OrgSubscription
+	adminEmails          map[string][]string
+	usageRecords         []billing.UsageRecord
+	sentReports          map[string]bool // key: "orgID|periodEnd"
+	recordSentCalls      []string        // tracks orgIDs for RecordSentUsageReport calls
+	hasSentUsageReportFn func(ctx context.Context, orgID string, periodEnd time.Time) (bool, error)
 }
 
 func (m *mockReportStore) ListAllSubscribedOrgIDs(context.Context) ([]string, error) {
@@ -117,11 +120,24 @@ func (m *mockReportStore) SuspendExcessProjects(context.Context, string, int) (i
 	return 0, nil
 }
 
-func (m *mockReportStore) HasSentUsageReport(context.Context, string, time.Time) (bool, error) {
+func (m *mockReportStore) HasSentUsageReport(ctx context.Context, orgID string, periodEnd time.Time) (bool, error) {
+	if m.hasSentUsageReportFn != nil {
+		return m.hasSentUsageReportFn(ctx, orgID, periodEnd)
+	}
+	if m.sentReports != nil {
+		key := orgID + "|" + periodEnd.Format("2006-01-02")
+		return m.sentReports[key], nil
+	}
 	return false, nil
 }
 
-func (m *mockReportStore) RecordSentUsageReport(context.Context, string, time.Time) error {
+func (m *mockReportStore) RecordSentUsageReport(_ context.Context, orgID string, periodEnd time.Time) error {
+	m.recordSentCalls = append(m.recordSentCalls, orgID)
+	if m.sentReports == nil {
+		m.sentReports = make(map[string]bool)
+	}
+	key := orgID + "|" + periodEnd.Format("2006-01-02")
+	m.sentReports[key] = true
 	return nil
 }
 
@@ -237,5 +253,126 @@ func TestUsageReportEmailer_SkipsFuturePeriodEnd(t *testing.T) {
 
 	if len(emailAPI.sent) != 0 {
 		t.Fatalf("expected 0 emails for future period end, got %d", len(emailAPI.sent))
+	}
+}
+
+func TestUsageReportEmailer_SkipsOptedOut(t *testing.T) {
+	t.Parallel()
+
+	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
+	periodStart := yesterday.AddDate(0, -1, 0)
+
+	store := &mockReportStore{
+		orgIDs: []string{"org-optout"},
+		subscriptions: map[string]*billing.OrgSubscription{
+			"org-optout": {
+				OrgID:              "org-optout",
+				PlanTier:           "starter",
+				Status:             "active",
+				MonthlyUsageEmail:  false, // opted out
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &yesterday,
+			},
+		},
+		adminEmails: map[string][]string{
+			"org-optout": {"admin@example.com"},
+		},
+	}
+
+	emailAPI := &mockResendAPI{}
+	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
+	emailer.checkAndSend(context.Background())
+
+	if len(emailAPI.sent) != 0 {
+		t.Fatalf("expected 0 emails when MonthlyUsageEmail is false, got %d", len(emailAPI.sent))
+	}
+}
+
+func TestUsageReportEmailer_DeduplicatesOnRestart(t *testing.T) {
+	t.Parallel()
+
+	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
+	periodStart := yesterday.AddDate(0, -1, 0)
+
+	store := &mockReportStore{
+		orgIDs: []string{"org-dedup"},
+		subscriptions: map[string]*billing.OrgSubscription{
+			"org-dedup": {
+				OrgID:              "org-dedup",
+				PlanTier:           "starter",
+				Status:             "active",
+				MonthlyUsageEmail:  true,
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &yesterday,
+			},
+		},
+		adminEmails: map[string][]string{
+			"org-dedup": {"admin@example.com"},
+		},
+	}
+
+	emailAPI := &mockResendAPI{}
+
+	// First run: should send email and record dedup.
+	emailer1 := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
+	emailer1.checkAndSend(context.Background())
+
+	if len(emailAPI.sent) != 1 {
+		t.Fatalf("first run: expected 1 email, got %d", len(emailAPI.sent))
+	}
+	if len(store.recordSentCalls) != 1 {
+		t.Fatalf("first run: expected 1 RecordSentUsageReport call, got %d", len(store.recordSentCalls))
+	}
+
+	// Second run (simulating restart with a fresh emailer): should skip because dedup record exists.
+	emailer2 := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
+	emailer2.checkAndSend(context.Background())
+
+	if len(emailAPI.sent) != 1 {
+		t.Fatalf("second run: expected still 1 email total, got %d", len(emailAPI.sent))
+	}
+	if len(store.recordSentCalls) != 1 {
+		t.Fatalf("second run: expected still 1 RecordSentUsageReport call total, got %d", len(store.recordSentCalls))
+	}
+}
+
+func TestUsageReportEmailer_RecordsDedupOnEmptyRecipients(t *testing.T) {
+	t.Parallel()
+
+	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
+	periodStart := yesterday.AddDate(0, -1, 0)
+
+	store := &mockReportStore{
+		orgIDs: []string{"org-noadmin"},
+		subscriptions: map[string]*billing.OrgSubscription{
+			"org-noadmin": {
+				OrgID:              "org-noadmin",
+				PlanTier:           "starter",
+				Status:             "active",
+				MonthlyUsageEmail:  true,
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &yesterday,
+			},
+		},
+		adminEmails: map[string][]string{
+			"org-noadmin": {}, // empty recipients
+		},
+	}
+
+	emailAPI := &mockResendAPI{}
+	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
+	emailer.checkAndSend(context.Background())
+
+	// No email should be sent.
+	if len(emailAPI.sent) != 0 {
+		t.Fatalf("expected 0 emails for org with no admin emails, got %d", len(emailAPI.sent))
+	}
+
+	// RecordSentUsageReport should still be called to prevent infinite retry.
+	if len(store.recordSentCalls) != 1 {
+		t.Fatalf("expected 1 RecordSentUsageReport call to prevent retry, got %d", len(store.recordSentCalls))
+	}
+	if store.recordSentCalls[0] != "org-noadmin" {
+		t.Errorf("RecordSentUsageReport called for %q, want org-noadmin", store.recordSentCalls[0])
 	}
 }
