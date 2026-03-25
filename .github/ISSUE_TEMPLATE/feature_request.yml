@@ -1,0 +1,58 @@
+name: Feature Request
+description: Suggest a new feature or improvement for Strait
+labels: ["feature", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for Strait? We'd love to hear it. Please describe the problem you're trying to solve and what a good solution looks like.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this feature solve? What pain point are you experiencing?
+      placeholder: I'm always frustrated when ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the solution you'd like. Include API shapes, CLI commands, or UI mockups if relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative approaches you've considered or workarounds you're using today.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of Strait would this affect?
+      options:
+        - API
+        - Worker / Scheduler
+        - Queue
+        - Workflows
+        - CLI / SDK
+        - Dashboard
+        - Migrations / Database
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any other context, screenshots, or references that would help us understand this request.
+    validations:
+      required: false
