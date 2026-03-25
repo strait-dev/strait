@@ -51,13 +51,6 @@ pre-commit:
       run: cd packages/typescript-sdk && bun test test/openapi-coverage.test.ts
       fail_text: "TypeScript SDK contract test failed — run 'bun run generate:contracts' in packages/typescript-sdk"
 
-    # --- Rust SDK ---
-    rust_sdk_fmt:
-      run: cd packages/rust-sdk && cargo fmt -- --check
-      fail_text: "Rust SDK format check failed — run 'cargo fmt' in packages/rust-sdk"
-    rust_sdk_clippy:
-      run: cd packages/rust-sdk && cargo clippy -- -D warnings
-      fail_text: "Rust SDK clippy failed — run 'cargo clippy --fix' in packages/rust-sdk"
 
 commit-msg:
   commands:

@@ -11,7 +11,7 @@ For detailed per-language documentation, see the [SDK Reference](/docs/sdks).
 
 ## Installing an SDK
 
-<Tabs items={["TypeScript","Python","Go","Ruby","Rust"]}>
+<Tabs items={["TypeScript","Python","Go"]}>
   <Tab value="TypeScript">
     ```bash
   npm install @strait/ts
@@ -27,17 +27,11 @@ For detailed per-language documentation, see the [SDK Reference](/docs/sdks).
   go get github.com/strait-dev/strait-go
   ```
   </Tab>
-  <Tab value="Ruby">
-    ```bash
-  gem install strait
-  ```
-  </Tab>
-  <Tab value="Rust">
-    ```bash
-  cargo add strait
-  ```
-  </Tab>
 </Tabs>
+
+Ruby and Rust SDKs are available in their dedicated repositories:
+- [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby)
+- [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust)
 
 ## Configuration
 
@@ -53,7 +47,7 @@ export STRAIT_API_KEY="sk_live_..."
 
 Then create a client from the config file:
 
-<Tabs items={["TypeScript","Python","Go","Ruby","Rust"]}>
+<Tabs items={["TypeScript","Python","Go"]}>
   <Tab value="TypeScript">
     ```ts
   import { createClientFromConfigFile } from "@strait/ts/node";
@@ -69,16 +63,6 @@ Then create a client from the config file:
   <Tab value="Go">
     ```go
   client, err := strait.NewClientFromFile(nil)
-  ```
-  </Tab>
-  <Tab value="Ruby">
-    ```ruby
-  client = Strait::Client.from_file
-  ```
-  </Tab>
-  <Tab value="Rust">
-    ```rust
-  let client = Client::from_file(None).await?;
   ```
   </Tab>
 </Tabs>
@@ -116,7 +100,7 @@ SDK run endpoints require a **JWT Run Token**:
 
 ### Using SDK Run Endpoints
 
-<Tabs items={["TypeScript","Python","Go","Ruby","Rust"]}>
+<Tabs items={["TypeScript","Python","Go"]}>
   <Tab value="TypeScript">
     ```ts
   import { createClient } from "@strait/ts";
@@ -196,63 +180,6 @@ SDK run endpoints require a **JWT Run Token**:
   sdkRuns.CompleteRun(ctx, "run-123", map[string]any{
       "result": map[string]any{"processed": 100},
   })
-  ```
-  </Tab>
-  <Tab value="Ruby">
-    ```ruby
-  require "strait"
-
-  run_client = Strait::Client.new(
-    base_url: "https://api.strait.dev",
-    run_token: ENV["RUN_TOKEN"]
-  )
-  sdk_runs = Strait::Operations::SDKRuns.new(run_client)
-
-  # Log progress
-  sdk_runs.log_run("run-123", {
-    message: "Processing batch 3/10",
-    level: "info"
-  })
-
-  # Report progress
-  sdk_runs.progress_run("run-123", {
-    percent: 30,
-    message: "Processing..."
-  })
-
-  # Complete the run
-  sdk_runs.complete_run("run-123", {
-    result: { processed: 100 }
-  })
-  ```
-  </Tab>
-  <Tab value="Rust">
-    ```rust
-  use strait::Client;
-  use strait::operations::SdkRuns;
-
-  let run_client = Client::builder()
-      .base_url("https://api.strait.dev")
-      .run_token(std::env::var("RUN_TOKEN")?)
-      .build()?;
-  let sdk_runs = SdkRuns::new(&run_client);
-
-  // Log progress
-  sdk_runs.log_run("run-123", serde_json::json!({
-      "message": "Processing batch 3/10",
-      "level": "info",
-  })).await?;
-
-  // Report progress
-  sdk_runs.progress_run("run-123", serde_json::json!({
-      "percent": 30,
-      "message": "Processing...",
-  })).await?;
-
-  // Complete the run
-  sdk_runs.complete_run("run-123", serde_json::json!({
-      "result": { "processed": 100 },
-  })).await?;
   ```
   </Tab>
 </Tabs>
