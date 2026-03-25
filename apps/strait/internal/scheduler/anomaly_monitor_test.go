@@ -174,6 +174,22 @@ func (m *mockAnomalyMonitorStore) SuspendExcessProjects(context.Context, string,
 	return 0, nil
 }
 
+func (m *mockAnomalyMonitorStore) ListOrgAdminEmails(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockAnomalyMonitorStore) HasSentUsageReport(context.Context, string, time.Time) (bool, error) {
+	return false, nil
+}
+
+func (m *mockAnomalyMonitorStore) RecordSentUsageReport(context.Context, string, time.Time) error {
+	return nil
+}
+
+func (m *mockAnomalyMonitorStore) UpdateMonthlyUsageEmail(context.Context, string, bool) error {
+	return nil
+}
+
 // mockCooldown implements AnomalyCooldown for testing.
 type mockCooldown struct {
 	cooled map[string]bool

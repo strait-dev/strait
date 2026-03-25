@@ -295,6 +295,11 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 				"limit", limits.MaxRunsPerDay,
 				"current", currentCount,
 			)
+			if e.metrics != nil && e.metrics.OverageEntered != nil {
+				e.metrics.OverageEntered.Add(ctx, 1,
+					metric.WithAttributes(attribute.String("plan_tier", string(limits.PlanTier))),
+				)
+			}
 			return nil
 		}
 

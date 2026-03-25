@@ -10,6 +10,11 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"strait/internal/telemetry"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // PolarEventIngester sends usage events to the Polar billing meter.
@@ -20,15 +25,26 @@ type PolarEventIngester struct {
 	token     string
 	meterName string
 	logger    *slog.Logger
+	metrics   *telemetry.Metrics
+}
+
+// PolarEventIngesterOption configures a PolarEventIngester.
+type PolarEventIngesterOption func(*PolarEventIngester)
+
+// WithIngesterMetrics attaches Prometheus metrics to the ingester.
+func WithIngesterMetrics(m *telemetry.Metrics) PolarEventIngesterOption {
+	return func(p *PolarEventIngester) {
+		p.metrics = m
+	}
 }
 
 // NewPolarEventIngester creates a new ingester. Pass the POLAR_SERVER base URL
 // (e.g. "https://api.polar.sh") and POLAR_ACCESS_TOKEN.
-func NewPolarEventIngester(baseURL, accessToken string, logger *slog.Logger) *PolarEventIngester {
+func NewPolarEventIngester(baseURL, accessToken string, logger *slog.Logger, opts ...PolarEventIngesterOption) *PolarEventIngester {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &PolarEventIngester{
+	p := &PolarEventIngester{
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -42,6 +58,10 @@ func NewPolarEventIngester(baseURL, accessToken string, logger *slog.Logger) *Po
 		meterName: "compute_overage",
 		logger:    logger,
 	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 // polarEvent is the payload for a single Polar event ingestion.
@@ -115,7 +135,18 @@ func (p *PolarEventIngester) ingest(ctx context.Context, events []polarEvent) er
 			"event_count", len(events),
 			"response", string(respBody),
 		)
+		if p.metrics != nil && p.metrics.PolarEventsDropped != nil {
+			p.metrics.PolarEventsDropped.Add(ctx, int64(len(events)),
+				metric.WithAttributes(attribute.String("status", "error")),
+			)
+		}
 		return fmt.Errorf("polar event ingestion returned status %d", resp.StatusCode)
+	}
+
+	if p.metrics != nil && p.metrics.PolarEventsIngested != nil {
+		p.metrics.PolarEventsIngested.Add(ctx, int64(len(events)),
+			metric.WithAttributes(attribute.String("status", "ok")),
+		)
 	}
 
 	p.logger.Debug("polar events ingested",

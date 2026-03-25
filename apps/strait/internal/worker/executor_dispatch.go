@@ -383,6 +383,10 @@ func (e *Executor) recordHTTPRunCost(ctx context.Context, run *domain.JobRun, jo
 		e.logger.Warn("failed to record HTTP run cost", "run_id", run.ID, "error", err)
 	}
 
+	if e.metrics != nil && e.metrics.HTTPModeRunsCompleted != nil {
+		e.metrics.HTTPModeRunsCompleted.Add(ctx, 1)
+	}
+
 	e.ingestPolarUsageEvent(ctx, job.ProjectID, run.ID, cost)
 }
 
@@ -1365,7 +1369,8 @@ func (e *Executor) ingestPolarUsageEvent(ctx context.Context, projectID, runID s
 	// Fire-and-forget: don't block the run on Polar API latency.
 	// Uses Background() intentionally — the parent request context may be canceled
 	// before the Polar API call completes, and we still want to record the usage.
-	go func() { //nolint:gosec // G118: intentional fire-and-forget with own timeout
+	// Tracked via polarWG for graceful shutdown.
+	e.polarWG.Go(func() {
 		ingestCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := e.polarIngester.IngestComputeUsage(ingestCtx, polarCustomerID, runID, costMicroUSD); err != nil {
@@ -1375,5 +1380,5 @@ func (e *Executor) ingestPolarUsageEvent(ctx context.Context, projectID, runID s
 				"error", err,
 			)
 		}
-	}()
+	})
 }

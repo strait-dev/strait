@@ -112,6 +112,13 @@ type Metrics struct {
 
 	// Pub/sub metrics.
 	PubSubPublishErrors metric.Int64Counter
+
+	// Billing observability metrics.
+	PolarEventsIngested   metric.Int64Counter
+	PolarEventsDropped    metric.Int64Counter
+	OverageEntered        metric.Int64Counter
+	HTTPModeRunsCompleted metric.Int64Counter
+	HTTPModeGateRejected  metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -655,6 +662,32 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 
+	polarEventsIngested, _ := meter.Int64Counter(
+		"strait.billing.polar_events_ingested_total",
+		metric.WithDescription("Total Polar usage events ingested"),
+		metric.WithUnit("1"),
+	)
+	polarEventsDropped, _ := meter.Int64Counter(
+		"strait.billing.polar_events_dropped_total",
+		metric.WithDescription("Total Polar usage events dropped"),
+		metric.WithUnit("1"),
+	)
+	overageEntered, _ := meter.Int64Counter(
+		"strait.billing.overage_entered_total",
+		metric.WithDescription("Total times a paid plan entered daily run overage"),
+		metric.WithUnit("1"),
+	)
+	httpModeRunsCompleted, _ := meter.Int64Counter(
+		"strait.billing.http_mode_runs_completed_total",
+		metric.WithDescription("Total HTTP mode runs with cost recorded"),
+		metric.WithUnit("1"),
+	)
+	httpModeGateRejected, _ := meter.Int64Counter(
+		"strait.billing.http_mode_gate_rejected_total",
+		metric.WithDescription("Total HTTP mode job creation rejections by plan gating"),
+		metric.WithUnit("1"),
+	)
+
 	m := &Metrics{
 		RunTransitions:               runTransitions,
 		DequeueDuration:              dequeueDuration,
@@ -720,6 +753,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		NotificationDeliveriesTotal:  notificationDeliveriesTotal,
 		LogDrainEventsTotal:          logDrainEventsTotal,
 		PubSubPublishErrors:          pubsubPublishErrors,
+		PolarEventsIngested:          polarEventsIngested,
+		PolarEventsDropped:           polarEventsDropped,
+		OverageEntered:               overageEntered,
+		HTTPModeRunsCompleted:        httpModeRunsCompleted,
+		HTTPModeGateRejected:         httpModeGateRejected,
 	}
 
 	slog.Info("prometheus metrics enabled")

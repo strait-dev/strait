@@ -118,6 +118,7 @@ type Executor struct {
 	defaultFlyRegion         string
 	billingEnforcer          *billing.Enforcer
 	polarIngester            *billing.PolarEventIngester
+	polarWG                  sync.WaitGroup // tracks in-flight Polar event ingestion goroutines
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -492,6 +493,23 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	case <-callbackDone:
 	case <-callbackTimeout.C:
 		e.logger.Warn("timed out waiting for in-flight workflow callbacks")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	// Wait for any in-flight Polar billing event ingestion goroutines.
+	polarDone := make(chan struct{})
+	go func() {
+		e.polarWG.Wait()
+		close(polarDone)
+	}()
+
+	polarTimeout := time.NewTimer(10 * time.Second)
+	defer polarTimeout.Stop()
+	select {
+	case <-polarDone:
+	case <-polarTimeout.C:
+		e.logger.Warn("timed out waiting for in-flight polar billing events")
 	case <-ctx.Done():
 		return ctx.Err()
 	}

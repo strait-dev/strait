@@ -13,10 +13,9 @@ import (
 )
 
 // UsageReportEmailerStore defines the store operations needed by UsageReportEmailer.
+// All methods are provided by billing.Store.
 type UsageReportEmailerStore interface {
 	billing.Store
-	// ListOrgAdminEmails returns the email addresses of org admins/owners.
-	ListOrgAdminEmails(ctx context.Context, orgID string) ([]string, error)
 }
 
 // ResendEmailSender is the subset of the Resend client used for sending emails.
@@ -96,12 +95,28 @@ func (re *UsageReportEmailer) checkAndSend(ctx context.Context) {
 			continue // free or enterprise with custom billing
 		}
 
+		// Check opt-in preference.
+		if !sub.MonthlyUsageEmail {
+			continue
+		}
+
 		// Check if the billing period ended yesterday.
 		if sub.CurrentPeriodEnd == nil {
 			continue
 		}
 		periodEnd := sub.CurrentPeriodEnd.UTC().Truncate(24 * time.Hour)
 		if !periodEnd.Equal(yesterday) {
+			continue
+		}
+
+		// Dedup: skip if already sent for this period.
+		alreadySent, dedupErr := re.store.HasSentUsageReport(ctx, orgID, periodEnd)
+		if dedupErr != nil {
+			re.logger.Warn("usage report emailer: dedup check failed",
+				"org_id", orgID, "error", dedupErr)
+			continue
+		}
+		if alreadySent {
 			continue
 		}
 
@@ -170,6 +185,12 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		re.logger.Warn("usage report emailer: failed to send email",
 			"org_id", orgID, "error", err)
 		return
+	}
+
+	// Record successful send for deduplication.
+	if err := re.store.RecordSentUsageReport(ctx, orgID, periodEnd); err != nil {
+		re.logger.Warn("usage report emailer: failed to record sent report",
+			"org_id", orgID, "error", err)
 	}
 
 	re.logger.Info("usage report email sent",

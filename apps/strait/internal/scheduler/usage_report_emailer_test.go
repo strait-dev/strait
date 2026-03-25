@@ -117,6 +117,18 @@ func (m *mockReportStore) SuspendExcessProjects(context.Context, string, int) (i
 	return 0, nil
 }
 
+func (m *mockReportStore) HasSentUsageReport(context.Context, string, time.Time) (bool, error) {
+	return false, nil
+}
+
+func (m *mockReportStore) RecordSentUsageReport(context.Context, string, time.Time) error {
+	return nil
+}
+
+func (m *mockReportStore) UpdateMonthlyUsageEmail(context.Context, string, bool) error {
+	return nil
+}
+
 type mockResendAPI struct {
 	sent []*resend.SendEmailRequest
 }
@@ -139,6 +151,7 @@ func TestUsageReportEmailer_SendsForEndedPeriod(t *testing.T) {
 				OrgID:              "org-1",
 				PlanTier:           "starter",
 				Status:             "active",
+				MonthlyUsageEmail:  true,
 				CurrentPeriodStart: &periodStart,
 				CurrentPeriodEnd:   &yesterday,
 			},

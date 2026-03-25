@@ -1096,3 +1096,71 @@ func scanUsageRecords(rows pgx.Rows) ([]UsageRecord, error) {
 	}
 	return records, rows.Err()
 }
+
+// ListOrgAdminEmails returns email addresses for all members of an org.
+func (s *PgStore) ListOrgAdminEmails(ctx context.Context, orgID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT u.email
+		FROM project_member_roles pmr
+		JOIN projects p ON p.id = pmr.project_id
+		JOIN users u ON u.id = pmr.user_id
+		WHERE p.org_id = $1
+		  AND u.email IS NOT NULL
+		  AND u.email != ''
+	`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing org admin emails: %w", err)
+	}
+	defer rows.Close()
+
+	var emails []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, fmt.Errorf("scanning org admin email: %w", err)
+		}
+		emails = append(emails, email)
+	}
+	return emails, rows.Err()
+}
+
+// HasSentUsageReport checks if a usage report was already sent for this org and period.
+func (s *PgStore) HasSentUsageReport(ctx context.Context, orgID string, periodEnd time.Time) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM sent_usage_reports
+			WHERE org_id = $1 AND period_end = $2
+		)
+	`, orgID, periodEnd.Truncate(24*time.Hour)).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("checking sent usage report: %w", err)
+	}
+	return exists, nil
+}
+
+// RecordSentUsageReport records that a usage report email was sent for deduplication.
+func (s *PgStore) RecordSentUsageReport(ctx context.Context, orgID string, periodEnd time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO sent_usage_reports (org_id, period_end)
+		VALUES ($1, $2)
+		ON CONFLICT (org_id, period_end) DO NOTHING
+	`, orgID, periodEnd.Truncate(24*time.Hour))
+	if err != nil {
+		return fmt.Errorf("recording sent usage report: %w", err)
+	}
+	return nil
+}
+
+// UpdateMonthlyUsageEmail updates the email preference for an org.
+func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, enabled bool) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET monthly_usage_email = $2, updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, enabled)
+	if err != nil {
+		return fmt.Errorf("updating monthly usage email preference: %w", err)
+	}
+	return nil
+}
