@@ -540,6 +540,14 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		env["STRAIT_MEMORY_LIMIT_MB"] = strconv.Itoa(presetInfo.MemoryMB)
 	}
 
+	// Inject W3C trace context for OTel SDK auto-instrumentation inside the container.
+	if tp, ok := run.Metadata["_trace_parent"]; ok && tp != "" {
+		env["TRACEPARENT"] = tp
+		if ts, ok := run.Metadata["_trace_state"]; ok && ts != "" {
+			env["TRACESTATE"] = ts
+		}
+	}
+
 	// 8. Resolve region: job config > project default > run metadata hint > executor default.
 	region := job.Region
 	if region == "" && quota != nil && quota.DefaultRegion != "" && compute.IsValidRegion(quota.DefaultRegion) {
