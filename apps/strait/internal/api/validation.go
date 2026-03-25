@@ -50,3 +50,24 @@ func validateRunCreationJobID(jobID string) error {
 	}
 	return nil
 }
+
+const maxIDLength = 64
+
+func validateIDFormat(id string) error {
+	if id == "" {
+		return fmt.Errorf("id must not be empty")
+	}
+	if len(id) > maxIDLength {
+		return fmt.Errorf("id too long (max %d characters)", maxIDLength)
+	}
+	if strings.Contains(id, "/") {
+		return fmt.Errorf("id must not contain '/'")
+	}
+	if strings.Contains(id, "..") {
+		return fmt.Errorf("id must not contain '..'")
+	}
+	if strings.ContainsRune(id, '\x00') {
+		return fmt.Errorf("id must not contain null bytes")
+	}
+	return nil
+}

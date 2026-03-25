@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+const maxSchemaDepth = 32
+
 func validatePayloadAgainstSchema(payload, schema json.RawMessage) error {
 	if len(schema) == 0 {
 		return nil
@@ -22,11 +24,14 @@ func validatePayloadAgainstSchema(payload, schema json.RawMessage) error {
 		return fmt.Errorf("payload is not valid JSON: %w", err)
 	}
 
-	return validateSchemaNode(payloadNode, schemaNode, "$")
+	return validateSchemaNode(payloadNode, schemaNode, "$", 0)
 }
 
 //nolint:gocognit,nestif
-func validateSchemaNode(value any, schema map[string]any, path string) error {
+func validateSchemaNode(value any, schema map[string]any, path string, depth int) error {
+	if depth > maxSchemaDepth {
+		return fmt.Errorf("%s exceeds maximum schema nesting depth (%d)", path, maxSchemaDepth)
+	}
 	if rawType, ok := schema["type"].(string); ok {
 		switch rawType {
 		case "object":
@@ -52,7 +57,7 @@ func validateSchemaNode(value any, schema map[string]any, path string) error {
 						continue
 					}
 					if child, exists := obj[key]; exists {
-						if err := validateSchemaNode(child, subSchema, path+"."+key); err != nil {
+						if err := validateSchemaNode(child, subSchema, path+"."+key, depth+1); err != nil {
 							return err
 						}
 					}
@@ -65,7 +70,7 @@ func validateSchemaNode(value any, schema map[string]any, path string) error {
 			}
 			if itemsRaw, ok := schema["items"].(map[string]any); ok {
 				for idx, item := range arr {
-					if err := validateSchemaNode(item, itemsRaw, fmt.Sprintf("%s[%d]", path, idx)); err != nil {
+					if err := validateSchemaNode(item, itemsRaw, fmt.Sprintf("%s[%d]", path, idx), depth+1); err != nil {
 						return err
 					}
 				}
