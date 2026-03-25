@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 )
 
 type mockGraceEnforcerStore struct {
+	mu               sync.Mutex
 	graceOrgs        []billing.OrgSubscription
 	freshSubs        map[string]*billing.OrgSubscription
 	listErr          error
@@ -42,6 +44,8 @@ func (m *mockGraceEnforcerStore) ListOrgsInGracePeriod(_ context.Context) ([]bil
 }
 
 func (m *mockGraceEnforcerStore) UpdatePaymentStatus(_ context.Context, orgID string, status string, _ *time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.updateStatusErrs != nil {
 		if err, ok := m.updateStatusErrs[orgID]; ok {
 			return err
@@ -55,6 +59,8 @@ func (m *mockGraceEnforcerStore) UpdatePaymentStatus(_ context.Context, orgID st
 }
 
 func (m *mockGraceEnforcerStore) UpdateOrgSubscriptionPlan(_ context.Context, orgID, planTier, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.updatePlanErrs != nil {
 		if err, ok := m.updatePlanErrs[orgID]; ok {
 			return err

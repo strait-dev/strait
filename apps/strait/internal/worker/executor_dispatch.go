@@ -473,7 +473,30 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		defer e.metrics.ManagedMachinesActive.Add(ctx, -1)
 	}
 
-	// 4. Budget check.
+	// 4a. Resolve preset BEFORE budget check so cost estimation uses the
+	// final preset (including metadata overrides and OOM auto-upgrade).
+	resolvedPreset := string(job.MachinePreset)
+	if override, ok := run.Metadata["_preset_override"]; ok && override != "" {
+		if domain.MachinePreset(override).IsValid() {
+			resolvedPreset = override
+		}
+	}
+	if _, hasOverride := run.Metadata["_preset_override"]; !hasOverride {
+		rec, recErr := e.store.GetPresetRecommendation(ctx, job.ID)
+		if recErr == nil && rec != nil {
+			recIdx := compute.PresetIndex(rec.RecommendedPreset)
+			curIdx := compute.PresetIndex(resolvedPreset)
+			if recIdx > curIdx {
+				e.logger.Info("auto-upgrading preset from OOM history",
+					"run_id", run.ID, "job_id", job.ID,
+					"from", resolvedPreset, "to", rec.RecommendedPreset,
+					"oom_count", rec.OOMCount)
+				resolvedPreset = rec.RecommendedPreset
+			}
+		}
+	}
+
+	// 4b. Budget check using the resolved preset.
 	quota, quotaErr := e.store.GetProjectQuota(ctx, job.ProjectID)
 	if quotaErr != nil {
 		e.logger.Warn("failed to load project quota for budget check", "run_id", run.ID, "error", quotaErr)
@@ -488,7 +511,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		if costErr != nil {
 			e.logger.Warn("failed to sum daily compute cost", "run_id", run.ID, "error", costErr)
 		} else {
-			estimated, _ := compute.EstimateCost(string(job.MachinePreset), job.TimeoutSecs)
+			estimated, _ := compute.EstimateCost(resolvedPreset, job.TimeoutSecs)
 
 			// Soft-limit warning at threshold percentage.
 			threshold := quota.ComputeDailyCostLimitMicrousd * int64(domain.ComputeBudgetAlertThresholdPct) / 100
@@ -586,8 +609,8 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		}
 	}
 
-	// Inject memory limit for in-container resource monitoring.
-	if presetInfo, pErr := compute.PresetFromName(string(job.MachinePreset)); pErr == nil {
+	// Inject memory limit for in-container resource monitoring (use resolved preset).
+	if presetInfo, pErr := compute.PresetFromName(resolvedPreset); pErr == nil {
 		env["STRAIT_MEMORY_LIMIT_MB"] = strconv.Itoa(presetInfo.MemoryMB)
 	}
 
@@ -615,31 +638,10 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		region = e.defaultFlyRegion
 	}
 
-	// 9. Create the container (non-blocking).
-	preset := string(job.MachinePreset)
-	if override, ok := run.Metadata["_preset_override"]; ok && override != "" {
-		if domain.MachinePreset(override).IsValid() {
-			preset = override
-		}
-	}
-	// Auto-upgrade from historical OOM data (only if no explicit override).
-	if _, hasOverride := run.Metadata["_preset_override"]; !hasOverride {
-		rec, recErr := e.store.GetPresetRecommendation(ctx, job.ID)
-		if recErr == nil && rec != nil {
-			recIdx := compute.PresetIndex(rec.RecommendedPreset)
-			curIdx := compute.PresetIndex(preset)
-			if recIdx > curIdx {
-				e.logger.Info("auto-upgrading preset from OOM history",
-					"run_id", run.ID, "job_id", job.ID,
-					"from", preset, "to", rec.RecommendedPreset,
-					"oom_count", rec.OOMCount)
-				preset = rec.RecommendedPreset
-			}
-		}
-	}
+	// 9. Create the container using the preset resolved in step 4a.
 	runReq := compute.RunRequest{
 		ImageURI:      job.ImageURI,
-		MachinePreset: preset,
+		MachinePreset: resolvedPreset,
 		Region:        region,
 		Env:           env,
 		Labels: map[string]string{
@@ -656,8 +658,8 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	var dispatchSource string // "pool", "pause_reuse", or "cold_start"
 
 	// Try warm pool first (acquire stopped machine and Start with new env).
-	if e.machinePool != nil {
-		if pooledID, ok := e.machinePool.Acquire(job.ImageURI, region); ok {
+	if !e.disableMachinePoolReuse && e.machinePool != nil {
+		if pooledID, ok := e.machinePool.Acquire(job.ProjectID, job.ImageURI, region); ok {
 			env["STRAIT_CLEAN_START"] = "true"
 			if startErr := e.containerRuntime.Start(ctx, pooledID, env); startErr != nil {
 				e.logger.Warn("pooled machine start failed, falling back to create",
@@ -810,8 +812,8 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	if currentRun.Status.IsTerminal() {
 		e.logger.Info("managed run already terminal (SDK race)",
 			"run_id", run.ID, "status", currentRun.Status, "exit_code", result.ExitCode)
-		if e.machinePool != nil && result.ExitCode == 0 {
-			e.machinePool.Release(job.ImageURI, region, machineID)
+		if !e.disableMachinePoolReuse && e.machinePool != nil && result.ExitCode == 0 {
+			e.machinePool.Release(job.ProjectID, job.ImageURI, region, machineID)
 		}
 		e.recordManagedMetric(ctx, "success", dispatchStart)
 		return

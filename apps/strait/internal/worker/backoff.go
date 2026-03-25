@@ -79,7 +79,7 @@ func NextRetryDelayWithStrategy(attempt int, strategy string, customDelays []int
 }
 
 // exponentialDelay computes base * 2^(attempt-1), capped at maxDelay.
-func exponentialDelay(attempt int, base, maxDelay time.Duration) time.Duration {
+func exponentialDelay(attempt int, base, maxDelay time.Duration) time.Duration { //nolint:unparam // base varies via NextRetryDelayWithPolicy
 	delay := base
 	for i := 1; i < attempt; i++ {
 		if delay >= maxDelay/2 {

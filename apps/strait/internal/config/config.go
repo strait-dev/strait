@@ -138,15 +138,18 @@ type Config struct {
 	DequeueStrategy            string        `env:"DEQUEUE_STRATEGY" default:"priority"`
 
 	// Managed execution (container runtime)
-	ComputeRuntime        string        `env:"COMPUTE_RUNTIME" default:"none"`
-	FlyAPIToken           string        `env:"FLY_API_TOKEN"`
-	FlyAppName            string        `env:"FLY_APP_NAME"`
-	FlyRegion             string        `env:"FLY_REGION" default:"iad"`
-	ExternalAPIURL        string        `env:"EXTERNAL_API_URL"`
-	MaxConcurrentMachines int           `env:"MAX_CONCURRENT_MACHINES" default:"10"`
-	WarmPoolEnabled       bool          `env:"WARM_POOL_ENABLED" default:"false"`
-	WarmPoolMaxPerJob     int           `env:"WARM_POOL_MAX_PER_JOB" default:"0"`
-	WarmPoolTTL           time.Duration `env:"WARM_POOL_TTL"`
+	AllowedImageRegistries  []string      `env:"ALLOWED_IMAGE_REGISTRIES" envSeparator:"," envDefault:""`
+	RequireImageDigest      bool          `env:"REQUIRE_IMAGE_DIGEST" envDefault:"false"`
+	ComputeRuntime          string        `env:"COMPUTE_RUNTIME" default:"none"`
+	FlyAPIToken             string        `env:"FLY_API_TOKEN"`
+	FlyAppName              string        `env:"FLY_APP_NAME"`
+	FlyRegion               string        `env:"FLY_REGION" default:"iad"`
+	ExternalAPIURL          string        `env:"EXTERNAL_API_URL"`
+	MaxConcurrentMachines   int           `env:"MAX_CONCURRENT_MACHINES" default:"10"`
+	WarmPoolEnabled         bool          `env:"WARM_POOL_ENABLED" default:"false"`
+	WarmPoolMaxPerJob       int           `env:"WARM_POOL_MAX_PER_JOB" default:"0"`
+	WarmPoolTTL             time.Duration `env:"WARM_POOL_TTL"`
+	DisableMachinePoolReuse bool          `env:"DISABLE_MACHINE_POOL_REUSE" default:"true"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`

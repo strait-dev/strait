@@ -1,6 +1,8 @@
 package compute
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"sync"
 	"time"
 )
@@ -39,9 +41,17 @@ func (p *MachinePool) SetOnEvict(fn func(machineID string)) {
 	p.onEvict = fn
 }
 
-// PoolKey returns the cache key for a given image and region.
-func PoolKey(imageURI, region string) string {
-	return imageURI + ":" + region
+// PoolKey returns a collision-resistant cache key for a given project, image,
+// and region. Uses SHA-256 hash to eliminate any risk of separator collisions
+// regardless of input content.
+func PoolKey(projectID, imageURI, region string) string {
+	h := sha256.New()
+	h.Write([]byte(projectID))
+	h.Write([]byte{0})
+	h.Write([]byte(imageURI))
+	h.Write([]byte{0})
+	h.Write([]byte(region))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // AcquireResult holds the machine ID and metadata from a pool Acquire.
@@ -52,8 +62,8 @@ type AcquireResult struct {
 
 // Acquire removes and returns the oldest machine from the pool for the given key.
 // Returns empty string and false if no machine is available.
-func (p *MachinePool) Acquire(imageURI, region string) (string, bool) {
-	key := PoolKey(imageURI, region)
+func (p *MachinePool) Acquire(projectID, imageURI, region string) (string, bool) {
+	key := PoolKey(projectID, imageURI, region)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -71,12 +81,12 @@ func (p *MachinePool) Acquire(imageURI, region string) (string, bool) {
 
 // Release returns a stopped machine to the pool. If the pool is at capacity
 // for this key, the oldest entry is evicted.
-func (p *MachinePool) Release(imageURI, region, machineID string) {
+func (p *MachinePool) Release(projectID, imageURI, region, machineID string) {
 	if machineID == "" {
 		return
 	}
 
-	key := PoolKey(imageURI, region)
+	key := PoolKey(projectID, imageURI, region)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()

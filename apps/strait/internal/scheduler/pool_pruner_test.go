@@ -59,8 +59,8 @@ func TestPoolPruner_Run_PrunesExpired(t *testing.T) {
 
 	pool := compute.NewMachinePool(5)
 	// Add entries to the pool.
-	pool.Release("img:latest", "iad", "m-old-1")
-	pool.Release("img:latest", "iad", "m-old-2")
+	pool.Release("test-project", "img:latest", "iad", "m-old-1")
+	pool.Release("test-project", "img:latest", "iad", "m-old-2")
 
 	// Sleep briefly so entries are older than the TTL.
 	time.Sleep(20 * time.Millisecond)
@@ -148,8 +148,8 @@ func TestPoolPruner_Run_DestroyError(t *testing.T) {
 	}
 
 	pool := compute.NewMachinePool(5)
-	pool.Release("img:latest", "iad", "m-err-1")
-	pool.Release("img:latest", "iad", "m-err-2")
+	pool.Release("test-project", "img:latest", "iad", "m-err-1")
+	pool.Release("test-project", "img:latest", "iad", "m-err-2")
 
 	// Sleep briefly so entries are older than the TTL.
 	time.Sleep(20 * time.Millisecond)

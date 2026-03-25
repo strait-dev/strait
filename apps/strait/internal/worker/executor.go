@@ -113,6 +113,7 @@ type Executor struct {
 	containerRuntime         compute.ContainerRuntime
 	managedSemaphore         *semaphore.Weighted
 	machinePool              *compute.MachinePool
+	disableMachinePoolReuse  bool
 	externalAPIURL           string
 	defaultFlyRegion         string
 	billingEnforcer          *billing.Enforcer
@@ -163,6 +164,7 @@ type ExecutorConfig struct {
 	DefaultFlyRegion           string
 	WarmPoolEnabled            bool
 	WarmPoolMaxPerJob          int
+	DisableMachinePoolReuse    bool
 	WorkflowLookup             WorkflowLookup
 	WorkflowTriggerer          WorkflowTriggerer
 	BillingEnforcer            *billing.Enforcer           // Optional: org-level billing enforcement (cloud only).
@@ -264,6 +266,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		containerRuntime:         cfg.ContainerRuntime,
 		managedSemaphore:         managedSem,
 		machinePool:              machinePool,
+		disableMachinePoolReuse:  cfg.DisableMachinePoolReuse,
 		externalAPIURL:           cfg.ExternalAPIURL,
 		defaultFlyRegion:         cfg.DefaultFlyRegion,
 		billingEnforcer:          cfg.BillingEnforcer,

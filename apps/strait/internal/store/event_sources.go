@@ -126,12 +126,26 @@ func (q *Queries) UpdateEventSource(ctx context.Context, sourceID, projectID str
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateEventSource")
 	defer span.End()
 
+	allowedColumns := map[string]struct{}{
+		"name":                 {},
+		"description":          {},
+		"schema":               {},
+		"enabled":              {},
+		"signature_header":     {},
+		"signature_algorithm":  {},
+		"signature_secret_enc": {},
+		"updated_at":           {},
+	}
+
 	patch["updated_at"] = time.Now()
 	setClauses := make([]string, 0, len(patch))
 	args := make([]any, 0, 2+len(patch))
 	args = append(args, sourceID, projectID)
 	param := 3
 	for k, v := range patch {
+		if _, ok := allowedColumns[k]; !ok {
+			return &domain.FieldError{Field: k}
+		}
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", k, param))
 		args = append(args, v)
 		param++

@@ -288,6 +288,11 @@ func newOIDCUsageTestServer(
 		}
 	}
 	store.GetUserPermissionsFunc = getUserPermissions
+	if store.UserHasProjectAccessFunc == nil {
+		store.UserHasProjectAccessFunc = func(_ context.Context, _, _ string) (bool, error) {
+			return true, nil
+		}
+	}
 
 	opts.store = store
 	opts.config = &config.Config{

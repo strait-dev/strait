@@ -125,6 +125,17 @@ func (q *Queries) UpdateLogDrain(ctx context.Context, drainID, projectID string,
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateLogDrain")
 	defer span.End()
 
+	allowedColumns := map[string]struct{}{
+		"name":         {},
+		"drain_type":   {},
+		"endpoint_url": {},
+		"auth_type":    {},
+		"auth_config":  {},
+		"level_filter": {},
+		"enabled":      {},
+		"updated_at":   {},
+	}
+
 	patch["updated_at"] = time.Now()
 
 	setClauses := make([]string, 0, len(patch))
@@ -132,6 +143,9 @@ func (q *Queries) UpdateLogDrain(ctx context.Context, drainID, projectID string,
 	args = append(args, drainID, projectID)
 	param := 3
 	for k, v := range patch {
+		if _, ok := allowedColumns[k]; !ok {
+			return &domain.FieldError{Field: k}
+		}
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", k, param))
 		args = append(args, v)
 		param++

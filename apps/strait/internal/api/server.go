@@ -313,6 +313,7 @@ type AuthStore interface {
 // RBACStore handles role-based access control.
 type RBACStore interface {
 	GetUserPermissions(ctx context.Context, projectID, userID string) ([]string, error)
+	UserHasProjectAccess(ctx context.Context, userID, projectID string) (bool, error)
 	CreateProjectRole(ctx context.Context, role *domain.ProjectRole) error
 	GetProjectRole(ctx context.Context, id string) (*domain.ProjectRole, error)
 	UpdateProjectRole(ctx context.Context, role *domain.ProjectRole) error

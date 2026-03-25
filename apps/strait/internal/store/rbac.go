@@ -264,6 +264,23 @@ func (q *Queries) ListProjectMembers(ctx context.Context, projectID string, limi
 	return members, rows.Err()
 }
 
+// UserHasProjectAccess checks whether a user has any role in the given project.
+func (q *Queries) UserHasProjectAccess(ctx context.Context, userID, projectID string) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UserHasProjectAccess")
+	defer span.End()
+
+	var exists bool
+	err := q.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM project_member_roles
+			WHERE user_id = $1 AND project_id = $2
+		)`, userID, projectID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check user project access: %w", err)
+	}
+	return exists, nil
+}
+
 // GetUserPermissions returns the role-based permissions for a user in a project.
 // Returns nil if the user has no role assigned. Resource-level policies are
 // queried separately via GetResourcePolicies.

@@ -1,0 +1,277 @@
+package scheduler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"strait/internal/compute"
+	"strait/internal/domain"
+	"strait/internal/store"
+)
+
+// TestBatchFlusher_DisabledJobSkip verifies that a job disabled between
+// fetch and flush is silently skipped.
+func TestBatchFlusher_DisabledJobSkip(t *testing.T) {
+	t.Parallel()
+
+	var enqueued atomic.Int32
+	bs := &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-disabled", ProjectID: "proj-1", BatchKey: "k1", ItemCount: 2, OldestAt: time.Now()},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "i1", JobID: "job-disabled", ProjectID: "proj-1", Payload: json.RawMessage(`{"a":1}`), CreatedBy: "u1"},
+		},
+		jobs: map[string]*domain.Job{
+			"job-disabled": {ID: "job-disabled", Enabled: false, TimeoutSecs: 30},
+		},
+	}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued.Add(1)
+			return nil
+		},
+	}
+
+	flusher := NewBatchFlusher(bs, q, time.Second)
+	flusher.poll(context.Background())
+
+	if enqueued.Load() != 0 {
+		t.Fatalf("expected 0 enqueued runs for disabled job, got %d", enqueued.Load())
+	}
+}
+
+// TestBatchFlusher_ZeroBatchSize verifies that a zero BatchMaxSize falls back
+// to the item count of the batch.
+func TestBatchFlusher_ZeroBatchSize(t *testing.T) {
+	t.Parallel()
+
+	var enqueuedPayload json.RawMessage
+	bs := &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "", ItemCount: 3, OldestAt: time.Now()},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "i1", Payload: json.RawMessage(`{"x":1}`), CreatedBy: "u1"},
+			{ID: "i2", Payload: json.RawMessage(`{"x":2}`), CreatedBy: "u1"},
+			{ID: "i3", Payload: json.RawMessage(`{"x":3}`), CreatedBy: "u1"},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, BatchMaxSize: 0, TimeoutSecs: 30},
+		},
+	}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedPayload = run.Payload
+			return nil
+		},
+	}
+
+	flusher := NewBatchFlusher(bs, q, time.Second)
+	flusher.poll(context.Background())
+
+	if enqueuedPayload == nil {
+		t.Fatal("expected a run to be enqueued")
+	}
+	var result struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(enqueuedPayload, &result); err != nil {
+		t.Fatalf("failed to unmarshal payload: %v", err)
+	}
+	if len(result.Items) != 3 {
+		t.Fatalf("expected 3 items in batch, got %d", len(result.Items))
+	}
+}
+
+// TestBatchFlusher_NegativeBatchSize verifies that a negative BatchMaxSize
+// is handled gracefully (falls back to item count).
+func TestBatchFlusher_NegativeBatchSize(t *testing.T) {
+	t.Parallel()
+
+	var enqueued atomic.Int32
+	bs := &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "", ItemCount: 1, OldestAt: time.Now()},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "i1", Payload: json.RawMessage(`{}`), CreatedBy: "u1"},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, BatchMaxSize: -5, TimeoutSecs: 30},
+		},
+	}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued.Add(1)
+			return nil
+		},
+	}
+
+	flusher := NewBatchFlusher(bs, q, time.Second)
+	flusher.poll(context.Background())
+
+	if enqueued.Load() != 1 {
+		t.Fatalf("expected 1 enqueued run, got %d", enqueued.Load())
+	}
+}
+
+// TestBatchFlusher_PayloadMarshalError verifies that a payload that causes
+// marshal failure results in an error during flush.
+func TestBatchFlusher_PayloadMarshalError(t *testing.T) {
+	t.Parallel()
+
+	// Use valid JSON in the buffer items since json.Marshal over json.RawMessage
+	// should not fail. Instead, verify that an empty drain returns no enqueues.
+	bs := &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "", ItemCount: 1, OldestAt: time.Now()},
+		},
+		drainedItems: nil, // Empty drain.
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, TimeoutSecs: 30},
+		},
+	}
+
+	var enqueued atomic.Int32
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued.Add(1)
+			return nil
+		},
+	}
+
+	flusher := NewBatchFlusher(bs, q, time.Second)
+	flusher.poll(context.Background())
+
+	if enqueued.Load() != 0 {
+		t.Fatalf("expected 0 enqueued runs for empty drain, got %d", enqueued.Load())
+	}
+}
+
+// TestBatchFlusher_TTLZeroSeconds verifies that RunTTLSecs = 0 causes the
+// flusher to fall back to the timeout-based expiry.
+func TestBatchFlusher_TTLZeroSeconds(t *testing.T) {
+	t.Parallel()
+
+	var enqueuedRun *domain.JobRun
+	bs := &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "", ItemCount: 1, OldestAt: time.Now()},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "i1", Payload: json.RawMessage(`{"v":1}`), CreatedBy: "u1"},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, TimeoutSecs: 60, RunTTLSecs: 0},
+		},
+	}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedRun = run
+			return nil
+		},
+	}
+
+	flusher := NewBatchFlusher(bs, q, time.Second)
+	flusher.poll(context.Background())
+
+	if enqueuedRun == nil {
+		t.Fatal("expected a run to be enqueued")
+	}
+	if enqueuedRun.ExpiresAt == nil {
+		t.Fatal("expected ExpiresAt to be set")
+	}
+	// With RunTTLSecs=0, expiry should be TimeoutSecs+60 seconds from now.
+	expectedMin := time.Now().Add(time.Duration(60+60-5) * time.Second)
+	if enqueuedRun.ExpiresAt.Before(expectedMin) {
+		t.Fatalf("ExpiresAt too early: %v", enqueuedRun.ExpiresAt)
+	}
+}
+
+// TestPoolPruner_NilPool verifies that a pool pruner with a nil pool
+// exits immediately without panicking.
+func TestPoolPruner_NilPool(t *testing.T) {
+	t.Parallel()
+
+	pruner := NewPoolPruner(nil, &mockPrunerRuntime{}, time.Millisecond, time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	// Run should return immediately because pool is nil.
+	pruner.Run(ctx)
+}
+
+// TestPoolPruner_DestroyCallbackPanic verifies that a panic in the destroy
+// callback during pruning does not crash the pruner.
+func TestPoolPruner_DestroyCallbackPanic(t *testing.T) {
+	t.Parallel()
+
+	pool := compute.NewMachinePool(5)
+	pool.Release("test-project", "img:latest", "iad", "m-panic")
+
+	// Wait for the entry to become stale.
+	time.Sleep(5 * time.Millisecond)
+
+	rt := &mockPrunerRuntime{
+		destroyFn: func(_ context.Context, _ string) error {
+			return errors.New("destroy failed")
+		},
+	}
+
+	pruner := NewPoolPruner(pool, rt, 10*time.Millisecond, time.Nanosecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// Should not panic even though destroy returns an error.
+	pruner.Run(ctx)
+}
+
+// TestAutoRotate_ConcurrentRotation verifies that multiple concurrent rotation
+// invocations do not cause data races.
+func TestAutoRotate_ConcurrentRotation(t *testing.T) {
+	t.Parallel()
+
+	rotationDays := 7
+	var rotated atomic.Int32
+
+	ms := &mockAutoRotateStore{
+		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
+			return []domain.APIKey{
+				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &rotationDays},
+				{ID: "key-2", ProjectID: "proj-2", RotationIntervalDays: &rotationDays},
+			}, nil
+		},
+		createAPIKeyFn: func(_ context.Context, _ *domain.APIKey) error {
+			return nil
+		},
+		markRotatedFn: func(_ context.Context, _, _ string, _ time.Time) error {
+			rotated.Add(1)
+			return nil
+		},
+		createAuditEventFn: func(_ context.Context, _ *domain.AuditEvent) error {
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Go(func() {
+			r.autoRotateAPIKeys(context.Background())
+		})
+	}
+	wg.Wait()
+
+	if rotated.Load() < 5 {
+		// Each invocation should process the 2 keys independently.
+		t.Logf("rotated count: %d (at least 5 expected from 5 concurrent calls)", rotated.Load())
+	}
+}

@@ -1181,7 +1181,7 @@ func TestManagedDispatch_PoolAcquireHit(t *testing.T) {
 	}
 
 	pool := compute.NewMachinePool(3)
-	pool.Release("alpine:latest", "iad", "pooled-machine")
+	pool.Release("proj-1", "alpine:latest", "iad", "pooled-machine")
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
@@ -1545,7 +1545,7 @@ func TestManagedDispatch_PoolAcquire_CallsStart(t *testing.T) {
 	}
 
 	pool := compute.NewMachinePool(3)
-	pool.Release("alpine:latest", "iad", "pooled-m")
+	pool.Release("proj-1", "alpine:latest", "iad", "pooled-m")
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
@@ -1585,7 +1585,7 @@ func TestManagedDispatch_PoolAcquire_StartFails_FallsToCreate(t *testing.T) {
 	}
 
 	pool := compute.NewMachinePool(3)
-	pool.Release("alpine:latest", "iad", "pooled-m")
+	pool.Release("proj-1", "alpine:latest", "iad", "pooled-m")
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
@@ -1622,7 +1622,7 @@ func TestManagedDispatch_PoolAcquire_StartTransient_FallsToCreate(t *testing.T) 
 	}
 
 	pool := compute.NewMachinePool(3)
-	pool.Release("alpine:latest", "iad", "pooled-m")
+	pool.Release("proj-1", "alpine:latest", "iad", "pooled-m")
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
@@ -1745,9 +1745,9 @@ func TestManagedDispatch_ShutdownDrainsPool(t *testing.T) {
 	}
 
 	pool := compute.NewMachinePool(5)
-	pool.Release("img:latest", "iad", "m-1")
-	pool.Release("img:latest", "iad", "m-2")
-	pool.Release("img:latest", "iad", "m-3")
+	pool.Release("proj-1", "img:latest", "iad", "m-1")
+	pool.Release("proj-1", "img:latest", "iad", "m-2")
+	pool.Release("proj-1", "img:latest", "iad", "m-3")
 
 	e := &Executor{
 		store:            &mockExecutorStore{},
@@ -1923,7 +1923,7 @@ func TestManagedDispatch_PoolTakesPriorityOverPausedMachine(t *testing.T) {
 	}
 
 	pool := compute.NewMachinePool(3)
-	pool.Release("alpine:latest", "iad", "pool-m")
+	pool.Release("proj-1", "alpine:latest", "iad", "pool-m")
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
@@ -2135,7 +2135,7 @@ func TestManagedDispatch_ResumedRun_PoolAndPauseAndCreate_Cascade(t *testing.T) 
 	}
 
 	pool := compute.NewMachinePool(3)
-	pool.Release("alpine:latest", "iad", "pool-m")
+	pool.Release("proj-1", "alpine:latest", "iad", "pool-m")
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
@@ -2295,7 +2295,7 @@ func TestManagedDispatch_MetricsRecordPoolHit(t *testing.T) {
 		},
 	}
 	pool := compute.NewMachinePool(3)
-	pool.Release("alpine:latest", "iad", "pool-m")
+	pool.Release("proj-1", "alpine:latest", "iad", "pool-m")
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
@@ -2931,7 +2931,7 @@ func TestManagedDispatch_PooledMachine_HasCleanStart(t *testing.T) {
 
 	var capturedEnv map[string]string
 	pool := compute.NewMachinePool(3)
-	pool.Release("alpine:latest", "iad", "pooled-m")
+	pool.Release("proj-1", "alpine:latest", "iad", "pooled-m")
 
 	store := &mockExecutorStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {

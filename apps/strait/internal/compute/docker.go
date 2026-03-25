@@ -22,6 +22,83 @@ func validateImageURI(uri string) error {
 			return fmt.Errorf("image URI contains invalid character: %q", c)
 		}
 	}
+
+	// Reject embedded credentials (user:pass@registry).
+	// Allow @sha256: for digest pinning.
+	if atIdx := strings.Index(uri, "@"); atIdx >= 0 {
+		after := uri[atIdx:]
+		if !strings.HasPrefix(after, "@sha256:") {
+			return fmt.Errorf("image URI must not contain embedded credentials; use @sha256: for digest pinning only")
+		}
+	}
+
+	return nil
+}
+
+// extractRegistry parses the registry hostname from a Docker image URI.
+// For "docker.io/library/nginx:latest" returns "docker.io".
+// For "nginx:latest" (no explicit registry) returns "docker.io" (Docker Hub default).
+func extractRegistry(uri string) string {
+	// Remove tag/digest.
+	base := uri
+	if atIdx := strings.Index(base, "@"); atIdx >= 0 {
+		base = base[:atIdx]
+	}
+	if colonIdx := strings.LastIndex(base, ":"); colonIdx >= 0 {
+		// Only strip if it looks like a tag (no slash after colon = tag, slash after = port).
+		afterColon := base[colonIdx+1:]
+		if !strings.Contains(afterColon, "/") {
+			base = base[:colonIdx]
+		}
+	}
+
+	// Split on first /.
+	parts := strings.SplitN(base, "/", 2)
+	if len(parts) == 1 {
+		return "docker.io" // no registry specified = Docker Hub
+	}
+
+	registry := parts[0]
+	// If registry doesn't contain a dot or colon, it's a Docker Hub user/org.
+	if !strings.Contains(registry, ".") && !strings.Contains(registry, ":") {
+		return "docker.io"
+	}
+	return registry
+}
+
+// ValidateImageRegistry checks if the image URI's registry is in the allowlist.
+// An empty allowlist means no restriction (all registries allowed).
+func ValidateImageRegistry(uri string, allowedRegistries []string) error {
+	if len(allowedRegistries) == 0 {
+		return nil
+	}
+	registry := extractRegistry(uri)
+	for _, allowed := range allowedRegistries {
+		if matchesRegistry(allowed, strings.ToLower(registry)) {
+			return nil
+		}
+	}
+	return fmt.Errorf("image registry %q not in allowlist", registry)
+}
+
+func matchesRegistry(pattern, registry string) bool {
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	if pattern == registry {
+		return true
+	}
+	// Support wildcard prefix: *.ecr.amazonaws.com.
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := pattern[1:] // ".ecr.amazonaws.com"
+		return strings.HasSuffix(registry, suffix)
+	}
+	return false
+}
+
+// ValidateImageDigest checks that the image URI contains a digest pin.
+func ValidateImageDigest(uri string) error {
+	if !strings.Contains(uri, "@sha256:") {
+		return fmt.Errorf("image must use digest pinning (@sha256:...)")
+	}
 	return nil
 }
 

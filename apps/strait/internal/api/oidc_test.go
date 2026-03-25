@@ -53,6 +53,12 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 	})
 
 	ms := &APIStoreMock{}
+	ms.UserHasProjectAccessFunc = func(_ context.Context, userID, projectID string) (bool, error) {
+		if userID == "user-oidc-1" && projectID == "proj-oidc" {
+			return true, nil
+		}
+		return false, nil
+	}
 	ms.QueueStatsFunc = func(ctx context.Context) (*store.QueueStats, error) {
 		if actor := actorFromContext(ctx); actor != "user-oidc-1" {
 			t.Fatalf("actor = %q, want user-oidc-1", actor)
