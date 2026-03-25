@@ -42,7 +42,6 @@ type ExecutorStore interface {
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
-	GetRunErrorClass(ctx context.Context, runID string) (string, error)
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error)

@@ -46,7 +46,6 @@ type mockExecutorStore struct {
 	getJobHealthStatsFn       func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
 	getResolvedEnvVarsFn      func(ctx context.Context, id string) (map[string]string, error)
 	getLatestCheckpointFn     func(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
-	getRunErrorClassFn        func(ctx context.Context, runID string) (string, error)
 	getRunFn                  func(ctx context.Context, id string) (*domain.JobRun, error)
 	getProjectQuotaFn         func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
 	sumDailyComputeCostFn     func(ctx context.Context, projectID, timezone string) (int64, error)
@@ -181,13 +180,6 @@ func (m *mockExecutorStore) GetLatestCheckpoint(ctx context.Context, runID strin
 		return nil, nil
 	}
 	return m.getLatestCheckpointFn(ctx, runID)
-}
-
-func (m *mockExecutorStore) GetRunErrorClass(ctx context.Context, runID string) (string, error) {
-	if m.getRunErrorClassFn == nil {
-		return "", nil
-	}
-	return m.getRunErrorClassFn(ctx, runID)
 }
 
 func (m *mockExecutorStore) GetRun(ctx context.Context, id string) (*domain.JobRun, error) {
