@@ -114,7 +114,7 @@ CLI flags  >  env vars  >  CLI profile context  >  strait.json
 
 ## Loading Config from Each SDK
 
-<Tabs items={["TypeScript","Python","Go","Ruby","Rust"]}>
+<Tabs items={["TypeScript","Python","Go"]}>
   <Tab value="TypeScript">
     ```ts
   import { createClientFromConfigFile } from "@strait/ts/node";
@@ -164,35 +164,11 @@ CLI flags  >  env vars  >  CLI profile context  >  strait.json
   })
   ```
   </Tab>
-  <Tab value="Ruby">
-    ```ruby
-  require "strait"
-
-  # Auto-discovers strait.json in cwd
-  client = Strait::Client.from_file
-
-  # Or specify a directory
-  client = Strait::Client.from_file(search_dir: "/path/to/project")
-
-  # Or an explicit path
-  client = Strait::Client.from_file(path: "/path/to/custom-config.json")
-  ```
-  </Tab>
-  <Tab value="Rust">
-    ```rust
-  use strait_sdk::client::StraitClient;
-
-  // Auto-discovers strait.json in cwd
-  let client = StraitClient::from_file(None, None)?;
-
-  // Or specify a directory
-  let client = StraitClient::from_file(None, Some("/path/to/project"))?;
-
-  // Or an explicit path
-  let client = StraitClient::from_file(Some("/path/to/config.json"), None)?;
-  ```
-  </Tab>
 </Tabs>
+
+For Ruby and Rust SDK configuration examples, see their dedicated repositories:
+- [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby)
+- [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust)
 
 ## Migrating from `strait.config.ts`
 
