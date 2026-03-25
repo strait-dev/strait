@@ -1206,8 +1206,8 @@ func TestEnqueue_NilMetadata(t *testing.T) {
 	if dequeued == nil {
 		t.Fatal("Dequeue() returned nil")
 	}
-	if dequeued.Metadata != nil {
-		t.Fatalf("Dequeue() metadata = %v, want nil", dequeued.Metadata)
+	if len(dequeued.Metadata) != 0 {
+		t.Fatalf("Dequeue() metadata = %v, want empty", dequeued.Metadata)
 	}
 }
 
@@ -1236,8 +1236,8 @@ func TestEnqueue_EmptyMetadata(t *testing.T) {
 	if dequeued == nil {
 		t.Fatal("Dequeue() returned nil")
 	}
-	if dequeued.Metadata != nil {
-		t.Fatalf("Dequeue() metadata = %v, want nil for empty map", dequeued.Metadata)
+	if len(dequeued.Metadata) != 0 {
+		t.Fatalf("Dequeue() metadata = %v, want empty", dequeued.Metadata)
 	}
 }
 
@@ -1296,16 +1296,16 @@ func TestEnqueueBatch_MetadataRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun(runs[1]) error = %v", err)
 	}
-	if got1.Metadata != nil {
-		t.Fatalf("runs[1] metadata = %v, want nil", got1.Metadata)
+	if len(got1.Metadata) != 0 {
+		t.Fatalf("runs[1] metadata = %v, want empty", got1.Metadata)
 	}
 
 	got2, err := st.GetRun(ctx, runs[2].ID)
 	if err != nil {
 		t.Fatalf("GetRun(runs[2]) error = %v", err)
 	}
-	if got2.Metadata != nil {
-		t.Fatalf("runs[2] metadata = %v, want nil for empty map", got2.Metadata)
+	if len(got2.Metadata) != 0 {
+		t.Fatalf("runs[2] metadata = %v, want empty", got2.Metadata)
 	}
 }
 

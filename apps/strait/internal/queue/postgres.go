@@ -93,13 +93,13 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		}
 	}
 
-	var metadataJSON any
+	metadataJSON := []byte("{}")
 	if len(run.Metadata) > 0 {
-		b, marshalErr := json.Marshal(run.Metadata)
+		var marshalErr error
+		metadataJSON, marshalErr = json.Marshal(run.Metadata)
 		if marshalErr != nil {
 			return fmt.Errorf("enqueue run: marshal metadata: %w", marshalErr)
 		}
-		metadataJSON = b
 	}
 
 	query := `
@@ -235,13 +235,13 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			}
 		}
 
-		var metadataJSON any
+		metadataJSON := []byte("{}")
 		if len(run.Metadata) > 0 {
-			b, err := json.Marshal(run.Metadata)
+			var err error
+			metadataJSON, err = json.Marshal(run.Metadata)
 			if err != nil {
 				return 0, fmt.Errorf("enqueue batch: marshal metadata for run %d: %w", i, err)
 			}
-			metadataJSON = b
 		}
 
 		rows[i] = []any{
