@@ -19,7 +19,7 @@ import (
 // We compare valid-length vs invalid-length strings and check that the
 // standard deviation of elapsed times is small.
 func TestTOCTOU_ConstantTimeComparison(t *testing.T) {
-	t.Parallel()
+	// Not parallel: timing measurements are unreliable under concurrent load.
 
 	const iterations = 100
 	secret := "sk_live_abcdef1234567890abcdef1234567890"
