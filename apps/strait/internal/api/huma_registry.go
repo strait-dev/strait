@@ -1113,7 +1113,7 @@ func registerAllTypedOps(api huma.API, s *Server) {
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "update-workflow", Method: http.MethodPatch, Path: "/v1/workflows/{workflowID}",
-		Summary: "Update a workflow", Description: "Updates an existing workflow's configuration and step definitions.",
+		Summary: "Update a workflow", Description: "Updates an existing workflow's configuration and step definitions. Set breaking_change to true to acknowledge a breaking update; an audit event is emitted when active runs exist on the previous version.",
 		Tags: []string{"Workflows"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleUpdateWorkflow)
 
