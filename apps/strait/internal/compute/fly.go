@@ -232,7 +232,7 @@ func (f *FlyRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int
 	case waitResp.StatusCode == 404:
 		return result, ErrMachineGone
 	case waitResp.StatusCode == 408:
-		return result, NewRetryableError(408, "wait timed out", nil)
+		return result, NewTimeoutError("wait timed out", nil)
 	case waitResp.StatusCode >= 500:
 		return result, NewRetryableError(waitResp.StatusCode, fmt.Sprintf("wait server error: status %d", waitResp.StatusCode), nil)
 	case waitResp.StatusCode == 200:

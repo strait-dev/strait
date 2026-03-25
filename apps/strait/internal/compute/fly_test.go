@@ -1195,8 +1195,8 @@ func TestFlyWait_408_ReturnsRetryable(t *testing.T) {
 
 	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
 	_, err := runtime.Wait(context.Background(), "m-1", 60)
-	if !IsRetryable(err) {
-		t.Errorf("expected retryable error for 408, got %v", err)
+	if !IsTimeout(err) {
+		t.Errorf("expected timeout error for 408, got %v", err)
 	}
 }
 

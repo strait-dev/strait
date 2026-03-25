@@ -220,6 +220,9 @@ func (d *DockerRuntime) Wait(ctx context.Context, containerName string, timeoutS
 
 	if err != nil {
 		result.ExitCode = 137
+		if waitCtx.Err() != nil {
+			return result, NewTimeoutError("container exceeded timeout", waitCtx.Err())
+		}
 		return result, nil
 	}
 
