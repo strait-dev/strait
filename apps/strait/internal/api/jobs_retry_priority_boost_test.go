@@ -430,6 +430,54 @@ func TestBatchCreateJobs_RejectInvalidBoost(t *testing.T) {
 	}
 }
 
+func TestCloneJob_PreservesRetryPriorityBoost(t *testing.T) {
+	t.Parallel()
+
+	var cloned *domain.Job
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:                 id,
+				ProjectID:          "proj-1",
+				Name:               "Source Job",
+				Slug:               "source-job",
+				EndpointURL:        "https://example.com/callback",
+				RetryPriorityBoost: 7,
+				MaxAttempts:        5,
+				TimeoutSecs:        60,
+				Enabled:            true,
+				Version:            1,
+				CreatedAt:          time.Now(),
+				UpdatedAt:          time.Now(),
+			}, nil
+		},
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
+			cp := *job
+			cloned = &cp
+			job.ID = "job-cloned"
+			job.Version = 1
+			job.CreatedAt = time.Now()
+			job.UpdatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"name": "Cloned Job", "slug": "cloned-job"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-source/clone", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if cloned == nil {
+		t.Fatal("CreateJob was not called for clone")
+	}
+	if cloned.RetryPriorityBoost != 7 {
+		t.Fatalf("expected cloned retry_priority_boost=7 (from source), got %d", cloned.RetryPriorityBoost)
+	}
+}
+
 func TestCreateJob_RetryPriorityBoostBoundaryValues(t *testing.T) {
 	t.Parallel()
 
