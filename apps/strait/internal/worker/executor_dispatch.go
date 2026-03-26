@@ -550,11 +550,15 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	defer e.heartbeat.Deregister(run.ID)
 
 	// 7. Build environment variables.
+	// Both canonical (STRAIT_API_URL, STRAIT_SDK_TOKEN) and legacy aliases
+	// (STRAIT_SDK_URL, STRAIT_RUN_TOKEN) are set for backward compatibility
+	// with existing container images.
 	env := map[string]string{
 		"STRAIT_RUN_ID":   run.ID,
 		"STRAIT_JOB_SLUG": job.Slug,
 		"STRAIT_ATTEMPT":  strconv.Itoa(run.Attempt),
 		"STRAIT_API_URL":  e.externalAPIURL,
+		"STRAIT_SDK_URL":  e.externalAPIURL,
 	}
 
 	// JWT token for SDK callbacks.
@@ -571,6 +575,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
 			env["STRAIT_SDK_TOKEN"] = signed
+			env["STRAIT_RUN_TOKEN"] = signed
 		}
 	}
 
@@ -778,6 +783,31 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			stopCancel()
 		}
 
+		// Timeout: the executor owns the timeout lifecycle for managed runs.
+		// Handle before the generic retryable check so 408 errors are not snoozed.
+		if compute.IsTimeout(runErr) {
+			now := time.Now()
+			updateErr := e.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusTimedOut, map[string]any{
+				"finished_at": now,
+				"error":       "execution timed out",
+				"error_class": domain.ErrorClassTimeout,
+			})
+			if updateErr != nil {
+				// Reaper may have already marked it expired -- acceptable.
+				e.logger.Warn("failed to mark managed run timed_out (may already be terminal)",
+					"run_id", run.ID, "error", updateErr)
+			} else {
+				run.Status = domain.StatusTimedOut
+				e.publishEvent(ctx, run, map[string]any{
+					"from":  "executing",
+					"to":    "timed_out",
+					"error": "execution timed out",
+				})
+			}
+			e.recordManagedMetric(ctx, "timed_out", dispatchStart)
+			return
+		}
+
 		if compute.IsRetryable(runErr) {
 			backoff := compute.BackoffHint(runErr)
 			retryAt := time.Now().Add(backoff)
@@ -800,28 +830,46 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	// 11. Record compute usage.
 	e.recordComputeUsage(ctx, run, job, result)
 
-	// 12. Re-read run status from DB (SDK race check).
-	currentRun, readErr := e.store.GetRun(ctx, run.ID)
-	if readErr != nil {
-		e.logger.Error("failed to re-read run after container exit", "run_id", run.ID, "error", readErr)
-		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
-		return
-	}
+	// 12. Re-read run status from DB with SDK grace period.
+	// The SDK /complete endpoint may still be committing when the container exits.
+	// Poll briefly to avoid a race between container exit and SDK commit.
+	const (
+		sdkGracePeriod  = 5 * time.Second
+		sdkPollInterval = 500 * time.Millisecond
+	)
+	sdkDeadline := time.Now().Add(sdkGracePeriod)
 
-	// If the SDK already moved the run to a terminal state, we're done.
-	if currentRun.Status.IsTerminal() {
-		e.logger.Info("managed run already terminal (SDK race)",
-			"run_id", run.ID, "status", currentRun.Status, "exit_code", result.ExitCode)
-		if !e.disableMachinePoolReuse && e.machinePool != nil && result.ExitCode == 0 {
-			e.machinePool.Release(job.ProjectID, job.ImageURI, region, machineID)
+	for {
+		currentRun, readErr := e.store.GetRun(ctx, run.ID)
+		if readErr != nil {
+			e.logger.Error("failed to re-read run after container exit", "run_id", run.ID, "error", readErr)
+			e.recordManagedMetric(ctx, "system_failed", dispatchStart)
+			return
 		}
-		e.recordManagedMetric(ctx, "success", dispatchStart)
-		return
+
+		// If the SDK already moved the run to a terminal state, we are done.
+		if currentRun.Status.IsTerminal() {
+			e.logger.Info("managed run completed via SDK",
+				"run_id", run.ID, "status", currentRun.Status, "exit_code", result.ExitCode)
+			if !e.disableMachinePoolReuse && e.machinePool != nil && result.ExitCode == 0 {
+				e.machinePool.Release(job.ProjectID, job.ImageURI, region, machineID)
+			}
+			e.recordManagedMetric(ctx, "success", dispatchStart)
+			return
+		}
+
+		// For exit code 0, wait for the SDK to commit before giving up.
+		// Non-zero exits do not need a grace period (SDK won't call /complete).
+		if result.ExitCode != 0 || time.Now().After(sdkDeadline) {
+			break
+		}
+
+		time.Sleep(sdkPollInterval)
 	}
 
 	// 13. Container exited: interpret exit code.
 	if result.ExitCode == 0 {
-		// Exit 0 but SDK didn't report complete → system failure.
+		// Exit 0 but SDK did not report completion after grace period.
 		e.handleSystemFailure(ctx, run, "container exited 0 but SDK did not report completion")
 		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
 		return

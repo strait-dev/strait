@@ -137,6 +137,14 @@ func (s *Server) routes() chi.Router {
 		r.Post("/api/webhooks/polar", s.polarWebhook.ServeHTTP)
 	}
 
+	// CDC webhook (Sequin push delivery, internal secret auth).
+	if s.cdcWebhookReceiver != nil {
+		r.Route("/internal/cdc", func(r chi.Router) {
+			r.Use(s.internalSecretAuth)
+			r.Post("/webhook", s.cdcWebhookReceiver.ServeHTTP)
+		})
+	}
+
 	// CLI device authorization endpoints (no auth required).
 	r.Route("/v1/cli/auth", func(r chi.Router) {
 		r.Use(rateLimit(10, time.Minute))
@@ -159,6 +167,14 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleRunStream)
+	})
+
+	// Project activity stream (SSE, no timeout -- connections stay open).
+	r.Route("/v1/projects/{projectID}/activity/stream", func(r chi.Router) {
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectContextMiddleware)
+		r.Use(s.projectRateLimit)
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleProjectActivityStream)
 	})
 
 	// Org-scoped cross-project query routes.

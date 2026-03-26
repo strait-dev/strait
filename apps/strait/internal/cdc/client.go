@@ -240,3 +240,46 @@ func (c *Client) readError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	return fmt.Errorf("sequin api error (status %d): %s", resp.StatusCode, string(body))
 }
+
+// EnsureConsumer checks if the named consumer exists and creates it if not.
+// Idempotent and safe to call on every startup.
+func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
+	// Probe: try an empty receive to check if consumer exists.
+	_, err := c.Receive(ctx, 0, 0)
+	if err == nil {
+		return nil
+	}
+
+	// Create sink via Sequin management API.
+	endpoint := *c.baseURL
+	endpoint.Path = stdpath.Join(endpoint.Path, "/api/sinks")
+
+	sinkBody := map[string]any{
+		"name":        c.consumerName,
+		"database":    "default",
+		"source":      map[string]any{"include_tables": tables},
+		"destination": map[string]any{"type": "sequin_stream"},
+	}
+	bodyData, _ := json.Marshal(sinkBody)
+
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(bodyData))
+	if reqErr != nil {
+		return fmt.Errorf("create ensure consumer request: %w", reqErr)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+
+	resp, doErr := c.httpClient.Do(req)
+	if doErr != nil {
+		return fmt.Errorf("create sequin sink: %w", doErr)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("create sequin sink (status %d): %s", resp.StatusCode, respBody)
+	}
+	return nil
+}

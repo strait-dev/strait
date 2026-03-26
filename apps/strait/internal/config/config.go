@@ -52,6 +52,9 @@ type Config struct {
 	RateLimitRequests int           `env:"RATE_LIMIT_REQUESTS" default:"100"`
 	RateLimitWindow   time.Duration `env:"RATE_LIMIT_WINDOW" default:"1m"`
 
+	DefaultAPIKeyRateLimit      int `env:"DEFAULT_API_KEY_RATE_LIMIT" default:"1000"`
+	DefaultAPIKeyRateWindowSecs int `env:"DEFAULT_API_KEY_RATE_WINDOW_SECS" default:"60"`
+
 	TriggerRateLimitRequests int           `env:"TRIGGER_RATE_LIMIT_REQUESTS" default:"10"`
 	TriggerRateLimitWindow   time.Duration `env:"TRIGGER_RATE_LIMIT_WINDOW" default:"1m"`
 

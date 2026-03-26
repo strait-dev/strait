@@ -69,3 +69,18 @@ func NewRetryableError(statusCode int, msg string, cause error) *RuntimeError {
 func NewFatalError(statusCode int, msg string, cause error) *RuntimeError {
 	return &RuntimeError{StatusCode: statusCode, Message: msg, Fatal: true, Cause: cause}
 }
+
+// IsTimeout returns true if the error indicates a container wait timeout.
+func IsTimeout(err error) bool {
+	var re *RuntimeError
+	if errors.As(err, &re) {
+		return re.StatusCode == 408
+	}
+	return false
+}
+
+// NewTimeoutError creates a timeout-specific runtime error.
+// Timeout errors are NOT retryable -- the executor should transition to timed_out.
+func NewTimeoutError(msg string, cause error) *RuntimeError {
+	return &RuntimeError{StatusCode: 408, Message: msg, Retryable: false, Cause: cause}
+}

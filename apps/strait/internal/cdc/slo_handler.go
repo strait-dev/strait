@@ -1,0 +1,96 @@
+package cdc
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"slices"
+
+	"strait/internal/domain"
+)
+
+// SLOStore is the minimal store interface for CDC-driven SLO evaluation.
+type SLOStore interface {
+	ListJobSLOs(ctx context.Context, jobID string) ([]domain.JobSLOStatus, error)
+	InsertSLOEvaluation(ctx context.Context, eval *domain.JobSLOEvaluation) error
+}
+
+// SLOHandler inserts SLO evaluation data points from CDC events on job_runs.
+// When a run reaches a terminal status, it lists the job's SLOs and creates
+// a lightweight evaluation record for each one.
+type SLOHandler struct {
+	store  SLOStore
+	logger *slog.Logger
+}
+
+// NewSLOHandler creates a CDC handler that inserts SLO evaluation data points.
+func NewSLOHandler(store SLOStore, logger *slog.Logger) *SLOHandler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &SLOHandler{store: store, logger: logger}
+}
+
+// Table returns the table this handler watches.
+func (h *SLOHandler) Table() string { return "job_runs" }
+
+// Handle processes a CDC event for a job run status change.
+func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
+	if msg.Action != ActionUpdate {
+		return nil
+	}
+
+	var record struct {
+		ID        string `json:"id"`
+		JobID     string `json:"job_id"`
+		ProjectID string `json:"project_id"`
+		Status    string `json:"status"`
+	}
+	if err := json.Unmarshal(msg.Record, &record); err != nil {
+		return fmt.Errorf("slo handler: unmarshal record: %w", err)
+	}
+
+	status := domain.RunStatus(record.Status)
+	if !status.IsTerminal() {
+		return nil
+	}
+
+	slos, err := h.store.ListJobSLOs(ctx, record.JobID)
+	if err != nil {
+		h.logger.Warn("cdc slo handler: failed to list SLOs",
+			"job_id", record.JobID, "error", err)
+		return nil
+	}
+
+	if len(slos) == 0 {
+		return nil
+	}
+
+	value := sloCurrentValue(status)
+
+	for _, slo := range slos {
+		eval := &domain.JobSLOEvaluation{
+			SLOID:           slo.ID,
+			CurrentValue:    value,
+			BudgetRemaining: 0,
+		}
+		if insertErr := h.store.InsertSLOEvaluation(ctx, eval); insertErr != nil {
+			h.logger.Warn("cdc slo handler: failed to insert evaluation",
+				"slo_id", slo.ID, "run_id", record.ID, "error", insertErr)
+		}
+	}
+
+	return nil
+}
+
+func sloCurrentValue(status domain.RunStatus) float64 {
+	if slices.Contains([]domain.RunStatus{
+		domain.StatusFailed,
+		domain.StatusTimedOut,
+		domain.StatusCanceled,
+	}, status) {
+		return 0.0
+	}
+	return 1.0
+}

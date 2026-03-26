@@ -7,16 +7,21 @@ on:
       - completed
     branches:
       - master
+  push:
+    tags:
+      - "v*"
 
 concurrency:
-  group: deploy-production
+  group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  # Staging: deploys on every master merge after Test/Lint/Security pass.
+  deploy-staging:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     if: >
+      github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'master'
     steps:
@@ -38,6 +43,49 @@ jobs:
               }
             }
             core.info('All required workflows passed.');
+
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - run: flyctl deploy -a strait
+        working-directory: apps/strait
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  # Production: deploys on tag push (v*) after verifying CI passed.
+  deploy-production:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Verify CI passed for this commit
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const required = ['Test', 'Lint', 'Security'];
+            const { data: checkRuns } = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+            });
+            for (const name of required) {
+              const check = checkRuns.check_runs.find(r => r.name === name);
+              if (!check || check.conclusion !== 'success') {
+                // Fall back to workflow runs if checks API doesn't have it.
+                const { data: runs } = await github.rest.actions.listWorkflowRunsForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  head_sha: context.sha,
+                });
+                const run = runs.workflow_runs.find(r => r.name === name && r.status === 'completed');
+                if (!run || run.conclusion !== 'success') {
+                  core.setFailed(`Required workflow "${name}" has not passed for ${context.sha}. Push the tag after CI completes.`);
+                  return;
+                }
+              }
+            }
+            core.info('All required workflows passed for this tag.');
 
       - uses: actions/checkout@v4
 

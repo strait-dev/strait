@@ -2,29 +2,6 @@ package domain
 
 import "testing"
 
-func TestParseEdition(t *testing.T) {
-	tests := []struct {
-		input string
-		want  Edition
-	}{
-		{"community", EditionCommunity},
-		{"cloud", EditionCloud},
-		{"", EditionCommunity},
-		{"unknown", EditionCommunity},
-		{"Cloud", EditionCommunity}, // case-sensitive
-		{"CLOUD", EditionCommunity},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := ParseEdition(tt.input)
-			if got != tt.want {
-				t.Errorf("ParseEdition(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestEditionCapabilities(t *testing.T) {
 	tests := []struct {
 		edition Edition

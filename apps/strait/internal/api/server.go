@@ -485,6 +485,9 @@ type Server struct {
 	referralService    ReferralService
 	chExporter         *clickhouse.Exporter
 	edition            domain.Edition
+	version            string
+	startedAt          time.Time
+	cdcWebhookReceiver http.Handler
 	cachedOpenAPISpec  []byte
 }
 
@@ -547,29 +550,31 @@ type ReferralService interface {
 
 // ServerDeps holds all dependencies required to construct a Server.
 type ServerDeps struct {
-	Config           *config.Config
-	Store            APIStore
-	AnalyticsStore   AnalyticsStore // Optional: ClickHouse-backed analytics queries.
-	Queue            queue.Queue
-	PubSub           pubsub.Publisher
-	MetricsHandler   http.Handler
-	Pinger           Pinger
-	HealthRegistry   *health.Registry
-	WorkflowCallback WorkflowCallback
-	WorkflowEngine   WorkflowTrigger
-	Metrics          *telemetry.Metrics
-	TxPool           store.TxBeginner // Optional: enables transactional event trigger sends.
-	ActorSyncer      ActorSyncer
-	PoolStatter      PoolStatter              // Optional: enables DB pool backpressure middleware.
-	RedisClient      *redis.Client            // Optional: enables per-project/key rate limiting.
-	Encryptor        Encryptor                // Optional: enables event source signature encryption.
-	ContainerRuntime compute.ContainerRuntime // Optional: enables managed container stop on cancel.
-	PolarWebhook     http.Handler             // Optional: Polar billing webhook handler.
-	BillingEnforcer  BillingEnforcer          // Optional: enables billing limit checks on project create.
-	UsageService     UsageService             // Optional: enables usage endpoint.
-	ReferralService  ReferralService          // Optional: enables referral endpoints.
-	CHExporter       *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
-	Edition          domain.Edition           // Edition controls feature gating (community vs cloud).
+	Config             *config.Config
+	Store              APIStore
+	AnalyticsStore     AnalyticsStore // Optional: ClickHouse-backed analytics queries.
+	Queue              queue.Queue
+	PubSub             pubsub.Publisher
+	MetricsHandler     http.Handler
+	Pinger             Pinger
+	HealthRegistry     *health.Registry
+	WorkflowCallback   WorkflowCallback
+	WorkflowEngine     WorkflowTrigger
+	Metrics            *telemetry.Metrics
+	TxPool             store.TxBeginner // Optional: enables transactional event trigger sends.
+	ActorSyncer        ActorSyncer
+	PoolStatter        PoolStatter              // Optional: enables DB pool backpressure middleware.
+	RedisClient        *redis.Client            // Optional: enables per-project/key rate limiting.
+	Encryptor          Encryptor                // Optional: enables event source signature encryption.
+	ContainerRuntime   compute.ContainerRuntime // Optional: enables managed container stop on cancel.
+	PolarWebhook       http.Handler             // Optional: Polar billing webhook handler.
+	BillingEnforcer    BillingEnforcer          // Optional: enables billing limit checks on project create.
+	UsageService       UsageService             // Optional: enables usage endpoint.
+	ReferralService    ReferralService          // Optional: enables referral endpoints.
+	CHExporter         *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
+	Edition            domain.Edition           // Edition controls feature gating (community vs cloud).
+	Version            string                   // Build version (injected via ldflags).
+	CDCWebhookReceiver http.Handler             // Optional: enables CDC webhook push endpoint.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -620,6 +625,9 @@ func NewServer(deps ServerDeps) *Server {
 		referralService:    deps.ReferralService,
 		chExporter:         deps.CHExporter,
 		edition:            deps.Edition,
+		version:            deps.Version,
+		startedAt:          time.Now(),
+		cdcWebhookReceiver: deps.CDCWebhookReceiver,
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
@@ -675,11 +683,31 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	respondJSON(w, http.StatusOK, map[string]string{
-		"status":  "ok",
-		"edition": string(s.edition),
-	})
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]any{
+		"status":         "ok",
+		"edition":        string(s.edition),
+		"version":        s.version,
+		"uptime_seconds": int(time.Since(s.startedAt).Seconds()),
+	}
+
+	if s.healthRegistry != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		result := s.healthRegistry.CheckAll(ctx)
+
+		subsystems := make(map[string]string)
+		for _, c := range result.Components {
+			subsystems[c.Name] = string(c.Status)
+		}
+		resp["subsystems"] = subsystems
+
+		if result.Status != health.StatusUp {
+			resp["status"] = string(result.Status)
+		}
+	}
+
+	respondJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {
@@ -885,7 +913,8 @@ func isPrivateIP(ip net.IP) bool {
 func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
 	// Serve Scalar API reference using the cached OpenAPI spec.
 	htmlContent, err := scalar.ApiReferenceHTML(&scalar.Options{
-		SpecContent: string(s.cachedOpenAPISpec),
+		SpecURL:     "/reference/openapi.json",
+		SpecContent: "{}",
 		CustomOptions: scalar.CustomOptions{
 			PageTitle: "Strait API",
 		},

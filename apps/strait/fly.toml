@@ -3,6 +3,8 @@ primary_region = "iad"
 
 [build]
   dockerfile = "Dockerfile"
+  [build.args]
+    BUILD_TAGS = "cloud"
 
 [http_service]
   internal_port = 8080

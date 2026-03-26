@@ -131,3 +131,87 @@ func TestRedisRateLimiterAllow_RedisErrorFailsOpen(t *testing.T) {
 		t.Fatal("expected fail-open behavior on redis error")
 	}
 }
+
+func TestRedisRateLimiterAllow_ZeroLimit_Allowed(t *testing.T) {
+	t.Parallel()
+
+	limiter := NewRedisRateLimiter(nil, true)
+	result, err := limiter.Allow(t.Context(), "key", 0, time.Minute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed when limit is zero")
+	}
+}
+
+func TestRedisRateLimiterAllow_ZeroWindow_Allowed(t *testing.T) {
+	t.Parallel()
+
+	limiter := NewRedisRateLimiter(nil, true)
+	result, err := limiter.Allow(t.Context(), "key", 10, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed when window is zero")
+	}
+}
+
+func TestRedisRateLimiterAllow_DifferentKeys_Independent(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	counts := map[string]int{}
+	client := newMockRedisClient(func(_ context.Context, cmd redis.Cmder) error {
+		args := cmd.Args()
+		if len(args) < 6 {
+			return errors.New("unexpected eval args")
+		}
+		key, _ := args[3].(string)
+		limitRaw := args[5]
+		limit, err := strconv.Atoi(fmt.Sprint(limitRaw))
+		if err != nil {
+			return err
+		}
+
+		mu.Lock()
+		counts[key]++
+		current := counts[key]
+		mu.Unlock()
+
+		var result []any
+		if current > limit {
+			result = []any{int64(0), int64(0)}
+		} else {
+			result = []any{int64(1), int64(limit - current)}
+		}
+		if c, ok := cmd.(*redis.Cmd); ok {
+			c.SetVal(result)
+			return nil
+		}
+		return errors.New("unexpected command type")
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	ctx := t.Context()
+
+	// Key A: allow 1 request.
+	r1, _ := limiter.Allow(ctx, "rl:apikey:A", 1, time.Minute)
+	if !r1.Allowed {
+		t.Fatal("key A first request should be allowed")
+	}
+
+	// Key A: second request should be rejected.
+	r2, _ := limiter.Allow(ctx, "rl:apikey:A", 1, time.Minute)
+	if r2.Allowed {
+		t.Fatal("key A second request should be rejected")
+	}
+
+	// Key B: first request should be allowed (independent counter).
+	r3, _ := limiter.Allow(ctx, "rl:apikey:B", 1, time.Minute)
+	if !r3.Allowed {
+		t.Fatal("key B first request should be allowed (independent from key A)")
+	}
+}

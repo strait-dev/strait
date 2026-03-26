@@ -501,13 +501,27 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 		}
 
 		// 2. Fall back to project quota rate limit.
-		if limit == 0 && projectID != "" {
+		if limit == 0 && projectID != "" && s.store != nil {
 			quota, err := s.store.GetProjectQuota(ctx, projectID)
 			if err == nil && quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0 {
 				limit = quota.RateLimitRequests
 				windowSecs = quota.RateLimitWindowSecs
 				key = "rl:project:" + projectID
 			}
+		}
+
+		// 3. Fall back to global default rate limit per API key.
+		if limit == 0 && apiKeyID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
+			limit = s.config.DefaultAPIKeyRateLimit
+			windowSecs = s.config.DefaultAPIKeyRateWindowSecs
+			key = "rl:apikey:" + apiKeyID
+		}
+
+		// 4. Fall back to global default rate limit per project.
+		if limit == 0 && projectID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
+			limit = s.config.DefaultAPIKeyRateLimit
+			windowSecs = s.config.DefaultAPIKeyRateWindowSecs
+			key = "rl:project:" + projectID
 		}
 
 		if limit == 0 {

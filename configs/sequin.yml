@@ -1,0 +1,33 @@
+# Sequin CDC configuration for Strait self-hosted deployment.
+# Mounted at /etc/sequin/config.yml via CONFIG_FILE_PATH env var.
+# See: https://sequinstream.com/docs/reference/sequin-yaml
+
+account:
+  name: "Strait Self-Hosted"
+
+users:
+  - email: "admin@localhost"
+    password: "straitadmin"
+
+databases:
+  - name: "strait-db"
+    hostname: "postgres"
+    port: 5432
+    database: "strait"
+    username: "strait"
+    password: "strait"
+    slot_name: "sequin_strait_slot"
+    publication_name: "sequin_strait_pub"
+    tables:
+      - table_schema: "public"
+        table_name: "job_runs"
+        sort_column_name: "updated_at"
+      - table_schema: "public"
+        table_name: "workflow_runs"
+        sort_column_name: "updated_at"
+      - table_schema: "public"
+        table_name: "workflow_step_runs"
+        sort_column_name: "updated_at"
+      - table_schema: "public"
+        table_name: "event_triggers"
+        sort_column_name: "updated_at"
