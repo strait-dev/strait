@@ -124,8 +124,9 @@ func TestRace_ConcurrentJobPauseAndTrigger(t *testing.T) {
 	wg.Wait()
 
 	code := triggerStatus.Load()
-	// Trigger either succeeded (201) or was blocked by pause (409).
-	if code != http.StatusCreated && code != http.StatusConflict {
+	// Trigger either succeeded (201), was blocked by pause (400 "job is
+	// disabled/paused"), or hit a conflict (409).
+	if code != http.StatusCreated && code != http.StatusBadRequest && code != http.StatusConflict {
 		t.Fatalf("unexpected trigger status during pause race: %d", code)
 	}
 }
