@@ -173,33 +173,11 @@ Interactive API documentation is available via Scalar:
 
 The OpenAPI 3.0 spec is served at `/reference/openapi.json`.
 
-## Monitoring (Optional)
+## Monitoring
 
-Enable the full observability stack with Prometheus, Grafana, ClickHouse, Loki, and OTEL Collector:
+Strait exposes a Prometheus-compatible `/metrics` endpoint with 50+ metrics (queue depth, dispatch latency, error rates, worker concurrency). Point your existing Prometheus/Datadog/New Relic at `http://localhost:8080/metrics`.
 
-```bash
-docker compose \
-  -f docker-compose.selfhost.yml \
-  -f docker-compose.monitoring.yml \
-  up -d
-```
-
-This adds:
-
-| Service | Port | Purpose |
-|---|---|---|
-| Grafana | 3001 | Dashboards and alerting |
-| Prometheus | 9090 | Metrics collection |
-| ClickHouse | 8123 | Advanced analytics |
-| Loki | 3100 | Log aggregation |
-| OTEL Collector | 4318 | Telemetry pipeline |
-
-Open **http://localhost:3001** for the Grafana dashboard (no login required). Pre-configured datasources for Prometheus, ClickHouse, and Loki are included.
-
-When monitoring is enabled, Strait automatically exports:
-- 50+ Prometheus metrics (queue depth, dispatch latency, error rates)
-- Structured logs to Loki via OTEL
-- Run analytics, cost tracking, and webhook delivery events to ClickHouse
+For advanced analytics dashboards, cost tracking, log search, and alerting -- use [Strait Cloud](https://strait.dev).
 
 ## Using the SDKs
 
