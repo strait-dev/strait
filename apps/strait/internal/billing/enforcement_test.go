@@ -222,6 +222,117 @@ func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	}
 }
 
+func TestEnforcer_CheckSpendingLimit_FreeTierUnderIncludedCredit(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.periodSpendByOrg = map[string]int64{
+		"org_free": 900_000,
+	}
+
+	if err := enforcer.CheckSpendingLimit(context.Background(), "org_free"); err != nil {
+		t.Fatalf("free tier under included credit should pass: %v", err)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_FreeTierAtIncludedCredit(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.periodSpendByOrg = map[string]int64{
+		"org_free": CreditFreeMicrousd,
+	}
+
+	if err := enforcer.CheckSpendingLimit(context.Background(), "org_free"); err != nil {
+		t.Fatalf("free tier at included credit should pass: %v", err)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_FreeTierOverIncludedCredit(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.periodSpendByOrg = map[string]int64{
+		"org_free": 1_250_000,
+	}
+
+	err := enforcer.CheckSpendingLimit(context.Background(), "org_free")
+	if err == nil {
+		t.Fatal("expected free-tier spending limit error")
+	}
+
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "spending_limit_reached" {
+		t.Fatalf("Code = %q, want spending_limit_reached", le.Code)
+	}
+	if le.Limit != CreditFreeMicrousd {
+		t.Fatalf("Limit = %d, want %d", le.Limit, CreditFreeMicrousd)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_FreeSubscriptionOverIncludedCredit(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_free": {OrgID: "org_free", PlanTier: "free", Status: "active", SpendingLimitMicrousd: -1},
+	}
+	store.periodSpendByOrg = map[string]int64{
+		"org_free": 1_100_000,
+	}
+
+	err := enforcer.CheckSpendingLimit(context.Background(), "org_free")
+	if err == nil {
+		t.Fatal("expected free-tier spending limit error")
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_HardCapZeroAllowsIncludedCredit(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_starter": {
+			OrgID:                 "org_starter",
+			PlanTier:              "starter",
+			Status:                "active",
+			SpendingLimitMicrousd: 0,
+			LimitAction:           "reject",
+		},
+	}
+	store.periodSpendByOrg = map[string]int64{
+		"org_starter": CreditStarterMicrousd,
+	}
+
+	if err := enforcer.CheckSpendingLimit(context.Background(), "org_starter"); err != nil {
+		t.Fatalf("hard cap at $0 overage should still allow included credit: %v", err)
+	}
+
+	store.periodSpendByOrg["org_starter"] = CreditStarterMicrousd + 1
+	err := enforcer.CheckSpendingLimit(context.Background(), "org_starter")
+	if err == nil {
+		t.Fatal("expected spending limit error after overage begins")
+	}
+}
+
+func TestEnforcer_CheckManagedRunLimit_FreeTierBudgetMode_NoLegacyCap(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_free": {OrgID: "org_free", PlanTier: "free", Status: "active"},
+	}
+
+	for range 250 {
+		if err := enforcer.CheckManagedRunLimit(context.Background(), "org_free"); err != nil {
+			t.Fatalf("legacy managed-run cap should be disabled for free-tier budget mode: %v", err)
+		}
+	}
+}
+
 func TestEnforcer_GetOrgPlanLimits_Cache(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)

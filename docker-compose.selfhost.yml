@@ -1,8 +1,8 @@
 # Strait Self-Hosted Deployment
 #
 # Quick start:
-#   1. ./packages/scripts/selfhost-init.sh   (generates secrets, one-time)
-#   2. docker compose -f docker-compose.selfhost.yml up -d
+#   1. make selfhost
+#      (or run ./packages/scripts/selfhost-init.sh and docker compose manually)
 #   3. open http://localhost:3000   (Dashboard)
 #
 # Services: Postgres, Redis, Sequin (CDC), Strait API, Dashboard.

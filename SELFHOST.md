@@ -15,18 +15,24 @@ Run Strait on your own infrastructure with a single command.
 git clone https://github.com/strait-dev/strait.git
 cd strait
 
-# 2. Generate secrets (only needed once).
-./packages/scripts/selfhost-init.sh
+# 2. Generate secrets and start all services.
+make selfhost
 
-# 3. Start all services.
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
-
-# 4. Verify.
+# 3. Verify.
 curl http://localhost:8080/health
 # {"edition":"community","status":"ok"}
 
-# 5. Open the dashboard.
+# 4. Open the dashboard.
 open http://localhost:3000
+```
+
+If you prefer the underlying commands, `make selfhost` runs `./packages/scripts/selfhost-init.sh` and then starts `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d`.
+
+To stop or reset the stack:
+
+```bash
+make selfhost-down
+make selfhost-reset
 ```
 
 ## Creating Your First Job

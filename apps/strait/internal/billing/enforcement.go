@@ -346,9 +346,9 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 	}
 }
 
-// CheckManagedRunLimit checks if a free-tier org has exceeded its monthly managed
-// execution cap. Paid plans use compute credits instead, so this only applies when
-// FreeManagedRunsPerMonth > 0. Uses Redis INCR with monthly TTL.
+// CheckManagedRunLimit checks if an org has exceeded the legacy monthly managed
+// execution cap. Newer plan enforcement uses compute credits instead, so this
+// path only applies when FreeManagedRunsPerMonth > 0.
 func (e *Enforcer) CheckManagedRunLimit(ctx context.Context, orgID string) error {
 	if orgID == "" || e.rdb == nil {
 		return nil
@@ -567,34 +567,31 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	sub, err := e.store.GetOrgSubscription(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, ErrSubscriptionNotFound) {
-			return nil // free tier, no spending limit config
+			return e.checkFreeTierIncludedCredit(ctx, orgID, nil)
 		}
 		e.recordFailOpen(ctx, "spending_limit", "db_error")
 		return nil // fail open
+	}
+
+	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
+	if limits.PlanTier == domain.PlanFree {
+		return e.checkFreeTierIncludedCredit(ctx, orgID, sub)
 	}
 
 	if sub.SpendingLimitMicrousd == -1 {
 		return nil // no limit set
 	}
 
-	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
-	includedCredit := limits.ComputeCreditMicrousd
-
-	periodStart := sub.CurrentPeriodStart
-	if periodStart == nil {
-		now := time.Now()
-		periodStart = &now
-	}
-
-	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, *periodStart)
+	periodStart, _ := usagePeriodWindow(time.Now().UTC(), limits.PlanTier, sub)
+	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {
 		e.logger.Warn("failed to sum org period spend", "org_id", orgID, "error", err)
 		return nil
 	}
 
-	overageSpend := max(periodSpend-includedCredit, 0)
+	overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
 
-	if overageSpend >= sub.SpendingLimitMicrousd {
+	if isOverageLimitReached(sub.SpendingLimitMicrousd, overageSpend) {
 		e.recordRejection(ctx, "spending_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "spending_limit_reached",
@@ -607,6 +604,31 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	}
 
 	return nil
+}
+
+func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string, sub *OrgSubscription) error {
+	limits := GetPlanLimits(domain.PlanFree)
+	periodStart, _ := usagePeriodWindow(time.Now().UTC(), domain.PlanFree, sub)
+	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
+	if err != nil {
+		e.logger.Warn("failed to sum free-tier period spend", "org_id", orgID, "error", err)
+		return nil
+	}
+
+	overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
+	if !isOverageLimitReached(0, overageSpend) {
+		return nil
+	}
+
+	e.recordRejection(ctx, "spending_limit", limits.PlanTier)
+	return &LimitError{
+		Code:         "spending_limit_reached",
+		Message:      fmt.Sprintf("Your free plan monthly compute budget of $%.2f has been reached.", float64(limits.ComputeCreditMicrousd)/1000000),
+		CurrentUsage: periodSpend,
+		Limit:        limits.ComputeCreditMicrousd,
+		Plan:         string(limits.PlanTier),
+		UpgradeURL:   "/upgrade",
+	}
 }
 
 // CheckProjectBudgetLimit checks if a project has exceeded its monthly budget.

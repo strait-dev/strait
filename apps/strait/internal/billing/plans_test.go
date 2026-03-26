@@ -116,8 +116,8 @@ func TestFreeTierLimits(t *testing.T) {
 	t.Parallel()
 	free := GetPlanLimits(domain.PlanFree)
 
-	if free.FreeManagedRunsPerMonth != 100 {
-		t.Errorf("FreeManagedRunsPerMonth = %d, want 100", free.FreeManagedRunsPerMonth)
+	if free.FreeManagedRunsPerMonth != 0 {
+		t.Errorf("FreeManagedRunsPerMonth = %d, want 0", free.FreeManagedRunsPerMonth)
 	}
 	if free.FreeManagedPreset != "micro" {
 		t.Errorf("FreeManagedPreset = %q, want micro", free.FreeManagedPreset)
@@ -125,8 +125,8 @@ func TestFreeTierLimits(t *testing.T) {
 	if free.FreeManagedMaxTimeout != 10 {
 		t.Errorf("FreeManagedMaxTimeout = %d, want 10", free.FreeManagedMaxTimeout)
 	}
-	if free.ComputeCreditMicrousd != 0 {
-		t.Errorf("ComputeCreditMicrousd = %d, want 0", free.ComputeCreditMicrousd)
+	if free.ComputeCreditMicrousd != CreditFreeMicrousd {
+		t.Errorf("ComputeCreditMicrousd = %d, want CreditFreeMicrousd (%d)", free.ComputeCreditMicrousd, CreditFreeMicrousd)
 	}
 }
 
@@ -215,8 +215,8 @@ func TestPlanLimits_Constants(t *testing.T) {
 		if free.MaxConcurrentRuns != ConcurrentFree {
 			t.Errorf("MaxConcurrentRuns = %d, want ConcurrentFree (%d)", free.MaxConcurrentRuns, ConcurrentFree)
 		}
-		if free.ComputeCreditMicrousd != 0 {
-			t.Errorf("ComputeCreditMicrousd = %d, want 0", free.ComputeCreditMicrousd)
+		if free.ComputeCreditMicrousd != CreditFreeMicrousd {
+			t.Errorf("ComputeCreditMicrousd = %d, want CreditFreeMicrousd (%d)", free.ComputeCreditMicrousd, CreditFreeMicrousd)
 		}
 	})
 
