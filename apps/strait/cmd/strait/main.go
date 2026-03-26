@@ -377,7 +377,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		slog.Warn("POLAR_API_WEBHOOK_SECRET is empty -- Polar webhook signature verification is DISABLED")
 	}
 
-	cdcWebhookReceiver := startCDCConsumer(g, cfg, pub, queries)
+	cdcWebhookReceiver := startCDCConsumer(g, cfg, pub, queries, chExporter)
 	startWebhookWorker(g, cfg, eventNotifier)
 	startNotificationWorker(g, cfg, queries, metrics)
 	startLogDrainWorker(g, cfg, queries, metrics)

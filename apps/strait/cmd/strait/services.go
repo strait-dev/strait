@@ -203,7 +203,7 @@ func retrySleep(ctx context.Context, attempt int) error {
 
 // startCDCConsumer registers and starts the Sequin CDC consumer if configured.
 // Returns a webhook receiver for push-based CDC delivery (nil if CDC is disabled).
-func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries) *cdc.WebhookReceiver {
+func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter) *cdc.WebhookReceiver {
 	if cfg.SequinBaseURL == "" {
 		return nil
 	}
@@ -257,10 +257,16 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 	webhookReceiver.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
 
-	// CDC-driven webhook delivery: triggers webhook deliveries from CDC events.
-	// Registered as an additional handler on the webhook receiver since the pull
-	// consumer only supports one handler per table (job_runs already taken).
+	// CDC-driven side effects: each handler watches job_runs for status
+	// transitions and triggers a downstream action. Registered as additional
+	// handlers since the pull consumer only supports one handler per table.
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewWebhookTriggerHandler(queries, slog.Default()))
+	webhookReceiver.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
+	webhookReceiver.RegisterAdditionalHandler(cdc.NewAuditHandler(queries, slog.Default()))
+	webhookReceiver.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
+	if chExporter != nil {
+		webhookReceiver.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
+	}
 
 	slog.Info("cdc consumer enabled",
 		"base_url", cfg.SequinBaseURL,
