@@ -1,4 +1,4 @@
-.PHONY: help setup dev build test test-race test-int test-load lint vet bench migrate-up migrate-down migrate-status migrate-create clean check
+.PHONY: help setup dev selfhost selfhost-down selfhost-reset build test test-race test-int test-load lint vet bench migrate-up migrate-down migrate-status migrate-create clean check
 
 help:
 	@echo "Strait Development Commands"
@@ -8,6 +8,9 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  make dev                Start Docker dependencies and run app in all mode"
+	@echo "  make selfhost           Generate self-host secrets and start the self-host stack"
+	@echo "  make selfhost-down      Stop the self-host stack"
+	@echo "  make selfhost-reset     Tear down the self-host stack and regenerate secrets on next start"
 	@echo "  make build              Build all packages"
 	@echo ""
 	@echo "Testing:"
@@ -41,6 +44,16 @@ setup:
 dev:
 	docker compose up -d
 	cd apps/strait && go run ./cmd/strait --mode all
+
+selfhost:
+	@./packages/scripts/selfhost-init.sh
+	docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
+
+selfhost-down:
+	docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml down
+
+selfhost-reset:
+	@./packages/scripts/selfhost-init.sh --reset
 
 build:
 	cd apps/strait && go build ./...
