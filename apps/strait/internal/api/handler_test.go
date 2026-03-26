@@ -2547,3 +2547,47 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 		t.Fatal("expected request to pass through when pool is healthy")
 	}
 }
+
+func TestHandleTriggerJob_PastScheduledAt_Returns400(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
+	body := fmt.Sprintf(`{"scheduled_at":"%s"}`, pastTime)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "past") {
+		t.Fatalf("expected error about past, got %s", w.Body.String())
+	}
+}
+
+func TestHandleTriggerJob_ScheduledAtTooFar_Returns400(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	futureTime := time.Now().Add(31 * 24 * time.Hour).Format(time.RFC3339)
+	body := fmt.Sprintf(`{"scheduled_at":"%s"}`, futureTime)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "30 days") {
+		t.Fatalf("expected error about 30 days, got %s", w.Body.String())
+	}
+}

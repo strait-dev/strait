@@ -100,6 +100,17 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return nil, huma.Error400BadRequest("payload validation failed: " + err.Error())
 	}
 
+	// Validate scheduled_at bounds.
+	if req.ScheduledAt != nil {
+		delay := time.Until(*req.ScheduledAt)
+		if delay < 0 {
+			return nil, huma.Error400BadRequest("scheduled_at must not be in the past")
+		}
+		if delay > 30*24*time.Hour {
+			return nil, huma.Error400BadRequest("scheduled_at cannot exceed 30 days from now")
+		}
+	}
+
 	payload, payloadHash, err := canonicalizePayload(req.Payload)
 	if err != nil {
 		return nil, huma.Error400BadRequest("invalid payload: " + err.Error())
