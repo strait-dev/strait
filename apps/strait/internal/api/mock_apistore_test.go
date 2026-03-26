@@ -94,6 +94,9 @@ var _ APIStore = &APIStoreMock{}
 //			CountRunToolCallsFunc: func(ctx context.Context, runID string) (int, error) {
 //				panic("mock out the CountRunToolCalls method")
 //			},
+//			CountRunningWorkflowRunsFunc: func(ctx context.Context, workflowID string) (int, error) {
+//				panic("mock out the CountRunningWorkflowRuns method")
+//			},
 //			CountRunsForJobSinceFunc: func(ctx context.Context, jobID string, since time.Time) (int, error) {
 //				panic("mock out the CountRunsForJobSince method")
 //			},
@@ -814,6 +817,9 @@ type APIStoreMock struct {
 
 	// CountRunToolCallsFunc mocks the CountRunToolCalls method.
 	CountRunToolCallsFunc func(ctx context.Context, runID string) (int, error)
+
+	// CountRunningWorkflowRunsFunc mocks the CountRunningWorkflowRuns method.
+	CountRunningWorkflowRunsFunc func(ctx context.Context, workflowID string) (int, error)
 
 	// CountRunsForJobSinceFunc mocks the CountRunsForJobSince method.
 	CountRunsForJobSinceFunc func(ctx context.Context, jobID string, since time.Time) (int, error)
@@ -1670,6 +1676,13 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// RunID is the runID argument value.
 			RunID string
+		}
+		// CountRunningWorkflowRuns holds details about calls to the CountRunningWorkflowRuns method.
+		CountRunningWorkflowRuns []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WorkflowID is the workflowID argument value.
+			WorkflowID string
 		}
 		// CountRunsForJobSince holds details about calls to the CountRunsForJobSince method.
 		CountRunsForJobSince []struct {
@@ -3646,6 +3659,7 @@ type APIStoreMock struct {
 	lockCountProjectQueuedRuns             sync.RWMutex
 	lockCountRunIterations                 sync.RWMutex
 	lockCountRunToolCalls                  sync.RWMutex
+	lockCountRunningWorkflowRuns           sync.RWMutex
 	lockCountRunsForJobSince               sync.RWMutex
 	lockCreateAPIKey                       sync.RWMutex
 	lockCreateAuditEvent                   sync.RWMutex
@@ -4904,6 +4918,46 @@ func (mock *APIStoreMock) CountRunToolCallsCalls() []struct {
 	mock.lockCountRunToolCalls.RLock()
 	calls = mock.calls.CountRunToolCalls
 	mock.lockCountRunToolCalls.RUnlock()
+	return calls
+}
+
+// CountRunningWorkflowRuns calls CountRunningWorkflowRunsFunc.
+func (mock *APIStoreMock) CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error) {
+	callInfo := struct {
+		Ctx        context.Context
+		WorkflowID string
+	}{
+		Ctx:        ctx,
+		WorkflowID: workflowID,
+	}
+	mock.lockCountRunningWorkflowRuns.Lock()
+	mock.calls.CountRunningWorkflowRuns = append(mock.calls.CountRunningWorkflowRuns, callInfo)
+	mock.lockCountRunningWorkflowRuns.Unlock()
+	if mock.CountRunningWorkflowRunsFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountRunningWorkflowRunsFunc(ctx, workflowID)
+}
+
+// CountRunningWorkflowRunsCalls gets all the calls that were made to CountRunningWorkflowRuns.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountRunningWorkflowRunsCalls())
+func (mock *APIStoreMock) CountRunningWorkflowRunsCalls() []struct {
+	Ctx        context.Context
+	WorkflowID string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		WorkflowID string
+	}
+	mock.lockCountRunningWorkflowRuns.RLock()
+	calls = mock.calls.CountRunningWorkflowRuns
+	mock.lockCountRunningWorkflowRuns.RUnlock()
 	return calls
 }
 

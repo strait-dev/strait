@@ -445,6 +445,14 @@ func (s *Server) handleDeleteWorkflow(ctx context.Context, input *DeleteWorkflow
 		return nil, huma.Error404NotFound("workflow not found")
 	}
 
+	activeCount, countErr := s.store.CountRunningWorkflowRuns(ctx, input.WorkflowID)
+	if countErr != nil {
+		return nil, huma.Error500InternalServerError("failed to check active workflow runs")
+	}
+	if activeCount > 0 {
+		return nil, huma.Error409Conflict(fmt.Sprintf("workflow has %d active run(s) -- cancel them before deleting", activeCount))
+	}
+
 	if err := s.store.DeleteWorkflow(ctx, input.WorkflowID); err != nil {
 		return nil, huma.Error500InternalServerError("failed to delete workflow")
 	}

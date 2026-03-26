@@ -263,6 +263,7 @@ type WorkflowStore interface {
 	MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
 	CountActiveWorkflowRunsByVersion(ctx context.Context, workflowID, versionID string) (int, error)
+	CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error)
 	ListActiveWorkflowVersions(ctx context.Context, workflowID string) ([]store.ActiveVersion, error)
 }
 
