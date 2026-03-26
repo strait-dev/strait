@@ -2586,7 +2586,7 @@ func TestValidateCronFieldCount(t *testing.T) {
 	}{
 		{"* * * * *", false},
 		{"0 0 * * *", false},
-		{"0 0 * * * *", false}, // 6 fields (with seconds)
+		{"0 0 * * * *", true}, // 6 fields rejected -- parser only supports 5
 		{"* * *", true},
 		{"* * * * * * *", true},
 		{"*", true},

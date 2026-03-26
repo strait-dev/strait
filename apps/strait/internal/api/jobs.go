@@ -1202,12 +1202,12 @@ func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.Execution
 }
 
 // validateCronFieldCount checks that a cron expression has exactly 5 fields
-// (standard) or 6 fields (with seconds). Rejects expressions with too few
-// or too many fields before passing them to the parser.
+// (minute, hour, day-of-month, month, day-of-week). The cron parser is
+// configured without seconds support, so 6-field expressions are rejected.
 func validateCronFieldCount(expr string) error {
 	fields := strings.Fields(expr)
-	if len(fields) < 5 || len(fields) > 6 {
-		return fmt.Errorf("cron expression must have 5 fields (standard) or 6 fields (with seconds), got %d", len(fields))
+	if len(fields) != 5 {
+		return fmt.Errorf("cron expression must have exactly 5 fields (minute hour day-of-month month day-of-week), got %d", len(fields))
 	}
 	return nil
 }

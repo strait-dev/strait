@@ -266,7 +266,7 @@ func FuzzNullByteStripping(f *testing.F) {
 
 // 8. FuzzCronFieldCount (STR-333)
 // Fuzz validateCronFieldCount with random strings. Verify it only accepts
-// 5 or 6 field expressions, never panics.
+// exactly 5 field expressions (the parser does not support seconds).
 
 func FuzzCronFieldCount(f *testing.F) {
 	f.Add("* * * * *")
@@ -285,7 +285,7 @@ func FuzzCronFieldCount(f *testing.F) {
 		fields := strings.Fields(expr)
 		fieldCount := len(fields)
 
-		if fieldCount >= 5 && fieldCount <= 6 {
+		if fieldCount == 5 {
 			if err != nil {
 				t.Errorf("valid field count %d rejected: %v", fieldCount, err)
 			}
