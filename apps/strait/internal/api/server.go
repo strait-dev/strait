@@ -31,6 +31,7 @@ import (
 	"sync/atomic"
 
 	"github.com/alitto/pond/v2"
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
@@ -500,7 +501,17 @@ func (s *Server) analytics() AnalyticsStore {
 	if as, ok := s.store.(AnalyticsStore); ok {
 		return as
 	}
-	return s.analyticsStore
+	return nil
+}
+
+// requireAnalytics returns the analytics store or an error suitable for huma
+// handlers when no analytics backend is configured.
+func (s *Server) requireAnalytics() (AnalyticsStore, error) {
+	a := s.analytics()
+	if a == nil {
+		return nil, huma.Error503ServiceUnavailable("analytics store unavailable")
+	}
+	return a, nil
 }
 
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
