@@ -655,6 +655,23 @@ func TestValidateURL_InvalidURL(t *testing.T) {
 	}
 }
 
+func TestValidateURL_ErrorCasing(t *testing.T) {
+	t.Parallel()
+	err := validateURL("ftp://example.com")
+	if err == nil {
+		t.Fatal("expected error for ftp scheme")
+	}
+	msg := err.Error()
+	if msg[:3] != "url" {
+		t.Fatalf("expected error message to start with lowercase 'url', got %q", msg)
+	}
+	if msg[3] == ' ' {
+		// Good: "url must use http or https scheme"
+	} else {
+		t.Fatalf("expected space after 'url', got %q", msg)
+	}
+}
+
 func TestHandleStats_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{

@@ -832,7 +832,7 @@ func validateURL(rawURL string) error {
 	if err := worker.ValidateEndpointURL(rawURL); err != nil {
 		msg := err.Error()
 		if strings.HasPrefix(msg, "URL") {
-			msg = "u" + msg[1:]
+			msg = "url" + msg[3:]
 		}
 		return errors.New(msg)
 	}
@@ -886,7 +886,7 @@ func validateURLWithTLS(rawURL string, requireTLS bool) error {
 	if err := worker.ValidateEndpointURLWithTLS(rawURL, requireTLS); err != nil {
 		msg := err.Error()
 		if strings.HasPrefix(msg, "URL") {
-			msg = "u" + msg[1:]
+			msg = "url" + msg[3:]
 		}
 		return errors.New(msg)
 	}
