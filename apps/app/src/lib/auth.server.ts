@@ -208,6 +208,67 @@ export const auth = betterAuth({
                 `UPDATE "user" SET "defaultOrganizationId" = $1 WHERE id = $2`,
                 [org.id, user.id]
               );
+
+              // Auto-create a default project so the user lands on a
+              // ready-to-use dashboard instead of an empty "Create project" screen.
+              try {
+                await authPool.query(`
+                  CREATE TABLE IF NOT EXISTS project (
+                    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    organization_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    slug TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    created_by TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE(organization_id, slug)
+                  )
+                `);
+
+                const projectId = crypto.randomUUID();
+                const projectSlug = `project-${projectId.slice(0, 8)}`;
+
+                await authPool.query(
+                  `INSERT INTO project (id, organization_id, name, slug, created_by)
+                   VALUES ($1, $2, $3, $4, $5)
+                   ON CONFLICT DO NOTHING`,
+                  [projectId, org.id, "Default Project", projectSlug, user.id]
+                );
+
+                // Set as the user's active project.
+                await authPool.query(
+                  `UPDATE "user" SET "activeProjectId" = $1 WHERE id = $2`,
+                  [projectId, user.id]
+                );
+
+                // Sync to Go API (best-effort, don't fail signup).
+                const apiUrl =
+                  process.env.STRAIT_API_URL || "http://localhost:8080";
+                const secret = process.env.INTERNAL_SECRET;
+                if (secret) {
+                  fetch(`${apiUrl}/v1/projects`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "X-Internal-Secret": secret,
+                    },
+                    body: JSON.stringify({
+                      id: projectId,
+                      org_id: org.id,
+                      name: "Default Project",
+                    }),
+                  }).catch(() => {
+                    // Best-effort sync; don't fail signup if Go API is down.
+                  });
+                }
+              } catch (projectErr) {
+                console.error(
+                  "Failed to auto-create default project for user",
+                  user.id,
+                  projectErr
+                );
+              }
             }
           } catch (err) {
             console.error(
