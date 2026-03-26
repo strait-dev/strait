@@ -169,6 +169,14 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleRunStream)
 	})
 
+	// Project activity stream (SSE, no timeout -- connections stay open).
+	r.Route("/v1/projects/{projectID}/activity/stream", func(r chi.Router) {
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectContextMiddleware)
+		r.Use(s.projectRateLimit)
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleProjectActivityStream)
+	})
+
 	// Org-scoped cross-project query routes.
 	r.Route("/v1/organizations/{orgID}", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)

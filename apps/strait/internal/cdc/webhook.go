@@ -11,9 +11,10 @@ import (
 // It dispatches messages to the same handlers used by the poll-based consumer,
 // enabling sub-second CDC delivery alongside the existing pull fallback.
 type WebhookReceiver struct {
-	handlers  map[string]Handler
-	publisher EventPublisher
-	logger    *slog.Logger
+	handlers           map[string]Handler
+	additionalHandlers map[string][]Handler
+	publisher          EventPublisher
+	logger             *slog.Logger
 }
 
 // NewWebhookReceiver creates a new CDC webhook receiver.
@@ -22,15 +23,23 @@ func NewWebhookReceiver(publisher EventPublisher, logger *slog.Logger) *WebhookR
 		logger = slog.Default()
 	}
 	return &WebhookReceiver{
-		handlers:  make(map[string]Handler),
-		publisher: publisher,
-		logger:    logger,
+		handlers:           make(map[string]Handler),
+		additionalHandlers: make(map[string][]Handler),
+		publisher:          publisher,
+		logger:             logger,
 	}
 }
 
-// RegisterHandler adds a handler for a specific table name.
+// RegisterHandler adds the primary handler for a specific table name.
 func (wr *WebhookReceiver) RegisterHandler(h Handler) {
 	wr.handlers[h.Table()] = h
+}
+
+// RegisterAdditionalHandler adds a secondary handler for a table.
+// Additional handlers run after the primary handler for CDC-driven
+// side effects (webhook delivery, notifications, audit log, etc.).
+func (wr *WebhookReceiver) RegisterAdditionalHandler(h Handler) {
+	wr.additionalHandlers[h.Table()] = append(wr.additionalHandlers[h.Table()], h)
 }
 
 // ServeHTTP processes a CDC webhook push from Sequin.
@@ -80,6 +89,15 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		wr.logger.Error("cdc webhook: handle failed", "table", tableName, "error", handleErr)
 		http.Error(w, "handler error", http.StatusInternalServerError)
 		return
+	}
+
+	// Run additional handlers (webhook delivery, notifications, audit, etc.).
+	// Errors are logged but don't fail the primary delivery.
+	for _, ah := range wr.additionalHandlers[tableName] {
+		if ahErr := ah.Handle(r.Context(), msg); ahErr != nil {
+			wr.logger.Warn("cdc webhook: additional handler failed",
+				"table", tableName, "handler", ah.Table(), "error", ahErr)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
