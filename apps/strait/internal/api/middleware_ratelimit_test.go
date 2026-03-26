@@ -193,3 +193,20 @@ func TestProjectRateLimit_ProjectFallback_NoAPIKey(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 }
+
+func TestProjectRateLimit_InternalSecretAuth_Bypasses(t *testing.T) {
+	t.Parallel()
+	limiter := ratelimit.NewRedisRateLimiter(nil, false)
+	ts := newRLTestServer(nil, limiter)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	// Internal secret auth does not set scopes -- scopesFromContext returns nil.
+
+	rr := httptest.NewRecorder()
+	ts.handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for internal secret auth, got %d", rr.Code)
+	}
+}

@@ -505,6 +505,13 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 		}
 
 		ctx := r.Context()
+
+		// Internal secret auth (no scopes set) bypasses rate limiting
+		// so internal callers and stress tests are not throttled.
+		if scopesFromContext(ctx) == nil && r.Header.Get("X-Internal-Secret") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		projectID := projectIDFromContext(ctx)
 		apiKeyID := apiKeyIDFromContext(ctx)
 
