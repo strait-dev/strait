@@ -885,7 +885,8 @@ func isPrivateIP(ip net.IP) bool {
 func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
 	// Serve Scalar API reference using the cached OpenAPI spec.
 	htmlContent, err := scalar.ApiReferenceHTML(&scalar.Options{
-		SpecURL: "/reference/openapi.json",
+		SpecURL:     "/reference/openapi.json",
+		SpecContent: "{}",
 		CustomOptions: scalar.CustomOptions{
 			PageTitle: "Strait API",
 		},
