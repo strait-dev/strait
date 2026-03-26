@@ -84,7 +84,7 @@ apps/strait/
 ├── Makefile        # Build, test, and deploy commands
 └── .dockerignore
 
-deploy/
+packages/deploy/
 └── sequin/
     └── fly.toml    # Fly config for Sequin CDC
 ```
@@ -112,7 +112,7 @@ Sequin uses the official `sequin/sequin:latest` Docker image — no build step n
 bun run deploy:sequin
 
 # Or directly
-cd deploy/sequin && fly deploy -a strait-sequin
+cd packages/deploy/sequin && fly deploy -a strait-sequin
 ```
 
 Sequin requires the following secrets set on Fly (managed via `fly secrets set`):

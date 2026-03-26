@@ -16,7 +16,7 @@ git clone https://github.com/strait-dev/strait.git
 cd strait
 
 # 2. Generate secrets (only needed once).
-./scripts/selfhost-init.sh
+./packages/scripts/selfhost-init.sh
 
 # 3. Start all services.
 docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
@@ -106,7 +106,7 @@ Strait uses [Sequin](https://sequinstream.com) for Change Data Capture. Sequin m
 | `workflow_step_runs` | Individual step completions |
 | `event_triggers` | Event-driven trigger status |
 
-CDC is **auto-configured** -- the Sequin consumer is provisioned via `configs/sequin.yml` which is mounted into the Sequin container. No manual setup needed.
+CDC is **auto-configured** -- the Sequin consumer is provisioned via `packages/configs/sequin.yml` which is mounted into the Sequin container. No manual setup needed.
 
 To verify CDC is working:
 ```bash
@@ -145,11 +145,11 @@ Use the included backup script:
 
 ```bash
 # Create a backup.
-./scripts/selfhost-backup.sh
+./packages/scripts/selfhost-backup.sh
 # Backup saved to ./backups/strait_20260325_120000.sql.gz
 
 # Schedule daily backups (add to crontab).
-# 0 3 * * * cd /path/to/strait && ./scripts/selfhost-backup.sh
+# 0 3 * * * cd /path/to/strait && ./packages/scripts/selfhost-backup.sh
 ```
 
 Backups older than 30 days are automatically cleaned up.
@@ -241,8 +241,8 @@ docker run --rm --network host \
 Start fresh by wiping all data and secrets:
 
 ```bash
-./scripts/selfhost-init.sh --reset
-./scripts/selfhost-init.sh
+./packages/scripts/selfhost-init.sh --reset
+./packages/scripts/selfhost-init.sh
 docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
 ```
 

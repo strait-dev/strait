@@ -4,7 +4,7 @@ This runbook documents the manual configuration for Better Stack (uptime,
 alerting, on-call) and Grafana Cloud Alerting integration.
 
 **Note**: The Grafana webhook integration requires a Better Stack paid plan.
-When ready, run `ops/monitoring/setup-alert-routing.sh` with your webhook URL.
+When ready, run `packages/monitoring/setup-alert-routing.sh` with your webhook URL.
 
 ## 1. Better Stack Uptime Monitor
 
@@ -34,7 +34,7 @@ When ready, run `ops/monitoring/setup-alert-routing.sh` with your webhook URL.
 
 1. In Grafana Cloud, go to **Alerting** > **Notification policies**
 2. Set the **default** notification policy to use the `Better Stack` contact point
-3. Import Prometheus alert rules from `ops/monitoring/alerts-*.yaml`:
+3. Import Prometheus alert rules from `packages/monitoring/alerts-*.yaml`:
    - Go to **Alerting** > **Alert rules** > **New alert rule**
    - Select **Grafana-managed** rule type
    - Use the Prometheus datasource
@@ -44,8 +44,8 @@ When ready, run `ops/monitoring/setup-alert-routing.sh` with your webhook URL.
 
 ### Alert rule files
 
-- `ops/monitoring/alerts-authz-rbac.yaml` -- RBAC/auth alerts (3 rules)
-- `ops/monitoring/alerts-strait-core.yaml` -- Core operational alerts (14 rules)
+- `packages/monitoring/alerts-authz-rbac.yaml` -- RBAC/auth alerts (3 rules)
+- `packages/monitoring/alerts-strait-core.yaml` -- Core operational alerts (14 rules)
 
 ## 4. On-Call Setup
 

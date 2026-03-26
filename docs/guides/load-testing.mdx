@@ -16,7 +16,7 @@ Build the test job images and run a quick validation:
 
 ```bash
 # Build test job images
-cd loadtest-jobs && make build && cd ..
+cd packages/load-tests && make build && cd ..
 
 # Run quick validation (finds approximate throughput ceiling)
 cd apps/strait
@@ -38,7 +38,7 @@ The framework includes real workloads in Python, TypeScript, and Go:
 Build all images:
 
 ```bash
-cd loadtest-jobs && make build
+cd packages/load-tests && make build
 ```
 
 ## Full Test Suite

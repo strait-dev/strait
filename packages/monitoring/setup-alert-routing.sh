@@ -10,7 +10,7 @@ set -euo pipefail
 # Usage:
 #   BETTERSTACK_WEBHOOK_URL="https://uptime.betterstack.com/api/v1/incoming-webhook/XXXX" \
 #   GRAFANA_SERVICE_ACCOUNT_TOKEN="glsa_..." \
-#   ./ops/monitoring/setup-alert-routing.sh
+#   ./packages/monitoring/setup-alert-routing.sh
 
 GRAFANA_URL="${GRAFANA_URL:-https://strait.grafana.net}"
 GRAFANA_TOKEN="${GRAFANA_SERVICE_ACCOUNT_TOKEN:?GRAFANA_SERVICE_ACCOUNT_TOKEN is required}"
