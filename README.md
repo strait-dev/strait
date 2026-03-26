@@ -2,6 +2,8 @@
 
 # Strait
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/strait-dev/strait/badge)](https://scorecard.dev/viewer/?uri=github.com/strait-dev/strait)
+
 A production-grade job orchestration platform for engineering teams and AI agents.
 
 **Everything you need in one binary.** Accept job definitions via REST API, queue runs in PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED`, dispatch them via HTTP to your endpoints, and handle retries with intelligent strategies.
