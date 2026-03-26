@@ -563,9 +563,9 @@ func (s *Server) routes() chi.Router {
 	})
 
 	r.Route("/sdk/v1", func(r chi.Router) {
-		r.Use(s.runTokenAuth)
-		r.Use(s.sdkResponseHeaders)
 		r.Route("/runs/{runID}", func(r chi.Router) {
+			r.Use(s.runTokenAuth) // must be inside {runID} group so chi.URLParam("runID") is populated
+			r.Use(s.sdkResponseHeaders)
 			r.Get("/payload", TypedHandler(s, http.StatusOK, s.handleSDKGetPayload))
 			r.Post("/log", TypedHandler(s, http.StatusCreated, s.handleSDKLog))
 			r.Post("/progress", TypedHandler(s, http.StatusCreated, s.handleSDKProgress))

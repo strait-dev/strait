@@ -648,6 +648,30 @@ func TestTenantIsolation_LogDrainsIsolated(t *testing.T) {
 	}
 }
 
+// TestTenantIsolation_SDKTokenScopedToRun verifies that an SDK run token
+// for run-A cannot be used to operate on run-B.
+func TestTenantIsolation_SDKTokenScopedToRun(t *testing.T) {
+	t.Parallel()
+	ms := newIsolationStore()
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	// Create a valid JWT for run-a.
+	tokenA := generateRunToken(t, "run-a")
+
+	// Use run-a's token on run-b's heartbeat endpoint -- should be 403.
+	// Heartbeat is simpler (no store calls needed) so middleware rejection
+	// is tested cleanly without needing extra mock setup.
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-b/heartbeat", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenA)
+	req.Header.Set("Content-Type", "application/json")
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("cross-run SDK token: expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // FuzzTenantIsolation_CrossProjectAccess fuzzes project ID values to ensure
 // the handler does not panic or return unexpected results.
 func FuzzTenantIsolation_CrossProjectAccess(f *testing.F) {
