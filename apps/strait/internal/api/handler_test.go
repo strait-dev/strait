@@ -111,12 +111,12 @@ func TestHandleHealth(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 	if resp["status"] != "ok" {
-		t.Fatalf("expected status=ok, got %q", resp["status"])
+		t.Fatalf("expected status=ok, got %v", resp["status"])
 	}
 }
 
@@ -156,12 +156,12 @@ func TestHandleHealth_EditionField(t *testing.T) {
 				t.Fatalf("expected 200, got %d", w.Code)
 			}
 
-			var resp map[string]string
+			var resp map[string]any
 			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 				t.Fatalf("invalid JSON: %v", err)
 			}
 			if resp["edition"] != tt.want {
-				t.Errorf("expected edition=%q, got %q", tt.want, resp["edition"])
+				t.Errorf("expected edition=%q, got %v", tt.want, resp["edition"])
 			}
 		})
 	}

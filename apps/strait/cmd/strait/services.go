@@ -202,12 +202,24 @@ func retrySleep(ctx context.Context, attempt int) error {
 }
 
 // startCDCConsumer registers and starts the Sequin CDC consumer if configured.
-func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher) {
+// Returns a webhook receiver for push-based CDC delivery (nil if CDC is disabled).
+func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher) *cdc.WebhookReceiver {
 	if cfg.SequinBaseURL == "" {
-		return
+		return nil
 	}
 
 	cdcClient := cdc.NewClient(cfg.SequinBaseURL, cfg.SequinConsumerName, cfg.SequinAPIToken)
+
+	// Auto-provision the Sequin consumer if it does not exist.
+	cdcTables := []string{
+		"public.job_runs", "public.workflow_runs",
+		"public.workflow_step_runs", "public.event_triggers",
+	}
+	if err := cdcClient.EnsureConsumer(context.Background(), cdcTables); err != nil {
+		slog.Warn("failed to auto-provision Sequin consumer, CDC may not work",
+			"error", err, "consumer", cfg.SequinConsumerName)
+	}
+
 	cdcConsumer := cdc.NewConsumer(cdcClient, cdc.ConsumerConfig{
 		BaseURL:      cfg.SequinBaseURL,
 		ConsumerName: cfg.SequinConsumerName,
@@ -238,10 +250,19 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 		return nil
 	})
 
+	// Create webhook receiver for push-based CDC delivery.
+	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default())
+	webhookReceiver.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
+	webhookReceiver.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
+	webhookReceiver.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
+	webhookReceiver.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
+
 	slog.Info("cdc consumer enabled",
 		"base_url", cfg.SequinBaseURL,
 		"consumer", cfg.SequinConsumerName,
 	)
+
+	return webhookReceiver
 }
 
 func startWebhookWorker(g *pool.ContextPool, cfg *config.Config, eventNotifier *webhook.DeliveryWorker) {
@@ -313,7 +334,7 @@ func startLogDrainWorker(g *pool.ContextPool, cfg *config.Config, queries *store
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor, billingEnforcer *billing.Enforcer, analyticsStore api.AnalyticsStore, chExporter *clickhouse.Exporter) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor, billingEnforcer *billing.Enforcer, analyticsStore api.AnalyticsStore, chExporter *clickhouse.Exporter, cdcWebhookReceiver *cdc.WebhookReceiver) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -376,27 +397,29 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	referralSvc := billing.NewReferralService(billingStore)
 
 	srv := api.NewServer(api.ServerDeps{
-		Config:           cfg,
-		Store:            queries,
-		AnalyticsStore:   analyticsStore,
-		Queue:            q,
-		PubSub:           pub,
-		MetricsHandler:   metricsHandler,
-		Metrics:          metrics,
-		Pinger:           pinger,
-		HealthRegistry:   healthReg,
-		WorkflowCallback: stepCallback,
-		WorkflowEngine:   workflowEngine,
-		TxPool:           txPool,
-		RedisClient:      rdb,
-		Encryptor:        encryptor,
-		ContainerRuntime: apiContainerRuntime,
-		PolarWebhook:     polarWebhook,
-		BillingEnforcer:  nilSafeBillingEnforcer(billingEnforcer),
-		UsageService:     usageSvc,
-		ReferralService:  referralSvc,
-		CHExporter:       chExporter,
-		Edition:          domain.ParseEdition(cfg.Edition),
+		Config:             cfg,
+		Store:              queries,
+		AnalyticsStore:     analyticsStore,
+		Queue:              q,
+		PubSub:             pub,
+		MetricsHandler:     metricsHandler,
+		Metrics:            metrics,
+		Pinger:             pinger,
+		HealthRegistry:     healthReg,
+		WorkflowCallback:   stepCallback,
+		WorkflowEngine:     workflowEngine,
+		TxPool:             txPool,
+		RedisClient:        rdb,
+		Encryptor:          encryptor,
+		ContainerRuntime:   apiContainerRuntime,
+		PolarWebhook:       polarWebhook,
+		BillingEnforcer:    nilSafeBillingEnforcer(billingEnforcer),
+		UsageService:       usageSvc,
+		ReferralService:    referralSvc,
+		CHExporter:         chExporter,
+		Edition:            domain.ParseEdition(cfg.Edition),
+		Version:            version,
+		CDCWebhookReceiver: cdcWebhookReceiver,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

@@ -377,7 +377,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		slog.Warn("POLAR_API_WEBHOOK_SECRET is empty -- Polar webhook signature verification is DISABLED")
 	}
 
-	startCDCConsumer(g, cfg, pub)
+	cdcWebhookReceiver := startCDCConsumer(g, cfg, pub)
 	startWebhookWorker(g, cfg, eventNotifier)
 	startNotificationWorker(g, cfg, queries, metrics)
 	startLogDrainWorker(g, cfg, queries, metrics)
@@ -385,7 +385,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
-	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter)
+	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
 	startWorker(g, cfg, queries, dbPool, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter)
 
 	if err := g.Wait(); err != nil {
