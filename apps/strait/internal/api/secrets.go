@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -36,6 +37,10 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 		return nil, newValidationError(err)
 	}
 
+	if s.config.SecretEncryptionKey == "" {
+		return nil, huma.Error503ServiceUnavailable("secret encryption is not configured -- set SECRET_ENCRYPTION_KEY")
+	}
+
 	if req.Environment == "" {
 		req.Environment = "production"
 	}
@@ -49,6 +54,7 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 	}
 
 	if err := s.store.CreateJobSecret(ctx, secret); err != nil {
+		slog.Error("failed to create secret", "error", err)
 		return nil, huma.Error500InternalServerError("failed to create secret")
 	}
 
@@ -81,6 +87,7 @@ func (s *Server) handleListSecrets(ctx context.Context, input *ListSecretsInput)
 
 	secrets, err := s.store.ListJobSecrets(ctx, projectID, input.JobID, input.Environment, limit+1, cursor)
 	if err != nil {
+		slog.Error("failed to list secrets", "error", err)
 		return nil, huma.Error500InternalServerError("failed to list secrets")
 	}
 
@@ -99,6 +106,7 @@ func (s *Server) handleDeleteSecret(ctx context.Context, input *DeleteSecretInpu
 		if errors.Is(err, store.ErrJobSecretNotFound) {
 			return nil, huma.Error404NotFound("secret not found")
 		}
+		slog.Error("failed to delete secret", "error", err)
 		return nil, huma.Error500InternalServerError("failed to delete secret")
 	}
 
