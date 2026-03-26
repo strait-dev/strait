@@ -578,6 +578,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	job.UpdatedBy = actorFromContext(ctx)
 
 	if err := s.store.UpdateJob(ctx, job); err != nil {
+		if errors.Is(err, store.ErrJobVersionConflict) {
+			return nil, huma.Error409Conflict("job was modified concurrently -- retry with latest version")
+		}
 		return nil, huma.Error500InternalServerError("failed to update job")
 	}
 

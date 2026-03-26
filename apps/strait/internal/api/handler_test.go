@@ -2549,6 +2549,35 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateJob_VersionConflict_Returns409(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:          id,
+				ProjectID:   "proj-1",
+				Name:        "test-job",
+				Slug:        "test-job",
+				EndpointURL: "https://example.com",
+				Enabled:     true,
+				TimeoutSecs: 60,
+				Version:     1,
+			}, nil
+		},
+		UpdateJobFunc: func(_ context.Context, _ *domain.Job) error {
+			return store.ErrJobVersionConflict
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", `{"name":"updated"}`))
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestValidateCronFieldCount(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
