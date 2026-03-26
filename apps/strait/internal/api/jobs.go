@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -110,7 +111,7 @@ type CreateJobOutput struct {
 	Body *domain.Job
 }
 
-//nolint:gocyclo,cyclop
+//nolint:gocognit,gocyclo,cyclop
 func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*CreateJobOutput, error) {
 	req := input.Body
 
@@ -146,6 +147,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	}
 
 	if req.Cron != "" {
+		if err := validateCronFieldCount(req.Cron); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(req.Cron); err != nil {
 			return nil, huma.Error400BadRequest("invalid cron expression")
@@ -153,6 +157,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	}
 
 	if req.ExecutionWindowCron != "" {
+		if err := validateCronFieldCount(req.ExecutionWindowCron); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(req.ExecutionWindowCron); err != nil {
 			return nil, huma.Error400BadRequest("invalid execution_window_cron expression")
@@ -399,6 +406,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 
 	if req.Cron != nil && *req.Cron != "" {
+		if err := validateCronFieldCount(*req.Cron); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(*req.Cron); err != nil {
 			return nil, huma.Error400BadRequest("invalid cron expression")
@@ -406,6 +416,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 
 	if req.ExecutionWindowCron != nil && *req.ExecutionWindowCron != "" {
+		if err := validateCronFieldCount(*req.ExecutionWindowCron); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(*req.ExecutionWindowCron); err != nil {
 			return nil, huma.Error400BadRequest("invalid execution_window_cron expression")
@@ -1181,6 +1194,17 @@ func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.Execution
 			s.metrics.HTTPModeGateRejected.Add(ctx, 1)
 		}
 		return huma.Error400BadRequest("HTTP execution mode requires the Pro plan ($49.99/mo). Upgrade at /settings/billing")
+	}
+	return nil
+}
+
+// validateCronFieldCount checks that a cron expression has exactly 5 fields
+// (standard) or 6 fields (with seconds). Rejects expressions with too few
+// or too many fields before passing them to the parser.
+func validateCronFieldCount(expr string) error {
+	fields := strings.Fields(expr)
+	if len(fields) < 5 || len(fields) > 6 {
+		return fmt.Errorf("cron expression must have 5 fields (standard) or 6 fields (with seconds), got %d", len(fields))
 	}
 	return nil
 }

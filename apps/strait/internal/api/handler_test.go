@@ -2549,6 +2549,27 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 	}
 }
 
+func TestValidateCronFieldCount(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		expr    string
+		wantErr bool
+	}{
+		{"* * * * *", false},
+		{"0 0 * * *", false},
+		{"0 0 * * * *", false}, // 6 fields (with seconds)
+		{"* * *", true},
+		{"* * * * * * *", true},
+		{"*", true},
+	}
+	for _, tt := range tests {
+		err := validateCronFieldCount(tt.expr)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateCronFieldCount(%q) error=%v, wantErr=%v", tt.expr, err, tt.wantErr)
+		}
+	}
+}
+
 func TestMetrics_Unauthenticated_Returns401(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
