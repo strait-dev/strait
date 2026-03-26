@@ -50,6 +50,7 @@ services:
       PG_DATABASE: strait
       SECRET_KEY_BASE: ${SEQUIN_SECRET_KEY_BASE}
       VAULT_KEY: ${SEQUIN_VAULT_KEY}
+      CONFIG_FILE_PATH: /etc/sequin/config.yml
     volumes:
       - ./configs/sequin.yml:/etc/sequin/config.yml:ro
     depends_on:

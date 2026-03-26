@@ -1,36 +1,55 @@
 # Sequin CDC configuration for Strait self-hosted deployment.
-# Auto-provisions the database connection and HTTP Pull Consumer
+# Mounted at /etc/sequin/config.yml via CONFIG_FILE_PATH env var.
+# Auto-provisions the database connection and Sequin Stream sinks
 # that Strait needs for real-time Change Data Capture.
 #
-# Mounted into the Sequin container at /etc/sequin/config.yml.
 # Tables watched: job_runs, workflow_runs, workflow_step_runs, event_triggers.
+# See: https://sequinstream.com/docs/reference/sequin-yaml
 
 databases:
-  - name: strait
-    hostname: postgres
+  - name: "strait"
+    hostname: "postgres"
     port: 5432
-    username: strait
-    password: strait
-    database: strait
-    slot_name: sequin_strait_slot
-    publication_name: sequin_strait_pub
+    database: "strait"
+    username: "strait"
+    password: "strait"
+    slot_name: "sequin_strait_slot"
+    publication_name: "sequin_strait_pub"
     tables:
-      - schema: public
-        name: job_runs
-      - schema: public
-        name: workflow_runs
-      - schema: public
-        name: workflow_step_runs
-      - schema: public
-        name: event_triggers
+      - table_schema: "public"
+        table_name: "job_runs"
+        sort_column_name: "updated_at"
+      - table_schema: "public"
+        table_name: "workflow_runs"
+        sort_column_name: "updated_at"
+      - table_schema: "public"
+        table_name: "workflow_step_runs"
+        sort_column_name: "updated_at"
+      - table_schema: "public"
+        table_name: "event_triggers"
+        sort_column_name: "updated_at"
 
-consumers:
-  - name: strait-cdc
-    type: http_pull
-    database: strait
-    batch_size: 10
-    tables:
-      - public.job_runs
-      - public.workflow_runs
-      - public.workflow_step_runs
-      - public.event_triggers
+sinks:
+  - name: "strait-job-runs"
+    database: "strait"
+    table: "public.job_runs"
+    destination:
+      type: "sequin_stream"
+
+  - name: "strait-workflow-runs"
+    database: "strait"
+    table: "public.workflow_runs"
+    destination:
+      type: "sequin_stream"
+
+  - name: "strait-workflow-step-runs"
+    database: "strait"
+    table: "public.workflow_step_runs"
+    destination:
+      type: "sequin_stream"
+
+  - name: "strait-event-triggers"
+    database: "strait"
+    table: "public.event_triggers"
+    destination:
+      type: "sequin_stream"

@@ -164,6 +164,92 @@ Restore from backup:
 gunzip -c backups/strait_20260325_120000.sql.gz | docker exec -i strait-postgres-1 psql -U strait strait
 ```
 
+## API Reference
+
+Interactive API documentation is available via Scalar:
+
+- **Self-hosted**: http://localhost:8080/reference
+- **Cloud**: https://api.strait.dev/reference
+
+The OpenAPI 3.0 spec is served at `/reference/openapi.json`.
+
+## Monitoring (Optional)
+
+Enable the full observability stack with Prometheus, Grafana, ClickHouse, Loki, and OTEL Collector:
+
+```bash
+docker compose \
+  -f docker-compose.selfhost.yml \
+  -f docker-compose.monitoring.yml \
+  up -d
+```
+
+This adds:
+
+| Service | Port | Purpose |
+|---|---|---|
+| Grafana | 3001 | Dashboards and alerting |
+| Prometheus | 9090 | Metrics collection |
+| ClickHouse | 8123 | Advanced analytics |
+| Loki | 3100 | Log aggregation |
+| OTEL Collector | 4318 | Telemetry pipeline |
+
+Open **http://localhost:3001** for the Grafana dashboard (no login required). Pre-configured datasources for Prometheus, ClickHouse, and Loki are included.
+
+When monitoring is enabled, Strait automatically exports:
+- 50+ Prometheus metrics (queue depth, dispatch latency, error rates)
+- Structured logs to Loki via OTEL
+- Run analytics, cost tracking, and webhook delivery events to ClickHouse
+
+## Using the SDKs
+
+Trigger jobs programmatically from your application:
+
+**TypeScript**:
+```bash
+npm install @strait/ts
+```
+```typescript
+import { Strait } from "@strait/ts";
+
+const strait = new Strait({
+  baseUrl: "http://localhost:8080",
+  apiKey: "strait_...",
+});
+
+const run = await strait.jobs.trigger("my-job", {
+  payload: { userId: "123", action: "process" },
+});
+```
+
+**Python** ([github.com/strait-dev/python-sdk](https://github.com/strait-dev/python-sdk)):
+```bash
+pip install strait
+```
+```python
+from strait import Strait
+
+client = Strait(base_url="http://localhost:8080", api_key="strait_...")
+run = client.jobs.trigger("my-job", payload={"userId": "123"})
+```
+
+**Go** ([github.com/strait-dev/go-sdk](https://github.com/strait-dev/go-sdk)):
+```bash
+go get github.com/strait-dev/go-sdk
+```
+```go
+client := strait.New("http://localhost:8080", "strait_...")
+run, _ := client.Jobs.Trigger(ctx, "my-job", map[string]any{"userId": "123"})
+```
+
+Or use the REST API directly:
+```bash
+curl -X POST http://localhost:8080/v1/jobs/my-job/trigger \
+  -H "Authorization: Bearer strait_..." \
+  -H "Content-Type: application/json" \
+  -d '{"payload": {"userId": "123"}}'
+```
+
 ## Load Testing
 
 Test your deployment with the packaged stress test:
