@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1082,6 +1083,9 @@ func TestHandleDeleteJob_Success(t *testing.T) {
 	t.Parallel()
 	var deletedID string
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		DeleteJobFunc: func(_ context.Context, id string) error {
 			deletedID = id
 			return nil
@@ -1103,6 +1107,9 @@ func TestHandleDeleteJob_Success(t *testing.T) {
 func TestHandleDeleteJob_ActiveRuns(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		DeleteJobFunc: func(_ context.Context, _ string) error {
 			return store.ErrJobHasActiveRuns
 		},
@@ -2539,5 +2546,191 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 
 	if w.Code == http.StatusServiceUnavailable {
 		t.Fatal("expected request to pass through when pool is healthy")
+	}
+}
+
+func TestHandleUpdateJob_VersionConflict_Returns409(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:          id,
+				ProjectID:   "proj-1",
+				Name:        "test-job",
+				Slug:        "test-job",
+				EndpointURL: "https://example.com",
+				Enabled:     true,
+				TimeoutSecs: 60,
+				Version:     1,
+			}, nil
+		},
+		UpdateJobFunc: func(_ context.Context, _ *domain.Job) error {
+			return store.ErrJobVersionConflict
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", `{"name":"updated"}`))
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestValidateCronFieldCount(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		expr    string
+		wantErr bool
+	}{
+		{"* * * * *", false},
+		{"0 0 * * *", false},
+		{"0 0 * * * *", true}, // 6 fields rejected -- parser only supports 5
+		{"* * *", true},
+		{"* * * * * * *", true},
+		{"*", true},
+	}
+	for _, tt := range tests {
+		err := validateCronFieldCount(tt.expr)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateCronFieldCount(%q) error=%v, wantErr=%v", tt.expr, err, tt.wantErr)
+		}
+	}
+}
+
+func TestMetrics_Unauthenticated_Returns401(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		InternalSecret: "test-secret",
+		JWTSigningKey:  "01234567890123456789012345678901",
+	}
+	srv := NewServer(ServerDeps{
+		Config:         cfg,
+		Store:          &APIStoreMock{},
+		Queue:          &mockQueue{},
+		Edition:        domain.EditionCloud,
+		MetricsHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }),
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated /metrics, got %d", w.Code)
+	}
+}
+
+func TestMetrics_Authenticated_Returns200(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		InternalSecret: "test-secret",
+		JWTSigningKey:  "01234567890123456789012345678901",
+	}
+	srv := NewServer(ServerDeps{
+		Config:         cfg,
+		Store:          &APIStoreMock{},
+		Queue:          &mockQueue{},
+		Edition:        domain.EditionCloud,
+		MetricsHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }),
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	r.Header.Set("X-Internal-Secret", "test-secret")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for authenticated /metrics, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestNullByteStrippingReader(t *testing.T) {
+	t.Parallel()
+	input := []byte("hello\x00world")
+	reader := &nullByteStrippingReader{r: strings.NewReader(string(input))}
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "hello world"
+	if string(out) != expected {
+		t.Fatalf("expected %q, got %q", expected, string(out))
+	}
+}
+
+func TestHandleTriggerJob_NullByteInPayload_DoesNotCrash(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		GetRunByIdempotencyKeyFunc: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+			return nil, nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+
+	srv := newTestServer(t, ms, mq, nil)
+	// JSON with null byte inside a string value
+	body := "{\"payload\":{\"key\":\"val\x00ue\"}}"
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body))
+
+	// Should not return 500 -- 201 or 200 means null byte was stripped
+	if w.Code == http.StatusInternalServerError {
+		t.Fatalf("expected non-500 response, got 500: %s", w.Body.String())
+	}
+}
+
+func TestHandleTriggerJob_PastScheduledAt_Returns400(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
+	body := fmt.Sprintf(`{"scheduled_at":"%s"}`, pastTime)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "past") {
+		t.Fatalf("expected error about past, got %s", w.Body.String())
+	}
+}
+
+func TestHandleTriggerJob_ScheduledAtTooFar_Returns400(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	futureTime := time.Now().Add(31 * 24 * time.Hour).Format(time.RFC3339)
+	body := fmt.Sprintf(`{"scheduled_at":"%s"}`, futureTime)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "30 days") {
+		t.Fatalf("expected error about 30 days, got %s", w.Body.String())
 	}
 }

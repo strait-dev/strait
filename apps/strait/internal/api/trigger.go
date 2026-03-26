@@ -68,6 +68,10 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+
 	if !job.Enabled {
 		return nil, huma.Error400BadRequest("job is disabled")
 	}
@@ -94,6 +98,17 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
 		return nil, huma.Error400BadRequest("payload validation failed: " + err.Error())
+	}
+
+	// Validate scheduled_at bounds.
+	if req.ScheduledAt != nil {
+		delay := time.Until(*req.ScheduledAt)
+		if delay < 0 {
+			return nil, huma.Error400BadRequest("scheduled_at must not be in the past")
+		}
+		if delay > 30*24*time.Hour {
+			return nil, huma.Error400BadRequest("scheduled_at cannot exceed 30 days from now")
+		}
 	}
 
 	payload, payloadHash, err := canonicalizePayload(req.Payload)

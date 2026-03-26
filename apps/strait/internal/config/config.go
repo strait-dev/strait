@@ -112,7 +112,7 @@ type Config struct {
 	ReaperDeleteBatchSize    int           `env:"REAPER_DELETE_BATCH_SIZE" default:"100"`
 	StalledWorkflowThreshold time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
 	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"log_only"`
-	WfMaxStepCap             int           `env:"WF_MAX_STEP_CAP" default:"0"`
+	WfMaxStepCap             int           `env:"WF_MAX_STEP_CAP" default:"100"`
 	WfStepConcurrencyLimit   int           `env:"WF_STEP_CONCURRENCY_LIMIT" default:"0"`
 	DependencyStatusCacheTTL time.Duration `env:"DEPENDENCY_STATUS_CACHE_TTL" default:"5s"`
 

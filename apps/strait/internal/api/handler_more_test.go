@@ -214,6 +214,9 @@ func TestHandleCreateJob_DefaultValues(t *testing.T) {
 func TestHandleDeleteJob_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return nil, store.ErrJobNotFound
+		},
 		DeleteJobFunc: func(_ context.Context, _ string) error {
 			return store.ErrJobNotFound
 		},
@@ -231,6 +234,9 @@ func TestHandleDeleteJob_NotFound(t *testing.T) {
 func TestHandleDeleteJob_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		DeleteJobFunc: func(_ context.Context, _ string) error {
 			return errors.New("db down")
 		},
@@ -646,6 +652,23 @@ func TestValidateURL_InvalidURL(t *testing.T) {
 	t.Parallel()
 	if err := validateURL("://bad"); err == nil {
 		t.Fatal("expected error for invalid URL")
+	}
+}
+
+func TestValidateURL_ErrorCasing(t *testing.T) {
+	t.Parallel()
+	err := validateURL("ftp://example.com")
+	if err == nil {
+		t.Fatal("expected error for ftp scheme")
+	}
+	msg := err.Error()
+	if msg[:3] != "url" {
+		t.Fatalf("expected error message to start with lowercase 'url', got %q", msg)
+	}
+	if msg[3] == ' ' {
+		// Good: "url must use http or https scheme"
+	} else {
+		t.Fatalf("expected space after 'url', got %q", msg)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -110,7 +111,7 @@ type CreateJobOutput struct {
 	Body *domain.Job
 }
 
-//nolint:gocyclo,cyclop
+//nolint:gocognit,gocyclo,cyclop
 func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*CreateJobOutput, error) {
 	req := input.Body
 
@@ -146,6 +147,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	}
 
 	if req.Cron != "" {
+		if err := validateCronFieldCount(req.Cron); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(req.Cron); err != nil {
 			return nil, huma.Error400BadRequest("invalid cron expression")
@@ -153,6 +157,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	}
 
 	if req.ExecutionWindowCron != "" {
+		if err := validateCronFieldCount(req.ExecutionWindowCron); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(req.ExecutionWindowCron); err != nil {
 			return nil, huma.Error400BadRequest("invalid execution_window_cron expression")
@@ -299,6 +306,10 @@ func (s *Server) handleGetJob(ctx context.Context, input *GetJobInput) (*GetJobO
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+
 	return &GetJobOutput{Body: job}, nil
 }
 
@@ -370,6 +381,10 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
@@ -391,6 +406,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 
 	if req.Cron != nil && *req.Cron != "" {
+		if err := validateCronFieldCount(*req.Cron); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(*req.Cron); err != nil {
 			return nil, huma.Error400BadRequest("invalid cron expression")
@@ -398,6 +416,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 
 	if req.ExecutionWindowCron != nil && *req.ExecutionWindowCron != "" {
+		if err := validateCronFieldCount(*req.ExecutionWindowCron); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(*req.ExecutionWindowCron); err != nil {
 			return nil, huma.Error400BadRequest("invalid execution_window_cron expression")
@@ -557,6 +578,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	job.UpdatedBy = actorFromContext(ctx)
 
 	if err := s.store.UpdateJob(ctx, job); err != nil {
+		if errors.Is(err, store.ErrJobVersionConflict) {
+			return nil, huma.Error409Conflict("job was modified concurrently -- retry with latest version")
+		}
 		return nil, huma.Error500InternalServerError("failed to update job")
 	}
 
@@ -584,6 +608,17 @@ type DeleteJobInput struct {
 }
 
 func (s *Server) handleDeleteJob(ctx context.Context, input *DeleteJobInput) (*struct{}, error) {
+	job, err := s.store.GetJob(ctx, input.JobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return nil, huma.Error404NotFound("job not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+
 	if err := s.store.DeleteJob(ctx, input.JobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			return nil, huma.Error404NotFound("job not found")
@@ -626,6 +661,10 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 			return nil, huma.Error404NotFound("job not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+
+	if err := requireProjectMatch(ctx, source.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
 	}
 
 	req := input.Body
@@ -1052,6 +1091,10 @@ func (s *Server) handlePauseJob(ctx context.Context, input *PauseJobInput) (*Pau
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+
 	alreadyPaused := job.Paused
 
 	if !alreadyPaused {
@@ -1097,6 +1140,10 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 			return nil, huma.Error404NotFound("job not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
 	}
 
 	wasPaused := job.Paused
@@ -1150,6 +1197,17 @@ func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.Execution
 			s.metrics.HTTPModeGateRejected.Add(ctx, 1)
 		}
 		return huma.Error400BadRequest("HTTP execution mode requires the Pro plan ($49.99/mo). Upgrade at /settings/billing")
+	}
+	return nil
+}
+
+// validateCronFieldCount checks that a cron expression has exactly 5 fields
+// (minute, hour, day-of-month, month, day-of-week). The cron parser is
+// configured without seconds support, so 6-field expressions are rejected.
+func validateCronFieldCount(expr string) error {
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		return fmt.Errorf("cron expression must have exactly 5 fields (minute hour day-of-month month day-of-week), got %d", len(fields))
 	}
 	return nil
 }

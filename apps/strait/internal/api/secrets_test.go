@@ -8,8 +8,30 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
 	"strait/internal/domain"
+	"strait/internal/pubsub"
 )
+
+func newTestServerWithEncryption(t *testing.T, s APIStore, q *mockQueue) *Server {
+	t.Helper()
+	cfg := &config.Config{
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "01234567890123456789012345678901",
+		SecretEncryptionKey: "test-encryption-key-32-chars-ok",
+	}
+	var p pubsub.Publisher
+	srv := NewServer(ServerDeps{
+		Config:  cfg,
+		Store:   s,
+		Queue:   q,
+		PubSub:  p,
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+	return srv
+}
 
 func TestHandleCreateSecret_Success(t *testing.T) {
 	t.Parallel()
@@ -23,7 +45,7 @@ func TestHandleCreateSecret_Success(t *testing.T) {
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithEncryption(t, ms, &mockQueue{})
 
 	body := `{"project_id":"proj-1","job_id":"job-1","environment":"production","secret_key":"API_KEY","value":"super-secret"}`
 	w := httptest.NewRecorder()
@@ -99,5 +121,19 @@ func TestHandleDeleteSecret_Success(t *testing.T) {
 
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleCreateSecret_NoEncryptionKey_Returns503(t *testing.T) {
+	t.Parallel()
+	// Default test server has no SecretEncryptionKey set.
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-1","job_id":"job-1","secret_key":"API_KEY","value":"super-secret"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", body))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
 	}
 }

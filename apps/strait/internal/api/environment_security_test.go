@@ -331,7 +331,7 @@ func TestSecret_CreateWithSQLInjectionKey(t *testing.T) {
 					return nil
 				},
 			}
-			srv := newTestServer(t, ms, &mockQueue{}, nil)
+			srv := newTestServerWithEncryption(t, ms, &mockQueue{})
 
 			reqBody := map[string]string{
 				"project_id": "proj-1",
@@ -371,7 +371,7 @@ func TestSecret_EncryptionVerification(t *testing.T) {
 			return nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithEncryption(t, ms, &mockQueue{})
 
 	body := `{"project_id":"proj-1","secret_key":"DB_PASSWORD","value":"super-secret-123"}`
 	w := httptest.NewRecorder()
@@ -410,7 +410,7 @@ func TestSecret_DecryptionRoundTrip(t *testing.T) {
 			return []domain.JobSecret{*createdSecret}, nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithEncryption(t, ms, &mockQueue{})
 
 	body := `{"project_id":"proj-1","secret_key":"API_TOKEN","value":"token-value"}`
 	w := httptest.NewRecorder()
@@ -475,7 +475,7 @@ func TestSecret_KeyVersionTracking(t *testing.T) {
 			return nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithEncryption(t, ms, &mockQueue{})
 
 	body := `{"project_id":"proj-1","secret_key":"VERSIONED_KEY","value":"v1-value"}`
 	w := httptest.NewRecorder()

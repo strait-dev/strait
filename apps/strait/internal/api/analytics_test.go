@@ -66,3 +66,16 @@ func TestHandleGetPerformanceAnalytics_InvalidPeriod(t *testing.T) {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
+
+func TestHandleGetPerformanceAnalytics_NilStore_Returns503(t *testing.T) {
+	t.Parallel()
+	// Use a plain test server without an analytics store; neither the store
+	// nor an explicit analytics store implement AnalyticsStore.
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/analytics/performance", ""))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when analytics is nil, got %d: %s", w.Code, w.Body.String())
+	}
+}

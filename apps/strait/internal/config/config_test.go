@@ -1010,3 +1010,15 @@ func TestParseCSVEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_WfMaxStepCapDefault(t *testing.T) {
+	setRequiredEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.WfMaxStepCap != 100 {
+		t.Errorf("WfMaxStepCap = %d, want 100", cfg.WfMaxStepCap)
+	}
+}

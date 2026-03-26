@@ -31,6 +31,7 @@ import (
 	"sync/atomic"
 
 	"github.com/alitto/pond/v2"
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
@@ -158,6 +159,7 @@ type RunStore interface {
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error
 	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
+	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)
 	DeleteWebhookSubscription(ctx context.Context, id string) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
@@ -261,6 +263,7 @@ type WorkflowStore interface {
 	MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
 	CountActiveWorkflowRunsByVersion(ctx context.Context, workflowID, versionID string) (int, error)
+	CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error)
 	ListActiveWorkflowVersions(ctx context.Context, workflowID string) ([]store.ActiveVersion, error)
 }
 
@@ -499,7 +502,17 @@ func (s *Server) analytics() AnalyticsStore {
 	if as, ok := s.store.(AnalyticsStore); ok {
 		return as
 	}
-	return s.analyticsStore
+	return nil
+}
+
+// requireAnalytics returns the analytics store or an error suitable for huma
+// handlers when no analytics backend is configured.
+func (s *Server) requireAnalytics() (AnalyticsStore, error) {
+	a := s.analytics()
+	if a == nil {
+		return nil, huma.Error503ServiceUnavailable("analytics store unavailable")
+	}
+	return a, nil
 }
 
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
@@ -822,7 +835,7 @@ func defaultErrorCode(status int) string {
 
 func (s *Server) decodeJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(io.LimitReader(r.Body, s.maxRequestBodySize))
+	dec := json.NewDecoder(&nullByteStrippingReader{r: io.LimitReader(r.Body, s.maxRequestBodySize)})
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
 }
@@ -831,7 +844,7 @@ func validateURL(rawURL string) error {
 	if err := worker.ValidateEndpointURL(rawURL); err != nil {
 		msg := err.Error()
 		if strings.HasPrefix(msg, "URL") {
-			msg = "u" + msg[1:]
+			msg = "url" + msg[3:]
 		}
 		return errors.New(msg)
 	}
@@ -885,7 +898,7 @@ func validateURLWithTLS(rawURL string, requireTLS bool) error {
 	if err := worker.ValidateEndpointURLWithTLS(rawURL, requireTLS); err != nil {
 		msg := err.Error()
 		if strings.HasPrefix(msg, "URL") {
-			msg = "u" + msg[1:]
+			msg = "url" + msg[3:]
 		}
 		return errors.New(msg)
 	}

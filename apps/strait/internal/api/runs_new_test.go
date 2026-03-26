@@ -89,6 +89,9 @@ func TestHandleRescheduleRun_Success(t *testing.T) {
 func TestHandleRescheduleRun_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return nil, store.ErrRunNotFound
+		},
 		RescheduleRunFunc: func(_ context.Context, _ string, _ time.Time, _ json.RawMessage) error {
 			return store.ErrRunNotFound
 		},

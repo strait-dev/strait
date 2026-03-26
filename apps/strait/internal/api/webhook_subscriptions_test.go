@@ -73,6 +73,9 @@ func TestHandleDeleteWebhookSubscription_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
+		GetWebhookSubscriptionFunc: func(_ context.Context, _ string) (*domain.WebhookSubscription, error) {
+			return nil, store.ErrWebhookSubscriptionNotFound
+		},
 		DeleteWebhookSubscriptionFunc: func(_ context.Context, _ string) error {
 			return store.ErrWebhookSubscriptionNotFound
 		},
@@ -85,5 +88,18 @@ func TestHandleDeleteWebhookSubscription_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateWebhookSubscription_InvalidEventType(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["invalid.event"],"secret":"secret"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid event type, got %d: %s", w.Code, w.Body.String())
 	}
 }

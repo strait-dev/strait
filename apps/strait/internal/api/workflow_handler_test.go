@@ -809,7 +809,11 @@ func TestHandleDeleteWorkflow(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
-			DeleteWorkflowFunc: func(_ context.Context, _ string) error { return nil },
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
+			CountRunningWorkflowRunsFunc: func(_ context.Context, _ string) (int, error) { return 0, nil },
+			DeleteWorkflowFunc:           func(_ context.Context, _ string) error { return nil },
 		}
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
@@ -823,7 +827,11 @@ func TestHandleDeleteWorkflow(t *testing.T) {
 	t.Run("error", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
-			DeleteWorkflowFunc: func(_ context.Context, _ string) error { return errors.New("delete failed") },
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
+			CountRunningWorkflowRunsFunc: func(_ context.Context, _ string) (int, error) { return 0, nil },
+			DeleteWorkflowFunc:           func(_ context.Context, _ string) error { return errors.New("delete failed") },
 		}
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
@@ -831,6 +839,23 @@ func TestHandleDeleteWorkflow(t *testing.T) {
 
 		if w.Code != http.StatusInternalServerError {
 			t.Fatalf("expected 500, got %d", w.Code)
+		}
+	})
+
+	t.Run("active_runs_returns_409", func(t *testing.T) {
+		t.Parallel()
+		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
+			CountRunningWorkflowRunsFunc: func(_ context.Context, _ string) (int, error) { return 3, nil },
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/workflows/wf-1", ""))
+
+		if w.Code != http.StatusConflict {
+			t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }

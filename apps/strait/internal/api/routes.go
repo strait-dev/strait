@@ -124,7 +124,10 @@ func (s *Server) routes() chi.Router {
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
 	if s.metricsHandler != nil {
-		r.Handle("/metrics", s.metricsHandler)
+		r.Group(func(r chi.Router) {
+			r.Use(s.internalSecretAuth)
+			r.Handle("/metrics", s.metricsHandler)
+		})
 	}
 
 	if s.config.DebugStatsviz {
@@ -563,9 +566,9 @@ func (s *Server) routes() chi.Router {
 	})
 
 	r.Route("/sdk/v1", func(r chi.Router) {
-		r.Use(s.runTokenAuth)
-		r.Use(s.sdkResponseHeaders)
 		r.Route("/runs/{runID}", func(r chi.Router) {
+			r.Use(s.runTokenAuth) // must be inside {runID} group so chi.URLParam("runID") is populated
+			r.Use(s.sdkResponseHeaders)
 			r.Get("/payload", TypedHandler(s, http.StatusOK, s.handleSDKGetPayload))
 			r.Post("/log", TypedHandler(s, http.StatusCreated, s.handleSDKLog))
 			r.Post("/progress", TypedHandler(s, http.StatusCreated, s.handleSDKProgress))

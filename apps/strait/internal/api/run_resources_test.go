@@ -82,12 +82,20 @@ func TestHandleListRunResources_EmptySnapshots(t *testing.T) {
 
 func TestHandleListRunResources_MissingProjectID(t *testing.T) {
 	t.Parallel()
-	ms := &APIStoreMock{}
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
+		ListRunResourceSnapshotsFunc: func(_ context.Context, _ string, _ *time.Time, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+			return nil, nil
+		},
+	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", ""))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	// Without a project ID in context, requireProjectMatch allows through (internal caller).
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

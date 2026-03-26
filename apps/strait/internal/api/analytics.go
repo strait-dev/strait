@@ -36,7 +36,11 @@ func (s *Server) handleGetPerformanceAnalytics(ctx context.Context, input *Perfo
 
 	span.SetAttributes(attribute.Int("period_hours", periodHours))
 
-	analytics, err := s.analytics().GetPerformanceAnalytics(ctx, projectID, periodHours)
+	as, asErr := s.requireAnalytics()
+	if asErr != nil {
+		return nil, asErr
+	}
+	analytics, err := as.GetPerformanceAnalytics(ctx, projectID, periodHours)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get analytics")
 	}

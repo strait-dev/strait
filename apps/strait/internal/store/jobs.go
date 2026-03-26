@@ -313,6 +313,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    blocked_tools = $54,
 		    updated_at = NOW()
 		WHERE id = $25
+		  AND version = $55
 		RETURNING updated_at, version, version_id`
 
 	tagsJSON, err := marshalTags(job.Tags)
@@ -382,13 +383,21 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfZeroInt(job.MaxIterationsPerRun),
 		job.AllowedTools,
 		job.BlockedTools,
+		job.Version,
 	).Scan(&job.UpdatedAt, &job.Version, &job.VersionID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrJobVersionConflict
+		}
 		return fmt.Errorf("update job: %w", err)
 	}
 
 	return nil
 }
+
+// ErrJobVersionConflict is returned when an UpdateJob call fails because the
+// job was modified concurrently (optimistic locking via version column).
+var ErrJobVersionConflict = errors.New("job version conflict")
 
 // ErrJobHasActiveRuns is returned when attempting to delete a job that has
 // queued, dequeued, or executing runs.

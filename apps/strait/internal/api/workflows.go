@@ -203,6 +203,10 @@ func (s *Server) handleGetWorkflow(ctx context.Context, input *GetWorkflowInput)
 		return nil, huma.Error500InternalServerError("failed to get workflow")
 	}
 
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
 	steps, err := s.store.ListStepsByWorkflow(ctx, wf.ID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list workflow steps")
@@ -275,6 +279,10 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 			return nil, huma.Error404NotFound("workflow not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
 	}
 
 	// Capture the pre-update version for breaking change detection later.
@@ -425,6 +433,26 @@ type DeleteWorkflowInput struct {
 }
 
 func (s *Server) handleDeleteWorkflow(ctx context.Context, input *DeleteWorkflowInput) (*struct{}, error) {
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			return nil, huma.Error404NotFound("workflow not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
+	activeCount, countErr := s.store.CountRunningWorkflowRuns(ctx, input.WorkflowID)
+	if countErr != nil {
+		return nil, huma.Error500InternalServerError("failed to check active workflow runs")
+	}
+	if activeCount > 0 {
+		return nil, huma.Error409Conflict(fmt.Sprintf("workflow has %d active run(s) -- cancel them before deleting", activeCount))
+	}
+
 	if err := s.store.DeleteWorkflow(ctx, input.WorkflowID); err != nil {
 		return nil, huma.Error500InternalServerError("failed to delete workflow")
 	}
@@ -456,6 +484,11 @@ func (s *Server) handleTriggerWorkflow(ctx context.Context, input *TriggerWorkfl
 	if wf == nil {
 		return nil, huma.Error404NotFound("workflow not found")
 	}
+
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
 	if !wf.Enabled {
 		return nil, huma.Error409Conflict("workflow is disabled")
 	}
@@ -1045,6 +1078,10 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 			return nil, huma.Error404NotFound("workflow not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+
+	if err := requireProjectMatch(ctx, sourceWf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
 	}
 
 	req := input.Body

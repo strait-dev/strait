@@ -146,7 +146,7 @@ func TestSecrets_WebhookSecretNotInResponse(t *testing.T) {
 
 	srv := newTestServer(t, mockStore, &mockQueue{}, nil)
 
-	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["job.completed"],"secret":"` + secretValue + `"}`
+	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"` + secretValue + `"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
 

@@ -2542,6 +2542,48 @@ func TestIdempotency_WorkflowTriggerIgnoresIdempotencyHeader(t *testing.T) {
 	}
 }
 
+func TestIdempotency_TerminalRunWithin24Hours_ReturnsExistingRun(t *testing.T) {
+	t.Parallel()
+	enqueued := false
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		GetRunByIdempotencyKeyFunc: func(_ context.Context, _, key string) (*domain.JobRun, error) {
+			if key != "terminal-key" {
+				t.Fatalf("unexpected key: %s", key)
+			}
+			return &domain.JobRun{ID: "run-terminal", Status: domain.StatusCompleted}, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", "terminal-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected enqueue to be skipped for terminal idempotency hit")
+	}
+
+	var resp map[string]any
+	mustUnmarshal(t, w.Body.Bytes(), &resp)
+	if resp["id"] != "run-terminal" {
+		t.Fatalf("expected run-terminal, got %v", resp["id"])
+	}
+	if resp["idempotency_hit"] != true {
+		t.Fatal("expected idempotency_hit to be true")
+	}
+}
+
 // Helper.
 
 func mustUnmarshal(t testing.TB, data []byte, v any) {
