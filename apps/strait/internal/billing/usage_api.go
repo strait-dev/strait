@@ -129,15 +129,7 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		return nil, fmt.Errorf("getting org subscription: %w", err)
 	}
 
-	// Build period info
-	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	periodEnd := periodStart.AddDate(0, 1, -1)
-	if sub != nil && sub.CurrentPeriodStart != nil {
-		periodStart = *sub.CurrentPeriodStart
-	}
-	if sub != nil && sub.CurrentPeriodEnd != nil {
-		periodEnd = *sub.CurrentPeriodEnd
-	}
+	periodStart, periodEnd := usagePeriodWindow(now, limits.PlanTier, sub)
 
 	periodSpend, err := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {
@@ -203,7 +195,7 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	// Compute overage breakdown.
 	resp.IncludedCreditMicro = computeLimit
 	resp.PeriodSpendMicro = periodSpend
-	resp.OverageMicro = max(periodSpend-computeLimit, 0)
+	resp.OverageMicro = computeOverageSpend(periodSpend, computeLimit)
 
 	// Add alerts for dimensions approaching limits
 	resp.Alerts = s.buildAlerts(resp.Usage)
@@ -350,11 +342,12 @@ func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*Spe
 		}
 
 		limits := GetPlanLimits(domain.PlanFree)
-		periodStart := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
+		periodStart, _ := usagePeriodWindow(time.Now().UTC(), domain.PlanFree, nil)
 		periodSpend, spendErr := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 		if spendErr != nil {
 			return nil, fmt.Errorf("summing free-tier spend: %w", spendErr)
 		}
+		overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
 
 		return &SpendingLimitResponse{
 			OrgID:             orgID,
@@ -363,22 +356,28 @@ func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*Spe
 			LimitAction:       "reject",
 			CurrentSpendUsd:   float64(periodSpend) / 1000000,
 			IncludedCreditUsd: float64(limits.ComputeCreditMicrousd) / 1000000,
-			OverageSpendUsd:   float64(periodSpend) / 1000000,
+			OverageSpendUsd:   float64(overageSpend) / 1000000,
 			IsHardCapped:      true,
 		}, nil
 	}
 
 	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
-	includedCredit := limits.ComputeCreditMicrousd
+	periodStart, _ := usagePeriodWindow(time.Now().UTC(), limits.PlanTier, sub)
+	periodSpend, _ := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
+	overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
 
-	periodStart := sub.CurrentPeriodStart
-	if periodStart == nil {
-		now := time.Now()
-		periodStart = &now
+	if limits.PlanTier == domain.PlanFree {
+		return &SpendingLimitResponse{
+			OrgID:             orgID,
+			PlanTier:          string(domain.PlanFree),
+			SpendingLimitUsd:  0,
+			LimitAction:       "reject",
+			CurrentSpendUsd:   float64(periodSpend) / 1000000,
+			IncludedCreditUsd: float64(limits.ComputeCreditMicrousd) / 1000000,
+			OverageSpendUsd:   float64(overageSpend) / 1000000,
+			IsHardCapped:      true,
+		}, nil
 	}
-
-	periodSpend, _ := s.store.SumOrgPeriodSpend(ctx, orgID, *periodStart)
-	overageSpend := max(periodSpend-includedCredit, 0)
 
 	return &SpendingLimitResponse{
 		OrgID:             orgID,
@@ -386,7 +385,7 @@ func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*Spe
 		SpendingLimitUsd:  float64(sub.SpendingLimitMicrousd) / 1000000,
 		LimitAction:       sub.LimitAction,
 		CurrentSpendUsd:   float64(periodSpend) / 1000000,
-		IncludedCreditUsd: float64(includedCredit) / 1000000,
+		IncludedCreditUsd: float64(limits.ComputeCreditMicrousd) / 1000000,
 		OverageSpendUsd:   float64(overageSpend) / 1000000,
 		IsHardCapped:      sub.SpendingLimitMicrousd == 0,
 	}, nil

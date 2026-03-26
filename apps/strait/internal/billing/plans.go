@@ -49,6 +49,7 @@ const (
 	PriceProAnnualCents      = 49999 // $499.99
 
 	// Compute credits in micro-USD, matching subscription price.
+	CreditFreeMicrousd    int64 = 1_000_000  // $1.00
 	CreditStarterMicrousd int64 = 19_990_000 // $19.99
 	CreditProMicrousd     int64 = 49_990_000 // $49.99
 
@@ -83,8 +84,7 @@ const (
 	MaxMembersPro      = 25
 
 	// Free tier managed execution limits.
-	FreeManagedRunsPerMonth = 100
-	FreeManagedMaxTimeout   = 10 // seconds
+	FreeManagedMaxTimeout = 10 // seconds
 
 	// Spending limit caps per tier in micro-USD.
 	MaxSpendingStarter int64 = 500_000_000   // $500
@@ -106,8 +106,8 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxMembersPerOrg:        MaxMembersFree,
 		MaxRunsPerDay:           DailyRunsFree,
 		MaxConcurrentRuns:       ConcurrentFree,
-		ComputeCreditMicrousd:   0,
-		FreeManagedRunsPerMonth: FreeManagedRunsPerMonth,
+		ComputeCreditMicrousd:   CreditFreeMicrousd,
+		FreeManagedRunsPerMonth: 0,
 		FreeManagedPreset:       "micro",
 		FreeManagedMaxTimeout:   FreeManagedMaxTimeout,
 		RetentionDays:           RetentionFree,
@@ -245,13 +245,19 @@ func IsDowngrade(oldTier, newTier domain.PlanTier) bool {
 	lessInt := func(oldVal, newVal int) bool {
 		return less(int64(oldVal), int64(newVal))
 	}
+	lessCredit := func(oldTier, newTier domain.PlanTier, oldVal, newVal int64) bool {
+		if oldTier == domain.PlanEnterprise || newTier == domain.PlanEnterprise {
+			return false
+		}
+		return less(oldVal, newVal)
+	}
 
 	return less(oldLimits.MaxRunsPerDay, newLimits.MaxRunsPerDay) ||
 		lessInt(oldLimits.MaxConcurrentRuns, newLimits.MaxConcurrentRuns) ||
 		lessInt(oldLimits.MaxProjectsPerOrg, newLimits.MaxProjectsPerOrg) ||
 		lessInt(oldLimits.MaxMembersPerOrg, newLimits.MaxMembersPerOrg) ||
 		lessInt(oldLimits.MaxOrgsPerUser, newLimits.MaxOrgsPerUser) ||
-		less(oldLimits.ComputeCreditMicrousd, newLimits.ComputeCreditMicrousd) ||
+		lessCredit(oldTier, newTier, oldLimits.ComputeCreditMicrousd, newLimits.ComputeCreditMicrousd) ||
 		lessInt(oldLimits.RetentionDays, newLimits.RetentionDays) ||
 		lessInt(oldLimits.MaxAlertRulesPerProj, newLimits.MaxAlertRulesPerProj) ||
 		lessInt(oldLimits.MaxWebhookSubsPerProj, newLimits.MaxWebhookSubsPerProj) ||

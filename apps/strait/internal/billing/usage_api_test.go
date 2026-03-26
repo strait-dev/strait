@@ -245,8 +245,40 @@ func TestUsageService_GetSpendingLimit_FreeTierWithoutSubscription(t *testing.T)
 		t.Fatal("expected free tier response to be hard capped")
 	}
 	assertFloatApprox(t, resp.CurrentSpendUsd, 2.5)
-	assertFloatApprox(t, resp.OverageSpendUsd, 2.5)
-	assertFloatApprox(t, resp.IncludedCreditUsd, 0)
+	assertFloatApprox(t, resp.OverageSpendUsd, 1.5)
+	assertFloatApprox(t, resp.IncludedCreditUsd, 1)
+}
+
+func TestUsageService_GetSpendingLimit_FreeTierWithSubscription(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_free": {OrgID: "org_free", PlanTier: "free", Status: "active", SpendingLimitMicrousd: -1},
+		},
+		periodSpendByOrg: map[string]int64{
+			"org_free": 1_250_000,
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	resp, err := svc.GetSpendingLimit(context.Background(), "org_free")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resp.PlanTier != "free" {
+		t.Fatalf("plan tier = %q, want free", resp.PlanTier)
+	}
+	if resp.LimitAction != "reject" {
+		t.Fatalf("limit action = %q, want reject", resp.LimitAction)
+	}
+	if !resp.IsHardCapped {
+		t.Fatal("expected free tier response to be hard capped")
+	}
+	assertFloatApprox(t, resp.CurrentSpendUsd, 1.25)
+	assertFloatApprox(t, resp.OverageSpendUsd, 0.25)
+	assertFloatApprox(t, resp.IncludedCreditUsd, 1)
 }
 
 func TestUsageService_SetSpendingLimit_FreeTierWithoutSubscription(t *testing.T) {
@@ -464,6 +496,69 @@ func TestUsageService_NoOverageAlertForFreePlan(t *testing.T) {
 	for _, alert := range resp.Alerts {
 		if alert.Dimension == "overage" {
 			t.Error("free plan should not have overage alert")
+		}
+	}
+}
+
+func TestUsageService_GetCurrentUsage_FreeTierAtIncludedCredit(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		periodSpendByOrg: map[string]int64{
+			"org_free": CreditFreeMicrousd,
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	resp, err := svc.GetCurrentUsage(context.Background(), "org_free")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resp.Plan != "free" {
+		t.Fatalf("plan = %q, want free", resp.Plan)
+	}
+	if resp.IncludedCreditMicro != CreditFreeMicrousd {
+		t.Fatalf("included credit = %d, want %d", resp.IncludedCreditMicro, CreditFreeMicrousd)
+	}
+	if resp.PeriodSpendMicro != CreditFreeMicrousd {
+		t.Fatalf("period spend = %d, want %d", resp.PeriodSpendMicro, CreditFreeMicrousd)
+	}
+	if resp.OverageMicro != 0 {
+		t.Fatalf("overage = %d, want 0", resp.OverageMicro)
+	}
+	assertFloatApprox(t, resp.Usage.ComputeCredit.Percent, 100)
+
+	for _, alert := range resp.Alerts {
+		if alert.Dimension == "overage" {
+			t.Fatal("free plan at included credit should not have overage alert")
+		}
+	}
+}
+
+func TestUsageService_GetCurrentUsage_FreeTierOverIncludedCredit(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		periodSpendByOrg: map[string]int64{
+			"org_free": CreditFreeMicrousd + 250_000,
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	resp, err := svc.GetCurrentUsage(context.Background(), "org_free")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resp.OverageMicro != 250_000 {
+		t.Fatalf("overage = %d, want 250000", resp.OverageMicro)
+	}
+	assertFloatApprox(t, resp.Usage.ComputeCredit.Percent, 125)
+
+	for _, alert := range resp.Alerts {
+		if alert.Dimension == "overage" {
+			t.Fatal("free plan should not emit paid-plan overage alert")
 		}
 	}
 }
