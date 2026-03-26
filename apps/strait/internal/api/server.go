@@ -823,7 +823,7 @@ func defaultErrorCode(status int) string {
 
 func (s *Server) decodeJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(io.LimitReader(r.Body, s.maxRequestBodySize))
+	dec := json.NewDecoder(&nullByteStrippingReader{r: io.LimitReader(r.Body, s.maxRequestBodySize)})
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
 }

@@ -168,6 +168,22 @@ func hasBodyField(input any) bool {
 	return v.Kind() == reflect.Struct && v.FieldByName("Body").IsValid()
 }
 
+// nullByteStrippingReader wraps an io.Reader and replaces null bytes (\x00)
+// with spaces to prevent Postgres "invalid byte sequence" errors.
+type nullByteStrippingReader struct {
+	r io.Reader
+}
+
+func (n *nullByteStrippingReader) Read(p []byte) (int, error) {
+	nr, err := n.r.Read(p)
+	for i := range nr {
+		if p[i] == 0 {
+			p[i] = ' '
+		}
+	}
+	return nr, err
+}
+
 func decodeBody(s *Server, r *http.Request, input any) error {
 	v := reflect.ValueOf(input)
 	if v.Kind() == reflect.Ptr {
@@ -178,7 +194,7 @@ func decodeBody(s *Server, r *http.Request, input any) error {
 		return nil
 	}
 	defer r.Body.Close()
-	dec := json.NewDecoder(io.LimitReader(r.Body, s.maxRequestBodySize))
+	dec := json.NewDecoder(&nullByteStrippingReader{r: io.LimitReader(r.Body, s.maxRequestBodySize)})
 	err := dec.Decode(bodyField.Addr().Interface())
 	if errors.Is(err, io.EOF) {
 		return nil // empty body is OK -- fields stay at zero values

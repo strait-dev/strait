@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -2545,6 +2546,50 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 
 	if w.Code == http.StatusServiceUnavailable {
 		t.Fatal("expected request to pass through when pool is healthy")
+	}
+}
+
+func TestNullByteStrippingReader(t *testing.T) {
+	t.Parallel()
+	input := []byte("hello\x00world")
+	reader := &nullByteStrippingReader{r: strings.NewReader(string(input))}
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "hello world"
+	if string(out) != expected {
+		t.Fatalf("expected %q, got %q", expected, string(out))
+	}
+}
+
+func TestHandleTriggerJob_NullByteInPayload_DoesNotCrash(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		GetRunByIdempotencyKeyFunc: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+			return nil, nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+
+	srv := newTestServer(t, ms, mq, nil)
+	// JSON with null byte inside a string value
+	body := "{\"payload\":{\"key\":\"val\x00ue\"}}"
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body))
+
+	// Should not return 500 -- 201 or 200 means null byte was stripped
+	if w.Code == http.StatusInternalServerError {
+		t.Fatalf("expected non-500 response, got 500: %s", w.Body.String())
 	}
 }
 
