@@ -67,28 +67,28 @@ var phase2Scenarios = []scenario{
 // --------------------------------------------------------------------------.
 
 func scenarioManagedFast10s(ctx *testCtx, iter int) error {
-	return runManagedJob(ctx, iter, "managed-fast-10s", "strait-loadtest-python", map[string]string{
+	return runManagedJob(ctx, iter, "managed-fast-10s", "registry.fly.io/strait:loadtest-python", map[string]string{
 		"SCRIPT_NAME":   "fast_processor.py",
 		"WORK_DURATION": "10",
 	}, 60, "managed_fast_10s")
 }
 
 func scenarioManagedSlow30s(ctx *testCtx, iter int) error {
-	return runManagedJob(ctx, iter, "managed-slow-30s", "strait-loadtest-python", map[string]string{
+	return runManagedJob(ctx, iter, "managed-slow-30s", "registry.fly.io/strait:loadtest-python", map[string]string{
 		"SCRIPT_NAME":   "slow_cpu_work.py",
 		"WORK_DURATION": "30",
 	}, 120, "managed_slow_30s")
 }
 
 func scenarioManagedSlow60s(ctx *testCtx, iter int) error {
-	return runManagedJob(ctx, iter, "managed-slow-60s", "strait-loadtest-python", map[string]string{
+	return runManagedJob(ctx, iter, "managed-slow-60s", "registry.fly.io/strait:loadtest-python", map[string]string{
 		"SCRIPT_NAME":   "slow_cpu_work.py",
 		"WORK_DURATION": "60",
 	}, 180, "managed_slow_60s")
 }
 
 func scenarioManagedErrorExit1(ctx *testCtx, iter int) error {
-	jobID, err := createManagedJob(ctx, iter, "managed-err1", "strait-loadtest-errors", 1, 60)
+	jobID, err := createManagedJob(ctx, iter, "managed-err1", "registry.fly.io/strait:loadtest-errors", 1, 60)
 	if err != nil {
 		return err
 	}
@@ -112,7 +112,7 @@ func scenarioManagedErrorExit1(ctx *testCtx, iter int) error {
 
 func scenarioManagedErrorTimeout(ctx *testCtx, iter int) error {
 	// Create a job with very short timeout (15s) and run infinite_loop.
-	jobID, err := createManagedJob(ctx, iter, "managed-timeout", "strait-loadtest-errors", 1, 15)
+	jobID, err := createManagedJob(ctx, iter, "managed-timeout", "registry.fly.io/strait:loadtest-errors", 1, 15)
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func scenarioManagedErrorTimeout(ctx *testCtx, iter int) error {
 
 func scenarioManagedCheckpointRecovery(ctx *testCtx, iter int) error {
 	// Use the error scenario that checkpoints then crashes.
-	jobID, err := createManagedJob(ctx, iter, "managed-cp", "strait-loadtest-errors", 3, 60)
+	jobID, err := createManagedJob(ctx, iter, "managed-cp", "registry.fly.io/strait:loadtest-errors", 3, 60)
 	if err != nil {
 		return err
 	}
@@ -597,7 +597,7 @@ func scenarioCircuitBreakerFlaky(ctx *testCtx, iter int) error {
 
 func scenarioConcurrentManagedJobs(ctx *testCtx, iter int) error {
 	// Create a single managed job and trigger it multiple times concurrently.
-	jobID, err := createManagedJob(ctx, iter, "conc-managed", "strait-loadtest-errors", 1, 30)
+	jobID, err := createManagedJob(ctx, iter, "conc-managed", "registry.fly.io/strait:loadtest-errors", 1, 30)
 	if err != nil {
 		return err
 	}
@@ -640,7 +640,7 @@ func scenarioMixedExecutionModes(ctx *testCtx, iter int) error {
 	}
 	defer deleteJob(ctx, httpJobID)
 
-	managedJobID, err := createManagedJob(ctx, iter, "mix-managed", "strait-loadtest-errors", 1, 30)
+	managedJobID, err := createManagedJob(ctx, iter, "mix-managed", "registry.fly.io/strait:loadtest-errors", 1, 30)
 	if err != nil {
 		return err
 	}

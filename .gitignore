@@ -312,3 +312,8 @@ __pycache__/
 apps/cli/out/
 .env*.local
 .env.selfhost
+
+# Stress test artifacts
+e2e_stress_report_*
+apps/strait/e2e_stress
+apps/strait/echoserver
