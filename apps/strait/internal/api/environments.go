@@ -82,6 +82,10 @@ func (s *Server) handleGetEnvironment(ctx context.Context, input *GetEnvironment
 		return nil, huma.Error500InternalServerError("failed to get environment")
 	}
 
+	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
+
 	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
@@ -143,6 +147,10 @@ func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvir
 			return nil, huma.Error404NotFound("environment not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get environment")
+	}
+
+	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
 	}
 
 	req := input.Body

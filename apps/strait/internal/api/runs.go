@@ -35,6 +35,10 @@ func (s *Server) handleGetRun(ctx context.Context, input *GetRunInput) (*GetRunO
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("run not found")
+	}
+
 	return &GetRunOutput{Body: run}, nil
 }
 
@@ -190,6 +194,10 @@ func (s *Server) handleCancelRun(ctx context.Context, input *CancelRunInput) (*C
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("run not found")
+	}
+
 	if run.Status.IsTerminal() {
 		return nil, huma.Error400BadRequest("run already in terminal state")
 	}
@@ -308,6 +316,10 @@ func (s *Server) handleGetRunDependencyStatus(ctx context.Context, input *GetRun
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("run not found")
+	}
+
 	deps, err := s.store.ListJobDependencies(ctx, run.JobID, 1000, nil)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list job dependencies")
@@ -345,6 +357,10 @@ func (s *Server) handleReplayRun(ctx context.Context, input *ReplayRunInput) (*R
 			return nil, huma.Error404NotFound("run not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get run")
+	}
+
+	if err := requireProjectMatch(ctx, originalRun.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("run not found")
 	}
 
 	if !isReplayableRunStatus(originalRun.Status) {
@@ -725,6 +741,18 @@ func (s *Server) handleRescheduleRun(ctx context.Context, input *RescheduleRunIn
 		return nil, newValidationError(err)
 	}
 
+	run, err := s.store.GetRun(ctx, input.RunID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			return nil, huma.Error404NotFound("run not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get run")
+	}
+
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("run not found")
+	}
+
 	if err := s.store.RescheduleRun(ctx, input.RunID, req.ScheduledAt, req.Payload); err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
 			return nil, huma.Error404NotFound("run not found or not eligible for rescheduling")
@@ -774,6 +802,10 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 	for _, runID := range req.RunIDs {
 		original, err := s.store.GetRun(ctx, runID)
 		if err != nil {
+			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "run not found"})
+			continue
+		}
+		if err := requireProjectMatch(ctx, original.ProjectID); err != nil {
 			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "run not found"})
 			continue
 		}
@@ -841,6 +873,10 @@ func (s *Server) handlePauseRun(ctx context.Context, input *PauseRunInput) (*Pau
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("run not found")
+	}
+
 	if run.ExecutionMode != domain.ExecutionModeManaged {
 		return nil, huma.Error400BadRequest("only managed runs can be paused")
 	}
@@ -893,6 +929,10 @@ func (s *Server) handleResumeRun(ctx context.Context, input *ResumeRunInput) (*R
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("run not found")
+	}
+
 	if run.Status != domain.StatusPaused {
 		return nil, huma.Error400BadRequest("run is not paused")
 	}
@@ -934,6 +974,10 @@ func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (
 			return nil, huma.Error404NotFound("run not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get run")
+	}
+
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("run not found")
 	}
 
 	if run.ExecutionMode != domain.ExecutionModeManaged {

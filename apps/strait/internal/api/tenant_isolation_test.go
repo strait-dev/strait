@@ -112,6 +112,48 @@ func newIsolationStore() *APIStoreMock {
 			}
 			return nil, nil
 		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			if id == "job-a" {
+				return &domain.Job{ID: "job-a", ProjectID: projectA, Name: "Job A", Slug: "job-a", Enabled: true, CreatedAt: now, UpdatedAt: now}, nil
+			}
+			if id == "job-b" {
+				return &domain.Job{ID: "job-b", ProjectID: projectB, Name: "Job B", Slug: "job-b", Enabled: true, CreatedAt: now, UpdatedAt: now}, nil
+			}
+			return nil, nil
+		},
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			if id == "wf-a" {
+				return &domain.Workflow{ID: "wf-a", ProjectID: projectA, Name: "Workflow A", Slug: "wf-a", CreatedAt: now, UpdatedAt: now}, nil
+			}
+			if id == "wf-b" {
+				return &domain.Workflow{ID: "wf-b", ProjectID: projectB, Name: "Workflow B", Slug: "wf-b", CreatedAt: now, UpdatedAt: now}, nil
+			}
+			return nil, nil
+		},
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			if id == "env-a" {
+				return &domain.Environment{ID: "env-a", ProjectID: projectA, Name: "production", Slug: "production", CreatedAt: now, UpdatedAt: now}, nil
+			}
+			if id == "env-b" {
+				return &domain.Environment{ID: "env-b", ProjectID: projectB, Name: "staging", Slug: "staging", CreatedAt: now, UpdatedAt: now}, nil
+			}
+			return nil, nil
+		},
+		GetWebhookSubscriptionFunc: func(_ context.Context, id string) (*domain.WebhookSubscription, error) {
+			if id == "wh-a" {
+				return &domain.WebhookSubscription{ID: "wh-a", ProjectID: projectA, WebhookURL: "https://a.example.com", Active: true, CreatedAt: now}, nil
+			}
+			if id == "wh-b" {
+				return &domain.WebhookSubscription{ID: "wh-b", ProjectID: projectB, WebhookURL: "https://b.example.com", Active: true, CreatedAt: now}, nil
+			}
+			return nil, nil
+		},
+		DeleteJobFunc: func(_ context.Context, _ string) error {
+			return nil
+		},
+		DeleteWebhookSubscriptionFunc: func(_ context.Context, _ string) error {
+			return nil
+		},
 	}
 }
 
@@ -385,29 +427,17 @@ func TestTenantIsolation_OrgScopedKeyProjectAccess(t *testing.T) {
 }
 
 // TestTenantIsolation_RunIDGuessing verifies that accessing a run by ID from
-// the wrong project returns the run but the handler should filter by project.
-// Since GetRun returns the run regardless, this test verifies the handler
-// checks project ownership.
+// the wrong project returns 404 (not the cross-project resource).
 func TestTenantIsolation_RunIDGuessing(t *testing.T) {
 	t.Parallel()
 	ms := newIsolationStore()
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	// Try to get run-a (project A run) with project B context.
+	// Try to get run-a (project A run) with project B context -- must return 404.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/runs/run-a", "", projectB))
-
-	// The handler should return 404 or the run with a project mismatch check.
-	// If the handler does NOT check project ownership, this test documents that gap.
-	if w.Code == http.StatusOK {
-		var run domain.JobRun
-		if err := json.Unmarshal(w.Body.Bytes(), &run); err == nil {
-			if run.ProjectID == projectA {
-				// This means project B can access project A run -- a security gap
-				// that should be documented/fixed.
-				t.Log("WARNING: run-a (project A) accessible from project B context -- cross-project access detected")
-			}
-		}
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-project run access: expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// Accessing own run should work.
@@ -415,6 +445,94 @@ func TestTenantIsolation_RunIDGuessing(t *testing.T) {
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/runs/run-b", "", projectB))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 for own project run, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestTenantIsolation_CrossProjectJobAccess verifies that fetching a job by ID
+// from another project returns 404.
+func TestTenantIsolation_CrossProjectJobAccess(t *testing.T) {
+	t.Parallel()
+	ms := newIsolationStore()
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	// Project B tries to get project A's job by ID -- must be 404.
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/jobs/job-a", "", projectB))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-project job GET: expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Own job should return 200.
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/jobs/job-b", "", projectB))
+	if w.Code != http.StatusOK {
+		t.Fatalf("own project job GET: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestTenantIsolation_CrossProjectWorkflowAccess verifies that fetching a
+// workflow by ID from another project returns 404.
+func TestTenantIsolation_CrossProjectWorkflowAccess(t *testing.T) {
+	t.Parallel()
+	ms := newIsolationStore()
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	// Project B tries to get project A's workflow by ID -- must be 404.
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/workflows/wf-a", "", projectB))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-project workflow GET: expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Own workflow should return 200.
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/workflows/wf-b", "", projectB))
+	if w.Code != http.StatusOK {
+		t.Fatalf("own project workflow GET: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestTenantIsolation_CrossProjectEnvironmentAccess verifies that fetching an
+// environment by ID from another project returns 404.
+func TestTenantIsolation_CrossProjectEnvironmentAccess(t *testing.T) {
+	t.Parallel()
+	ms := newIsolationStore()
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	// Project B tries to get project A's environment by ID -- must be 404.
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/environments/env-a", "", projectB))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-project environment GET: expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Own environment should return 200.
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/environments/env-b", "", projectB))
+	if w.Code != http.StatusOK {
+		t.Fatalf("own project environment GET: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestTenantIsolation_CrossProjectDeleteBlocked verifies that deleting a
+// resource from another project returns 404.
+func TestTenantIsolation_CrossProjectDeleteBlocked(t *testing.T) {
+	t.Parallel()
+	ms := newIsolationStore()
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	// Project B tries to delete project A's job -- must be 404.
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, requestForProject(http.MethodDelete, "/v1/jobs/job-a", "", projectB))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-project job DELETE: expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Project B tries to delete project A's webhook subscription -- must be 404.
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, requestForProject(http.MethodDelete, "/v1/webhooks/subscriptions/wh-a", "", projectB))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-project webhook DELETE: expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

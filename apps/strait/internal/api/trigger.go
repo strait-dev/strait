@@ -68,6 +68,10 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+
 	if !job.Enabled {
 		return nil, huma.Error400BadRequest("job is disabled")
 	}

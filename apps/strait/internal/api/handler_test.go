@@ -1082,6 +1082,9 @@ func TestHandleDeleteJob_Success(t *testing.T) {
 	t.Parallel()
 	var deletedID string
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		DeleteJobFunc: func(_ context.Context, id string) error {
 			deletedID = id
 			return nil
@@ -1103,6 +1106,9 @@ func TestHandleDeleteJob_Success(t *testing.T) {
 func TestHandleDeleteJob_ActiveRuns(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		DeleteJobFunc: func(_ context.Context, _ string) error {
 			return store.ErrJobHasActiveRuns
 		},

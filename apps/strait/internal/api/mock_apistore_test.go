@@ -388,6 +388,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetWebhookDeliveryFunc: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
 //				panic("mock out the GetWebhookDelivery method")
 //			},
+//			GetWebhookSubscriptionFunc: func(ctx context.Context, id string) (*domain.WebhookSubscription, error) {
+//				panic("mock out the GetWebhookSubscription method")
+//			},
 //			GetWorkflowFunc: func(ctx context.Context, id string) (*domain.Workflow, error) {
 //				panic("mock out the GetWorkflow method")
 //			},
@@ -729,6 +732,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			UpsertWorkflowPolicyFunc: func(ctx context.Context, p *domain.WorkflowPolicy) error {
 //				panic("mock out the UpsertWorkflowPolicy method")
+//			},
+//			UserHasProjectAccessFunc: func(ctx context.Context, userID string, projectID string) (bool, error) {
+//				panic("mock out the UserHasProjectAccess method")
 //			},
 //		}
 //
@@ -1100,11 +1106,11 @@ type APIStoreMock struct {
 	// GetUserPermissionsFunc mocks the GetUserPermissions method.
 	GetUserPermissionsFunc func(ctx context.Context, projectID string, userID string) ([]string, error)
 
-	// UserHasProjectAccessFunc mocks the UserHasProjectAccess method.
-	UserHasProjectAccessFunc func(ctx context.Context, userID string, projectID string) (bool, error)
-
 	// GetWebhookDeliveryFunc mocks the GetWebhookDelivery method.
 	GetWebhookDeliveryFunc func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+
+	// GetWebhookSubscriptionFunc mocks the GetWebhookSubscription method.
+	GetWebhookSubscriptionFunc func(ctx context.Context, id string) (*domain.WebhookSubscription, error)
 
 	// GetWorkflowFunc mocks the GetWorkflow method.
 	GetWorkflowFunc func(ctx context.Context, id string) (*domain.Workflow, error)
@@ -1447,6 +1453,9 @@ type APIStoreMock struct {
 
 	// UpsertWorkflowPolicyFunc mocks the UpsertWorkflowPolicy method.
 	UpsertWorkflowPolicyFunc func(ctx context.Context, p *domain.WorkflowPolicy) error
+
+	// UserHasProjectAccessFunc mocks the UserHasProjectAccess method.
+	UserHasProjectAccessFunc func(ctx context.Context, userID string, projectID string) (bool, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -2449,17 +2458,15 @@ type APIStoreMock struct {
 			// UserID is the userID argument value.
 			UserID string
 		}
-		// UserHasProjectAccess holds details about calls to the UserHasProjectAccess method.
-		UserHasProjectAccess []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// UserID is the userID argument value.
-			UserID string
-			// ProjectID is the projectID argument value.
-			ProjectID string
-		}
 		// GetWebhookDelivery holds details about calls to the GetWebhookDelivery method.
 		GetWebhookDelivery []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
+		// GetWebhookSubscription holds details about calls to the GetWebhookSubscription method.
+		GetWebhookSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// ID is the id argument value.
@@ -3605,6 +3612,15 @@ type APIStoreMock struct {
 			// P is the p argument value.
 			P *domain.WorkflowPolicy
 		}
+		// UserHasProjectAccess holds details about calls to the UserHasProjectAccess method.
+		UserHasProjectAccess []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// UserID is the userID argument value.
+			UserID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
+		}
 	}
 	lockAggregateCostStatsHourly           sync.RWMutex
 	lockApproveDeviceCode                  sync.RWMutex
@@ -3727,8 +3743,8 @@ type APIStoreMock struct {
 	lockGetTagPolicyActions                sync.RWMutex
 	lockGetTopCosts                        sync.RWMutex
 	lockGetUserPermissions                 sync.RWMutex
-	lockUserHasProjectAccess               sync.RWMutex
 	lockGetWebhookDelivery                 sync.RWMutex
+	lockGetWebhookSubscription             sync.RWMutex
 	lockGetWorkflow                        sync.RWMutex
 	lockGetWorkflowBySlug                  sync.RWMutex
 	lockGetWorkflowPolicyByProject         sync.RWMutex
@@ -3843,6 +3859,7 @@ type APIStoreMock struct {
 	lockUpsertRunOutput                    sync.RWMutex
 	lockUpsertRunState                     sync.RWMutex
 	lockUpsertWorkflowPolicy               sync.RWMutex
+	lockUserHasProjectAccess               sync.RWMutex
 }
 
 // AggregateCostStatsHourly calls AggregateCostStatsHourlyFunc.
@@ -8939,50 +8956,6 @@ func (mock *APIStoreMock) GetUserPermissionsCalls() []struct {
 	return calls
 }
 
-// UserHasProjectAccess calls UserHasProjectAccessFunc.
-func (mock *APIStoreMock) UserHasProjectAccess(ctx context.Context, userID string, projectID string) (bool, error) {
-	callInfo := struct {
-		Ctx       context.Context
-		UserID    string
-		ProjectID string
-	}{
-		Ctx:       ctx,
-		UserID:    userID,
-		ProjectID: projectID,
-	}
-	mock.lockUserHasProjectAccess.Lock()
-	mock.calls.UserHasProjectAccess = append(mock.calls.UserHasProjectAccess, callInfo)
-	mock.lockUserHasProjectAccess.Unlock()
-	if mock.UserHasProjectAccessFunc == nil {
-		var (
-			boolOut bool
-			errOut  error
-		)
-		return boolOut, errOut
-	}
-	return mock.UserHasProjectAccessFunc(ctx, userID, projectID)
-}
-
-// UserHasProjectAccessCalls gets all the calls that were made to UserHasProjectAccess.
-// Check the length with:
-//
-//	len(mockedAPIStore.UserHasProjectAccessCalls())
-func (mock *APIStoreMock) UserHasProjectAccessCalls() []struct {
-	Ctx       context.Context
-	UserID    string
-	ProjectID string
-} {
-	var calls []struct {
-		Ctx       context.Context
-		UserID    string
-		ProjectID string
-	}
-	mock.lockUserHasProjectAccess.RLock()
-	calls = mock.calls.UserHasProjectAccess
-	mock.lockUserHasProjectAccess.RUnlock()
-	return calls
-}
-
 // GetWebhookDelivery calls GetWebhookDeliveryFunc.
 func (mock *APIStoreMock) GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
 	callInfo := struct {
@@ -9020,6 +8993,46 @@ func (mock *APIStoreMock) GetWebhookDeliveryCalls() []struct {
 	mock.lockGetWebhookDelivery.RLock()
 	calls = mock.calls.GetWebhookDelivery
 	mock.lockGetWebhookDelivery.RUnlock()
+	return calls
+}
+
+// GetWebhookSubscription calls GetWebhookSubscriptionFunc.
+func (mock *APIStoreMock) GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error) {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockGetWebhookSubscription.Lock()
+	mock.calls.GetWebhookSubscription = append(mock.calls.GetWebhookSubscription, callInfo)
+	mock.lockGetWebhookSubscription.Unlock()
+	if mock.GetWebhookSubscriptionFunc == nil {
+		var (
+			webhookSubscriptionOut *domain.WebhookSubscription
+			errOut                 error
+		)
+		return webhookSubscriptionOut, errOut
+	}
+	return mock.GetWebhookSubscriptionFunc(ctx, id)
+}
+
+// GetWebhookSubscriptionCalls gets all the calls that were made to GetWebhookSubscription.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetWebhookSubscriptionCalls())
+func (mock *APIStoreMock) GetWebhookSubscriptionCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockGetWebhookSubscription.RLock()
+	calls = mock.calls.GetWebhookSubscription
+	mock.lockGetWebhookSubscription.RUnlock()
 	return calls
 }
 
@@ -14224,5 +14237,49 @@ func (mock *APIStoreMock) UpsertWorkflowPolicyCalls() []struct {
 	mock.lockUpsertWorkflowPolicy.RLock()
 	calls = mock.calls.UpsertWorkflowPolicy
 	mock.lockUpsertWorkflowPolicy.RUnlock()
+	return calls
+}
+
+// UserHasProjectAccess calls UserHasProjectAccessFunc.
+func (mock *APIStoreMock) UserHasProjectAccess(ctx context.Context, userID string, projectID string) (bool, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		UserID    string
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		UserID:    userID,
+		ProjectID: projectID,
+	}
+	mock.lockUserHasProjectAccess.Lock()
+	mock.calls.UserHasProjectAccess = append(mock.calls.UserHasProjectAccess, callInfo)
+	mock.lockUserHasProjectAccess.Unlock()
+	if mock.UserHasProjectAccessFunc == nil {
+		var (
+			bOut   bool
+			errOut error
+		)
+		return bOut, errOut
+	}
+	return mock.UserHasProjectAccessFunc(ctx, userID, projectID)
+}
+
+// UserHasProjectAccessCalls gets all the calls that were made to UserHasProjectAccess.
+// Check the length with:
+//
+//	len(mockedAPIStore.UserHasProjectAccessCalls())
+func (mock *APIStoreMock) UserHasProjectAccessCalls() []struct {
+	Ctx       context.Context
+	UserID    string
+	ProjectID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		UserID    string
+		ProjectID string
+	}
+	mock.lockUserHasProjectAccess.RLock()
+	calls = mock.calls.UserHasProjectAccess
+	mock.lockUserHasProjectAccess.RUnlock()
 	return calls
 }

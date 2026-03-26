@@ -73,6 +73,9 @@ func TestHandleDeleteWebhookSubscription_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
+		GetWebhookSubscriptionFunc: func(_ context.Context, _ string) (*domain.WebhookSubscription, error) {
+			return nil, store.ErrWebhookSubscriptionNotFound
+		},
 		DeleteWebhookSubscriptionFunc: func(_ context.Context, _ string) error {
 			return store.ErrWebhookSubscriptionNotFound
 		},

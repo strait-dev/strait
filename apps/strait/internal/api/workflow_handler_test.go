@@ -809,6 +809,9 @@ func TestHandleDeleteWorkflow(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
 			DeleteWorkflowFunc: func(_ context.Context, _ string) error { return nil },
 		}
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
@@ -823,6 +826,9 @@ func TestHandleDeleteWorkflow(t *testing.T) {
 	t.Run("error", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
 			DeleteWorkflowFunc: func(_ context.Context, _ string) error { return errors.New("delete failed") },
 		}
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)

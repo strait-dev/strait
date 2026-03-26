@@ -299,6 +299,10 @@ func (s *Server) handleGetJob(ctx context.Context, input *GetJobInput) (*GetJobO
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+
 	return &GetJobOutput{Body: job}, nil
 }
 
@@ -368,6 +372,10 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 			return nil, huma.Error404NotFound("job not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
 	}
 
 	if err := s.validate.Struct(&req); err != nil {
@@ -584,6 +592,17 @@ type DeleteJobInput struct {
 }
 
 func (s *Server) handleDeleteJob(ctx context.Context, input *DeleteJobInput) (*struct{}, error) {
+	job, err := s.store.GetJob(ctx, input.JobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return nil, huma.Error404NotFound("job not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+
 	if err := s.store.DeleteJob(ctx, input.JobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			return nil, huma.Error404NotFound("job not found")
@@ -626,6 +645,10 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 			return nil, huma.Error404NotFound("job not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+
+	if err := requireProjectMatch(ctx, source.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
 	}
 
 	req := input.Body
@@ -1052,6 +1075,10 @@ func (s *Server) handlePauseJob(ctx context.Context, input *PauseJobInput) (*Pau
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+
 	alreadyPaused := job.Paused
 
 	if !alreadyPaused {
@@ -1097,6 +1124,10 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 			return nil, huma.Error404NotFound("job not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
 	}
 
 	wasPaused := job.Paused

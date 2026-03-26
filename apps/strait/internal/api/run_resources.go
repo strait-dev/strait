@@ -23,11 +23,6 @@ type ListRunResourcesOutput struct {
 }
 
 func (s *Server) handleListRunResources(ctx context.Context, input *ListRunResourcesInput) (*ListRunResourcesOutput, error) {
-	projectID := projectIDFromContext(ctx)
-	if projectID == "" {
-		return nil, huma.Error400BadRequest("project_id is required")
-	}
-
 	run, err := s.store.GetRun(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
@@ -35,7 +30,8 @@ func (s *Server) handleListRunResources(ctx context.Context, input *ListRunResou
 		}
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
-	if run.ProjectID != projectID {
+
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("run not found")
 	}
 

@@ -158,6 +158,7 @@ type RunStore interface {
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error
 	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
+	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)
 	DeleteWebhookSubscription(ctx context.Context, id string) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)

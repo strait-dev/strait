@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -49,6 +50,26 @@ func projectIDFromContext(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+// errProjectMismatch is returned when a resource's project_id does not match the
+// authenticated project. Handlers should map this to 404 (not 403) to avoid
+// leaking the existence of cross-project resources.
+var errProjectMismatch = errors.New("resource does not belong to the authenticated project")
+
+// requireProjectMatch verifies that resourceProjectID matches the project in
+// the request context. It returns errProjectMismatch when they differ. Internal
+// callers that operate without a project context (scheduler, worker) should not
+// use this helper.
+func requireProjectMatch(ctx context.Context, resourceProjectID string) error {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil // internal caller without project context
+	}
+	if resourceProjectID != projectID {
+		return errProjectMismatch
+	}
+	return nil
 }
 
 func orgIDFromContext(ctx context.Context) string {

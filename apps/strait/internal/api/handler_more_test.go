@@ -214,6 +214,9 @@ func TestHandleCreateJob_DefaultValues(t *testing.T) {
 func TestHandleDeleteJob_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return nil, store.ErrJobNotFound
+		},
 		DeleteJobFunc: func(_ context.Context, _ string) error {
 			return store.ErrJobNotFound
 		},
@@ -231,6 +234,9 @@ func TestHandleDeleteJob_NotFound(t *testing.T) {
 func TestHandleDeleteJob_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		DeleteJobFunc: func(_ context.Context, _ string) error {
 			return errors.New("db down")
 		},
