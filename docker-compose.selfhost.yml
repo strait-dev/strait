@@ -8,6 +8,9 @@
 # Services: Postgres, Redis, Sequin (CDC), Strait API, Dashboard.
 # See SELFHOST.md for full documentation.
 
+# Load secrets from .env.selfhost for variable substitution (${VAR} syntax).
+# Services also load it via env_file for runtime env vars.
+
 services:
   postgres:
     image: postgres:18-alpine
@@ -20,6 +23,12 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./configs/postgres-init.sql:/docker-entrypoint-initdb.d/01-sequin.sql:ro
+    command: >
+      postgres
+      -c wal_level=logical
+      -c max_replication_slots=10
+      -c max_wal_senders=10
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U strait -d strait"]
       interval: 5s
@@ -37,34 +46,7 @@ services:
       timeout: 5s
       retries: 5
 
-  sequin:
-    image: sequin/sequin@sha256:336759c1c632ebdc87939bcea70b26b46df6593e666088e1bf29058209437d3e
-    restart: unless-stopped
-    ports:
-      - "7376:7376"
-    environment:
-      PG_HOSTNAME: postgres
-      PG_PORT: "5432"
-      PG_USERNAME: strait
-      PG_PASSWORD: strait
-      PG_DATABASE: strait
-      SECRET_KEY_BASE: ${SEQUIN_SECRET_KEY_BASE}
-      VAULT_KEY: ${SEQUIN_VAULT_KEY}
-      CONFIG_FILE_PATH: /etc/sequin/config.yml
-    volumes:
-      - ./configs/sequin.yml:/etc/sequin/config.yml:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7376/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-
+  # Strait API starts first to run migrations and create tables.
   strait:
     image: ghcr.io/strait-dev/strait:latest
     restart: unless-stopped
@@ -90,14 +72,42 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      sequin:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "strait", "health", "--quiet"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  # Sequin starts after Strait so tables and replication slot exist.
+  sequin:
+    image: sequin/sequin@sha256:336759c1c632ebdc87939bcea70b26b46df6593e666088e1bf29058209437d3e
+    restart: unless-stopped
+    ports:
+      - "7376:7376"
+    env_file:
+      - .env.selfhost
+    environment:
+      PG_HOSTNAME: postgres
+      PG_PORT: "5432"
+      PG_USERNAME: strait
+      PG_PASSWORD: strait
+      PG_DATABASE: strait
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY_BASE: ${SEQUIN_SECRET_KEY_BASE}
+      VAULT_KEY: ${SEQUIN_VAULT_KEY}
+      CONFIG_FILE_PATH: /etc/sequin/config.yml
+    volumes:
+      - ./configs/sequin.yml:/etc/sequin/config.yml:ro
+    depends_on:
+      strait:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7376/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
 
   strait-app:
     image: ghcr.io/strait-dev/strait-app:latest
@@ -110,6 +120,7 @@ services:
       STRAIT_API_URL: http://strait:8080
       AUTH_DATABASE_URL: postgres://strait:strait@postgres:5432/strait?sslmode=disable
       BETTER_AUTH_URL: http://localhost:3000
+      RESEND_API_KEY: "re_selfhost_placeholder"
       PORT: "3000"
     depends_on:
       strait:

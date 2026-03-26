@@ -3,11 +3,37 @@ set -e
 
 ENV_FILE=".env.selfhost"
 
+# --reset: wipe everything and start fresh.
+if [ "$1" = "--reset" ]; then
+    echo "Resetting self-hosted deployment..."
+    docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml down -v 2>/dev/null || true
+    rm -f "$ENV_FILE"
+    echo "Reset complete. Run this script again to generate new secrets."
+    exit 0
+fi
+
+# Check prerequisites.
+if ! docker info >/dev/null 2>&1; then
+    echo "Error: Docker is not running. Start Docker and try again."
+    exit 1
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+    echo "Error: Docker Compose v2 is required but not found."
+    echo "Install it: https://docs.docker.com/compose/install/"
+    exit 1
+fi
+
+# Skip if secrets already exist.
 if [ -f "$ENV_FILE" ]; then
-    echo "Secrets file already exists at $ENV_FILE, skipping generation."
+    echo "Secrets already exist at $ENV_FILE (use --reset to regenerate)."
     echo ""
-    echo "Your INTERNAL_SECRET (use this for API calls):"
-    grep INTERNAL_SECRET "$ENV_FILE" | cut -d= -f2
+    echo "Start Strait:"
+    echo "  docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d"
+    echo ""
+    echo "  Dashboard: http://localhost:3000"
+    echo "  API:       http://localhost:8080/health"
+    echo "  API docs:  http://localhost:8080/reference"
     exit 0
 fi
 
@@ -44,10 +70,9 @@ EOF
 
 echo "Secrets written to $ENV_FILE"
 echo ""
-echo "Your INTERNAL_SECRET (use this for API calls):"
-echo "  $INTERNAL_SECRET"
-echo ""
 echo "Next steps:"
-echo "  docker compose -f docker-compose.selfhost.yml up -d"
-echo "  API:       http://localhost:8080/health"
+echo "  docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d"
+echo ""
 echo "  Dashboard: http://localhost:3000"
+echo "  API:       http://localhost:8080/health"
+echo "  API docs:  http://localhost:8080/reference"

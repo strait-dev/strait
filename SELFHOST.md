@@ -19,7 +19,7 @@ cd strait
 ./scripts/selfhost-init.sh
 
 # 3. Start all services.
-docker compose -f docker-compose.selfhost.yml up -d
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
 
 # 4. Verify.
 curl http://localhost:8080/health
@@ -29,14 +29,21 @@ curl http://localhost:8080/health
 open http://localhost:3000
 ```
 
-The init script prints your `INTERNAL_SECRET` -- save it. You need it to create projects and API keys.
-
-The dashboard is available at **http://localhost:3000**. Sign up to create your account, then use the UI to manage jobs, runs, and workflows.
-
 ## Creating Your First Job
 
+1. Open **http://localhost:3000** and sign up
+2. A workspace is created automatically for you
+3. Click **Create project** in the getting-started wizard
+4. Follow the on-screen instructions to create and trigger your first job
+
+The dashboard guides you through installing the SDK, deploying a job, and triggering your first run.
+
+### Advanced: API-only usage
+
+If you prefer using the API directly without the dashboard:
+
 ```bash
-SECRET="<your INTERNAL_SECRET from step 2>"
+SECRET="<your INTERNAL_SECRET from .env.selfhost>"
 
 # Create a project.
 curl -X POST http://localhost:8080/v1/projects \
@@ -50,26 +57,15 @@ API_KEY=$(curl -s -X POST http://localhost:8080/v1/api-keys \
   -H "X-Internal-Secret: $SECRET" \
   -d '{"project_id": "my-project", "name": "dev-key"}' | jq -r '.key')
 
-echo "API Key: $API_KEY"
-
-# Create a job.
-curl -X POST http://localhost:8080/v1/jobs \
-  -H "Content-Type: application/json" \
+# Create and trigger a job.
+JOB=$(curl -s -X POST http://localhost:8080/v1/jobs \
   -H "Authorization: Bearer $API_KEY" \
-  -d '{
-    "project_id": "my-project",
-    "name": "My First Job",
-    "slug": "my-first-job",
-    "endpoint_url": "https://httpbin.org/post",
-    "max_attempts": 3,
-    "timeout_secs": 30
-  }'
-
-# Trigger it.
-JOB_ID="<job id from above>"
-curl -X POST "http://localhost:8080/v1/jobs/$JOB_ID/trigger" \
   -H "Content-Type: application/json" \
+  -d '{"project_id":"my-project","name":"My Job","slug":"my-job","endpoint_url":"https://httpbin.org/post","max_attempts":3,"timeout_secs":30}')
+
+curl -X POST "http://localhost:8080/v1/jobs/$(echo $JOB | jq -r .id)/trigger" \
   -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{"payload": {"hello": "world"}}'
 ```
 
@@ -137,8 +133,8 @@ Common overrides:
 ## Upgrading
 
 ```bash
-docker compose -f docker-compose.selfhost.yml pull
-docker compose -f docker-compose.selfhost.yml up -d
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml pull
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
 ```
 
 Migrations run automatically on startup.
@@ -239,3 +235,36 @@ docker run --rm --network host \
   -e ITERATIONS=1000 \
   ghcr.io/strait-dev/strait-loadtest
 ```
+
+## Resetting
+
+Start fresh by wiping all data and secrets:
+
+```bash
+./scripts/selfhost-init.sh --reset
+./scripts/selfhost-init.sh
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
+```
+
+## Troubleshooting
+
+**Strait API won't start:**
+```bash
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait
+```
+Common causes: Postgres not ready (wait and retry), invalid secrets in `.env.selfhost` (run `--reset`).
+
+**Dashboard can't reach the API:**
+Both services must share the same `INTERNAL_SECRET` from `.env.selfhost`. Restart both: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart`
+
+**Sequin not starting:**
+```bash
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs sequin
+```
+Sequin needs Postgres to be fully ready with logical replication enabled. The Alpine Postgres image enables it by default.
+
+**Migrations failing:**
+Migrations run automatically on startup. Check logs: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait | grep migration`
+
+**Contributing:**
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.

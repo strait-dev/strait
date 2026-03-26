@@ -1,13 +1,16 @@
 # Sequin CDC configuration for Strait self-hosted deployment.
 # Mounted at /etc/sequin/config.yml via CONFIG_FILE_PATH env var.
-# Auto-provisions the database connection and Sequin Stream sinks
-# that Strait needs for real-time Change Data Capture.
-#
-# Tables watched: job_runs, workflow_runs, workflow_step_runs, event_triggers.
 # See: https://sequinstream.com/docs/reference/sequin-yaml
 
+account:
+  name: "Strait Self-Hosted"
+
+users:
+  - email: "admin@localhost"
+    password: "straitadmin"
+
 databases:
-  - name: "strait"
+  - name: "strait-db"
     hostname: "postgres"
     port: 5432
     database: "strait"
@@ -28,28 +31,3 @@ databases:
       - table_schema: "public"
         table_name: "event_triggers"
         sort_column_name: "updated_at"
-
-sinks:
-  - name: "strait-job-runs"
-    database: "strait"
-    table: "public.job_runs"
-    destination:
-      type: "sequin_stream"
-
-  - name: "strait-workflow-runs"
-    database: "strait"
-    table: "public.workflow_runs"
-    destination:
-      type: "sequin_stream"
-
-  - name: "strait-workflow-step-runs"
-    database: "strait"
-    table: "public.workflow_step_runs"
-    destination:
-      type: "sequin_stream"
-
-  - name: "strait-event-triggers"
-    database: "strait"
-    table: "public.event_triggers"
-    destination:
-      type: "sequin_stream"
