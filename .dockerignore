@@ -3,14 +3,7 @@
 
 .git
 .github
-.claude
-.cursor
-.windsurf
-.pi
-.factory
-.context
 .agents
-.agent
 .opencode.jsonc
 .goreleaser.yaml
 .changeset
@@ -18,7 +11,7 @@
 # Go service test artifacts.
 apps/strait/test
 apps/strait/internal/loadtest
-loadtest-jobs
+packages/load-tests
 
 # Docs and website source (keep package.json for lockfile).
 apps/docs/app
@@ -38,5 +31,7 @@ apps/website/public
 *.log
 e2e_stress_report_*
 
-# Ops and scripts.
-ops
+# Ops, monitoring, scripts, deploy configs.
+packages/monitoring
+packages/scripts
+packages/deploy

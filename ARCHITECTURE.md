@@ -131,7 +131,7 @@ Two HTTP monitors:
 
 ### Alerting (Grafana Cloud + Better Stack)
 
-22 Prometheus alert rules across `ops/monitoring/alerts-strait-core.yaml` (19 rules) and `ops/monitoring/alerts-authz-rbac.yaml` (3 rules). Rules are imported into Grafana Cloud Alerting. Alert routing to Better Stack via webhook (requires paid plan -- setup script at `ops/monitoring/setup-alert-routing.sh`).
+22 Prometheus alert rules across `packages/monitoring/alerts-strait-core.yaml` (19 rules) and `packages/monitoring/alerts-authz-rbac.yaml` (3 rules). Rules are imported into Grafana Cloud Alerting. Alert routing to Better Stack via webhook (requires paid plan -- setup script at `packages/monitoring/setup-alert-routing.sh`).
 
 ### Dashboards (Grafana Cloud)
 

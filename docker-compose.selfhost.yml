@@ -1,7 +1,7 @@
 # Strait Self-Hosted Deployment
 #
 # Quick start:
-#   1. ./scripts/selfhost-init.sh   (generates secrets, one-time)
+#   1. ./packages/scripts/selfhost-init.sh   (generates secrets, one-time)
 #   2. docker compose -f docker-compose.selfhost.yml up -d
 #   3. open http://localhost:3000   (Dashboard)
 #
@@ -23,7 +23,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./configs/postgres-init.sql:/docker-entrypoint-initdb.d/01-sequin.sql:ro
+      - ./packages/configs/postgres-init.sql:/docker-entrypoint-initdb.d/01-sequin.sql:ro
     command: >
       postgres
       -c wal_level=logical
@@ -98,7 +98,7 @@ services:
       VAULT_KEY: ${SEQUIN_VAULT_KEY}
       CONFIG_FILE_PATH: /etc/sequin/config.yml
     volumes:
-      - ./configs/sequin.yml:/etc/sequin/config.yml:ro
+      - ./packages/configs/sequin.yml:/etc/sequin/config.yml:ro
     depends_on:
       strait:
         condition: service_healthy

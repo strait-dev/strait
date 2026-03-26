@@ -29,17 +29,27 @@
     "run-all": "bun run manypkg:fix && bun run manypkg:check && bun run biome:format && bun run biome:write && bun run biome:fix:unsafe && bun run biome:lint && bun run typecheck",
     "sdk:run-all": "bun run --filter @strait/ts run-all",
     "update-all": "bunx npm-check-updates -ui -ws",
-    "release": "changeset version && bash scripts/sync-sdk-versions.sh",
+    "release": "changeset version && bash packages/scripts/sync-sdk-versions.sh",
     "deploy": "cd apps/strait && make deploy",
     "deploy:staging": "cd apps/strait && make deploy-staging",
-    "deploy:sequin": "cd deploy/sequin && fly deploy -a strait-sequin"
+    "deploy:sequin": "cd packages/deploy/sequin && fly deploy -a strait-sequin"
+  },
+  "overrides": {
+    "h3": "1.15.9",
+    "smol-toml": ">=1.6.1",
+    "kysely": ">=0.28.14",
+    "socket.io-parser": ">=4.2.6",
+    "fast-xml-parser": ">=5.5.7",
+    "serialize-javascript": ">=7.0.3",
+    "yaml": ">=2.8.3",
+    "picomatch": "4.0.4"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.8",
+    "@biomejs/biome": "2.4.9",
     "@changesets/cli": "^2.30.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260324.1",
-    "knip": "^6.0.4",
+    "@typescript/native-preview": "^7.0.0-dev.20260326.1",
+    "knip": "^6.0.6",
     "lefthook": "^2.1.4",
     "openapi-typescript": "^7.13.0",
     "turbo": "^2.8.20",

@@ -25,7 +25,7 @@ Read and follow `AGENTS.md` in this repository root — it is the primary operat
 - **Observability**: Grafana Cloud (metrics + logs), ClickHouse (traces + analytics), Sentry (errors), Better Stack (uptime)
 - **ClickHouse**: custom analytics exporter + 12 tables (see `internal/clickhouse/schema.go`)
 - **Analytics**: 32 API endpoints under `/v1/analytics/` backed by ClickHouse with Postgres fallback
-- **Monitoring**: alert rules in `ops/monitoring/`, dashboards at `https://strait.grafana.net`
+- **Monitoring**: alert rules in `packages/monitoring/`, dashboards at `https://strait.grafana.net`
 
 ## Key conventions
 
