@@ -2549,6 +2549,54 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 	}
 }
 
+func TestMetrics_Unauthenticated_Returns401(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		InternalSecret: "test-secret",
+		JWTSigningKey:  "01234567890123456789012345678901",
+	}
+	srv := NewServer(ServerDeps{
+		Config:         cfg,
+		Store:          &APIStoreMock{},
+		Queue:          &mockQueue{},
+		Edition:        domain.EditionCloud,
+		MetricsHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }),
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated /metrics, got %d", w.Code)
+	}
+}
+
+func TestMetrics_Authenticated_Returns200(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		InternalSecret: "test-secret",
+		JWTSigningKey:  "01234567890123456789012345678901",
+	}
+	srv := NewServer(ServerDeps{
+		Config:         cfg,
+		Store:          &APIStoreMock{},
+		Queue:          &mockQueue{},
+		Edition:        domain.EditionCloud,
+		MetricsHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }),
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	r.Header.Set("X-Internal-Secret", "test-secret")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for authenticated /metrics, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestNullByteStrippingReader(t *testing.T) {
 	t.Parallel()
 	input := []byte("hello\x00world")

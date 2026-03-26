@@ -124,7 +124,10 @@ func (s *Server) routes() chi.Router {
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
 	if s.metricsHandler != nil {
-		r.Handle("/metrics", s.metricsHandler)
+		r.Group(func(r chi.Router) {
+			r.Use(s.internalSecretAuth)
+			r.Handle("/metrics", s.metricsHandler)
+		})
 	}
 
 	if s.config.DebugStatsviz {
