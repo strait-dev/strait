@@ -34,12 +34,22 @@
     "deploy:staging": "cd apps/strait && make deploy-staging",
     "deploy:sequin": "cd packages/deploy/sequin && fly deploy -a strait-sequin"
   },
+  "overrides": {
+    "h3": "1.15.9",
+    "smol-toml": ">=1.6.1",
+    "kysely": ">=0.28.14",
+    "socket.io-parser": ">=4.2.6",
+    "fast-xml-parser": ">=5.5.7",
+    "serialize-javascript": ">=7.0.3",
+    "yaml": ">=2.8.3",
+    "picomatch": "4.0.4"
+  },
   "devDependencies": {
     "@biomejs/biome": "2.4.8",
     "@changesets/cli": "^2.30.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260324.1",
-    "knip": "^6.0.4",
+    "@typescript/native-preview": "^7.0.0-dev.20260326.1",
+    "knip": "^6.0.6",
     "lefthook": "^2.1.4",
     "openapi-typescript": "^7.13.0",
     "turbo": "^2.8.20",
