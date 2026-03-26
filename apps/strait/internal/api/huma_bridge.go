@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
@@ -199,7 +200,37 @@ func decodeBody(s *Server, r *http.Request, input any) error {
 	if errors.Is(err, io.EOF) {
 		return nil // empty body is OK -- fields stay at zero values
 	}
+	if err == nil {
+		// Strip null bytes from decoded string fields. JSON \u0000 escapes
+		// are decoded by encoding/json into real \x00 bytes which Postgres
+		// rejects with "invalid byte sequence".
+		stripNullBytesFromStruct(bodyField)
+	}
 	return err
+}
+
+// stripNullBytesFromStruct recursively replaces \x00 bytes in all string
+// fields of a struct with spaces, preventing Postgres null byte errors.
+func stripNullBytesFromStruct(v reflect.Value) {
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return
+		}
+		v = v.Elem()
+	}
+	switch v.Kind() { //nolint:exhaustive // only struct and string need null byte stripping
+	case reflect.Struct:
+		for i := range v.NumField() { //nolint:modernize // Fields() returns StructField not Value
+			stripNullBytesFromStruct(v.Field(i))
+		}
+	case reflect.String:
+		if v.CanSet() {
+			s := v.String()
+			if strings.ContainsRune(s, 0) {
+				v.SetString(strings.ReplaceAll(s, "\x00", ""))
+			}
+		}
+	}
 }
 
 func extractBodyField(output any) any {
