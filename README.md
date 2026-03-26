@@ -66,10 +66,10 @@ Run Strait on your own infrastructure in under a minute:
 ```bash
 git clone https://github.com/leonardomso/strait.git
 cd strait
-docker compose -f docker-compose.self-host.yml up -d
+docker compose -f docker-compose.selfhost.yml up -d
 ```
 
-This starts Strait, PostgreSQL, Redis, Prometheus, and Grafana. See [docs/self-hosting.md](docs/self-hosting.md) for configuration, production hardening, and the edition comparison.
+This starts Strait, PostgreSQL, Redis, and Sequin (CDC). See [SELFHOST.md](SELFHOST.md) for configuration, production hardening, and the edition comparison.
 
 ## Key Features
 

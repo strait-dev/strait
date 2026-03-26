@@ -4,6 +4,8 @@
 
 Strait is a job orchestration platform that schedules, executes, and monitors background jobs and workflows. The Go service (`apps/strait/`) handles API requests, job execution, webhook delivery, workflow orchestration, and analytics.
 
+> **Note**: The diagram and observability sections below describe the **production deployment** at strait.dev. Self-hosters get Strait, PostgreSQL, Redis, and Sequin (CDC). A Prometheus-compatible `/metrics` endpoint is available for integration with your own monitoring. See `SELFHOST.md` for self-hosting details.
+
 ```
                                 Internet
                                    |
