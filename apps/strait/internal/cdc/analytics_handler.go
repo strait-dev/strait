@@ -3,6 +3,7 @@ package cdc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -55,7 +56,7 @@ func (h *AnalyticsHandler) Handle(_ context.Context, msg Message) error {
 		FinishedAt    string `json:"finished_at"`
 	}
 	if err := json.Unmarshal(msg.Record, &record); err != nil {
-		return err
+		return fmt.Errorf("analytics handler: unmarshal record: %w", err)
 	}
 
 	status := domain.RunStatus(record.Status)

@@ -3,6 +3,7 @@ package cdc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"slices"
 
@@ -47,7 +48,7 @@ func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
 		Status    string `json:"status"`
 	}
 	if err := json.Unmarshal(msg.Record, &record); err != nil {
-		return err
+		return fmt.Errorf("slo handler: unmarshal record: %w", err)
 	}
 
 	status := domain.RunStatus(record.Status)

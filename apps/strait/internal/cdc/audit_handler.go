@@ -3,6 +3,7 @@ package cdc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"strait/internal/domain"
@@ -39,7 +40,7 @@ func (h *AuditHandler) Handle(ctx context.Context, msg Message) error {
 		Status    string `json:"status"`
 	}
 	if err := json.Unmarshal(msg.Record, &record); err != nil {
-		return err
+		return fmt.Errorf("audit handler: unmarshal record: %w", err)
 	}
 
 	if record.ProjectID == "" {

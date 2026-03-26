@@ -3,6 +3,7 @@ package cdc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -49,7 +50,7 @@ func (h *NotificationTriggerHandler) Handle(ctx context.Context, msg Message) er
 		Error     string `json:"error"`
 	}
 	if err := json.Unmarshal(msg.Record, &record); err != nil {
-		return err
+		return fmt.Errorf("notification trigger: unmarshal record: %w", err)
 	}
 
 	if record.ProjectID == "" {

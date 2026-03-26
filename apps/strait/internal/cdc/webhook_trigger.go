@@ -3,6 +3,7 @@ package cdc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"slices"
 	"time"
@@ -51,7 +52,7 @@ func (h *WebhookTriggerHandler) Handle(ctx context.Context, msg Message) error {
 		Error     string `json:"error"`
 	}
 	if err := json.Unmarshal(msg.Record, &record); err != nil {
-		return err
+		return fmt.Errorf("webhook trigger: unmarshal record: %w", err)
 	}
 
 	if record.ProjectID == "" {

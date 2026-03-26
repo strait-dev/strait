@@ -80,18 +80,17 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	// Fallback: inline handle.
-	if handleErr := handler.Handle(r.Context(), msg); handleErr != nil {
-		wr.logger.Error("cdc webhook: handle failed", "table", tableName, "error", handleErr)
-		http.Error(w, "handler error", http.StatusInternalServerError)
-		return
+	} else {
+		// Fallback: inline handle.
+		if handleErr := handler.Handle(r.Context(), msg); handleErr != nil {
+			wr.logger.Error("cdc webhook: handle failed", "table", tableName, "error", handleErr)
+			http.Error(w, "handler error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Run additional handlers (webhook delivery, notifications, audit, etc.).
+	// Always runs regardless of whether the primary handler used Collect or Handle.
 	// Errors are logged but don't fail the primary delivery.
 	for _, ah := range wr.additionalHandlers[tableName] {
 		if ahErr := ah.Handle(r.Context(), msg); ahErr != nil {
