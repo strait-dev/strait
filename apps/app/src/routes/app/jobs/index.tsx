@@ -32,7 +32,7 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
-import { jobsQueryOptions, useTriggerJob, usePauseJob } from "@/hooks/api/use-jobs";
+import { jobsQueryOptions, useTriggerJob, usePauseJob, useResumeJob } from "@/hooks/api/use-jobs";
 import {
   BriefcaseIcon,
   EyeIcon,
@@ -79,6 +79,7 @@ function JobsPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const triggerJob = useTriggerJob();
   const pauseJob = usePauseJob();
+  const resumeJob = useResumeJob();
 
   const { data } = useQuery({
     ...jobsQueryOptions(),
@@ -111,7 +112,13 @@ function JobsPage() {
     columns: createJobColumns({
       onView: (job) => { setSelectedJob(job); setSheetOpen(true); },
       onTrigger: (job) => triggerJob.mutate({ id: job.id }),
-      onPause: (job) => pauseJob.mutate({ id: job.id }),
+      onPauseResume: (job) => {
+        if (job.enabled) {
+          pauseJob.mutate({ id: job.id });
+        } else {
+          resumeJob.mutate({ id: job.id });
+        }
+      },
     }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -274,6 +281,15 @@ function JobsPage() {
                   onClick: () => {
                     for (const id of selectedIds) {
                       pauseJob.mutate({ id });
+                    }
+                  },
+                },
+                {
+                  label: "Resume",
+                  icon: PlayActionIcon,
+                  onClick: () => {
+                    for (const id of selectedIds) {
+                      resumeJob.mutate({ id });
                     }
                   },
                 },

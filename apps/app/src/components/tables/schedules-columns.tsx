@@ -2,10 +2,18 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import StatusBadge from "@/components/dashboard/status-badge";
 import type { Job } from "@/hooks/api/types";
-import { EyeIcon } from "@/lib/icons";
+import { EyeIcon, PauseActionIcon, PlayActionIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
-export const scheduleColumns: ColumnDef<Job>[] = [
+type ScheduleColumnActions = {
+  onView?: (schedule: Job) => void;
+  onTrigger?: (schedule: Job) => void;
+  onPauseResume?: (schedule: Job) => void;
+};
+
+export const createScheduleColumns = (
+  actions: ScheduleColumnActions = {}
+): ColumnDef<Job>[] => [
   createSelectColumn<Job>(),
   {
     accessorKey: "name",
@@ -37,6 +45,20 @@ export const scheduleColumns: ColumnDef<Job>[] = [
       }),
   },
   createActionsColumn<Job>([
-    { label: "View", icon: EyeIcon, onClick: () => undefined },
+    {
+      label: "View",
+      icon: EyeIcon,
+      onClick: (row) => actions.onView?.(row.original),
+    },
+    {
+      label: "Trigger",
+      icon: PlayActionIcon,
+      onClick: (row) => actions.onTrigger?.(row.original),
+    },
+    {
+      label: "Pause / Resume",
+      icon: PauseActionIcon,
+      onClick: (row) => actions.onPauseResume?.(row.original),
+    },
   ]),
 ];

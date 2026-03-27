@@ -8,7 +8,7 @@ import { createActionsColumn, createSelectColumn } from "./shared-columns";
 type JobColumnActions = {
   onView?: (job: Job) => void;
   onTrigger?: (job: Job) => void;
-  onPause?: (job: Job) => void;
+  onPauseResume?: (job: Job) => void;
 };
 
 export const createJobColumns = (actions: JobColumnActions = {}): ColumnDef<Job>[] => [
@@ -64,6 +64,6 @@ export const createJobColumns = (actions: JobColumnActions = {}): ColumnDef<Job>
   createActionsColumn<Job>([
     { label: "View", icon: EyeIcon, onClick: (row) => actions.onView?.(row.original) },
     { label: "Trigger", icon: PlayActionIcon, onClick: (row) => actions.onTrigger?.(row.original) },
-    { label: "Pause", icon: PauseActionIcon, onClick: (row) => actions.onPause?.(row.original) },
+    { label: "Pause / Resume", icon: PauseActionIcon, onClick: (row) => actions.onPauseResume?.(row.original) },
   ]),
 ];

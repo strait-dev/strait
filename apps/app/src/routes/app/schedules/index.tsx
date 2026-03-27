@@ -26,12 +26,12 @@ import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import ScheduleDetailSheet from "@/components/dashboard/schedule-detail-sheet";
-import { scheduleColumns } from "@/components/tables/schedules-columns";
+import { createScheduleColumns } from "@/components/tables/schedules-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
-import { schedulesQueryOptions, useTriggerSchedule, usePauseSchedule } from "@/hooks/api/use-schedules";
+import { schedulesQueryOptions, useTriggerSchedule, usePauseSchedule, useResumeSchedule } from "@/hooks/api/use-schedules";
 import {
   CalendarIcon,
   EyeIcon,
@@ -74,6 +74,7 @@ function SchedulesPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const triggerSchedule = useTriggerSchedule();
   const pauseSchedule = usePauseSchedule();
+  const resumeSchedule = useResumeSchedule();
 
   const { data } = useQuery({
     ...schedulesQueryOptions(),
@@ -103,7 +104,17 @@ function SchedulesPage() {
 
   const table = useReactTable({
     data: filteredData,
-    columns: scheduleColumns,
+    columns: createScheduleColumns({
+      onView: (schedule) => { setSelectedSchedule(schedule); setSheetOpen(true); },
+      onTrigger: (schedule) => triggerSchedule.mutate({ id: schedule.id }),
+      onPauseResume: (schedule) => {
+        if (schedule.enabled) {
+          pauseSchedule.mutate({ id: schedule.id });
+        } else {
+          resumeSchedule.mutate({ id: schedule.id });
+        }
+      },
+    }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -259,6 +270,15 @@ function SchedulesPage() {
                   onClick: () => {
                     for (const id of selectedIds) {
                       pauseSchedule.mutate({ id });
+                    }
+                  },
+                },
+                {
+                  label: "Resume",
+                  icon: PlayActionIcon,
+                  onClick: () => {
+                    for (const id of selectedIds) {
+                      resumeSchedule.mutate({ id });
                     }
                   },
                 },

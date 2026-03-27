@@ -28,7 +28,7 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import StatusBadge from "@/components/dashboard/status-badge";
-import { runColumns } from "@/components/tables/runs-columns";
+import { createRunColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
@@ -91,7 +91,11 @@ function RunsPage() {
 
   const table = useReactTable({
     data: tableData,
-    columns: runColumns,
+    columns: createRunColumns({
+      onView: (run) => { setSelectedRun(run); setSheetOpen(true); },
+      onRetry: (run) => retryRun.mutate({ run_id: run.id }),
+      onCancel: (run) => cancelRun.mutate({ run_id: run.id }),
+    }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),

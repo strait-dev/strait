@@ -24,7 +24,7 @@ import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
 import StatusBadge from "@/components/dashboard/status-badge";
-import { runColumns } from "@/components/tables/runs-columns";
+import { createRunColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
@@ -66,7 +66,7 @@ function ScheduleDetailPage() {
 
   const runsTable = useReactTable({
     data: runs?.data ?? [],
-    columns: runColumns,
+    columns: createRunColumns(),
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),

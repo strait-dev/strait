@@ -5,7 +5,15 @@ import type { Workflow } from "@/hooks/api/types";
 import { EyeIcon, PauseActionIcon, PlayActionIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
-export const workflowColumns: ColumnDef<Workflow>[] = [
+type WorkflowColumnActions = {
+  onView?: (workflow: Workflow) => void;
+  onTrigger?: (workflow: Workflow) => void;
+  onPauseResume?: (workflow: Workflow) => void;
+};
+
+export const createWorkflowColumns = (
+  actions: WorkflowColumnActions = {}
+): ColumnDef<Workflow>[] => [
   createSelectColumn<Workflow>(),
   {
     accessorKey: "name",
@@ -36,7 +44,7 @@ export const workflowColumns: ColumnDef<Workflow>[] = [
     header: "Steps",
     cell: () => (
       <div className="flex items-center gap-1">
-        <span className="text-muted-foreground text-xs">—</span>
+        <span className="text-muted-foreground text-xs">{"\u2014"}</span>
       </div>
     ),
   },
@@ -54,8 +62,20 @@ export const workflowColumns: ColumnDef<Workflow>[] = [
       }),
   },
   createActionsColumn<Workflow>([
-    { label: "View", icon: EyeIcon, onClick: () => undefined },
-    { label: "Trigger", icon: PlayActionIcon, onClick: () => undefined },
-    { label: "Pause", icon: PauseActionIcon, onClick: () => undefined },
+    {
+      label: "View",
+      icon: EyeIcon,
+      onClick: (row) => actions.onView?.(row.original),
+    },
+    {
+      label: "Trigger",
+      icon: PlayActionIcon,
+      onClick: (row) => actions.onTrigger?.(row.original),
+    },
+    {
+      label: "Pause / Resume",
+      icon: PauseActionIcon,
+      onClick: (row) => actions.onPauseResume?.(row.original),
+    },
   ]),
 ];
