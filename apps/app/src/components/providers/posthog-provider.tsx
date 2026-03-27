@@ -45,6 +45,11 @@ export const PostHogProvider = ({ children }: PostHogProviderProps) => {
             capture_pageview: isDevelopment ? false : "history_change",
             capture_pageleave: !isDevelopment,
             autocapture: !isDevelopment,
+            disable_session_recording: isDevelopment,
+            session_recording: {
+              maskAllInputs: true,
+              maskTextSelector: "[data-mask]",
+            },
           });
         }
         setPostHog(posthog);

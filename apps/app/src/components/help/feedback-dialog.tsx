@@ -1,3 +1,4 @@
+import { getPostHog } from "@/lib/analytics";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Feedback } from "@strait/transactional";
@@ -137,6 +138,7 @@ const FeedbackDialog = ({ user }: Props) => {
         success: "Feedback sent successfully",
         error: "Error sending feedback",
       });
+      getPostHog()?.capture("feedback_submitted");
     });
   };
 

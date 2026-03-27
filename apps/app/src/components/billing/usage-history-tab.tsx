@@ -15,6 +15,7 @@ import {
 } from "@strait/ui/components/table";
 import { toast } from "@strait/ui/components/toast/index";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { getPostHog } from "@/lib/analytics";
 import {
   Bar,
   CartesianGrid,
@@ -81,7 +82,10 @@ const UsageHistoryTab = () => {
         `usage-${period}.csv`
       );
     },
-    onSuccess: () => toast.success("CSV exported successfully"),
+    onSuccess: () => {
+      toast.success("CSV exported successfully");
+      getPostHog()?.capture("usage_export_csv");
+    },
     onError: () => toast.error("Failed to export CSV"),
   });
 
@@ -98,7 +102,10 @@ const UsageHistoryTab = () => {
         `usage-${period}.pdf`
       );
     },
-    onSuccess: () => toast.success("PDF exported successfully"),
+    onSuccess: () => {
+      toast.success("PDF exported successfully");
+      getPostHog()?.capture("usage_export_pdf");
+    },
     onError: () => toast.error("Failed to export PDF"),
   });
 

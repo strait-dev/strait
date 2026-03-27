@@ -1,3 +1,4 @@
+import { getPostHog } from "@/lib/analytics";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Support } from "@strait/transactional";
@@ -136,6 +137,7 @@ const SupportDialog = ({ user }: Props) => {
     }
 
     startTransition(() => {
+      getPostHog()?.capture("support_submitted");
       toast.promise(supportAction({ data: values }), {
         loading: "Sending request...",
         success: "Request sent successfully",
@@ -145,7 +147,12 @@ const SupportDialog = ({ user }: Props) => {
   };
 
   return (
-    <Credenza onOpenChange={setOpen} open={open}>
+    <Credenza onOpenChange={(isOpen) => {
+      setOpen(isOpen);
+      if (isOpen) {
+        getPostHog()?.capture("support_opened");
+      }
+    }} open={open}>
       <CredenzaTrigger
         render={
           <Button

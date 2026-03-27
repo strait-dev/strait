@@ -94,6 +94,7 @@ export const NAVIGATION_EVENTS = {
   PRICING_COMPARED: "pricing_compared",
   FEEDBACK_SUBMITTED: "feedback_submitted",
   SUPPORT_OPENED: "support_opened",
+  SUPPORT_SUBMITTED: "support_submitted",
 } as const;
 
 export const BILLING_EVENTS = {
