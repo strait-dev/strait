@@ -33,14 +33,19 @@ export const authPool = new Pool({
 });
 
 // Cache the OIDC private key import — importPKCS8 parses PEM and is CPU
-// work that should happen once, not on every token sign.
+// work that should happen once, not on every token sign. If import fails
+// (e.g. invalid PEM), the cache is cleared so the next call retries
+// instead of returning the rejected promise forever.
 let oidcPrivateKeyPromise: Promise<KeyLike> | null = null;
 function getOIDCPrivateKey(): Promise<KeyLike> {
   if (!oidcPrivateKeyPromise) {
     oidcPrivateKeyPromise = importPKCS8(
       process.env.OIDC_PRIVATE_KEY_PEM as string,
       "RS256"
-    );
+    ).catch((err) => {
+      oidcPrivateKeyPromise = null;
+      throw err;
+    });
   }
   return oidcPrivateKeyPromise;
 }
@@ -208,7 +213,13 @@ export const auth = betterAuth({
       ],
       allowDynamicClientRegistration: true,
       allowUnauthenticatedClientRegistration: true,
-      clientRegistrationDefaultScopes: ["jobs:read", "runs:read", "stats:read"],
+      clientRegistrationDefaultScopes: [
+        "openid",
+        "profile",
+        "jobs:read",
+        "runs:read",
+        "stats:read",
+      ],
       clientRegistrationAllowedScopes: [
         "jobs:read",
         "jobs:write",

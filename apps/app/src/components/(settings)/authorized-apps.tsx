@@ -25,11 +25,22 @@ import {
   AlertDialogTrigger,
 } from "@strait/ui/components/alert-dialog";
 
+function formatScopes(scopes: unknown): string {
+  if (typeof scopes === "string") {
+    return scopes;
+  }
+  if (Array.isArray(scopes)) {
+    return scopes.join(",");
+  }
+  return "";
+}
+
 // -- Server functions ---------------------------------------------------------
 
 type OAuthConsentItem = {
   id: string;
   clientId: string;
+  clientName: string;
   scopes: string;
   createdAt: string;
   updatedAt: string;
@@ -38,8 +49,30 @@ type OAuthConsentItem = {
 const fetchConsents = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
-    const consents = await auth.api.getOAuthConsents();
-    return (consents ?? []) as unknown as OAuthConsentItem[];
+    const consents = (await auth.api.getOAuthConsents()) ?? [];
+    const items: OAuthConsentItem[] = [];
+    for (const consent of consents as any[]) {
+      let clientName = "Unknown Application";
+      try {
+        const client = await (auth.api as any).getOAuthClient({
+          body: { client_id: consent.clientId },
+        });
+        if (client?.name) {
+          clientName = client.name;
+        }
+      } catch {
+        // Client may have been deleted — use fallback name.
+      }
+      items.push({
+        id: consent.id,
+        clientId: consent.clientId,
+        clientName,
+        scopes: formatScopes(consent.scopes),
+        createdAt: consent.createdAt?.toISOString?.() ?? String(consent.createdAt),
+        updatedAt: consent.updatedAt?.toISOString?.() ?? String(consent.updatedAt),
+      });
+    }
+    return items;
   });
 
 const revokeConsent = createServerFn({ method: "POST" })
@@ -158,12 +191,17 @@ function ConsentRow({
   return (
     <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-foreground text-sm">
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-foreground text-sm">
+              {consent.clientName}
+            </span>
+            <span className="text-muted-foreground text-xs">
+              Authorized {grantedAt}
+            </span>
+          </div>
+          <span className="font-mono text-muted-foreground text-xs">
             {consent.clientId}
-          </span>
-          <span className="text-muted-foreground text-xs">
-            Authorized {grantedAt}
           </span>
         </div>
         <div className="flex flex-wrap gap-1">

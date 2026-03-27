@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"strait/internal/config"
+	"strait/internal/domain"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -18,13 +19,25 @@ type oidcClaims struct {
 	jwt.RegisteredClaims
 }
 
-// Scopes returns the parsed scope claim as a string slice.
-// Returns nil if the scope claim is empty (meaning no scope restriction).
+// Scopes returns the parsed scope claim as a string slice, filtered to only
+// recognized Strait API scopes. Unrecognized scopes (typos, OIDC-only scopes
+// like "openid", or injected values) are silently dropped. Returns nil if no
+// recognized scopes are present (meaning no scope restriction).
 func (c *oidcClaims) Scopes() []string {
 	if c.Scope == "" {
 		return nil
 	}
-	return strings.Split(c.Scope, " ")
+	raw := strings.Split(c.Scope, " ")
+	var valid []string
+	for _, s := range raw {
+		if domain.ValidScopes[s] {
+			valid = append(valid, s)
+		}
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+	return valid
 }
 
 type oidcVerifier struct {
