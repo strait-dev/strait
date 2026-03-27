@@ -24,6 +24,7 @@ import type {
 } from "@/components/upgrade/plan-selection";
 import { PlanSelection } from "@/components/upgrade/plan-selection";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
+import { getPostHog } from "@/lib/analytics";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import {
   apiPlansToComparisonFeatures,
@@ -151,6 +152,11 @@ function RouteComponent() {
       });
     },
     onSuccess: (data) => {
+      getPostHog()?.capture("subscription_checkout_started", {
+        plan: selectedPlan,
+        billing_interval: billingInterval,
+        $set: { plan: selectedPlan },
+      });
       if (data.checkoutUrl) {
         window.location.assign(data.checkoutUrl);
       }
