@@ -851,18 +851,22 @@ func TerminalStatuses() []RunStatus {
 type WorkflowRunStatus string
 
 const (
-	WfStatusPending   WorkflowRunStatus = "pending"
-	WfStatusRunning   WorkflowRunStatus = "running"
-	WfStatusPaused    WorkflowRunStatus = "paused"
-	WfStatusCompleted WorkflowRunStatus = "completed"
-	WfStatusFailed    WorkflowRunStatus = "failed"
-	WfStatusTimedOut  WorkflowRunStatus = "timed_out"
-	WfStatusCanceled  WorkflowRunStatus = "canceled"
+	WfStatusPending            WorkflowRunStatus = "pending"
+	WfStatusRunning            WorkflowRunStatus = "running"
+	WfStatusPaused             WorkflowRunStatus = "paused"
+	WfStatusCompleted          WorkflowRunStatus = "completed"
+	WfStatusFailed             WorkflowRunStatus = "failed"
+	WfStatusTimedOut           WorkflowRunStatus = "timed_out"
+	WfStatusCanceled           WorkflowRunStatus = "canceled"
+	WfStatusCompensating       WorkflowRunStatus = "compensating"
+	WfStatusCompensated        WorkflowRunStatus = "compensated"
+	WfStatusCompensationFailed WorkflowRunStatus = "compensation_failed"
 )
 
 func (s WorkflowRunStatus) IsTerminal() bool {
 	switch s {
-	case WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled:
+	case WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
+		WfStatusCompensated, WfStatusCompensationFailed:
 		return true
 	default:
 		return false
@@ -1147,8 +1151,35 @@ type WorkflowStep struct {
 	CostGateDefaultAction     string             `json:"cost_gate_default_action,omitempty"`
 	ExpectedDurationSecs      int                `json:"expected_duration_secs,omitempty"`
 	StageNotifications        json.RawMessage    `json:"stage_notifications,omitempty"`
+	CompensationJobID         string             `json:"compensation_job_id,omitempty"`
+	CompensationTimeoutSecs   int                `json:"compensation_timeout_secs,omitempty"`
 	CreatedAt                 time.Time          `json:"created_at"`
 }
+
+// CompensationRun tracks a single compensation execution for a workflow step.
+type CompensationRun struct {
+	ID                string          `json:"id"`
+	WorkflowRunID     string          `json:"workflow_run_id"`
+	StepRunID         string          `json:"step_run_id"`
+	StepRef           string          `json:"step_ref"`
+	CompensationJobID string          `json:"compensation_job_id"`
+	JobRunID          string          `json:"job_run_id,omitempty"`
+	Status            string          `json:"status"` // pending, running, completed, failed
+	Input             json.RawMessage `json:"input,omitempty"`
+	Output            json.RawMessage `json:"output,omitempty"`
+	Error             string          `json:"error,omitempty"`
+	StartedAt         *time.Time      `json:"started_at,omitempty"`
+	FinishedAt        *time.Time      `json:"finished_at,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+}
+
+// CompensationRunStatus constants.
+const (
+	CompensationPending   = "pending"
+	CompensationRunning   = "running"
+	CompensationCompleted = "completed"
+	CompensationFailed    = "failed"
+)
 
 // StageNotificationConfig defines notifications to send on step transitions.
 type StageNotificationConfig struct {

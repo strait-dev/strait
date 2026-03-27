@@ -50,9 +50,10 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
 			concurrency_key, resource_class,
 			cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action,
-			expected_duration_secs, stage_notifications
+			expected_duration_secs, stage_notifications,
+			compensation_job_id, compensation_timeout_secs
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -89,6 +90,8 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 		dbscan.NilIfEmptyString(step.CostGateDefaultAction),
 		step.ExpectedDurationSecs,
 		dbscan.NilIfEmptyRawMessage(step.StageNotifications),
+		dbscan.NilIfEmptyString(step.CompensationJobID),
+		step.CompensationTimeoutSecs,
 	).Scan(&step.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow step: %w", err)
@@ -111,6 +114,7 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 		       concurrency_key, resource_class,
 		       cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action,
 		       expected_duration_secs, stage_notifications,
+		       compensation_job_id, compensation_timeout_secs,
 		       created_at
 		FROM workflow_steps
 		WHERE workflow_id = $1
@@ -153,6 +157,7 @@ func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.Workf
 		       concurrency_key, resource_class,
 		       cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action,
 		       expected_duration_secs, stage_notifications,
+		       compensation_job_id, compensation_timeout_secs,
 		       created_at
 		FROM workflow_steps
 		WHERE id = $1`
@@ -201,6 +206,7 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	var costGateTimeout *int
 	var costGateDefaultAction *string
 	var stageNotifications []byte
+	var compensationJobID *string
 
 	err := scanner.Scan(
 		&step.ID,
@@ -234,6 +240,8 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 		&costGateDefaultAction,
 		&step.ExpectedDurationSecs,
 		&stageNotifications,
+		&compensationJobID,
+		&step.CompensationTimeoutSecs,
 		&step.CreatedAt,
 	)
 	if err != nil {
@@ -286,6 +294,9 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	}
 	if stageNotifications != nil {
 		step.StageNotifications = json.RawMessage(stageNotifications)
+	}
+	if compensationJobID != nil {
+		step.CompensationJobID = *compensationJobID
 	}
 
 	return &step, nil

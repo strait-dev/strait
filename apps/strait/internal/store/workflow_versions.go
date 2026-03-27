@@ -71,7 +71,8 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
 			concurrency_key, resource_class,
 			cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action,
-			expected_duration_secs, stage_notifications
+			expected_duration_secs, stage_notifications,
+			compensation_job_id, compensation_timeout_secs
 		)
 		SELECT
 			$1 || ':' || step_ref,
@@ -104,7 +105,9 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			cost_gate_timeout_secs,
 			cost_gate_default_action,
 			expected_duration_secs,
-			stage_notifications
+			stage_notifications,
+			compensation_job_id,
+			compensation_timeout_secs
 		FROM workflow_steps
 		WHERE workflow_id = $2`
 
@@ -152,6 +155,8 @@ func (q *Queries) ListStepsByWorkflowVersion(ctx context.Context, workflowID str
 			wvs.cost_gate_default_action,
 			wvs.expected_duration_secs,
 			wvs.stage_notifications,
+			wvs.compensation_job_id,
+			wvs.compensation_timeout_secs,
 			wvs.created_at
 		FROM workflow_version_steps wvs
 		JOIN workflow_versions wv ON wv.id = wvs.workflow_version_id
