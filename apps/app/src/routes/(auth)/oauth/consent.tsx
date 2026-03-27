@@ -1,3 +1,4 @@
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
@@ -121,6 +122,17 @@ function buildSearchParams(
   return params.toString();
 }
 
+function extractHost(uri: string | undefined): string {
+  if (!uri) {
+    return "";
+  }
+  try {
+    return new URL(uri).host;
+  } catch {
+    return uri;
+  }
+}
+
 function parseScopes(scopeString: string | undefined) {
   const requested = (scopeString ?? "").split(" ").filter((s) => s.length > 0);
   const displayScopes = requested.filter((s) => !HIDDEN_SCOPES.has(s));
@@ -190,6 +202,15 @@ const fetchClientInfo = createServerFn({ method: "GET" })
     }
   });
 
+function clientInfoQueryOptions(clientId: string) {
+  return queryOptions({
+    queryKey: ["oauth-client", clientId],
+    queryFn: () => fetchClientInfo({ data: { clientId } }),
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
 const submitConsent = createServerFn({ method: "POST" })
   .inputValidator(
     z.object({
@@ -225,10 +246,69 @@ export const Route = createFileRoute("/(auth)/oauth/consent")({
       });
     }
   },
+  loaderDeps: ({ search }) => ({ clientId: search.client_id }),
+  loader: ({ context, deps }) => {
+    if (deps.clientId) {
+      return context.queryClient.ensureQueryData(
+        clientInfoQueryOptions(deps.clientId)
+      );
+    }
+    return null;
+  },
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: OAuthConsentPage,
 });
+
+// -- Consent submission -------------------------------------------------------
+
+async function handleConsentSubmit(opts: {
+  accept: boolean;
+  scope: string | undefined;
+  oauthQuery: string;
+  redirectUri: string | undefined;
+  state: string | undefined;
+  setStatus: (s: "idle" | "authorizing" | "denying" | "error") => void;
+  setError: (e: string | null) => void;
+}) {
+  opts.setStatus(opts.accept ? "authorizing" : "denying");
+  opts.setError(null);
+
+  try {
+    const result = await submitConsent({
+      data: {
+        accept: opts.accept,
+        scope: opts.scope,
+        oauthQuery: opts.oauthQuery,
+      },
+    });
+
+    if (result && typeof result === "object" && "url" in result) {
+      window.location.href = (result as { url: string }).url;
+      return;
+    }
+
+    if (!opts.accept && opts.redirectUri) {
+      const url = new URL(opts.redirectUri);
+      url.searchParams.set("error", "access_denied");
+      url.searchParams.set(
+        "error_description",
+        "The user denied the authorization request"
+      );
+      if (opts.state) {
+        url.searchParams.set("state", opts.state);
+      }
+      window.location.href = url.toString();
+    }
+  } catch (err) {
+    opts.setStatus("error");
+    opts.setError(
+      err instanceof Error
+        ? err.message
+        : "Failed to process authorization request"
+    );
+  }
+}
 
 // -- Page component -----------------------------------------------------------
 
@@ -238,26 +318,14 @@ function OAuthConsentPage() {
     "idle" | "authorizing" | "denying" | "error"
   >("idle");
   const [error, setError] = useState<string | null>(null);
-  const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
-  const [clientLoading, setClientLoading] = useState(true);
-  const [clientError, setClientError] = useState(false);
 
-  // Fetch client info on mount
-  useState(() => {
-    if (search.client_id) {
-      fetchClientInfo({ data: { clientId: search.client_id } })
-        .then((info) => {
-          setClientInfo(info);
-          setClientLoading(false);
-        })
-        .catch(() => {
-          setClientError(true);
-          setClientLoading(false);
-        });
-    } else {
-      setClientLoading(false);
-      setClientError(true);
-    }
+  const {
+    data: clientInfo,
+    isLoading: clientLoading,
+    isError: clientError,
+  } = useQuery({
+    ...clientInfoQueryOptions(search.client_id ?? ""),
+    enabled: !!search.client_id,
   });
 
   const { displayScopes, readScopes, writeScopes, adminScopes, unknownScopes } =
@@ -269,92 +337,32 @@ function OAuthConsentPage() {
     OAUTH_QUERY_KEYS
   );
 
-  // -- Missing params ---------------------------------------------------------
-
   if (!(search.client_id && search.redirect_uri)) {
-    return (
-      <AuthLayout
-        description="The authorization request is missing required parameters."
-        title="Invalid Request"
-      >
-        <p className="text-center text-muted-foreground text-sm">
-          This page should be accessed through an OAuth authorization flow.
-          Please try again from the application you were using.
-        </p>
-      </AuthLayout>
-    );
+    return <ConsentMissingParams />;
   }
 
-  // -- Loading state ----------------------------------------------------------
-
   if (clientLoading) {
-    return (
-      <AuthLayout
-        description="Loading application details..."
-        title="Authorize Application"
-      >
-        <div className="flex items-center justify-center py-8">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
-        </div>
-      </AuthLayout>
-    );
+    return <ConsentLoading />;
   }
 
   // -- Handlers ---------------------------------------------------------------
 
-  async function handleConsent(accept: boolean) {
-    setStatus(accept ? "authorizing" : "denying");
-    setError(null);
-
-    try {
-      const result = await submitConsent({
-        data: {
-          accept,
-          scope: search.scope,
-          oauthQuery,
-        },
-      });
-
-      // The consent endpoint returns a redirect URL
-      if (result && typeof result === "object" && "url" in result) {
-        window.location.href = (result as { url: string }).url;
-        return;
-      }
-
-      // If denied, redirect back with error
-      if (!accept && search.redirect_uri) {
-        const url = new URL(search.redirect_uri);
-        url.searchParams.set("error", "access_denied");
-        url.searchParams.set(
-          "error_description",
-          "The user denied the authorization request"
-        );
-        if (search.state) {
-          url.searchParams.set("state", search.state);
-        }
-        window.location.href = url.toString();
-        return;
-      }
-    } catch (err) {
-      setStatus("error");
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to process authorization request"
-      );
-    }
+  function handleConsent(accept: boolean) {
+    handleConsentSubmit({
+      accept,
+      scope: search.scope,
+      oauthQuery,
+      redirectUri: search.redirect_uri,
+      state: search.state,
+      setStatus,
+      setError,
+    });
   }
 
   // -- Render -----------------------------------------------------------------
 
   const clientName = clientInfo?.name ?? "Unknown Application";
-  const redirectHost = (() => {
-    try {
-      return new URL(search.redirect_uri).host;
-    } catch {
-      return search.redirect_uri;
-    }
-  })();
+  const redirectHost = extractHost(search.redirect_uri);
 
   return (
     <AuthLayout
@@ -372,61 +380,13 @@ function OAuthConsentPage() {
           </div>
         ) : null}
 
-        {/* Permissions list */}
         {displayScopes.length > 0 ? (
-          <div className="rounded-lg border border-border bg-muted/30 p-4">
-            <p className="mb-3 font-medium text-foreground text-sm">
-              Permissions requested
-            </p>
-
-            <div className="flex flex-col gap-2.5">
-              {/* Read permissions */}
-              {readScopes.length > 0 ? (
-                <ScopeGroup level="read" scopes={readScopes} />
-              ) : null}
-
-              {/* Write permissions */}
-              {writeScopes.length > 0 ? (
-                <ScopeGroup level="write" scopes={writeScopes} />
-              ) : null}
-
-              {/* Admin permissions */}
-              {adminScopes.length > 0 ? (
-                <ScopeGroup level="admin" scopes={adminScopes} />
-              ) : null}
-
-              {/* Unknown scopes */}
-              {unknownScopes.length > 0 ? (
-                <div className="mt-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-flex rounded-full bg-muted px-2 py-0.5 font-medium text-[10px] text-muted-foreground uppercase tracking-wider">
-                      other
-                    </span>
-                  </div>
-                  <div className="mt-1.5 flex flex-col gap-1 pl-1">
-                    {unknownScopes.map((scope) => (
-                      <div className="flex items-start gap-2" key={scope}>
-                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" />
-                        <span className="text-muted-foreground text-sm">
-                          {scope}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {/* Safety notice */}
-            <div className="mt-3 border-border border-t pt-3">
-              <p className="text-muted-foreground text-xs">
-                This app will{" "}
-                <span className="font-medium text-foreground">not</span> be able
-                to manage API keys, change account settings, or access billing
-                information.
-              </p>
-            </div>
-          </div>
+          <PermissionsList
+            adminScopes={adminScopes}
+            readScopes={readScopes}
+            unknownScopes={unknownScopes}
+            writeScopes={writeScopes}
+          />
         ) : null}
 
         {/* Redirect URI display */}
@@ -503,6 +463,89 @@ function OAuthConsentPage() {
 }
 
 // -- Scope group component ----------------------------------------------------
+
+function PermissionsList({
+  readScopes,
+  writeScopes,
+  adminScopes,
+  unknownScopes,
+}: {
+  readScopes: string[];
+  writeScopes: string[];
+  adminScopes: string[];
+  unknownScopes: string[];
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 p-4">
+      <p className="mb-3 font-medium text-foreground text-sm">
+        Permissions requested
+      </p>
+      <div className="flex flex-col gap-2.5">
+        {readScopes.length > 0 ? (
+          <ScopeGroup level="read" scopes={readScopes} />
+        ) : null}
+        {writeScopes.length > 0 ? (
+          <ScopeGroup level="write" scopes={writeScopes} />
+        ) : null}
+        {adminScopes.length > 0 ? (
+          <ScopeGroup level="admin" scopes={adminScopes} />
+        ) : null}
+        {unknownScopes.length > 0 ? (
+          <div className="mt-1">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 font-medium text-[10px] text-muted-foreground uppercase tracking-wider">
+                other
+              </span>
+            </div>
+            <div className="mt-1.5 flex flex-col gap-1 pl-1">
+              {unknownScopes.map((scope) => (
+                <div className="flex items-start gap-2" key={scope}>
+                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" />
+                  <span className="text-muted-foreground text-sm">{scope}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-3 border-border border-t pt-3">
+        <p className="text-muted-foreground text-xs">
+          This app will{" "}
+          <span className="font-medium text-foreground">not</span> be able to
+          manage API keys, change account settings, or access billing
+          information.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ConsentMissingParams() {
+  return (
+    <AuthLayout
+      description="The authorization request is missing required parameters."
+      title="Invalid Request"
+    >
+      <p className="text-center text-muted-foreground text-sm">
+        This page should be accessed through an OAuth authorization flow.
+        Please try again from the application you were using.
+      </p>
+    </AuthLayout>
+  );
+}
+
+function ConsentLoading() {
+  return (
+    <AuthLayout
+      description="Loading application details..."
+      title="Authorize Application"
+    >
+      <div className="flex items-center justify-center py-8">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+      </div>
+    </AuthLayout>
+  );
+}
 
 function ScopeGroup({
   level,

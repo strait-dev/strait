@@ -1,6 +1,6 @@
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
-import { SignJWT, importPKCS8 } from "jose";
+import { type KeyLike, SignJWT, importPKCS8 } from "jose";
 import {
   checkout,
   polar,
@@ -31,6 +31,19 @@ import { resend } from "@/lib/resend.server";
 export const authPool = new Pool({
   connectionString: process.env.AUTH_DATABASE_URL,
 });
+
+// Cache the OIDC private key import — importPKCS8 parses PEM and is CPU
+// work that should happen once, not on every token sign.
+let oidcPrivateKeyPromise: Promise<KeyLike> | null = null;
+function getOIDCPrivateKey(): Promise<KeyLike> {
+  if (!oidcPrivateKeyPromise) {
+    oidcPrivateKeyPromise = importPKCS8(
+      process.env.OIDC_PRIVATE_KEY_PEM as string,
+      "RS256"
+    );
+  }
+  return oidcPrivateKeyPromise;
+}
 
 const polarClient = process.env.POLAR_ACCESS_TOKEN
   ? new Polar({
@@ -158,10 +171,13 @@ export const auth = betterAuth({
         // key) can validate all tokens.
         sign: process.env.OIDC_PRIVATE_KEY_PEM
           ? async (payload) => {
-              const pem = process.env.OIDC_PRIVATE_KEY_PEM as string;
-              const privateKey = await importPKCS8(pem, "RS256");
+              const privateKey = await getOIDCPrivateKey();
               return new SignJWT(payload)
-                .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+                .setProtectedHeader({
+                  alg: "RS256",
+                  typ: "JWT",
+                  kid: "oidc-rsa-1",
+                })
                 .sign(privateKey);
             }
           : undefined,
@@ -209,6 +225,9 @@ export const auth = betterAuth({
         "projects:write",
         "projects:manage",
       ],
+      accessTokenExpiresIn: 900, // 15 minutes — short-lived for security
+      refreshTokenExpiresIn: 2_592_000, // 30 days
+      codeExpiresIn: 600, // 10 minutes
       rateLimit: {
         token: { window: 60, max: 20 },
         authorize: { window: 60, max: 30 },
