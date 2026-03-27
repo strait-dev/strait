@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -57,6 +58,16 @@ func stClean(t *testing.T, ctx context.Context) {
 }
 
 func stPtr[T any](v T) *T { return &v }
+
+func stCreateStepWithJob(t *testing.T, ctx context.Context, q *store.Queries, wf *domain.Workflow, projectID string, opts *testutil.WorkflowStepOpts) *domain.WorkflowStep {
+	t.Helper()
+	job := stCreateJob(t, ctx, q, projectID)
+	if opts == nil {
+		opts = &testutil.WorkflowStepOpts{}
+	}
+	opts.JobID = &job.ID
+	return testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, opts)
+}
 
 func stQueue(t *testing.T) *queue.PostgresQueue {
 	t.Helper()
@@ -365,7 +376,7 @@ func TestStepRunStatus_WaitingToRunningToCompleted(t *testing.T) {
 		Name:      stPtr("wf-step-lifecycle"),
 		Slug:      stPtr("wf-step-lc-" + stID()),
 	})
-	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, nil)
+	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
 		ProjectID: stPtr(projectID),
 	})
@@ -418,7 +429,7 @@ func TestStepRunStatus_WaitingToRunningToFailed(t *testing.T) {
 		Name:      stPtr("wf-step-failure"),
 		Slug:      stPtr("wf-step-fail-" + stID()),
 	})
-	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, nil)
+	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
 		ProjectID: stPtr(projectID),
 	})
@@ -467,10 +478,10 @@ func TestStepRunStatus_ConcurrentUpdatesWithinSameWorkflow(t *testing.T) {
 		Slug:      stPtr("wf-step-conc-" + stID()),
 	})
 
-	stepA := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+	stepA := stCreateStepWithJob(t, ctx, q, wf, projectID, &testutil.WorkflowStepOpts{
 		StepRef: stPtr("step-a"),
 	})
-	stepB := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+	stepB := stCreateStepWithJob(t, ctx, q, wf, projectID, &testutil.WorkflowStepOpts{
 		StepRef: stPtr("step-b"),
 	})
 
@@ -546,7 +557,7 @@ func TestStepRunStatus_ConflictOnSameStepRun(t *testing.T) {
 		Name:      stPtr("wf-step-conflict"),
 		Slug:      stPtr("wf-step-conflict-" + stID()),
 	})
-	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, nil)
+	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
 		ProjectID: stPtr(projectID),
 	})
@@ -615,7 +626,7 @@ func TestStepRunStatus_UpdateStepRunStatus_SetsFields(t *testing.T) {
 		Name:      stPtr("wf-step-fields"),
 		Slug:      stPtr("wf-step-fields-" + stID()),
 	})
-	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, nil)
+	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
 		ProjectID: stPtr(projectID),
 	})
@@ -650,7 +661,7 @@ func TestStepRunStatus_RejectsDisallowedField(t *testing.T) {
 		Name:      stPtr("wf-step-bad-field"),
 		Slug:      stPtr("wf-step-bad-" + stID()),
 	})
-	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, nil)
+	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
 		ProjectID: stPtr(projectID),
 	})
@@ -1003,7 +1014,7 @@ func TestAuditEvent_StreamAuditEvents(t *testing.T) {
 			Action:       "job.update",
 			ResourceType: "job",
 			ResourceID:   stID(),
-			Details:      json.RawMessage(`{"index":` + strings.Repeat("0", i) + `}`),
+			Details:      json.RawMessage(fmt.Sprintf(`{"index":%d}`, i)),
 		}
 		if err := q.CreateAuditEvent(ctx, ev); err != nil {
 			t.Fatalf("CreateAuditEvent(%d) error = %v", i, err)
