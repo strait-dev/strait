@@ -1,6 +1,6 @@
 import { basehub } from "basehub";
 
-const BASE_URL = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+const BASE_URL = import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
 
 export const revalidate = 3600;
 

@@ -51,7 +51,7 @@ export default async function FeaturePage({ params }: Props) {
   }
 
   const BASE_URL =
-    process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+    import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
   const breadcrumbs = getBreadcrumbSchema([
     { name: "Home", url: BASE_URL },
     { name: "Features", url: `${BASE_URL}/features` },

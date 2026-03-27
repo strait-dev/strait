@@ -17,7 +17,7 @@ import { getAllUseCaseSlugs } from "./(landing)/use-cases/data.ts";
 export const revalidate = 3600;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+  const baseUrl = import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
 
   // Static pages with SEO priorities
   const staticPages: MetadataRoute.Sitemap = [

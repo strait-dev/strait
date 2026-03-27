@@ -53,7 +53,7 @@ export default async function ComparisonPage({ params }: Props) {
   }
 
   const BASE_URL =
-    process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+    import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
   const breadcrumbs = getBreadcrumbSchema([
     { name: "Home", url: BASE_URL },
     { name: "Compare", url: `${BASE_URL}/compare` },

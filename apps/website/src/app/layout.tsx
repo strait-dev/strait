@@ -51,7 +51,7 @@ const Layout = ({ children }: Props) => {
         "min-h-screen bg-background antialiased",
         GeistSans.className
       )}
-      data-accent={process.env.NEXT_PUBLIC_WEBSITE_ACCENT ?? "teal"}
+      data-accent={import.meta.env.PUBLIC_WEBSITE_ACCENT ?? "teal"}
       lang="en-US"
       suppressHydrationWarning
     >
@@ -59,7 +59,7 @@ const Layout = ({ children }: Props) => {
         <NextThemeProvider>{children}</NextThemeProvider>
         <LazyToaster />
         <GoogleTagManager
-          gtmId={process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID as string}
+          gtmId={import.meta.env.PUBLIC_GTM_ID as string}
         />
       </body>
     </html>

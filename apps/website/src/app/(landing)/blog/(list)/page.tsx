@@ -18,7 +18,7 @@ import {
   JsonLd,
 } from "@/lib/structured-data.tsx";
 
-const BASE_URL = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+const BASE_URL = import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
 
 const POSTS_PER_PAGE = 8;
 

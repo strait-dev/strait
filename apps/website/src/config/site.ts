@@ -1,7 +1,7 @@
 import type { SiteConfig } from "@/types/index.ts";
 
 const websiteUrl =
-  process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+  import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
 
 export const siteConfig: SiteConfig = {
   name: "Strait",

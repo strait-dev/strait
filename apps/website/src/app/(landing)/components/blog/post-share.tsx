@@ -9,7 +9,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { useCallback, useState } from "react";
 
-const BASE_URL = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+const BASE_URL = import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
 
 type PostShareProps = {
   title: string;

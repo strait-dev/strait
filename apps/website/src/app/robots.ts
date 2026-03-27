@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+  const baseUrl = import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
 
   return {
     rules: [

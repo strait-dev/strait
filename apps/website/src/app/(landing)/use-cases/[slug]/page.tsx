@@ -47,7 +47,7 @@ export default async function UseCasePage({ params }: Props) {
   }
 
   const BASE_URL =
-    process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+    import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
   const breadcrumbs = getBreadcrumbSchema([
     { name: "Home", url: BASE_URL },
     { name: "Use Cases", url: `${BASE_URL}/use-cases` },
