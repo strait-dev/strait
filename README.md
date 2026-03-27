@@ -88,6 +88,13 @@ This starts Strait, PostgreSQL, Redis, and Sequin (CDC). See [SELFHOST.md](SELFH
 - **Webhooks** — HMAC-SHA256 signed webhooks with automatic retries and dead letter queue
 - **Health Scoring** — Aggregate metrics for success rate, timeout rate, and latency stability
 - **Dead Letter Queue** — Isolate permanently failed runs for inspection and replay
+- **Job Chaining** — Auto-trigger downstream jobs on completion or failure with JSONPath payload mapping and max chain depth enforcement
+- **Compensating Transactions** — Saga-pattern rollback handlers on workflow steps; on failure, previously completed steps are compensated in reverse topological order
+- **Durable Workflows** — Expected completion tracking via critical-path analysis, stage notifications on step transitions, and reaper-safe long-running sleep/wait steps
+- **Canary Deploys** — Gradual traffic ramping between workflow versions with auto-promote/rollback based on failure rate and P99 latency thresholds
+- **Workflow Simulator** — Dry-run, sandbox, and failure-injection simulation modes with DAG visualization, cost estimates, and condition evaluation
+- **Workflow Test Suites** — Define tests with mock endpoints and assertions (step status, output matching, duration bounds) with JUnit XML output for CI
+- **Visual Debugger** — Step-by-step timeline with input/output inspection, cost attribution, data flow tracking, and cross-run comparison
 
 ## Development Checks
 
