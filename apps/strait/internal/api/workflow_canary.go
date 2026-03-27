@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"strait/internal/domain"
+	"strait/internal/store"
 	"strait/internal/workflow"
 )
 
@@ -22,7 +24,7 @@ type CreateCanaryInput struct {
 }
 
 type CreateCanaryOutput struct {
-	Body *workflow.CanaryDeployment
+	Body *domain.CanaryDeployment
 }
 
 func (s *Server) handleCreateCanaryDeployment(ctx context.Context, input *CreateCanaryInput) (*CreateCanaryOutput, error) {
@@ -41,14 +43,21 @@ func (s *Server) handleCreateCanaryDeployment(ctx context.Context, input *Create
 		return nil, huma.Error404NotFound("workflow not found")
 	}
 
-	canary := &workflow.CanaryDeployment{
-		WorkflowID:        req.WorkflowID,
-		ProjectID:         wf.ProjectID,
-		SourceVersion:     req.SourceVersion,
-		TargetVersion:     req.TargetVersion,
-		TrafficPct:        req.TrafficPct,
-		Status:            workflow.CanaryActive,
-		AutoPromoteConfig: req.AutoPromote,
+	canary := &domain.CanaryDeployment{
+		WorkflowID:    req.WorkflowID,
+		ProjectID:     wf.ProjectID,
+		SourceVersion: req.SourceVersion,
+		TargetVersion: req.TargetVersion,
+		TrafficPct:    req.TrafficPct,
+		Status:        "active",
+		AutoPromote:   workflow.MarshalAutoPromoteConfig(req.AutoPromote),
+	}
+
+	if err := s.store.CreateCanaryDeployment(ctx, canary); err != nil {
+		if errors.Is(err, store.ErrCanaryAlreadyActive) {
+			return nil, huma.Error409Conflict("an active canary deployment already exists for this workflow")
+		}
+		return nil, huma.Error500InternalServerError("failed to create canary deployment")
 	}
 
 	return &CreateCanaryOutput{Body: canary}, nil
@@ -64,19 +73,34 @@ type UpdateCanaryInput struct {
 }
 
 type UpdateCanaryOutput struct {
-	Body map[string]any
+	Body *domain.CanaryDeployment
 }
 
-func (s *Server) handleUpdateCanaryDeployment(_ context.Context, input *UpdateCanaryInput) (*UpdateCanaryOutput, error) {
+func (s *Server) handleUpdateCanaryDeployment(ctx context.Context, input *UpdateCanaryInput) (*UpdateCanaryOutput, error) {
 	if err := s.validate.Struct(&input.Body); err != nil {
 		return nil, newValidationError(err)
 	}
 
-	return &UpdateCanaryOutput{Body: map[string]any{
-		"workflow_id": input.WorkflowID,
-		"traffic_pct": input.Body.TrafficPct,
-		"status":      "active",
-	}}, nil
+	if err := s.store.UpdateCanaryDeploymentTraffic(ctx, input.WorkflowID, input.Body.TrafficPct); err != nil {
+		if errors.Is(err, store.ErrCanaryNotFound) {
+			return nil, huma.Error404NotFound("no active canary deployment found for this workflow")
+		}
+		return nil, huma.Error500InternalServerError("failed to update canary deployment")
+	}
+
+	// If traffic reached 100%, complete the canary.
+	if input.Body.TrafficPct >= 100 {
+		if err := s.store.CompleteCanaryDeployment(ctx, input.WorkflowID, "completed"); err != nil {
+			return nil, huma.Error500InternalServerError("failed to complete canary deployment")
+		}
+	}
+
+	canary, err := s.store.GetActiveCanaryDeployment(ctx, input.WorkflowID)
+	if err != nil && !errors.Is(err, store.ErrCanaryNotFound) {
+		return nil, huma.Error500InternalServerError("failed to load canary deployment")
+	}
+
+	return &UpdateCanaryOutput{Body: canary}, nil
 }
 
 type RollbackCanaryInput struct {
@@ -87,7 +111,20 @@ type RollbackCanaryOutput struct {
 	Body map[string]any
 }
 
-func (s *Server) handleRollbackCanaryDeployment(_ context.Context, input *RollbackCanaryInput) (*RollbackCanaryOutput, error) {
+func (s *Server) handleRollbackCanaryDeployment(ctx context.Context, input *RollbackCanaryInput) (*RollbackCanaryOutput, error) {
+	// First set traffic to 0.
+	if err := s.store.UpdateCanaryDeploymentTraffic(ctx, input.WorkflowID, 0); err != nil {
+		if errors.Is(err, store.ErrCanaryNotFound) {
+			return nil, huma.Error404NotFound("no active canary deployment found for this workflow")
+		}
+		return nil, huma.Error500InternalServerError("failed to rollback canary deployment")
+	}
+
+	// Then mark as rolled back.
+	if err := s.store.CompleteCanaryDeployment(ctx, input.WorkflowID, "rolled_back"); err != nil {
+		return nil, huma.Error500InternalServerError("failed to finalize canary rollback")
+	}
+
 	return &RollbackCanaryOutput{Body: map[string]any{
 		"workflow_id": input.WorkflowID,
 		"traffic_pct": 0,
@@ -100,18 +137,17 @@ type GetCanaryStatusInput struct {
 }
 
 type GetCanaryStatusOutput struct {
-	Body map[string]any
+	Body *domain.CanaryDeployment
 }
 
-func (s *Server) handleGetCanaryStatus(_ context.Context, input *GetCanaryStatusInput) (*GetCanaryStatusOutput, error) {
-	// Health evaluation placeholder -- real implementation reads from canary_deployments table.
-	health := workflow.CanaryHealthCheck{}
-	decision := workflow.EvaluateHealth(health, nil)
+func (s *Server) handleGetCanaryStatus(ctx context.Context, input *GetCanaryStatusInput) (*GetCanaryStatusOutput, error) {
+	canary, err := s.store.GetActiveCanaryDeployment(ctx, input.WorkflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrCanaryNotFound) {
+			return nil, huma.Error404NotFound("no active canary deployment found for this workflow")
+		}
+		return nil, huma.Error500InternalServerError("failed to load canary deployment")
+	}
 
-	return &GetCanaryStatusOutput{Body: map[string]any{
-		"workflow_id": input.WorkflowID,
-		"status":      "none",
-		"decision":    string(decision),
-		"health":      json.RawMessage(`{}`),
-	}}, nil
+	return &GetCanaryStatusOutput{Body: canary}, nil
 }

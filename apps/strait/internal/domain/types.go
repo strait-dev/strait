@@ -1188,6 +1188,21 @@ type StageNotificationConfig struct {
 	OnSkipped  bool `json:"on_skipped,omitempty"`
 }
 
+// CanaryDeployment represents an active canary deployment between workflow versions.
+type CanaryDeployment struct {
+	ID            string          `json:"id"`
+	WorkflowID    string          `json:"workflow_id"`
+	ProjectID     string          `json:"project_id"`
+	SourceVersion int             `json:"source_version"`
+	TargetVersion int             `json:"target_version"`
+	TrafficPct    int             `json:"traffic_pct"`
+	Status        string          `json:"status"` // active, promoting, rolling_back, completed, rolled_back
+	AutoPromote   json.RawMessage `json:"auto_promote_config,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	CompletedAt   *time.Time      `json:"completed_at,omitempty"`
+}
+
 // JobCostEstimate holds the cached average cost for a job based on recent runs.
 type JobCostEstimate struct {
 	JobID           string    `json:"job_id"`
