@@ -567,6 +567,17 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 	// No webhook for system failures — job may not be available
 }
 
+// handleSystemFailureWithJob wraps handleSystemFailure and additionally fires
+// on_failure triggers when the job is available. Some system failure paths
+// (panic recovery, job-not-found) don't have the job object, so the base
+// handleSystemFailure cannot require it.
+func (e *Executor) handleSystemFailureWithJob(ctx context.Context, run *domain.JobRun, job *domain.Job, reason string) {
+	e.handleSystemFailure(ctx, run, reason)
+	if job != nil && e.onCompleteTrigger != nil {
+		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, reason)
+	}
+}
+
 func durationMillisecondsAtLeastOne(d time.Duration) int64 {
 	if d <= 0 {
 		return 0
