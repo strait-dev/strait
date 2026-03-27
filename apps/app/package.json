@@ -19,9 +19,12 @@
     "knip": "knip",
     "knip:fix": "knip --fix",
     "run-all": "bun run biome:fix:unsafe && bun run biome:format && bun run biome:write && bun run biome:lint && bun run typecheck",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:migrate:dry": "tsx scripts/migrate.ts --dry",
     "clean": "git clean -xdf .next .turbo node_modules"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "^1.5.6",
     "@better-auth/passkey": "^1.5.6",
     "@hookform/resolvers": "^5.2.2",
     "@hugeicons/core-free-icons": "^4.0.0",

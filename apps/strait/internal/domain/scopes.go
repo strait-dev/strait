@@ -15,6 +15,8 @@ const (
 	ScopeWorkflowsTrigger = "workflows:trigger"
 	ScopeSecretsRead      = "secrets:read"
 	ScopeSecretsWrite     = "secrets:write"
+	ScopeWebhooksRead     = "webhooks:read"
+	ScopeWebhooksWrite    = "webhooks:write"
 	ScopeAPIKeysManage    = "api-keys:manage"
 	ScopeRBACManage       = "rbac:manage"
 	ScopeStatsRead        = "stats:read"
@@ -36,6 +38,8 @@ var ValidScopes = map[string]bool{
 	ScopeWorkflowsTrigger: true,
 	ScopeSecretsRead:      true,
 	ScopeSecretsWrite:     true,
+	ScopeWebhooksRead:     true,
+	ScopeWebhooksWrite:    true,
 	ScopeAPIKeysManage:    true,
 	ScopeRBACManage:       true,
 	ScopeStatsRead:        true,
