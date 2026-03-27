@@ -41,6 +41,7 @@ type WebhookHandler struct {
 	enforcer     *Enforcer
 	auditStore   AuditStore
 	welcomeEmail WelcomeEmailFunc
+	posthog      *PostHogClient
 }
 
 // WebhookOption configures optional WebhookHandler behavior.
@@ -49,6 +50,11 @@ type WebhookOption func(*WebhookHandler)
 // WithWelcomeEmail sets a function to send welcome emails on paid plan subscription.
 func WithWelcomeEmail(fn WelcomeEmailFunc) WebhookOption {
 	return func(h *WebhookHandler) { h.welcomeEmail = fn }
+}
+
+// WithPostHog sets the PostHog client for server-side revenue event tracking.
+func WithPostHog(client *PostHogClient) WebhookOption {
+	return func(h *WebhookHandler) { h.posthog = client }
 }
 
 // NewWebhookHandler creates a new Polar webhook handler.
@@ -267,12 +273,18 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		"polar_subscription_id", sub.ID,
 	)
 
+	customerEmail := ""
+	if sub.Customer != nil {
+		customerEmail = sub.Customer.Email
+	}
+	h.posthog.CaptureRevenueEvent(orgID, "subscription_created_server", map[string]any{
+		"plan":                  string(tier),
+		"customer_email":        customerEmail,
+		"polar_subscription_id": sub.ID,
+	})
+
 	// Send welcome email for paid plan subscriptions (async to avoid blocking webhook response).
 	if h.welcomeEmail != nil && tier != domain.PlanFree {
-		customerEmail := ""
-		if sub.Customer != nil && sub.Customer.Email != "" {
-			customerEmail = sub.Customer.Email
-		}
 		if customerEmail != "" {
 			welcomeFn := h.welcomeEmail
 			go func() { //nolint:gosec // intentional: async email with own timeout, webhook ctx may expire
@@ -509,6 +521,11 @@ func (h *WebhookHandler) handleSubscriptionCanceled(ctx context.Context, data js
 		"polar_subscription_id": sub.ID,
 	})
 
+	h.posthog.CaptureRevenueEvent(orgID, "subscription_canceled_server", map[string]any{
+		"plan":                  existing.PlanTier,
+		"polar_subscription_id": sub.ID,
+	})
+
 	if existing.PlanTier == string(domain.PlanFree) {
 		h.logger.Info("subscription canceled (org already on free tier)",
 			"org_id", orgID,
@@ -552,6 +569,10 @@ func (h *WebhookHandler) handleSubscriptionRevoked(ctx context.Context, data jso
 		"polar_subscription_id": sub.ID,
 	})
 
+	h.posthog.CaptureRevenueEvent(orgID, "subscription_revoked_server", map[string]any{
+		"polar_subscription_id": sub.ID,
+	})
+
 	h.logger.Info("subscription revoked, downgraded to free",
 		"org_id", orgID,
 	)
@@ -589,6 +610,11 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 			"org_id", orgID,
 		)
 	}
+
+	h.posthog.CaptureRevenueEvent(orgID, "payment_received", map[string]any{
+		"plan":                  existing.PlanTier,
+		"polar_subscription_id": sub.ID,
+	})
 
 	return nil
 }

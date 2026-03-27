@@ -390,13 +390,19 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 
 	billingStore := billing.NewPgStore(dbPool)
 
+	posthogClient := billing.NewPostHogClient(cfg.PostHogAPIKey, cfg.PostHogHost, slog.Default())
+
 	var polarWebhook http.Handler
 	if cfg.PolarWebhookSecret != "" {
 		polarMapping := billing.NewPolarMapping(
 			cfg.PolarStarterMonthlyID, cfg.PolarStarterYearlyID,
 			cfg.PolarProMonthlyID, cfg.PolarProYearlyID,
 		)
-		polarWebhook = billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer, queries)
+		var webhookOpts []billing.WebhookOption
+		if posthogClient != nil {
+			webhookOpts = append(webhookOpts, billing.WithPostHog(posthogClient))
+		}
+		polarWebhook = billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
 		slog.Info("polar webhook handler enabled")
 	}
 

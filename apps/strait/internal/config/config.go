@@ -183,6 +183,10 @@ type Config struct {
 	ResendAPIKey    string `env:"RESEND_API_KEY"`
 	ResendFromEmail string `env:"RESEND_FROM_EMAIL" default:"noreply@strait.dev"`
 
+	// PostHog product analytics (server-side revenue events)
+	PostHogAPIKey string `env:"POSTHOG_API_KEY"`
+	PostHogHost   string `env:"POSTHOG_HOST" default:"https://us.i.posthog.com"`
+
 	// Sentry error tracking
 	SentryDSN         string `env:"SENTRY_DSN"`
 	SentryEnvironment string `env:"SENTRY_ENVIRONMENT" default:"development"`
