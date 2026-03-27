@@ -53,8 +53,6 @@ export const STRAIT_API_SCOPES = [
   "projects:manage",
 ] as const;
 
-export type StraitApiScope = (typeof STRAIT_API_SCOPES)[number];
-
 export const OIDC_STANDARD_SCOPES = [
   "openid",
   "profile",
@@ -67,7 +65,7 @@ export const ALL_OAUTH_SCOPES = [
   ...STRAIT_API_SCOPES,
 ] as const;
 
-export const VALID_OAUTH_SCOPES = new Set<string>(ALL_OAUTH_SCOPES);
+const VALID_OAUTH_SCOPES = new Set<string>(ALL_OAUTH_SCOPES);
 
 const SCOPE_SPLIT_RE = /[,\s]+/;
 

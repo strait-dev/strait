@@ -23,12 +23,6 @@ export type InvitationData = {
 
 type InvitationRole = "member" | "admin" | "owner";
 
-/** API response format for invitations list. */
-export type InvitationsApiResponse = {
-  page: InvitationData[];
-  pageCount: number;
-};
-
 /** Parameters for invitation queries. */
 interface InvitationParams {
   organizationId: string;

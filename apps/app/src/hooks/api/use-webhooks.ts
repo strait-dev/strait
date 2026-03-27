@@ -111,20 +111,6 @@ export const webhookQueryOptions = (id: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-/**
- * Seed individual webhook detail caches from a list response.
- * Call this after fetching the list to avoid redundant list fetches
- * when navigating to a detail view.
- */
-export function seedWebhookDetailCaches(
-  queryClient: ReturnType<typeof useQueryClient>,
-  subscriptions: WebhookSubscription[]
-) {
-  for (const sub of subscriptions) {
-    queryClient.setQueryData(queryKeys.webhooks.detail(sub.id).queryKey, sub);
-  }
-}
-
 export const webhookDeliveriesQueryOptions = (webhookId: string) =>
   queryOptions({
     queryKey: queryKeys.webhooks.deliveries(webhookId).queryKey,

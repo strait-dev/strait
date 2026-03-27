@@ -1,11 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": [
-    "src/start.ts!",
     "src/server.ts!",
     "src/router.tsx!",
     "src/routes/**/*.{ts,tsx}!",
-    "postcss.config.mjs"
+    "server/routes/**/*.{ts,tsx}!"
   ],
   "project": [
     "src/**/*.{ts,tsx}!",
@@ -19,13 +18,7 @@
     "@strait/transactional": ["../../packages/transactional/src/index.ts"],
     "@strait/utils": ["../../packages/utils/src/index"]
   },
-  "ignoreDependencies": [
-    "@strait/ui",
-    "@strait/transactional",
-    "@strait/utils",
-    "@tailwindcss/postcss",
-    "@radix-ui/react-accordion"
-  ],
+  "ignoreDependencies": [],
   "ignoreBinaries": ["biome"],
   "includeEntryExports": false,
   "ignoreExportsUsedInFile": {

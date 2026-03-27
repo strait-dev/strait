@@ -37,7 +37,6 @@ import {
   CheckmarkCircle01Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
-  Crown03Icon,
   Delete02Icon,
   File01Icon,
   FlashIcon,
@@ -96,7 +95,6 @@ export const ChatIcon = BubbleChatIcon;
 export const ChevronDownIcon = ArrowDown01Icon;
 export const ChevronLeftIcon = ArrowLeft01Icon;
 export const ChevronRightIcon = ArrowRight01Icon;
-export const ArrowLeftIcon = ArrowLeft01Icon;
 export const ArrowRightIcon = ArrowRight01Icon;
 export const ArrowUpRightIcon = ArrowUpRight01Icon;
 export const ArrowDownRightIcon = ArrowDownRight01Icon;
@@ -132,7 +130,6 @@ export const SettingsOutlineIcon = Settings01Icon;
 
 // Commerce / billing
 export const CreditCardIcon = _CreditCardIcon;
-export const CrownIcon = Crown03Icon;
 export const StoreIcon = Store01Icon;
 
 // Misc
