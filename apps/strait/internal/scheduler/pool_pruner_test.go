@@ -62,11 +62,8 @@ func TestPoolPruner_Run_PrunesExpired(t *testing.T) {
 	pool.Release("test-project", "img:latest", "iad", "m-old-1")
 	pool.Release("test-project", "img:latest", "iad", "m-old-2")
 
-	// Sleep briefly so entries are older than the TTL.
-	time.Sleep(20 * time.Millisecond)
-
-	// Use 1ms TTL so entries are immediately considered expired after the sleep.
-	pruner := NewPoolPruner(pool, rt, 50*time.Millisecond, 1*time.Millisecond)
+	// Use nanosecond TTL so entries are considered expired on the first tick.
+	pruner := NewPoolPruner(pool, rt, 50*time.Millisecond, time.Nanosecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -151,11 +148,8 @@ func TestPoolPruner_Run_DestroyError(t *testing.T) {
 	pool.Release("test-project", "img:latest", "iad", "m-err-1")
 	pool.Release("test-project", "img:latest", "iad", "m-err-2")
 
-	// Sleep briefly so entries are older than the TTL.
-	time.Sleep(20 * time.Millisecond)
-
-	// Use 1ms TTL so entries are immediately considered expired.
-	pruner := NewPoolPruner(pool, rt, 50*time.Millisecond, 1*time.Millisecond)
+	// Use nanosecond TTL so entries are considered expired on the first tick.
+	pruner := NewPoolPruner(pool, rt, 50*time.Millisecond, time.Nanosecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()

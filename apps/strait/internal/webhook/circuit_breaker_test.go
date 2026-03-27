@@ -232,3 +232,341 @@ func TestRedisWebhookCircuitBreaker_RecordSuccessResetsOpenCircuit(t *testing.T)
 		t.Fatal("expected delivery allowed after success reset")
 	}
 }
+
+func TestRedisWebhookCircuitBreaker_CanDeliver_NilClient(t *testing.T) {
+	t.Parallel()
+
+	breaker := NewRedisWebhookCircuitBreaker(nil, true)
+	canDeliver, err := breaker.CanDeliver(t.Context(), "https://example.com/webhook")
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if !canDeliver {
+		t.Fatal("expected delivery allowed when client is nil")
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_CanDeliver_EmptyURL(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for empty URL")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true)
+	canDeliver, err := breaker.CanDeliver(t.Context(), "")
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if !canDeliver {
+		t.Fatal("expected delivery allowed for empty URL")
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_CanDeliver_OpenCircuit(t *testing.T) {
+	t.Parallel()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true, WithWebhookCircuitBreakerThreshold(2))
+	url := "https://example.com/open-test"
+
+	// Push failures to open the circuit.
+	breaker.RecordFailure(t.Context(), url)
+	breaker.RecordFailure(t.Context(), url)
+
+	// Circuit should be open now -- CanDeliver returns false.
+	canDeliver, err := breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if canDeliver {
+		t.Fatal("expected delivery blocked with open circuit")
+	}
+
+	// Second call should also return false (the open key still exists).
+	canDeliver, err = breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver second call error = %v", err)
+	}
+	if canDeliver {
+		t.Fatal("expected delivery still blocked on second call")
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_CanDeliver_ClosedCircuit(t *testing.T) {
+	t.Parallel()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true, WithWebhookCircuitBreakerThreshold(5))
+	url := "https://example.com/closed-test"
+
+	// Record fewer failures than threshold.
+	breaker.RecordFailure(t.Context(), url)
+	breaker.RecordFailure(t.Context(), url)
+
+	canDeliver, err := breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if !canDeliver {
+		t.Fatal("expected delivery allowed when failures below threshold")
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_CanDeliver_FailureWindowExpiry(t *testing.T) {
+	t.Parallel()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	now := time.Now()
+	breaker := NewRedisWebhookCircuitBreaker(
+		client,
+		true,
+		WithWebhookCircuitBreakerThreshold(3),
+		WithWebhookCircuitBreakerWindow(time.Minute),
+	)
+	// Override the time function to control failure window.
+	breaker.now = func() time.Time { return now }
+
+	url := "https://example.com/window-test"
+
+	// Record 2 failures at the current time (below threshold of 3).
+	breaker.RecordFailure(t.Context(), url)
+	breaker.RecordFailure(t.Context(), url)
+
+	// With 2 failures below threshold, delivery is allowed.
+	canDeliver, err := breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if !canDeliver {
+		t.Fatal("expected delivery allowed when failures below threshold")
+	}
+
+	// Move time past the failure window so old failures are pruned by CanDeliver.
+	breaker.now = func() time.Time { return now.Add(2 * time.Minute) }
+
+	// CanDeliver should prune the old failures and see 0 in-window failures.
+	canDeliver, err = breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver after window expiry error = %v", err)
+	}
+	if !canDeliver {
+		t.Fatal("expected delivery allowed after all failures expired from window")
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_RecordSuccess_DisabledNoOp(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called when breaker disabled")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, false)
+	breaker.RecordSuccess(t.Context(), "https://example.com/webhook")
+}
+
+func TestRedisWebhookCircuitBreaker_RecordSuccess_NilClient(t *testing.T) {
+	t.Parallel()
+
+	breaker := NewRedisWebhookCircuitBreaker(nil, true)
+	// Should not panic.
+	breaker.RecordSuccess(t.Context(), "https://example.com/webhook")
+}
+
+func TestRedisWebhookCircuitBreaker_RecordSuccess_EmptyURL(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for empty URL")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true)
+	breaker.RecordSuccess(t.Context(), "")
+}
+
+func TestRedisWebhookCircuitBreaker_RecordFailure_DisabledNoOp(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called when breaker disabled")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, false)
+	breaker.RecordFailure(t.Context(), "https://example.com/webhook")
+}
+
+func TestRedisWebhookCircuitBreaker_RecordFailure_NilClient(t *testing.T) {
+	t.Parallel()
+
+	breaker := NewRedisWebhookCircuitBreaker(nil, true)
+	// Should not panic.
+	breaker.RecordFailure(t.Context(), "https://example.com/webhook")
+}
+
+func TestRedisWebhookCircuitBreaker_RecordFailure_EmptyURL(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for empty URL")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true)
+	breaker.RecordFailure(t.Context(), "")
+}
+
+func TestWithWebhookCircuitBreakerOpenDuration(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(nil)
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true,
+		WithWebhookCircuitBreakerOpenDuration(5*time.Minute),
+	)
+	if breaker.openDuration != 5*time.Minute {
+		t.Fatalf("openDuration = %v, want 5m", breaker.openDuration)
+	}
+}
+
+func TestWithWebhookCircuitBreakerOpenDuration_ZeroIgnored(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(nil)
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true,
+		WithWebhookCircuitBreakerOpenDuration(0),
+	)
+	if breaker.openDuration != defaultWebhookOpenDuration {
+		t.Fatalf("openDuration = %v, want default %v", breaker.openDuration, defaultWebhookOpenDuration)
+	}
+}
+
+func TestWithWebhookCircuitBreakerOpenDuration_NegativeIgnored(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(nil)
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true,
+		WithWebhookCircuitBreakerOpenDuration(-time.Second),
+	)
+	if breaker.openDuration != defaultWebhookOpenDuration {
+		t.Fatalf("openDuration = %v, want default %v", breaker.openDuration, defaultWebhookOpenDuration)
+	}
+}
+
+func TestWithWebhookCircuitBreakerThreshold_ZeroIgnored(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(nil)
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true,
+		WithWebhookCircuitBreakerThreshold(0),
+	)
+	if breaker.failureThreshold != defaultWebhookFailureThreshold {
+		t.Fatalf("failureThreshold = %d, want default %d", breaker.failureThreshold, defaultWebhookFailureThreshold)
+	}
+}
+
+func TestWithWebhookCircuitBreakerWindow_ZeroIgnored(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(nil)
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true,
+		WithWebhookCircuitBreakerWindow(0),
+	)
+	if breaker.failureWindow != defaultWebhookFailureWindow {
+		t.Fatalf("failureWindow = %v, want default %v", breaker.failureWindow, defaultWebhookFailureWindow)
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_RecordSuccessAfterMultipleFailures(t *testing.T) {
+	t.Parallel()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true, WithWebhookCircuitBreakerThreshold(3))
+	url := "https://example.com/recovery"
+
+	// Record failures to open the circuit.
+	breaker.RecordFailure(t.Context(), url)
+	breaker.RecordFailure(t.Context(), url)
+	breaker.RecordFailure(t.Context(), url)
+
+	canDeliver, err := breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if canDeliver {
+		t.Fatal("expected delivery blocked after threshold failures")
+	}
+
+	// A success resets the circuit.
+	breaker.RecordSuccess(t.Context(), url)
+
+	canDeliver, err = breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver after success error = %v", err)
+	}
+	if !canDeliver {
+		t.Fatal("expected delivery allowed after success clears circuit")
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_DifferentURLsIndependent(t *testing.T) {
+	t.Parallel()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	breaker := NewRedisWebhookCircuitBreaker(client, true, WithWebhookCircuitBreakerThreshold(1))
+
+	urlA := "https://example.com/a"
+	urlB := "https://example.com/b"
+
+	// Trip circuit for URL A only.
+	breaker.RecordFailure(t.Context(), urlA)
+
+	canA, err := breaker.CanDeliver(t.Context(), urlA)
+	if err != nil {
+		t.Fatalf("CanDeliver(A) error = %v", err)
+	}
+	if canA {
+		t.Fatal("expected delivery blocked for URL A")
+	}
+
+	canB, err := breaker.CanDeliver(t.Context(), urlB)
+	if err != nil {
+		t.Fatalf("CanDeliver(B) error = %v", err)
+	}
+	if !canB {
+		t.Fatal("expected delivery allowed for URL B (independent circuit)")
+	}
+}

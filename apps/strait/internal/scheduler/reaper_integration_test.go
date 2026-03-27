@@ -1,0 +1,662 @@
+//go:build integration
+
+package scheduler_test
+
+import (
+	"context"
+	"encoding/json"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"strait/internal/domain"
+	"strait/internal/scheduler"
+	"strait/internal/store"
+)
+
+// ---------------------------------------------------------------------------
+// Mock stores for reaper optional-interface tests.
+// These embed a base mock that satisfies scheduler.ReaperStore, plus
+// optional interfaces that the reaper discovers via type assertions.
+// ---------------------------------------------------------------------------
+
+// baseReaperStore provides stub implementations for all ReaperStore methods.
+type baseReaperStore struct{}
+
+func (baseReaperStore) ListStaleRuns(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
+	return nil, nil
+}
+func (baseReaperStore) ListExpiredRuns(_ context.Context) ([]domain.JobRun, error) {
+	return nil, nil
+}
+func (baseReaperStore) ListStaleDequeued(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
+	return nil, nil
+}
+func (baseReaperStore) ListTimedOutWorkflowRuns(_ context.Context) ([]domain.WorkflowRun, error) {
+	return nil, nil
+}
+func (baseReaperStore) ListStepRunsByWorkflowRun(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+	return nil, nil
+}
+func (baseReaperStore) UpdateWorkflowRunStatus(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+	return nil
+}
+func (baseReaperStore) UpdateStepRunStatus(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+	return nil
+}
+func (baseReaperStore) GetRun(_ context.Context, _ string) (*domain.JobRun, error) {
+	return nil, nil
+}
+func (baseReaperStore) ListExpiredWorkflowStepApprovals(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+	return nil, nil
+}
+func (baseReaperStore) GetStepRunByWorkflowRunAndRef(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+	return nil, nil
+}
+func (baseReaperStore) UpdateWorkflowStepApproval(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+	return nil
+}
+func (baseReaperStore) DeleteTerminalRunsPastRetention(_ context.Context, _, _ time.Duration) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) UpdateRunStatus(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+	return nil
+}
+func (baseReaperStore) DeleteWorkflowRunsFinishedBefore(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) ListExpiredEventTriggers(_ context.Context) ([]domain.EventTrigger, error) {
+	return nil, nil
+}
+func (baseReaperStore) UpdateEventTriggerStatus(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+	return nil
+}
+func (baseReaperStore) CancelEventTriggersByWorkflowRun(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) CancelNonTerminalStepRuns(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) CancelJobRunsByWorkflowRun(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) ListReceivedEventTriggersWithStaleSteps(_ context.Context) ([]domain.EventTrigger, error) {
+	return nil, nil
+}
+func (baseReaperStore) DeleteEventTriggersFinishedBefore(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+// ---------------------------------------------------------------------------
+// 1. monitorQueueDepth
+// ---------------------------------------------------------------------------
+
+// qdStore satisfies ReaperStore + QueueDepthMonitorStore.
+type qdStore struct {
+	baseReaperStore
+	listFn func(ctx context.Context) ([]store.QueueJobDepth, error)
+}
+
+func (s *qdStore) ListQueueDepthByJob(ctx context.Context) ([]store.QueueJobDepth, error) {
+	if s.listFn != nil {
+		return s.listFn(ctx)
+	}
+	return nil, nil
+}
+
+func TestIntegration_MonitorQueueDepth_WithItems(t *testing.T) {
+	ctx := context.Background()
+	called := atomic.Bool{}
+	ms := &qdStore{
+		listFn: func(_ context.Context) ([]store.QueueJobDepth, error) {
+			called.Store(true)
+			return []store.QueueJobDepth{
+				{JobID: "job-1", QueuedCount: 42, QueueDepthAlertThreshold: 10},
+			}, nil
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
+	r.ReapOnce(ctx)
+
+	if !called.Load() {
+		t.Fatal("expected ListQueueDepthByJob to be called")
+	}
+}
+
+func TestIntegration_MonitorQueueDepth_Empty(t *testing.T) {
+	ctx := context.Background()
+	ms := &qdStore{
+		listFn: func(_ context.Context) ([]store.QueueJobDepth, error) {
+			return nil, nil
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
+	// Should not panic with empty results.
+	r.ReapOnce(ctx)
+}
+
+func TestIntegration_MonitorQueueDepth_StoreError(t *testing.T) {
+	ctx := context.Background()
+	ms := &qdStore{
+		listFn: func(_ context.Context) ([]store.QueueJobDepth, error) {
+			return nil, errSimulated
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
+	// Should not crash when the store returns an error.
+	r.ReapOnce(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// 2. monitorDLQDepth
+// ---------------------------------------------------------------------------
+
+// dlqStore satisfies ReaperStore + DLQMonitorStore.
+type dlqStore struct {
+	baseReaperStore
+	listFn func(ctx context.Context) ([]scheduler.DLQJobDepth, error)
+}
+
+func (s *dlqStore) ListDLQDepthByJob(ctx context.Context) ([]scheduler.DLQJobDepth, error) {
+	if s.listFn != nil {
+		return s.listFn(ctx)
+	}
+	return nil, nil
+}
+
+func TestIntegration_MonitorDLQDepth_WithFailedRuns(t *testing.T) {
+	ctx := context.Background()
+	called := atomic.Bool{}
+	ms := &dlqStore{
+		listFn: func(_ context.Context) ([]scheduler.DLQJobDepth, error) {
+			called.Store(true)
+			return []scheduler.DLQJobDepth{
+				{JobID: "job-dlq-1", WebhookURL: "https://example.com", DLQCount: 5, DLQAlertThreshold: 3},
+			}, nil
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
+	r.ReapOnce(ctx)
+
+	if !called.Load() {
+		t.Fatal("expected ListDLQDepthByJob to be called")
+	}
+}
+
+func TestIntegration_MonitorDLQDepth_Empty(t *testing.T) {
+	ctx := context.Background()
+	ms := &dlqStore{
+		listFn: func(_ context.Context) ([]scheduler.DLQJobDepth, error) {
+			return nil, nil
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
+	r.ReapOnce(ctx)
+}
+
+func TestIntegration_MonitorDLQDepth_StoreError(t *testing.T) {
+	ctx := context.Background()
+	ms := &dlqStore{
+		listFn: func(_ context.Context) ([]scheduler.DLQJobDepth, error) {
+			return nil, errSimulated
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
+	r.ReapOnce(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// 3. reapOrphanedStepRuns
+// ---------------------------------------------------------------------------
+
+// reconciliationStore satisfies ReaperStore + ReconciliationStore.
+type reconciliationStore struct {
+	baseReaperStore
+	listOrphansFn       func(ctx context.Context) ([]store.OrphanedStepRun, error)
+	resetWebhooksFn     func(ctx context.Context) (int64, error)
+}
+
+func (s *reconciliationStore) ListOrphanedStepRuns(ctx context.Context) ([]store.OrphanedStepRun, error) {
+	if s.listOrphansFn != nil {
+		return s.listOrphansFn(ctx)
+	}
+	return nil, nil
+}
+
+func (s *reconciliationStore) ResetStuckWebhookDeliveries(ctx context.Context) (int64, error) {
+	if s.resetWebhooksFn != nil {
+		return s.resetWebhooksFn(ctx)
+	}
+	return 0, nil
+}
+
+func TestIntegration_ReapOrphanedStepRuns_CompletedParent(t *testing.T) {
+	ctx := context.Background()
+	var completedCalls atomic.Int32
+	wfCallback := &intMockWorkflowCallback{
+		onStepCompletedFn: func(_ context.Context, wfRunID, stepRunID string) {
+			if wfRunID != "wfr-1" || stepRunID != "sr-1" {
+				t.Errorf("unexpected callback args: wfRunID=%s, stepRunID=%s", wfRunID, stepRunID)
+			}
+			completedCalls.Add(1)
+		},
+	}
+
+	ms := &reconciliationStore{
+		listOrphansFn: func(_ context.Context) ([]store.OrphanedStepRun, error) {
+			return []store.OrphanedStepRun{
+				{
+					StepRunID:     "sr-1",
+					StepRef:       "step-a",
+					WorkflowRunID: "wfr-1",
+					JobRunID:      "jr-1",
+					JobStatus:     domain.StatusCompleted,
+				},
+			}, nil
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, wfCallback)
+	r.ReapOnce(ctx)
+
+	if completedCalls.Load() != 1 {
+		t.Fatalf("expected 1 OnStepCompleted call, got %d", completedCalls.Load())
+	}
+}
+
+func TestIntegration_ReapOrphanedStepRuns_FailedParent(t *testing.T) {
+	ctx := context.Background()
+	var failedCalls atomic.Int32
+	wfCallback := &intMockWorkflowCallback{
+		onStepFailedFn: func(_ context.Context, wfRunID, stepRunID string) {
+			if wfRunID != "wfr-2" || stepRunID != "sr-2" {
+				t.Errorf("unexpected callback args: wfRunID=%s, stepRunID=%s", wfRunID, stepRunID)
+			}
+			failedCalls.Add(1)
+		},
+	}
+
+	ms := &reconciliationStore{
+		listOrphansFn: func(_ context.Context) ([]store.OrphanedStepRun, error) {
+			return []store.OrphanedStepRun{
+				{
+					StepRunID:     "sr-2",
+					StepRef:       "step-b",
+					WorkflowRunID: "wfr-2",
+					JobRunID:      "jr-2",
+					JobStatus:     domain.StatusFailed,
+				},
+			}, nil
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, wfCallback)
+	r.ReapOnce(ctx)
+
+	if failedCalls.Load() != 1 {
+		t.Fatalf("expected 1 OnStepFailed call, got %d", failedCalls.Load())
+	}
+}
+
+func TestIntegration_ReapOrphanedStepRuns_NoOrphans(t *testing.T) {
+	ctx := context.Background()
+	ms := &reconciliationStore{
+		listOrphansFn: func(_ context.Context) ([]store.OrphanedStepRun, error) {
+			return nil, nil
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
+	// No orphans means no callback invocations and no panic.
+	r.ReapOnce(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// 4. reapStuckWebhookDeliveries
+// ---------------------------------------------------------------------------
+
+func TestIntegration_ReapStuckWebhookDeliveries_ResetsStuck(t *testing.T) {
+	ctx := context.Background()
+	var resetCount atomic.Int64
+	ms := &reconciliationStore{
+		resetWebhooksFn: func(_ context.Context) (int64, error) {
+			resetCount.Add(3)
+			return 3, nil
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
+	r.ReapOnce(ctx)
+
+	if resetCount.Load() != 3 {
+		t.Fatalf("expected 3 webhooks reset, got %d", resetCount.Load())
+	}
+}
+
+func TestIntegration_ReapStuckWebhookDeliveries_NoneStuck(t *testing.T) {
+	ctx := context.Background()
+	ms := &reconciliationStore{
+		resetWebhooksFn: func(_ context.Context) (int64, error) {
+			return 0, nil
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
+	r.ReapOnce(ctx)
+}
+
+func TestIntegration_ReapStuckWebhookDeliveries_StoreError(t *testing.T) {
+	ctx := context.Background()
+	ms := &reconciliationStore{
+		resetWebhooksFn: func(_ context.Context) (int64, error) {
+			return 0, errSimulated
+		},
+	}
+
+	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
+	// Should log the error, not crash.
+	r.ReapOnce(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// 5. StatsAggregator.Run
+// ---------------------------------------------------------------------------
+
+// intMockStatsStore implements scheduler.StatsAggregatorStore.
+type intMockStatsStore struct {
+	aggregateCalls     atomic.Int32
+	aggregateCostCalls atomic.Int32
+}
+
+func (s *intMockStatsStore) AggregateHourlyStats(_ context.Context, _ time.Time) error {
+	s.aggregateCalls.Add(1)
+	return nil
+}
+
+func (s *intMockStatsStore) AggregateCostStatsHourly(_ context.Context, _ time.Time) error {
+	s.aggregateCostCalls.Add(1)
+	return nil
+}
+
+func TestIntegration_StatsAggregator_ContextCancellation(t *testing.T) {
+	ms := &intMockStatsStore{}
+	agg := scheduler.NewStatsAggregator(ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		agg.Run(ctx)
+		close(done)
+	}()
+
+	// Cancel immediately -- the aggregator should exit without crashing.
+	cancel()
+
+	select {
+	case <-done:
+		// success
+	case <-time.After(5 * time.Second):
+		t.Fatal("StatsAggregator.Run did not exit after context cancellation")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 6. recordCronDrift
+// ---------------------------------------------------------------------------
+
+func TestIntegration_RecordCronDrift_NilMetrics(t *testing.T) {
+	ctx := context.Background()
+	st := intTestStore(t)
+	q := intTestQueue(t)
+
+	// CronScheduler with nil metrics should not panic when recording drift.
+	cs := scheduler.NewCronScheduler(ctx, st, q, nil)
+	// Create a cron job and trigger it; recordCronDrift is called inside triggerJob,
+	// which runs when the cron fires. For a no-panic test, just load + start + stop.
+	cs.Start()
+	stopCtx := cs.Stop()
+	<-stopCtx.Done()
+}
+
+func TestIntegration_RecordCronDrift_ValidCronExpr(t *testing.T) {
+	ctx := context.Background()
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	q := intTestQueue(t)
+
+	// Create a cron job so LoadJobs picks it up.
+	_ = intCreateJob(t, ctx, st, "proj-drift", func(j *domain.Job) {
+		j.Cron = "* * * * *"
+	})
+
+	cs := scheduler.NewCronScheduler(ctx, st, q, nil)
+	if err := cs.LoadJobs(ctx); err != nil {
+		t.Fatalf("LoadJobs() error = %v", err)
+	}
+	// Start and stop without waiting for a full minute --
+	// the point is that LoadJobs + Start/Stop with a valid cron expr does not panic
+	// even when metrics are nil.
+	cs.Start()
+	stopCtx := cs.Stop()
+	<-stopCtx.Done()
+}
+
+// ---------------------------------------------------------------------------
+// 7. checkRunLimitWarnings
+// ---------------------------------------------------------------------------
+
+// intMockRunLimitStore implements scheduler.RunLimitStore.
+type intMockRunLimitStore struct {
+	orgIDs              []string
+	projectsByOrg       map[string][]string
+	channelsByProjectID map[string][]domain.NotificationChannel
+	deliveries          []domain.NotificationDelivery
+	deliveryCalls       atomic.Int32
+}
+
+func (s *intMockRunLimitStore) ListAllSubscribedOrgIDs(_ context.Context) ([]string, error) {
+	return s.orgIDs, nil
+}
+
+func (s *intMockRunLimitStore) ListProjectsByOrg(_ context.Context, orgID string) ([]string, error) {
+	return s.projectsByOrg[orgID], nil
+}
+
+func (s *intMockRunLimitStore) ListEnabledNotificationChannels(_ context.Context, projectID string) ([]domain.NotificationChannel, error) {
+	return s.channelsByProjectID[projectID], nil
+}
+
+func (s *intMockRunLimitStore) ListEnabledNotificationChannelsByProjectIDs(_ context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+	result := make(map[string][]domain.NotificationChannel)
+	for _, pid := range projectIDs {
+		if chs, ok := s.channelsByProjectID[pid]; ok {
+			result[pid] = chs
+		}
+	}
+	return result, nil
+}
+
+func (s *intMockRunLimitStore) CreateNotificationDelivery(_ context.Context, d *domain.NotificationDelivery) error {
+	s.deliveryCalls.Add(1)
+	s.deliveries = append(s.deliveries, *d)
+	return nil
+}
+
+// intMockBudgetMonitorStore implements scheduler.BudgetMonitorStore.
+type intMockBudgetMonitorStore struct {
+	projects       []store.ProjectComputeQuota
+	sumDailyCostFn func(ctx context.Context, projectID, timezone string) (int64, error)
+}
+
+func (s *intMockBudgetMonitorStore) ListProjectsWithComputeLimit(_ context.Context) ([]store.ProjectComputeQuota, error) {
+	return s.projects, nil
+}
+
+func (s *intMockBudgetMonitorStore) SumDailyComputeCost(ctx context.Context, projectID string, timezone string) (int64, error) {
+	if s.sumDailyCostFn != nil {
+		return s.sumDailyCostFn(ctx, projectID, timezone)
+	}
+	return 0, nil
+}
+
+// intMockBudgetEnqueuer implements scheduler.BudgetMonitorWebhookEnqueuer.
+type intMockBudgetEnqueuer struct {
+	enqueueFn func(ctx context.Context, projectID string, payload json.RawMessage) error
+}
+
+func (e *intMockBudgetEnqueuer) EnqueueBudgetAlert(ctx context.Context, projectID string, payload json.RawMessage) error {
+	if e.enqueueFn != nil {
+		return e.enqueueFn(ctx, projectID, payload)
+	}
+	return nil
+}
+
+// intMockEnforcer wraps the Check80PercentDailyRunWarning behavior
+// without requiring a real billing.Enforcer (which needs Redis).
+// Since checkRunLimitWarnings calls enforcer.Check80PercentDailyRunWarning
+// and the BudgetMonitor expects a *billing.Enforcer, we test indirectly
+// by running the BudgetMonitor with a short interval and verifying that
+// the run-limit check path is exercised when the enforcer is nil (no crash).
+
+func TestIntegration_CheckRunLimitWarnings_NilEnforcer(t *testing.T) {
+	// When runLimitStore is set but enforcer is nil, checkRunLimitWarnings
+	// should not be called (the guard: bm.runLimitStore != nil && bm.enforcer != nil).
+	ms := &intMockBudgetMonitorStore{}
+	rlStore := &intMockRunLimitStore{
+		orgIDs: []string{"org-1"},
+		projectsByOrg: map[string][]string{
+			"org-1": {"proj-1"},
+		},
+		channelsByProjectID: map[string][]domain.NotificationChannel{
+			"proj-1": {{ID: "ch-1", ProjectID: "proj-1", ChannelType: "webhook", Enabled: true}},
+		},
+	}
+	// Only set the run limit store, not the enforcer -- use the returned monitor.
+	bm := scheduler.NewBudgetMonitor(ms, nil, 50*time.Millisecond).
+		WithRunLimitNotifications(rlStore, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	bm.Run(ctx)
+
+	// No deliveries should be created because the enforcer is nil.
+	if rlStore.deliveryCalls.Load() != 0 {
+		t.Fatalf("expected 0 notification deliveries without enforcer, got %d", rlStore.deliveryCalls.Load())
+	}
+}
+
+func TestIntegration_CheckRunLimitWarnings_NoBudgetProjects(t *testing.T) {
+	// When there are no projects with compute limits, the monitor should
+	// loop without error.
+	ms := &intMockBudgetMonitorStore{projects: nil}
+	bm := scheduler.NewBudgetMonitor(ms, nil, 50*time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	bm.Run(ctx)
+}
+
+func TestIntegration_BudgetMonitor_DedupAlerts(t *testing.T) {
+	// Verify that the budget monitor does not re-alert for the same project
+	// on the same day. Uses the compute budget path (not run limits) since
+	// both share the same alerted dedup map.
+	var alertCount atomic.Int32
+	ms := &intMockBudgetMonitorStore{
+		projects: []store.ProjectComputeQuota{
+			{
+				ProjectID:                     "proj-dedup",
+				Timezone:                      "UTC",
+				ComputeDailyCostLimitMicrousd: 1_000_000,
+			},
+		},
+		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
+			// Return cost above threshold (80% of 1_000_000 = 800_000).
+			return 900_000, nil
+		},
+	}
+
+	enqueuer := &intMockBudgetEnqueuer{
+		enqueueFn: func(_ context.Context, _ string, _ json.RawMessage) error {
+			alertCount.Add(1)
+			return nil
+		},
+	}
+
+	bm := scheduler.NewBudgetMonitor(ms, enqueuer, 50*time.Millisecond)
+
+	// Run long enough for multiple ticks.
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	bm.Run(ctx)
+
+	// Even with multiple ticks, the same project should only be alerted once per day.
+	if alertCount.Load() != 1 {
+		t.Fatalf("expected exactly 1 budget alert (dedup), got %d", alertCount.Load())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers and mocks
+// ---------------------------------------------------------------------------
+
+var errSimulated = errSentinel("simulated store error")
+
+type errSentinel string
+
+func (e errSentinel) Error() string { return string(e) }
+
+// intMockWorkflowCallback implements scheduler.WorkflowCallback for tests.
+type intMockWorkflowCallback struct {
+	onJobRunTerminalFn func(ctx context.Context, run *domain.JobRun) error
+	onEventReceivedFn  func(ctx context.Context, trigger *domain.EventTrigger) error
+	onStepCompletedFn  func(ctx context.Context, workflowRunID string, stepRunID string)
+	onStepFailedFn     func(ctx context.Context, workflowRunID string, stepRunID string)
+	resumeWorkflowFn   func(ctx context.Context, workflowRunID string) error
+	approveStepFn      func(ctx context.Context, workflowRunID, stepRef, approver string) error
+}
+
+func (m *intMockWorkflowCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
+	if m.onJobRunTerminalFn != nil {
+		return m.onJobRunTerminalFn(ctx, run)
+	}
+	return nil
+}
+
+func (m *intMockWorkflowCallback) OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error {
+	if m.onEventReceivedFn != nil {
+		return m.onEventReceivedFn(ctx, trigger)
+	}
+	return nil
+}
+
+func (m *intMockWorkflowCallback) OnStepCompleted(ctx context.Context, workflowRunID string, stepRunID string) {
+	if m.onStepCompletedFn != nil {
+		m.onStepCompletedFn(ctx, workflowRunID, stepRunID)
+	}
+}
+
+func (m *intMockWorkflowCallback) OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string) {
+	if m.onStepFailedFn != nil {
+		m.onStepFailedFn(ctx, workflowRunID, stepRunID)
+	}
+}
+
+func (m *intMockWorkflowCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID string) error {
+	if m.resumeWorkflowFn != nil {
+		return m.resumeWorkflowFn(ctx, workflowRunID)
+	}
+	return nil
+}
+
+func (m *intMockWorkflowCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {
+	if m.approveStepFn != nil {
+		return m.approveStepFn(ctx, workflowRunID, stepRef, approver)
+	}
+	return nil
+}

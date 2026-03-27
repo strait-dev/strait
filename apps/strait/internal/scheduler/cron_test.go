@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -926,10 +928,13 @@ func TestCronScheduler_TriggerJob_CancelRunning_ChildCancelReceivesCorrectParent
 func TestCronScheduler_TriggerJob_CancelRunning_ConcurrentStops(t *testing.T) {
 	t.Parallel()
 	// Verify machine stops run concurrently, not sequentially.
-	// Each stop sleeps 50ms. With 3 stops, sequential would take 150ms+.
-	// Concurrent should finish in ~50ms.
+	// All 3 stops block on a shared gate channel. If stops were sequential,
+	// only one goroutine would be waiting when we close the gate and the
+	// test would deadlock or time out.
 	var mu sync.Mutex
 	var stoppedMachines []string
+	gate := make(chan struct{})
+	var waiting atomic.Int32
 	q := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
 	}
@@ -944,7 +949,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_ConcurrentStops(t *testing.T) {
 	}
 	stopper := &mockMachineStopper{
 		stopFn: func(_ context.Context, machineID string) error {
-			time.Sleep(50 * time.Millisecond)
+			waiting.Add(1)
+			<-gate
 			mu.Lock()
 			stoppedMachines = append(stoppedMachines, machineID)
 			mu.Unlock()
@@ -955,16 +961,34 @@ func TestCronScheduler_TriggerJob_CancelRunning_ConcurrentStops(t *testing.T) {
 	cs := NewCronScheduler(context.Background(), s, q, nil).WithMachineStopper(stopper)
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
 
-	start := time.Now()
-	cs.triggerJob(context.Background(), job)
-	elapsed := time.Since(start)
+	done := make(chan struct{})
+	go func() {
+		cs.triggerJob(context.Background(), job)
+		close(done)
+	}()
+
+	// Wait until all 3 stop goroutines are blocked on the gate.
+	deadline := time.After(2 * time.Second)
+	for waiting.Load() < 3 {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for 3 concurrent stops, got %d", waiting.Load())
+		default:
+			runtime.Gosched()
+		}
+	}
+
+	// All 3 are waiting concurrently -- release them.
+	close(gate)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("triggerJob did not return after releasing gate")
+	}
 
 	if len(stoppedMachines) != 3 {
 		t.Fatalf("expected 3 stops, got %d", len(stoppedMachines))
-	}
-	// Sequential would take 150ms+. Concurrent should be well under 120ms.
-	if elapsed > 120*time.Millisecond {
-		t.Fatalf("stops appear sequential: took %v, want < 120ms", elapsed)
 	}
 }
 

@@ -161,6 +161,9 @@ func metricValue(metric string, stats *store.JobHealthStats) float64 {
 // For success_rate: budget = 1 - ((1 - current) / (1 - target))
 // For latency: budget = 1 - (current / target), where lower is better.
 func CalculateErrorBudget(current, target float64, metric string) float64 {
+	if math.IsNaN(current) || math.IsNaN(target) || math.IsInf(current, 0) || math.IsInf(target, 0) {
+		return 0.0
+	}
 	switch metric {
 	case domain.SLOMetricSuccessRate:
 		if target >= 1.0 {

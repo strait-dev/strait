@@ -223,15 +223,16 @@ func TestComputeDiff_AllExisting(t *testing.T) {
 	t.Parallel()
 	b := &Bundle{
 		Resources: Resources{
-			Jobs:      []JobSpec{{Slug: "existing-job"}},
-			Workflows: []WorkflowSpec{{Slug: "existing-wf"}},
+			Jobs:         []JobSpec{{Slug: "existing-job"}},
+			Workflows:    []WorkflowSpec{{Slug: "existing-wf"}},
+			Environments: []EnvironmentSpec{{Slug: "existing-env"}},
 		},
 	}
 
 	diff := ComputeDiff(b,
 		map[string]bool{"existing-job": true},
 		map[string]bool{"existing-wf": true},
-		map[string]bool{},
+		map[string]bool{"existing-env": true},
 	)
 
 	updates := 0
@@ -240,8 +241,8 @@ func TestComputeDiff_AllExisting(t *testing.T) {
 			updates++
 		}
 	}
-	if updates != 2 {
-		t.Errorf("expected 2 updates, got %d", updates)
+	if updates != 3 {
+		t.Errorf("expected 3 updates, got %d", updates)
 	}
 }
 

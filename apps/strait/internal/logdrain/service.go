@@ -26,6 +26,9 @@ var ProtectedHeaders = map[string]bool{
 	"trailer":           true,
 }
 
+// jsonMarshal is the JSON marshaling function, replaceable in tests.
+var jsonMarshal = json.Marshal
+
 // Service dispatches run events to log drain endpoints.
 type Service struct {
 	client *http.Client
@@ -39,7 +42,7 @@ func NewService() *Service {
 
 // DrainRunEvents sends a batch of events to the drain endpoint.
 func (s *Service) DrainRunEvents(ctx context.Context, drain *domain.LogDrain, events []domain.RunEvent) error {
-	payload, err := json.Marshal(events)
+	payload, err := jsonMarshal(events)
 	if err != nil {
 		return fmt.Errorf("marshal events: %w", err)
 	}

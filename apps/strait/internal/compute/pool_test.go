@@ -142,15 +142,23 @@ func TestMachinePool_EvictionCallsDestroy(t *testing.T) {
 	pool.Release("proj-1", "img:latest", "iad", "m-2")
 	pool.Release("proj-1", "img:latest", "iad", "m-3") // should evict m-1
 
-	// Give async goroutine time to run.
-	time.Sleep(50 * time.Millisecond)
-
-	val := evicted.Load()
-	if val == nil {
-		t.Fatal("expected onEvict to be called")
-	}
-	if val.(string) != "m-1" {
-		t.Errorf("expected m-1 evicted, got %q", val)
+	// Poll until the async eviction callback fires.
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for onEvict to be called")
+		case <-ticker.C:
+			val := evicted.Load()
+			if val != nil {
+				if val.(string) != "m-1" {
+					t.Errorf("expected m-1 evicted, got %q", val)
+				}
+				return
+			}
+		}
 	}
 }
 
@@ -189,6 +197,8 @@ func TestMachinePool_EvictionBounded(t *testing.T) {
 	var concurrent atomic.Int32
 	var maxConcurrent atomic.Int32
 
+	var completed atomic.Int32
+
 	pool.SetOnEvict(func(_ string) {
 		cur := concurrent.Add(1)
 		for {
@@ -199,6 +209,7 @@ func TestMachinePool_EvictionBounded(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond) // Hold slot to test bounding.
 		concurrent.Add(-1)
+		completed.Add(1)
 	})
 
 	// Release 20 machines -> 19 evictions (first doesn't evict).
@@ -206,9 +217,21 @@ func TestMachinePool_EvictionBounded(t *testing.T) {
 		pool.Release("proj-1", "img:latest", "iad", fmt.Sprintf("m-%d", i))
 	}
 
-	// Wait for all evictions to complete.
-	time.Sleep(500 * time.Millisecond)
-
+	// Poll until all 19 evictions complete.
+	deadline := time.After(10 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for evictions, completed %d of 19", completed.Load())
+		case <-ticker.C:
+			if completed.Load() >= 19 {
+				goto done
+			}
+		}
+	}
+done:
 	// Max concurrent should be capped at 11 (10 from evictSem + 1 inline fallback).
 	if maxConcurrent.Load() > 11 {
 		t.Errorf("max concurrent evictions = %d, want <= 11", maxConcurrent.Load())
@@ -230,8 +253,8 @@ func TestMachinePool_ReleaseWithoutAcquire_CapsAtMax(t *testing.T) {
 	for i := range 100 {
 		pool.Release("proj-1", "img:latest", "iad", fmt.Sprintf("m-%d", i))
 	}
-	// Wait for any async evictions.
-	time.Sleep(100 * time.Millisecond)
+	// Pool size is updated synchronously on Release (eviction only fires
+	// the callback async). The pool entries slice is already capped.
 	if pool.Size() != 3 {
 		t.Fatalf("expected size = maxPer (3), got %d", pool.Size())
 	}
@@ -308,11 +331,10 @@ func TestMachinePool_OnEvictPanic_DoesntCrashPool(t *testing.T) {
 	// we verify the pool is still usable after a non-inline eviction.
 	pool.Release("proj-1", "img:latest", "iad", "m-1")
 
-	// Fill semaphore to force inline eviction path.
-	// Note: with semaphore, first eviction runs async, might panic in goroutine.
-	// We give it time but the test process won't crash because panics in
-	// goroutines only crash if they reach the top of the goroutine stack.
-	time.Sleep(100 * time.Millisecond)
+	// The pool's recover() wrapper in the eviction goroutine prevents crashes.
+	// Pool operations (Release, Acquire) are mutex-protected and do not depend
+	// on the async eviction goroutine completing, so the pool is immediately
+	// usable after the panic.
 
 	// Pool should still be functional.
 	pool.Release("proj-1", "img:latest", "iad", "m-2")

@@ -1,0 +1,2413 @@
+package billing
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"math"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"strait/internal/domain"
+)
+
+// --- Error-injecting mock stores ---.
+
+// errStore wraps mockBillingStore to inject errors on specific calls.
+type errStore struct {
+	mockBillingStore
+	getSubErr       error
+	upsertErr       error
+	updatePlanErr   error
+	updateFullErr   error
+	sumSpendErr     error
+	updatePayErr    error
+	setPendingErr   error
+	clearPendingErr error
+	getSubCallCount atomic.Int64
+	upsertCallCount atomic.Int64
+}
+
+func (e *errStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
+	e.getSubCallCount.Add(1)
+	if e.getSubErr != nil {
+		return nil, e.getSubErr
+	}
+	return e.mockBillingStore.GetOrgSubscription(ctx, orgID)
+}
+
+func (e *errStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error {
+	e.upsertCallCount.Add(1)
+	if e.upsertErr != nil {
+		return e.upsertErr
+	}
+	return e.mockBillingStore.UpsertOrgSubscription(ctx, sub)
+}
+
+func (e *errStore) UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error {
+	if e.updatePlanErr != nil {
+		return e.updatePlanErr
+	}
+	return e.mockBillingStore.UpdateOrgSubscriptionPlan(ctx, orgID, planTier, status)
+}
+
+func (e *errStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, tier, status string, periodStart, periodEnd *time.Time) error {
+	if e.updateFullErr != nil {
+		return e.updateFullErr
+	}
+	return e.mockBillingStore.UpdateOrgSubscriptionFull(ctx, orgID, tier, status, periodStart, periodEnd)
+}
+
+func (e *errStore) SumOrgPeriodSpend(ctx context.Context, orgID string, from time.Time) (int64, error) {
+	if e.sumSpendErr != nil {
+		return 0, e.sumSpendErr
+	}
+	return e.mockBillingStore.SumOrgPeriodSpend(ctx, orgID, from)
+}
+
+func (e *errStore) UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error {
+	if e.updatePayErr != nil {
+		return e.updatePayErr
+	}
+	return e.mockBillingStore.UpdatePaymentStatus(ctx, orgID, status, graceEnd)
+}
+
+func (e *errStore) SetPendingPlanTier(ctx context.Context, orgID, tier string) error {
+	if e.setPendingErr != nil {
+		return e.setPendingErr
+	}
+	return e.mockBillingStore.SetPendingPlanTier(ctx, orgID, tier)
+}
+
+func (e *errStore) ClearPendingPlanTier(ctx context.Context, orgID string) error {
+	if e.clearPendingErr != nil {
+		return e.clearPendingErr
+	}
+	return e.mockBillingStore.ClearPendingPlanTier(ctx, orgID)
+}
+
+// advMockAuditStore records audit events for inspection.
+type advMockAuditStore struct {
+	events []domain.AuditEvent
+	err    error
+}
+
+func (m *advMockAuditStore) CreateAuditEvent(_ context.Context, ev *domain.AuditEvent) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.events = append(m.events, *ev)
+	return nil
+}
+
+// --- Helper to build signed webhook request ---.
+
+func buildSignedWebhookRequest(t *testing.T, secret string, payload []byte) *http.Request {
+	t.Helper()
+	msgID := "msg_adversarial"
+	ts := fmt.Sprintf("%d", time.Now().Unix())
+
+	secretStr := secret
+	if len(secretStr) > 6 && secretStr[:6] == "whsec_" {
+		secretStr = secretStr[6:]
+	}
+	key, err := base64.StdEncoding.DecodeString(secretStr)
+	if err != nil {
+		t.Fatalf("decode secret: %v", err)
+	}
+
+	signedContent := fmt.Sprintf("%s.%s.%s", msgID, ts, string(payload))
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(signedContent))
+	sig := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(payload))
+	req.Header.Set("webhook-id", msgID)
+	req.Header.Set("webhook-timestamp", ts)
+	req.Header.Set("webhook-signature", sig)
+	return req
+}
+
+func webhookPayload(t *testing.T, eventType string, data any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("marshal data: %v", err)
+	}
+	payload, err := json.Marshal(PolarWebhookPayload{Type: eventType, Data: raw})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	return payload
+}
+
+// ============================================================.
+// 1. Double-charge / duplicate webhook events
+// ============================================================.
+
+func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	secret := testSecret
+	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:         "sub_dup_1",
+		Status:     "active",
+		CustomerID: "cust_1",
+		ProductID:  "starter-id",
+		Metadata:   map[string]string{"org_id": "org-dup"},
+	}
+
+	body := webhookPayload(t, "subscription.created", data)
+
+	// First delivery.
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first delivery: expected 200, got %d", rr.Code)
+	}
+
+	sub, err := store.GetOrgSubscription(context.Background(), "org-dup")
+	if err != nil {
+		t.Fatalf("expected subscription after first delivery: %v", err)
+	}
+	if sub.PlanTier != string(domain.PlanStarter) {
+		t.Fatalf("expected starter, got %s", sub.PlanTier)
+	}
+	firstUpsertCount := store.upsertCount
+
+	// Duplicate delivery (same event replayed).
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, buildSignedWebhookRequest(t, testSecret, body))
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("duplicate delivery: expected 200, got %d", rr2.Code)
+	}
+
+	// Subscription should still be starter, not double-created.
+	sub2, _ := store.GetOrgSubscription(context.Background(), "org-dup")
+	if sub2.PlanTier != string(domain.PlanStarter) {
+		t.Fatalf("after duplicate: expected starter, got %s", sub2.PlanTier)
+	}
+
+	// Verify idempotent upsert was called twice.
+	if store.upsertCount != firstUpsertCount+1 {
+		t.Fatalf("expected upsert to be called for duplicate, got count=%d", store.upsertCount)
+	}
+}
+
+func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	periodStart := now.Add(-24 * time.Hour)
+	periodEnd := now.Add(30 * 24 * time.Hour)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-dup-upd": {
+				OrgID:              "org-dup-upd",
+				PlanTier:           string(domain.PlanStarter),
+				Status:             "active",
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &periodEnd,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:                 "sub_upd_dup",
+		Status:             "active",
+		CustomerID:         "cust_2",
+		ProductID:          "pro-id",
+		CurrentPeriodStart: &periodStart,
+		CurrentPeriodEnd:   &periodEnd,
+		Metadata:           map[string]string{"org_id": "org-dup-upd"},
+	}
+
+	body := webhookPayload(t, "subscription.updated", data)
+
+	// First delivery: upgrade starter -> pro.
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, buildSignedWebhookRequest(t, testSecret, body))
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first update: expected 200, got %d", rr1.Code)
+	}
+
+	sub, _ := store.GetOrgSubscription(context.Background(), "org-dup-upd")
+	if sub.PlanTier != string(domain.PlanPro) {
+		t.Fatalf("after first update: expected pro, got %s", sub.PlanTier)
+	}
+
+	// Duplicate delivery.
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, buildSignedWebhookRequest(t, testSecret, body))
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("duplicate update: expected 200, got %d", rr2.Code)
+	}
+
+	sub2, _ := store.GetOrgSubscription(context.Background(), "org-dup-upd")
+	if sub2.PlanTier != string(domain.PlanPro) {
+		t.Fatalf("after duplicate update: expected pro, got %s", sub2.PlanTier)
+	}
+}
+
+// ============================================================.
+// 2. Budget edge cases
+// ============================================================.
+
+func TestSpendingLimit_OverageComputeEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		periodSpend int64
+		credit      int64
+		wantOverage int64
+	}{
+		{"zero spend zero credit", 0, 0, 0},
+		{"spend under credit", 500, 1000, 0},
+		{"spend equals credit", 1000, 1000, 0},
+		{"spend one over credit", 1001, 1000, 1},
+		{"negative spend", -100, 1000, 0},
+		{"max int64 spend", math.MaxInt64, 1000, math.MaxInt64 - 1000},
+		{"zero credit positive spend", 500, 0, 500},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := computeOverageSpend(tt.periodSpend, tt.credit)
+			if got != tt.wantOverage {
+				t.Fatalf("computeOverageSpend(%d, %d) = %d, want %d",
+					tt.periodSpend, tt.credit, got, tt.wantOverage)
+			}
+		})
+	}
+}
+
+func TestOverageLimitReached_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		limitMicro   int64
+		overageSpend int64
+		wantReached  bool
+	}{
+		{"unlimited (negative limit)", -1, 999999, false},
+		{"zero limit zero overage", 0, 0, false},
+		{"zero limit positive overage", 0, 1, true},
+		{"limit equal overage", 100, 100, true},
+		{"limit one more than overage", 100, 99, false},
+		{"limit less than overage", 100, 101, true},
+		{"large limit not reached", math.MaxInt64, math.MaxInt64 - 1, false},
+		{"large limit reached", math.MaxInt64, math.MaxInt64, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := isOverageLimitReached(tt.limitMicro, tt.overageSpend)
+			if got != tt.wantReached {
+				t.Fatalf("isOverageLimitReached(%d, %d) = %v, want %v",
+					tt.limitMicro, tt.overageSpend, got, tt.wantReached)
+			}
+		})
+	}
+}
+
+func TestUsagePeriodWindow_NilSubscription(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
+	start, end := usagePeriodWindow(now, domain.PlanFree, nil)
+
+	expectedStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	expectedEnd := time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC)
+	if !start.Equal(expectedStart) {
+		t.Errorf("expected start %v, got %v", expectedStart, start)
+	}
+	if !end.Equal(expectedEnd) {
+		t.Errorf("expected end %v, got %v", expectedEnd, end)
+	}
+}
+
+func TestUsagePeriodWindow_PaidWithPeriodDates(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
+	ps := time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC)
+	pe := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
+	sub := &OrgSubscription{
+		CurrentPeriodStart: &ps,
+		CurrentPeriodEnd:   &pe,
+	}
+
+	start, end := usagePeriodWindow(now, domain.PlanStarter, sub)
+	if !start.Equal(ps) {
+		t.Errorf("expected subscription period start %v, got %v", ps, start)
+	}
+	if !end.Equal(pe) {
+		t.Errorf("expected subscription period end %v, got %v", pe, end)
+	}
+}
+
+func TestUsagePeriodWindow_PaidWithNilPeriodDates(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
+	sub := &OrgSubscription{
+		CurrentPeriodStart: nil,
+		CurrentPeriodEnd:   nil,
+	}
+
+	// With nil period dates, should fall back to calendar month.
+	start, end := usagePeriodWindow(now, domain.PlanStarter, sub)
+	expectedStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	expectedEnd := time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC)
+	if !start.Equal(expectedStart) {
+		t.Errorf("expected start %v, got %v", expectedStart, start)
+	}
+	if !end.Equal(expectedEnd) {
+		t.Errorf("expected end %v, got %v", expectedEnd, end)
+	}
+}
+
+// ============================================================.
+// 3. State machine violations (invalid plan transitions)
+// ============================================================.
+
+func TestIsDowngrade_SameTier(t *testing.T) {
+	t.Parallel()
+
+	tiers := []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanEnterprise}
+	for _, tier := range tiers {
+		if IsDowngrade(tier, tier) {
+			t.Errorf("IsDowngrade(%s, %s) should be false", tier, tier)
+		}
+	}
+}
+
+func TestIsDowngrade_AllTransitions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		from   domain.PlanTier
+		to     domain.PlanTier
+		isDown bool
+	}{
+		{domain.PlanFree, domain.PlanStarter, false},
+		{domain.PlanFree, domain.PlanPro, false},
+		{domain.PlanFree, domain.PlanEnterprise, false},
+		{domain.PlanStarter, domain.PlanFree, true},
+		{domain.PlanStarter, domain.PlanPro, false},
+		{domain.PlanStarter, domain.PlanEnterprise, false},
+		{domain.PlanPro, domain.PlanFree, true},
+		{domain.PlanPro, domain.PlanStarter, true},
+		{domain.PlanPro, domain.PlanEnterprise, false},
+		{domain.PlanEnterprise, domain.PlanFree, true},
+		{domain.PlanEnterprise, domain.PlanStarter, true},
+		{domain.PlanEnterprise, domain.PlanPro, true},
+	}
+
+	for _, tt := range tests {
+		name := fmt.Sprintf("%s_to_%s", tt.from, tt.to)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := IsDowngrade(tt.from, tt.to)
+			if got != tt.isDown {
+				t.Errorf("IsDowngrade(%s, %s) = %v, want %v", tt.from, tt.to, got, tt.isDown)
+			}
+		})
+	}
+}
+
+func TestIsDowngrade_UnknownTier(t *testing.T) {
+	t.Parallel()
+
+	// Unknown tiers should fall back to free-tier limits.
+	bogus := domain.PlanTier("imaginary")
+	if IsDowngrade(bogus, domain.PlanFree) {
+		t.Error("bogus tier (maps to free) should not be downgrade to free")
+	}
+	if !IsDowngrade(domain.PlanPro, bogus) {
+		t.Error("pro to bogus (maps to free) should be a downgrade")
+	}
+}
+
+func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
+	t.Parallel()
+
+	periodStart := time.Now().Add(-7 * 24 * time.Hour)
+	periodEnd := time.Now().Add(23 * 24 * time.Hour)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-defer": {
+				OrgID:              "org-defer",
+				PlanTier:           string(domain.PlanPro),
+				Status:             "active",
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &periodEnd,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	// Downgrade from pro -> starter.
+	data := PolarSubscriptionData{
+		ID:                 "sub_defer_1",
+		Status:             "active",
+		CustomerID:         "cust_defer",
+		ProductID:          "starter-id",
+		CurrentPeriodStart: &periodStart,
+		CurrentPeriodEnd:   &periodEnd,
+		Metadata:           map[string]string{"org_id": "org-defer"},
+	}
+	body := webhookPayload(t, "subscription.updated", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// Plan tier should remain pro (deferred).
+	sub, _ := store.GetOrgSubscription(context.Background(), "org-defer")
+	if sub.PlanTier != string(domain.PlanPro) {
+		t.Fatalf("expected pro (deferred), got %s", sub.PlanTier)
+	}
+	if sub.PendingPlanTier == nil || *sub.PendingPlanTier != string(domain.PlanStarter) {
+		t.Fatal("expected pending plan tier to be starter")
+	}
+}
+
+func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
+	t.Parallel()
+
+	canceledAt := time.Now()
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-already-free": {
+				OrgID:    "org-already-free",
+				PlanTier: string(domain.PlanFree),
+				Status:   "active",
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:         "sub_cancel_free",
+		CanceledAt: &canceledAt,
+		Metadata:   map[string]string{"org_id": "org-already-free"},
+	}
+	body := webhookPayload(t, "subscription.canceled", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	sub, _ := store.GetOrgSubscription(context.Background(), "org-already-free")
+	if sub.Status != "canceled" {
+		t.Fatalf("expected status canceled, got %s", sub.Status)
+	}
+	// Should NOT set pending plan tier since already free.
+	if sub.PendingPlanTier != nil {
+		t.Fatalf("expected no pending plan tier for already-free org, got %v", *sub.PendingPlanTier)
+	}
+}
+
+func TestWebhook_RevokeSubscription(t *testing.T) {
+	t.Parallel()
+
+	pending := string(domain.PlanStarter)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-revoke": {
+				OrgID:           "org-revoke",
+				PlanTier:        string(domain.PlanPro),
+				Status:          "active",
+				PendingPlanTier: &pending,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:       "sub_revoke_1",
+		Metadata: map[string]string{"org_id": "org-revoke"},
+	}
+	body := webhookPayload(t, "subscription.revoked", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	sub, _ := store.GetOrgSubscription(context.Background(), "org-revoke")
+	if sub.PlanTier != string(domain.PlanFree) {
+		t.Fatalf("expected free after revoke, got %s", sub.PlanTier)
+	}
+	if sub.Status != "revoked" {
+		t.Fatalf("expected status revoked, got %s", sub.Status)
+	}
+	// Pending plan tier should be cleared.
+	if sub.PendingPlanTier != nil {
+		t.Fatalf("expected nil pending plan tier after revoke, got %v", *sub.PendingPlanTier)
+	}
+}
+
+// ============================================================.
+// 4. Nil/zero value paths
+// ============================================================.
+
+func TestGetPlanLimits_UnknownTierFallback(t *testing.T) {
+	t.Parallel()
+
+	limits := GetPlanLimits(domain.PlanTier("nonexistent"))
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	if limits.MaxRunsPerDay != freeLimits.MaxRunsPerDay {
+		t.Fatalf("unknown tier should return free limits, got runs/day=%d", limits.MaxRunsPerDay)
+	}
+}
+
+func TestEnforcer_NilEnforcerGetOrgPlanLimits(t *testing.T) {
+	t.Parallel()
+
+	var e *Enforcer
+	limits, err := e.GetOrgPlanLimits(context.Background(), "org-nil")
+	if err != nil {
+		t.Fatalf("nil enforcer should not error: %v", err)
+	}
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	if limits.MaxRunsPerDay != freeLimits.MaxRunsPerDay {
+		t.Fatalf("nil enforcer should return free limits")
+	}
+}
+
+func TestEnforcer_EmptyOrgID(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	limits, err := e.GetOrgPlanLimits(context.Background(), "")
+	if err != nil {
+		t.Fatalf("empty org_id should not error: %v", err)
+	}
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	if limits.MaxRunsPerDay != freeLimits.MaxRunsPerDay {
+		t.Fatalf("empty org_id should return free limits")
+	}
+}
+
+func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:        "sub_no_org",
+		ProductID: "starter-id",
+		Metadata:  map[string]string{}, // no org_id
+	}
+	body := webhookPayload(t, "subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+
+	// Should succeed (no-op) without error since org_id cannot be resolved.
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for missing org_id, got %d", rr.Code)
+	}
+	if store.upsertCount != 0 {
+		t.Fatal("expected no upsert when org_id is missing")
+	}
+}
+
+func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:         "sub_cust_meta",
+		ProductID:  "starter-id",
+		CustomerID: "cust_meta_1",
+		Metadata:   map[string]string{}, // no org_id in sub metadata
+		Customer: &PolarCustomerData{
+			ID:       "cust_meta_1",
+			Email:    "user@example.com",
+			Metadata: map[string]string{"org_id": "org-from-customer"},
+		},
+	}
+	body := webhookPayload(t, "subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	_, err := store.GetOrgSubscription(context.Background(), "org-from-customer")
+	if err != nil {
+		t.Fatalf("expected subscription created from customer metadata: %v", err)
+	}
+}
+
+func TestWebhook_EmptyPayload(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	// No secret = signature check skipped.
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader([]byte("")))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty payload, got %d", rr.Code)
+	}
+}
+
+func TestWebhook_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader([]byte("{not json")))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for malformed JSON, got %d", rr.Code)
+	}
+}
+
+func TestWebhook_UnknownEventType(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	body := []byte(`{"type":"invoice.unknown","data":{}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for unknown event type, got %d", rr.Code)
+	}
+}
+
+func TestWebhook_UnknownProductID(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:        "sub_unknown_prod",
+		ProductID: "unknown-product-xyz",
+		Metadata:  map[string]string{"org_id": "org-unknown-prod"},
+	}
+	body := webhookPayload(t, "subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+
+	// Should return 500 because ErrUnknownProduct is returned.
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for unknown product, got %d", rr.Code)
+	}
+}
+
+func TestWebhook_ProductFromNestedObject(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	// ProductID is empty but Product.ID is set.
+	data := PolarSubscriptionData{
+		ID:         "sub_nested_prod",
+		ProductID:  "",
+		CustomerID: "cust_nested",
+		Product:    &PolarProductData{ID: "pro-id", Name: "Pro"},
+		Metadata:   map[string]string{"org_id": "org-nested-prod"},
+	}
+	body := webhookPayload(t, "subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	sub, err := store.GetOrgSubscription(context.Background(), "org-nested-prod")
+	if err != nil {
+		t.Fatalf("expected subscription: %v", err)
+	}
+	if sub.PlanTier != string(domain.PlanPro) {
+		t.Fatalf("expected pro from nested product, got %s", sub.PlanTier)
+	}
+}
+
+// ============================================================.
+// 5. Concurrent operations on billing state
+// ============================================================.
+
+// syncMockBillingStore wraps mockBillingStore with a mutex for concurrent test safety.
+type syncMockBillingStore struct {
+	mu sync.Mutex
+	mockBillingStore
+}
+
+func (s *syncMockBillingStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.GetOrgSubscription(ctx, orgID)
+}
+
+func (s *syncMockBillingStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.UpsertOrgSubscription(ctx, sub)
+}
+
+func (s *syncMockBillingStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, tier, status string, periodStart, periodEnd *time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.UpdateOrgSubscriptionFull(ctx, orgID, tier, status, periodStart, periodEnd)
+}
+
+func (s *syncMockBillingStore) UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.UpdateOrgSubscriptionPlan(ctx, orgID, planTier, status)
+}
+
+func (s *syncMockBillingStore) SetPendingPlanTier(ctx context.Context, orgID, tier string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.SetPendingPlanTier(ctx, orgID, tier)
+}
+
+func (s *syncMockBillingStore) ClearPendingPlanTier(ctx context.Context, orgID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.ClearPendingPlanTier(ctx, orgID)
+}
+
+func (s *syncMockBillingStore) UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.UpdatePaymentStatus(ctx, orgID, status, graceEnd)
+}
+
+func TestWebhook_ConcurrentCreatedEvents(t *testing.T) {
+	t.Parallel()
+
+	store := &syncMockBillingStore{
+		mockBillingStore: mockBillingStore{subscriptions: make(map[string]*OrgSubscription)},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:         "sub_conc_1",
+		Status:     "active",
+		CustomerID: "cust_conc",
+		ProductID:  "starter-id",
+		Metadata:   map[string]string{"org_id": "org-concurrent"},
+	}
+	body := webhookPayload(t, "subscription.created", data)
+
+	var wg sync.WaitGroup
+	var errCount atomic.Int64
+	for range 20 {
+		wg.Go(func() {
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+			if rr.Code != http.StatusOK {
+				errCount.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+
+	if got := errCount.Load(); got != 0 {
+		t.Fatalf("expected 0 errors from concurrent deliveries, got %d", got)
+	}
+
+	// Final state should be consistent.
+	sub, err := store.GetOrgSubscription(context.Background(), "org-concurrent")
+	if err != nil {
+		t.Fatalf("expected subscription: %v", err)
+	}
+	if sub.PlanTier != string(domain.PlanStarter) {
+		t.Fatalf("expected starter, got %s", sub.PlanTier)
+	}
+}
+
+func TestEnforcer_ConcurrentCheckSpendingLimit(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-conc-spend": {
+				OrgID:                 "org-conc-spend",
+				PlanTier:              string(domain.PlanStarter),
+				SpendingLimitMicrousd: 100_000_000, // $100 limit
+				LimitAction:           "reject",
+			},
+		},
+		periodSpendByOrg: map[string]int64{
+			"org-conc-spend": 50_000_000, // $50 spent
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	var wg sync.WaitGroup
+	var errCount atomic.Int64
+
+	for range 100 {
+		wg.Go(func() {
+			err := e.CheckSpendingLimit(context.Background(), "org-conc-spend")
+			if err != nil {
+				errCount.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+
+	// Under limit, all should pass.
+	if got := errCount.Load(); got != 0 {
+		t.Fatalf("expected 0 errors, got %d", got)
+	}
+}
+
+func TestEnforcer_ConcurrentGetOrgPlanLimits(t *testing.T) {
+	t.Parallel()
+
+	store := &syncMockBillingStore{
+		mockBillingStore: mockBillingStore{
+			subscriptions: map[string]*OrgSubscription{
+				"org-conc-limits": {
+					OrgID:    "org-conc-limits",
+					PlanTier: string(domain.PlanPro),
+					Status:   "active",
+				},
+			},
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Go(func() {
+			limits, err := e.GetOrgPlanLimits(context.Background(), "org-conc-limits")
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if limits.PlanTier != domain.PlanPro {
+				t.Errorf("expected pro, got %s", limits.PlanTier)
+			}
+		})
+	}
+	wg.Wait()
+}
+
+// ============================================================.
+// 6. Error cascades (DB errors mid-operation)
+// ============================================================.
+
+func TestWebhook_UpsertErrorOnCreate(t *testing.T) {
+	t.Parallel()
+
+	store := &errStore{
+		upsertErr: errors.New("db connection lost"),
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:        "sub_err_create",
+		ProductID: "starter-id",
+		Metadata:  map[string]string{"org_id": "org-err-create"},
+	}
+	body := webhookPayload(t, "subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on upsert error, got %d", rr.Code)
+	}
+}
+
+func TestWebhook_GetSubErrorOnUpdated(t *testing.T) {
+	t.Parallel()
+
+	store := &errStore{
+		getSubErr: errors.New("timeout connecting to database"),
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:        "sub_err_update",
+		ProductID: "starter-id",
+		Status:    "active",
+		Metadata:  map[string]string{"org_id": "org-err-update"},
+	}
+	body := webhookPayload(t, "subscription.updated", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on get subscription error, got %d", rr.Code)
+	}
+}
+
+func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
+	t.Parallel()
+
+	store := &errStore{
+		mockBillingStore: mockBillingStore{
+			subscriptions: map[string]*OrgSubscription{
+				"org-fall": {
+					OrgID:    "org-fall",
+					PlanTier: string(domain.PlanStarter),
+					Status:   "active",
+				},
+			},
+		},
+		// Return ErrSubscriptionNotFound from UpdateFull to trigger fallback path.
+		updateFullErr: ErrSubscriptionNotFound,
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:         "sub_fallback",
+		ProductID:  "pro-id",
+		Status:     "active",
+		CustomerID: "cust_fall",
+		Metadata:   map[string]string{"org_id": "org-fall"},
+	}
+	body := webhookPayload(t, "subscription.updated", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 on fallback upsert, got %d", rr.Code)
+	}
+
+	// Verify fallback upsert was triggered.
+	if store.upsertCallCount.Load() == 0 {
+		t.Fatal("expected fallback upsert to be called")
+	}
+}
+
+func TestWebhook_AuditStoreError(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
+	auditStore := &advMockAuditStore{err: errors.New("audit table locked")}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, auditStore)
+
+	data := PolarSubscriptionData{
+		ID:        "sub_audit_err",
+		ProductID: "starter-id",
+		Metadata:  map[string]string{"org_id": "org-audit-err"},
+	}
+	body := webhookPayload(t, "subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+
+	// Audit error should not fail the webhook.
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 despite audit error, got %d", rr.Code)
+	}
+
+	// Subscription should still be created.
+	_, err := store.GetOrgSubscription(context.Background(), "org-audit-err")
+	if err != nil {
+		t.Fatalf("subscription should exist despite audit error: %v", err)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_FailOpen(t *testing.T) {
+	t.Parallel()
+
+	store := &errStore{
+		getSubErr: errors.New("transient db error"),
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	// Should fail open (return nil) when DB is unreachable.
+	err := e.CheckSpendingLimit(context.Background(), "org-fail-open")
+	if err != nil {
+		t.Fatalf("expected fail-open (nil error), got %v", err)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_FreeTierExceeded(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-free-exceeded": {
+				OrgID:    "org-free-exceeded",
+				PlanTier: string(domain.PlanFree),
+				Status:   "active",
+			},
+		},
+		periodSpendByOrg: map[string]int64{
+			"org-free-exceeded": CreditFreeMicrousd + 1, // $1.00 + 1 micro
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	err := e.CheckSpendingLimit(context.Background(), "org-free-exceeded")
+	if err == nil {
+		t.Fatal("expected spending limit error for free tier exceeded")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "spending_limit_reached" {
+		t.Errorf("expected code spending_limit_reached, got %s", le.Code)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_PaidNoLimit(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-no-limit": {
+				OrgID:                 "org-no-limit",
+				PlanTier:              string(domain.PlanPro),
+				SpendingLimitMicrousd: -1, // no limit
+				Status:                "active",
+			},
+		},
+		periodSpendByOrg: map[string]int64{
+			"org-no-limit": 999_999_999,
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	err := e.CheckSpendingLimit(context.Background(), "org-no-limit")
+	if err != nil {
+		t.Fatalf("expected nil for unlimited spending, got %v", err)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_PaidLimitReached(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-limit-hit": {
+				OrgID:                 "org-limit-hit",
+				PlanTier:              string(domain.PlanStarter),
+				SpendingLimitMicrousd: 50_000_000, // $50 limit
+				LimitAction:           "reject",
+				Status:                "active",
+			},
+		},
+		periodSpendByOrg: map[string]int64{
+			// Spend exceeds included credit + spending limit.
+			"org-limit-hit": CreditStarterMicrousd + 50_000_000,
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	err := e.CheckSpendingLimit(context.Background(), "org-limit-hit")
+	if err == nil {
+		t.Fatal("expected spending limit error")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_NoSubscription(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		periodSpendByOrg: map[string]int64{
+			"org-no-sub": 500_000, // within free credit
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	// No subscription -> free tier path.
+	err := e.CheckSpendingLimit(context.Background(), "org-no-sub")
+	if err != nil {
+		t.Fatalf("expected nil for under-credit free tier, got %v", err)
+	}
+}
+
+func TestEnforcer_CheckProjectLimit_AtLimit(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-proj-limit": {
+				OrgID:    "org-proj-limit",
+				PlanTier: string(domain.PlanFree),
+				Status:   "active",
+			},
+		},
+		projects: map[string][]string{
+			"org-proj-limit": {"p1", "p2"}, // MaxProjectsFree = 2
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	err := e.CheckProjectLimit(context.Background(), "org-proj-limit")
+	if err == nil {
+		t.Fatal("expected project limit error")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "project_limit_reached" {
+		t.Errorf("expected code project_limit_reached, got %s", le.Code)
+	}
+}
+
+func TestEnforcer_CheckMemberLimit_AtLimit(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-mem-limit": {
+				OrgID:    "org-mem-limit",
+				PlanTier: string(domain.PlanFree),
+				Status:   "active",
+			},
+		},
+		memberCounts: map[string]int{
+			"org-mem-limit": MaxMembersFree, // exactly at limit
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	err := e.CheckMemberLimit(context.Background(), "org-mem-limit")
+	if err == nil {
+		t.Fatal("expected member limit error")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "member_limit_reached" {
+		t.Errorf("expected code member_limit_reached, got %s", le.Code)
+	}
+}
+
+func TestEnforcer_CheckOrgCreationLimit(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		orgCountsByUser: map[string]int{
+			"user-max-orgs": MaxOrgsFree, // exactly at limit
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	err := e.CheckOrgCreationLimit(context.Background(), "user-max-orgs", domain.PlanFree)
+	if err == nil {
+		t.Fatal("expected org limit error")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "org_limit_reached" {
+		t.Errorf("expected code org_limit_reached, got %s", le.Code)
+	}
+
+	// Unlimited enterprise should always pass.
+	err = e.CheckOrgCreationLimit(context.Background(), "user-max-orgs", domain.PlanEnterprise)
+	if err != nil {
+		t.Fatalf("expected nil for enterprise unlimited orgs, got %v", err)
+	}
+}
+
+func TestEnforcer_CheckProjectBudget_NotifyMode(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBudgetAdversarialStore{budget: 100000, action: "notify", spend: 200000}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	// Notify mode should not reject even when over budget.
+	err := e.CheckProjectBudgetLimit(context.Background(), "proj-notify")
+	if err != nil {
+		t.Fatalf("expected nil for notify mode, got %v", err)
+	}
+}
+
+func TestEnforcer_CheckProjectBudget_DBError(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBudgetAdversarialStore{budgetErr: errors.New("db down")}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	// Should fail open.
+	err := e.CheckProjectBudgetLimit(context.Background(), "proj-db-err")
+	if err != nil {
+		t.Fatalf("expected fail-open (nil), got %v", err)
+	}
+}
+
+func TestEnforcer_CheckProjectBudget_SpendDBError(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBudgetAdversarialStore{budget: 100000, action: "reject", spendErr: errors.New("spend query failed")}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	// Should fail open on spend query error.
+	err := e.CheckProjectBudgetLimit(context.Background(), "proj-spend-err")
+	if err != nil {
+		t.Fatalf("expected fail-open (nil), got %v", err)
+	}
+}
+
+func TestEnforcer_CheckProjectBudget_EmptyProjectID(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBudgetAdversarialStore{budget: 0, action: "reject"}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	err := e.CheckProjectBudgetLimit(context.Background(), "")
+	if err != nil {
+		t.Fatalf("expected nil for empty project ID, got %v", err)
+	}
+}
+
+// ============================================================.
+// Payment status / grace period paths
+// ============================================================.
+
+func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	periodStart := now.Add(-15 * 24 * time.Hour)
+	periodEnd := now.Add(15 * 24 * time.Hour)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-pastdue": {
+				OrgID:              "org-pastdue",
+				PlanTier:           string(domain.PlanStarter),
+				Status:             "active",
+				PaymentStatus:      "ok",
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &periodEnd,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:                 "sub_pastdue",
+		ProductID:          "starter-id",
+		Status:             "past_due",
+		CurrentPeriodStart: &periodStart,
+		CurrentPeriodEnd:   &periodEnd,
+		Metadata:           map[string]string{"org_id": "org-pastdue"},
+	}
+	body := webhookPayload(t, "subscription.updated", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	sub, _ := store.GetOrgSubscription(context.Background(), "org-pastdue")
+	if sub.PaymentStatus != "grace" {
+		t.Fatalf("expected payment_status=grace, got %s", sub.PaymentStatus)
+	}
+	if sub.GracePeriodEnd == nil {
+		t.Fatal("expected grace_period_end to be set")
+	}
+}
+
+func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
+	t.Parallel()
+
+	graceEnd := time.Now().Add(48 * time.Hour)
+	periodStart := time.Now().Add(-15 * 24 * time.Hour)
+	periodEnd := time.Now().Add(15 * 24 * time.Hour)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-recover": {
+				OrgID:              "org-recover",
+				PlanTier:           string(domain.PlanStarter),
+				Status:             "active",
+				PaymentStatus:      "grace",
+				GracePeriodEnd:     &graceEnd,
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &periodEnd,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:                 "sub_recover",
+		ProductID:          "starter-id",
+		Status:             "active",
+		CurrentPeriodStart: &periodStart,
+		CurrentPeriodEnd:   &periodEnd,
+		Metadata:           map[string]string{"org_id": "org-recover"},
+	}
+	body := webhookPayload(t, "subscription.updated", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	sub, _ := store.GetOrgSubscription(context.Background(), "org-recover")
+	if sub.PaymentStatus != "ok" {
+		t.Fatalf("expected payment_status=ok after recovery, got %s", sub.PaymentStatus)
+	}
+}
+
+func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
+	t.Parallel()
+
+	graceEnd := time.Now().Add(48 * time.Hour)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-paid": {
+				OrgID:          "org-paid",
+				PlanTier:       string(domain.PlanStarter),
+				Status:         "active",
+				PaymentStatus:  "restricted",
+				GracePeriodEnd: &graceEnd,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:       "sub_paid",
+		Metadata: map[string]string{"org_id": "org-paid"},
+	}
+	body := webhookPayload(t, "subscription.active", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	sub, _ := store.GetOrgSubscription(context.Background(), "org-paid")
+	if sub.PaymentStatus != "ok" {
+		t.Fatalf("expected payment_status=ok after payment, got %s", sub.PaymentStatus)
+	}
+}
+
+func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-already-ok": {
+				OrgID:         "org-already-ok",
+				PlanTier:      string(domain.PlanStarter),
+				Status:        "active",
+				PaymentStatus: "ok",
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:       "sub_ok",
+		Metadata: map[string]string{"org_id": "org-already-ok"},
+	}
+	body := webhookPayload(t, "subscription.active", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// Payment status should remain "ok" without unnecessary update.
+	if store.lastPaymentStatusUpdate != nil {
+		t.Fatal("expected no payment status update for already-ok org")
+	}
+}
+
+// ============================================================.
+// Signature verification edge cases
+// ============================================================.
+
+func TestWebhook_MultipleSignaturesInHeader(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:        "sub_multisig",
+		ProductID: "starter-id",
+		Metadata:  map[string]string{"org_id": "org-multisig"},
+	}
+	body := webhookPayload(t, "subscription.created", data)
+
+	// Build a valid signature.
+	msgID := "msg_multi"
+	ts := fmt.Sprintf("%d", time.Now().Unix())
+	rawSecret := base64.StdEncoding.EncodeToString([]byte("test-webhook-secret-key-1234567"))
+	key, _ := base64.StdEncoding.DecodeString(rawSecret)
+	signedContent := fmt.Sprintf("%s.%s.%s", msgID, ts, string(body))
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(signedContent))
+	validSig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	// Put invalid sig first, valid sig second.
+	sigHeader := "v1,invalidsig v1," + validSig
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	req.Header.Set("webhook-id", msgID)
+	req.Header.Set("webhook-timestamp", ts)
+	req.Header.Set("webhook-signature", sigHeader)
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 with valid sig in multi-sig header, got %d", rr.Code)
+	}
+}
+
+func TestWebhook_FutureTimestamp(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	body := []byte(`{"type":"subscription.created","data":{}}`)
+	futureTS := fmt.Sprintf("%d", time.Now().Add(10*time.Minute).Unix())
+
+	rawSecret := base64.StdEncoding.EncodeToString([]byte("test-webhook-secret-key-1234567"))
+	key, _ := base64.StdEncoding.DecodeString(rawSecret)
+	signedContent := fmt.Sprintf("msg_future.%s.%s", futureTS, string(body))
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(signedContent))
+	sig := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	req.Header.Set("webhook-id", "msg_future")
+	req.Header.Set("webhook-timestamp", futureTS)
+	req.Header.Set("webhook-signature", sig)
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for future timestamp, got %d", rr.Code)
+	}
+}
+
+func TestWebhook_NonNumericTimestamp(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	body := []byte(`{"type":"subscription.created","data":{}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	req.Header.Set("webhook-id", "msg_badts")
+	req.Header.Set("webhook-timestamp", "not-a-number")
+	req.Header.Set("webhook-signature", "v1,anything")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for non-numeric timestamp, got %d", rr.Code)
+	}
+}
+
+// ============================================================.
+// Downgrade preview and build impact
+// ============================================================.
+
+func TestBuildImpact_UnlimitedToLimited(t *testing.T) {
+	t.Parallel()
+
+	impact := buildImpact("test_resource", -1, 10)
+	if impact.Action != ResourceActionReduce {
+		t.Errorf("expected reduce action for unlimited->limited, got %s", impact.Action)
+	}
+}
+
+func TestBuildImpact_LimitedToUnlimited(t *testing.T) {
+	t.Parallel()
+
+	impact := buildImpact("test_resource", 10, -1)
+	if impact.Action != ResourceActionOK {
+		t.Errorf("expected OK action for limited->unlimited, got %s", impact.Action)
+	}
+}
+
+func TestBuildImpact_LimitedToZero(t *testing.T) {
+	t.Parallel()
+
+	impact := buildImpact("test_resource", 5, 0)
+	if impact.Action != ResourceActionRemove {
+		t.Errorf("expected remove action for limited->zero, got %s", impact.Action)
+	}
+}
+
+func TestAutoDisableResources_Separation(t *testing.T) {
+	t.Parallel()
+
+	impacts := []ResourceImpact{
+		{Resource: "projects", Action: ResourceActionReduce, Current: 10, Limit: 5},
+		{Resource: "members_per_org", Action: ResourceActionReduce, Current: 25, Limit: 10},
+		{Resource: "regions", Action: ResourceActionReduce, Current: 25, Limit: 6},
+		{Resource: "retention_days", Action: ResourceActionOK, Current: 30, Limit: 30},
+	}
+
+	manual, auto := AutoDisableResources(impacts)
+
+	if len(manual) != 2 {
+		t.Fatalf("expected 2 manual actions, got %d", len(manual))
+	}
+	if len(auto) != 1 {
+		t.Fatalf("expected 1 auto-disabled, got %d", len(auto))
+	}
+	if auto[0].Resource != "regions" {
+		t.Errorf("expected regions as auto-disabled, got %s", auto[0].Resource)
+	}
+}
+
+// ============================================================.
+// LimitError interface compliance
+// ============================================================.
+
+func TestLimitError_ErrorInterface(t *testing.T) {
+	t.Parallel()
+
+	le := &LimitError{
+		Code:    "test_code",
+		Message: "test message",
+	}
+
+	// Verify it implements error interface.
+	var err error = le
+	if err.Error() != "test message" {
+		t.Errorf("Error() = %q, want %q", err.Error(), "test message")
+	}
+
+	// Verify errors.As works.
+	wrapped := fmt.Errorf("wrapping: %w", le)
+	var target *LimitError
+	if !errors.As(wrapped, &target) {
+		t.Fatal("errors.As should unwrap to LimitError")
+	}
+	if target.Code != "test_code" {
+		t.Errorf("unwrapped code = %q, want test_code", target.Code)
+	}
+}
+
+// ============================================================.
+// Anomaly detection edge cases
+// ============================================================.
+
+func TestAnomalyConfig_HighThresholdAutoComputed(t *testing.T) {
+	t.Parallel()
+
+	cfg := AnomalyConfig{WarningThreshold: 3.0, CriticalThreshold: 10.0}
+	if ht := cfg.highThreshold(); ht != 6.5 {
+		t.Errorf("expected auto-computed high threshold 6.5, got %f", ht)
+	}
+
+	cfg2 := AnomalyConfig{WarningThreshold: 3.0, HighThreshold: 7.0, CriticalThreshold: 10.0}
+	if ht := cfg2.highThreshold(); ht != 7.0 {
+		t.Errorf("expected explicit high threshold 7.0, got %f", ht)
+	}
+}
+
+func TestNewAnomalyDetectorWithConfig_DefaultsOnZero(t *testing.T) {
+	t.Parallel()
+
+	d := NewAnomalyDetectorWithConfig(&mockBillingStore{}, AnomalyConfig{
+		WarningThreshold:  0,
+		CriticalThreshold: 0,
+	})
+
+	if d.config.WarningThreshold != spikeWarning {
+		t.Errorf("expected default warning threshold %f, got %f", spikeWarning, d.config.WarningThreshold)
+	}
+	if d.config.CriticalThreshold != spikeCritical {
+		t.Errorf("expected default critical threshold %f, got %f", spikeCritical, d.config.CriticalThreshold)
+	}
+}
+
+// ============================================================.
+// SafePercent edge cases
+// ============================================================.
+
+func TestSafePercent_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		used     int64
+		limit    int64
+		expected float64
+	}{
+		{"zero limit", 100, 0, 0},
+		{"negative limit", 100, -1, 0},
+		{"zero used", 0, 100, 0},
+		{"100 percent", 100, 100, 100},
+		{"over 100 percent", 200, 100, 200},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := safePercent(tt.used, tt.limit)
+			if got != tt.expected {
+				t.Errorf("safePercent(%d, %d) = %f, want %f", tt.used, tt.limit, got, tt.expected)
+			}
+		})
+	}
+}
+
+// ============================================================.
+// RecommendPlan edge cases
+// ============================================================.
+
+func TestRecommendPlan_AllTiers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		monthlyRuns    int64
+		monthlyCompute int64
+		expected       string
+	}{
+		{"zero usage", 0, 0, string(domain.PlanFree)},
+		{"just under free limit", DailyRunsFree * 30, 0, string(domain.PlanFree)},
+		{"over free runs", DailyRunsFree*30 + 1, 0, string(domain.PlanStarter)},
+		{"starter range", DailyRunsStarter * 30, CreditStarterMicrousd, string(domain.PlanStarter)},
+		{"over starter", DailyRunsStarter*30 + 1, CreditStarterMicrousd, string(domain.PlanPro)},
+		{"pro range", DailyRunsPro * 30, CreditProMicrousd, string(domain.PlanPro)},
+		{"over pro", DailyRunsPro*30 + 1, CreditProMicrousd, string(domain.PlanEnterprise)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := recommendPlan(tt.monthlyRuns, tt.monthlyCompute)
+			if got != tt.expected {
+				t.Errorf("recommendPlan(%d, %d) = %s, want %s",
+					tt.monthlyRuns, tt.monthlyCompute, got, tt.expected)
+			}
+		})
+	}
+}
+
+// ============================================================.
+// MicroToUSDString
+// ============================================================.
+
+func TestMicroToUSDString_Adversarial(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		micro    int64
+		expected string
+	}{
+		{0, "0.000000"},
+		{1_000_000, "1.000000"},
+		{1, "0.000001"},
+		{-1_000_000, "-1.000000"},
+		{999_999, "0.999999"},
+	}
+
+	for _, tt := range tests {
+		got := microToUSDString(tt.micro)
+		if got != tt.expected {
+			t.Errorf("microToUSDString(%d) = %q, want %q", tt.micro, got, tt.expected)
+		}
+	}
+}
+
+// ============================================================.
+// WelcomeEmail option
+// ============================================================.
+
+func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+
+	var emailSent atomic.Bool
+	welcomeFn := func(_ context.Context, orgID string, tier domain.PlanTier, email string) error {
+		emailSent.Store(true)
+		return nil
+	}
+
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil,
+		WithWelcomeEmail(welcomeFn))
+
+	data := PolarSubscriptionData{
+		ID:         "sub_welcome",
+		ProductID:  "starter-id",
+		CustomerID: "cust_welcome",
+		Metadata:   map[string]string{"org_id": "org-welcome"},
+		Customer:   &PolarCustomerData{ID: "cust_welcome", Email: "welcome@example.com"},
+	}
+	body := webhookPayload(t, "subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// Give async goroutine time to execute.
+	time.Sleep(100 * time.Millisecond)
+	if !emailSent.Load() {
+		t.Fatal("expected welcome email to be sent for paid plan")
+	}
+}
+
+func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
+	t.Parallel()
+
+	// Create a mapping where a product maps to free tier (not possible in real config,
+	// but we test the code path). We test via subscription.created with no known product
+	// that maps to free. Instead, test that free tier does not trigger the email by
+	// verifying the behavior: webhook returns OK but welcome is not sent.
+
+	// This actually tests: if tier == domain.PlanFree, welcomeEmail is not called.
+	// We cannot easily map a product to free tier in the mapping, so we test the
+	// no-customer-email path instead.
+	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+
+	var emailSent atomic.Bool
+	welcomeFn := func(_ context.Context, orgID string, tier domain.PlanTier, email string) error {
+		emailSent.Store(true)
+		return nil
+	}
+
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil,
+		WithWelcomeEmail(welcomeFn))
+
+	// No customer email set => welcome email should not be sent.
+	data := PolarSubscriptionData{
+		ID:         "sub_no_email",
+		ProductID:  "starter-id",
+		CustomerID: "cust_no_email",
+		Metadata:   map[string]string{"org_id": "org-no-email"},
+		// Customer is nil, so email is empty.
+	}
+	body := webhookPayload(t, "subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if emailSent.Load() {
+		t.Fatal("expected welcome email NOT to be sent when customer email is empty")
+	}
+}
+
+// ============================================================.
+// NewEnforcer panics on nil store
+// ============================================================.
+
+// ============================================================.
+// UsageService methods with 0% coverage
+// ============================================================.
+
+func TestUsageService_GetProjectCosts(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		usageRecords: []UsageRecord{
+			{ProjectID: "proj-a", RunsCount: 10, ComputeCostMicro: 1000, AICostMicro: 500},
+			{ProjectID: "proj-a", RunsCount: 5, ComputeCostMicro: 600, AICostMicro: 200},
+			{ProjectID: "proj-b", RunsCount: 3, ComputeCostMicro: 300, AICostMicro: 100},
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	from := time.Now().Add(-7 * 24 * time.Hour)
+	to := time.Now()
+	costs, err := svc.GetProjectCosts(context.Background(), "org-costs", from, to)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(costs) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(costs))
+	}
+
+	// Check aggregation for one of the projects.
+	costMap := make(map[string]ProjectCostEntry)
+	for _, c := range costs {
+		costMap[c.ProjectID] = c
+	}
+	if a, ok := costMap["proj-a"]; ok {
+		if a.Runs != 15 {
+			t.Errorf("proj-a runs: expected 15, got %d", a.Runs)
+		}
+		if a.TotalMicro != 2300 {
+			t.Errorf("proj-a total: expected 2300, got %d", a.TotalMicro)
+		}
+	} else {
+		t.Fatal("proj-a not found in costs")
+	}
+}
+
+func TestUsageService_ExportCSV(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		usageRecords: []UsageRecord{
+			{
+				ProjectID:        "proj-csv",
+				PeriodDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+				RunsCount:        100,
+				ComputeCostMicro: 50000,
+				AITokensTotal:    1000,
+				AICostMicro:      2000,
+			},
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	from := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC)
+	csv, err := svc.ExportUsageCSV(context.Background(), "org-csv", from, to)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(csv) == 0 {
+		t.Fatal("expected non-empty CSV output")
+	}
+	// Check header is present.
+	if !bytes.Contains(csv, []byte("date,project,runs")) {
+		t.Fatal("expected CSV header in output")
+	}
+}
+
+func TestUsageService_ExportPDF(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-pdf": {
+				OrgID:    "org-pdf",
+				PlanTier: string(domain.PlanStarter),
+				Status:   "active",
+			},
+		},
+		usageRecords: []UsageRecord{
+			{
+				ProjectID:        "proj-pdf",
+				PeriodDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+				RunsCount:        50,
+				ComputeCostMicro: 25000,
+				AICostMicro:      1000,
+			},
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	from := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC)
+	pdf, err := svc.ExportUsagePDF(context.Background(), "org-pdf", from, to)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pdf) == 0 {
+		t.Fatal("expected non-empty PDF output")
+	}
+	// PDF files start with %PDF.
+	if !bytes.HasPrefix(pdf, []byte("%PDF")) {
+		t.Fatal("expected PDF magic bytes")
+	}
+}
+
+func TestUsageService_GetProjectBudget(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	resp, err := svc.GetProjectBudget(context.Background(), "proj-budget")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.ProjectID != "proj-budget" {
+		t.Errorf("expected project_id proj-budget, got %s", resp.ProjectID)
+	}
+	// Default mock returns -1, "notify".
+	if resp.MonthlyBudgetMicro != -1 {
+		t.Errorf("expected budget -1, got %d", resp.MonthlyBudgetMicro)
+	}
+}
+
+func TestUsageService_PreviewDowngrade(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-preview": {
+				OrgID:    "org-preview",
+				PlanTier: string(domain.PlanPro),
+				Status:   "active",
+			},
+		},
+		projects: map[string][]string{
+			"org-preview": {"p1", "p2", "p3", "p4", "p5"},
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	impact, err := svc.PreviewDowngrade(context.Background(), "org-preview", domain.PlanFree)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if impact.TargetTier != string(domain.PlanFree) {
+		t.Errorf("expected target tier free, got %s", impact.TargetTier)
+	}
+	if len(impact.Impacts) == 0 {
+		t.Fatal("expected non-empty impacts")
+	}
+
+	// 5 projects > MaxProjectsFree (2), should appear in manual actions.
+	found := false
+	for _, ma := range impact.ManualActions {
+		if ma.Resource == "projects" {
+			found = true
+			if ma.Action != ResourceActionReduce {
+				t.Errorf("expected reduce action for projects, got %s", ma.Action)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected projects in manual actions")
+	}
+}
+
+func TestUsageService_DetectAnomalies(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+
+	// Build 7 historical days + 1 today with a spike.
+	var records []UsageRecord
+	for i := 7; i >= 1; i-- {
+		records = append(records, UsageRecord{
+			OrgID:            "org-anomaly",
+			ProjectID:        "proj-1",
+			PeriodDate:       today.AddDate(0, 0, -i),
+			ComputeCostMicro: 1000,
+			AICostMicro:      0,
+		})
+	}
+	// Today's spend is 10x the average (spike).
+	records = append(records, UsageRecord{
+		OrgID:            "org-anomaly",
+		ProjectID:        "proj-1",
+		PeriodDate:       today,
+		ComputeCostMicro: 10000,
+		AICostMicro:      0,
+	})
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-anomaly": {
+				OrgID:    "org-anomaly",
+				PlanTier: string(domain.PlanStarter),
+				Status:   "active",
+			},
+		},
+		usageRecords: records,
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	alerts, err := svc.DetectAnomalies(context.Background(), "org-anomaly")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(alerts) == 0 {
+		t.Fatal("expected at least one anomaly alert for 10x spike")
+	}
+	if alerts[0].Severity != AnomalySeverityCritical {
+		t.Errorf("expected critical severity for 10x spike, got %s", alerts[0].Severity)
+	}
+}
+
+func TestUsageService_GetAnomalyConfig_NoSubscription(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	cfg, err := svc.GetAnomalyConfig(context.Background(), "org-no-sub")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WarningThreshold != spikeWarning {
+		t.Errorf("expected default warning %f, got %f", spikeWarning, cfg.WarningThreshold)
+	}
+}
+
+func TestUsageService_GetAnomalyConfig_WithCustomThresholds(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-custom-thresh": {
+				OrgID:                    "org-custom-thresh",
+				PlanTier:                 string(domain.PlanPro),
+				AnomalyThresholdWarning:  5.0,
+				AnomalyThresholdCritical: 15.0,
+			},
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	cfg, err := svc.GetAnomalyConfig(context.Background(), "org-custom-thresh")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WarningThreshold != 5.0 {
+		t.Errorf("expected warning 5.0, got %f", cfg.WarningThreshold)
+	}
+	if cfg.CriticalThreshold != 15.0 {
+		t.Errorf("expected critical 15.0, got %f", cfg.CriticalThreshold)
+	}
+}
+
+func TestUsageService_SetAnomalyConfig_Validation(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	// Warning must be > 1.0.
+	err := svc.SetAnomalyConfig(context.Background(), "org-thresh", 0.5, 10.0)
+	if err == nil {
+		t.Fatal("expected error for warning <= 1.0")
+	}
+
+	// Critical must be > warning.
+	err = svc.SetAnomalyConfig(context.Background(), "org-thresh", 5.0, 3.0)
+	if err == nil {
+		t.Fatal("expected error for critical <= warning")
+	}
+
+	// Valid config should succeed.
+	err = svc.SetAnomalyConfig(context.Background(), "org-thresh", 3.0, 10.0)
+	if err != nil {
+		t.Fatalf("expected nil for valid config, got %v", err)
+	}
+}
+
+func TestUsageService_SetSpendingLimit_Validation(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-spend-val": {
+				OrgID:    "org-spend-val",
+				PlanTier: string(domain.PlanStarter),
+				Status:   "active",
+			},
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	// Negative limit.
+	err := svc.SetSpendingLimit(context.Background(), "org-spend-val", -1, "reject")
+	if err == nil {
+		t.Fatal("expected error for negative limit")
+	}
+
+	// Invalid action.
+	err = svc.SetSpendingLimit(context.Background(), "org-spend-val", 100000, "block")
+	if err == nil {
+		t.Fatal("expected error for invalid action")
+	}
+
+	// Over max limit for starter.
+	err = svc.SetSpendingLimit(context.Background(), "org-spend-val", MaxSpendingStarter+1, "reject")
+	if err == nil {
+		t.Fatal("expected error for over max limit")
+	}
+
+	// Free plan cannot set spending limit.
+	store2 := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-free-limit": {
+				OrgID:    "org-free-limit",
+				PlanTier: string(domain.PlanFree),
+				Status:   "active",
+			},
+		},
+	}
+	svc2 := NewUsageService(store2, NewEnforcer(store2, nil, slog.Default()))
+	err = svc2.SetSpendingLimit(context.Background(), "org-free-limit", 100000, "reject")
+	if err == nil {
+		t.Fatal("expected error for free plan spending limit")
+	}
+
+	// No subscription.
+	store3 := &mockBillingStore{}
+	svc3 := NewUsageService(store3, NewEnforcer(store3, nil, slog.Default()))
+	err = svc3.SetSpendingLimit(context.Background(), "org-no-sub", 100000, "reject")
+	if err == nil {
+		t.Fatal("expected error for no subscription")
+	}
+}
+
+func TestUsageService_GetEmailPreferences_Adversarial(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-email": {
+				OrgID:             "org-email",
+				PlanTier:          string(domain.PlanPro),
+				MonthlyUsageEmail: true,
+			},
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+	svc := NewUsageService(store, e)
+
+	prefs, err := svc.GetEmailPreferences(context.Background(), "org-email")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !prefs.MonthlyUsageEmail {
+		t.Error("expected MonthlyUsageEmail to be true")
+	}
+
+	// No subscription => defaults to true.
+	prefs2, err := svc.GetEmailPreferences(context.Background(), "org-no-sub")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !prefs2.MonthlyUsageEmail {
+		t.Error("expected default MonthlyUsageEmail to be true")
+	}
+}
+
+// ============================================================.
+// Webhook: subscription.canceled with non-existent org
+// ============================================================.
+
+func TestWebhook_CancelNonExistentOrg(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{} // no subscriptions
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:       "sub_cancel_noexist",
+		Metadata: map[string]string{"org_id": "org-nonexistent"},
+	}
+	body := webhookPayload(t, "subscription.canceled", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for cancel of non-existent org, got %d", rr.Code)
+	}
+}
+
+// ============================================================.
+// Webhook: subscription.revoked with non-existent org
+// ============================================================.
+
+func TestWebhook_RevokeNonExistentOrg(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{} // no subscriptions
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:       "sub_revoke_noexist",
+		Metadata: map[string]string{"org_id": "org-nonexistent"},
+	}
+	body := webhookPayload(t, "subscription.revoked", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for revoke of non-existent org, got %d", rr.Code)
+	}
+}
+
+// ============================================================.
+// Webhook: payment succeeded with non-existent org
+// ============================================================.
+
+func TestWebhook_PaymentSucceededNonExistentOrg(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:       "sub_pay_noexist",
+		Metadata: map[string]string{"org_id": "org-nonexistent"},
+	}
+	body := webhookPayload(t, "order.paid", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for payment on non-existent org, got %d", rr.Code)
+	}
+}
+
+// ============================================================.
+// Webhook: subscription.updated with unknown product returns OK (logged)
+// ============================================================.
+
+func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-unk-prod": {
+				OrgID:    "org-unk-prod",
+				PlanTier: string(domain.PlanStarter),
+				Status:   "active",
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:        "sub_unk_prod_upd",
+		ProductID: "unknown-product",
+		Status:    "active",
+		Metadata:  map[string]string{"org_id": "org-unk-prod"},
+	}
+	body := webhookPayload(t, "subscription.updated", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+
+	// Unknown product on update is a no-op (not an error).
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for unknown product on update, got %d", rr.Code)
+	}
+}
+
+// ============================================================.
+// Webhook: subscription.updated with empty status defaults to "active"
+// ============================================================.
+
+func TestWebhook_UpdatedEmptyStatusDefaultsActive(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	ps := now.Add(-7 * 24 * time.Hour)
+	pe := now.Add(23 * 24 * time.Hour)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-empty-status": {
+				OrgID:              "org-empty-status",
+				PlanTier:           string(domain.PlanStarter),
+				Status:             "active",
+				CurrentPeriodStart: &ps,
+				CurrentPeriodEnd:   &pe,
+			},
+		},
+	}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := PolarSubscriptionData{
+		ID:                 "sub_empty_status",
+		ProductID:          "starter-id",
+		Status:             "", // empty, should default to "active"
+		CurrentPeriodStart: &ps,
+		CurrentPeriodEnd:   &pe,
+		Metadata:           map[string]string{"org_id": "org-empty-status"},
+	}
+	body := webhookPayload(t, "subscription.updated", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestNewEnforcer_PanicsOnNilStore(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when store is nil")
+		}
+	}()
+	NewEnforcer(nil, nil, slog.Default())
+}

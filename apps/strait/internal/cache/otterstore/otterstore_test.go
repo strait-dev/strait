@@ -149,12 +149,20 @@ func TestOtterStore_TTLExpiry(t *testing.T) {
 	}
 
 	// Otter uses a timer wheel with ~1s granularity for expiration.
-	// Sleep enough for the entry to expire and be cleaned up.
-	time.Sleep(3 * time.Second)
-
-	_, err = s.Get(ctx, "expire-me")
-	if err == nil {
-		t.Fatal("expected NotFound after TTL expiry")
+	// Poll until the entry expires rather than using a fixed sleep.
+	deadline := time.After(10 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for TTL expiry")
+		case <-ticker.C:
+			_, err = s.Get(ctx, "expire-me")
+			if err != nil {
+				return // Entry expired as expected.
+			}
+		}
 	}
 }
 
@@ -176,11 +184,20 @@ func TestOtterStore_CustomTTLOverride(t *testing.T) {
 	}
 
 	// Otter uses a timer wheel with ~1s granularity.
-	time.Sleep(3 * time.Second)
-
-	_, err = s.Get(ctx, "short-ttl")
-	if err == nil {
-		t.Fatal("expected NotFound after custom TTL expiry")
+	// Poll until the entry expires rather than using a fixed sleep.
+	deadline := time.After(10 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for custom TTL expiry")
+		case <-ticker.C:
+			_, err = s.Get(ctx, "short-ttl")
+			if err != nil {
+				return // Entry expired as expected.
+			}
+		}
 	}
 }
 
@@ -201,17 +218,24 @@ func TestOtterStore_EvictionCallback(t *testing.T) {
 		_ = s.Set(ctx, fmt.Sprintf("k%d", i), i)
 	}
 
-	// Allow time for async eviction processing.
-	time.Sleep(100 * time.Millisecond)
-
-	count := 0
-	evictedKeys.Range(func(_, _ any) bool {
-		count++
-		return true
-	})
-
-	if count == 0 {
-		t.Fatal("expected at least one eviction callback to fire when exceeding capacity")
+	// Poll until at least one eviction callback fires.
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for eviction callback to fire when exceeding capacity")
+		case <-ticker.C:
+			count := 0
+			evictedKeys.Range(func(_, _ any) bool {
+				count++
+				return true
+			})
+			if count > 0 {
+				return
+			}
+		}
 	}
 }
 

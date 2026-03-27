@@ -107,6 +107,13 @@ func TestWrap_DeepNesting(t *testing.T) {
 	}
 }
 
+func TestWrapf_NilError(t *testing.T) {
+	t.Parallel()
+	if Wrapf(nil, "format %s %d", "arg", 1) != nil {
+		t.Fatal("Wrapf(nil) should return nil")
+	}
+}
+
 func TestIn_ConcurrentUsage(t *testing.T) {
 	t.Parallel()
 	var wg sync.WaitGroup

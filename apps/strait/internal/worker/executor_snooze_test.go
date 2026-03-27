@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -53,8 +54,8 @@ func collectEvents(exec *Executor) func() []RunLifecycleEvent {
 				n := len(events)
 				mu.Unlock()
 				if n > 0 {
-					// Drain a tiny bit more to catch concurrent emits.
-					time.Sleep(2 * time.Millisecond)
+					// Yield to let any in-flight concurrent emits land.
+					runtime.Gosched()
 					mu.Lock()
 					out := make([]RunLifecycleEvent, len(events))
 					copy(out, events)

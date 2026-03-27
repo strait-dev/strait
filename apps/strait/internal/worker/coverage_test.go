@@ -822,8 +822,9 @@ func TestExecutor_HandleSuccess_PublishesAndCallsBack(t *testing.T) {
 	run := testRun(1)
 	exec.execute(context.Background(), run)
 
-	// Wait briefly for async webhook submit.
-	time.Sleep(200 * time.Millisecond)
+	waitForCondition(t, 2*time.Second, func() bool {
+		return pub.calls.Load() >= 1 && cb.calls.Load() >= 1
+	}, "publish and callback calls")
 
 	if pub.calls.Load() < 1 {
 		t.Fatalf("expected at least 1 publish call (status change), got %d", pub.calls.Load())
@@ -880,7 +881,9 @@ func TestExecutor_HandleFailure_PublishesAndCallsBack(t *testing.T) {
 	run := testRun(1)
 	exec.execute(context.Background(), run)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForCondition(t, 2*time.Second, func() bool {
+		return pub.calls.Load() >= 1 && cb.calls.Load() >= 1
+	}, "publish and callback calls")
 
 	if pub.calls.Load() < 1 {
 		t.Fatalf("expected at least 1 publish call, got %d", pub.calls.Load())
@@ -963,4 +966,22 @@ func TestExecutor_Execute_WithWorkflowPolicyOverride(t *testing.T) {
 // noopLogger returns a logger that discards all output.
 func noopLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
+}
+
+// waitForCondition polls until cond returns true or the timeout expires.
+func waitForCondition(t *testing.T, timeout time.Duration, cond func() bool, desc string) {
+	t.Helper()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(timeout)
+	for {
+		if cond() {
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline:
+			t.Fatalf("timed out waiting for %s", desc)
+		}
+	}
 }
