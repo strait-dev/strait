@@ -7,6 +7,8 @@ import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { ngrok } from "vite-plugin-ngrok";
 
+const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
+
 export default defineConfig({
   resolve: {
     tsconfigPaths: true,
@@ -30,7 +32,7 @@ export default defineConfig({
       project: process.env.SENTRY_PROJECT,
       authToken: process.env.SENTRY_AUTH_TOKEN,
     }),
-    ngrok(),
+    ...(enableNgrok ? [ngrok()] : []),
   ],
   optimizeDeps: {
     include: ["@hugeicons/react"],
