@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Onboarding", () => {
   test("app overview page loads", async ({ page }) => {
@@ -18,7 +18,9 @@ test.describe("Onboarding", () => {
     await page.goto("/app");
     const codeBlock = page.locator("pre, code, [class*='code']");
     const dashboard = page.getByText("Total Runs");
-    await expect(codeBlock.first().or(dashboard)).toBeVisible({ timeout: 10_000 });
+    await expect(codeBlock.first().or(dashboard)).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test("navigation works from onboarding", async ({ page }) => {

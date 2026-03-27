@@ -54,11 +54,7 @@ export class ApiHelper {
     max_attempts?: number;
     timeout_secs?: number;
   }) {
-    return this.request<{ id: string; name: string }>(
-      "POST",
-      "/v1/jobs",
-      data
-    );
+    return this.request<{ id: string; name: string }>("POST", "/v1/jobs", data);
   }
 
   triggerJob(id: string, payload?: unknown) {

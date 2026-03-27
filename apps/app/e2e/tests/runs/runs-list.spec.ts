@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Runs List", () => {
   test.beforeEach(async ({ page }) => {
@@ -18,7 +18,9 @@ test.describe("Runs List", () => {
   });
 
   test("status filter exists", async ({ page }) => {
-    await expect(page.getByRole("button", { name: /status|filter/i })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /status|filter/i })
+    ).toBeVisible();
   });
 
   test("table has expected columns", async ({ page }) => {
@@ -97,7 +99,9 @@ test.describe("Runs List", () => {
   });
 
   test("select all checkbox works", async ({ page }) => {
-    const selectAll = page.locator("table thead input[type='checkbox']").first();
+    const selectAll = page
+      .locator("table thead input[type='checkbox']")
+      .first();
     if (await selectAll.isVisible()) {
       await selectAll.check();
       await expect(selectAll).toBeChecked();

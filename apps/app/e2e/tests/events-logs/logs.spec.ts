@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Logs", () => {
   test("logs page loads", async ({ page }) => {
@@ -30,7 +30,9 @@ test.describe("Logs", () => {
     await page.goto("/app/logs");
     const table = page.locator("table");
     if (await table.isVisible()) {
-      await expect(page.getByText("Status").or(page.getByText("Event"))).toBeVisible();
+      await expect(
+        page.getByText("Status").or(page.getByText("Event"))
+      ).toBeVisible();
     }
   });
 });

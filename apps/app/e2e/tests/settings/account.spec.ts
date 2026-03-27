@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Settings - Account", () => {
   test.beforeEach(async ({ page }) => {
@@ -10,7 +10,9 @@ test.describe("Settings - Account", () => {
   });
 
   test("user name is displayed", async ({ page }) => {
-    await expect(page.getByText(/E2E Test User|Leonardo/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/E2E Test User|Leonardo/i)).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test("user email is displayed", async ({ page }) => {

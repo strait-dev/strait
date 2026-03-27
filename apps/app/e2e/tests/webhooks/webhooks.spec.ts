@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Webhooks", () => {
   test.beforeEach(async ({ page }) => {
@@ -10,7 +10,9 @@ test.describe("Webhooks", () => {
   });
 
   test("page title is visible", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: /webhooks/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /webhooks/i })
+    ).toBeVisible();
   });
 
   test("search input exists", async ({ page }) => {
@@ -18,7 +20,9 @@ test.describe("Webhooks", () => {
   });
 
   test("status filter exists", async ({ page }) => {
-    await expect(page.getByRole("button", { name: /status|filter/i })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /status|filter/i })
+    ).toBeVisible();
   });
 
   test("empty state shows when no webhooks", async ({ page }) => {
@@ -45,7 +49,9 @@ test.describe("Webhooks", () => {
   test("table columns include endpoint info", async ({ page }) => {
     const table = page.locator("table");
     if (await table.isVisible()) {
-      await expect(page.getByText("Endpoint").or(page.getByText("URL"))).toBeVisible();
+      await expect(
+        page.getByText("Endpoint").or(page.getByText("URL"))
+      ).toBeVisible();
     }
   });
 
@@ -64,7 +70,9 @@ test.describe("Webhooks", () => {
   });
 
   test("select all checkbox works", async ({ page }) => {
-    const selectAll = page.locator("table thead input[type='checkbox']").first();
+    const selectAll = page
+      .locator("table thead input[type='checkbox']")
+      .first();
     if (await selectAll.isVisible()) {
       await selectAll.check();
       await expect(selectAll).toBeChecked();

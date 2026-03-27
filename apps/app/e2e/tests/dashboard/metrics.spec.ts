@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Dashboard Metrics", () => {
   test.beforeEach(async ({ page }) => {
@@ -17,7 +17,7 @@ test.describe("Dashboard Metrics", () => {
   });
 
   test("failed runs card shows numeric value", async ({ page }) => {
-    const card = page.getByText("Failed Runs").locator("..");
+    const card = page.getByText("Failed Runs", { exact: true }).locator("..");
     await expect(card).toBeVisible();
   });
 

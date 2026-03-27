@@ -1,11 +1,11 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Error States", () => {
   test("404 page renders for unknown route", async ({ page }) => {
     await page.goto("/app/this-page-does-not-exist-12345");
-    await expect(
-      page.getByText(/not found|404|doesn't exist/i)
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/not found|404|doesn't exist/i)).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test("unauthenticated access redirects to login", async ({ browser }) => {
@@ -20,9 +20,9 @@ test.describe("Error States", () => {
 
   test("invalid job ID shows not found state", async ({ page }) => {
     await page.goto("/app/jobs/invalid-id-that-does-not-exist");
-    await expect(
-      page.getByText(/not found|error|doesn't exist/i)
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/not found|error|doesn't exist/i)).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test("app handles network errors gracefully", async ({ page }) => {

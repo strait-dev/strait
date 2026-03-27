@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Dead Letter Queue", () => {
   test.beforeEach(async ({ page }) => {
@@ -52,7 +52,9 @@ test.describe("Dead Letter Queue", () => {
   test("table columns are correct when data exists", async ({ page }) => {
     const table = page.locator("table");
     if (await table.isVisible()) {
-      await expect(page.getByText("Run ID").or(page.getByText("Job"))).toBeVisible();
+      await expect(
+        page.getByText("Run ID").or(page.getByText("Job"))
+      ).toBeVisible();
     }
   });
 });

@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Run Detail Sheet", () => {
   test("run detail sheet opens on row click", async ({ page }) => {
@@ -55,9 +55,9 @@ test.describe("Run Detail Sheet", () => {
     await page.waitForTimeout(1000);
     const sheet = page.locator("[role='dialog']");
     if (await sheet.isVisible()) {
-      const closeButton = sheet.getByRole("button", { name: /close/i }).or(
-        sheet.locator("button[class*='close']")
-      );
+      const closeButton = sheet
+        .getByRole("button", { name: /close/i })
+        .or(sheet.locator("button[class*='close']"));
       if (await closeButton.isVisible()) {
         await closeButton.click();
         await expect(sheet).not.toBeVisible();

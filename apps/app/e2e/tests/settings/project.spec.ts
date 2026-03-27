@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Settings - Project", () => {
   test("api keys section is accessible", async ({ page }) => {

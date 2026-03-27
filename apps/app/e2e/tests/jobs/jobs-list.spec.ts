@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Jobs List", () => {
   test.beforeEach(async ({ page }) => {
@@ -7,7 +7,9 @@ test.describe("Jobs List", () => {
 
   test("jobs page loads with table structure", async ({ page }) => {
     await expect(page).toHaveURL(/\/app\/jobs/);
-    await expect(page.locator("table").or(page.getByText(/no jobs|no project/i))).toBeVisible();
+    await expect(
+      page.locator("table").or(page.getByText(/no jobs|no project/i))
+    ).toBeVisible();
   });
 
   test("search input is visible", async ({ page }) => {
@@ -15,7 +17,9 @@ test.describe("Jobs List", () => {
   });
 
   test("status filter dropdown exists", async ({ page }) => {
-    await expect(page.getByRole("button", { name: /status|filter/i })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /status|filter/i })
+    ).toBeVisible();
   });
 
   test("empty state shows when no jobs exist", async ({ page }) => {
@@ -66,15 +70,21 @@ test.describe("Jobs List", () => {
     }
   });
 
-  test("trigger button appears in floating bar when rows selected", async ({ page }) => {
+  test("trigger button appears in floating bar when rows selected", async ({
+    page,
+  }) => {
     const checkbox = page.locator("table tbody input[type='checkbox']").first();
     if (await checkbox.isVisible()) {
       await checkbox.check();
-      await expect(page.getByRole("button", { name: /trigger/i })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: /trigger/i })
+      ).toBeVisible();
     }
   });
 
-  test("pause button appears in floating bar when rows selected", async ({ page }) => {
+  test("pause button appears in floating bar when rows selected", async ({
+    page,
+  }) => {
     const checkbox = page.locator("table tbody input[type='checkbox']").first();
     if (await checkbox.isVisible()) {
       await checkbox.check();
@@ -103,7 +113,9 @@ test.describe("Jobs List", () => {
   });
 
   test("select all checkbox works", async ({ page }) => {
-    const selectAll = page.locator("table thead input[type='checkbox']").first();
+    const selectAll = page
+      .locator("table thead input[type='checkbox']")
+      .first();
     if (await selectAll.isVisible()) {
       await selectAll.check();
       await expect(selectAll).toBeChecked();

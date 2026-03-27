@@ -1,11 +1,11 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Job Detail", () => {
   test("404 for invalid job ID", async ({ page }) => {
     await page.goto("/app/jobs/nonexistent-id-12345");
-    await expect(
-      page.getByText(/not found|doesn't exist|no job/i)
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/not found|doesn't exist|no job/i)).toBeVisible(
+      { timeout: 10_000 }
+    );
   });
 
   test("job detail page has overview tab", async ({ page }) => {
@@ -35,7 +35,9 @@ test.describe("Job Detail", () => {
     if (await jobLink.isVisible()) {
       await jobLink.click();
       await expect(page.getByRole("button", { name: "1 hour" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "24 hours" })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "24 hours" })
+      ).toBeVisible();
       await expect(page.getByRole("button", { name: "7 days" })).toBeVisible();
       await expect(page.getByRole("button", { name: "30 days" })).toBeVisible();
     }
@@ -100,7 +102,9 @@ test.describe("Job Detail", () => {
     const jobLink = firstRow.locator("a").first();
     if (await jobLink.isVisible()) {
       await jobLink.click();
-      await expect(page.getByRole("button", { name: /trigger/i })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: /trigger/i })
+      ).toBeVisible();
     }
   });
 

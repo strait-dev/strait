@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Workflows", () => {
   test.beforeEach(async ({ page }) => {
@@ -10,7 +10,9 @@ test.describe("Workflows", () => {
   });
 
   test("page title is visible", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: /workflows/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /workflows/i })
+    ).toBeVisible();
   });
 
   test("search input exists", async ({ page }) => {
@@ -18,7 +20,9 @@ test.describe("Workflows", () => {
   });
 
   test("status filter exists", async ({ page }) => {
-    await expect(page.getByRole("button", { name: /status|filter/i })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /status|filter/i })
+    ).toBeVisible();
   });
 
   test("empty state shows when no workflows exist", async ({ page }) => {
@@ -39,7 +43,9 @@ test.describe("Workflows", () => {
     const checkbox = page.locator("table tbody input[type='checkbox']").first();
     if (await checkbox.isVisible()) {
       await checkbox.check();
-      await expect(page.getByRole("button", { name: /trigger/i })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: /trigger/i })
+      ).toBeVisible();
     }
   });
 
@@ -73,7 +79,9 @@ test.describe("Workflows", () => {
   });
 
   test("select all checkbox works", async ({ page }) => {
-    const selectAll = page.locator("table thead input[type='checkbox']").first();
+    const selectAll = page
+      .locator("table thead input[type='checkbox']")
+      .first();
     if (await selectAll.isVisible()) {
       await selectAll.check();
       await expect(selectAll).toBeChecked();

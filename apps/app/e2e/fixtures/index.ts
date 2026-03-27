@@ -1,2 +1,2 @@
-export { test, expect } from "./auth";
 export { ApiHelper } from "./api";
+export { expect, test } from "./auth";

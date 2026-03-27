@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Schedules", () => {
   test.beforeEach(async ({ page }) => {
@@ -10,7 +10,9 @@ test.describe("Schedules", () => {
   });
 
   test("page title is visible", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: /schedules/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /schedules/i })
+    ).toBeVisible();
   });
 
   test("search input exists", async ({ page }) => {
@@ -18,7 +20,9 @@ test.describe("Schedules", () => {
   });
 
   test("status filter exists", async ({ page }) => {
-    await expect(page.getByRole("button", { name: /status|filter/i })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /status|filter/i })
+    ).toBeVisible();
   });
 
   test("empty state shows when no schedules", async ({ page }) => {
@@ -31,7 +35,9 @@ test.describe("Schedules", () => {
     const checkbox = page.locator("table tbody input[type='checkbox']").first();
     if (await checkbox.isVisible()) {
       await checkbox.check();
-      await expect(page.getByRole("button", { name: /trigger/i })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: /trigger/i })
+      ).toBeVisible();
     }
   });
 

@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Sidebar Navigation", () => {
   test("dashboard link navigates correctly", async ({ page }) => {

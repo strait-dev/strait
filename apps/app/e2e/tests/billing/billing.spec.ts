@@ -1,4 +1,4 @@
-import { test, expect } from "../../fixtures";
+import { expect, test } from "../../fixtures";
 
 test.describe("Billing", () => {
   test.beforeEach(async ({ page }) => {
@@ -7,58 +7,52 @@ test.describe("Billing", () => {
 
   test("billing page loads", async ({ page }) => {
     await expect(page).toHaveURL(/\/app\/billing/);
+    await expect(page.getByRole("heading", { name: "Billing" })).toBeVisible();
   });
 
-  test("overview tab is visible", async ({ page }) => {
-    await expect(page.getByText("Overview")).toBeVisible();
+  test("overview tab is visible and active by default", async ({ page }) => {
+    await expect(page.getByRole("tab", { name: /overview/i })).toBeVisible();
   });
 
-  test("usage history tab exists", async ({ page }) => {
-    await expect(page.getByText("Usage History")).toBeVisible();
-  });
-
-  test("project costs tab exists", async ({ page }) => {
-    await expect(page.getByText("Project Costs")).toBeVisible();
-  });
-
-  test("spending tab exists", async ({ page }) => {
-    await expect(page.getByText("Spending")).toBeVisible();
-  });
-
-  test("alerts tab exists", async ({ page }) => {
-    await expect(page.getByText("Alerts")).toBeVisible();
-  });
-
-  test("referrals tab exists", async ({ page }) => {
-    await expect(page.getByText("Referrals")).toBeVisible();
+  test("all billing tabs exist", async ({ page }) => {
+    await expect(page.getByRole("tab", { name: /overview/i })).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: /usage history/i })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: /project costs/i })
+    ).toBeVisible();
+    await expect(page.getByRole("tab", { name: /spending/i })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /alerts/i })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /referrals/i })).toBeVisible();
   });
 
   test("switching to usage history tab works", async ({ page }) => {
-    await page.getByText("Usage History").click();
+    await page.getByRole("tab", { name: /usage history/i }).click();
     await page.waitForTimeout(500);
     await expect(page.locator("main")).toBeVisible();
   });
 
   test("switching to project costs tab works", async ({ page }) => {
-    await page.getByText("Project Costs").click();
+    await page.getByRole("tab", { name: /project costs/i }).click();
     await page.waitForTimeout(500);
     await expect(page.locator("main")).toBeVisible();
   });
 
   test("switching to spending tab works", async ({ page }) => {
-    await page.getByText("Spending").click();
+    await page.getByRole("tab", { name: /spending/i }).click();
     await page.waitForTimeout(500);
     await expect(page.locator("main")).toBeVisible();
   });
 
   test("switching to alerts tab works", async ({ page }) => {
-    await page.getByText("Alerts").click();
+    await page.getByRole("tab", { name: /alerts/i }).click();
     await page.waitForTimeout(500);
     await expect(page.locator("main")).toBeVisible();
   });
 
   test("switching to referrals tab works", async ({ page }) => {
-    await page.getByText("Referrals").click();
+    await page.getByRole("tab", { name: /referrals/i }).click();
     await page.waitForTimeout(500);
     await expect(page.locator("main")).toBeVisible();
   });
@@ -77,11 +71,18 @@ test.describe("Billing", () => {
     expect(errors.filter((e) => !e.includes("ResizeObserver"))).toHaveLength(0);
   });
 
-  test("all tabs are clickable and render content", async ({ page }) => {
-    const tabs = ["Overview", "Usage History", "Project Costs", "Spending", "Alerts", "Referrals"];
+  test("all tabs render content without crashing", async ({ page }) => {
+    const tabs = [
+      /usage history/i,
+      /project costs/i,
+      /spending/i,
+      /alerts/i,
+      /referrals/i,
+    ];
     for (const tab of tabs) {
-      await page.getByRole("tab", { name: tab }).or(page.getByText(tab)).click();
+      await page.getByRole("tab", { name: tab }).click();
       await page.waitForTimeout(300);
+      await expect(page.locator("main")).toBeVisible();
     }
   });
 });
