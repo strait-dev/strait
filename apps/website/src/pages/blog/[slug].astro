@@ -1,0 +1,132 @@
+---
+import { basehub } from "basehub";
+import LandingLayout from "@/layouts/LandingLayout.astro";
+import SEO from "@/components/SEO.astro";
+import JsonLd from "@/components/JsonLd.astro";
+import Post, { PostFragment as PostFragmentQuery } from "@/app/(landing)/components/blog/post.tsx";
+import { countWords } from "@/app/(landing)/components/blog/utils.ts";
+import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
+import { siteConfig } from "@/config/site.ts";
+import {
+  getBlogPostingSchema,
+  getBreadcrumbSchema,
+} from "@/lib/structured-data.tsx";
+
+export async function getStaticPaths() {
+  try {
+    const data = await basehub({ cache: "no-store" }).query({
+      website: {
+        blog: {
+          posts: {
+            items: PostFragmentQuery,
+          },
+        },
+      },
+    });
+
+    return (data as any).website.blog.posts.items
+      .filter((post: any) => post._slug !== "nos-somos-a-strait")
+      .map((post: any) => ({
+        params: { slug: post._slug },
+      }));
+  } catch {
+    return [];
+  }
+}
+
+const { slug } = Astro.params;
+
+if (slug === "nos-somos-a-strait") {
+  return Astro.redirect("/404");
+}
+
+let post: any;
+
+try {
+  const data = await basehub().query({
+    website: {
+      blog: {
+        posts: {
+          __args: {
+            filter: { _sys_slug: { eq: slug } },
+            first: 1,
+          },
+          items: PostFragmentQuery,
+        },
+      },
+    },
+  });
+  post = (data as any).website.blog.posts.items[0];
+} catch {
+  // Query failed
+}
+
+if (!post) {
+  return Astro.redirect("/404");
+}
+
+const baseUrl = import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+const postUrl = `${baseUrl}/blog/${post._slug}`;
+
+const postKeywords = post.keywords
+  ? post.keywords.split(",").map((k: string) => k.trim()).filter(Boolean)
+  : undefined;
+
+const wordCount = countWords(post.body.json.content as Parameters<typeof countWords>[0]);
+
+const articleSchema = getBlogPostingSchema({
+  headline: post._title ?? "Blog Post",
+  description: post.description ?? "",
+  image: post.image?.light?.url ?? `${baseUrl}/og.png`,
+  datePublished: new Date(post.publishedAt).toISOString(),
+  ...(post.modifiedDate && {
+    dateModified: new Date(post.modifiedDate).toISOString(),
+  }),
+  authors: post.authors?.map((a: any) => ({
+    name: a._title,
+    ...(a.image?.url && { image: a.image.url }),
+  })) ?? [],
+  url: postUrl,
+  section: post.categories?.[0] ?? undefined,
+  keywords: postKeywords,
+  wordCount,
+});
+
+const breadcrumbSchema = getBreadcrumbSchema([
+  { name: "Home", url: baseUrl },
+  { name: "Blog", url: `${baseUrl}/blog` },
+  { name: post._title ?? "Post", url: postUrl },
+]);
+---
+
+<LandingLayout>
+  <Fragment slot="head">
+    <SEO
+      title={post._title ?? "Blog Post"}
+      description={post.description ?? siteConfig.description}
+      path={`/blog/${post._slug}`}
+      noIndex={!post.publishedAt}
+      ogImage={post.image?.light?.url ?? siteConfig.ogImage}
+      ogTitle={post.ogTitle ?? undefined}
+      ogDescription={post.ogDescription ?? undefined}
+      twitterTitle={post.twitterTitle ?? undefined}
+      twitterDescription={post.twitterDescription ?? undefined}
+      keywords={postKeywords}
+      article={{
+        publishedTime: new Date(post.publishedAt).toISOString(),
+        ...(post.modifiedDate && {
+          modifiedTime: new Date(post.modifiedDate).toISOString(),
+        }),
+        authors: post.authors?.map((a: any) => a._title) ?? [],
+        section: post.categories?.[0] ?? undefined,
+        tags: post.categories ?? undefined,
+      }}
+    />
+  </Fragment>
+  <div>
+    <JsonLd data={articleSchema} />
+    <JsonLd data={breadcrumbSchema} />
+    <Post client:load {...post} />
+    <CTA client:visible />
+  </div>
+</LandingLayout>
