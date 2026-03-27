@@ -48,7 +48,7 @@ import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floa
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import { jobQueryOptions } from "@/hooks/api/use-jobs";
-import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { runsQueryOptions, useRetryRun, useCancelRun } from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
   ClockIcon,
@@ -146,6 +146,8 @@ function JobDetailPage() {
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const retryRun = useRetryRun();
+  const cancelRun = useCancelRun();
 
   // Filter runs for this job
   const jobRuns = useMemo(
@@ -433,14 +435,18 @@ function JobDetailPage() {
                         label: "Retry",
                         icon: RefreshIcon,
                         onClick: () => {
-                          // TODO
+                          for (const id of selectedIds) {
+                            retryRun.mutate({ run_id: id });
+                          }
                         },
                       },
                       {
                         label: "Cancel",
                         icon: XCircleIcon,
                         onClick: () => {
-                          // TODO
+                          for (const id of selectedIds) {
+                            cancelRun.mutate({ run_id: id });
+                          }
                         },
                         variant: "destructive" as const,
                       },

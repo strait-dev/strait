@@ -31,7 +31,7 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Workflow } from "@/hooks/api/types";
-import { workflowsQueryOptions } from "@/hooks/api/use-workflows";
+import { workflowsQueryOptions, useTriggerWorkflow, usePauseWorkflow } from "@/hooks/api/use-workflows";
 import {
   EyeIcon,
   FilterIcon,
@@ -78,6 +78,8 @@ function WorkflowsPage() {
     null
   );
   const [sheetOpen, setSheetOpen] = useState(false);
+  const triggerWorkflow = useTriggerWorkflow();
+  const pauseWorkflow = usePauseWorkflow();
 
   const selectedStatuses = search.status ?? [];
 
@@ -248,14 +250,18 @@ function WorkflowsPage() {
                   label: "Trigger",
                   icon: PlayActionIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const id of selectedIds) {
+                      triggerWorkflow.mutate({ workflowId: id });
+                    }
                   },
                 },
                 {
                   label: "Pause",
                   icon: PauseActionIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const id of selectedIds) {
+                      pauseWorkflow.mutate({ workflowId: id });
+                    }
                   },
                 },
               ]}

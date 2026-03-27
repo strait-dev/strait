@@ -10,6 +10,7 @@ import {
 } from "@strait/ui/components/sheet";
 import { Link } from "@tanstack/react-router";
 import type { Job } from "@/hooks/api/types";
+import { useTriggerJob } from "@/hooks/api/use-jobs";
 import {
   ClockIcon,
   GlobeIcon,
@@ -61,6 +62,8 @@ const DetailRow = ({
 };
 
 const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
+  const triggerJob = useTriggerJob();
+
   if (!job) {
     return null;
   }
@@ -173,7 +176,7 @@ const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
           >
             View details
           </Button>
-          <Button className="w-full">
+          <Button className="w-full" disabled={triggerJob.isPending} onClick={() => triggerJob.mutate({ id: job.id })}>
             <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
             Trigger
           </Button>

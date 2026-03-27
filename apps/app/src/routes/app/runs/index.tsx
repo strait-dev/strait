@@ -33,7 +33,7 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
-import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { runsQueryOptions, useRetryRun, useCancelRun } from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
   CalendarIcon,
@@ -80,6 +80,8 @@ function RunsPage() {
   const navigate = Route.useNavigate();
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const retryRun = useRetryRun();
+  const cancelRun = useCancelRun();
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const selectedStatuses = (search.status ?? []) as RunStatus[];
@@ -242,14 +244,18 @@ function RunsPage() {
                   label: "Retry",
                   icon: RefreshIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const id of selectedIds) {
+                      retryRun.mutate({ run_id: id });
+                    }
                   },
                 },
                 {
                   label: "Cancel",
                   icon: XCircleIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const id of selectedIds) {
+                      cancelRun.mutate({ run_id: id });
+                    }
                   },
                   variant: "destructive" as const,
                 },

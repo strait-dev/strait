@@ -5,7 +5,13 @@ import type { Job } from "@/hooks/api/types";
 import { EyeIcon, PauseActionIcon, PlayActionIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
-export const jobColumns: ColumnDef<Job>[] = [
+type JobColumnActions = {
+  onView?: (job: Job) => void;
+  onTrigger?: (job: Job) => void;
+  onPause?: (job: Job) => void;
+};
+
+export const createJobColumns = (actions: JobColumnActions = {}): ColumnDef<Job>[] => [
   createSelectColumn<Job>(),
   {
     accessorKey: "name",
@@ -56,8 +62,8 @@ export const jobColumns: ColumnDef<Job>[] = [
       }),
   },
   createActionsColumn<Job>([
-    { label: "View", icon: EyeIcon, onClick: () => undefined },
-    { label: "Trigger", icon: PlayActionIcon, onClick: () => undefined },
-    { label: "Pause", icon: PauseActionIcon, onClick: () => undefined },
+    { label: "View", icon: EyeIcon, onClick: (row) => actions.onView?.(row.original) },
+    { label: "Trigger", icon: PlayActionIcon, onClick: (row) => actions.onTrigger?.(row.original) },
+    { label: "Pause", icon: PauseActionIcon, onClick: (row) => actions.onPause?.(row.original) },
   ]),
 ];
