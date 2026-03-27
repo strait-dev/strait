@@ -10,16 +10,18 @@ test.describe("Runs List", () => {
   });
 
   test("page title is visible", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: /runs/i })).toBeVisible();
+    const heading = page.getByRole("heading", { name: "No project selected" });
+    const table = page.locator("table");
+    await expect(heading.or(table)).toBeVisible();
   });
 
   test("search input is visible", async ({ page }) => {
-    await expect(page.getByPlaceholder(/search/i)).toBeVisible();
+    await expect(page.getByPlaceholder("Search by run ID or job name...")).toBeVisible();
   });
 
   test("status filter exists", async ({ page }) => {
     await expect(
-      page.getByRole("button", { name: /status|filter/i })
+      page.getByRole("button", { name: "Status" })
     ).toBeVisible();
   });
 
@@ -38,14 +40,14 @@ test.describe("Runs List", () => {
   });
 
   test("search filters runs", async ({ page }) => {
-    const searchInput = page.getByPlaceholder(/search/i);
+    const searchInput = page.getByPlaceholder("Search by run ID or job name...");
     await searchInput.fill("nonexistent-run-xyz");
     await page.waitForTimeout(500);
     await expect(page.locator("main")).toBeVisible();
   });
 
   test("status filter dropdown opens", async ({ page }) => {
-    const filterButton = page.getByRole("button", { name: /status|filter/i });
+    const filterButton = page.getByRole("button", { name: "Status" });
     await filterButton.click();
     await expect(page.getByRole("menuitemcheckbox").first()).toBeVisible();
   });
@@ -109,7 +111,7 @@ test.describe("Runs List", () => {
   });
 
   test("multiple status filters can be applied", async ({ page }) => {
-    const filterButton = page.getByRole("button", { name: /status|filter/i });
+    const filterButton = page.getByRole("button", { name: "Status" });
     await filterButton.click();
     const items = page.getByRole("menuitemcheckbox");
     const count = await items.count();

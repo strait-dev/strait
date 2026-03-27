@@ -7,7 +7,9 @@ test.describe("Billing", () => {
 
   test("billing page loads", async ({ page }) => {
     await expect(page).toHaveURL(/\/app\/billing/);
-    await expect(page.getByRole("heading", { name: "Billing" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Billing", level: 1 })
+    ).toBeVisible();
   });
 
   test("overview tab is visible and active by default", async ({ page }) => {

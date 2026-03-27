@@ -10,35 +10,38 @@ test.describe("Settings - Project", () => {
     }
   });
 
-  test("organization settings are accessible", async ({ page }) => {
+  test("account tab is accessible", async ({ page }) => {
     await page.goto("/app/settings");
-    const orgSettings = page.getByText(/organization|workspace/i);
-    await expect(orgSettings).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Account" })).toBeVisible();
   });
 
   test("billing link is accessible from settings", async ({ page }) => {
     await page.goto("/app/settings");
-    const billingLink = page.getByRole("link", { name: /billing|upgrade/i });
-    if (await billingLink.isVisible()) {
-      await expect(billingLink).toBeVisible();
+    const billingTab = page.getByRole("tab", { name: /usage|billing/i });
+    if (await billingTab.isVisible()) {
+      await expect(billingTab).toBeVisible();
     }
   });
 
-  test("email preferences section exists", async ({ page }) => {
+  test("authorized apps tab exists", async ({ page }) => {
     await page.goto("/app/settings");
-    const emailPrefs = page.getByText(/email preferences|monthly usage/i);
-    if (await emailPrefs.isVisible()) {
-      await expect(emailPrefs).toBeVisible();
+    const tab = page.getByRole("tab", { name: /authorized/i });
+    if (await tab.isVisible()) {
+      await expect(tab).toBeVisible();
     }
   });
 
   test("linked accounts section exists", async ({ page }) => {
     await page.goto("/app/settings");
-    await expect(page.getByText(/linked accounts|connected/i)).toBeVisible();
+    await expect(
+      page.getByText("Linked Accounts", { exact: true })
+    ).toBeVisible();
   });
 
   test("passkeys section exists", async ({ page }) => {
     await page.goto("/app/settings");
-    await expect(page.getByText(/passkey/i)).toBeVisible();
+    await expect(
+      page.getByText("Passkeys", { exact: true })
+    ).toBeVisible();
   });
 });

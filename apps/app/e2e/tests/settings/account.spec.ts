@@ -17,23 +17,31 @@ test.describe("Settings - Account", () => {
 
   test("user email is displayed", async ({ page }) => {
     const email = process.env.E2E_USER_EMAIL ?? "test@example.com";
-    await expect(page.getByText(email)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(email).first()).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test("password section exists", async ({ page }) => {
-    await expect(page.getByText(/password/i)).toBeVisible();
+    await expect(page.getByText("Password", { exact: true }).first()).toBeVisible();
   });
 
   test("two-factor authentication section exists", async ({ page }) => {
-    await expect(page.getByText(/two-factor|2fa/i)).toBeVisible();
+    await expect(
+      page.getByText("Two-Factor Authentication", { exact: true })
+    ).toBeVisible();
   });
 
   test("sessions section exists", async ({ page }) => {
-    await expect(page.getByText(/sessions|active session/i)).toBeVisible();
+    await expect(
+      page.getByText("Active Sessions", { exact: true })
+    ).toBeVisible();
   });
 
   test("delete account section exists", async ({ page }) => {
-    await expect(page.getByText(/delete account|danger/i)).toBeVisible();
+    await expect(
+      page.getByText("Delete Account", { exact: true })
+    ).toBeVisible();
   });
 
   test("page loads without console errors", async ({ page }) => {
@@ -41,6 +49,8 @@ test.describe("Settings - Account", () => {
     page.on("pageerror", (err) => errors.push(err.message));
     await page.goto("/app/settings");
     await page.waitForTimeout(2000);
-    expect(errors.filter((e) => !e.includes("ResizeObserver"))).toHaveLength(0);
+    expect(errors.filter((e) => !e.includes("ResizeObserver"))).toHaveLength(
+      0
+    );
   });
 });

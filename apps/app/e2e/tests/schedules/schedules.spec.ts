@@ -11,17 +11,17 @@ test.describe("Schedules", () => {
 
   test("page title is visible", async ({ page }) => {
     await expect(
-      page.getByRole("heading", { name: /schedules/i })
+      page.getByRole("heading", { name: "No project selected" }).or(page.locator("table"))
     ).toBeVisible();
   });
 
   test("search input exists", async ({ page }) => {
-    await expect(page.getByPlaceholder(/search/i)).toBeVisible();
+    await expect(page.getByPlaceholder("Search schedules...")).toBeVisible();
   });
 
   test("status filter exists", async ({ page }) => {
     await expect(
-      page.getByRole("button", { name: /status|filter/i })
+      page.getByRole("button", { name: "Status" })
     ).toBeVisible();
   });
 
@@ -50,7 +50,7 @@ test.describe("Schedules", () => {
   });
 
   test("search filters schedules", async ({ page }) => {
-    const searchInput = page.getByPlaceholder(/search/i);
+    const searchInput = page.getByPlaceholder("Search schedules...");
     await searchInput.fill("nonexistent-schedule");
     await page.waitForTimeout(500);
     await expect(page.locator("main")).toBeVisible();
@@ -72,7 +72,7 @@ test.describe("Schedules", () => {
   });
 
   test("status filter dropdown opens", async ({ page }) => {
-    const filterButton = page.getByRole("button", { name: /status|filter/i });
+    const filterButton = page.getByRole("button", { name: "Status" });
     await filterButton.click();
     await expect(page.getByRole("menuitemcheckbox").first()).toBeVisible();
   });

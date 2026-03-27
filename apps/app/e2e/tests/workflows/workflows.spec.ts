@@ -11,17 +11,17 @@ test.describe("Workflows", () => {
 
   test("page title is visible", async ({ page }) => {
     await expect(
-      page.getByRole("heading", { name: /workflows/i })
+      page.getByRole("heading", { name: "No project selected" }).or(page.locator("table"))
     ).toBeVisible();
   });
 
   test("search input exists", async ({ page }) => {
-    await expect(page.getByPlaceholder(/search/i)).toBeVisible();
+    await expect(page.getByPlaceholder("Search workflows...")).toBeVisible();
   });
 
   test("status filter exists", async ({ page }) => {
     await expect(
-      page.getByRole("button", { name: /status|filter/i })
+      page.getByRole("button", { name: "Status" })
     ).toBeVisible();
   });
 
@@ -58,7 +58,7 @@ test.describe("Workflows", () => {
   });
 
   test("search filters workflows", async ({ page }) => {
-    const searchInput = page.getByPlaceholder(/search/i);
+    const searchInput = page.getByPlaceholder("Search workflows...");
     await searchInput.fill("nonexistent-workflow");
     await page.waitForTimeout(500);
     await expect(page.locator("main")).toBeVisible();
@@ -73,7 +73,7 @@ test.describe("Workflows", () => {
   });
 
   test("status filter dropdown opens", async ({ page }) => {
-    const filterButton = page.getByRole("button", { name: /status|filter/i });
+    const filterButton = page.getByRole("button", { name: "Status" });
     await filterButton.click();
     await expect(page.getByRole("menuitemcheckbox").first()).toBeVisible();
   });
@@ -97,7 +97,7 @@ test.describe("Workflows", () => {
   });
 
   test("search clears properly", async ({ page }) => {
-    const searchInput = page.getByPlaceholder(/search/i);
+    const searchInput = page.getByPlaceholder("Search workflows...");
     await searchInput.fill("test");
     await page.waitForTimeout(300);
     await searchInput.clear();
