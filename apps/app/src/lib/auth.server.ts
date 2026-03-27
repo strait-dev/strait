@@ -191,6 +191,12 @@ export const auth = betterAuth({
     oauthProvider({
       loginPage: "/login",
       consentPage: "/oauth/consent",
+      // List of valid audiences for JWT access tokens. Without this, the
+      // plugin issues opaque tokens instead of JWTs. The Go OIDC verifier
+      // expects JWTs signed with RS256.
+      validAudiences: process.env.OIDC_AUDIENCE
+        ? [process.env.OIDC_AUDIENCE]
+        : undefined,
       scopes: [
         "openid",
         "profile",
