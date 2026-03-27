@@ -56,9 +56,7 @@ function EmailPreferencesCard() {
       <CardContent>
         <div className="flex items-center justify-between">
           <div className="flex flex-col gap-0.5">
-            <span className="font-medium text-sm">
-              Monthly usage report
-            </span>
+            <span className="font-medium text-sm">Monthly usage report</span>
             <span className="text-muted-foreground text-xs">
               Receive a PDF usage summary email when your billing period ends.
             </span>
