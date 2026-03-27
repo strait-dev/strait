@@ -63,7 +63,7 @@ func TestOnCompleteTrigger_HappyPath(t *testing.T) {
 		},
 	}
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 	job := &domain.Job{
@@ -98,7 +98,7 @@ func TestOnCompleteTrigger_HappyPath(t *testing.T) {
 func TestOnCompleteTrigger_NoWorkflowConfigured(t *testing.T) {
 	t.Parallel()
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(nil, trigger, nil)
+	oct := NewOnCompleteTrigger(nil, trigger, nil, nil, nil)
 
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 	job := &domain.Job{ID: "job-1", ProjectID: "proj-1"}
@@ -119,7 +119,7 @@ func TestOnCompleteTrigger_NonCompletedStatus(t *testing.T) {
 		workflows: map[string]*domain.Workflow{
 			"proj-1/deploy": {ID: "wf-1"},
 		},
-	}, trigger, nil)
+	}, trigger, nil, nil, nil)
 
 	// Failed runs should NOT trigger.
 	for _, status := range []domain.RunStatus{
@@ -152,7 +152,7 @@ func TestOnCompleteTrigger_WorkflowNotFound(t *testing.T) {
 	t.Parallel()
 	lookup := &mockWorkflowLookup{workflows: map[string]*domain.Workflow{}}
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 	job := &domain.Job{
@@ -179,7 +179,7 @@ func TestOnCompleteTrigger_TriggerError(t *testing.T) {
 		},
 	}
 	trigger := &mockWorkflowTriggerer{err: fmt.Errorf("trigger failed")}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 	job := &domain.Job{
@@ -206,7 +206,7 @@ func TestOnCompleteTrigger_PayloadMapping(t *testing.T) {
 		},
 	}
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 	job := &domain.Job{
@@ -315,7 +315,7 @@ func TestApplyPayloadMapping_NonObjectResult(t *testing.T) {
 
 func TestOnCompleteTrigger_NilLookupAndTriggerer(t *testing.T) {
 	t.Parallel()
-	oct := NewOnCompleteTrigger(nil, nil, nil)
+	oct := NewOnCompleteTrigger(nil, nil, nil, nil, nil)
 
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 	job := &domain.Job{

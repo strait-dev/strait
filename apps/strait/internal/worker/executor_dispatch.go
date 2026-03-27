@@ -135,7 +135,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	resolved, policyErr := e.resolveExecutionPolicy(ctx, run, policy)
 	if policyErr != nil {
 		e.logger.Error("failed to resolve execution policy", "run_id", run.ID, "error", policyErr)
-		e.handleSystemFailure(ctx, run, "resolve execution policy")
+		e.handleSystemFailureWithJob(ctx, run, job, "resolve execution policy")
 		return
 	}
 	policy = resolved
@@ -147,7 +147,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
 			e.logger.Warn("project suspended",
 				"run_id", run.ID, "project_id", job.ProjectID, "error", err)
-			e.handleSystemFailure(ctx, run, err.Error())
+			e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 			return
 		}
 
@@ -160,14 +160,14 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org daily run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.handleSystemFailure(ctx, run, err.Error())
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 				return
 			}
 			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org concurrent run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
 				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
-				e.handleSystemFailure(ctx, run, err.Error())
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 				return
 			}
 
@@ -177,7 +177,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				limits, limErr := e.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 				if limErr == nil && !limits.AllowsHTTPMode {
 					e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
-					e.handleSystemFailure(ctx, run,
+					e.handleSystemFailureWithJob(ctx, run, job,
 						"HTTP execution mode requires the Pro plan. Upgrade at /settings/billing")
 					return
 				}
@@ -197,7 +197,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		// Fall through to HTTP dispatch.
 	default:
 		e.logger.Error("unknown execution_mode", "run_id", run.ID, "job_id", run.JobID, "execution_mode", job.ExecutionMode)
-		e.handleSystemFailure(ctx, run, fmt.Sprintf("unknown execution_mode: %s", job.ExecutionMode))
+		e.handleSystemFailureWithJob(ctx, run, job, fmt.Sprintf("unknown execution_mode: %s", job.ExecutionMode))
 		return
 	}
 
@@ -257,7 +257,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			"endpoint", job.EndpointURL,
 			"error", circuitErr,
 		)
-		e.handleSystemFailure(ctx, run, "circuit breaker unavailable")
+		e.handleSystemFailureWithJob(ctx, run, job, "circuit breaker unavailable")
 		return
 	}
 
@@ -415,7 +415,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			"run_id", run.ID,
 			"job_id", run.JobID,
 		)
-		e.handleSystemFailure(ctx, run, "managed execution not available: COMPUTE_RUNTIME not configured")
+		e.handleSystemFailureWithJob(ctx, run, job, "managed execution not available: COMPUTE_RUNTIME not configured")
 		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
 		return
 	}
@@ -433,7 +433,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			if err := e.billingEnforcer.CheckManagedRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org managed run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.handleSystemFailure(ctx, run, err.Error())
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
 			}
@@ -441,7 +441,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 				e.logger.Warn("org spending limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
 				e.billingEnforcer.DecrManagedRunCount(ctx, orgID)
-				e.handleSystemFailure(ctx, run, err.Error())
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
 			}
@@ -449,7 +449,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 				e.logger.Warn("project budget limit exceeded",
 					"run_id", run.ID, "project_id", job.ProjectID, "org_id", orgID, "error", err)
 				e.billingEnforcer.DecrManagedRunCount(ctx, orgID)
-				e.handleSystemFailure(ctx, run, err.Error())
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
 				return
 			}
@@ -527,7 +527,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 					"estimated", estimated,
 					"limit", quota.ComputeDailyCostLimitMicrousd,
 				)
-				e.handleSystemFailure(ctx, run, "compute budget exceeded")
+				e.handleSystemFailureWithJob(ctx, run, job, "compute budget exceeded")
 				e.recordManagedMetric(ctx, "budget_exceeded", dispatchStart)
 				return
 			}
@@ -735,7 +735,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
 			return
 		}
-		e.handleSystemFailure(ctx, run, "container create error: "+createErr.Error())
+		e.handleSystemFailureWithJob(ctx, run, job, "container create error: "+createErr.Error())
 		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
 		return
 	}
@@ -815,14 +815,14 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
 			return
 		}
-		e.handleSystemFailure(ctx, run, "container runtime error: "+runErr.Error())
+		e.handleSystemFailureWithJob(ctx, run, job, "container runtime error: "+runErr.Error())
 		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
 		return
 	}
 
 	// Guard: Wait() returned nil result (shouldn't happen, but prevents nil-deref).
 	if result == nil {
-		e.handleSystemFailure(ctx, run, "container wait returned nil result")
+		e.handleSystemFailureWithJob(ctx, run, job, "container wait returned nil result")
 		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
 		return
 	}
@@ -870,7 +870,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	// 13. Container exited: interpret exit code.
 	if result.ExitCode == 0 {
 		// Exit 0 but SDK did not report completion after grace period.
-		e.handleSystemFailure(ctx, run, "container exited 0 but SDK did not report completion")
+		e.handleSystemFailureWithJob(ctx, run, job, "container exited 0 but SDK did not report completion")
 		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
 		return
 	}

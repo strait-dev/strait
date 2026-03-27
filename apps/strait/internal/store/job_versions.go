@@ -164,7 +164,11 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       COALESCE(NULLIF(jv.region, ''), j.region),
 		       j.preferred_regions,
 		       j.on_complete_trigger_workflow,
+		       j.on_complete_trigger_job,
 		       j.on_complete_payload_mapping,
+		       j.on_failure_trigger_job,
+		       j.on_failure_trigger_workflow,
+		       j.on_failure_payload_mapping,
 		       j.max_tokens_per_run, j.max_tool_calls_per_run, j.max_iterations_per_run, j.allowed_tools, j.blocked_tools,
 		       j.paused, j.paused_at, j.pause_reason
 		FROM job_versions jv

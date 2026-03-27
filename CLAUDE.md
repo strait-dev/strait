@@ -26,6 +26,13 @@ Read and follow `AGENTS.md` in this repository root — it is the primary operat
 - **ClickHouse**: custom analytics exporter + 12 tables (see `internal/clickhouse/schema.go`)
 - **Analytics**: 32 API endpoints under `/v1/analytics/` backed by ClickHouse with Postgres fallback
 - **Monitoring**: alert rules in `packages/monitoring/`, dashboards at `https://strait.grafana.net`
+- **Job chaining**: `on_complete_trigger_job`/`on_failure_trigger_job` fields on jobs (max chain depth: 10)
+- **Compensation**: saga-pattern rollback via `compensation_job_id` on workflow steps, new states: `compensating`/`compensated`/`compensation_failed`
+- **Durable workflows**: `expected_completion_at` on runs, `expected_duration_secs` per step, stage notifications on step transitions
+- **Canary deploys**: `canary_deployments` table, weighted version routing, auto-promote/rollback on health thresholds
+- **Simulator**: `POST /v1/workflows/{id}/simulate` with dry_run, sandbox, failure_injection modes
+- **Test suites**: `workflow/testing/` package with test definitions, mock server, JUnit XML output
+- **Debugger**: `workflow/debugger.go` with debug view, run comparison, data flow tracking
 
 ## Key conventions
 

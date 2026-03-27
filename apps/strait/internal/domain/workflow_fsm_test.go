@@ -30,6 +30,8 @@ func TestValidateWorkflowTransition_InvalidTransitions(t *testing.T) {
 		{WfStatusFailed, WfStatusRunning},
 		{WfStatusFailed, WfStatusCompleted},
 		{WfStatusTimedOut, WfStatusRunning},
+		{WfStatusCompensated, WfStatusRunning},
+		{WfStatusCompensationFailed, WfStatusRunning},
 		{WfStatusPending, WfStatusCompleted},
 		{WfStatusRunning, WfStatusPending},
 		{WfStatusPaused, WfStatusPending},
@@ -62,8 +64,9 @@ func TestValidateWorkflowTransition_UnknownStatus(t *testing.T) {
 
 func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
 	t.Parallel()
-	terminalStatuses := []WorkflowRunStatus{WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled}
-	for _, status := range terminalStatuses {
+	// These statuses have zero outbound transitions.
+	fullyTerminal := []WorkflowRunStatus{WfStatusCompleted, WfStatusCanceled, WfStatusCompensated, WfStatusCompensationFailed}
+	for _, status := range fullyTerminal {
 		t.Run(string(status), func(t *testing.T) {
 			transitions, ok := validWorkflowTransitions[status]
 			if !ok {
@@ -71,6 +74,15 @@ func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
 			}
 			if len(transitions) != 0 {
 				t.Errorf("terminal status %s should not have transitions, got %v", status, transitions)
+			}
+		})
+	}
+	// failed and timed_out can transition to compensating.
+	for _, status := range []WorkflowRunStatus{WfStatusFailed, WfStatusTimedOut} {
+		t.Run(string(status)+"_can_compensate", func(t *testing.T) {
+			transitions := validWorkflowTransitions[status]
+			if len(transitions) != 1 || transitions[0] != WfStatusCompensating {
+				t.Errorf("status %s should only transition to compensating, got %v", status, transitions)
 			}
 		})
 	}
@@ -86,6 +98,9 @@ func TestAllWorkflowStatusesCovered(t *testing.T) {
 		WfStatusFailed,
 		WfStatusTimedOut,
 		WfStatusCanceled,
+		WfStatusCompensating,
+		WfStatusCompensated,
+		WfStatusCompensationFailed,
 	}
 
 	for _, status := range allStatuses {
@@ -114,6 +129,9 @@ func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
 		{WfStatusFailed, true},
 		{WfStatusTimedOut, true},
 		{WfStatusCanceled, true},
+		{WfStatusCompensating, false},
+		{WfStatusCompensated, true},
+		{WfStatusCompensationFailed, true},
 	}
 
 	for _, tc := range tests {

@@ -33,7 +33,13 @@ const (
 	TriggerRetry         = "retry"
 	TriggerDebounce      = "debounce"
 	TriggerJobCompletion = "job_completion"
+	TriggerJobFailure    = "job_failure"
+	TriggerJobChain      = "job_chain"
 )
+
+// MaxJobChainDepth is the maximum allowed lineage depth for job chaining
+// to prevent infinite loops when jobs trigger each other.
+const MaxJobChainDepth = 10
 
 const (
 	WebhookEventRunCompleted         = "run.completed"
@@ -289,7 +295,11 @@ type Job struct {
 	Region                    string            `json:"region,omitempty"`
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
+	OnCompleteTriggerJob      string            `json:"on_complete_trigger_job,omitempty"`
 	OnCompletePayloadMapping  json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
+	OnFailureTriggerJob       string            `json:"on_failure_trigger_job,omitempty"`
+	OnFailureTriggerWorkflow  string            `json:"on_failure_trigger_workflow,omitempty"`
+	OnFailurePayloadMapping   json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
 	MaxTokensPerRun           int64             `json:"max_tokens_per_run,omitempty"`
 	MaxToolCallsPerRun        int               `json:"max_tool_calls_per_run,omitempty"`
 	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`
@@ -841,18 +851,22 @@ func TerminalStatuses() []RunStatus {
 type WorkflowRunStatus string
 
 const (
-	WfStatusPending   WorkflowRunStatus = "pending"
-	WfStatusRunning   WorkflowRunStatus = "running"
-	WfStatusPaused    WorkflowRunStatus = "paused"
-	WfStatusCompleted WorkflowRunStatus = "completed"
-	WfStatusFailed    WorkflowRunStatus = "failed"
-	WfStatusTimedOut  WorkflowRunStatus = "timed_out"
-	WfStatusCanceled  WorkflowRunStatus = "canceled"
+	WfStatusPending            WorkflowRunStatus = "pending"
+	WfStatusRunning            WorkflowRunStatus = "running"
+	WfStatusPaused             WorkflowRunStatus = "paused"
+	WfStatusCompleted          WorkflowRunStatus = "completed"
+	WfStatusFailed             WorkflowRunStatus = "failed"
+	WfStatusTimedOut           WorkflowRunStatus = "timed_out"
+	WfStatusCanceled           WorkflowRunStatus = "canceled"
+	WfStatusCompensating       WorkflowRunStatus = "compensating"
+	WfStatusCompensated        WorkflowRunStatus = "compensated"
+	WfStatusCompensationFailed WorkflowRunStatus = "compensation_failed"
 )
 
 func (s WorkflowRunStatus) IsTerminal() bool {
 	switch s {
-	case WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled:
+	case WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
+		WfStatusCompensated, WfStatusCompensationFailed:
 		return true
 	default:
 		return false
@@ -1135,7 +1149,58 @@ type WorkflowStep struct {
 	CostGateThresholdMicrousd int64              `json:"cost_gate_threshold_microusd,omitempty"`
 	CostGateTimeoutSecs       int                `json:"cost_gate_timeout_secs,omitempty"`
 	CostGateDefaultAction     string             `json:"cost_gate_default_action,omitempty"`
+	ExpectedDurationSecs      int                `json:"expected_duration_secs,omitempty"`
+	StageNotifications        json.RawMessage    `json:"stage_notifications,omitempty"`
+	CompensationJobID         string             `json:"compensation_job_id,omitempty"`
+	CompensationTimeoutSecs   int                `json:"compensation_timeout_secs,omitempty"`
 	CreatedAt                 time.Time          `json:"created_at"`
+}
+
+// CompensationRun tracks a single compensation execution for a workflow step.
+type CompensationRun struct {
+	ID                string          `json:"id"`
+	WorkflowRunID     string          `json:"workflow_run_id"`
+	StepRunID         string          `json:"step_run_id"`
+	StepRef           string          `json:"step_ref"`
+	CompensationJobID string          `json:"compensation_job_id"`
+	JobRunID          string          `json:"job_run_id,omitempty"`
+	Status            string          `json:"status"` // pending, running, completed, failed
+	Input             json.RawMessage `json:"input,omitempty"`
+	Output            json.RawMessage `json:"output,omitempty"`
+	Error             string          `json:"error,omitempty"`
+	StartedAt         *time.Time      `json:"started_at,omitempty"`
+	FinishedAt        *time.Time      `json:"finished_at,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+}
+
+// CompensationRunStatus constants.
+const (
+	CompensationPending   = "pending"
+	CompensationRunning   = "running"
+	CompensationCompleted = "completed"
+	CompensationFailed    = "failed"
+)
+
+// StageNotificationConfig defines notifications to send on step transitions.
+type StageNotificationConfig struct {
+	OnComplete bool `json:"on_complete,omitempty"`
+	OnFailure  bool `json:"on_failure,omitempty"`
+	OnSkipped  bool `json:"on_skipped,omitempty"`
+}
+
+// CanaryDeployment represents an active canary deployment between workflow versions.
+type CanaryDeployment struct {
+	ID            string          `json:"id"`
+	WorkflowID    string          `json:"workflow_id"`
+	ProjectID     string          `json:"project_id"`
+	SourceVersion int             `json:"source_version"`
+	TargetVersion int             `json:"target_version"`
+	TrafficPct    int             `json:"traffic_pct"`
+	Status        string          `json:"status"` // active, promoting, rolling_back, completed, rolled_back
+	AutoPromote   json.RawMessage `json:"auto_promote_config,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	CompletedAt   *time.Time      `json:"completed_at,omitempty"`
 }
 
 // JobCostEstimate holds the cached average cost for a job based on recent runs.
@@ -1181,27 +1246,28 @@ type WorkflowSnapshotMeta struct {
 
 // WorkflowRun represents an execution instance of a workflow.
 type WorkflowRun struct {
-	ID                  string            `json:"id"`
-	WorkflowID          string            `json:"workflow_id"`
-	ProjectID           string            `json:"project_id"`
-	Tags                map[string]string `json:"tags,omitempty"`
-	Status              WorkflowRunStatus `json:"status"`
-	TriggeredBy         string            `json:"triggered_by"`
-	WorkflowVersion     int               `json:"workflow_version"`
-	MaxParallelSteps    int               `json:"max_parallel_steps,omitempty"`
-	Payload             json.RawMessage   `json:"payload,omitempty"`
-	Error               string            `json:"error,omitempty"`
-	StartedAt           *time.Time        `json:"started_at,omitempty"`
-	FinishedAt          *time.Time        `json:"finished_at,omitempty"`
-	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`
-	RetryOfRunID        string            `json:"retry_of_run_id,omitempty"`
-	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
-	ParentStepRunID     string            `json:"parent_step_run_id,omitempty"`
-	WorkflowVersionID   string            `json:"workflow_version_id,omitempty"`
-	WorkflowSnapshotID  string            `json:"workflow_snapshot_id,omitempty"`
-	CreatedBy           string            `json:"created_by,omitempty"`
-	TraceContext        map[string]string `json:"trace_context,omitempty"`
-	CreatedAt           time.Time         `json:"created_at"`
+	ID                   string            `json:"id"`
+	WorkflowID           string            `json:"workflow_id"`
+	ProjectID            string            `json:"project_id"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	Status               WorkflowRunStatus `json:"status"`
+	TriggeredBy          string            `json:"triggered_by"`
+	WorkflowVersion      int               `json:"workflow_version"`
+	MaxParallelSteps     int               `json:"max_parallel_steps,omitempty"`
+	Payload              json.RawMessage   `json:"payload,omitempty"`
+	Error                string            `json:"error,omitempty"`
+	StartedAt            *time.Time        `json:"started_at,omitempty"`
+	FinishedAt           *time.Time        `json:"finished_at,omitempty"`
+	ExpiresAt            *time.Time        `json:"expires_at,omitempty"`
+	RetryOfRunID         string            `json:"retry_of_run_id,omitempty"`
+	ParentWorkflowRunID  string            `json:"parent_workflow_run_id,omitempty"`
+	ParentStepRunID      string            `json:"parent_step_run_id,omitempty"`
+	WorkflowVersionID    string            `json:"workflow_version_id,omitempty"`
+	WorkflowSnapshotID   string            `json:"workflow_snapshot_id,omitempty"`
+	CreatedBy            string            `json:"created_by,omitempty"`
+	ExpectedCompletionAt *time.Time        `json:"expected_completion_at,omitempty"`
+	TraceContext         map[string]string `json:"trace_context,omitempty"`
+	CreatedAt            time.Time         `json:"created_at"`
 }
 
 // WorkflowStepRun represents execution of a single step within a workflow run.
