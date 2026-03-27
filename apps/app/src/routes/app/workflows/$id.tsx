@@ -25,6 +25,7 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
@@ -111,6 +112,7 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
 
 function WorkflowDetailPage() {
   const { id } = Route.useParams();
+  usePageEvent("workflow_detail_viewed", { workflow_id: id });
   const { data: workflow } = useSuspenseQuery(workflowQueryOptions(id)) as {
     data: Workflow | undefined;
   };

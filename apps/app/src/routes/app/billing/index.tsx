@@ -8,6 +8,7 @@ import {
 } from "@strait/ui/components/tabs";
 import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
 import ProjectCostsTab from "@/components/billing/project-costs-tab";
 import ReferralProgram from "@/components/billing/referral-program";
@@ -57,6 +58,8 @@ export const Route = createFileRoute("/app/billing/")({
 });
 
 function RouteComponent() {
+  usePageEvent("billing_viewed");
+
   return (
     <Shell>
       <div className="flex w-full flex-col gap-6">

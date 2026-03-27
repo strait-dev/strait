@@ -23,6 +23,7 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
@@ -61,6 +62,7 @@ export const Route = createFileRoute("/app/logs/")({
 });
 
 function LogsPage() {
+  usePageEvent("logs_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();

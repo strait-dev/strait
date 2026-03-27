@@ -6,6 +6,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { z } from "zod/v4";
 
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
@@ -36,6 +37,7 @@ export const Route = createFileRoute("/app/events/")({
 });
 
 function EventsPage() {
+  usePageEvent("events_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();

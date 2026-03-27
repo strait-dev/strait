@@ -24,6 +24,7 @@ import type {
 } from "@/components/upgrade/plan-selection";
 import { PlanSelection } from "@/components/upgrade/plan-selection";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import {
   apiPlansToComparisonFeatures,
   apiPlansToPricingPlans,
@@ -105,6 +106,7 @@ export const Route = createFileRoute("/app/upgrade")({
 });
 
 function RouteComponent() {
+  usePageEvent("upgrade_page_viewed");
   const search = Route.useSearch();
   const { pricingPlans, comparisonFeatures } = Route.useLoaderData();
   const { data: subscriptionState } = useSuspenseQuery(

@@ -23,6 +23,7 @@ import { useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
@@ -68,6 +69,7 @@ export const Route = createFileRoute("/app/runs/")({
 });
 
 function RunsPage() {
+  usePageEvent("runs_list_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const { data } = useQuery({ ...runsQueryOptions(), enabled: hasProject });
   const search = Route.useSearch();

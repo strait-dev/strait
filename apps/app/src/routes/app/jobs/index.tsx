@@ -23,6 +23,7 @@ import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
@@ -66,6 +67,7 @@ export const Route = createFileRoute("/app/jobs/")({
 });
 
 function JobsPage() {
+  usePageEvent("jobs_list_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();

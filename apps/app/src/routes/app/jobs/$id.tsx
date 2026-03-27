@@ -38,6 +38,7 @@ import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import TableEmptyState from "@/components/common/table-empty-state";
 import ChartTooltip from "@/components/dashboard/chart-tooltip";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
@@ -132,6 +133,7 @@ const CHART_LEGEND = [
 
 function JobDetailPage() {
   const { id } = Route.useParams();
+  usePageEvent("job_detail_viewed", { job_id: id });
   const { data: job } = useSuspenseQuery(jobQueryOptions(id)) as {
     data: Job | undefined;
   };

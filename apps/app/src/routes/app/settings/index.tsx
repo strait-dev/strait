@@ -17,6 +17,7 @@ import {
 } from "@strait/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import Account from "@/components/(settings)/account";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
@@ -77,6 +78,7 @@ function EmailPreferencesCard() {
 }
 
 function RouteComponent() {
+  usePageEvent("settings_viewed");
   const { session } = Route.useLoaderData();
 
   return (

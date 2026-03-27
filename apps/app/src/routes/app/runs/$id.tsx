@@ -23,6 +23,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import StatusBadge from "@/components/dashboard/status-badge";
@@ -65,6 +66,7 @@ const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set([
 
 function RunDetailPage() {
   const { id } = Route.useParams();
+  usePageEvent("run_detail_viewed", { run_id: id });
   const { data: run } = useSuspenseQuery(runQueryOptions(id)) as {
     data: JobRun | undefined;
   };
