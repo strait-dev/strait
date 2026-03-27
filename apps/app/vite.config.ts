@@ -4,14 +4,64 @@ import { devtools } from "@tanstack/devtools-vite";
 import { nitroV2Plugin } from "@tanstack/nitro-v2-vite-plugin";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
+import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import { ngrok } from "vite-plugin-ngrok";
+
+/**
+ * Vite plugin that serves /.well-known/oauth-authorization-server and
+ * /.well-known/openid-configuration by calling the Better Auth API
+ * programmatically. TanStack Start's file router ignores dot-prefixed
+ * directories, so these must be handled as server middleware.
+ */
+function wellKnownOAuthPlugin(): Plugin {
+  return {
+    name: "well-known-oauth",
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (
+          req.url !== "/.well-known/oauth-authorization-server" &&
+          req.url !== "/.well-known/openid-configuration"
+        ) {
+          return next();
+        }
+
+        try {
+          // Dynamic import to avoid loading auth.server.ts at Vite config time
+          const { auth } = await server.ssrLoadModule(
+            "/src/lib/auth.server.ts"
+          );
+
+          let data;
+          if (req.url === "/.well-known/oauth-authorization-server") {
+            data = await auth.api.getOAuthServerConfig();
+          } else {
+            data = await auth.api.getOpenIdConfig();
+          }
+
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Cache-Control": "public, max-age=3600",
+          });
+          res.end(JSON.stringify(data));
+        } catch (err) {
+          console.error("Failed to serve well-known metadata:", err);
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "internal_error" }));
+        }
+      });
+    },
+  };
+}
 
 export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
   plugins: [
+    wellKnownOAuthPlugin(),
     devtools(),
     tailwindcss(),
     tanstackStart({
