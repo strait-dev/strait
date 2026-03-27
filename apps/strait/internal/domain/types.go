@@ -1145,7 +1145,16 @@ type WorkflowStep struct {
 	CostGateThresholdMicrousd int64              `json:"cost_gate_threshold_microusd,omitempty"`
 	CostGateTimeoutSecs       int                `json:"cost_gate_timeout_secs,omitempty"`
 	CostGateDefaultAction     string             `json:"cost_gate_default_action,omitempty"`
+	ExpectedDurationSecs      int                `json:"expected_duration_secs,omitempty"`
+	StageNotifications        json.RawMessage    `json:"stage_notifications,omitempty"`
 	CreatedAt                 time.Time          `json:"created_at"`
+}
+
+// StageNotificationConfig defines notifications to send on step transitions.
+type StageNotificationConfig struct {
+	OnComplete bool `json:"on_complete,omitempty"`
+	OnFailure  bool `json:"on_failure,omitempty"`
+	OnSkipped  bool `json:"on_skipped,omitempty"`
 }
 
 // JobCostEstimate holds the cached average cost for a job based on recent runs.
@@ -1191,27 +1200,28 @@ type WorkflowSnapshotMeta struct {
 
 // WorkflowRun represents an execution instance of a workflow.
 type WorkflowRun struct {
-	ID                  string            `json:"id"`
-	WorkflowID          string            `json:"workflow_id"`
-	ProjectID           string            `json:"project_id"`
-	Tags                map[string]string `json:"tags,omitempty"`
-	Status              WorkflowRunStatus `json:"status"`
-	TriggeredBy         string            `json:"triggered_by"`
-	WorkflowVersion     int               `json:"workflow_version"`
-	MaxParallelSteps    int               `json:"max_parallel_steps,omitempty"`
-	Payload             json.RawMessage   `json:"payload,omitempty"`
-	Error               string            `json:"error,omitempty"`
-	StartedAt           *time.Time        `json:"started_at,omitempty"`
-	FinishedAt          *time.Time        `json:"finished_at,omitempty"`
-	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`
-	RetryOfRunID        string            `json:"retry_of_run_id,omitempty"`
-	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
-	ParentStepRunID     string            `json:"parent_step_run_id,omitempty"`
-	WorkflowVersionID   string            `json:"workflow_version_id,omitempty"`
-	WorkflowSnapshotID  string            `json:"workflow_snapshot_id,omitempty"`
-	CreatedBy           string            `json:"created_by,omitempty"`
-	TraceContext        map[string]string `json:"trace_context,omitempty"`
-	CreatedAt           time.Time         `json:"created_at"`
+	ID                   string            `json:"id"`
+	WorkflowID           string            `json:"workflow_id"`
+	ProjectID            string            `json:"project_id"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	Status               WorkflowRunStatus `json:"status"`
+	TriggeredBy          string            `json:"triggered_by"`
+	WorkflowVersion      int               `json:"workflow_version"`
+	MaxParallelSteps     int               `json:"max_parallel_steps,omitempty"`
+	Payload              json.RawMessage   `json:"payload,omitempty"`
+	Error                string            `json:"error,omitempty"`
+	StartedAt            *time.Time        `json:"started_at,omitempty"`
+	FinishedAt           *time.Time        `json:"finished_at,omitempty"`
+	ExpiresAt            *time.Time        `json:"expires_at,omitempty"`
+	RetryOfRunID         string            `json:"retry_of_run_id,omitempty"`
+	ParentWorkflowRunID  string            `json:"parent_workflow_run_id,omitempty"`
+	ParentStepRunID      string            `json:"parent_step_run_id,omitempty"`
+	WorkflowVersionID    string            `json:"workflow_version_id,omitempty"`
+	WorkflowSnapshotID   string            `json:"workflow_snapshot_id,omitempty"`
+	CreatedBy            string            `json:"created_by,omitempty"`
+	ExpectedCompletionAt *time.Time        `json:"expected_completion_at,omitempty"`
+	TraceContext         map[string]string `json:"trace_context,omitempty"`
+	CreatedAt            time.Time         `json:"created_at"`
 }
 
 // WorkflowStepRun represents execution of a single step within a workflow run.
