@@ -1,9 +1,10 @@
-import { createServerFn } from "@tanstack/react-start";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { z } from "zod";
-import { auth } from "@/lib/auth.server";
-import { authMiddleware } from "@/middlewares/auth";
+import type { OAuthConsentItem } from "@/hooks/api/use-oauth-consents";
+import {
+  oauthConsentsQueryOptions,
+  useRevokeOAuthConsent,
+} from "@/hooks/api/use-oauth-consents";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -25,94 +26,28 @@ import {
   AlertDialogTrigger,
 } from "@strait/ui/components/alert-dialog";
 
-function formatScopes(scopes: unknown): string {
-  if (typeof scopes === "string") {
-    return scopes;
-  }
-  if (Array.isArray(scopes)) {
-    return scopes.join(",");
-  }
-  return "";
-}
-
-// -- Server functions ---------------------------------------------------------
-
-type OAuthConsentItem = {
-  id: string;
-  clientId: string;
-  clientName: string;
-  scopes: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-const fetchConsents = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async () => {
-    const consents = (await auth.api.getOAuthConsents()) ?? [];
-    const items: OAuthConsentItem[] = [];
-    for (const consent of consents as any[]) {
-      let clientName = "Unknown Application";
-      try {
-        const client = await (auth.api as any).getOAuthClient({
-          body: { client_id: consent.clientId },
-        });
-        if (client?.name) {
-          clientName = client.name;
-        }
-      } catch {
-        // Client may have been deleted — use fallback name.
-      }
-      items.push({
-        id: consent.id,
-        clientId: consent.clientId,
-        clientName,
-        scopes: formatScopes(consent.scopes),
-        createdAt: consent.createdAt?.toISOString?.() ?? String(consent.createdAt),
-        updatedAt: consent.updatedAt?.toISOString?.() ?? String(consent.updatedAt),
-      });
-    }
-    return items;
-  });
-
-const revokeConsent = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ consentId: z.string().min(1) }))
-  .middleware([authMiddleware])
-  .handler(async ({ data }) => {
-    await auth.api.deleteOAuthConsent({
-      body: { id: data.consentId },
-    });
-    return { success: true };
-  });
-
-// -- Query key ----------------------------------------------------------------
-
-const AUTHORIZED_APPS_KEY = ["authorized-apps"] as const;
-
 // -- Component ----------------------------------------------------------------
 
 export function AuthorizedApps() {
-  const queryClient = useQueryClient();
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const { data: consents = [], isLoading } = useQuery(
+    oauthConsentsQueryOptions()
+  );
+  const revokeMutation = useRevokeOAuthConsent();
 
-  const { data: consents = [], isLoading } = useQuery({
-    queryKey: AUTHORIZED_APPS_KEY,
-    queryFn: () => fetchConsents(),
-  });
-
-  const revokeMutation = useMutation({
-    mutationFn: (consentId: string) =>
-      revokeConsent({ data: { consentId } }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: AUTHORIZED_APPS_KEY });
-      toast.success("Access revoked successfully");
-      setRevokingId(null);
-    },
-    onError: () => {
-      toast.error("Failed to revoke access");
-      setRevokingId(null);
-    },
-  });
+  function handleRevoke(consentId: string) {
+    setRevokingId(consentId);
+    revokeMutation.mutate(consentId, {
+      onSuccess: () => {
+        toast.success("Access revoked successfully");
+        setRevokingId(null);
+      },
+      onError: () => {
+        toast.error("Failed to revoke access");
+        setRevokingId(null);
+      },
+    });
+  }
 
   if (isLoading) {
     return (
@@ -152,10 +87,7 @@ export function AuthorizedApps() {
               <ConsentRow
                 consent={consent}
                 key={consent.id}
-                onRevoke={() => {
-                  setRevokingId(consent.id);
-                  revokeMutation.mutate(consent.id);
-                }}
+                onRevoke={() => handleRevoke(consent.id)}
                 revoking={revokingId === consent.id}
               />
             ))}
@@ -215,11 +147,7 @@ function ConsentRow({
       <AlertDialog>
         <AlertDialogTrigger
           render={
-            <Button
-              disabled={revoking}
-              size="sm"
-              variant="destructive"
-            >
+            <Button disabled={revoking} size="sm" variant="destructive">
               {revoking ? "Revoking..." : "Revoke"}
             </Button>
           }
@@ -234,7 +162,9 @@ function ConsentRow({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex justify-end gap-3">
-            <AlertDialogCancel render={<Button variant="outline">Cancel</Button>} />
+            <AlertDialogCancel
+              render={<Button variant="outline">Cancel</Button>}
+            />
             <AlertDialogAction
               onClick={onRevoke}
               render={<Button variant="destructive">Revoke Access</Button>}
