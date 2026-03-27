@@ -40,11 +40,18 @@ func TestPermissionCache_Expiry(t *testing.T) {
 	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
-	time.Sleep(3 * time.Second)
-
-	_, ok := c.Get("proj", "user")
-	if ok {
-		t.Fatal("expected cache miss after expiry")
+	deadline := time.After(10 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for cache entry to expire")
+		case <-ticker.C:
+			if _, ok := c.Get("proj", "user"); !ok {
+				return // entry expired as expected
+			}
+		}
 	}
 }
 
@@ -96,16 +103,24 @@ func TestPermissionCache_EvictsOnExpiredRead(t *testing.T) {
 	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
-	time.Sleep(3 * time.Second)
-
-	// Get should return a miss for the expired entry.
-	_, ok := c.Get("proj", "user")
-	if ok {
-		t.Fatal("expected cache miss")
+	// Poll until the entry expires.
+	deadline := time.After(10 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for cache entry to expire")
+		case <-ticker.C:
+			if _, ok := c.Get("proj", "user"); !ok {
+				goto expired
+			}
+		}
 	}
+expired:
 
 	// A second Get should still miss (entry was evicted, not just stale).
-	_, ok = c.Get("proj", "user")
+	_, ok := c.Get("proj", "user")
 	if ok {
 		t.Fatal("expected cache miss on second read after expiry")
 	}
@@ -280,7 +295,22 @@ func TestPermissionCache_EvictRaceOnExpiry(t *testing.T) {
 	defer c.Stop()
 
 	c.Set("proj", "user", []string{"*"})
-	time.Sleep(3 * time.Second)
+
+	// Poll until the entry expires before launching the race.
+	deadline := time.After(10 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for cache entry to expire")
+		case <-ticker.C:
+			if _, ok := c.Get("proj", "user"); !ok {
+				goto expired
+			}
+		}
+	}
+expired:
 
 	// Multiple goroutines race to evict the same expired entry.
 	// This verifies the double-check pattern prevents panics.

@@ -215,8 +215,7 @@ func TestPoolPruner_DestroyCallbackPanic(t *testing.T) {
 	pool := compute.NewMachinePool(5)
 	pool.Release("test-project", "img:latest", "iad", "m-panic")
 
-	// Wait for the entry to become stale.
-	time.Sleep(5 * time.Millisecond)
+	// TTL is nanosecond, so entries are immediately stale -- no sleep needed.
 
 	rt := &mockPrunerRuntime{
 		destroyFn: func(_ context.Context, _ string) error {

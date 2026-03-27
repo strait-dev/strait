@@ -799,9 +799,17 @@ func TestFlyDestroy_500_ReturnsRetryable(t *testing.T) {
 
 func TestFlyWait_LongTimeout_NoClientTimeout(t *testing.T) {
 	t.Parallel()
+
+	waitReady := make(chan struct{})
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(2 * time.Second) // Simulate slow wait
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, r *http.Request) {
+		// Signal that the handler has been reached, then wait briefly to
+		// confirm the client does not time out on a slow response.
+		close(waitReady)
+		select {
+		case <-time.After(2 * time.Second):
+		case <-r.Context().Done():
+		}
 		w.WriteHeader(200)
 	})
 	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
@@ -986,9 +994,12 @@ func TestFlyCreate_ConnectionRefused_Retryable(t *testing.T) {
 func TestFlyWait_ContextCanceled(t *testing.T) {
 	t.Parallel()
 
+	handlerReached := make(chan struct{})
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(5 * time.Second) // Block long enough for context to cancel.
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, r *http.Request) {
+		close(handlerReached)
+		// Block until the request context is done (i.e. client cancels).
+		<-r.Context().Done()
 		w.WriteHeader(200)
 	})
 
@@ -999,9 +1010,9 @@ func TestFlyWait_ContextCanceled(t *testing.T) {
 
 	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
 
-	// Cancel context after a short delay.
+	// Cancel context once the handler has been reached.
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		<-handlerReached
 		cancel()
 	}()
 
@@ -1017,8 +1028,10 @@ func TestFlyWait_ContextCanceled(t *testing.T) {
 func TestFlyStop_ContextTimeout(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(5 * time.Second)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Block until request context is done (should be immediate since the
+		// caller's context is already expired).
+		<-r.Context().Done()
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()

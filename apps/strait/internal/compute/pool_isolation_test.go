@@ -127,8 +127,26 @@ func TestPool_MaxPoolSize(t *testing.T) {
 		pool.Release("proj-1", "myapp:v1", "iad", fmt.Sprintf("m-%d", i))
 	}
 
-	// Allow async eviction goroutines to complete.
-	time.Sleep(100 * time.Millisecond)
+	// Poll until all async eviction goroutines complete.
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			mu.Lock()
+			t.Fatalf("timed out waiting for evictions, got %d: %v", len(evicted), evicted)
+			mu.Unlock()
+		case <-ticker.C:
+			mu.Lock()
+			done := len(evicted) == 3
+			mu.Unlock()
+			if done {
+				goto checkResults
+			}
+		}
+	}
+checkResults:
 
 	if pool.Size() != maxPer {
 		t.Fatalf("expected pool size %d, got %d", maxPer, pool.Size())
@@ -232,8 +250,26 @@ func TestPool_EvictionUnderPressure(t *testing.T) {
 	// One more triggers eviction of the oldest.
 	pool.Release("proj-1", "myapp:v1", "iad", "m-pressure")
 
-	// Allow async eviction.
-	time.Sleep(100 * time.Millisecond)
+	// Poll until async eviction completes.
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			mu.Lock()
+			t.Fatalf("timed out waiting for eviction, got %d: %v", len(evictOrder), evictOrder)
+			mu.Unlock()
+		case <-ticker.C:
+			mu.Lock()
+			done := len(evictOrder) == 1
+			mu.Unlock()
+			if done {
+				goto checkEviction
+			}
+		}
+	}
+checkEviction:
 
 	mu.Lock()
 	defer mu.Unlock()
