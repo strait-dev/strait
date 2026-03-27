@@ -26,6 +26,7 @@ import {
 } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { Pool } from "pg";
+import { ALL_OAUTH_SCOPES, STRAIT_API_SCOPES } from "@/lib/oauth-scopes";
 import { resend } from "@/lib/resend.server";
 
 export const authPool = new Pool({
@@ -197,26 +198,7 @@ export const auth = betterAuth({
       validAudiences: process.env.OIDC_AUDIENCE
         ? [process.env.OIDC_AUDIENCE]
         : undefined,
-      scopes: [
-        "openid",
-        "profile",
-        "email",
-        "offline_access",
-        "jobs:read",
-        "jobs:write",
-        "jobs:trigger",
-        "runs:read",
-        "runs:write",
-        "workflows:read",
-        "workflows:write",
-        "workflows:trigger",
-        "secrets:read",
-        "secrets:write",
-        "stats:read",
-        "projects:read",
-        "projects:write",
-        "projects:manage",
-      ],
+      scopes: [...ALL_OAUTH_SCOPES],
       allowDynamicClientRegistration: true,
       allowUnauthenticatedClientRegistration: true,
       clientRegistrationDefaultScopes: [
@@ -226,22 +208,7 @@ export const auth = betterAuth({
         "runs:read",
         "stats:read",
       ],
-      clientRegistrationAllowedScopes: [
-        "jobs:read",
-        "jobs:write",
-        "jobs:trigger",
-        "runs:read",
-        "runs:write",
-        "workflows:read",
-        "workflows:write",
-        "workflows:trigger",
-        "secrets:read",
-        "secrets:write",
-        "stats:read",
-        "projects:read",
-        "projects:write",
-        "projects:manage",
-      ],
+      clientRegistrationAllowedScopes: [...STRAIT_API_SCOPES],
       accessTokenExpiresIn: 900, // 15 minutes — short-lived for security
       refreshTokenExpiresIn: 2_592_000, // 30 days
       codeExpiresIn: 600, // 10 minutes

@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import {
+  ALL_OAUTH_SCOPES,
+  OIDC_STANDARD_SCOPES,
+  SCOPE_DESCRIPTIONS,
+} from "@/lib/oauth-scopes";
 
 /**
  * These are the scopes defined in the Go backend at
@@ -29,32 +34,8 @@ const GO_BACKEND_SCOPES = [
 
 const ADMIN_ONLY_SCOPES = ["*", "api-keys:manage", "rbac:manage"];
 
-/**
- * Scopes configured in the oauthProvider plugin (auth.server.ts).
- * Kept in sync manually — this test catches drift.
- */
-const OAUTH_PROVIDER_SCOPES = [
-  "openid",
-  "profile",
-  "email",
-  "offline_access",
-  "jobs:read",
-  "jobs:write",
-  "jobs:trigger",
-  "runs:read",
-  "runs:write",
-  "workflows:read",
-  "workflows:write",
-  "workflows:trigger",
-  "secrets:read",
-  "secrets:write",
-  "stats:read",
-  "projects:read",
-  "projects:write",
-  "projects:manage",
-];
-
-const OIDC_STANDARD_SCOPES = ["openid", "profile", "email", "offline_access"];
+// Use the shared module as the source of truth.
+const OAUTH_PROVIDER_SCOPES = [...ALL_OAUTH_SCOPES];
 
 describe("OAuth scope configuration", () => {
   it("includes all non-admin Go backend scopes", () => {
@@ -91,93 +72,7 @@ describe("OAuth scope configuration", () => {
 });
 
 describe("consent page scope descriptions", () => {
-  /**
-   * Scope descriptions from the consent page component.
-   * This ensures every Strait API scope exposed via OAuth has a
-   * human-readable description for the consent screen.
-   */
-  const SCOPE_DESCRIPTIONS: Record<
-    string,
-    { label: string; description: string; level: "read" | "write" | "admin" }
-  > = {
-    "jobs:read": {
-      label: "View jobs",
-      description: "View your jobs and their configurations",
-      level: "read",
-    },
-    "jobs:write": {
-      label: "Modify jobs",
-      description: "Create, update, and delete jobs",
-      level: "write",
-    },
-    "jobs:trigger": {
-      label: "Trigger jobs",
-      description: "Trigger job executions manually",
-      level: "write",
-    },
-    "runs:read": {
-      label: "View runs",
-      description: "View job run history and logs",
-      level: "read",
-    },
-    "runs:write": {
-      label: "Modify runs",
-      description: "Cancel or retry runs",
-      level: "write",
-    },
-    "workflows:read": {
-      label: "View workflows",
-      description: "View workflows and their definitions",
-      level: "read",
-    },
-    "workflows:write": {
-      label: "Modify workflows",
-      description: "Create, update, and delete workflows",
-      level: "write",
-    },
-    "workflows:trigger": {
-      label: "Trigger workflows",
-      description: "Trigger workflow executions",
-      level: "write",
-    },
-    "secrets:read": {
-      label: "View secrets",
-      description: "View secret names (values are never exposed)",
-      level: "read",
-    },
-    "secrets:write": {
-      label: "Modify secrets",
-      description: "Create and update secrets",
-      level: "admin",
-    },
-    "stats:read": {
-      label: "View statistics",
-      description: "View usage and performance statistics",
-      level: "read",
-    },
-    "projects:read": {
-      label: "View projects",
-      description: "View project details and settings",
-      level: "read",
-    },
-    "projects:write": {
-      label: "Modify projects",
-      description: "Update project settings",
-      level: "write",
-    },
-    "projects:manage": {
-      label: "Manage projects",
-      description: "Full project management including deletion",
-      level: "admin",
-    },
-  };
-
-  const HIDDEN_SCOPES = new Set([
-    "openid",
-    "profile",
-    "email",
-    "offline_access",
-  ]);
+  const HIDDEN_SCOPES = new Set<string>(OIDC_STANDARD_SCOPES);
 
   it("has a description for every non-OIDC OAuth scope", () => {
     const straitScopes = OAUTH_PROVIDER_SCOPES.filter(

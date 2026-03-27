@@ -4,6 +4,7 @@ import { z } from "zod";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { auth } from "@/lib/auth.server";
+import { parseAndFilterScopes } from "@/lib/oauth-scopes";
 import { captureException } from "@/lib/sentry";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -15,16 +16,6 @@ export type OAuthConsentItem = {
   createdAt: string;
   updatedAt: string;
 };
-
-function formatScopes(scopes: unknown): string {
-  if (typeof scopes === "string") {
-    return scopes;
-  }
-  if (Array.isArray(scopes)) {
-    return scopes.join(",");
-  }
-  return "";
-}
 
 export const fetchOAuthConsents = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -47,7 +38,7 @@ export const fetchOAuthConsents = createServerFn({ method: "GET" })
         id: consent.id,
         clientId: consent.clientId,
         clientName,
-        scopes: formatScopes(consent.scopes),
+        scopes: parseAndFilterScopes(consent.scopes).join(","),
         createdAt:
           consent.createdAt?.toISOString?.() ?? String(consent.createdAt),
         updatedAt:

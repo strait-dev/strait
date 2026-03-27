@@ -7,90 +7,11 @@ import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { auth } from "@/lib/auth.server";
+import { SCOPE_DESCRIPTIONS, OIDC_STANDARD_SCOPES } from "@/lib/oauth-scopes";
 import { captureException } from "@/lib/sentry";
 import { authMiddleware } from "@/middlewares/auth";
 
-
 type ScopeLevel = "read" | "write" | "admin";
-
-type ScopeInfo = {
-  label: string;
-  description: string;
-  level: ScopeLevel;
-};
-
-const SCOPE_DESCRIPTIONS: Record<string, ScopeInfo> = {
-  "jobs:read": {
-    label: "View jobs",
-    description: "View your jobs and their configurations",
-    level: "read",
-  },
-  "jobs:write": {
-    label: "Modify jobs",
-    description: "Create, update, and delete jobs",
-    level: "write",
-  },
-  "jobs:trigger": {
-    label: "Trigger jobs",
-    description: "Trigger job executions manually",
-    level: "write",
-  },
-  "runs:read": {
-    label: "View runs",
-    description: "View job run history and logs",
-    level: "read",
-  },
-  "runs:write": {
-    label: "Modify runs",
-    description: "Cancel or retry runs",
-    level: "write",
-  },
-  "workflows:read": {
-    label: "View workflows",
-    description: "View workflows and their definitions",
-    level: "read",
-  },
-  "workflows:write": {
-    label: "Modify workflows",
-    description: "Create, update, and delete workflows",
-    level: "write",
-  },
-  "workflows:trigger": {
-    label: "Trigger workflows",
-    description: "Trigger workflow executions",
-    level: "write",
-  },
-  "secrets:read": {
-    label: "View secrets",
-    description: "View secret names (values are never exposed)",
-    level: "read",
-  },
-  "secrets:write": {
-    label: "Modify secrets",
-    description: "Create and update secrets",
-    level: "admin",
-  },
-  "stats:read": {
-    label: "View statistics",
-    description: "View usage and performance statistics",
-    level: "read",
-  },
-  "projects:read": {
-    label: "View projects",
-    description: "View project details and settings",
-    level: "read",
-  },
-  "projects:write": {
-    label: "Modify projects",
-    description: "Update project settings",
-    level: "write",
-  },
-  "projects:manage": {
-    label: "Manage projects",
-    description: "Full project management including deletion",
-    level: "admin",
-  },
-};
 
 const LEVEL_STYLES: Record<ScopeLevel, { bg: string; text: string }> = {
   read: { bg: "bg-blue-500/10", text: "text-blue-500" },
@@ -98,14 +19,7 @@ const LEVEL_STYLES: Record<ScopeLevel, { bg: string; text: string }> = {
   admin: { bg: "bg-red-500/10", text: "text-red-500" },
 };
 
-// Scopes that are standard OIDC and not displayed in the permissions list
-const HIDDEN_SCOPES = new Set([
-  "openid",
-  "profile",
-  "email",
-  "offline_access",
-]);
-
+const HIDDEN_SCOPES = new Set<string>(OIDC_STANDARD_SCOPES);
 
 function buildSearchParams(
   search: Record<string, string | undefined>,
