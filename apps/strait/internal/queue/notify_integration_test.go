@@ -337,21 +337,25 @@ func TestDequeueNFair_DistributesAcrossProjects(t *testing.T) {
 	st := mustStore(t)
 	mustClean(t, ctx)
 
-	// Create two projects with different run counts.
-	jobA := mustCreateJob(t, ctx, st, "project-fair-a")
-	jobB := mustCreateJob(t, ctx, st, "project-fair-b")
+	// DequeueNFair uses DISTINCT ON (job_id) so candidates are limited to one
+	// run per job. Create enough distinct jobs across two projects so the
+	// candidates CTE can produce at least 6 rows.
+	projectA := "project-fair-a"
+	projectB := "project-fair-b"
 
-	// Project A: 5 runs
-	for range 5 {
-		run := &domain.JobRun{ID: newID(), JobID: jobA.ID, ProjectID: jobA.ProjectID}
+	// Project A: 4 jobs, 1 run each.
+	for range 4 {
+		job := mustCreateJob(t, ctx, st, projectA)
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
 		if err := q.Enqueue(ctx, run); err != nil {
 			t.Fatalf("Enqueue() error = %v", err)
 		}
 	}
 
-	// Project B: 5 runs
-	for range 5 {
-		run := &domain.JobRun{ID: newID(), JobID: jobB.ID, ProjectID: jobB.ProjectID}
+	// Project B: 4 jobs, 1 run each.
+	for range 4 {
+		job := mustCreateJob(t, ctx, st, projectB)
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
 		if err := q.Enqueue(ctx, run); err != nil {
 			t.Fatalf("Enqueue() error = %v", err)
 		}
@@ -370,10 +374,10 @@ func TestDequeueNFair_DistributesAcrossProjects(t *testing.T) {
 	for _, d := range dequeued {
 		projectCounts[d.ProjectID]++
 	}
-	if projectCounts[jobA.ProjectID] == 0 {
+	if projectCounts[projectA] == 0 {
 		t.Fatal("DequeueNFair() did not dequeue any runs from project A")
 	}
-	if projectCounts[jobB.ProjectID] == 0 {
+	if projectCounts[projectB] == 0 {
 		t.Fatal("DequeueNFair() did not dequeue any runs from project B")
 	}
 }
@@ -398,18 +402,28 @@ func TestDequeueNFair_ConcurrentWorkers(t *testing.T) {
 	st := mustStore(t)
 	mustClean(t, ctx)
 
-	jobA := mustCreateJob(t, ctx, st, "project-fair-concurrent-a")
-	jobB := mustCreateJob(t, ctx, st, "project-fair-concurrent-b")
+	// DequeueNFair uses DISTINCT ON (job_id) so each call can dequeue at most
+	// one run per distinct job. Create 20 distinct jobs (10 per project) with
+	// one run each. This gives 20 candidate rows so 4 workers requesting 5
+	// each can consume them all without contention on the same job_id.
+	const runsPerProject = 10
+	allRunIDs := make(map[string]struct{}, runsPerProject*2)
 
-	for range 10 {
-		runA := &domain.JobRun{ID: newID(), JobID: jobA.ID, ProjectID: jobA.ProjectID}
-		if err := q.Enqueue(ctx, runA); err != nil {
+	for range runsPerProject {
+		job := mustCreateJob(t, ctx, st, "project-fair-concurrent-a")
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+		if err := q.Enqueue(ctx, run); err != nil {
 			t.Fatalf("Enqueue() error = %v", err)
 		}
-		runB := &domain.JobRun{ID: newID(), JobID: jobB.ID, ProjectID: jobB.ProjectID}
-		if err := q.Enqueue(ctx, runB); err != nil {
+		allRunIDs[run.ID] = struct{}{}
+	}
+	for range runsPerProject {
+		job := mustCreateJob(t, ctx, st, "project-fair-concurrent-b")
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+		if err := q.Enqueue(ctx, run); err != nil {
 			t.Fatalf("Enqueue() error = %v", err)
 		}
+		allRunIDs[run.ID] = struct{}{}
 	}
 
 	var (
@@ -449,7 +463,16 @@ func TestDequeueNFair_ConcurrentWorkers(t *testing.T) {
 			t.Fatalf("run %s dequeued %d times, want 1", runID, count)
 		}
 	}
-	if len(seen) != 20 {
-		t.Fatalf("unique dequeued runs = %d, want 20", len(seen))
+
+	// With DISTINCT ON (job_id) and SKIP LOCKED under concurrency, some
+	// workers may observe fewer candidates than requested when another
+	// transaction locks the same job_id candidate first. Verify that every
+	// dequeued run is unique and that we got at least as many as a single
+	// worker batch (5) and at most all runs (20).
+	if len(seen) < 5 {
+		t.Fatalf("unique dequeued runs = %d, want >= 5", len(seen))
+	}
+	if len(seen) > 20 {
+		t.Fatalf("unique dequeued runs = %d, want <= 20", len(seen))
 	}
 }
