@@ -1,4 +1,5 @@
 ---
+import "@/styles/fonts.css";
 import "@strait/ui/globals.css";
 
 interface Props {
@@ -25,7 +26,6 @@ const gtmId = import.meta.env.PUBLIC_GTM_ID;
 		<link rel="manifest" href="/site.webmanifest" />
 		<link rel="preconnect" href="https://assets.basehub.com" crossorigin />
 		<link rel="preconnect" href="https://basehub.earth" crossorigin />
-		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-sans/style.min.css" />
 		<slot name="head" />
 	</head>
 	<body class="font-sans selection:bg-primary selection:text-primary-foreground">
