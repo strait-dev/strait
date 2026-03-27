@@ -70,7 +70,9 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			sub_workflow_id, max_nesting_depth,
 			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
 			concurrency_key, resource_class,
-			cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action
+			cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action,
+			expected_duration_secs, stage_notifications,
+			compensation_job_id, compensation_timeout_secs
 		)
 		SELECT
 			$1 || ':' || step_ref,
@@ -101,7 +103,11 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			resource_class,
 			cost_gate_threshold_microusd,
 			cost_gate_timeout_secs,
-			cost_gate_default_action
+			cost_gate_default_action,
+			expected_duration_secs,
+			stage_notifications,
+			compensation_job_id,
+			compensation_timeout_secs
 		FROM workflow_steps
 		WHERE workflow_id = $2`
 
@@ -147,6 +153,10 @@ func (q *Queries) ListStepsByWorkflowVersion(ctx context.Context, workflowID str
 			wvs.cost_gate_threshold_microusd,
 			wvs.cost_gate_timeout_secs,
 			wvs.cost_gate_default_action,
+			wvs.expected_duration_secs,
+			wvs.stage_notifications,
+			wvs.compensation_job_id,
+			wvs.compensation_timeout_secs,
 			wvs.created_at
 		FROM workflow_version_steps wvs
 		JOIN workflow_versions wv ON wv.id = wvs.workflow_version_id
@@ -273,7 +283,7 @@ func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
 		FROM workflow_runs
 		WHERE status IN ('running', 'paused')
 		  AND expires_at IS NOT NULL

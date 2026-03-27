@@ -1452,6 +1452,57 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
 	}, s.handleRetryWorkflowRun)
 
+	// -- Compensation --
+	RegisterTypedOp(api, OpMeta{
+		ID: "compensate-workflow-run", Method: http.MethodPost, Path: "/v1/workflow-runs/{workflowRunID}/compensate",
+		Summary: "Compensate a failed workflow run", Description: "Triggers compensation for previously completed steps in reverse topological order. Only valid for failed or timed_out runs.",
+		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleCompensateWorkflowRun)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-compensation-plan", Method: http.MethodGet, Path: "/v1/workflow-runs/{workflowRunID}/compensation-plan",
+		Summary: "Get compensation plan", Description: "Returns the compensation plan for a workflow run without executing it. Shows which steps would be compensated and in what order.",
+		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+	}, s.handleGetCompensationPlan)
+
+	// -- Debug --
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-workflow-run-debug", Method: http.MethodGet, Path: "/v1/workflow-runs/{workflowRunID}/debug",
+		Summary: "Get workflow run debug view", Description: "Returns a full debug timeline with per-step status, timing, cost, input/output, and data flow between steps.",
+		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+	}, s.handleGetWorkflowRunDebug)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "compare-workflow-runs", Method: http.MethodGet, Path: "/v1/workflow-runs/{workflowRunID}/compare/{otherRunID}",
+		Summary: "Compare two workflow runs", Description: "Returns a diff between two workflow runs highlighting status changes, duration differences, and steps present in only one run.",
+		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+	}, s.handleCompareWorkflowRuns)
+
+	// -- Canary Deployments --
+	RegisterTypedOp(api, OpMeta{
+		ID: "create-canary-deployment", Method: http.MethodPost, Path: "/v1/canary-deployments",
+		Summary: "Create canary deployment", Description: "Creates a canary deployment to gradually shift traffic from one workflow version to another.",
+		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
+	}, s.handleCreateCanaryDeployment)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-canary-deployment", Method: http.MethodPatch, Path: "/v1/workflows/{workflowID}/canary",
+		Summary: "Update canary traffic", Description: "Adjusts the traffic percentage for an active canary deployment.",
+		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleUpdateCanaryDeployment)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "rollback-canary-deployment", Method: http.MethodPost, Path: "/v1/workflows/{workflowID}/canary/rollback",
+		Summary: "Rollback canary deployment", Description: "Immediately rolls back a canary deployment to 0% target traffic.",
+		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+	}, s.handleRollbackCanaryDeployment)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-canary-status", Method: http.MethodGet, Path: "/v1/workflows/{workflowID}/canary",
+		Summary: "Get canary deployment status", Description: "Returns the current canary deployment status with version comparison metrics.",
+		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+	}, s.handleGetCanaryStatus)
+
 	// -- SDK --
 	RegisterTypedOp(api, OpMeta{
 		ID: "sdk-get-payload", Method: http.MethodGet, Path: "/sdk/v1/runs/{runID}/payload",

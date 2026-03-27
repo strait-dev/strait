@@ -20,30 +20,34 @@ import (
 )
 
 type workflowStepRequest struct {
-	JobID                 string                    `json:"job_id,omitempty"`
-	StepRef               string                    `json:"step_ref" validate:"required"`
-	DependsOn             []string                  `json:"depends_on,omitempty"`
-	Condition             json.RawMessage           `json:"condition,omitempty"`
-	OnFailure             domain.FailurePolicy      `json:"on_failure,omitempty"`
-	Payload               json.RawMessage           `json:"payload,omitempty"`
-	StepType              domain.WorkflowStepType   `json:"step_type,omitempty"`
-	ApprovalTimeoutSecs   int                       `json:"approval_timeout_secs,omitempty"`
-	ApprovalApprovers     []string                  `json:"approval_approvers,omitempty"`
-	RetryMaxAttempts      int                       `json:"retry_max_attempts,omitempty"`
-	RetryBackoff          domain.RetryBackoffPolicy `json:"retry_backoff,omitempty"`
-	RetryInitialDelaySecs int                       `json:"retry_initial_delay_secs,omitempty"`
-	RetryMaxDelaySecs     int                       `json:"retry_max_delay_secs,omitempty"`
-	TimeoutSecsOverride   int                       `json:"timeout_secs_override,omitempty"`
-	OutputTransform       string                    `json:"output_transform,omitempty"`
-	SubWorkflowID         string                    `json:"sub_workflow_id,omitempty"`
-	MaxNestingDepth       int                       `json:"max_nesting_depth,omitempty"`
-	EventKey              string                    `json:"event_key,omitempty"`
-	EventTimeoutSecs      int                       `json:"event_timeout_secs,omitempty"`
-	EventNotifyURL        string                    `json:"event_notify_url,omitempty"`
-	EventEmitKey          string                    `json:"event_emit_key,omitempty"`
-	SleepDurationSecs     int                       `json:"sleep_duration_secs,omitempty"`
-	ConcurrencyKey        string                    `json:"concurrency_key,omitempty"`
-	ResourceClass         string                    `json:"resource_class,omitempty"`
+	JobID                   string                    `json:"job_id,omitempty"`
+	StepRef                 string                    `json:"step_ref" validate:"required"`
+	DependsOn               []string                  `json:"depends_on,omitempty"`
+	Condition               json.RawMessage           `json:"condition,omitempty"`
+	OnFailure               domain.FailurePolicy      `json:"on_failure,omitempty"`
+	Payload                 json.RawMessage           `json:"payload,omitempty"`
+	StepType                domain.WorkflowStepType   `json:"step_type,omitempty"`
+	ApprovalTimeoutSecs     int                       `json:"approval_timeout_secs,omitempty"`
+	ApprovalApprovers       []string                  `json:"approval_approvers,omitempty"`
+	RetryMaxAttempts        int                       `json:"retry_max_attempts,omitempty"`
+	RetryBackoff            domain.RetryBackoffPolicy `json:"retry_backoff,omitempty"`
+	RetryInitialDelaySecs   int                       `json:"retry_initial_delay_secs,omitempty"`
+	RetryMaxDelaySecs       int                       `json:"retry_max_delay_secs,omitempty"`
+	TimeoutSecsOverride     int                       `json:"timeout_secs_override,omitempty"`
+	OutputTransform         string                    `json:"output_transform,omitempty"`
+	SubWorkflowID           string                    `json:"sub_workflow_id,omitempty"`
+	MaxNestingDepth         int                       `json:"max_nesting_depth,omitempty"`
+	EventKey                string                    `json:"event_key,omitempty"`
+	EventTimeoutSecs        int                       `json:"event_timeout_secs,omitempty"`
+	EventNotifyURL          string                    `json:"event_notify_url,omitempty"`
+	EventEmitKey            string                    `json:"event_emit_key,omitempty"`
+	SleepDurationSecs       int                       `json:"sleep_duration_secs,omitempty"`
+	ConcurrencyKey          string                    `json:"concurrency_key,omitempty"`
+	ResourceClass           string                    `json:"resource_class,omitempty"`
+	ExpectedDurationSecs    int                       `json:"expected_duration_secs,omitempty"`
+	StageNotifications      json.RawMessage           `json:"stage_notifications,omitempty"`
+	CompensationJobID       string                    `json:"compensation_job_id,omitempty"`
+	CompensationTimeoutSecs int                       `json:"compensation_timeout_secs,omitempty"`
 }
 
 type createWorkflowRequest struct {
@@ -545,30 +549,34 @@ func workflowStepsFromRequests(stepReqs []workflowStepRequest) []domain.Workflow
 	steps := make([]domain.WorkflowStep, 0, len(stepReqs))
 	for _, stepReq := range stepReqs {
 		steps = append(steps, domain.WorkflowStep{
-			JobID:                 stepReq.JobID,
-			StepRef:               stepReq.StepRef,
-			DependsOn:             stepReq.DependsOn,
-			Condition:             stepReq.Condition,
-			OnFailure:             stepReq.OnFailure,
-			Payload:               stepReq.Payload,
-			StepType:              stepReq.StepType,
-			ApprovalTimeoutSecs:   stepReq.ApprovalTimeoutSecs,
-			ApprovalApprovers:     stepReq.ApprovalApprovers,
-			RetryMaxAttempts:      stepReq.RetryMaxAttempts,
-			RetryBackoff:          stepReq.RetryBackoff,
-			RetryInitialDelaySecs: stepReq.RetryInitialDelaySecs,
-			RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
-			TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
-			OutputTransform:       stepReq.OutputTransform,
-			SubWorkflowID:         stepReq.SubWorkflowID,
-			MaxNestingDepth:       stepReq.MaxNestingDepth,
-			EventKey:              stepReq.EventKey,
-			EventTimeoutSecs:      stepReq.EventTimeoutSecs,
-			EventNotifyURL:        stepReq.EventNotifyURL,
-			EventEmitKey:          stepReq.EventEmitKey,
-			SleepDurationSecs:     stepReq.SleepDurationSecs,
-			ConcurrencyKey:        stepReq.ConcurrencyKey,
-			ResourceClass:         stepReq.ResourceClass,
+			JobID:                   stepReq.JobID,
+			StepRef:                 stepReq.StepRef,
+			DependsOn:               stepReq.DependsOn,
+			Condition:               stepReq.Condition,
+			OnFailure:               stepReq.OnFailure,
+			Payload:                 stepReq.Payload,
+			StepType:                stepReq.StepType,
+			ApprovalTimeoutSecs:     stepReq.ApprovalTimeoutSecs,
+			ApprovalApprovers:       stepReq.ApprovalApprovers,
+			RetryMaxAttempts:        stepReq.RetryMaxAttempts,
+			RetryBackoff:            stepReq.RetryBackoff,
+			RetryInitialDelaySecs:   stepReq.RetryInitialDelaySecs,
+			RetryMaxDelaySecs:       stepReq.RetryMaxDelaySecs,
+			TimeoutSecsOverride:     stepReq.TimeoutSecsOverride,
+			OutputTransform:         stepReq.OutputTransform,
+			SubWorkflowID:           stepReq.SubWorkflowID,
+			MaxNestingDepth:         stepReq.MaxNestingDepth,
+			EventKey:                stepReq.EventKey,
+			EventTimeoutSecs:        stepReq.EventTimeoutSecs,
+			EventNotifyURL:          stepReq.EventNotifyURL,
+			EventEmitKey:            stepReq.EventEmitKey,
+			SleepDurationSecs:       stepReq.SleepDurationSecs,
+			ConcurrencyKey:          stepReq.ConcurrencyKey,
+			ResourceClass:           stepReq.ResourceClass,
+			ExpectedDurationSecs:    stepReq.ExpectedDurationSecs,
+			StageNotifications:      stepReq.StageNotifications,
+			CompensationJobID:       stepReq.CompensationJobID,
+			CompensationTimeoutSecs: stepReq.CompensationTimeoutSecs,
 		})
 	}
 	return steps
@@ -1129,31 +1137,35 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 		}
 		for _, src := range sourceSteps {
 			step := domain.WorkflowStep{
-				WorkflowID:            newWf.ID,
-				JobID:                 src.JobID,
-				StepRef:               src.StepRef,
-				DependsOn:             src.DependsOn,
-				Condition:             src.Condition,
-				OnFailure:             src.OnFailure,
-				Payload:               src.Payload,
-				StepType:              src.StepType,
-				ApprovalTimeoutSecs:   src.ApprovalTimeoutSecs,
-				ApprovalApprovers:     src.ApprovalApprovers,
-				RetryMaxAttempts:      src.RetryMaxAttempts,
-				RetryBackoff:          src.RetryBackoff,
-				RetryInitialDelaySecs: src.RetryInitialDelaySecs,
-				RetryMaxDelaySecs:     src.RetryMaxDelaySecs,
-				TimeoutSecsOverride:   src.TimeoutSecsOverride,
-				OutputTransform:       src.OutputTransform,
-				SubWorkflowID:         src.SubWorkflowID,
-				MaxNestingDepth:       src.MaxNestingDepth,
-				EventKey:              src.EventKey,
-				EventTimeoutSecs:      src.EventTimeoutSecs,
-				EventNotifyURL:        src.EventNotifyURL,
-				EventEmitKey:          src.EventEmitKey,
-				SleepDurationSecs:     src.SleepDurationSecs,
-				ConcurrencyKey:        src.ConcurrencyKey,
-				ResourceClass:         src.ResourceClass,
+				WorkflowID:              newWf.ID,
+				JobID:                   src.JobID,
+				StepRef:                 src.StepRef,
+				DependsOn:               src.DependsOn,
+				Condition:               src.Condition,
+				OnFailure:               src.OnFailure,
+				Payload:                 src.Payload,
+				StepType:                src.StepType,
+				ApprovalTimeoutSecs:     src.ApprovalTimeoutSecs,
+				ApprovalApprovers:       src.ApprovalApprovers,
+				RetryMaxAttempts:        src.RetryMaxAttempts,
+				RetryBackoff:            src.RetryBackoff,
+				RetryInitialDelaySecs:   src.RetryInitialDelaySecs,
+				RetryMaxDelaySecs:       src.RetryMaxDelaySecs,
+				TimeoutSecsOverride:     src.TimeoutSecsOverride,
+				OutputTransform:         src.OutputTransform,
+				SubWorkflowID:           src.SubWorkflowID,
+				MaxNestingDepth:         src.MaxNestingDepth,
+				EventKey:                src.EventKey,
+				EventTimeoutSecs:        src.EventTimeoutSecs,
+				EventNotifyURL:          src.EventNotifyURL,
+				EventEmitKey:            src.EventEmitKey,
+				SleepDurationSecs:       src.SleepDurationSecs,
+				ConcurrencyKey:          src.ConcurrencyKey,
+				ResourceClass:           src.ResourceClass,
+				ExpectedDurationSecs:    src.ExpectedDurationSecs,
+				StageNotifications:      src.StageNotifications,
+				CompensationJobID:       src.CompensationJobID,
+				CompensationTimeoutSecs: src.CompensationTimeoutSecs,
 			}
 			if err := txStore.CreateWorkflowStep(ctx, &step); err != nil {
 				return fmt.Errorf("create cloned workflow step %q: %w", step.StepRef, err)

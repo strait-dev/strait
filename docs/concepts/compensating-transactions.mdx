@@ -1,0 +1,73 @@
+---
+title: "Compensating Transactions"
+description: "Saga-pattern rollback handlers for workflow steps that reverse side effects on failure."
+---
+
+When a workflow step fails after earlier steps have already completed, compensating transactions let you automatically reverse their side effects in order.
+
+## How It Works
+
+1. Step A completes successfully (e.g., charge card)
+2. Step B completes successfully (e.g., reserve inventory)
+3. Step C fails after all retries
+4. Strait triggers compensation in reverse topological order:
+   - Run Step B's compensation job (with Step B's original output as input)
+   - Run Step A's compensation job (with Step A's original output as input)
+5. Workflow run transitions to `compensated` (or `compensation_failed` if any compensation job fails)
+
+## Configuration
+
+Add a `compensation_job_id` to any workflow step that needs rollback capability:
+
+```json
+{
+  "steps": [
+    {
+      "step_ref": "charge-card",
+      "job_id": "payment-charge",
+      "compensation_job_id": "payment-refund",
+      "compensation_timeout_secs": 30
+    },
+    {
+      "step_ref": "reserve-inventory",
+      "job_id": "inventory-reserve",
+      "depends_on": ["charge-card"],
+      "compensation_job_id": "inventory-release",
+      "compensation_timeout_secs": 30
+    },
+    {
+      "step_ref": "send-confirmation",
+      "job_id": "notifications-send",
+      "depends_on": ["reserve-inventory"]
+    }
+  ]
+}
+```
+
+If `send-confirmation` fails, Strait compensates `reserve-inventory` then `charge-card` (reverse order). Steps without `compensation_job_id` are skipped. Only completed steps are compensated.
+
+## Workflow Run States
+
+Three new states added to the workflow run FSM:
+
+- `compensating` -- compensation jobs are being executed
+- `compensated` -- all compensation jobs completed successfully (terminal)
+- `compensation_failed` -- at least one compensation job failed (terminal)
+
+Valid transitions: `failed` or `timed_out` -> `compensating` -> `compensated` or `compensation_failed`
+
+## Compensation Plan
+
+The compensation plan is built by `BuildCompensationPlan()` which:
+
+1. Collects completed step runs that have `compensation_job_id` configured
+2. Sorts them in reverse topological order (latest-executed first)
+3. Each compensation step receives the original step's output as input
+
+## Implementation
+
+- Engine: `apps/strait/internal/workflow/compensation.go`
+- FSM: `apps/strait/internal/domain/workflow_fsm.go`
+- Tests: `apps/strait/internal/workflow/compensation_test.go` (28 tests including FSM, fuzz, adversarial)
+- Migration: `000158_compensating_transactions`
+- DB table: `compensation_runs` tracks each compensation execution

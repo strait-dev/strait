@@ -47,15 +47,18 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			version_id, version_policy, backwards_compatible, created_by, updated_by,
 			max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema,
 			debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions,
-			on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+			on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping,
+			on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
+			max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 			paused, paused_at, pause_reason
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 1,
 			$27, $28, $29, $30, $31,
 			$32, $33::jsonb, $34::jsonb, $35, $36, $37, $38, $39,
 			$40, $41, $42, $43, $44, $45, $46, $47,
-			$48, $49, $50, $51, $52, $53, $54,
-			$55, $56, $57, $58)
+			$48, $49, $50, $51, $52, $53,
+			$54, $55, $56, $57, $58, $59,
+			$60, $61, $62)
 		RETURNING created_at, updated_at, version`
 
 	tagsJSON, err := marshalTags(job.Tags)
@@ -120,7 +123,11 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.Region),
 		job.PreferredRegions,
 		dbscan.NilIfEmptyString(job.OnCompleteTriggerWorkflow),
+		dbscan.NilIfEmptyString(job.OnCompleteTriggerJob),
 		dbscan.NilIfEmptyRawMessage(job.OnCompletePayloadMapping),
+		dbscan.NilIfEmptyString(job.OnFailureTriggerJob),
+		dbscan.NilIfEmptyString(job.OnFailureTriggerWorkflow),
+		dbscan.NilIfEmptyRawMessage(job.OnFailurePayloadMapping),
 		dbscan.NilIfZeroInt64(job.MaxTokensPerRun),
 		dbscan.NilIfZeroInt(job.MaxToolCallsPerRun),
 		dbscan.NilIfZeroInt(job.MaxIterationsPerRun),
@@ -150,7 +157,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE id = $1`
@@ -175,7 +182,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
@@ -200,7 +207,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string, limit int, cur
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE project_id = $1`
@@ -305,15 +312,19 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    region = $46,
 		    preferred_regions = $47,
 		    on_complete_trigger_workflow = $48,
-		    on_complete_payload_mapping = $49,
-		    max_tokens_per_run = $50,
-		    max_tool_calls_per_run = $51,
-		    max_iterations_per_run = $52,
-		    allowed_tools = $53,
-		    blocked_tools = $54,
+		    on_complete_trigger_job = $49,
+		    on_complete_payload_mapping = $50,
+		    on_failure_trigger_job = $51,
+		    on_failure_trigger_workflow = $52,
+		    on_failure_payload_mapping = $53,
+		    max_tokens_per_run = $54,
+		    max_tool_calls_per_run = $55,
+		    max_iterations_per_run = $56,
+		    allowed_tools = $57,
+		    blocked_tools = $58,
 		    updated_at = NOW()
 		WHERE id = $25
-		  AND version = $55
+		  AND version = $59
 		RETURNING updated_at, version, version_id`
 
 	tagsJSON, err := marshalTags(job.Tags)
@@ -377,7 +388,11 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.Region),
 		job.PreferredRegions,
 		dbscan.NilIfEmptyString(job.OnCompleteTriggerWorkflow),
+		dbscan.NilIfEmptyString(job.OnCompleteTriggerJob),
 		dbscan.NilIfEmptyRawMessage(job.OnCompletePayloadMapping),
+		dbscan.NilIfEmptyString(job.OnFailureTriggerJob),
+		dbscan.NilIfEmptyString(job.OnFailureTriggerWorkflow),
+		dbscan.NilIfEmptyRawMessage(job.OnFailurePayloadMapping),
 		dbscan.NilIfZeroInt64(job.MaxTokensPerRun),
 		dbscan.NilIfZeroInt(job.MaxToolCallsPerRun),
 		dbscan.NilIfZeroInt(job.MaxIterationsPerRun),
@@ -490,7 +505,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE enabled = TRUE AND NOT paused AND cron IS NOT NULL AND cron <> ''
@@ -764,7 +779,6 @@ type scanTarget interface {
 	Scan(dest ...any) error
 }
 
-//nolint:gocyclo,cyclop,funlen
 func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var job domain.Job
 	var description *string
@@ -803,7 +817,11 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var region *string
 	var preferredRegions []string
 	var onCompleteTriggerWorkflow *string
+	var onCompleteTriggerJob *string
 	var onCompletePayloadMapping []byte
+	var onFailureTriggerJob *string
+	var onFailureTriggerWorkflow *string
+	var onFailurePayloadMapping []byte
 	var maxTokensPerRun *int64
 	var maxToolCallsPerRun *int
 	var maxIterationsPerRun *int
@@ -863,7 +881,11 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&region,
 		&preferredRegions,
 		&onCompleteTriggerWorkflow,
+		&onCompleteTriggerJob,
 		&onCompletePayloadMapping,
+		&onFailureTriggerJob,
+		&onFailureTriggerWorkflow,
+		&onFailurePayloadMapping,
 		&maxTokensPerRun,
 		&maxToolCallsPerRun,
 		&maxIterationsPerRun,
@@ -877,145 +899,239 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		return nil, err
 	}
 
-	if pausedAt != nil {
-		job.PausedAt = pausedAt
+	return applyScannedJobNullables(&job, scannedJobNullables{
+		pausedAt: pausedAt, pauseReason: pauseReason,
+		description: description, groupID: groupID, cron: cron,
+		payloadSchema: payloadSchema, tagsJSON: tagsJSON,
+		fallbackEndpointURL: fallbackEndpointURL,
+		webhookURL:          webhookURL, webhookSecret: webhookSecret,
+		runTTLSecs: runTTLSecs, maxConcurrency: maxConcurrency,
+		executionWindowCron: executionWindowCron, timezone: timezone,
+		rateLimitMax: rateLimitMax, rateLimitWindowSecs: rateLimitWindowSecs,
+		dedupWindowSecs: dedupWindowSecs, retryStrategy: retryStrategy,
+		retryDelaysSecs: retryDelaysSecs, environmentID: environmentID,
+		versionID: versionID, versionPolicy: versionPolicy,
+		createdBy: createdBy, updatedBy: updatedBy,
+		maxConcurrencyPerKey: maxConcurrencyPerKey,
+		rateLimitKeysJSON:    rateLimitKeysJSON, defaultRunMetadataJSON: defaultRunMetadataJSON,
+		cronOverlapPolicy: cronOverlapPolicy, resultSchema: resultSchema,
+		debounceWindowSecs: debounceWindowSecs, batchWindowSecs: batchWindowSecs,
+		batchMaxSize: batchMaxSize, executionMode: executionMode,
+		machinePreset: machinePreset, imageURI: imageURI,
+		region: region, preferredRegions: preferredRegions,
+		onCompleteTriggerWorkflow: onCompleteTriggerWorkflow,
+		onCompleteTriggerJob:      onCompleteTriggerJob,
+		onCompletePayloadMapping:  onCompletePayloadMapping,
+		onFailureTriggerJob:       onFailureTriggerJob,
+		onFailureTriggerWorkflow:  onFailureTriggerWorkflow,
+		onFailurePayloadMapping:   onFailurePayloadMapping,
+		maxTokensPerRun:           maxTokensPerRun, maxToolCallsPerRun: maxToolCallsPerRun,
+		maxIterationsPerRun: maxIterationsPerRun,
+	})
+}
+
+type scannedJobNullables struct {
+	pausedAt                  *time.Time
+	pauseReason               *string
+	description               *string
+	groupID                   *string
+	cron                      *string
+	payloadSchema             []byte
+	tagsJSON                  []byte
+	fallbackEndpointURL       *string
+	webhookURL                *string
+	webhookSecret             *string
+	runTTLSecs                *int
+	maxConcurrency            *int
+	executionWindowCron       *string
+	timezone                  *string
+	rateLimitMax              *int
+	rateLimitWindowSecs       *int
+	dedupWindowSecs           *int
+	retryStrategy             *string
+	retryDelaysSecs           []int
+	environmentID             *string
+	versionID                 *string
+	versionPolicy             *string
+	createdBy                 *string
+	updatedBy                 *string
+	maxConcurrencyPerKey      *int
+	rateLimitKeysJSON         []byte
+	defaultRunMetadataJSON    []byte
+	cronOverlapPolicy         *string
+	resultSchema              []byte
+	debounceWindowSecs        *int
+	batchWindowSecs           *int
+	batchMaxSize              *int
+	executionMode             *string
+	machinePreset             *string
+	imageURI                  *string
+	region                    *string
+	preferredRegions          []string
+	onCompleteTriggerWorkflow *string
+	onCompleteTriggerJob      *string
+	onCompletePayloadMapping  []byte
+	onFailureTriggerJob       *string
+	onFailureTriggerWorkflow  *string
+	onFailurePayloadMapping   []byte
+	maxTokensPerRun           *int64
+	maxToolCallsPerRun        *int
+	maxIterationsPerRun       *int
+}
+
+//nolint:gocognit,gocyclo,cyclop,funlen // flat nullable-to-field assignments, not meaningfully splittable.
+func applyScannedJobNullables(job *domain.Job, n scannedJobNullables) (*domain.Job, error) {
+	if n.pausedAt != nil {
+		job.PausedAt = n.pausedAt
 	}
-	if pauseReason != nil {
-		job.PauseReason = *pauseReason
+	if n.pauseReason != nil {
+		job.PauseReason = *n.pauseReason
 	}
-	if description != nil {
-		job.Description = *description
+	if n.description != nil {
+		job.Description = *n.description
 	}
-	if groupID != nil {
-		job.GroupID = *groupID
+	if n.groupID != nil {
+		job.GroupID = *n.groupID
 	}
-	if cron != nil {
-		job.Cron = *cron
+	if n.cron != nil {
+		job.Cron = *n.cron
 	}
-	if payloadSchema != nil {
-		job.PayloadSchema = json.RawMessage(payloadSchema)
+	if n.payloadSchema != nil {
+		job.PayloadSchema = json.RawMessage(n.payloadSchema)
 	}
-	if len(tagsJSON) > 0 {
-		tags, err := unmarshalTags(tagsJSON)
+	if len(n.tagsJSON) > 0 {
+		tags, err := unmarshalTags(n.tagsJSON)
 		if err != nil {
 			return nil, err
 		}
 		job.Tags = tags
 	}
-	if fallbackEndpointURL != nil {
-		job.FallbackEndpointURL = *fallbackEndpointURL
+	if n.fallbackEndpointURL != nil {
+		job.FallbackEndpointURL = *n.fallbackEndpointURL
 	}
-	if webhookURL != nil {
-		job.WebhookURL = *webhookURL
+	if n.webhookURL != nil {
+		job.WebhookURL = *n.webhookURL
 	}
-	if webhookSecret != nil {
-		job.WebhookSecret = *webhookSecret
+	if n.webhookSecret != nil {
+		job.WebhookSecret = *n.webhookSecret
 	}
-	if runTTLSecs != nil {
-		job.RunTTLSecs = *runTTLSecs
+	if n.runTTLSecs != nil {
+		job.RunTTLSecs = *n.runTTLSecs
 	}
-	if maxConcurrency != nil {
-		job.MaxConcurrency = *maxConcurrency
+	if n.maxConcurrency != nil {
+		job.MaxConcurrency = *n.maxConcurrency
 	}
-	if executionWindowCron != nil {
-		job.ExecutionWindowCron = *executionWindowCron
+	if n.executionWindowCron != nil {
+		job.ExecutionWindowCron = *n.executionWindowCron
 	}
-	if timezone != nil {
-		job.Timezone = *timezone
+	if n.timezone != nil {
+		job.Timezone = *n.timezone
 	}
-	if rateLimitMax != nil {
-		job.RateLimitMax = *rateLimitMax
+	if n.rateLimitMax != nil {
+		job.RateLimitMax = *n.rateLimitMax
 	}
-	if rateLimitWindowSecs != nil {
-		job.RateLimitWindowSecs = *rateLimitWindowSecs
+	if n.rateLimitWindowSecs != nil {
+		job.RateLimitWindowSecs = *n.rateLimitWindowSecs
 	}
-	if dedupWindowSecs != nil {
-		job.DedupWindowSecs = *dedupWindowSecs
+	if n.dedupWindowSecs != nil {
+		job.DedupWindowSecs = *n.dedupWindowSecs
 	}
-	if retryStrategy != nil {
-		job.RetryStrategy = *retryStrategy
+	if n.retryStrategy != nil {
+		job.RetryStrategy = *n.retryStrategy
 	}
-	if len(retryDelaysSecs) > 0 {
-		job.RetryDelaysSecs = retryDelaysSecs
+	if len(n.retryDelaysSecs) > 0 {
+		job.RetryDelaysSecs = n.retryDelaysSecs
 	}
-	if environmentID != nil {
-		job.EnvironmentID = *environmentID
+	if n.environmentID != nil {
+		job.EnvironmentID = *n.environmentID
 	}
-	if versionID != nil {
-		job.VersionID = *versionID
+	if n.versionID != nil {
+		job.VersionID = *n.versionID
 	}
-	if versionPolicy != nil {
-		job.VersionPolicy = domain.VersionPolicy(*versionPolicy)
+	if n.versionPolicy != nil {
+		job.VersionPolicy = domain.VersionPolicy(*n.versionPolicy)
 	}
-	if createdBy != nil {
-		job.CreatedBy = *createdBy
+	if n.createdBy != nil {
+		job.CreatedBy = *n.createdBy
 	}
-	if updatedBy != nil {
-		job.UpdatedBy = *updatedBy
+	if n.updatedBy != nil {
+		job.UpdatedBy = *n.updatedBy
 	}
-	if maxConcurrencyPerKey != nil {
-		job.MaxConcurrencyPerKey = *maxConcurrencyPerKey
+	if n.maxConcurrencyPerKey != nil {
+		job.MaxConcurrencyPerKey = *n.maxConcurrencyPerKey
 	}
-	if len(rateLimitKeysJSON) > 0 && string(rateLimitKeysJSON) != "[]" && string(rateLimitKeysJSON) != "null" {
-		if err := json.Unmarshal(rateLimitKeysJSON, &job.RateLimitKeys); err != nil {
+	if len(n.rateLimitKeysJSON) > 0 && string(n.rateLimitKeysJSON) != "[]" && string(n.rateLimitKeysJSON) != "null" {
+		if err := json.Unmarshal(n.rateLimitKeysJSON, &job.RateLimitKeys); err != nil {
 			return nil, fmt.Errorf("unmarshal rate_limit_keys: %w", err)
 		}
 	}
-	if len(defaultRunMetadataJSON) > 0 && string(defaultRunMetadataJSON) != "{}" && string(defaultRunMetadataJSON) != "null" {
-		if err := json.Unmarshal(defaultRunMetadataJSON, &job.DefaultRunMetadata); err != nil {
+	if len(n.defaultRunMetadataJSON) > 0 && string(n.defaultRunMetadataJSON) != "{}" && string(n.defaultRunMetadataJSON) != "null" {
+		if err := json.Unmarshal(n.defaultRunMetadataJSON, &job.DefaultRunMetadata); err != nil {
 			return nil, fmt.Errorf("unmarshal default_run_metadata: %w", err)
 		}
 	}
-	if cronOverlapPolicy != nil {
-		job.CronOverlapPolicy = domain.CronOverlapPolicy(*cronOverlapPolicy)
+	if n.cronOverlapPolicy != nil {
+		job.CronOverlapPolicy = domain.CronOverlapPolicy(*n.cronOverlapPolicy)
 	}
-	if resultSchema != nil {
-		job.ResultSchema = json.RawMessage(resultSchema)
+	if n.resultSchema != nil {
+		job.ResultSchema = json.RawMessage(n.resultSchema)
 	}
-	if debounceWindowSecs != nil {
-		job.DebounceWindowSecs = *debounceWindowSecs
+	if n.debounceWindowSecs != nil {
+		job.DebounceWindowSecs = *n.debounceWindowSecs
 	}
-	if batchWindowSecs != nil {
-		job.BatchWindowSecs = *batchWindowSecs
+	if n.batchWindowSecs != nil {
+		job.BatchWindowSecs = *n.batchWindowSecs
 	}
-	if batchMaxSize != nil {
-		job.BatchMaxSize = *batchMaxSize
+	if n.batchMaxSize != nil {
+		job.BatchMaxSize = *n.batchMaxSize
 	}
-	if executionMode != nil && *executionMode != "" {
-		job.ExecutionMode = domain.ExecutionMode(*executionMode)
+	if n.executionMode != nil && *n.executionMode != "" {
+		job.ExecutionMode = domain.ExecutionMode(*n.executionMode)
 	}
 	if job.ExecutionMode == "" {
 		job.ExecutionMode = domain.ExecutionModeHTTP
 	}
-	if machinePreset != nil {
-		job.MachinePreset = domain.MachinePreset(*machinePreset)
+	if n.machinePreset != nil {
+		job.MachinePreset = domain.MachinePreset(*n.machinePreset)
 	}
-	if imageURI != nil {
-		job.ImageURI = *imageURI
+	if n.imageURI != nil {
+		job.ImageURI = *n.imageURI
 	}
-	if region != nil {
-		job.Region = *region
+	if n.region != nil {
+		job.Region = *n.region
 	}
-	if len(preferredRegions) > 0 {
-		job.PreferredRegions = preferredRegions
+	if len(n.preferredRegions) > 0 {
+		job.PreferredRegions = n.preferredRegions
 	}
-	if onCompleteTriggerWorkflow != nil {
-		job.OnCompleteTriggerWorkflow = *onCompleteTriggerWorkflow
+	if n.onCompleteTriggerWorkflow != nil {
+		job.OnCompleteTriggerWorkflow = *n.onCompleteTriggerWorkflow
 	}
-	if onCompletePayloadMapping != nil {
-		job.OnCompletePayloadMapping = json.RawMessage(onCompletePayloadMapping)
+	if n.onCompleteTriggerJob != nil {
+		job.OnCompleteTriggerJob = *n.onCompleteTriggerJob
 	}
-	if maxTokensPerRun != nil {
-		job.MaxTokensPerRun = *maxTokensPerRun
+	if n.onCompletePayloadMapping != nil {
+		job.OnCompletePayloadMapping = json.RawMessage(n.onCompletePayloadMapping)
 	}
-	if maxToolCallsPerRun != nil {
-		job.MaxToolCallsPerRun = *maxToolCallsPerRun
+	if n.onFailureTriggerJob != nil {
+		job.OnFailureTriggerJob = *n.onFailureTriggerJob
 	}
-	if maxIterationsPerRun != nil {
-		job.MaxIterationsPerRun = *maxIterationsPerRun
+	if n.onFailureTriggerWorkflow != nil {
+		job.OnFailureTriggerWorkflow = *n.onFailureTriggerWorkflow
+	}
+	if n.onFailurePayloadMapping != nil {
+		job.OnFailurePayloadMapping = json.RawMessage(n.onFailurePayloadMapping)
+	}
+	if n.maxTokensPerRun != nil {
+		job.MaxTokensPerRun = *n.maxTokensPerRun
+	}
+	if n.maxToolCallsPerRun != nil {
+		job.MaxToolCallsPerRun = *n.maxToolCallsPerRun
+	}
+	if n.maxIterationsPerRun != nil {
+		job.MaxIterationsPerRun = *n.maxIterationsPerRun
 	}
 
-	return &job, nil
+	return job, nil
 }
 
 func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error) {
@@ -1027,7 +1143,7 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE project_id = $1`
