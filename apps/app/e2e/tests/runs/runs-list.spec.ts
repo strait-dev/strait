@@ -16,13 +16,13 @@ test.describe("Runs List", () => {
   });
 
   test("search input is visible", async ({ page }) => {
-    await expect(page.getByPlaceholder("Search by run ID or job name...")).toBeVisible();
+    await expect(
+      page.getByPlaceholder("Search by run ID or job name...")
+    ).toBeVisible();
   });
 
   test("status filter exists", async ({ page }) => {
-    await expect(
-      page.getByRole("button", { name: "Status" })
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Status" })).toBeVisible();
   });
 
   test("table has expected columns", async ({ page }) => {
@@ -40,7 +40,9 @@ test.describe("Runs List", () => {
   });
 
   test("search filters runs", async ({ page }) => {
-    const searchInput = page.getByPlaceholder("Search by run ID or job name...");
+    const searchInput = page.getByPlaceholder(
+      "Search by run ID or job name..."
+    );
     await searchInput.fill("nonexistent-run-xyz");
     await page.waitForTimeout(500);
     await expect(page.locator("main")).toBeVisible();

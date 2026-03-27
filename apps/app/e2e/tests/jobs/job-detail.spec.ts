@@ -4,7 +4,9 @@ test.describe("Job Detail", () => {
   test("404 for invalid job ID", async ({ page }) => {
     await page.goto("/app/jobs/nonexistent-id-12345");
     // Should show error state, not found, or redirect
-    const notFound = page.getByText(/not found|doesn't exist|no job|error|went wrong/i);
+    const notFound = page.getByText(
+      /not found|doesn't exist|no job|error|went wrong/i
+    );
     const mainContent = page.locator("main");
     await expect(notFound.or(mainContent)).toBeVisible({ timeout: 10_000 });
   });

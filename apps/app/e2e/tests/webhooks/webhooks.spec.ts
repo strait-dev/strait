@@ -11,7 +11,9 @@ test.describe("Webhooks", () => {
 
   test("page title is visible", async ({ page }) => {
     await expect(
-      page.getByRole("heading", { name: "No project selected" }).or(page.locator("table"))
+      page
+        .getByRole("heading", { name: "No project selected" })
+        .or(page.locator("table"))
     ).toBeVisible();
   });
 
@@ -20,9 +22,7 @@ test.describe("Webhooks", () => {
   });
 
   test("status filter exists", async ({ page }) => {
-    await expect(
-      page.getByRole("button", { name: "Status" })
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Status" })).toBeVisible();
   });
 
   test("empty state shows when no webhooks", async ({ page }) => {

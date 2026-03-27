@@ -23,6 +23,13 @@ export default async function globalTeardown() {
 
     const userId = userResult.rows[0].id;
 
+    // Delete projects created by this user
+    try {
+      await pool.query("DELETE FROM project WHERE created_by = $1", [userId]);
+    } catch {
+      // project table may not exist
+    }
+
     // Delete in dependency order
     await pool.query(`DELETE FROM "session" WHERE "userId" = $1`, [userId]);
     await pool.query(`DELETE FROM "account" WHERE "userId" = $1`, [userId]);

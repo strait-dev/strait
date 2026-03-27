@@ -23,7 +23,9 @@ test.describe("Settings - Account", () => {
   });
 
   test("password section exists", async ({ page }) => {
-    await expect(page.getByText("Password", { exact: true }).first()).toBeVisible();
+    await expect(
+      page.getByText("Password", { exact: true }).first()
+    ).toBeVisible();
   });
 
   test("two-factor authentication section exists", async ({ page }) => {
@@ -49,8 +51,6 @@ test.describe("Settings - Account", () => {
     page.on("pageerror", (err) => errors.push(err.message));
     await page.goto("/app/settings");
     await page.waitForTimeout(2000);
-    expect(errors.filter((e) => !e.includes("ResizeObserver"))).toHaveLength(
-      0
-    );
+    expect(errors.filter((e) => !e.includes("ResizeObserver"))).toHaveLength(0);
   });
 });

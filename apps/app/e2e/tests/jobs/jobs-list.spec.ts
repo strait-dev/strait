@@ -17,9 +17,7 @@ test.describe("Jobs List", () => {
   });
 
   test("status filter dropdown exists", async ({ page }) => {
-    await expect(
-      page.getByRole("button", { name: "Status" })
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Status" })).toBeVisible();
   });
 
   test("empty state shows when no jobs exist", async ({ page }) => {

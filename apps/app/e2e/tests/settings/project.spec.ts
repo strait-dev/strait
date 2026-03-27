@@ -40,8 +40,6 @@ test.describe("Settings - Project", () => {
 
   test("passkeys section exists", async ({ page }) => {
     await page.goto("/app/settings");
-    await expect(
-      page.getByText("Passkeys", { exact: true })
-    ).toBeVisible();
+    await expect(page.getByText("Passkeys", { exact: true })).toBeVisible();
   });
 });

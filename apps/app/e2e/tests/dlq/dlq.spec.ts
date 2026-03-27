@@ -20,14 +20,18 @@ test.describe("Dead Letter Queue", () => {
   });
 
   test("search input exists", async ({ page }) => {
-    const searchInput = page.getByPlaceholder("Search by job, run ID, or error...");
+    const searchInput = page.getByPlaceholder(
+      "Search by job, run ID, or error..."
+    );
     if (await searchInput.isVisible()) {
       await expect(searchInput).toBeVisible();
     }
   });
 
   test("search filters DLQ entries", async ({ page }) => {
-    const searchInput = page.getByPlaceholder("Search by job, run ID, or error...");
+    const searchInput = page.getByPlaceholder(
+      "Search by job, run ID, or error..."
+    );
     if (await searchInput.isVisible()) {
       await searchInput.fill("nonexistent-dlq-entry");
       await page.waitForTimeout(500);
