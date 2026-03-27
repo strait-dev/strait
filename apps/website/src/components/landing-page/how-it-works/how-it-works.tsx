@@ -3,7 +3,6 @@
 import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
-import Link from "next/link";
 import { useRef } from "react";
 import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
@@ -279,7 +278,7 @@ const HowItWorks = () => {
         </div>
 
         <div className="mt-10 flex justify-center">
-          <Button render={<Link href={dashboardHref("/login")} />}>
+          <Button render={<a href={dashboardHref("/login")} />}>
             Try it free
             <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
           </Button>

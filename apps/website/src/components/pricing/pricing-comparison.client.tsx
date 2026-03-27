@@ -22,7 +22,6 @@ import {
   TooltipTrigger,
 } from "@strait/ui/components/tooltip";
 import { cn } from "@strait/ui/utils";
-import Link from "next/link";
 import { Fragment, useId, useState } from "react";
 
 import Shell from "@/components/layout/shell.tsx";
@@ -150,7 +149,8 @@ function MobilePlanCard({
       <div className="flex flex-1 flex-col p-6">
         <Button
           className="w-full"
-          render={<Link href={plan.cta.href} />}
+          // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
+          render={<a href={plan.cta.href} />}
           variant={plan.highlight ? "default" : "outline"}
         >
           {plan.cta.label}
@@ -334,7 +334,8 @@ const PricingComparisonClient = ({
                             <Button
                               className="mt-6 w-full"
                               render={
-                                <Link
+                                // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
+                                <a
                                   aria-describedby={`desktop-${plan.key}`}
                                   href={plan.cta.href}
                                 />

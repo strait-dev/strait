@@ -1,11 +1,9 @@
-import Link from "next/link";
-
-import { StaticPricingTable } from "@/components/landing-page/pricing/static-pricing-table.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
   StaggerGroup,
   StaggerItem,
 } from "@/components/landing/stagger-group.tsx";
+import { StaticPricingTable } from "@/components/landing-page/pricing/static-pricing-table.tsx";
 import Shell from "@/components/layout/shell.tsx";
 
 const PricingTeaser = () => (
@@ -49,12 +47,12 @@ const PricingTeaser = () => (
             All paid plans include compute credits equal to your subscription
             price. Overage at $0.20 per 1,000 runs on paid plans.
           </p>
-          <Link
+          <a
             className="font-medium text-muted-foreground text-sm transition-colors hover:text-foreground"
             href="/pricing"
           >
             See Full Pricing & Compare Plans →
-          </Link>
+          </a>
         </div>
       </Reveal>
     </Shell>

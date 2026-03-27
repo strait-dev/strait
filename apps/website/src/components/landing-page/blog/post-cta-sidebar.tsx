@@ -2,8 +2,6 @@ import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { basehub } from "basehub";
-import { draftMode } from "next/headers";
-import Link from "next/link";
 
 import { dashboardHref } from "@/lib/urls.ts";
 
@@ -17,8 +15,6 @@ type CtaData = {
 };
 
 const PostCtaSidebar = async () => {
-  const draft = await draftMode();
-
   const query = {
     website: {
       home: {
@@ -36,9 +32,9 @@ const PostCtaSidebar = async () => {
     },
   };
 
-  const data = (await basehub({ draft: draft.isEnabled }).query(
-    query as never
-  )) as { website: { home: { cta?: { cta?: CtaData } } } };
+  const data = (await basehub({ draft: false }).query(query as never)) as {
+    website: { home: { cta?: { cta?: CtaData } } };
+  };
 
   const ctaData = data.website.home.cta?.cta;
   const badge = ctaData?.badge as string | undefined;
@@ -69,7 +65,7 @@ const PostCtaSidebar = async () => {
 
         <Button
           className="mt-6 w-full"
-          render={<Link href={dashboardHref(buttonHref)} />}
+          render={<a href={dashboardHref(buttonHref)} />}
           size="default"
         >
           {buttonText}

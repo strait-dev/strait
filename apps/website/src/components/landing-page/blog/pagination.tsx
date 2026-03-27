@@ -4,12 +4,11 @@ import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { cn } from "@strait/ui/utils";
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
 
 type PaginationProps = {
   currentPage: number;
   totalPages: number;
+  basePath: string;
   className?: string;
 };
 
@@ -52,20 +51,14 @@ const createPageNumbers = (
 const Pagination = ({
   currentPage,
   totalPages,
+  basePath,
   className,
 }: PaginationProps) => {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
   const createPageUrl = (page: number) => {
-    const params = new URLSearchParams(searchParams.toString());
     if (page === 1) {
-      params.delete("page");
-    } else {
-      params.set("page", page.toString());
+      return basePath;
     }
-    const queryString = params.toString();
-    return queryString ? `${pathname}?${queryString}` : pathname;
+    return `${basePath}/page/${String(page)}`;
   };
 
   const hasPreviousPage = currentPage > 1;
@@ -84,7 +77,7 @@ const Pagination = ({
       {hasPreviousPage ? (
         <Button
           className="cursor-default gap-1.5 text-foreground"
-          render={<Link href={createPageUrl(currentPage - 1)} prefetch />}
+          render={<a href={createPageUrl(currentPage - 1)} />}
           variant="ghost"
         >
           <HugeiconsIcon className="size-4" icon={ArrowLeft01Icon} />
@@ -130,7 +123,7 @@ const Pagination = ({
             <Button
               className="min-w-10 cursor-default"
               key={page}
-              render={<Link href={createPageUrl(page)} prefetch />}
+              render={<a href={createPageUrl(page)} />}
               variant="ghost"
             >
               {page}
@@ -142,7 +135,7 @@ const Pagination = ({
       {hasNextPage ? (
         <Button
           className="cursor-default gap-1.5 text-foreground"
-          render={<Link href={createPageUrl(currentPage + 1)} prefetch />}
+          render={<a href={createPageUrl(currentPage + 1)} />}
           variant="ghost"
         >
           <span className="hidden sm:inline">Next</span>

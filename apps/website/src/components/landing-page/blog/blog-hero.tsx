@@ -1,5 +1,4 @@
 import { basehub } from "basehub";
-import { draftMode } from "next/headers";
 
 import Shell from "@/components/layout/shell.tsx";
 
@@ -10,8 +9,6 @@ type HeroData = {
 };
 
 const BlogHero = async () => {
-  const draft = await draftMode();
-
   const query = {
     website: {
       blog: {
@@ -24,9 +21,9 @@ const BlogHero = async () => {
     },
   };
 
-  const data = (await basehub({ draft: draft.isEnabled }).query(
-    query as never
-  )) as { website: { blog: { hero?: HeroData } } };
+  const data = (await basehub({ draft: false }).query(query as never)) as {
+    website: { blog: { hero?: HeroData } };
+  };
 
   const heroData = data.website.blog.hero;
   const badge = heroData?.badge as string | undefined;

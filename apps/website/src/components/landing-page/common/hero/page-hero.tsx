@@ -1,8 +1,6 @@
 import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
-import Link from "next/link";
-
 import Shell from "@/components/layout/shell.tsx";
 
 type PageHeroProps = {
@@ -57,7 +55,7 @@ const PageHero = ({
             <div className="flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
               <Button
                 className="w-full shadow-sm transition-shadow duration-300 hover:shadow-md sm:w-auto"
-                render={<Link href={primaryCTA.href} />}
+                render={<a href={primaryCTA.href} />}
               >
                 {primaryCTA.text}
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
@@ -65,7 +63,7 @@ const PageHero = ({
               {secondaryCTA ? (
                 <Button
                   className="w-full backdrop-blur-sm sm:w-auto"
-                  render={<Link href={secondaryCTA.href} />}
+                  render={<a href={secondaryCTA.href} />}
                   variant="outline"
                 >
                   {secondaryCTA.text}

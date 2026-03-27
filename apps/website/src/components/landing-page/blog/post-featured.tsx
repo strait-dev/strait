@@ -1,8 +1,6 @@
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
-import Image from "next/image";
-import Link from "next/link";
 import type { PostFragment } from "./post.tsx";
 
 const PostFeatured = ({
@@ -18,7 +16,7 @@ const PostFeatured = ({
   const shortDescription = ogDescription || twitterDescription || description;
   return (
     <article aria-labelledby="featured-article-title" className="w-full">
-      <Link
+      <a
         aria-label={`Read featured article: ${_title}`}
         className="group block cursor-default"
         href={`/blog/${_slug}`}
@@ -26,12 +24,11 @@ const PostFeatured = ({
         <div className="grid grid-cols-1 gap-6 overflow-hidden rounded-2xl border border-border/60 bg-card transition-colors hover:border-foreground/20 hover:shadow-lg lg:grid-cols-2 lg:gap-0">
           <figure className="relative aspect-[16/9] overflow-hidden lg:aspect-auto lg:h-full">
             {ogImage?.url ? (
-              <Image
+              <img
                 alt={`Featured article cover: ${_title}`}
-                className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                fill
-                priority
-                sizes="(max-width: 1024px) 100vw, 50vw"
+                className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                decoding="async"
+                loading="lazy"
                 src={ogImage.url}
               />
             ) : (
@@ -89,7 +86,7 @@ const PostFeatured = ({
             </div>
           </div>
         </div>
-      </Link>
+      </a>
     </article>
   );
 };

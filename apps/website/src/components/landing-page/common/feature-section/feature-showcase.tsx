@@ -2,7 +2,6 @@
 
 import { HugeiconsIcon, type HugeiconsIconProps } from "@hugeicons/react";
 import { cn } from "@strait/ui/utils";
-import Link from "next/link";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 
 import Shell from "@/components/layout/shell.tsx";
@@ -140,13 +139,13 @@ const FeatureShowcase = ({
 
             {!!cta && (
               <div className="mt-2">
-                <Link
+                <a
                   className="inline-flex items-center gap-2 font-semibold text-foreground text-sm transition-colors hover:text-primary/80"
                   href={cta.href}
                 >
                   {cta.label}
                   <span aria-hidden>→</span>
-                </Link>
+                </a>
               </div>
             )}
           </div>

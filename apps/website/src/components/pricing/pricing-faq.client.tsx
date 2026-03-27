@@ -9,7 +9,6 @@ import {
   AccordionTrigger,
 } from "@strait/ui/components/accordion";
 import { Button } from "@strait/ui/components/button";
-import Link from "next/link";
 import { useId } from "react";
 
 type FaqItem = {
@@ -86,7 +85,8 @@ const PricingFaqClient = ({
             Still have questions?{" "}
             <Button
               className="inline-flex"
-              render={<Link href="mailto:leonardomso11@gmail.com" />}
+              // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
+              render={<a href="mailto:leonardomso11@gmail.com" />}
               size="default"
               variant="link"
             >

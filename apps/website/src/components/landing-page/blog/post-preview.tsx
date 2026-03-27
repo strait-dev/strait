@@ -1,8 +1,6 @@
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
-import Image from "next/image";
-import Link from "next/link";
 import type { PostFragment } from "./post.tsx";
 
 const PostPreview = ({
@@ -19,7 +17,7 @@ const PostPreview = ({
 
   return (
     <article aria-labelledby={`article-${_slug}`} className="h-full">
-      <Link
+      <a
         aria-label={`Read article: ${_title}`}
         className="group block h-full"
         href={`/blog/${_slug}`}
@@ -28,11 +26,11 @@ const PostPreview = ({
           {/* Image section */}
           <figure className="relative aspect-[16/9] overflow-hidden">
             {ogImage?.url ? (
-              <Image
+              <img
                 alt={`Article cover: ${_title}`}
-                className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                fill
-                sizes="(max-width: 768px) 100vw, 50vw"
+                className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                decoding="async"
+                loading="lazy"
                 src={ogImage.url}
               />
             ) : null}
@@ -87,7 +85,7 @@ const PostPreview = ({
             </div>
           </div>
         </div>
-      </Link>
+      </a>
     </article>
   );
 };

@@ -1,9 +1,9 @@
-import type { ComparisonHighlight } from "@/data/comparisons.ts";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
   StaggerGroup,
   StaggerItem,
 } from "@/components/landing/stagger-group.tsx";
+import type { ComparisonHighlight } from "@/data/comparisons.ts";
 
 type ComparisonHighlightsProps = {
   highlights: ComparisonHighlight[];

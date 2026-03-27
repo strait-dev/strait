@@ -1,8 +1,6 @@
 import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
-import Link from "next/link";
-
 import Shell from "@/components/layout/shell.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
@@ -33,14 +31,14 @@ const PricingHero = () => {
           <div className="mt-6 flex flex-col items-center gap-3 sm:mt-8 sm:flex-row sm:gap-4">
             <Button
               className="w-full sm:w-auto"
-              render={<Link href={dashboardHref(ctaHref)} />}
+              render={<a href={dashboardHref(ctaHref)} />}
             >
               {ctaText}
               <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
             </Button>
             <Button
               className="w-full sm:w-auto"
-              render={<Link href={secondaryCtaHref} />}
+              render={<a href={secondaryCtaHref} />}
               variant="outline"
             >
               {secondaryCtaText}

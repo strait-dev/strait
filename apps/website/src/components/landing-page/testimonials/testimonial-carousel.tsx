@@ -2,7 +2,6 @@
 
 import { Button } from "@strait/ui/components/button";
 import { cn } from "@strait/ui/utils";
-import Image from "next/image";
 import { useCallback, useState } from "react";
 
 import type { TestimonialItem } from "./testimonial.tsx";
@@ -44,11 +43,11 @@ const TestimonialCarousel = ({ testimonials }: TestimonialCarouselProps) => {
               key={t._id}
             >
               {t.avatar?.url ? (
-                <Image
+                <img
                   alt={`Photo of ${t.authorName ?? "testimonial author"}`}
-                  className="object-cover"
-                  fill
-                  sizes="400px"
+                  className="absolute inset-0 h-full w-full object-cover"
+                  decoding="async"
+                  loading="lazy"
                   src={t.avatar.url}
                 />
               ) : (
@@ -91,10 +90,12 @@ const TestimonialCarousel = ({ testimonials }: TestimonialCarouselProps) => {
             <div className="mt-8 flex items-center gap-4">
               <div className="size-12 shrink-0 overflow-hidden rounded-full bg-muted lg:hidden">
                 {current.avatar?.url ? (
-                  <Image
+                  <img
                     alt={`Photo of ${current.authorName ?? "testimonial author"}`}
                     className="object-cover"
+                    decoding="async"
                     height={48}
+                    loading="lazy"
                     src={current.avatar.url}
                     width={48}
                   />

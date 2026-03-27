@@ -1,7 +1,6 @@
 import { Badge } from "@strait/ui/components/badge";
 import { fragmentOn } from "basehub";
 import { RichText } from "basehub/react-rich-text";
-import Image from "next/image";
 import { Suspense } from "react";
 
 import Shell from "@/components/layout/shell.tsx";
@@ -142,12 +141,10 @@ const Post = (post: PostFragment) => {
         <Shell variant="wide">
           <div className="mb-10">
             <div className="relative aspect-[16/9] overflow-hidden rounded-2xl bg-muted shadow-lg">
-              <Image
+              <img
                 alt={`Cover image: ${title}`}
-                className="object-cover"
-                fill
-                priority
-                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1200px"
+                className="absolute inset-0 h-full w-full object-cover"
+                decoding="async"
                 src={ogImage.url}
               />
             </div>

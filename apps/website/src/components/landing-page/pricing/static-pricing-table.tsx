@@ -14,7 +14,6 @@ import {
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import { cn } from "@strait/ui/utils";
-import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { dashboardHref } from "@/lib/urls.ts";
@@ -188,7 +187,7 @@ export function StaticPricingTable() {
 
                 <Button
                   className="w-full transition-shadow duration-150"
-                  render={<Link href={href} />}
+                  render={<a href={href} />}
                   variant={plan.highlighted ? "default" : "outline"}
                 >
                   {plan.cta.label}

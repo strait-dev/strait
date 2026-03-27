@@ -1,8 +1,6 @@
 import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
-import Link from "next/link";
-
 import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
@@ -56,7 +54,7 @@ const CTA = ({
           <Reveal delay={showInstallSnippet ? 0.2 : 0.1} spring>
             <div className="mt-10 flex flex-col gap-4 sm:flex-row">
               <Button
-                render={<Link href={dashboardHref("/login")} />}
+                render={<a href={dashboardHref("/login")} />}
                 size="default"
                 variant="gradient"
               >
@@ -64,7 +62,7 @@ const CTA = ({
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
               <Button
-                render={<Link href="/docs/quickstart" />}
+                render={<a href="/docs/quickstart" />}
                 size="default"
                 variant="ghost"
               >

@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@strait/ui/components/button";
-import Link from "next/link";
 import { useEffect, useRef } from "react";
 
 type ErrorDisplayProps = {
@@ -107,7 +106,8 @@ const ErrorDisplay = ({
           action.href ? (
             <Button
               key={action.label}
-              render={<Link href={action.href} />}
+              // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
+              render={<a href={action.href} />}
               size="default"
               variant={action.variant ?? "default"}
             >

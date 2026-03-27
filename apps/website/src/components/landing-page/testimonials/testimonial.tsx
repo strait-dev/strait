@@ -1,7 +1,6 @@
 import { QuoteUpIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@strait/ui/utils";
-import Image from "next/image";
 
 export type TestimonialItem = {
   _id: string;
@@ -72,10 +71,12 @@ const Testimonial = ({
           )}
         >
           {testimonial.avatar?.url ? (
-            <Image
+            <img
               alt={`Photo of ${testimonial.authorName ?? "testimonial author"}`}
               className="relative z-10 size-9 rounded-md object-cover"
+              decoding="async"
               height={36}
+              loading="lazy"
               src={testimonial.avatar.url}
               width={36}
             />

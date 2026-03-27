@@ -1,5 +1,4 @@
 import { basehub } from "basehub";
-import { draftMode } from "next/headers";
 import type { PostFragment } from "./post.tsx";
 import PostPreview from "./post-preview.tsx";
 
@@ -9,9 +8,7 @@ type PostRelatedProps = {
 };
 
 const PostRelated = async ({ currentPostId, categories }: PostRelatedProps) => {
-  const draft = await draftMode();
-
-  const { website } = await basehub({ draft: draft.isEnabled }).query({
+  const { website } = await basehub({ draft: false }).query({
     website: {
       blog: {
         posts: {

@@ -1,6 +1,3 @@
-import Image from "next/image";
-import Link from "next/link";
-
 import { siteConfig } from "@/config/site.ts";
 
 const FOOTER_LINKS: Record<string, Array<{ label: string; href: string }>> = {
@@ -42,19 +39,21 @@ const Footer = () => {
       <div className="mx-auto w-full max-w-[1600px] px-4 py-12 sm:px-6 sm:py-14 lg:px-8">
         <div className="flex flex-col justify-between gap-10 md:flex-row md:gap-16">
           <div className="flex shrink-0 flex-col items-start gap-3">
-            <Link
+            <a
               className="inline-flex items-center transition-opacity hover:opacity-80"
               href="/"
             >
               <span className="sr-only">{siteConfig.name}</span>
-              <Image
+              <img
                 alt={siteConfig.logo.alt}
                 className="h-8 w-auto"
+                decoding="async"
                 height={siteConfig.logo.height}
+                loading="lazy"
                 src={siteConfig.logo.src}
                 width={siteConfig.logo.width}
               />
-            </Link>
+            </a>
             <p className="max-w-xs text-pretty text-muted-foreground/60 text-sm leading-relaxed">
               Open-source job orchestration for background jobs, workflows, and
               AI agents.
@@ -70,7 +69,7 @@ const Footer = () => {
                 <ul className="mt-3 flex flex-col gap-2">
                   {links.map((link) => (
                     <li key={link.label}>
-                      <Link
+                      <a
                         className="text-muted-foreground/60 text-sm transition-colors hover:text-foreground"
                         href={link.href}
                         {...(link.href.startsWith("http")
@@ -78,7 +77,7 @@ const Footer = () => {
                           : {})}
                       >
                         {link.label}
-                      </Link>
+                      </a>
                     </li>
                   ))}
                 </ul>

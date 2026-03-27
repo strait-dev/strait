@@ -1,8 +1,6 @@
 import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { basehub } from "basehub";
-import { draftMode } from "next/headers";
-import Link from "next/link";
 
 type PostNavigationProps = {
   currentSlug: string;
@@ -14,9 +12,7 @@ type NavPost = {
 };
 
 const PostNavigation = async ({ currentSlug }: PostNavigationProps) => {
-  const draft = await draftMode();
-
-  const { website } = await basehub({ draft: draft.isEnabled }).query({
+  const { website } = await basehub({ draft: false }).query({
     website: {
       blog: {
         posts: {
@@ -57,7 +53,7 @@ const PostNavigation = async ({ currentSlug }: PostNavigationProps) => {
       className="mt-12 grid grid-cols-1 gap-4 border-border border-t pt-8 sm:grid-cols-2"
     >
       {prevPost ? (
-        <Link
+        <a
           className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-4 transition-all hover:border-border hover:shadow-md"
           href={`/blog/${prevPost._slug}`}
         >
@@ -73,13 +69,13 @@ const PostNavigation = async ({ currentSlug }: PostNavigationProps) => {
               {prevPost._title}
             </p>
           </div>
-        </Link>
+        </a>
       ) : (
         <div />
       )}
 
       {nextPost ? (
-        <Link
+        <a
           className="group flex items-center justify-end gap-3 rounded-2xl border border-border/60 bg-card p-4 text-right transition-all hover:border-border hover:shadow-md"
           href={`/blog/${nextPost._slug}`}
         >
@@ -95,7 +91,7 @@ const PostNavigation = async ({ currentSlug }: PostNavigationProps) => {
             className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1"
             icon={ArrowRight01Icon}
           />
-        </Link>
+        </a>
       ) : (
         <div />
       )}
