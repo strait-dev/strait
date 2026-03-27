@@ -98,14 +98,8 @@ const HEALTH_WINDOWS: { value: HealthWindow; label: string }[] = [
 ];
 
 const CHART_LABEL_MAP = {
-  completed: { label: "Completed", color: CHART_COLORS.success },
-  failed: { label: "Failed", color: CHART_COLORS.error },
+  value: { label: "Runs", color: CHART_COLORS.success },
 };
-
-const CHART_LEGEND = [
-  { label: "Completed", color: CHART_COLORS.success },
-  { label: "Failed", color: CHART_COLORS.error },
-];
 
 // --- Page ---
 
@@ -173,10 +167,10 @@ function JobDetailPage() {
       return [];
     }
     return [
-      { label: "Completed", value: health.completed_runs },
-      { label: "Failed", value: health.failed_runs },
-      { label: "Timed Out", value: health.timed_out_runs },
-      { label: "Canceled", value: health.canceled_runs },
+      { label: "Completed", value: health.completed_runs, fill: CHART_COLORS.success },
+      { label: "Failed", value: health.failed_runs, fill: CHART_COLORS.error },
+      { label: "Timed Out", value: health.timed_out_runs, fill: CHART_COLORS.neutral },
+      { label: "Canceled", value: health.canceled_runs, fill: CHART_COLORS.neutral },
     ].filter((d) => d.value > 0);
   }, [health]);
 
@@ -279,20 +273,6 @@ function JobDetailPage() {
               <CardTitle className="font-medium text-sm">
                 Run Status Distribution
               </CardTitle>
-              <div className="flex items-center gap-1">
-                {CHART_LEGEND.map((item) => (
-                  <div
-                    className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    key={item.label}
-                  >
-                    <span
-                      className="size-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: item.color }}
-                    />
-                    <span>{item.label}</span>
-                  </div>
-                ))}
-              </div>
             </CardHeader>
             <CardContent>
               {chartData.length > 0 ? (
@@ -321,11 +301,7 @@ function JobDetailPage() {
                         content={<ChartTooltip labelMap={CHART_LABEL_MAP} />}
                         cursor={{ fill: "var(--muted)" }}
                       />
-                      <Bar
-                        dataKey="value"
-                        fill={CHART_COLORS.success}
-                        radius={[2, 2, 0, 0]}
-                      />
+                      <Bar dataKey="value" radius={[2, 2, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
