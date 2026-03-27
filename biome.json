@@ -68,6 +68,17 @@
       }
     },
     {
+      "includes": ["**/*.astro"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off",
+            "noUnusedImports": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["**/packages/ui/src/components/**/*.tsx"],
       "linter": {
         "rules": {

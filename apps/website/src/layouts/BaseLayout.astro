@@ -1,0 +1,43 @@
+---
+import "@strait/ui/globals.css";
+
+interface Props {
+  description?: string;
+  title?: string;
+}
+
+const accent = import.meta.env.PUBLIC_WEBSITE_ACCENT ?? "teal";
+const gtmId = import.meta.env.PUBLIC_GTM_ID;
+---
+
+<!doctype html>
+<html
+	class="dark min-h-screen bg-background antialiased"
+	data-accent={accent}
+	lang="en-US"
+>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<link rel="icon" href="/favicon.ico" />
+		<link rel="shortcut icon" href="/favicon-16x16.png" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+		<link rel="manifest" href="/site.webmanifest" />
+		<link rel="preconnect" href="https://assets.basehub.com" crossorigin />
+		<link rel="preconnect" href="https://basehub.earth" crossorigin />
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-sans/style.min.css" />
+		<slot name="head" />
+	</head>
+	<body class="font-sans selection:bg-primary selection:text-primary-foreground">
+		<slot />
+		{gtmId && (
+			<script
+				set:html={`(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','${gtmId}');`}
+			/>
+		)}
+	</body>
+</html>

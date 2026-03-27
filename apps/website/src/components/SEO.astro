@@ -1,0 +1,122 @@
+---
+import { siteConfig } from "@/config/site.ts";
+
+interface ArticleMetadata {
+  authors?: string[];
+  modifiedTime?: string;
+  publishedTime: string;
+  section?: string;
+  tags?: string[];
+}
+
+interface Props {
+  appendSiteTitle?: boolean;
+  article?: ArticleMetadata;
+  canonical?: string;
+  description?: string;
+  keywords?: string[];
+  locale?: string;
+  noIndex?: boolean;
+  ogDescription?: string;
+  ogImage?: string;
+  ogTitle?: string;
+  path: string;
+  siteName?: string;
+  title?: string;
+  twitterDescription?: string;
+  twitterTitle?: string;
+}
+
+const {
+  title,
+  description,
+  path,
+  noIndex = false,
+  ogImage,
+  appendSiteTitle = true,
+  keywords,
+  siteName,
+  locale,
+  ogTitle,
+  ogDescription,
+  twitterTitle,
+  twitterDescription,
+  article,
+  canonical,
+} = Astro.props;
+
+const displayTitle = (() => {
+  if (!title) {
+    return siteConfig.title;
+  }
+  if (appendSiteTitle) {
+    return `${title} — ${siteConfig.title}`;
+  }
+  return title;
+})();
+
+const displayDescription = description ?? siteConfig.description;
+const url = `${siteConfig.url}${path}`;
+const displayImage = ogImage ?? siteConfig.ogImage;
+const displayKeywords = keywords ?? siteConfig.metadata.keywords;
+const displaySiteName =
+  siteName ??
+  siteConfig.metadata.siteName ??
+  siteConfig.openGraph?.siteName ??
+  siteConfig.title;
+const displayLocale =
+  locale ?? siteConfig.metadata.locale ?? siteConfig.openGraph?.locale;
+const displayOgTitle = ogTitle ?? displayTitle;
+const displayOgDescription = ogDescription ?? displayDescription;
+const displayTwitterTitle = twitterTitle ?? displayOgTitle;
+const displayTwitterDescription = twitterDescription ?? displayOgDescription;
+const displayCanonical = canonical ?? url;
+
+const imageUrl = displayImage.startsWith("http")
+  ? displayImage
+  : `${siteConfig.url}${displayImage}`;
+---
+
+<title>{displayTitle}</title>
+<meta name="description" content={displayDescription} />
+{displayKeywords && displayKeywords.length > 0 && (
+	<meta name="keywords" content={displayKeywords.join(", ")} />
+)}
+<link rel="canonical" href={displayCanonical} />
+
+{/* Robots */}
+{noIndex ? (
+	<meta name="robots" content="noindex, nofollow" />
+) : (
+	<meta name="robots" content="index, follow" />
+)}
+
+{/* Open Graph */}
+<meta property="og:title" content={displayOgTitle} />
+<meta property="og:description" content={displayOgDescription} />
+<meta property="og:url" content={url} />
+<meta property="og:image" content={imageUrl} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content={displayOgTitle} />
+<meta property="og:site_name" content={displaySiteName} />
+{displayLocale && <meta property="og:locale" content={displayLocale} />}
+{article ? (
+	<>
+		<meta property="og:type" content="article" />
+		<meta property="article:published_time" content={article.publishedTime} />
+		{article.modifiedTime && <meta property="article:modified_time" content={article.modifiedTime} />}
+		{article.authors?.map((author) => <meta property="article:author" content={author} />)}
+		{article.section && <meta property="article:section" content={article.section} />}
+		{article.tags?.map((tag) => <meta property="article:tag" content={tag} />)}
+	</>
+) : (
+	<meta property="og:type" content="website" />
+)}
+
+{/* Twitter */}
+<meta name="twitter:card" content={siteConfig.twitter.card} />
+<meta name="twitter:title" content={displayTwitterTitle} />
+<meta name="twitter:description" content={displayTwitterDescription} />
+<meta name="twitter:image" content={imageUrl} />
+{siteConfig.twitter.creator && <meta name="twitter:creator" content={siteConfig.twitter.creator} />}
