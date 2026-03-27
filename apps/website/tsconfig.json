@@ -18,28 +18,6 @@
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "src/app/layout.tsx",
-    "src/app/global-error.tsx",
-    "src/app/not-found.tsx",
-    "src/app/sitemap.ts",
-    "src/app/robots.ts",
-    "src/app/feed.xml",
-    "src/app/strait-logo.svg",
-    "src/app/(landing)/page.tsx",
-    "src/app/(landing)/layout.tsx",
-    "src/app/(landing)/error.tsx",
-    "src/app/(landing)/home",
-    "src/app/(landing)/pricing",
-    "src/app/(landing)/privacy",
-    "src/app/(landing)/terms",
-    "src/app/(landing)/features/page.tsx",
-    "src/app/(landing)/features/[slug]",
-    "src/app/(landing)/compare",
-    "src/app/(landing)/use-cases",
-    "src/app/(landing)/blog/(list)",
-    "src/app/(landing)/blog/[slug]",
-    "src/app/(landing)/blog/author",
-    "src/app/(landing)/blog/layout.tsx"
+    "dist"
   ]
 }

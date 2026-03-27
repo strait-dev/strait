@@ -1,8 +1,8 @@
 import type { APIRoute } from "astro";
 import { basehub } from "basehub";
-import { getAllComparisonSlugs } from "@/app/(landing)/compare/data.ts";
-import { getAllFeatureSlugs } from "@/app/(landing)/features/data.ts";
-import { getAllUseCaseSlugs } from "@/app/(landing)/use-cases/data.ts";
+import { getAllComparisonSlugs } from "@/data/comparisons.ts";
+import { getAllFeatureSlugs } from "@/data/features.ts";
+import { getAllUseCaseSlugs } from "@/data/use-cases.ts";
 
 type SitemapEntry = {
   url: string;

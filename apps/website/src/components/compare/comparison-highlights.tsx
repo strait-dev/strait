@@ -1,4 +1,4 @@
-import type { ComparisonHighlight } from "@/app/(landing)/compare/data.ts";
+import type { ComparisonHighlight } from "@/data/comparisons.ts";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
   StaggerGroup,

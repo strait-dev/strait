@@ -39,7 +39,10 @@ function escapeXml(text: string): string {
 }
 
 export const GET: APIRoute = async () => {
-  const data = await basehub().query({
+  let posts: any[] = [];
+
+  try {
+    const data = await basehub().query({
     website: {
       blog: {
         posts: {
@@ -68,9 +71,12 @@ export const GET: APIRoute = async () => {
     },
   });
 
-  const posts = (data as any).website.blog.posts.items.filter(
-    (post: any) => post._slug !== "nos-somos-a-strait"
-  );
+    posts = (data as any).website.blog.posts.items.filter(
+      (post: any) => post._slug !== "nos-somos-a-strait"
+    );
+  } catch {
+    // If basehub is unavailable, return empty feed
+  }
 
   const rssItems = posts
     .map((post: any) => {

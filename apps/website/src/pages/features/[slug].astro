@@ -2,14 +2,14 @@
 import LandingLayout from "@/layouts/LandingLayout.astro";
 import SEO from "@/components/SEO.astro";
 import JsonLd from "@/components/JsonLd.astro";
-import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
+import CTA from "@/components/landing-page/common/cta/cta.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import { StaggerGroup, StaggerItem } from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
 import MockBrowserWindow from "@/components/magicui/mock-browser-window.tsx";
 import { getBreadcrumbSchema } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
-import { FEATURE_PAGES, getAllFeatureSlugs, getFeatureBySlug } from "@/app/(landing)/features/data.ts";
+import { FEATURE_PAGES, getAllFeatureSlugs, getFeatureBySlug } from "@/data/features.ts";
 
 export function getStaticPaths() {
   return getAllFeatureSlugs().map((slug) => ({ params: { slug } }));

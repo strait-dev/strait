@@ -2,7 +2,7 @@
 import LandingLayout from "@/layouts/LandingLayout.astro";
 import SEO from "@/components/SEO.astro";
 import JsonLd from "@/components/JsonLd.astro";
-import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
+import CTA from "@/components/landing-page/common/cta/cta.tsx";
 import ComparisonHighlights from "@/components/compare/comparison-highlights.tsx";
 import ComparisonTable from "@/components/compare/comparison-table.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
@@ -10,7 +10,7 @@ import { StaggerGroup, StaggerItem } from "@/components/landing/stagger-group.ts
 import Shell from "@/components/layout/shell.tsx";
 import { getBreadcrumbSchema } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
-import { getAllComparisonSlugs, getComparisonBySlug } from "@/app/(landing)/compare/data.ts";
+import { getAllComparisonSlugs, getComparisonBySlug } from "@/data/comparisons.ts";
 
 export function getStaticPaths() {
   return getAllComparisonSlugs().map((slug) => ({ params: { slug } }));

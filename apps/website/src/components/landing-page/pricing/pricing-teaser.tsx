@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { StaticPricingTable } from "@/app/(landing)/components/pricing/static-pricing-table.tsx";
+import { StaticPricingTable } from "@/components/landing-page/pricing/static-pricing-table.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
   StaggerGroup,
