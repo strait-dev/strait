@@ -28,6 +28,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -301,7 +302,11 @@ function JobDetailPage() {
                         content={<ChartTooltip labelMap={CHART_LABEL_MAP} />}
                         cursor={{ fill: "var(--muted)" }}
                       />
-                      <Bar dataKey="value" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="value" radius={[2, 2, 0, 0]}>
+                        {chartData.map((entry) => (
+                          <Cell fill={entry.fill} key={entry.label} />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
