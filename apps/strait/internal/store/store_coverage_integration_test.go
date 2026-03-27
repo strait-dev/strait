@@ -322,8 +322,12 @@ func TestListWorkflowStepDecisions(t *testing.T) {
 	if byType[0].DecisionType != "skip" {
 		t.Fatalf("expected decision_type=skip, got %q", byType[0].DecisionType)
 	}
-	if string(byType[0].Details) != `{"reason":"missing_input"}` {
-		t.Fatalf("unexpected details: %s", string(byType[0].Details))
+	var detailsMap map[string]string
+	if err := json.Unmarshal(byType[0].Details, &detailsMap); err != nil {
+		t.Fatalf("unmarshal details: %v", err)
+	}
+	if detailsMap["reason"] != "missing_input" {
+		t.Fatalf("unexpected details reason: %s", detailsMap["reason"])
 	}
 }
 
