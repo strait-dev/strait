@@ -5,3 +5,7 @@
   font-display: swap;
   src: url("/fonts/GeistVariable.woff2") format("woff2");
 }
+
+:root {
+  --font-sans: "Geist", system-ui, sans-serif;
+}
