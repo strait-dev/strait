@@ -37,10 +37,9 @@ async function ensureUserExists(
     throw new Error("Failed to create test user");
   }
 
-  await pool.query(
-    `UPDATE "user" SET "emailVerified" = true WHERE "id" = $1`,
-    [userRow.rows[0].id]
-  );
+  await pool.query(`UPDATE "user" SET "emailVerified" = true WHERE "id" = $1`, [
+    userRow.rows[0].id,
+  ]);
 
   return userRow.rows[0];
 }
@@ -112,10 +111,10 @@ async function ensureProjectExists(
     [projectId, orgId, "Default Project", projectSlug, userId]
   );
 
-  await pool.query(
-    `UPDATE "user" SET "activeProjectId" = $1 WHERE "id" = $2`,
-    [projectId, userId]
-  );
+  await pool.query(`UPDATE "user" SET "activeProjectId" = $1 WHERE "id" = $2`, [
+    projectId,
+    userId,
+  ]);
 
   // Sync project to Go API (best-effort)
   if (internalSecret) {
@@ -140,7 +139,11 @@ async function ensureProjectExists(
   return projectId;
 }
 
-async function signInAndSaveState(baseURL: string, email: string, password: string) {
+async function signInAndSaveState(
+  baseURL: string,
+  email: string,
+  password: string
+) {
   const signinRes = await fetch(`${baseURL}/api/auth/sign-in/email`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: baseURL },
@@ -160,9 +163,7 @@ async function signInAndSaveState(baseURL: string, email: string, password: stri
     );
   }
 
-  const tokenMatch = sessionCookie.match(
-    /better-auth\.session_token=([^;]+)/
-  );
+  const tokenMatch = sessionCookie.match(/better-auth\.session_token=([^;]+)/);
   if (!tokenMatch) {
     throw new Error("Could not parse session token from cookie");
   }
@@ -212,12 +213,33 @@ export default async function globalSetup() {
     );
   }
 
+  // Trigger Better Auth schema initialization by hitting the app
+  // Better Auth creates its tables (user, session, account, etc.) on first request
+  await fetch(`${baseURL}/api/auth/session`, {
+    headers: { Origin: baseURL },
+  }).catch(() => {
+    // Expected to fail -- we just need the request to trigger schema creation
+  });
+  // Give it a moment to finish table creation
+  await new Promise((r) => setTimeout(r, 2000));
+
   if (authDbUrl) {
     const pool = new pg.Pool({ connectionString: authDbUrl });
     try {
       const user = await ensureUserExists(pool, email, password, baseURL);
-      const orgId = await ensureOrgExists(pool, user.id, user.defaultOrganizationId);
-      await ensureProjectExists(pool, user.id, orgId, user.activeProjectId, apiURL, internalSecret);
+      const orgId = await ensureOrgExists(
+        pool,
+        user.id,
+        user.defaultOrganizationId
+      );
+      await ensureProjectExists(
+        pool,
+        user.id,
+        orgId,
+        user.activeProjectId,
+        apiURL,
+        internalSecret
+      );
     } finally {
       await pool.end();
     }
