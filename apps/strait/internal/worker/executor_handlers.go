@@ -384,6 +384,11 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		ExecTrace: execTrace, Attempt: run.Attempt,
 	})
 	e.notifyWorkflowCallback(ctx, run)
+
+	// Trigger on_failure job/workflow if configured.
+	if e.onCompleteTrigger != nil {
+		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, errMsg)
+	}
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, execTrace *domain.ExecutionTrace) {
@@ -485,6 +490,11 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		ExecTrace: execTrace, Attempt: run.Attempt,
 	})
 	e.notifyWorkflowCallback(ctx, run)
+
+	// Trigger on_failure job/workflow if configured.
+	if e.onCompleteTrigger != nil {
+		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, "execution timed out")
+	}
 }
 
 // completeRunWithWebhook atomically updates run status and enqueues a webhook

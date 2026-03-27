@@ -33,7 +33,13 @@ const (
 	TriggerRetry         = "retry"
 	TriggerDebounce      = "debounce"
 	TriggerJobCompletion = "job_completion"
+	TriggerJobFailure    = "job_failure"
+	TriggerJobChain      = "job_chain"
 )
+
+// MaxJobChainDepth is the maximum allowed lineage depth for job chaining
+// to prevent infinite loops when jobs trigger each other.
+const MaxJobChainDepth = 10
 
 const (
 	WebhookEventRunCompleted         = "run.completed"
@@ -289,7 +295,11 @@ type Job struct {
 	Region                    string            `json:"region,omitempty"`
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
+	OnCompleteTriggerJob      string            `json:"on_complete_trigger_job,omitempty"`
 	OnCompletePayloadMapping  json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
+	OnFailureTriggerJob       string            `json:"on_failure_trigger_job,omitempty"`
+	OnFailureTriggerWorkflow  string            `json:"on_failure_trigger_workflow,omitempty"`
+	OnFailurePayloadMapping   json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
 	MaxTokensPerRun           int64             `json:"max_tokens_per_run,omitempty"`
 	MaxToolCallsPerRun        int               `json:"max_tool_calls_per_run,omitempty"`
 	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`

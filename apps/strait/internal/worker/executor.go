@@ -167,6 +167,8 @@ type ExecutorConfig struct {
 	DisableMachinePoolReuse    bool
 	WorkflowLookup             WorkflowLookup
 	WorkflowTriggerer          WorkflowTriggerer
+	JobLookup                  JobLookup
+	JobEnqueuer                JobEnqueuer
 	BillingEnforcer            *billing.Enforcer           // Optional: org-level billing enforcement (cloud only).
 	PolarIngester              *billing.PolarEventIngester // Optional: Polar usage event ingestion (cloud only).
 }
@@ -272,7 +274,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		billingEnforcer:          cfg.BillingEnforcer,
 		polarIngester:            cfg.PolarIngester,
 		healthScorer:             NewHealthScorer(cfg.Store),
-		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, slog.Default()),
+		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 	}
