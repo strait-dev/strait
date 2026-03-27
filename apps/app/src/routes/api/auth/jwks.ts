@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { exportJWK, importSPKI, importPKCS8 } from "jose";
+import { captureException } from "@/lib/sentry";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -58,7 +59,8 @@ export const Route = createFileRoute("/api/auth/jwks")({
           return new Response(JSON.stringify({ keys: [publicJwk] }), {
             headers: { "Content-Type": "application/json", ...CORS_HEADERS },
           });
-        } catch {
+        } catch (err) {
+          captureException(err, { tags: { feature: "oauth", action: "jwks" } });
           return new Response(JSON.stringify({ keys: [] }), {
             status: 500,
             headers: { "Content-Type": "application/json" },

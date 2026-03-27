@@ -4,11 +4,8 @@ import { z } from "zod";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { auth } from "@/lib/auth.server";
+import { captureException } from "@/lib/sentry";
 import { authMiddleware } from "@/middlewares/auth";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type OAuthConsentItem = {
   id: string;
@@ -19,10 +16,6 @@ export type OAuthConsentItem = {
   updatedAt: string;
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function formatScopes(scopes: unknown): string {
   if (typeof scopes === "string") {
     return scopes;
@@ -32,10 +25,6 @@ function formatScopes(scopes: unknown): string {
   }
   return "";
 }
-
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchOAuthConsents = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -51,8 +40,8 @@ export const fetchOAuthConsents = createServerFn({ method: "GET" })
         if (client?.name) {
           clientName = client.name;
         }
-      } catch {
-        // Client may have been deleted — use fallback name.
+      } catch (err) {
+        captureException(err, { tags: { feature: "oauth", action: "fetch_client" } });
       }
       items.push({
         id: consent.id,
@@ -78,10 +67,6 @@ export const revokeOAuthConsentFn = createServerFn({ method: "POST" })
     return { success: true };
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
-
 export const oauthConsentsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.oauthConsents.list.queryKey,
@@ -89,10 +74,6 @@ export const oauthConsentsQueryOptions = () =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
-
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useRevokeOAuthConsent = () => {
   const queryClient = useQueryClient();

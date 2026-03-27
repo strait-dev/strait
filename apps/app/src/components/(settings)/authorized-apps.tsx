@@ -26,8 +26,6 @@ import {
   AlertDialogTrigger,
 } from "@strait/ui/components/alert-dialog";
 
-// -- Component ----------------------------------------------------------------
-
 export function AuthorizedApps() {
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const { data: consents = [], isLoading } = useQuery(
@@ -97,8 +95,6 @@ export function AuthorizedApps() {
     </Card>
   );
 }
-
-// -- Consent row --------------------------------------------------------------
 
 function ConsentRow({
   consent,

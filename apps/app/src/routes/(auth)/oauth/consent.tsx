@@ -7,9 +7,9 @@ import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { auth } from "@/lib/auth.server";
+import { captureException } from "@/lib/sentry";
 import { authMiddleware } from "@/middlewares/auth";
 
-// -- Scope metadata -----------------------------------------------------------
 
 type ScopeLevel = "read" | "write" | "admin";
 
@@ -106,7 +106,6 @@ const HIDDEN_SCOPES = new Set([
   "offline_access",
 ]);
 
-// -- Helpers ------------------------------------------------------------------
 
 function buildSearchParams(
   search: Record<string, string | undefined>,
@@ -161,7 +160,6 @@ const OAUTH_QUERY_KEYS = [
   "code_challenge_method",
 ];
 
-// -- Search schema ------------------------------------------------------------
 
 const consentSearchSchema = z.object({
   client_id: z.string().optional().catch(undefined),
@@ -173,7 +171,6 @@ const consentSearchSchema = z.object({
   code_challenge_method: z.string().optional().catch(undefined),
 });
 
-// -- Server functions ---------------------------------------------------------
 
 type ClientInfo = {
   name: string;
@@ -197,7 +194,8 @@ const fetchClientInfo = createServerFn({ method: "GET" })
         clientId: (client as any).clientId ?? data.clientId,
         redirectUrls: (client as any).redirectURLs ?? [],
       } satisfies ClientInfo;
-    } catch {
+    } catch (err) {
+      captureException(err, { tags: { feature: "oauth", action: "fetch_client" } });
       return null;
     }
   });
@@ -231,7 +229,6 @@ const submitConsent = createServerFn({ method: "POST" })
     return result;
   });
 
-// -- Route --------------------------------------------------------------------
 
 export const Route = createFileRoute("/(auth)/oauth/consent")({
   validateSearch: consentSearchSchema,
@@ -260,7 +257,6 @@ export const Route = createFileRoute("/(auth)/oauth/consent")({
   component: OAuthConsentPage,
 });
 
-// -- Consent submission -------------------------------------------------------
 
 async function handleConsentSubmit(opts: {
   accept: boolean;
@@ -301,6 +297,7 @@ async function handleConsentSubmit(opts: {
       window.location.href = url.toString();
     }
   } catch (err) {
+    captureException(err, { tags: { feature: "oauth", action: "consent_submit" } });
     opts.setStatus("error");
     opts.setError(
       err instanceof Error
@@ -310,7 +307,6 @@ async function handleConsentSubmit(opts: {
   }
 }
 
-// -- Page component -----------------------------------------------------------
 
 function OAuthConsentPage() {
   const search = Route.useSearch();
@@ -462,7 +458,6 @@ function OAuthConsentPage() {
   );
 }
 
-// -- Scope group component ----------------------------------------------------
 
 function PermissionsList({
   readScopes,
