@@ -37,7 +37,6 @@ import {
 } from "@/lib/icons";
 import type { AuthUser, Session } from "@/routes/__root";
 import CreateOrganizationDialog from "./create-organization-dialog";
-import CreateOrganizationLimitGate from "./create-organization-limit-gate";
 
 type Props = {
   user: AuthUser;
@@ -240,24 +239,16 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
             Settings
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <CreateOrganizationLimitGate
-            currentCount={organizations?.page?.length || 0}
-            onUpgradeClick={() => {
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
               setDropdownOpen(false);
-              navigate({ to: "/app/upgrade" });
+              setCreateDialogOpen(true);
             }}
           >
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                setDropdownOpen(false);
-                setCreateDialogOpen(true);
-              }}
-            >
-              <HugeiconsIcon className="size-4" icon={PlusIcon} />
-              Create new organization
-            </DropdownMenuItem>
-          </CreateOrganizationLimitGate>
+            <HugeiconsIcon className="size-4" icon={PlusIcon} />
+            Create new organization
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
