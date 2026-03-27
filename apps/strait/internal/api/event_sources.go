@@ -236,7 +236,8 @@ func (s *Server) handleListEventSourceSubscriptions(ctx context.Context, input *
 }
 
 type DeleteEventSubscriptionInput struct {
-	SubID string `path:"subID"`
+	SourceID string `path:"sourceID"`
+	SubID    string `path:"subID"`
 }
 
 func (s *Server) handleDeleteEventSubscription(ctx context.Context, input *DeleteEventSubscriptionInput) (*struct{}, error) {
