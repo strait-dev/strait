@@ -2,6 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { toast } from "@strait/ui/components/toast/index";
 import { useState } from "react";
+import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { LoadingIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
@@ -18,6 +19,7 @@ const SocialProviders = ({ redirectTo, disabled }: SocialProvidersProps) => {
 
   const handleSocialSignIn = async (provider: "google" | "github") => {
     setLoadingProvider(provider);
+    getPostHog()?.capture("auth_signed_in", { method: provider });
     try {
       const result = await authClient.signIn.social({
         provider,

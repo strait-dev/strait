@@ -24,6 +24,7 @@ import FeedbackDialog from "@/components/help/feedback-dialog";
 import SupportDialog from "@/components/help/support-dialog";
 import { usePostHog } from "@/components/providers/posthog-provider";
 import TrialStartedModal from "@/components/upgrade/trial-started-modal";
+import { consumeUtmParams, utmToSetOnce } from "@/lib/utm";
 import { projectsQueryOptions } from "@/hooks/api/use-projects";
 import {
   organizationQueryOptions,
@@ -164,6 +165,14 @@ function RouteComponent() {
         is_trialing: isTrialing,
         subscription_status: subscription?.status || "none",
       });
+    }
+
+    const utm = consumeUtmParams();
+    if (utm) {
+      const setOnce = utmToSetOnce(utm);
+      if (Object.keys(setOnce).length > 0) {
+        posthog.setPersonProperties({}, setOnce);
+      }
     }
 
     hasIdentifiedRef.current = true;

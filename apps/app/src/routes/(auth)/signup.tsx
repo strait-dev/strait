@@ -1,9 +1,11 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { useEffect } from "react";
 import AuthLayout from "@/components/(auth)/auth-layout";
 import SignUpForm from "@/components/(auth)/sign-up-form";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
+import { storeUtmParams } from "@/lib/utm";
 
 export const Route = createFileRoute("/(auth)/signup")({
   validateSearch: authSearchSchema,
@@ -18,7 +20,19 @@ export const Route = createFileRoute("/(auth)/signup")({
 });
 
 function SignUpPage() {
-  const { redirect: redirectTo } = Route.useSearch();
+  const search = Route.useSearch();
+  const { redirect: redirectTo } = search;
+
+  useEffect(() => {
+    storeUtmParams({
+      utm_source: search.utm_source,
+      utm_medium: search.utm_medium,
+      utm_campaign: search.utm_campaign,
+      utm_term: search.utm_term,
+      utm_content: search.utm_content,
+      ref: search.ref,
+    });
+  }, [search]);
 
   return (
     <AuthLayout title="Create your account">

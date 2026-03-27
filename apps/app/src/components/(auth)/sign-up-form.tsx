@@ -7,7 +7,9 @@ import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
 import { z } from "zod";
+import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
+import { consumeUtmParams, utmToSetOnce } from "@/lib/utm";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
@@ -50,6 +52,12 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
         return;
       }
 
+      const utm = consumeUtmParams();
+      const setOnce = utm ? utmToSetOnce(utm) : {};
+      getPostHog()?.capture("auth_signed_up", {
+        method: "email",
+        ...(Object.keys(setOnce).length > 0 ? { $set_once: setOnce } : {}),
+      });
       setEmailSent(true);
     },
   });
