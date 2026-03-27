@@ -40,7 +40,7 @@ import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
-import ChartTooltip from "@/components/dashboard/chart-tooltip";
+
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import StatusBadge from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
@@ -98,9 +98,32 @@ const HEALTH_WINDOWS: { value: HealthWindow; label: string }[] = [
   { value: "30d", label: "30 days" },
 ];
 
-const CHART_LABEL_MAP = {
-  value: { label: "Runs", color: CHART_COLORS.success },
-};
+function StatusTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: { label: string; value: number; fill: string } }>;
+}) {
+  if (!(active && payload?.length)) {
+    return null;
+  }
+  const data = payload[0].payload;
+  return (
+    <div className="rounded-lg border border-border bg-popover px-3 py-2 shadow-md">
+      <div className="flex items-center gap-2">
+        <span
+          className="size-2.5 shrink-0 rounded-full"
+          style={{ backgroundColor: data.fill }}
+        />
+        <span className="text-muted-foreground">{data.label}</span>
+        <span className="ml-auto font-medium text-popover-foreground tabular-nums">
+          {data.value.toLocaleString()}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 // --- Page ---
 
@@ -299,7 +322,7 @@ function JobDetailPage() {
                         tick={{ fontSize: 12 }}
                       />
                       <Tooltip
-                        content={<ChartTooltip labelMap={CHART_LABEL_MAP} />}
+                        content={<StatusTooltip />}
                         cursor={{ fill: "var(--muted)" }}
                       />
                       <Bar dataKey="value" radius={[2, 2, 0, 0]}>

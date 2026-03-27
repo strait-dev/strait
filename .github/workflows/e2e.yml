@@ -132,8 +132,9 @@ jobs:
 
           echo "Waiting for app..."
           for i in $(seq 1 30); do
-            if curl -sf -o /dev/null http://localhost:5173 2>&1; then
-              echo "App ready after ${i}s"
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5173 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" != "000" ]; then
+              echo "App ready after ${i}s (HTTP $HTTP_CODE)"
               break
             fi
             if [ $i -eq 30 ]; then
