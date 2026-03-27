@@ -1,11 +1,38 @@
 /**
- * Single source of truth for OAuth scopes across the app.
+ * Single source of truth for OAuth configuration across the app.
  *
- * These must stay aligned with:
+ * Scopes must stay aligned with:
  * - MCP server: SUPPORTED_SCOPES in src/auth.ts
  * - Go API: domain.ValidScopes in internal/domain/scopes.go
  * - oauthProvider config in src/lib/auth.server.ts
  */
+
+export const OIDC_KEY_ID = "oidc-rsa-1";
+export const OIDC_ALGORITHM = "RS256";
+
+export const OAUTH_LOGIN_PAGE = "/login";
+export const OAUTH_CONSENT_PAGE = "/oauth/consent";
+
+export const DEFAULT_REGISTRATION_SCOPES = [
+  "openid",
+  "profile",
+  "jobs:read",
+  "runs:read",
+  "stats:read",
+] as const;
+
+export const OAUTH_CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Cache-Control": "public, max-age=3600",
+} as const;
+
+export const OAUTH_API_CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Max-Age": "86400",
+} as const;
 
 export const STRAIT_API_SCOPES = [
   "jobs:read",

@@ -26,7 +26,15 @@ import {
 } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { Pool } from "pg";
-import { ALL_OAUTH_SCOPES, STRAIT_API_SCOPES } from "@/lib/oauth-scopes";
+import {
+  ALL_OAUTH_SCOPES,
+  DEFAULT_REGISTRATION_SCOPES,
+  OIDC_ALGORITHM,
+  OIDC_KEY_ID,
+  OAUTH_CONSENT_PAGE,
+  OAUTH_LOGIN_PAGE,
+  STRAIT_API_SCOPES,
+} from "@/lib/oauth-scopes";
 import { resend } from "@/lib/resend.server";
 
 export const authPool = new Pool({
@@ -42,7 +50,7 @@ function getOIDCPrivateKey(): Promise<KeyLike> {
   if (!oidcPrivateKeyPromise) {
     oidcPrivateKeyPromise = importPKCS8(
       process.env.OIDC_PRIVATE_KEY_PEM as string,
-      "RS256"
+      OIDC_ALGORITHM
     ).catch((err) => {
       oidcPrivateKeyPromise = null;
       throw err;
@@ -163,7 +171,7 @@ export const auth = betterAuth({
     twoFactor(),
     jwt({
       jwks: {
-        keyPairConfig: { alg: "RS256" },
+        keyPairConfig: { alg: OIDC_ALGORITHM },
         // Point to our own JWKS endpoint so the Go service can fetch
         // the public key dynamically if needed.
         remoteUrl: `${process.env.BETTER_AUTH_URL ?? "http://localhost:5173"}/api/auth/jwks`,
@@ -180,9 +188,9 @@ export const auth = betterAuth({
               const privateKey = await getOIDCPrivateKey();
               return new SignJWT(payload)
                 .setProtectedHeader({
-                  alg: "RS256",
+                  alg: OIDC_ALGORITHM,
                   typ: "JWT",
-                  kid: "oidc-rsa-1",
+                  kid: OIDC_KEY_ID,
                 })
                 .sign(privateKey);
             }
@@ -190,8 +198,8 @@ export const auth = betterAuth({
       },
     }),
     oauthProvider({
-      loginPage: "/login",
-      consentPage: "/oauth/consent",
+      loginPage: OAUTH_LOGIN_PAGE,
+      consentPage: OAUTH_CONSENT_PAGE,
       // List of valid audiences for JWT access tokens. Without this, the
       // plugin issues opaque tokens instead of JWTs. The Go OIDC verifier
       // expects JWTs signed with RS256.
@@ -201,13 +209,7 @@ export const auth = betterAuth({
       scopes: [...ALL_OAUTH_SCOPES],
       allowDynamicClientRegistration: true,
       allowUnauthenticatedClientRegistration: true,
-      clientRegistrationDefaultScopes: [
-        "openid",
-        "profile",
-        "jobs:read",
-        "runs:read",
-        "stats:read",
-      ],
+      clientRegistrationDefaultScopes: [...DEFAULT_REGISTRATION_SCOPES],
       clientRegistrationAllowedScopes: [...STRAIT_API_SCOPES],
       accessTokenExpiresIn: 900, // 15 minutes — short-lived for security
       refreshTokenExpiresIn: 2_592_000, // 30 days

@@ -7,7 +7,11 @@ import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { auth } from "@/lib/auth.server";
-import { SCOPE_DESCRIPTIONS, OIDC_STANDARD_SCOPES } from "@/lib/oauth-scopes";
+import {
+  SCOPE_DESCRIPTIONS,
+  OIDC_STANDARD_SCOPES,
+  OAUTH_LOGIN_PAGE,
+} from "@/lib/oauth-scopes";
 import { captureException } from "@/lib/sentry";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -150,7 +154,7 @@ export const Route = createFileRoute("/(auth)/oauth/consent")({
     if (!context.isAuthenticated) {
       const qs = buildSearchParams(search as Record<string, string | undefined>, OAUTH_QUERY_KEYS);
       throw redirect({
-        to: "/login",
+        to: OAUTH_LOGIN_PAGE,
         search: {
           redirect: `/oauth/consent${qs ? `?${qs}` : ""}`,
         },

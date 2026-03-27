@@ -3,12 +3,13 @@ import { defineEventHandler } from "vinxi/http";
 export default defineEventHandler(async (event) => {
   try {
     const { auth } = await import("../../../src/lib/auth.server");
+    const { OAUTH_CORS_HEADERS } = await import("../../../src/lib/oauth-scopes");
     const data = await auth.api.getOpenIdConfig();
 
+    for (const [key, value] of Object.entries(OAUTH_CORS_HEADERS)) {
+      event.node.res.setHeader(key, value);
+    }
     event.node.res.setHeader("Content-Type", "application/json");
-    event.node.res.setHeader("Access-Control-Allow-Origin", "*");
-    event.node.res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-    event.node.res.setHeader("Cache-Control", "public, max-age=3600");
 
     return data;
   } catch (err) {

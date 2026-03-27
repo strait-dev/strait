@@ -1,20 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { exportJWK, importSPKI, importPKCS8 } from "jose";
+import {
+  OIDC_ALGORITHM,
+  OIDC_KEY_ID,
+  OAUTH_CORS_HEADERS,
+} from "@/lib/oauth-scopes";
 import { captureException } from "@/lib/sentry";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Cache-Control": "public, max-age=3600",
-};
-
-/**
- * JWKS endpoint serving the RSA public key for OIDC token verification.
- *
- * Derives the public key from OIDC_PRIVATE_KEY_PEM (or uses OIDC_PUBLIC_KEY_PEM
- * directly if available). This allows the Go OIDC verifier and any other
- * resource server to fetch the public key dynamically.
- */
 export const Route = createFileRoute("/api/auth/jwks")({
   server: {
     handlers: {
@@ -25,39 +17,37 @@ export const Route = createFileRoute("/api/auth/jwks")({
           if (process.env.OIDC_PRIVATE_KEY_PEM) {
             const privateKey = await importPKCS8(
               process.env.OIDC_PRIVATE_KEY_PEM,
-              "RS256"
+              OIDC_ALGORITHM
             );
-            // Extract public key components from the private key
             const jwk = await exportJWK(privateKey);
-            // Strip private key fields — only expose public components
             publicJwk = {
               kty: jwk.kty,
               n: jwk.n,
               e: jwk.e,
-              alg: "RS256",
+              alg: OIDC_ALGORITHM,
               use: "sig",
-              kid: "oidc-rsa-1",
+              kid: OIDC_KEY_ID,
             };
           } else if (process.env.OIDC_PUBLIC_KEY_PEM) {
             const publicKey = await importSPKI(
               process.env.OIDC_PUBLIC_KEY_PEM,
-              "RS256"
+              OIDC_ALGORITHM
             );
             const jwk = await exportJWK(publicKey);
             publicJwk = {
               ...jwk,
-              alg: "RS256",
+              alg: OIDC_ALGORITHM,
               use: "sig",
-              kid: "oidc-rsa-1",
+              kid: OIDC_KEY_ID,
             };
           } else {
             return new Response(JSON.stringify({ keys: [] }), {
-              headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+              headers: { "Content-Type": "application/json", ...OAUTH_CORS_HEADERS },
             });
           }
 
           return new Response(JSON.stringify({ keys: [publicJwk] }), {
-            headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+            headers: { "Content-Type": "application/json", ...OAUTH_CORS_HEADERS },
           });
         } catch (err) {
           captureException(err, { tags: { feature: "oauth", action: "jwks" } });
@@ -68,7 +58,7 @@ export const Route = createFileRoute("/api/auth/jwks")({
         }
       },
       OPTIONS: () =>
-        new Response(null, { status: 204, headers: CORS_HEADERS }),
+        new Response(null, { status: 204, headers: OAUTH_CORS_HEADERS }),
     },
   },
 });
