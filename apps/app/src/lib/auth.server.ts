@@ -1,5 +1,6 @@
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
+import { SignJWT, importPKCS8 } from "jose";
 import {
   checkout,
   polar,
@@ -144,10 +145,26 @@ export const auth = betterAuth({
     jwt({
       jwks: {
         keyPairConfig: { alg: "RS256" },
+        // Point to our own JWKS endpoint so the Go service can fetch
+        // the public key dynamically if needed.
+        remoteUrl: `${process.env.BETTER_AUTH_URL ?? "http://localhost:5173"}/api/auth/jwks`,
       },
       jwt: {
         issuer: process.env.OIDC_ISSUER,
         audience: process.env.OIDC_AUDIENCE,
+        // Custom sign function: signs with the RSA private key from env
+        // instead of the auto-generated key pair in the database. This
+        // ensures the Go OIDC verifier (which holds the matching public
+        // key) can validate all tokens.
+        sign: process.env.OIDC_PRIVATE_KEY_PEM
+          ? async (payload) => {
+              const pem = process.env.OIDC_PRIVATE_KEY_PEM as string;
+              const privateKey = await importPKCS8(pem, "RS256");
+              return new SignJWT(payload)
+                .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+                .sign(privateKey);
+            }
+          : undefined,
       },
     }),
     oauthProvider({

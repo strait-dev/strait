@@ -210,7 +210,7 @@ func TestRequirePermission_UnknownActorType_Rejected(t *testing.T) {
 // User permission tests.
 
 func userCtx(r *http.Request, projectID, userID string) *http.Request {
-	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{"*"}) // API key scopes
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{}) // non-nil, empty = DB permission path
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 	ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
 	ctx = context.WithValue(ctx, ctxActorIDKey, userID)
@@ -310,7 +310,7 @@ func TestRequirePermission_User_MissingProjectContext(t *testing.T) {
 	}))
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{"*"})
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{}) // non-nil, empty = DB path
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
 	// No project ID
@@ -477,23 +477,21 @@ func TestRequirePermission_ChainedMiddleware(t *testing.T) {
 	}
 }
 
-func TestRequirePermission_APIKey_WildcardScopeWithUserActorType(t *testing.T) {
+func TestRequirePermission_User_TokenScopesEnforced(t *testing.T) {
 	t.Parallel()
 
-	// Even if scopes contain "*" and actor type is "user", the user path fires.
-	// This verifies the middleware correctly dispatches on actor type, not scopes.
-	ms := &APIStoreMock{}
-	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
-		return []string{domain.ScopeJobsRead}, nil // User has read only.
-	}
-	srv := newTestServer(t, ms, nil, nil)
+	// When a user has explicit token scopes (from OAuth consent), those
+	// scopes are enforced directly — the DB permission lookup is skipped.
+	// This is the principle of least privilege: the token restricts what
+	// the user can do, even if their database role would allow more.
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{"*"})
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{domain.ScopeJobsRead}) // only read
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
@@ -502,8 +500,33 @@ func TestRequirePermission_APIKey_WildcardScopeWithUserActorType(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
-	// User path should fire: user has only jobs:read, so jobs:write should be denied.
+	// Token only has jobs:read, so jobs:write should be denied.
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d (user path should check role, not API key scopes)", w.Code, http.StatusForbidden)
+		t.Fatalf("status = %d, want %d (token scopes should restrict permissions)", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRequirePermission_User_TokenScopesAllow(t *testing.T) {
+	t.Parallel()
+
+	// When the token scope includes the required permission, allow through.
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{domain.ScopeJobsRead, domain.ScopeRunsRead})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (token has required scope)", w.Code, http.StatusOK)
 	}
 }

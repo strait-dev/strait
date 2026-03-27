@@ -14,7 +14,17 @@ import (
 type oidcClaims struct {
 	Email string `json:"email,omitempty"`
 	Name  string `json:"name,omitempty"`
+	Scope string `json:"scope,omitempty"`
 	jwt.RegisteredClaims
+}
+
+// Scopes returns the parsed scope claim as a string slice.
+// Returns nil if the scope claim is empty (meaning no scope restriction).
+func (c *oidcClaims) Scopes() []string {
+	if c.Scope == "" {
+		return nil
+	}
+	return strings.Split(c.Scope, " ")
 }
 
 type oidcVerifier struct {

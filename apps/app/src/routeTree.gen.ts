@@ -40,6 +40,7 @@ import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
 import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/compare'
 import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
+import { Route as ApiAuthJwksRouteImport } from './routes/api/auth/jwks'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as authOauthConsentRouteImport } from './routes/(auth)/oauth/consent'
 import { Route as AppProjectsProjectIdSettingsRouteImport } from './routes/app/projects/$projectId/settings'
@@ -199,6 +200,11 @@ const AppJobsIdRoute = AppJobsIdRouteImport.update({
   path: '/jobs/$id',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const ApiAuthJwksRoute = ApiAuthJwksRouteImport.update({
+  id: '/api/auth/jwks',
+  path: '/api/auth/jwks',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -234,6 +240,7 @@ export interface FileRoutesByFullPath {
   '/app/': typeof AppIndexRoute
   '/oauth/consent': typeof authOauthConsentRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
@@ -269,6 +276,7 @@ export interface FileRoutesByTo {
   '/app': typeof AppIndexRoute
   '/oauth/consent': typeof authOauthConsentRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
@@ -306,6 +314,7 @@ export interface FileRoutesById {
   '/app/': typeof AppIndexRoute
   '/(auth)/oauth/consent': typeof authOauthConsentRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
@@ -344,6 +353,7 @@ export interface FileRouteTypes {
     | '/app/'
     | '/oauth/consent'
     | '/api/auth/$'
+    | '/api/auth/jwks'
     | '/app/jobs/$id'
     | '/app/org/$id'
     | '/app/pricing/compare'
@@ -379,6 +389,7 @@ export interface FileRouteTypes {
     | '/app'
     | '/oauth/consent'
     | '/api/auth/$'
+    | '/api/auth/jwks'
     | '/app/jobs/$id'
     | '/app/org/$id'
     | '/app/pricing/compare'
@@ -415,6 +426,7 @@ export interface FileRouteTypes {
     | '/app/'
     | '/(auth)/oauth/consent'
     | '/api/auth/$'
+    | '/api/auth/jwks'
     | '/app/jobs/$id'
     | '/app/org/$id'
     | '/app/pricing/compare'
@@ -449,6 +461,7 @@ export interface RootRouteChildren {
   InvitationIdRoute: typeof InvitationIdRoute
   authOauthConsentRoute: typeof authOauthConsentRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiAuthJwksRoute: typeof ApiAuthJwksRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -670,6 +683,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppJobsIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/api/auth/jwks': {
+      id: '/api/auth/jwks'
+      path: '/api/auth/jwks'
+      fullPath: '/api/auth/jwks'
+      preLoaderRoute: typeof ApiAuthJwksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -759,6 +779,7 @@ const rootRouteChildren: RootRouteChildren = {
   InvitationIdRoute: InvitationIdRoute,
   authOauthConsentRoute: authOauthConsentRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiAuthJwksRoute: ApiAuthJwksRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
