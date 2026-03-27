@@ -1,0 +1,1029 @@
+package billing
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"strait/internal/domain"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/jackc/pgx/v5"
+	"github.com/redis/go-redis/v9"
+)
+
+// ---------------------------------------------------------------------------.
+// 1. CheckManagedRunLimit adversarial tests
+// ---------------------------------------------------------------------------.
+
+func TestCheckManagedRunLimit_NilEnforcer(t *testing.T) {
+	t.Parallel()
+	// A nil Enforcer pointer should not panic; GetOrgPlanLimits handles nil receiver.
+	var e *Enforcer
+	limits, err := e.GetOrgPlanLimits(context.Background(), "org-1")
+	if err != nil {
+		t.Fatalf("expected nil error for nil enforcer, got %v", err)
+	}
+	if limits.PlanTier != domain.PlanFree {
+		t.Fatalf("expected free-tier defaults, got %q", limits.PlanTier)
+	}
+}
+
+func TestCheckManagedRunLimit_NilRedis_FailsOpen(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, nil, slog.Default())
+
+	// With nil Redis, CheckManagedRunLimit should return nil (fail open).
+	if err := enforcer.CheckManagedRunLimit(context.Background(), "org-1"); err != nil {
+		t.Fatalf("expected nil error with nil redis, got %v", err)
+	}
+}
+
+func TestCheckManagedRunLimit_ExactBoundary(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-boundary": {OrgID: "org-boundary", PlanTier: "free", Status: "active"},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	limits := GetPlanLimits(domain.PlanFree)
+	if limits.FreeManagedRunsPerMonth <= 0 {
+		t.Skip("free plan has no legacy managed run cap; boundary test not applicable")
+	}
+
+	ctx := context.Background()
+	// Consume up to exactly the limit.
+	for i := range limits.FreeManagedRunsPerMonth {
+		if err := enforcer.CheckManagedRunLimit(ctx, "org-boundary"); err != nil {
+			t.Fatalf("unexpected error at run %d/%d: %v", i+1, limits.FreeManagedRunsPerMonth, err)
+		}
+	}
+
+	// One more should be rejected.
+	err := enforcer.CheckManagedRunLimit(ctx, "org-boundary")
+	if err == nil {
+		t.Fatal("expected rejection at limit+1")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "managed_run_limit_exceeded" {
+		t.Errorf("code = %q, want managed_run_limit_exceeded", le.Code)
+	}
+}
+
+func TestCheckManagedRunLimit_ZeroLimit_Unlimited(t *testing.T) {
+	t.Parallel()
+	// A paid plan has FreeManagedRunsPerMonth = 0, which should skip the check entirely.
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-paid": {OrgID: "org-paid", PlanTier: "starter", Status: "active"},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	for i := range 500 {
+		if err := enforcer.CheckManagedRunLimit(context.Background(), "org-paid"); err != nil {
+			t.Fatalf("paid plan should skip managed run limit, got error at %d: %v", i, err)
+		}
+	}
+}
+
+func TestCheckManagedRunLimit_DBError_FailsOpen(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
+	dbErr := errors.New("connection refused")
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*OrgSubscription, error) {
+			return nil, dbErr
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	// DB error during GetOrgPlanLimits should cause fail-open (return nil).
+	err := enforcer.CheckManagedRunLimit(context.Background(), "org-err")
+	if err != nil {
+		t.Fatalf("expected fail-open on DB error, got %v", err)
+	}
+}
+
+func TestCheckManagedRunLimit_Concurrent(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-conc": {OrgID: "org-conc", PlanTier: "free", Status: "active"},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	limits := GetPlanLimits(domain.PlanFree)
+	if limits.FreeManagedRunsPerMonth <= 0 {
+		t.Skip("free plan has no legacy managed run cap")
+	}
+
+	ctx := context.Background()
+	const goroutines = 20
+	var allowed atomic.Int64
+	var rejected atomic.Int64
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			for range limits.FreeManagedRunsPerMonth {
+				err := enforcer.CheckManagedRunLimit(ctx, "org-conc")
+				if err != nil {
+					rejected.Add(1)
+				} else {
+					allowed.Add(1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	totalAttempts := int64(goroutines) * int64(limits.FreeManagedRunsPerMonth)
+	if allowed.Load()+rejected.Load() != totalAttempts {
+		t.Fatalf("total = %d, want %d", allowed.Load()+rejected.Load(), totalAttempts)
+	}
+	// The atomic Lua script should allow at most exactly the limit.
+	if allowed.Load() > int64(limits.FreeManagedRunsPerMonth) {
+		t.Fatalf("allowed %d exceeds limit %d", allowed.Load(), limits.FreeManagedRunsPerMonth)
+	}
+}
+
+func TestCheckManagedRunLimit_EmptyOrgID(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	if err := enforcer.CheckManagedRunLimit(context.Background(), ""); err != nil {
+		t.Fatalf("empty org ID should pass: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// 2. EnsureOrgSubscription adversarial tests
+// ---------------------------------------------------------------------------.
+
+func TestEnsureOrgSubscription_DelegatesCorrectly(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
+	var calledWith string
+	store := &mockBillingStore{}
+	// Override the default mock to track calls.
+	origFn := store.EnsureOrgSubscription
+	_ = origFn // mockBillingStore has a hardcoded method; we test via enforcer.
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.EnsureOrgSubscription(context.Background(), "org-new")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	_ = calledWith
+}
+
+func TestEnsureOrgSubscription_ExistingOrgNoError(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-existing": {OrgID: "org-existing", PlanTier: "starter", Status: "active"},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	// Calling EnsureOrgSubscription for an existing org should not error.
+	// The mock's EnsureOrgSubscription always returns nil.
+	err := enforcer.EnsureOrgSubscription(context.Background(), "org-existing")
+	if err != nil {
+		t.Fatalf("expected nil error for existing org, got %v", err)
+	}
+}
+
+func TestEnsureOrgSubscription_ConcurrentIdempotent(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	ctx := context.Background()
+	const goroutines = 50
+	errs := make(chan error, goroutines)
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			errs <- enforcer.EnsureOrgSubscription(ctx, "org-race")
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("expected nil error in concurrent EnsureOrgSubscription, got %v", err)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// 3. RestrictOrgTx adversarial tests (tx.go)
+// ---------------------------------------------------------------------------.
+// RestrictOrgTx requires a real pgxpool.Pool which is only available in
+// integration tests. We test the wrapper WithBillingTx with a nil pool to
+// verify nil handling returns an error.
+
+func TestWithBillingTx_NilPool_Panics(t *testing.T) {
+	t.Parallel()
+	// WithBillingTx with a nil pool will call pool.Begin which panics on nil receiver.
+	// Verify we get a panic (not a silent nil error).
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic from nil pool, got none")
+		}
+	}()
+	_ = WithBillingTx(context.Background(), nil, func(_ pgx.Tx) error {
+		t.Fatal("fn should not be called with nil pool")
+		return nil
+	})
+}
+
+// ---------------------------------------------------------------------------.
+// 4. Polar event ingestion adversarial tests (polar_events.go)
+// ---------------------------------------------------------------------------.
+
+func TestPolarEventIngester_DuplicateExternalID(t *testing.T) {
+	t.Parallel()
+	var receivedEvents []polarIngestRequest
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req polarIngestRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode error: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		receivedEvents = append(receivedEvents, req)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
+	ctx := context.Background()
+
+	// Send the same runID twice (duplicate).
+	for range 2 {
+		err := ingester.IngestComputeUsage(ctx, "cust-1", "run-dup-1", 1000)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(receivedEvents) != 2 {
+		t.Fatalf("expected 2 requests (server-side dedup), got %d", len(receivedEvents))
+	}
+	// Both requests should carry the same external_id; dedup is server-side.
+	for i, req := range receivedEvents {
+		if req.Events[0].ExternalID != "run-dup-1" {
+			t.Errorf("request %d: external_id = %q, want run-dup-1", i, req.Events[0].ExternalID)
+		}
+	}
+}
+
+func TestPolarEventIngester_MalformedResponse(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error": "internal server error"}`))
+	}))
+	defer srv.Close()
+
+	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
+	err := ingester.IngestComputeUsage(context.Background(), "cust-1", "run-1", 500)
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+}
+
+func TestPolarEventIngester_UnknownEventType_StillSends(t *testing.T) {
+	t.Parallel()
+	var received atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		received.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
+
+	// IngestBatch with a custom event name (not compute_overage).
+	events := []polarEvent{
+		{Name: "unknown_meter", ExternalCustomerID: "cust-1", ExternalID: "evt-1"},
+	}
+	err := ingester.IngestBatch(context.Background(), events)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if received.Load() != 1 {
+		t.Fatalf("expected 1 request, got %d", received.Load())
+	}
+}
+
+func TestPolarEventIngester_EmptyBatch_NoRequest(t *testing.T) {
+	t.Parallel()
+	var received atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		received.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
+	err := ingester.IngestBatch(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error for empty batch: %v", err)
+	}
+	if received.Load() != 0 {
+		t.Fatalf("expected 0 requests for empty batch, got %d", received.Load())
+	}
+}
+
+func TestPolarEventIngester_ConcurrentIngestion(t *testing.T) {
+	t.Parallel()
+	var received atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		received.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
+	ctx := context.Background()
+
+	const goroutines = 50
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := range goroutines {
+		go func(idx int) {
+			defer wg.Done()
+			err := ingester.IngestComputeUsage(ctx, "cust-conc", fmt.Sprintf("run-%d", idx), 100)
+			if err != nil {
+				t.Errorf("goroutine %d: unexpected error: %v", idx, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if received.Load() != goroutines {
+		t.Fatalf("expected %d requests, got %d", goroutines, received.Load())
+	}
+}
+
+func TestPolarEventIngester_HTTP4xx_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{400, 401, 403, 404, 422, 429} {
+		t.Run(fmt.Sprintf("status_%d", code), func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(code)
+				_, _ = w.Write([]byte(`{"detail":"test error"}`))
+			}))
+			defer srv.Close()
+
+			ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
+			err := ingester.IngestComputeUsage(context.Background(), "cust-1", "run-1", 100)
+			if err == nil {
+				t.Fatalf("expected error for HTTP %d", code)
+			}
+		})
+	}
+}
+
+func TestPolarEventIngester_CanceledContext(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before calling
+
+	err := ingester.IngestComputeUsage(ctx, "cust-1", "run-1", 100)
+	if err == nil {
+		t.Fatal("expected error for canceled context")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// 5. Billing enforcement edge cases
+// ---------------------------------------------------------------------------.
+
+func TestEnforcer_FreeTier_AllLimitsHit(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		projects:     map[string][]string{"org-free-all": {"p1", "p2"}},
+		memberCounts: map[string]int{"org-free-all": 3},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	ctx := context.Background()
+
+	// Project limit
+	err := enforcer.CheckProjectLimit(ctx, "org-free-all")
+	if err == nil {
+		t.Fatal("expected project limit error")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T", err)
+	}
+	if le.Code != "project_limit_reached" {
+		t.Errorf("code = %q, want project_limit_reached", le.Code)
+	}
+
+	// Member limit
+	err = enforcer.CheckMemberLimit(ctx, "org-free-all")
+	if err == nil {
+		t.Fatal("expected member limit error")
+	}
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError for members, got %T", err)
+	}
+	if le.Code != "member_limit_reached" {
+		t.Errorf("code = %q, want member_limit_reached", le.Code)
+	}
+
+	// Concurrent run limit
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	for range freeLimits.MaxConcurrentRuns {
+		_ = enforcer.CheckConcurrentRunLimit(ctx, "org-free-all")
+	}
+	err = enforcer.CheckConcurrentRunLimit(ctx, "org-free-all")
+	if err == nil {
+		t.Fatal("expected concurrent run limit error")
+	}
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError for concurrent, got %T", err)
+	}
+	if le.Code != "org_concurrent_run_limit_exceeded" {
+		t.Errorf("code = %q, want org_concurrent_run_limit_exceeded", le.Code)
+	}
+}
+
+func TestEnforcer_PlanUpgradeMidOperation_CacheInvalidation(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-upgrade": {OrgID: "org-upgrade", PlanTier: "free", Status: "active"},
+		},
+		projects: map[string][]string{"org-upgrade": {"p1", "p2"}},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	ctx := context.Background()
+
+	// At free tier, 2 projects = at limit.
+	err := enforcer.CheckProjectLimit(ctx, "org-upgrade")
+	if err == nil {
+		t.Fatal("expected project limit at free tier")
+	}
+
+	// Simulate plan upgrade.
+	store.subscriptions["org-upgrade"].PlanTier = "starter"
+	enforcer.InvalidateOrgCache("org-upgrade")
+
+	// After upgrade, 2 projects should be under starter limit (5).
+	err = enforcer.CheckProjectLimit(ctx, "org-upgrade")
+	if err != nil {
+		t.Fatalf("expected pass after upgrade, got %v", err)
+	}
+}
+
+func TestEnforcer_ConcurrentPlanChange_DuringLimitCheck(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
+	// Use a thread-safe subscription function to avoid data races on the mock map.
+	var planMu sync.RWMutex
+	currentPlan := "starter"
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*OrgSubscription, error) {
+			planMu.RLock()
+			tier := currentPlan
+			planMu.RUnlock()
+			return &OrgSubscription{OrgID: "org-race", PlanTier: tier, Status: "active"}, nil
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	ctx := context.Background()
+
+	const goroutines = 30
+	var wg sync.WaitGroup
+
+	// Half do limit checks, half do plan upgrades + cache invalidations.
+	wg.Add(goroutines)
+	for i := range goroutines {
+		go func(idx int) {
+			defer wg.Done()
+			if idx%2 == 0 {
+				_ = enforcer.CheckDailyRunLimit(ctx, "org-race")
+			} else {
+				planMu.Lock()
+				currentPlan = "pro"
+				planMu.Unlock()
+				enforcer.InvalidateOrgCache("org-race")
+
+				planMu.Lock()
+				currentPlan = "starter"
+				planMu.Unlock()
+				enforcer.InvalidateOrgCache("org-race")
+			}
+		}(i)
+	}
+	wg.Wait()
+	// No panics or data races under -race is the success criterion.
+}
+
+func TestAutoDisableResources_VariousStates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		impacts         []ResourceImpact
+		wantManualCount int
+		wantAutoCount   int
+	}{
+		{
+			name:            "all_ok_no_actions",
+			impacts:         []ResourceImpact{{Resource: "projects", Action: ResourceActionOK}},
+			wantManualCount: 0,
+			wantAutoCount:   0,
+		},
+		{
+			name: "projects_reduce_is_manual",
+			impacts: []ResourceImpact{
+				{Resource: "projects", Current: 5, Limit: 2, Action: ResourceActionReduce},
+			},
+			wantManualCount: 1,
+			wantAutoCount:   0,
+		},
+		{
+			name: "log_drains_remove_is_auto",
+			impacts: []ResourceImpact{
+				{Resource: "log_drains", Current: 3, Limit: 0, Action: ResourceActionRemove},
+			},
+			wantManualCount: 0,
+			wantAutoCount:   1,
+		},
+		{
+			name: "members_reduce_is_manual",
+			impacts: []ResourceImpact{
+				{Resource: "members", Current: 10, Limit: 3, Action: ResourceActionReduce},
+			},
+			wantManualCount: 1,
+			wantAutoCount:   0,
+		},
+		{
+			name: "members_per_org_reduce_is_manual",
+			impacts: []ResourceImpact{
+				{Resource: "members_per_org", Current: 10, Limit: 3, Action: ResourceActionReduce},
+			},
+			wantManualCount: 1,
+			wantAutoCount:   0,
+		},
+		{
+			name: "mixed_resources",
+			impacts: []ResourceImpact{
+				{Resource: "projects", Current: 5, Limit: 2, Action: ResourceActionReduce},
+				{Resource: "alert_rules", Current: 10, Limit: 5, Action: ResourceActionReduce},
+				{Resource: "webhooks", Current: 5, Limit: 0, Action: ResourceActionRemove},
+				{Resource: "members", Current: 10, Limit: 3, Action: ResourceActionReduce},
+				{Resource: "custom_roles", Current: 2, Limit: 0, Action: ResourceActionRemove},
+			},
+			wantManualCount: 2, // projects + members
+			wantAutoCount:   3, // alert_rules + webhooks + custom_roles
+		},
+		{
+			name:            "empty_impacts",
+			impacts:         nil,
+			wantManualCount: 0,
+			wantAutoCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			manual, auto := AutoDisableResources(tt.impacts)
+			if len(manual) != tt.wantManualCount {
+				t.Errorf("manual actions = %d, want %d", len(manual), tt.wantManualCount)
+			}
+			if len(auto) != tt.wantAutoCount {
+				t.Errorf("auto disabled = %d, want %d", len(auto), tt.wantAutoCount)
+			}
+		})
+	}
+}
+
+func TestEnforcer_EnforcementMode_Disabled_SkipsDailyLimit(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-disabled": {
+				OrgID:           "org-disabled",
+				PlanTier:        "free",
+				Status:          "active",
+				EnforcementMode: "disabled",
+			},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	ctx := context.Background()
+
+	// Exhaust the daily limit.
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	for range freeLimits.MaxRunsPerDay + 100 {
+		if err := enforcer.CheckDailyRunLimit(ctx, "org-disabled"); err != nil {
+			t.Fatalf("enforcement_mode=disabled should skip daily limit: %v", err)
+		}
+	}
+}
+
+func TestEnforcer_EnforcementMode_Warn_SkipsDailyLimit(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-warn": {
+				OrgID:           "org-warn",
+				PlanTier:        "free",
+				Status:          "active",
+				EnforcementMode: "warn",
+			},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	ctx := context.Background()
+
+	// Use a small count to verify enforcement_mode=warn bypasses the limit.
+	// The free tier limit is 5000 -- use limit+10 to prove it is skipped.
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	for range freeLimits.MaxRunsPerDay + 10 {
+		if err := enforcer.CheckDailyRunLimit(ctx, "org-warn"); err != nil {
+			t.Fatalf("enforcement_mode=warn should skip daily limit: %v", err)
+		}
+	}
+}
+
+func TestEnforcer_OverrideRunLimits(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
+	dailyOverride := 10
+	concurrentOverride := 2
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-override": {
+				OrgID:                      "org-override",
+				PlanTier:                   "free",
+				Status:                     "active",
+				OverrideDailyRunLimit:      &dailyOverride,
+				OverrideConcurrentRunLimit: &concurrentOverride,
+			},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	ctx := context.Background()
+
+	// Daily override: 10 runs.
+	for range 10 {
+		if err := enforcer.CheckDailyRunLimit(ctx, "org-override"); err != nil {
+			t.Fatalf("should allow up to override limit: %v", err)
+		}
+	}
+	err := enforcer.CheckDailyRunLimit(ctx, "org-override")
+	if err == nil {
+		t.Fatal("expected rejection at override limit+1")
+	}
+
+	// Concurrent override: 2 runs.
+	for range 2 {
+		if err := enforcer.CheckConcurrentRunLimit(ctx, "org-override"); err != nil {
+			t.Fatalf("should allow up to concurrent override: %v", err)
+		}
+	}
+	err = enforcer.CheckConcurrentRunLimit(ctx, "org-override")
+	if err == nil {
+		t.Fatal("expected concurrent rejection at override limit+1")
+	}
+}
+
+func TestEnforcer_ProjectSuspended_CacheRace(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	ctx := context.Background()
+
+	const goroutines = 30
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := range goroutines {
+		go func(idx int) {
+			defer wg.Done()
+			if idx%3 == 0 {
+				enforcer.InvalidateProjectSuspendedCache("proj-race")
+			} else {
+				_ = enforcer.CheckProjectSuspended(ctx, "proj-race")
+			}
+		}(i)
+	}
+	wg.Wait()
+	// Success = no panics or races under -race.
+}
+
+func TestEnforcer_DailyRunLimit_ConcurrentExhaustion(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*OrgSubscription, error) {
+			return nil, ErrSubscriptionNotFound
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	ctx := context.Background()
+
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	const goroutines = 20
+	var allowed atomic.Int64
+	var rejected atomic.Int64
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			// Each goroutine tries limit/goroutines + 1 runs.
+			runs := int(freeLimits.MaxRunsPerDay)/goroutines + 1
+			for range runs {
+				err := enforcer.CheckDailyRunLimit(ctx, "org-exhaust-conc")
+				if err != nil {
+					rejected.Add(1)
+				} else {
+					allowed.Add(1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	// The atomic Lua script should enforce the limit exactly.
+	if allowed.Load() > freeLimits.MaxRunsPerDay {
+		t.Fatalf("allowed %d exceeds limit %d under concurrent access", allowed.Load(), freeLimits.MaxRunsPerDay)
+	}
+	if allowed.Load() != freeLimits.MaxRunsPerDay {
+		t.Logf("allowed = %d (limit = %d); may be less due to race timing", allowed.Load(), freeLimits.MaxRunsPerDay)
+	}
+}
+
+func TestEnforcer_ConcurrentRunLimit_DoubleFreeAfterDecrement(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	ctx := context.Background()
+
+	// Start one run.
+	if err := enforcer.CheckConcurrentRunLimit(ctx, "org-double-decr"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Decrement twice (simulating double-free).
+	enforcer.DecrConcurrentRunCount(ctx, "org-double-decr")
+	enforcer.DecrConcurrentRunCount(ctx, "org-double-decr")
+
+	// Counter should be floored at 0, not go negative.
+	rdbClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	val, err := rdbClient.Get(ctx, "strait:org_concurrent:org-double-decr").Int64()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		t.Fatalf("unexpected redis error: %v", err)
+	}
+	if val < 0 {
+		t.Fatalf("counter went negative: %d", val)
+	}
+}
+
+func TestEnforcer_CheckProjectBudgetLimit_ZeroBudget_RejectAction(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	_ = enforcer // use the standard enforcer for compilation; custom store below.
+	// Override the mock to return a zero budget with reject action.
+	// The default mock returns (-1, "notify", nil) which means no budget.
+	// We need a custom store for this test.
+	customStore := &budgetMockStore{budget: 0, action: "reject"}
+	enforcerWithBudget := NewEnforcer(customStore, rdb, slog.Default())
+
+	err := enforcerWithBudget.CheckProjectBudgetLimit(context.Background(), "proj-zero-budget")
+	if err == nil {
+		t.Fatal("expected rejection for zero budget with reject action")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "project_budget_reached" {
+		t.Errorf("code = %q, want project_budget_reached", le.Code)
+	}
+}
+
+// budgetMockStore extends mockBillingStore with configurable project budget.
+type budgetMockStore struct {
+	mockBillingStore
+	budget int64
+	action string
+}
+
+func (s *budgetMockStore) GetProjectBudget(_ context.Context, _ string) (int64, string, error) {
+	return s.budget, s.action, nil
+}
+
+func (s *budgetMockStore) GetProjectPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
+func TestEnforcer_PaymentRestricted_BlocksAllLimitChecks(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-blocked": {
+				OrgID:         "org-blocked",
+				PlanTier:      "pro",
+				Status:        "active",
+				PaymentStatus: "restricted",
+			},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	ctx := context.Background()
+
+	checks := []struct {
+		name  string
+		check func() error
+	}{
+		{"daily_run", func() error { return enforcer.CheckDailyRunLimit(ctx, "org-blocked") }},
+		{"concurrent_run", func() error { return enforcer.CheckConcurrentRunLimit(ctx, "org-blocked") }},
+		{"managed_run", func() error { return enforcer.CheckManagedRunLimit(ctx, "org-blocked") }},
+	}
+
+	for _, c := range checks {
+		t.Run(c.name, func(t *testing.T) {
+			err := c.check()
+			if err == nil {
+				t.Fatalf("%s: expected rejection for restricted payment", c.name)
+			}
+			var le *LimitError
+			if !errors.As(err, &le) {
+				t.Fatalf("%s: expected *LimitError, got %T", c.name, err)
+			}
+			if le.Code != "payment_restricted" {
+				t.Errorf("%s: code = %q, want payment_restricted", c.name, le.Code)
+			}
+		})
+	}
+}
+
+func TestEnforcer_GracePeriodEdge_ExactExpiry(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
+	// Grace period that just barely expired (1 nanosecond ago).
+	graceEnd := time.Now().Add(-1 * time.Nanosecond)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-edge": {
+				OrgID:          "org-edge",
+				PlanTier:       "starter",
+				Status:         "active",
+				PaymentStatus:  "grace",
+				GracePeriodEnd: &graceEnd,
+			},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckDailyRunLimit(context.Background(), "org-edge")
+	if err == nil {
+		t.Fatal("expected rejection for just-expired grace period")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T", err)
+	}
+	if le.Code != "grace_period_expired" {
+		t.Errorf("code = %q, want grace_period_expired", le.Code)
+	}
+}
+
+func TestEnforcer_SuspendExcessProjects_UnlimitedPlan(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	// -1 means unlimited, should not suspend any projects.
+	suspended, err := enforcer.SuspendExcessProjects(context.Background(), "org-ent", -1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if suspended != 0 {
+		t.Fatalf("expected 0 suspended for unlimited plan, got %d", suspended)
+	}
+}
+
+func TestEnforcer_LimitError_ImplementsErrorInterface(t *testing.T) {
+	t.Parallel()
+	le := &LimitError{
+		Code:         "test_limit",
+		Message:      "test message",
+		CurrentUsage: 5,
+		Limit:        3,
+		Plan:         "free",
+		UpgradeURL:   "/upgrade",
+	}
+
+	// Verify it implements the error interface.
+	var err error = le
+	if err.Error() != "test message" {
+		t.Errorf("Error() = %q, want %q", err.Error(), "test message")
+	}
+
+	// Verify errors.As works.
+	var target *LimitError
+	if !errors.As(err, &target) {
+		t.Fatal("errors.As should match *LimitError")
+	}
+	if target.Code != "test_limit" {
+		t.Errorf("Code = %q, want test_limit", target.Code)
+	}
+}

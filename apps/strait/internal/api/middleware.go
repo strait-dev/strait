@@ -174,7 +174,16 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, ctxActorIDKey, claims.Subject)
 		ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
-		ctx = context.WithValue(ctx, ctxScopesKey, []string{}) // non-nil => enforce RBAC path in requirePermission
+		// Use scopes from the JWT if present; otherwise fall back to empty
+		// (non-nil) to signal the RBAC path in requirePermission. When scopes
+		// are set from the token, they restrict what the user can do beyond
+		// their database role — enforcing the principle of least privilege
+		// from the OAuth consent screen.
+		if tokenScopes := claims.Scopes(); tokenScopes != nil {
+			ctx = context.WithValue(ctx, ctxScopesKey, tokenScopes)
+		} else {
+			ctx = context.WithValue(ctx, ctxScopesKey, []string{})
+		}
 		if projectID := strings.TrimSpace(r.Header.Get("X-Project-Id")); projectID != "" {
 			if s.store == nil {
 				respondError(w, r, http.StatusServiceUnavailable, "service unavailable")
@@ -363,11 +372,26 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 				return
 
 			case "user":
-				// Users: check role permissions from DB (with cache).
+				// Users always need a project context for permission checks.
 				projectID := projectIDFromContext(ctx)
 				actorID := actorFromContext(ctx)
 				if projectID == "" || actorID == "" {
 					respondError(w, r, http.StatusForbidden, "missing project or actor context")
+					return
+				}
+
+				// OIDC tokens with explicit scopes: enforce the token's
+				// granted scopes directly. This ensures the principle of
+				// least privilege from the OAuth consent screen — the token
+				// scopes restrict what the user can do, even if their
+				// database role would allow more.
+				if len(scopes) > 0 {
+					if !domain.HasScope(scopes, permission) {
+						respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
+						return
+					}
+					// Token has the required scope — proceed.
+					next.ServeHTTP(w, r)
 					return
 				}
 

@@ -452,11 +452,14 @@ func TestWorker_DeliversSuccessfully(t *testing.T) {
 		}
 	}
 
-	// Wait for store update.
-	time.Sleep(100 * time.Millisecond)
-
-	if ms.getNotifyStatus() != "sent" {
-		t.Fatalf("expected notify_status=sent, got %s", ms.getNotifyStatus())
+	// Poll for store update instead of sleeping.
+	deadline2 := time.After(5 * time.Second)
+	for ms.getNotifyStatus() != "sent" {
+		select {
+		case <-deadline2:
+			t.Fatalf("timed out waiting for notify_status=sent, got %s", ms.getNotifyStatus())
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 
 	mu.Lock()
@@ -513,7 +516,15 @@ func TestWorker_ServerError_RetriesWithBackoff(t *testing.T) {
 		}
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Run a few more poll cycles to confirm no second attempt fires.
+	// The next retry is 5s in the future, so the worker should be idle.
+	stableAt := time.Now()
+	for time.Since(stableAt) < 300*time.Millisecond {
+		if attempts.Load() > 1 {
+			t.Fatalf("unexpected extra attempt; expected exactly 1")
+		}
+		time.Sleep(10 * time.Millisecond) // tight poll to detect spurious retry
+	}
 	cancel()
 
 	// Should only have had 1 attempt — next retry is 5s in the future.
@@ -564,13 +575,16 @@ func TestWorker_ClientError_DeadLetters(t *testing.T) {
 		_ = notifier.RunWorker(ctx, 100*time.Millisecond)
 	}()
 
-	// Wait for processing.
-	time.Sleep(500 * time.Millisecond)
-	cancel()
-
-	if ms.getNotifyStatus() != "failed" {
-		t.Fatalf("expected notify_status=failed, got %s", ms.getNotifyStatus())
+	// Poll for processing instead of sleeping.
+	deadline := time.After(5 * time.Second)
+	for ms.getNotifyStatus() != "failed" {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for notify_status=failed, got %s", ms.getNotifyStatus())
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
+	cancel()
 
 	for _, d := range ms.getDeliveries() {
 		if d.EventTriggerID == "evt-5" && d.Status != domain.WebhookStatusDead {
@@ -1041,12 +1055,14 @@ func TestDeliveryWorker_ConcurrencyZeroKeepsDefault(t *testing.T) {
 func TestDeliveryWorker_TieredTimeout_InitialAttempt(t *testing.T) {
 	t.Parallel()
 
-	// Server that takes 7 seconds to respond (longer than 5s initial timeout).
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(7 * time.Second)
-		w.WriteHeader(http.StatusOK)
+	// Server that never responds, forcing the client-side timeout to fire.
+	// The done channel unblocks the handler so srv.Close does not deadlock.
+	done := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-done
 	}))
 	defer srv.Close()
+	defer close(done)
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default())
@@ -1075,12 +1091,19 @@ func TestDeliveryWorker_TieredTimeout_InitialAttempt(t *testing.T) {
 func TestDeliveryWorker_TieredTimeout_RetryAttempt(t *testing.T) {
 	t.Parallel()
 
-	// Server that takes 7 seconds to respond (passes 5s but within 15s retry timeout).
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(7 * time.Second)
-		w.WriteHeader(http.StatusOK)
+	// Server responds after 5.5s (exceeds initial 5s timeout but within 15s
+	// retry timeout). The done channel prevents deadlock on srv.Close.
+	const serverDelay = 5500 * time.Millisecond
+	done := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(serverDelay):
+			w.WriteHeader(http.StatusOK)
+		case <-done:
+		}
 	}))
 	defer srv.Close()
+	defer close(done)
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default())
@@ -1097,8 +1120,8 @@ func TestDeliveryWorker_TieredTimeout_RetryAttempt(t *testing.T) {
 	worker.attemptDelivery(context.Background(), d)
 	elapsed := time.Since(start)
 
-	// Should succeed because retry timeout is 15s and server responds in 7s.
-	if elapsed < 6*time.Second {
+	// Should succeed because retry timeout is 15s and server responds in ~5.5s.
+	if elapsed < 5*time.Second {
 		t.Errorf("retry attempt returned too fast: %v", elapsed)
 	}
 	if d.Status != domain.WebhookStatusDelivered {
@@ -3166,4 +3189,376 @@ func TestAttemptBatchDelivery_ConnectionError_RetriesAll(t *testing.T) {
 			t.Fatalf("expected HTTP error in last_error for %s, got %q", d.ID, d.LastError)
 		}
 	}
+}
+
+// Functional option coverage.
+
+func TestWithRetryPolicy_Exponential(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy(domain.WebhookRetryPolicyExponential))
+	if worker.defaultRetryPolicy != domain.WebhookRetryPolicyExponential {
+		t.Fatalf("defaultRetryPolicy = %q, want %q", worker.defaultRetryPolicy, domain.WebhookRetryPolicyExponential)
+	}
+}
+
+func TestWithRetryPolicy_Linear(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy(domain.WebhookRetryPolicyLinear))
+	if worker.defaultRetryPolicy != domain.WebhookRetryPolicyLinear {
+		t.Fatalf("defaultRetryPolicy = %q, want %q", worker.defaultRetryPolicy, domain.WebhookRetryPolicyLinear)
+	}
+}
+
+func TestWithRetryPolicy_Fixed(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy(domain.WebhookRetryPolicyFixed))
+	if worker.defaultRetryPolicy != domain.WebhookRetryPolicyFixed {
+		t.Fatalf("defaultRetryPolicy = %q, want %q", worker.defaultRetryPolicy, domain.WebhookRetryPolicyFixed)
+	}
+}
+
+func TestWithRetryPolicy_InvalidKeepsDefault(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy("bogus"))
+	if worker.defaultRetryPolicy != domain.WebhookRetryPolicyExponential {
+		t.Fatalf("defaultRetryPolicy = %q, want default %q", worker.defaultRetryPolicy, domain.WebhookRetryPolicyExponential)
+	}
+}
+
+func TestWithRetryPolicy_EmptyKeepsDefault(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy(""))
+	if worker.defaultRetryPolicy != domain.WebhookRetryPolicyExponential {
+		t.Fatalf("defaultRetryPolicy = %q, want default %q", worker.defaultRetryPolicy, domain.WebhookRetryPolicyExponential)
+	}
+}
+
+func TestWithMetrics_SetsMetricsField(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	// Pass nil metrics -- just verify the option sets the field without panic.
+	worker := NewDeliveryWorker(ms, slog.Default(), WithMetrics(nil))
+	if worker.metrics != nil {
+		t.Fatalf("expected nil metrics when passed nil")
+	}
+}
+
+func TestWithCircuitBreaker_SetsField(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	cb := NewRedisWebhookCircuitBreaker(nil, false)
+	worker := NewDeliveryWorker(ms, slog.Default(), WithCircuitBreaker(cb))
+	if worker.circuitBreaker != cb {
+		t.Fatal("WithCircuitBreaker did not set the circuit breaker")
+	}
+}
+
+func TestWithMaxPayloadBytes_Positive(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(2048))
+	if worker.maxPayloadBytes != 2048 {
+		t.Fatalf("maxPayloadBytes = %d, want 2048", worker.maxPayloadBytes)
+	}
+}
+
+func TestWithMaxPayloadBytes_ZeroKeepsDefault(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(0))
+	if worker.maxPayloadBytes != defaultWebhookMaxPayloadBytes {
+		t.Fatalf("maxPayloadBytes = %d, want default %d", worker.maxPayloadBytes, defaultWebhookMaxPayloadBytes)
+	}
+}
+
+func TestWithBatchByURL_SetsField(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
+	if !worker.batchByURL {
+		t.Fatal("WithBatchByURL(true) did not set batchByURL")
+	}
+}
+
+// EnqueueRunWebhook edge cases.
+
+func TestEnqueueRunWebhook_NilJob(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	err := worker.EnqueueRunWebhook(context.Background(), nil, &domain.JobRun{})
+	if err == nil {
+		t.Fatal("expected error for nil job")
+	}
+	if !strings.Contains(err.Error(), "job and run are required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEnqueueRunWebhook_NilRun(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	err := worker.EnqueueRunWebhook(context.Background(), &domain.Job{WebhookURL: "http://example.com"}, nil)
+	if err == nil {
+		t.Fatal("expected error for nil run")
+	}
+	if !strings.Contains(err.Error(), "job and run are required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEnqueueRunWebhook_EmptyWebhookURL(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	job := &domain.Job{ID: "job-empty-url", WebhookURL: ""}
+	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
+
+	err := worker.EnqueueRunWebhook(context.Background(), job, run)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ms.getDeliveries()) != 0 {
+		t.Fatal("expected no deliveries for empty webhook URL")
+	}
+}
+
+func TestEnqueueRunWebhook_NonTerminalStatus(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	job := &domain.Job{ID: "job-nonterminal", WebhookURL: "http://example.com/hook"}
+	run := &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}
+
+	err := worker.EnqueueRunWebhook(context.Background(), job, run)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ms.getDeliveries()) != 0 {
+		t.Fatal("expected no deliveries for non-terminal run status")
+	}
+}
+
+func TestEnqueueRunWebhook_FailedStatus(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	job := &domain.Job{ID: "job-failed", WebhookURL: "http://example.com/hook"}
+	run := &domain.JobRun{
+		ID:        "run-failed",
+		JobID:     "job-failed",
+		ProjectID: "proj-1",
+		Status:    domain.StatusFailed,
+		Error:     "something went wrong",
+	}
+
+	err := worker.EnqueueRunWebhook(context.Background(), job, run)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	deliveries := ms.getDeliveries()
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(deliveries[0].LastError), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload["status"] != "failed" {
+		t.Fatalf("expected status=failed in payload, got %v", payload["status"])
+	}
+}
+
+func TestEnqueueRunWebhook_UsesDefaultRetryPolicy(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy(domain.WebhookRetryPolicyFixed))
+
+	job := &domain.Job{ID: "job-policy", WebhookURL: "http://example.com/hook"}
+	run := &domain.JobRun{
+		ID:        "run-policy",
+		JobID:     "job-policy",
+		ProjectID: "proj-1",
+		Status:    domain.StatusCompleted,
+	}
+
+	if err := worker.EnqueueRunWebhook(context.Background(), job, run); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	deliveries := ms.getDeliveries()
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].RetryPolicy != domain.WebhookRetryPolicyFixed {
+		t.Fatalf("expected retry_policy=%s, got %s", domain.WebhookRetryPolicyFixed, deliveries[0].RetryPolicy)
+	}
+}
+
+// NotifyAsyncWithContext error paths.
+
+func TestNotifyAsyncWithContext_EmptyNotifyURL(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	notifier := NewEventNotifier(ms, slog.Default())
+
+	notifier.NotifyAsyncWithContext(context.Background(), &domain.EventTrigger{
+		ID:       "evt-empty",
+		EventKey: "test",
+	})
+
+	if len(ms.getDeliveries()) != 0 {
+		t.Fatal("expected no deliveries for empty NotifyURL")
+	}
+}
+
+func TestNotifyAsyncWithContext_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &errorDeliveryStore{createErr: fmt.Errorf("database down")}
+	notifier := NewEventNotifier(ms, slog.Default())
+
+	// Should not panic, just log the error.
+	notifier.NotifyAsyncWithContext(context.Background(), &domain.EventTrigger{
+		ID:        "evt-err",
+		EventKey:  "test",
+		ProjectID: "proj-1",
+		NotifyURL: "http://example.com/hook",
+	})
+
+	// Delivery should not have been stored.
+	if len(ms.getDeliveries()) != 0 {
+		t.Fatal("expected no deliveries when store returns error")
+	}
+}
+
+func TestNotifyAsyncWithContext_SetsRetryPolicy(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	notifier := NewEventNotifier(ms, slog.Default(), WithRetryPolicy(domain.WebhookRetryPolicyLinear))
+
+	notifier.NotifyAsyncWithContext(context.Background(), &domain.EventTrigger{
+		ID:        "evt-policy",
+		EventKey:  "test",
+		ProjectID: "proj-1",
+		NotifyURL: "http://example.com/hook",
+	})
+
+	deliveries := ms.getDeliveries()
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].RetryPolicy != domain.WebhookRetryPolicyLinear {
+		t.Fatalf("expected retry_policy=%s, got %s", domain.WebhookRetryPolicyLinear, deliveries[0].RetryPolicy)
+	}
+}
+
+func TestNotifyAsyncWithContext_PayloadContainsCallbackURL(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	notifier := NewEventNotifier(ms, slog.Default())
+
+	notifier.NotifyAsyncWithContext(context.Background(), &domain.EventTrigger{
+		ID:        "evt-callback",
+		EventKey:  "my-event",
+		ProjectID: "proj-1",
+		NotifyURL: "http://example.com/hook",
+	})
+
+	deliveries := ms.getDeliveries()
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(deliveries[0].LastError), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	expected := "/v1/events/my-event/send"
+	if payload["callback_url"] != expected {
+		t.Fatalf("expected callback_url=%s, got %v", expected, payload["callback_url"])
+	}
+}
+
+func TestNewDeliveryWorker_NilLogger(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, nil)
+	if worker == nil {
+		t.Fatal("NewDeliveryWorker returned nil with nil logger")
+	}
+}
+
+func TestNewEventNotifier_IsAlias(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	notifier := NewEventNotifier(ms, slog.Default())
+	if notifier == nil {
+		t.Fatal("NewEventNotifier returned nil")
+	}
+}
+
+// errorDeliveryStore returns errors from CreateWebhookDelivery for testing error paths.
+type errorDeliveryStore struct {
+	mu         sync.Mutex
+	deliveries []*domain.WebhookDelivery
+	createErr  error
+}
+
+func (m *errorDeliveryStore) CreateWebhookDelivery(_ context.Context, _ *domain.WebhookDelivery) error {
+	return m.createErr
+}
+
+func (m *errorDeliveryStore) UpdateWebhookDelivery(_ context.Context, _ *domain.WebhookDelivery) error {
+	return nil
+}
+
+func (m *errorDeliveryStore) ListPendingWebhookRetries(_ context.Context) ([]domain.WebhookDelivery, error) {
+	return nil, nil
+}
+
+func (m *errorDeliveryStore) UpdateEventTriggerNotifyStatus(_ context.Context, _ string, _ string) error {
+	return nil
+}
+
+func (m *errorDeliveryStore) getDeliveries() []*domain.WebhookDelivery {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := make([]*domain.WebhookDelivery, len(m.deliveries))
+	copy(cp, m.deliveries)
+	return cp
 }

@@ -258,7 +258,7 @@ func TestOnComplete_TriggerDisabledJob(t *testing.T) {
 		workflows: map[string]*domain.Workflow{},
 	}
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 	job := &domain.Job{
@@ -284,7 +284,7 @@ func TestOnComplete_TriggerDeletedJob(t *testing.T) {
 
 	lookup := &mockWorkflowLookup{workflows: map[string]*domain.Workflow{}}
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	// Nil run.
 	oct.MaybeTrigger(context.Background(), nil, &domain.Job{
@@ -317,7 +317,7 @@ func TestOnComplete_ConcurrentCompletionTrigger(t *testing.T) {
 		},
 	}
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	job := &domain.Job{
 		ID:                        "job-1",

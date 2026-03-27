@@ -133,4 +133,8 @@ export const queryKeys = createQueryKeyStore({
   apiKeys: {
     list: (search?: ListParams) => [{ search }],
   },
+
+  oauthConsents: {
+    list: null,
+  },
 });

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"strait/internal/config"
+	"strait/internal/domain"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -14,7 +15,37 @@ import (
 type oidcClaims struct {
 	Email string `json:"email,omitempty"`
 	Name  string `json:"name,omitempty"`
+	Scope string `json:"scope,omitempty"`
 	jwt.RegisteredClaims
+}
+
+// Scopes returns the parsed scope claim as a string slice, filtered to only
+// recognized Strait API scopes. Unrecognized scopes (typos, OIDC-only scopes
+// like "openid", or injected values) are silently dropped. Returns nil if no
+// recognized scopes are present (meaning no scope restriction).
+func (c *oidcClaims) Scopes() []string {
+	if c.Scope == "" {
+		return nil
+	}
+	raw := strings.Split(c.Scope, " ")
+	var valid []string
+	for _, s := range raw {
+		// Accept recognized Strait API scopes but exclude privileged
+		// scopes that must not be obtainable via OAuth tokens:
+		// - wildcard (*): grants unrestricted access (internal API keys only)
+		// - api-keys:manage: allows creating/revoking API keys
+		// - rbac:manage: allows changing role assignments
+		if s == domain.ScopeAll || s == domain.ScopeAPIKeysManage || s == domain.ScopeRBACManage {
+			continue
+		}
+		if domain.ValidScopes[s] {
+			valid = append(valid, s)
+		}
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+	return valid
 }
 
 type oidcVerifier struct {

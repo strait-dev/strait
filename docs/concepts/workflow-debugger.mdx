@@ -1,0 +1,51 @@
+---
+title: "Visual Workflow Debugger"
+description: "Inspect workflow execution history with step-level detail, data flow tracking, and cross-run comparison."
+---
+
+The visual workflow debugger provides a complete execution history for any workflow run: data flow between steps, inputs/outputs, timing, cost, and the ability to compare runs.
+
+## Debug View
+
+The debug view assembles a timeline of all steps with:
+
+- **Status**: completed, failed, pending, waiting, running, skipped, canceled
+- **Timing**: started_at, finished_at, duration in milliseconds
+- **Cost**: per-step cost attribution in microUSD and total workflow cost
+- **Input/Output**: full JSON payloads for each step (collapsible for large payloads)
+- **Error details**: error message for failed steps
+- **Attempt count**: which retry attempt this represents
+- **Data flow edges**: arrows showing what data passed between dependent steps with byte sizes
+
+The debug view works for both completed and in-progress workflows. For running workflows, pending and waiting steps are included with their current status.
+
+## Run Comparison
+
+Compare any two runs of the same workflow to identify differences:
+
+- **Status diff**: highlights when runs reached different terminal states
+- **Duration diff**: shows timing differences per step (useful for detecting performance regressions)
+- **Missing steps**: identifies steps present in only one run (common with dynamic DAGs or conditional branches)
+
+Steps with identical status and timing are omitted from the diff to focus on what changed.
+
+## Data Flow Tracking
+
+Data flow edges track which step's output feeds into which dependent step's input:
+
+```json
+{
+  "data_flow": [
+    {"from_step_ref": "validate", "to_step_ref": "charge", "data_size_bytes": 256},
+    {"from_step_ref": "charge", "to_step_ref": "notify", "data_size_bytes": 128}
+  ]
+}
+```
+
+The data size is calculated from the parent step's output JSON length.
+
+## Implementation
+
+- Engine: `apps/strait/internal/workflow/debugger.go`
+- Types: `DebugView`, `DebugStep`, `DataFlowEdge`, `RunComparison`, `StepComparison`
+- Tests: `apps/strait/internal/workflow/debugger_test.go` (19 tests including adversarial)

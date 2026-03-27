@@ -127,7 +127,7 @@ func TestHeartbeatManager_Run_Batching(t *testing.T) {
 			if tt.waitForCalls > 0 {
 				waitForHeartbeatCalls(t, store, tt.waitForCalls, 300*time.Millisecond)
 			} else {
-				time.Sleep(30 * time.Millisecond)
+				waitForNoHeartbeatCalls(t, store, 50*time.Millisecond)
 			}
 
 			cancel()
@@ -210,13 +210,35 @@ func TestHeartbeatManager_ConcurrentRegisterDeregister(t *testing.T) {
 func waitForHeartbeatCalls(t *testing.T, store *mockHeartbeatStore, want int, timeout time.Duration) {
 	t.Helper()
 
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if len(store.calls()) >= want {
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case <-ticker.C:
+			if len(store.calls()) >= want {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d heartbeat calls", want)
+		}
+	}
+}
+
+func waitForNoHeartbeatCalls(t *testing.T, store *mockHeartbeatStore, wait time.Duration) {
+	t.Helper()
+
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(wait)
+	for {
+		select {
+		case <-ticker.C:
+			if len(store.calls()) > 0 {
+				t.Fatal("expected no heartbeat calls, but got some")
+			}
+		case <-deadline:
 			return
 		}
-		time.Sleep(5 * time.Millisecond)
 	}
-
-	t.Fatalf("timed out waiting for %d heartbeat calls", want)
 }

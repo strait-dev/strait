@@ -21,84 +21,96 @@ import (
 )
 
 type CreateJobRequest struct {
-	ProjectID            string            `json:"project_id" validate:"required"`
-	GroupID              string            `json:"group_id,omitempty"`
-	Name                 string            `json:"name" validate:"required"`
-	Slug                 string            `json:"slug" validate:"required"`
-	Description          string            `json:"description,omitempty"`
-	Cron                 string            `json:"cron,omitempty"`
-	PayloadSchema        json.RawMessage   `json:"payload_schema,omitempty"`
-	Tags                 map[string]string `json:"tags,omitempty"`
-	EndpointURL          string            `json:"endpoint_url" validate:"omitempty,url"`
-	FallbackEndpointURL  string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts          int               `json:"max_attempts" validate:"omitempty,min=1"`
-	TimeoutSecs          int               `json:"timeout_secs" validate:"omitempty,min=1"`
-	MaxConcurrency       int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
-	MaxConcurrencyPerKey int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
-	ExecutionWindowCron  string            `json:"execution_window_cron,omitempty"`
-	Timezone             string            `json:"timezone,omitempty"`
-	RateLimitMax         int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
-	RateLimitWindowSecs  int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
-	DedupWindowSecs      int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
-	RunTTLSecs           int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
-	RetryStrategy        string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
-	RetryDelaysSecs      []int             `json:"retry_delays_secs,omitempty"`
-	RetryPriorityBoost   int               `json:"retry_priority_boost,omitempty" validate:"omitempty,min=0,max=10"`
-	EnvironmentID        string            `json:"environment_id,omitempty"`
-	VersionPolicy        string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
-	DefaultRunMetadata   map[string]string `json:"default_run_metadata,omitempty"`
-	ResultSchema         json.RawMessage   `json:"result_schema,omitempty"`
-	CronOverlapPolicy    string            `json:"cron_overlap_policy,omitempty" validate:"omitempty,oneof=allow skip cancel_running"`
-	DebounceWindowSecs   int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
-	BatchWindowSecs      int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
-	BatchMaxSize         int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
-	ExecutionMode        string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http managed"`
-	MachinePreset        string            `json:"machine_preset,omitempty"`
-	ImageURI             string            `json:"image_uri,omitempty"`
-	Region               string            `json:"region,omitempty"`
-	PreferredRegions     []string          `json:"preferred_regions,omitempty"`
-	PoisonPillThreshold  *int              `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
+	ProjectID                 string            `json:"project_id" validate:"required"`
+	GroupID                   string            `json:"group_id,omitempty"`
+	Name                      string            `json:"name" validate:"required"`
+	Slug                      string            `json:"slug" validate:"required"`
+	Description               string            `json:"description,omitempty"`
+	Cron                      string            `json:"cron,omitempty"`
+	PayloadSchema             json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                      map[string]string `json:"tags,omitempty"`
+	EndpointURL               string            `json:"endpoint_url" validate:"omitempty,url"`
+	FallbackEndpointURL       string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+	MaxAttempts               int               `json:"max_attempts" validate:"omitempty,min=1"`
+	TimeoutSecs               int               `json:"timeout_secs" validate:"omitempty,min=1"`
+	MaxConcurrency            int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
+	MaxConcurrencyPerKey      int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
+	ExecutionWindowCron       string            `json:"execution_window_cron,omitempty"`
+	Timezone                  string            `json:"timezone,omitempty"`
+	RateLimitMax              int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
+	RateLimitWindowSecs       int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
+	DedupWindowSecs           int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
+	RunTTLSecs                int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
+	RetryStrategy             string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
+	RetryDelaysSecs           []int             `json:"retry_delays_secs,omitempty"`
+	RetryPriorityBoost        int               `json:"retry_priority_boost,omitempty" validate:"omitempty,min=0,max=10"`
+	EnvironmentID             string            `json:"environment_id,omitempty"`
+	VersionPolicy             string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	DefaultRunMetadata        map[string]string `json:"default_run_metadata,omitempty"`
+	ResultSchema              json.RawMessage   `json:"result_schema,omitempty"`
+	CronOverlapPolicy         string            `json:"cron_overlap_policy,omitempty" validate:"omitempty,oneof=allow skip cancel_running"`
+	DebounceWindowSecs        int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
+	BatchWindowSecs           int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
+	BatchMaxSize              int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
+	ExecutionMode             string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http managed"`
+	MachinePreset             string            `json:"machine_preset,omitempty"`
+	ImageURI                  string            `json:"image_uri,omitempty"`
+	Region                    string            `json:"region,omitempty"`
+	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
+	PoisonPillThreshold       *int              `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
+	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
+	OnCompleteTriggerJob      string            `json:"on_complete_trigger_job,omitempty"`
+	OnCompletePayloadMapping  json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
+	OnFailureTriggerJob       string            `json:"on_failure_trigger_job,omitempty"`
+	OnFailureTriggerWorkflow  string            `json:"on_failure_trigger_workflow,omitempty"`
+	OnFailurePayloadMapping   json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
 }
 
 type UpdateJobRequest struct {
-	Name                 *string            `json:"name,omitempty"`
-	Slug                 *string            `json:"slug,omitempty"`
-	GroupID              *string            `json:"group_id,omitempty"`
-	Description          *string            `json:"description,omitempty"`
-	Cron                 *string            `json:"cron,omitempty"`
-	PayloadSchema        *json.RawMessage   `json:"payload_schema,omitempty"`
-	Tags                 *map[string]string `json:"tags,omitempty"`
-	EndpointURL          *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
-	FallbackEndpointURL  *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts          *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1"`
-	TimeoutSecs          *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
-	MaxConcurrency       *int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
-	MaxConcurrencyPerKey *int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
-	ExecutionWindowCron  *string            `json:"execution_window_cron,omitempty"`
-	Timezone             *string            `json:"timezone,omitempty"`
-	RateLimitMax         *int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
-	RateLimitWindowSecs  *int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
-	DedupWindowSecs      *int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
-	RunTTLSecs           *int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
-	RetryStrategy        *string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
-	RetryDelaysSecs      *[]int             `json:"retry_delays_secs,omitempty"`
-	RetryPriorityBoost   *int               `json:"retry_priority_boost,omitempty" validate:"omitempty,min=0,max=10"`
-	EnvironmentID        *string            `json:"environment_id,omitempty"`
-	Enabled              *bool              `json:"enabled,omitempty"`
-	VersionPolicy        *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
-	BackwardsCompatible  *bool              `json:"backwards_compatible,omitempty"`
-	DefaultRunMetadata   *map[string]string `json:"default_run_metadata,omitempty"`
-	ResultSchema         *json.RawMessage   `json:"result_schema,omitempty"`
-	CronOverlapPolicy    *string            `json:"cron_overlap_policy,omitempty" validate:"omitempty,oneof=allow skip cancel_running"`
-	DebounceWindowSecs   *int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
-	BatchWindowSecs      *int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
-	BatchMaxSize         *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
-	ExecutionMode        *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http managed"`
-	MachinePreset        *string            `json:"machine_preset,omitempty"`
-	ImageURI             *string            `json:"image_uri,omitempty"`
-	Region               *string            `json:"region,omitempty"`
-	PreferredRegions     *[]string          `json:"preferred_regions,omitempty"`
-	PoisonPillThreshold  *int               `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
+	Name                      *string            `json:"name,omitempty"`
+	Slug                      *string            `json:"slug,omitempty"`
+	GroupID                   *string            `json:"group_id,omitempty"`
+	Description               *string            `json:"description,omitempty"`
+	Cron                      *string            `json:"cron,omitempty"`
+	PayloadSchema             *json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                      *map[string]string `json:"tags,omitempty"`
+	EndpointURL               *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
+	FallbackEndpointURL       *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+	MaxAttempts               *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1"`
+	TimeoutSecs               *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
+	MaxConcurrency            *int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
+	MaxConcurrencyPerKey      *int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
+	ExecutionWindowCron       *string            `json:"execution_window_cron,omitempty"`
+	Timezone                  *string            `json:"timezone,omitempty"`
+	RateLimitMax              *int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
+	RateLimitWindowSecs       *int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
+	DedupWindowSecs           *int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
+	RunTTLSecs                *int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
+	RetryStrategy             *string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
+	RetryDelaysSecs           *[]int             `json:"retry_delays_secs,omitempty"`
+	RetryPriorityBoost        *int               `json:"retry_priority_boost,omitempty" validate:"omitempty,min=0,max=10"`
+	EnvironmentID             *string            `json:"environment_id,omitempty"`
+	Enabled                   *bool              `json:"enabled,omitempty"`
+	VersionPolicy             *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	BackwardsCompatible       *bool              `json:"backwards_compatible,omitempty"`
+	DefaultRunMetadata        *map[string]string `json:"default_run_metadata,omitempty"`
+	ResultSchema              *json.RawMessage   `json:"result_schema,omitempty"`
+	CronOverlapPolicy         *string            `json:"cron_overlap_policy,omitempty" validate:"omitempty,oneof=allow skip cancel_running"`
+	DebounceWindowSecs        *int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
+	BatchWindowSecs           *int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
+	BatchMaxSize              *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
+	ExecutionMode             *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http managed"`
+	MachinePreset             *string            `json:"machine_preset,omitempty"`
+	ImageURI                  *string            `json:"image_uri,omitempty"`
+	Region                    *string            `json:"region,omitempty"`
+	PreferredRegions          *[]string          `json:"preferred_regions,omitempty"`
+	PoisonPillThreshold       *int               `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
+	OnCompleteTriggerWorkflow *string            `json:"on_complete_trigger_workflow,omitempty"`
+	OnCompleteTriggerJob      *string            `json:"on_complete_trigger_job,omitempty"`
+	OnCompletePayloadMapping  *json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
+	OnFailureTriggerJob       *string            `json:"on_failure_trigger_job,omitempty"`
+	OnFailureTriggerWorkflow  *string            `json:"on_failure_trigger_workflow,omitempty"`
+	OnFailurePayloadMapping   *json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
 }
 
 // CreateJobInput is the typed input for creating a job.
@@ -229,46 +241,52 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	}
 
 	job := &domain.Job{
-		ProjectID:            req.ProjectID,
-		GroupID:              req.GroupID,
-		Name:                 req.Name,
-		Slug:                 req.Slug,
-		Description:          req.Description,
-		Cron:                 req.Cron,
-		PayloadSchema:        req.PayloadSchema,
-		Tags:                 req.Tags,
-		EndpointURL:          req.EndpointURL,
-		FallbackEndpointURL:  req.FallbackEndpointURL,
-		MaxAttempts:          req.MaxAttempts,
-		TimeoutSecs:          req.TimeoutSecs,
-		MaxConcurrency:       req.MaxConcurrency,
-		MaxConcurrencyPerKey: req.MaxConcurrencyPerKey,
-		ExecutionWindowCron:  req.ExecutionWindowCron,
-		Timezone:             req.Timezone,
-		RateLimitMax:         req.RateLimitMax,
-		RateLimitWindowSecs:  req.RateLimitWindowSecs,
-		DedupWindowSecs:      req.DedupWindowSecs,
-		RunTTLSecs:           req.RunTTLSecs,
-		RetryStrategy:        req.RetryStrategy,
-		RetryDelaysSecs:      req.RetryDelaysSecs,
-		RetryPriorityBoost:   req.RetryPriorityBoost,
-		EnvironmentID:        req.EnvironmentID,
-		DefaultRunMetadata:   req.DefaultRunMetadata,
-		ResultSchema:         req.ResultSchema,
-		CronOverlapPolicy:    domain.CronOverlapPolicy(req.CronOverlapPolicy),
-		DebounceWindowSecs:   req.DebounceWindowSecs,
-		BatchWindowSecs:      req.BatchWindowSecs,
-		BatchMaxSize:         req.BatchMaxSize,
-		ExecutionMode:        execMode,
-		MachinePreset:        domain.MachinePreset(req.MachinePreset),
-		ImageURI:             req.ImageURI,
-		Region:               req.Region,
-		PreferredRegions:     req.PreferredRegions,
-		PoisonPillThreshold:  req.PoisonPillThreshold,
-		Enabled:              true,
-		VersionPolicy:        domain.VersionPolicyPin,
-		CreatedBy:            actorFromContext(ctx),
-		UpdatedBy:            actorFromContext(ctx),
+		ProjectID:                 req.ProjectID,
+		GroupID:                   req.GroupID,
+		Name:                      req.Name,
+		Slug:                      req.Slug,
+		Description:               req.Description,
+		Cron:                      req.Cron,
+		PayloadSchema:             req.PayloadSchema,
+		Tags:                      req.Tags,
+		EndpointURL:               req.EndpointURL,
+		FallbackEndpointURL:       req.FallbackEndpointURL,
+		MaxAttempts:               req.MaxAttempts,
+		TimeoutSecs:               req.TimeoutSecs,
+		MaxConcurrency:            req.MaxConcurrency,
+		MaxConcurrencyPerKey:      req.MaxConcurrencyPerKey,
+		ExecutionWindowCron:       req.ExecutionWindowCron,
+		Timezone:                  req.Timezone,
+		RateLimitMax:              req.RateLimitMax,
+		RateLimitWindowSecs:       req.RateLimitWindowSecs,
+		DedupWindowSecs:           req.DedupWindowSecs,
+		RunTTLSecs:                req.RunTTLSecs,
+		RetryStrategy:             req.RetryStrategy,
+		RetryDelaysSecs:           req.RetryDelaysSecs,
+		RetryPriorityBoost:        req.RetryPriorityBoost,
+		EnvironmentID:             req.EnvironmentID,
+		DefaultRunMetadata:        req.DefaultRunMetadata,
+		ResultSchema:              req.ResultSchema,
+		CronOverlapPolicy:         domain.CronOverlapPolicy(req.CronOverlapPolicy),
+		DebounceWindowSecs:        req.DebounceWindowSecs,
+		BatchWindowSecs:           req.BatchWindowSecs,
+		BatchMaxSize:              req.BatchMaxSize,
+		ExecutionMode:             execMode,
+		MachinePreset:             domain.MachinePreset(req.MachinePreset),
+		ImageURI:                  req.ImageURI,
+		Region:                    req.Region,
+		PreferredRegions:          req.PreferredRegions,
+		PoisonPillThreshold:       req.PoisonPillThreshold,
+		OnCompleteTriggerWorkflow: req.OnCompleteTriggerWorkflow,
+		OnCompleteTriggerJob:      req.OnCompleteTriggerJob,
+		OnCompletePayloadMapping:  req.OnCompletePayloadMapping,
+		OnFailureTriggerJob:       req.OnFailureTriggerJob,
+		OnFailureTriggerWorkflow:  req.OnFailureTriggerWorkflow,
+		OnFailurePayloadMapping:   req.OnFailurePayloadMapping,
+		Enabled:                   true,
+		VersionPolicy:             domain.VersionPolicyPin,
+		CreatedBy:                 actorFromContext(ctx),
+		UpdatedBy:                 actorFromContext(ctx),
 	}
 
 	if req.VersionPolicy != "" {
@@ -563,6 +581,24 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.PoisonPillThreshold != nil {
 		job.PoisonPillThreshold = req.PoisonPillThreshold
+	}
+	if req.OnCompleteTriggerWorkflow != nil {
+		job.OnCompleteTriggerWorkflow = *req.OnCompleteTriggerWorkflow
+	}
+	if req.OnCompleteTriggerJob != nil {
+		job.OnCompleteTriggerJob = *req.OnCompleteTriggerJob
+	}
+	if req.OnCompletePayloadMapping != nil {
+		job.OnCompletePayloadMapping = *req.OnCompletePayloadMapping
+	}
+	if req.OnFailureTriggerJob != nil {
+		job.OnFailureTriggerJob = *req.OnFailureTriggerJob
+	}
+	if req.OnFailureTriggerWorkflow != nil {
+		job.OnFailureTriggerWorkflow = *req.OnFailureTriggerWorkflow
+	}
+	if req.OnFailurePayloadMapping != nil {
+		job.OnFailurePayloadMapping = *req.OnFailurePayloadMapping
 	}
 	// Cross-field validation for managed mode.
 	if job.ExecutionMode == domain.ExecutionModeManaged && job.ImageURI == "" {

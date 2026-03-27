@@ -1,12 +1,36 @@
 package debug
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/arl/statsviz"
 	"github.com/go-chi/chi/v5"
 )
+
+func TestMountDebugRoutes_ServerCreationError(t *testing.T) {
+	// Not parallel: mutates package-level newStatsvizServer.
+	original := newStatsvizServer
+	t.Cleanup(func() { newStatsvizServer = original })
+
+	newStatsvizServer = func() (*statsviz.Server, error) {
+		return nil, errors.New("simulated statsviz error")
+	}
+
+	r := chi.NewRouter()
+	MountDebugRoutes(r)
+
+	// No routes should be registered when server creation fails.
+	req := httptest.NewRequest(http.MethodGet, "/debug/statsviz/", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 when server creation fails, got %d", w.Code)
+	}
+}
 
 func TestMountDebugRoutes_RegistersEndpoint(t *testing.T) {
 	t.Parallel()

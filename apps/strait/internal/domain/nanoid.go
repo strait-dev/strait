@@ -13,11 +13,14 @@ const (
 	VersionIDPrefix = "ver_"
 )
 
+// nanoidGenerate is the ID generation function, replaceable in tests.
+var nanoidGenerate = nanoid.Generate
+
 // NewVersionID generates a human-readable, unique version identifier.
 func NewVersionID() string {
-	id, err := nanoid.Generate(VersionIDAlphabet, VersionIDLength)
+	id, err := nanoidGenerate(VersionIDAlphabet, VersionIDLength)
 	if err != nil {
-		// nanoid.Generate only errors on invalid params; our constants are valid.
+		// nanoidGenerate only errors on invalid params; our constants are valid.
 		panic("nanoid generation failed: " + err.Error())
 	}
 	return VersionIDPrefix + id

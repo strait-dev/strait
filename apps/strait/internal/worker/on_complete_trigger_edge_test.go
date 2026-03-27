@@ -221,7 +221,7 @@ func TestOnCompleteTrigger_EmptyResult(t *testing.T) {
 		},
 	}
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 	job := &domain.Job{
@@ -247,7 +247,7 @@ func TestOnCompleteTrigger_LargePayload(t *testing.T) {
 		},
 	}
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	// Build a large result.
 	items := make([]map[string]string, 1000)
@@ -282,7 +282,7 @@ func TestOnCompleteTrigger_PayloadMappingError(t *testing.T) {
 		},
 	}
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 	job := &domain.Job{
@@ -314,7 +314,7 @@ func TestOnCompleteTrigger_ConcurrentTriggers(t *testing.T) {
 		},
 	}
 	trigger := &mockWorkflowTriggerer{}
-	oct := NewOnCompleteTrigger(lookup, trigger, nil)
+	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
 	var wg sync.WaitGroup
 	for i := range 20 {
@@ -364,7 +364,7 @@ func TestOnCompleteTrigger_AllNonCompletedStatuses(t *testing.T) {
 			trigger := &mockWorkflowTriggerer{}
 			oct := NewOnCompleteTrigger(
 				&mockWorkflowLookup{workflows: map[string]*domain.Workflow{"p/w": {ID: "wf"}}},
-				trigger, nil,
+				trigger, nil, nil, nil,
 			)
 			run := &domain.JobRun{ID: "r", Status: status}
 			job := &domain.Job{ID: "j", ProjectID: "p", OnCompleteTriggerWorkflow: "w"}

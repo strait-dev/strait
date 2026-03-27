@@ -1,0 +1,61 @@
+---
+title: "Job Chaining"
+description: "Auto-trigger downstream jobs on completion or failure with payload mapping."
+---
+
+Job chaining lets you connect jobs into simple pipelines without building a full workflow DAG. When Job A completes (or fails), Strait automatically triggers Job B with mapped output as input.
+
+## Configuration
+
+Jobs support four chaining fields:
+
+- `on_complete_trigger_job` -- slug of the job to trigger when this job completes successfully
+- `on_complete_trigger_workflow` -- slug of the workflow to trigger on completion (existing feature)
+- `on_failure_trigger_job` -- slug of the job to trigger on terminal failure (dead_letter, timed_out, crashed, system_failed)
+- `on_failure_trigger_workflow` -- slug of the workflow to trigger on failure
+
+Both `on_complete` and `on_failure` support a `payload_mapping` field that extracts specific fields from the result using dot-notation paths.
+
+## Payload Mapping
+
+The mapping is a JSON object where keys are output field names and values are dot-notation paths into the result:
+
+```json
+{
+  "on_complete_trigger_job": "process-result",
+  "on_complete_payload_mapping": {
+    "user_id": "user.id",
+    "amount": "payment.amount"
+  }
+}
+```
+
+If the result is `{"user": {"id": "u-123"}, "payment": {"amount": 49.99}}`, the downstream job receives `{"user_id": "u-123", "amount": 49.99}`.
+
+If mapping fails (invalid paths, non-object result), the full result is passed through as fallback.
+
+## Failure Context
+
+When `on_failure_trigger_job` fires, the downstream job receives a structured failure payload:
+
+```json
+{
+  "source_job_id": "job-123",
+  "source_run_id": "run-456",
+  "error": "connection refused",
+  "error_class": "connection",
+  "status": "dead_letter",
+  "attempt": 3,
+  "original_input": { ... }
+}
+```
+
+## Chain Depth Enforcement
+
+To prevent infinite loops (Job A triggers Job B triggers Job A), Strait enforces a maximum chain depth of 10. Each downstream run increments the `lineage_depth` counter. When the limit is reached, the trigger is logged and skipped.
+
+## Implementation
+
+- Engine: `apps/strait/internal/worker/on_complete_trigger.go`
+- Tests: `apps/strait/internal/worker/job_chaining_test.go` (31 tests including fuzz and adversarial)
+- Migration: `000156_add_job_chaining`

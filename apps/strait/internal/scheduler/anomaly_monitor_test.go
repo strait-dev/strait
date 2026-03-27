@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -660,24 +659,28 @@ func TestAnomalyMonitor_Run_StopsOnContextCancel(t *testing.T) {
 func TestAnomalyMonitor_Run_ChecksOnInterval(t *testing.T) {
 	t.Parallel()
 
-	var checkCount atomic.Int32
+	checkCh := make(chan struct{}, 10)
 	s := &mockAnomalyMonitorStore{
 		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
-			checkCount.Add(1)
+			select {
+			case checkCh <- struct{}{}:
+			default:
+			}
 			return nil, nil
 		},
 	}
 
 	am := NewAnomalyMonitor(s, 20*time.Millisecond)
-	ctx, cancel := context.WithCancel(context.Background())
 
-	go am.Run(ctx)
-	time.Sleep(100 * time.Millisecond)
-	cancel()
+	go am.Run(t.Context())
 
-	count := checkCount.Load()
-	if count < 2 {
-		t.Fatalf("expected at least 2 checks, got %d", count)
+	deadline := time.After(2 * time.Second)
+	for i := range 2 {
+		select {
+		case <-checkCh:
+		case <-deadline:
+			t.Fatalf("timed out waiting for check %d", i+1)
+		}
 	}
 }
 

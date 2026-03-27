@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -348,24 +347,28 @@ func TestBudgetMonitor_ExactlyAtThreshold_NoAlert(t *testing.T) {
 func TestBudgetMonitor_Run_ChecksOnInterval(t *testing.T) {
 	t.Parallel()
 
-	var checkCount atomic.Int32
+	checkCh := make(chan struct{}, 10)
 	s := &mockBudgetStore{
 		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			checkCount.Add(1)
+			select {
+			case checkCh <- struct{}{}:
+			default:
+			}
 			return nil, nil
 		},
 	}
 
 	bm := NewBudgetMonitor(s, nil, 20*time.Millisecond)
-	ctx, cancel := context.WithCancel(context.Background())
 
-	go bm.Run(ctx)
-	time.Sleep(100 * time.Millisecond)
-	cancel()
+	go bm.Run(t.Context())
 
-	count := checkCount.Load()
-	if count < 2 {
-		t.Fatalf("expected at least 2 checks, got %d", count)
+	deadline := time.After(2 * time.Second)
+	for i := range 2 {
+		select {
+		case <-checkCh:
+		case <-deadline:
+			t.Fatalf("timed out waiting for check %d", i+1)
+		}
 	}
 }
 
@@ -383,6 +386,9 @@ func TestBudgetMonitor_ConcurrentCheck_NoDuplicateAlert(t *testing.T) {
 	t.Parallel()
 
 	enqueuer := &mockEnqueuer{}
+	// Use a gate to ensure all goroutines enter the cost query concurrently,
+	// maximizing the chance of a dedup race.
+	gate := make(chan struct{})
 	s := &mockBudgetStore{
 		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
 			return []store.ProjectComputeQuota{
@@ -390,7 +396,7 @@ func TestBudgetMonitor_ConcurrentCheck_NoDuplicateAlert(t *testing.T) {
 			}, nil
 		},
 		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			time.Sleep(10 * time.Millisecond) // simulate slow query
+			<-gate
 			return 90_000, nil
 		},
 	}
@@ -403,6 +409,8 @@ func TestBudgetMonitor_ConcurrentCheck_NoDuplicateAlert(t *testing.T) {
 			bm.check(context.Background())
 		})
 	}
+	// Release all goroutines at once to maximize concurrency.
+	close(gate)
 	wg.Wait()
 
 	if len(enqueuer.calls) != 1 {

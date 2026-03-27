@@ -5,7 +5,13 @@
 pre-commit:
   parallel: true
   commands:
-    # --- Go backend (golangci-lint includes go vet) ---
+    # --- Go backend (build, vet, lint) ---
+    go_build:
+      run: cd apps/strait && go build ./...
+      fail_text: "Go build failed — fix compilation errors before committing"
+    go_vet:
+      run: cd apps/strait && go vet ./...
+      fail_text: "go vet failed — fix vet issues before committing"
     lint:
       run: cd apps/strait && golangci-lint run --timeout=5m --allow-parallel-runners ./...
       fail_text: "golangci-lint failed — fix lint errors before committing"
