@@ -17,11 +17,11 @@ import {
 } from "@strait/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import Account from "@/components/(settings)/account";
 import { AuthorizedApps } from "@/components/(settings)/authorized-apps";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import {
   emailPreferencesQueryOptions,
   useUpdateEmailPreferences,
@@ -58,9 +58,7 @@ function EmailPreferencesCard() {
       <CardContent>
         <div className="flex items-center justify-between">
           <div className="flex flex-col gap-0.5">
-            <span className="font-medium text-sm">
-              Monthly usage report
-            </span>
+            <span className="font-medium text-sm">Monthly usage report</span>
             <span className="text-muted-foreground text-xs">
               Receive a PDF usage summary email when your billing period ends.
             </span>

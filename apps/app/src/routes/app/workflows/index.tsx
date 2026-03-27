@@ -21,8 +21,6 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
@@ -31,6 +29,7 @@ import WorkflowDetailSheet from "@/components/dashboard/workflow-detail-sheet";
 import { workflowColumns } from "@/components/tables/workflows-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Workflow } from "@/hooks/api/types";
 import { workflowsQueryOptions } from "@/hooks/api/use-workflows";
 import {

@@ -24,7 +24,6 @@ import FeedbackDialog from "@/components/help/feedback-dialog";
 import SupportDialog from "@/components/help/support-dialog";
 import { usePostHog } from "@/components/providers/posthog-provider";
 import TrialStartedModal from "@/components/upgrade/trial-started-modal";
-import { consumeUtmParams, utmToSetOnce } from "@/lib/utm";
 import { projectsQueryOptions } from "@/hooks/api/use-projects";
 import {
   organizationQueryOptions,
@@ -36,6 +35,7 @@ import {
 } from "@/hooks/subscription/use-subscription";
 import { ensureSession } from "@/lib/auth-handler";
 import { setSentryUser } from "@/lib/sentry";
+import { consumeUtmParams, utmToSetOnce } from "@/lib/utm";
 import type { AuthUser, RouterContext, Session } from "@/routes/__root";
 
 export type AppRouteContext = RouterContext & {

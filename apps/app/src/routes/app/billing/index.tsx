@@ -8,7 +8,6 @@ import {
 } from "@strait/ui/components/tabs";
 import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
 import ProjectCostsTab from "@/components/billing/project-costs-tab";
 import ReferralProgram from "@/components/billing/referral-program";
@@ -20,6 +19,7 @@ import InlineError from "@/components/common/inline-error";
 import NotFound from "@/components/common/not-found";
 import { QueryErrorBoundary } from "@/components/common/query-error-boundary";
 import TabSkeleton from "@/components/common/tab-skeleton";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import { anomalyAlertsQueryOptions } from "@/hooks/billing/use-anomaly-alerts";
 import { anomalyConfigQueryOptions } from "@/hooks/billing/use-anomaly-config";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";

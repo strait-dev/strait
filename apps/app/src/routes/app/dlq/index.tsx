@@ -22,8 +22,6 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useState } from "react";
 import { z } from "zod/v4";
-
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
@@ -31,6 +29,7 @@ import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import { dlqColumns } from "@/components/tables/dlq-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
   dlqQueryOptions,

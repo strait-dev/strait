@@ -8,9 +8,9 @@ import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { auth } from "@/lib/auth.server";
 import {
-  SCOPE_DESCRIPTIONS,
-  OIDC_STANDARD_SCOPES,
   OAUTH_LOGIN_PAGE,
+  OIDC_STANDARD_SCOPES,
+  SCOPE_DESCRIPTIONS,
 } from "@/lib/oauth-scopes";
 import { captureException } from "@/lib/sentry";
 import { authMiddleware } from "@/middlewares/auth";
@@ -78,7 +78,6 @@ const OAUTH_QUERY_KEYS = [
   "code_challenge_method",
 ];
 
-
 const consentSearchSchema = z.object({
   client_id: z.string().optional().catch(undefined),
   scope: z.string().optional().catch(undefined),
@@ -88,7 +87,6 @@ const consentSearchSchema = z.object({
   code_challenge: z.string().optional().catch(undefined),
   code_challenge_method: z.string().optional().catch(undefined),
 });
-
 
 type ClientInfo = {
   name: string;
@@ -113,7 +111,9 @@ const fetchClientInfo = createServerFn({ method: "GET" })
         redirectUrls: (client as any).redirectURLs ?? [],
       } satisfies ClientInfo;
     } catch (err) {
-      captureException(err, { tags: { feature: "oauth", action: "fetch_client" } });
+      captureException(err, {
+        tags: { feature: "oauth", action: "fetch_client" },
+      });
       return null;
     }
   });
@@ -147,12 +147,14 @@ const submitConsent = createServerFn({ method: "POST" })
     return result;
   });
 
-
 export const Route = createFileRoute("/(auth)/oauth/consent")({
   validateSearch: consentSearchSchema,
   beforeLoad: ({ context, search }) => {
     if (!context.isAuthenticated) {
-      const qs = buildSearchParams(search as Record<string, string | undefined>, OAUTH_QUERY_KEYS);
+      const qs = buildSearchParams(
+        search as Record<string, string | undefined>,
+        OAUTH_QUERY_KEYS
+      );
       throw redirect({
         to: OAUTH_LOGIN_PAGE,
         search: {
@@ -174,7 +176,6 @@ export const Route = createFileRoute("/(auth)/oauth/consent")({
   notFoundComponent: NotFound,
   component: OAuthConsentPage,
 });
-
 
 async function handleConsentSubmit(opts: {
   accept: boolean;
@@ -215,7 +216,9 @@ async function handleConsentSubmit(opts: {
       window.location.href = url.toString();
     }
   } catch (err) {
-    captureException(err, { tags: { feature: "oauth", action: "consent_submit" } });
+    captureException(err, {
+      tags: { feature: "oauth", action: "consent_submit" },
+    });
     opts.setStatus("error");
     opts.setError(
       err instanceof Error
@@ -224,7 +227,6 @@ async function handleConsentSubmit(opts: {
     );
   }
 }
-
 
 function OAuthConsentPage() {
   const search = Route.useSearch();
@@ -376,7 +378,6 @@ function OAuthConsentPage() {
   );
 }
 
-
 function PermissionsList({
   readScopes,
   writeScopes,
@@ -423,9 +424,8 @@ function PermissionsList({
       </div>
       <div className="mt-3 border-border border-t pt-3">
         <p className="text-muted-foreground text-xs">
-          This app will{" "}
-          <span className="font-medium text-foreground">not</span> be able to
-          manage API keys, change account settings, or access billing
+          This app will <span className="font-medium text-foreground">not</span>{" "}
+          be able to manage API keys, change account settings, or access billing
           information.
         </p>
       </div>
@@ -440,8 +440,8 @@ function ConsentMissingParams() {
       title="Invalid Request"
     >
       <p className="text-center text-muted-foreground text-sm">
-        This page should be accessed through an OAuth authorization flow.
-        Please try again from the application you were using.
+        This page should be accessed through an OAuth authorization flow. Please
+        try again from the application you were using.
       </p>
     </AuthLayout>
   );

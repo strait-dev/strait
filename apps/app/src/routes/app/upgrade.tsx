@@ -24,7 +24,6 @@ import type {
 } from "@/components/upgrade/plan-selection";
 import { PlanSelection } from "@/components/upgrade/plan-selection";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
-import { getPostHog } from "@/lib/analytics";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import {
   apiPlansToComparisonFeatures,
@@ -32,6 +31,7 @@ import {
   getPlansServerFn,
 } from "@/hooks/billing/use-plans";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { getPostHog } from "@/lib/analytics";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
 import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";

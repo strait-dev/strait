@@ -23,7 +23,6 @@ import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
@@ -31,6 +30,7 @@ import JobDetailSheet from "@/components/dashboard/job-detail-sheet";
 import { jobColumns } from "@/components/tables/jobs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { jobsQueryOptions } from "@/hooks/api/use-jobs";
 import {

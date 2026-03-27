@@ -161,7 +161,9 @@ export const useTriggerWorkflow = () => {
     mutationFn: (params: { workflowId: string; payload?: unknown }) =>
       triggerWorkflowFn({ data: params }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("workflow_triggered", { workflow_id: variables.workflowId });
+      getPostHog()?.capture("workflow_triggered", {
+        workflow_id: variables.workflowId,
+      });
     },
     onError: (err, variables) => {
       getPostHog()?.capture("mutation_error", {
@@ -184,7 +186,9 @@ export const usePauseWorkflow = () => {
     mutationFn: (params: { workflowId: string }) =>
       updateWorkflowFn({ data: { id: params.workflowId, enabled: false } }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("workflow_paused", { workflow_id: variables.workflowId });
+      getPostHog()?.capture("workflow_paused", {
+        workflow_id: variables.workflowId,
+      });
     },
     onMutate: async (params) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.workflows._def });
@@ -239,7 +243,9 @@ export const useResumeWorkflow = () => {
     mutationFn: (params: { workflowId: string }) =>
       updateWorkflowFn({ data: { id: params.workflowId, enabled: true } }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("workflow_resumed", { workflow_id: variables.workflowId });
+      getPostHog()?.capture("workflow_resumed", {
+        workflow_id: variables.workflowId,
+      });
     },
     onMutate: async (params) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.workflows._def });

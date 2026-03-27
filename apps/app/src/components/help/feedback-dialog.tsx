@@ -1,4 +1,3 @@
-import { getPostHog } from "@/lib/analytics";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Feedback } from "@strait/transactional";
@@ -35,6 +34,7 @@ import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import type z from "zod/v4";
+import { getPostHog } from "@/lib/analytics";
 import { ChatIcon, LoadingIcon } from "@/lib/icons";
 import { resend } from "@/lib/resend.server";
 import { FeedbackFormSchema } from "@/lib/schema";

@@ -143,7 +143,9 @@ export const useBulkRetryDlq = () => {
     mutationFn: (data: { ids: string[] }) =>
       bulkReplayDlqFn({ data: { run_ids: data.ids } }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("dlq_bulk_retried", { count: variables.ids.length });
+      getPostHog()?.capture("dlq_bulk_retried", {
+        count: variables.ids.length,
+      });
     },
     onError: (err, variables) => {
       getPostHog()?.capture("mutation_error", {
@@ -166,7 +168,9 @@ export const useBulkDiscardDlq = () => {
     mutationFn: (data: { ids: string[] }) =>
       bulkCancelRunsFn({ data: { run_ids: data.ids } }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("dlq_bulk_discarded", { count: variables.ids.length });
+      getPostHog()?.capture("dlq_bulk_discarded", {
+        count: variables.ids.length,
+      });
     },
     onError: (err, variables) => {
       getPostHog()?.capture("mutation_error", {

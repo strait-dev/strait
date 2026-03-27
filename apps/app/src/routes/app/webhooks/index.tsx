@@ -21,8 +21,6 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
@@ -31,6 +29,7 @@ import { webhookColumns } from "@/components/tables/webhooks-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import WebhookDetailSheet from "@/components/webhooks/webhook-detail-sheet";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { WebhookSubscription } from "@/hooks/api/types";
 import { webhooksQueryOptions } from "@/hooks/api/use-webhooks";
 import {

@@ -6,9 +6,9 @@ import {
 } from "@tanstack/react-query";
 import type { Job, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { fetchJobs, triggerJobFn, updateJobFn } from "@/hooks/api/use-jobs";
-import { getPostHog } from "@/lib/analytics";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 
 /**
  * Schedules are cron-enabled jobs. We reuse the jobs endpoint and
@@ -107,7 +107,9 @@ export const useTriggerSchedule = () => {
     mutationKey: ["schedules", "trigger"],
     mutationFn: (data: { id: string }) => triggerJobFn({ data }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("schedule_triggered", { schedule_id: variables.id });
+      getPostHog()?.capture("schedule_triggered", {
+        schedule_id: variables.id,
+      });
     },
     onError: (err, variables) => {
       getPostHog()?.capture("mutation_error", {

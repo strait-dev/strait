@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import ErrorComponent from "@/components/common/error-component";
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import DashboardContent from "@/components/dashboard/dashboard-content";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import {
   analyticsQueryOptions as analyticsQueryOptionsFn,
   statsQueryOptions as statsQueryOptionsFn,

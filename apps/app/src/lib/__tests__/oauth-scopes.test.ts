@@ -43,10 +43,7 @@ describe("OAuth scope configuration", () => {
       (s) => !ADMIN_ONLY_SCOPES.includes(s)
     );
     for (const scope of nonAdminGoScopes) {
-      expect(
-        OAUTH_PROVIDER_SCOPES,
-        `Missing scope: ${scope}`
-      ).toContain(scope);
+      expect(OAUTH_PROVIDER_SCOPES, `Missing scope: ${scope}`).toContain(scope);
     }
   });
 
@@ -115,8 +112,8 @@ describe("consent page scope descriptions", () => {
   });
 
   it("read scopes have read level", () => {
-    const readScopes = Object.entries(SCOPE_DESCRIPTIONS).filter(
-      ([scope]) => scope.endsWith(":read")
+    const readScopes = Object.entries(SCOPE_DESCRIPTIONS).filter(([scope]) =>
+      scope.endsWith(":read")
     );
     for (const [scope, info] of readScopes) {
       expect(info.level, `${scope} should be read level`).toBe("read");

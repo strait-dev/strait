@@ -25,7 +25,6 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
@@ -34,6 +33,7 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import StatusBadge from "@/components/dashboard/status-badge";
 import WorkflowDAGFlow from "@/components/dashboard/workflow-dag-flow";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
   PaginatedResponse,
   Workflow,

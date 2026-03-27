@@ -94,7 +94,10 @@ export const useUpdateProjectSettings = () => {
     mutationFn: (data: { projectId: string; default_region: string }) =>
       updateProjectSettingsFn({ data }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("project_settings_updated", { project_id: variables.projectId, setting_key: "default_region" });
+      getPostHog()?.capture("project_settings_updated", {
+        project_id: variables.projectId,
+        setting_key: "default_region",
+      });
     },
     onError: (err, variables) => {
       getPostHog()?.capture("mutation_error", {

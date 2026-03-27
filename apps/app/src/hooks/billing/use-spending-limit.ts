@@ -92,7 +92,9 @@ export const useUpdateSpendingLimit = () => {
     mutationFn: (params: { limitMicrousd: number; action: string }) =>
       updateSpendingLimitServerFn({ data: params }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("spending_limit_updated", { new_limit: variables.limitMicrousd });
+      getPostHog()?.capture("spending_limit_updated", {
+        new_limit: variables.limitMicrousd,
+      });
     },
     onError: (err) => {
       getPostHog()?.capture("mutation_error", {

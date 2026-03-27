@@ -21,8 +21,6 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
@@ -31,6 +29,7 @@ import ScheduleDetailSheet from "@/components/dashboard/schedule-detail-sheet";
 import { scheduleColumns } from "@/components/tables/schedules-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { schedulesQueryOptions } from "@/hooks/api/use-schedules";
 import {

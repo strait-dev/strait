@@ -104,7 +104,10 @@ export const useCreateApiKey = () => {
       expiresInDays?: number;
     }) => createApiKeyFn({ data }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("api_key_created", { key_name: variables.name, scopes: variables.scopes });
+      getPostHog()?.capture("api_key_created", {
+        key_name: variables.name,
+        scopes: variables.scopes,
+      });
     },
     onError: (err, variables) => {
       getPostHog()?.capture("mutation_error", {

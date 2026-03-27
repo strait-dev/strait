@@ -23,12 +23,12 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import StatusBadge from "@/components/dashboard/status-badge";
 import DetailCell from "@/components/runs/detail-cell";
 import ExecutionTraceBar from "@/components/runs/execution-trace-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
   JobRun,
   PaginatedResponse,

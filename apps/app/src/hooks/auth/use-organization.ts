@@ -10,6 +10,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import type z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { auth } from "@/lib/auth.server";
 import {
   deleteLastOrganizationWithTokenServerFn,
@@ -30,7 +31,6 @@ import type {
   VerifyOrganizationDeletionResponseSchema,
   VerifyOrganizationDeletionSchema,
 } from "@/lib/schema";
-import { getPostHog } from "@/lib/analytics";
 
 export type OrganizationData = {
   id: string;
@@ -357,7 +357,9 @@ export const useRequestOrganizationDeletion = () => {
     mutationKey: ["organizations", "requestDeletion"],
     mutationFn: (data) => requestOrganizationDeletionServerFn({ data }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("org_deletion_requested", { org_id: variables.organizationId });
+      getPostHog()?.capture("org_deletion_requested", {
+        org_id: variables.organizationId,
+      });
     },
     onError: (err) => {
       getPostHog()?.capture("mutation_error", {

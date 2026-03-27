@@ -1,6 +1,5 @@
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
-import { type KeyLike, SignJWT, importPKCS8 } from "jose";
 import {
   checkout,
   polar,
@@ -25,14 +24,15 @@ import {
   twoFactor,
 } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
+import { importPKCS8, type KeyLike, SignJWT } from "jose";
 import { Pool } from "pg";
 import {
   ALL_OAUTH_SCOPES,
   DEFAULT_REGISTRATION_SCOPES,
-  OIDC_ALGORITHM,
-  OIDC_KEY_ID,
   OAUTH_CONSENT_PAGE,
   OAUTH_LOGIN_PAGE,
+  OIDC_ALGORITHM,
+  OIDC_KEY_ID,
   STRAIT_API_SCOPES,
 } from "@/lib/oauth-scopes";
 import { resend } from "@/lib/resend.server";

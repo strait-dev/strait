@@ -15,7 +15,6 @@ import {
 } from "@strait/ui/components/table";
 import { toast } from "@strait/ui/components/toast/index";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { getPostHog } from "@/lib/analytics";
 import {
   Bar,
   CartesianGrid,
@@ -31,6 +30,7 @@ import {
   fetchUsageExportPdf,
 } from "@/hooks/billing/use-usage-export";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
+import { getPostHog } from "@/lib/analytics";
 import { formatMicroUsd } from "@/lib/format";
 import { ActivityIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";

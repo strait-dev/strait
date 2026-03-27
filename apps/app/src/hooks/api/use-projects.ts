@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import {
   createProjectServerFn,
   deleteProjectServerFn,
@@ -12,7 +13,6 @@ import {
   listProjectsServerFn,
   setActiveProjectServerFn,
 } from "@/lib/project-handler";
-import { getPostHog } from "@/lib/analytics";
 
 // ---------------------------------------------------------------------------
 // Query options
@@ -99,7 +99,9 @@ export const useSetActiveProject = () => {
     mutationFn: (data: { projectId: string }) =>
       setActiveProjectServerFn({ data }),
     onSuccess: (_data, variables) => {
-      getPostHog()?.capture("project_switched", { project_id: variables.projectId });
+      getPostHog()?.capture("project_switched", {
+        project_id: variables.projectId,
+      });
       // Invalidate all project-scoped data queries
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });

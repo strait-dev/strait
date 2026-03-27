@@ -1,9 +1,9 @@
 import { Shell } from "@strait/ui/components/shell";
 import { createFileRoute } from "@tanstack/react-router";
-import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import MigrationCalculator from "@/components/billing/migration-calculator";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 
 export const Route = createFileRoute("/app/pricing/compare")({
   errorComponent: DefaultCatchBoundary,

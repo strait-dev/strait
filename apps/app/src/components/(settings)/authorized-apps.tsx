@@ -1,20 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import type { OAuthConsentItem } from "@/hooks/api/use-oauth-consents";
-import {
-  oauthConsentsQueryOptions,
-  useRevokeOAuthConsent,
-} from "@/hooks/api/use-oauth-consents";
-import { Button } from "@strait/ui/components/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@strait/ui/components/card";
-import { Badge } from "@strait/ui/components/badge";
-import { toast } from "@strait/ui/components/toast";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,6 +8,23 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@strait/ui/components/alert-dialog";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
+import { toast } from "@strait/ui/components/toast";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import type { OAuthConsentItem } from "@/hooks/api/use-oauth-consents";
+import {
+  oauthConsentsQueryOptions,
+  useRevokeOAuthConsent,
+} from "@/hooks/api/use-oauth-consents";
 
 export function AuthorizedApps() {
   const [revokingId, setRevokingId] = useState<string | null>(null);
