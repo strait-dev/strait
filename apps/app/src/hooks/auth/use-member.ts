@@ -116,6 +116,12 @@ export const useUpdateMemberRole = () => {
         queryKey: queryKeys.members.list(variables.organizationId).queryKey,
       });
     },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "member_role_changed",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
   });
 };
 
@@ -130,6 +136,12 @@ export const useRemoveMember = () => {
       getPostHog()?.capture("member_removed");
       queryClient.invalidateQueries({
         queryKey: queryKeys.members.list(variables.organizationId).queryKey,
+      });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "member_removed",
+        error_message: err instanceof Error ? err.message : "Unknown error",
       });
     },
   });
@@ -148,6 +160,12 @@ export const useLeaveOrganization = () => {
       });
       queryClient.invalidateQueries({
         queryKey: ["organizations"],
+      });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "member_removed",
+        error_message: err instanceof Error ? err.message : "Unknown error",
       });
     },
   });

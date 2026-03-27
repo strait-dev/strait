@@ -106,6 +106,13 @@ export const useCreateApiKey = () => {
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("api_key_created", { key_name: variables.name, scopes: variables.scopes });
     },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "api_key_created",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        key_name: variables.name,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys._def });
     },
@@ -120,6 +127,13 @@ export const useRevokeApiKey = () => {
     onSuccess: (_data, keyId) => {
       getPostHog()?.capture("api_key_revoked", { key_id: keyId });
     },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "api_key_revoked",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        key_id: variables,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys._def });
     },
@@ -133,6 +147,13 @@ export const useRotateApiKey = () => {
     mutationFn: (keyId: string) => rotateApiKeyFn({ data: { keyId } }),
     onSuccess: (_data, keyId) => {
       getPostHog()?.capture("api_key_rotated", { key_id: keyId });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "api_key_rotated",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        key_id: variables,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys._def });

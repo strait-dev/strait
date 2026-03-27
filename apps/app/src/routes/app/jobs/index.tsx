@@ -67,9 +67,13 @@ export const Route = createFileRoute("/app/jobs/")({
 });
 
 function JobsPage() {
-  usePageEvent("jobs_list_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
+  usePageEvent("jobs_list_viewed", {
+    has_query: !!search.query,
+    has_status_filter: (search.status?.length ?? 0) > 0,
+    status_filter_count: search.status?.length ?? 0,
+  });
   const navigate = Route.useNavigate();
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);

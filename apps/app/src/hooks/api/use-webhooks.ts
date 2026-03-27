@@ -147,6 +147,12 @@ export const useCreateWebhook = () => {
     onSuccess: (data) => {
       getPostHog()?.capture("webhook_created", { webhook_id: data?.id });
     },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "webhook_created",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
     },
@@ -160,6 +166,13 @@ export const useDeleteWebhook = () => {
     mutationFn: (id: string) => deleteWebhookFn({ data: { id } }),
     onSuccess: (_data, id) => {
       getPostHog()?.capture("webhook_deleted", { webhook_id: id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "webhook_deleted",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        webhook_id: variables,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
@@ -175,6 +188,12 @@ export const useTestWebhook = () => {
       testWebhookFn({ data: { url: webhookUrl } }),
     onSuccess: () => {
       getPostHog()?.capture("webhook_tested");
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "webhook_tested",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({

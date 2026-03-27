@@ -202,6 +202,12 @@ export const useCreateInvitation = () => {
         queryKey: queryKeys.members._def,
       });
     },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "member_invited",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
   });
 };
 
@@ -339,6 +345,12 @@ export const useAcceptInvitation = () => {
         queryKey: queryKeys.members._def,
       });
     },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "invitation_accepted",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
   });
 };
 
@@ -361,6 +373,12 @@ export const useRejectInvitation = () => {
       getPostHog()?.capture("invitation_rejected");
       queryClient.invalidateQueries({
         queryKey: queryKeys.userInvitations._def,
+      });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "invitation_rejected",
+        error_message: err instanceof Error ? err.message : "Unknown error",
       });
     },
   });

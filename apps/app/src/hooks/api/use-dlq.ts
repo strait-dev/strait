@@ -99,6 +99,13 @@ export const useRetryDlqItem = () => {
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("dlq_item_retried", { run_id: variables.id });
     },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "dlq_item_retried",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        run_id: variables.id,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -114,6 +121,13 @@ export const useDiscardDlqItem = () => {
       cancelRunFn({ data: { runId: data.id } }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("dlq_item_discarded", { run_id: variables.id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "dlq_item_discarded",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        run_id: variables.id,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
@@ -131,6 +145,13 @@ export const useBulkRetryDlq = () => {
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("dlq_bulk_retried", { count: variables.ids.length });
     },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "dlq_bulk_retried",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        count: variables.ids.length,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -146,6 +167,13 @@ export const useBulkDiscardDlq = () => {
       bulkCancelRunsFn({ data: { run_ids: data.ids } }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("dlq_bulk_discarded", { count: variables.ids.length });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "dlq_bulk_discarded",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        count: variables.ids.length,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });

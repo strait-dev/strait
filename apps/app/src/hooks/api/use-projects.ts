@@ -53,6 +53,12 @@ export const useCreateProject = () => {
     onSuccess: (data) => {
       getPostHog()?.capture("project_created", { project_id: data?.id });
     },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "project_created",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.projects._def,
@@ -69,6 +75,13 @@ export const useDeleteProject = () => {
     mutationFn: (data: { id: string }) => deleteProjectServerFn({ data }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("project_deleted", { project_id: variables.id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "project_deleted",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        project_id: variables.id,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({
@@ -95,6 +108,13 @@ export const useSetActiveProject = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.events._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "project_switched",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        project_id: variables.projectId,
+      });
     },
   });
 };

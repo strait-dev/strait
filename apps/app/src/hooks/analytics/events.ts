@@ -57,6 +57,7 @@ export const PRODUCT_EVENTS = {
   API_KEY_CREATED: "api_key_created",
   API_KEY_REVOKED: "api_key_revoked",
   API_KEY_ROTATED: "api_key_rotated",
+  MUTATION_ERROR: "mutation_error",
 } as const;
 
 export const TEAM_EVENTS = {

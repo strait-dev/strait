@@ -69,10 +69,14 @@ export const Route = createFileRoute("/app/runs/")({
 });
 
 function RunsPage() {
-  usePageEvent("runs_list_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const { data } = useQuery({ ...runsQueryOptions(), enabled: hasProject });
   const search = Route.useSearch();
+  usePageEvent("runs_list_viewed", {
+    has_query: !!search.query,
+    has_status_filter: (search.status?.length ?? 0) > 0,
+    status_filter_count: search.status?.length ?? 0,
+  });
   const navigate = Route.useNavigate();
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);

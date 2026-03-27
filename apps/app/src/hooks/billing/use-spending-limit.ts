@@ -94,6 +94,12 @@ export const useUpdateSpendingLimit = () => {
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("spending_limit_updated", { new_limit: variables.limitMicrousd });
     },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "spending_limit_updated",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.billing.spendingLimit.queryKey,

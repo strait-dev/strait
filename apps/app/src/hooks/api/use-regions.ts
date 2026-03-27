@@ -96,6 +96,13 @@ export const useUpdateProjectSettings = () => {
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("project_settings_updated", { project_id: variables.projectId, setting_key: "default_region" });
     },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "project_settings_updated",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        project_id: variables.projectId,
+      });
+    },
     onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["project-settings", variables.projectId],

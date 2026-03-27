@@ -281,6 +281,12 @@ export const useCreateOrganization = () => {
         queryKey: queryKeys.organizations._def,
       });
     },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "org_created",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
   });
 };
 
@@ -298,6 +304,12 @@ export const useUpdateOrganization = () => {
       getPostHog()?.capture("org_updated", { org_id: variables.id });
       queryClient.invalidateQueries({
         queryKey: queryKeys.organizations._def,
+      });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "org_updated",
+        error_message: err instanceof Error ? err.message : "Unknown error",
       });
     },
   });
@@ -346,6 +358,12 @@ export const useRequestOrganizationDeletion = () => {
     mutationFn: (data) => requestOrganizationDeletionServerFn({ data }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("org_deletion_requested", { org_id: variables.organizationId });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "org_deletion_requested",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
     },
   });
 };

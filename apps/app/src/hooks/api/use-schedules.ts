@@ -32,6 +32,13 @@ export const usePauseSchedule = () => {
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("schedule_paused", { schedule_id: variables.id });
     },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "schedule_paused",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        schedule_id: variables.id,
+      });
+    },
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.schedules._def });
 
@@ -64,6 +71,13 @@ export const useResumeSchedule = () => {
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("schedule_resumed", { schedule_id: variables.id });
     },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "schedule_resumed",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        schedule_id: variables.id,
+      });
+    },
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.schedules._def });
 
@@ -94,6 +108,13 @@ export const useTriggerSchedule = () => {
     mutationFn: (data: { id: string }) => triggerJobFn({ data }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("schedule_triggered", { schedule_id: variables.id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "schedule_triggered",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        schedule_id: variables.id,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });

@@ -138,6 +138,13 @@ export const useRetryRun = () => {
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("run_retried", { run_id: variables.run_id });
     },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "run_retried",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        run_id: variables.run_id,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
     },
@@ -189,6 +196,11 @@ export const useCancelRun = () => {
           context.previousDetail
         );
       }
+      getPostHog()?.capture("mutation_error", {
+        action: "run_canceled",
+        error_message: _err instanceof Error ? _err.message : "Unknown error",
+        run_id: data.run_id,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });

@@ -119,6 +119,13 @@ export const useTriggerJob = () => {
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("job_triggered", { job_id: variables.id });
     },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "job_triggered",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        job_id: variables.id,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -169,6 +176,11 @@ export const usePauseJob = () => {
           context.previousDetail
         );
       }
+      getPostHog()?.capture("mutation_error", {
+        action: "job_paused",
+        error_message: _err instanceof Error ? _err.message : "Unknown error",
+        job_id: data.id,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
@@ -219,6 +231,11 @@ export const useResumeJob = () => {
           context.previousDetail
         );
       }
+      getPostHog()?.capture("mutation_error", {
+        action: "job_resumed",
+        error_message: _err instanceof Error ? _err.message : "Unknown error",
+        job_id: data.id,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
@@ -233,6 +250,13 @@ export const useDeleteJob = () => {
     mutationFn: (data: { id: string }) => deleteJobFn({ data }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("job_deleted", { job_id: variables.id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "job_deleted",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        job_id: variables.id,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
