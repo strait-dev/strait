@@ -78,7 +78,7 @@ jobs:
           cache: true
           cache-dependency-path: apps/strait/go.sum
 
-      - uses: oven-sh/setup-bun@735343b667d3e6a283f1b0c4a4e74a0ef4aba98c # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
