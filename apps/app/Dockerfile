@@ -26,7 +26,6 @@ COPY apps/website/package.json apps/website/package.json
 COPY packages/billing/package.json packages/billing/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/transactional/package.json packages/transactional/package.json
-COPY packages/typescript-sdk/package.json packages/typescript-sdk/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/utils/package.json packages/utils/package.json
 
