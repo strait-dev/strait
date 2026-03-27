@@ -241,6 +241,25 @@ export type ListParams = {
   cursor?: string;
 };
 
+/** Job health stats from GET /v1/jobs/:id/health. */
+export type JobHealthResponse = {
+  job_id: string;
+  window: string;
+  since: string;
+  total_runs: number;
+  completed_runs: number;
+  failed_runs: number;
+  timed_out_runs: number;
+  crashed_runs: number;
+  canceled_runs: number;
+  expired_runs: number;
+  success_rate: number;
+  avg_duration_secs: number;
+  p95_duration_secs: number;
+  p99_duration_secs: number;
+  health_score: number;
+};
+
 /** Plan tier for region gating. Matches Go domain.PlanTier. */
 export type PlanTier = "free" | "starter" | "pro" | "enterprise";
 

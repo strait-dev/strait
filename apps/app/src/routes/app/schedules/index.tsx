@@ -31,7 +31,11 @@ import { scheduleColumns } from "@/components/tables/schedules-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
-import { schedulesQueryOptions } from "@/hooks/api/use-schedules";
+import {
+  schedulesQueryOptions,
+  usePauseSchedule,
+  useTriggerSchedule,
+} from "@/hooks/api/use-schedules";
 import {
   CalendarIcon,
   EyeIcon,
@@ -71,6 +75,9 @@ function SchedulesPage() {
   const navigate = Route.useNavigate();
   const [selectedSchedule, setSelectedSchedule] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  const triggerSchedule = useTriggerSchedule();
+  const pauseSchedule = usePauseSchedule();
 
   const { data } = useQuery({
     ...schedulesQueryOptions(),
@@ -245,14 +252,20 @@ function SchedulesPage() {
                   label: "Trigger",
                   icon: PlayActionIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const scheduleId of selectedIds) {
+                      triggerSchedule.mutate({ id: scheduleId });
+                    }
+                    setRowSelection({});
                   },
                 },
                 {
                   label: "Pause",
                   icon: PauseActionIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const scheduleId of selectedIds) {
+                      pauseSchedule.mutate({ id: scheduleId });
+                    }
+                    setRowSelection({});
                   },
                 },
               ]}

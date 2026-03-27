@@ -31,7 +31,11 @@ import { jobColumns } from "@/components/tables/jobs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
-import { jobsQueryOptions } from "@/hooks/api/use-jobs";
+import {
+  jobsQueryOptions,
+  usePauseJob,
+  useTriggerJob,
+} from "@/hooks/api/use-jobs";
 import {
   BriefcaseIcon,
   EyeIcon,
@@ -71,6 +75,9 @@ function JobsPage() {
   const navigate = Route.useNavigate();
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  const triggerJob = useTriggerJob();
+  const pauseJob = usePauseJob();
 
   const { data } = useQuery({
     ...jobsQueryOptions(),
@@ -251,14 +258,20 @@ function JobsPage() {
                   label: "Trigger",
                   icon: PlayActionIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const jobId of selectedIds) {
+                      triggerJob.mutate({ id: jobId });
+                    }
+                    setRowSelection({});
                   },
                 },
                 {
                   label: "Pause",
                   icon: PauseActionIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const jobId of selectedIds) {
+                      pauseJob.mutate({ id: jobId });
+                    }
+                    setRowSelection({});
                   },
                 },
               ]}

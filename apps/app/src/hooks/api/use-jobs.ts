@@ -7,6 +7,7 @@ import {
 import { createServerFn } from "@tanstack/react-start";
 import type {
   Job,
+  JobHealthResponse,
   JobRun,
   ListParams,
   PaginatedResponse,
@@ -73,6 +74,17 @@ export const updateJobFn = createServerFn({ method: "POST" })
     );
   });
 
+export const fetchJobHealth = createServerFn({ method: "GET" })
+  .inputValidator((data: { id: string; window?: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }): Promise<JobHealthResponse> => {
+    return await runWithSentryReport(
+      apiEffect<JobHealthResponse>(`/v1/jobs/${data.id}/health`, {
+        params: { window: data.window },
+      })
+    );
+  });
+
 export const deleteJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
@@ -101,6 +113,14 @@ export const jobQueryOptions = (id: string) =>
   queryOptions({
     queryKey: queryKeys.jobs.detail(id).queryKey,
     queryFn: () => fetchJob({ data: { id } }),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
+export const jobHealthQueryOptions = (id: string, window = "7d") =>
+  queryOptions({
+    queryKey: [...queryKeys.jobs.detail(id).queryKey, "health", window],
+    queryFn: () => fetchJobHealth({ data: { id, window } }),
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });

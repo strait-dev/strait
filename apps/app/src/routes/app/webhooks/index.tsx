@@ -31,7 +31,10 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import WebhookDetailSheet from "@/components/webhooks/webhook-detail-sheet";
 import type { WebhookSubscription } from "@/hooks/api/types";
-import { webhooksQueryOptions } from "@/hooks/api/use-webhooks";
+import {
+  useDeleteWebhook,
+  webhooksQueryOptions,
+} from "@/hooks/api/use-webhooks";
 import {
   EyeIcon,
   FilterIcon,
@@ -71,6 +74,8 @@ function WebhooksPage() {
     ...webhooksQueryOptions(),
     enabled: hasProject,
   });
+
+  const deleteWebhook = useDeleteWebhook();
 
   const selectedStatuses = search.status ?? [];
 
@@ -249,7 +254,10 @@ function WebhooksPage() {
                   label: "Delete",
                   icon: TrashIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const webhookId of selectedIds) {
+                      deleteWebhook.mutate(webhookId);
+                    }
+                    setRowSelection({});
                   },
                   variant: "destructive" as const,
                 },
