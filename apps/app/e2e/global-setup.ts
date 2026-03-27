@@ -144,6 +144,7 @@ async function signInAndSaveState(
   email: string,
   password: string
 ) {
+  // Sign in via API and get the session cookie
   const signinRes = await fetch(`${baseURL}/api/auth/sign-in/email`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: baseURL },
@@ -163,38 +164,22 @@ async function signInAndSaveState(
     );
   }
 
-  const tokenMatch = sessionCookie.match(/better-auth\.session_token=([^;]+)/);
+  const tokenMatch = sessionCookie.match(
+    /better-auth\.session_token=([^;]+)/
+  );
   if (!tokenMatch) {
     throw new Error("Could not parse session token from cookie");
   }
 
-  const url = new URL(baseURL);
-  const storageState = {
-    cookies: [
-      {
-        name: "better-auth.session_token",
-        value: tokenMatch[1],
-        domain: url.hostname,
-        path: "/",
-        expires: -1,
-        httpOnly: true,
-        secure: false,
-        sameSite: "Lax" as const,
-      },
-    ],
-    origins: [],
-  };
-
-  // Set active organization on the session so the app sees the project context
-  const sessionToken = tokenMatch[1];
-  const cookieHeader = `better-auth.session_token=${sessionToken}`;
-
-  // Get user's org ID from the session
+  // Set active organization via API
+  const cookieHeader = `better-auth.session_token=${tokenMatch[1]}`;
   const sessionRes = await fetch(`${baseURL}/api/auth/session`, {
     headers: { Cookie: cookieHeader, Origin: baseURL },
   });
   if (sessionRes.ok) {
-    const session = await sessionRes.json();
+    const session = (await sessionRes.json()) as {
+      user?: { defaultOrganizationId?: string };
+    };
     const orgId = session?.user?.defaultOrganizationId;
     if (orgId) {
       await fetch(`${baseURL}/api/auth/organization/set-active`, {
@@ -209,9 +194,23 @@ async function signInAndSaveState(
     }
   }
 
-  // Verify the session works and save storageState
+  // Create browser context with the session cookie and navigate to verify
   const browser = await chromium.launch();
-  const context = await browser.newContext({ storageState });
+  const context = await browser.newContext();
+
+  // Add the cookie to the browser context
+  await context.addCookies([
+    {
+      name: "better-auth.session_token",
+      value: tokenMatch[1],
+      domain: "localhost",
+      path: "/",
+      httpOnly: true,
+      secure: false,
+      sameSite: "Lax",
+    },
+  ]);
+
   const page = await context.newPage();
 
   try {
