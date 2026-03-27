@@ -1,0 +1,151 @@
+---
+import LandingLayout from "@/layouts/LandingLayout.astro";
+import SEO from "@/components/SEO.astro";
+import JsonLd from "@/components/JsonLd.astro";
+import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
+import ComparisonHighlights from "@/components/compare/comparison-highlights.tsx";
+import ComparisonTable from "@/components/compare/comparison-table.tsx";
+import Reveal from "@/components/landing/reveal.tsx";
+import { StaggerGroup, StaggerItem } from "@/components/landing/stagger-group.tsx";
+import Shell from "@/components/layout/shell.tsx";
+import { getBreadcrumbSchema } from "@/lib/structured-data.tsx";
+import { dashboardHref } from "@/lib/urls.ts";
+import { getAllComparisonSlugs, getComparisonBySlug } from "@/app/(landing)/compare/data.ts";
+
+export function getStaticPaths() {
+  return getAllComparisonSlugs().map((slug) => ({ params: { slug } }));
+}
+
+const { slug } = Astro.params;
+const comparison = slug ? getComparisonBySlug(slug) : undefined;
+if (!comparison) {
+  return Astro.redirect("/404");
+}
+
+const BASE_URL = import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+const breadcrumbs = getBreadcrumbSchema([
+  { name: "Home", url: BASE_URL },
+  { name: "Compare", url: `${BASE_URL}/compare` },
+  { name: `Strait vs ${comparison.competitor}`, url: `${BASE_URL}/compare/${comparison.slug}` },
+]);
+---
+
+<LandingLayout>
+  <Fragment slot="head">
+    <SEO
+      title={`Strait vs ${comparison.competitor} — Compare`}
+      description={comparison.description}
+      path={`/compare/${comparison.slug}`}
+      keywords={["Strait", comparison.competitor, "comparison", "job orchestration", "workflow"]}
+    />
+  </Fragment>
+  <JsonLd data={breadcrumbs} />
+
+  <!-- Hero -->
+  <section class="relative isolate overflow-hidden pt-32 pb-16 sm:pt-40 sm:pb-20">
+    <div class="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_transparent,_var(--background)_70%)]" />
+
+    <Shell variant="wide">
+      <nav aria-label="Breadcrumb" class="mb-8 flex items-center gap-1.5 text-muted-foreground text-sm">
+        <a class="transition-colors hover:text-foreground" href="/">Home</a>
+        <span>/</span>
+        <a class="transition-colors hover:text-foreground" href="/compare">Compare</a>
+        <span>/</span>
+        <span class="text-foreground">Strait vs {comparison.competitor}</span>
+      </nav>
+
+      <div class="max-w-3xl">
+        <span class="kicker">Compare</span>
+        <Reveal client:visible variant="blur">
+          <h1 class="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
+            <span class="text-foreground">Strait vs {comparison.competitor}.</span>{" "}
+            <span class="text-muted-foreground">{comparison.tagline}</span>
+          </h1>
+        </Reveal>
+        <p class="mt-6 max-w-2xl text-muted-foreground/70 text-sm leading-relaxed sm:text-base">
+          {comparison.description}
+        </p>
+        <div class="mt-8">
+          <a
+            class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm"
+            href={dashboardHref("/login")}
+          >
+            Try Strait free
+            <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </a>
+        </div>
+      </div>
+    </Shell>
+  </section>
+
+  <!-- Differentiators -->
+  <section class="border-border/40 border-y py-16 sm:py-20">
+    <Shell variant="wide">
+      <h2 class="mb-10 text-2xl sm:text-3xl">Key differences</h2>
+      <StaggerGroup client:visible className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {comparison.differentiators.map((diff) => (
+          <StaggerItem>
+            <div class="rounded-xl border border-border/60 bg-card p-6">
+              <h3 class="font-semibold text-foreground">{diff.title}</h3>
+              <div class="mt-4 space-y-3">
+                <div>
+                  <p class="text-muted-foreground text-xs uppercase tracking-wide">Strait</p>
+                  <p class="mt-1 text-foreground text-sm leading-relaxed">{diff.strait}</p>
+                </div>
+                <div>
+                  <p class="text-muted-foreground text-xs uppercase tracking-wide">{comparison.competitor}</p>
+                  <p class="mt-1 text-muted-foreground/70 text-sm leading-relaxed">{diff.competitor}</p>
+                </div>
+              </div>
+            </div>
+          </StaggerItem>
+        ))}
+      </StaggerGroup>
+    </Shell>
+  </section>
+
+  <!-- Feature Comparison Table -->
+  <section class="py-16 sm:py-20">
+    <Shell variant="wide">
+      <h2 class="mb-10 text-2xl sm:text-3xl">Feature comparison</h2>
+      <ComparisonTable client:visible categories={comparison.categories} competitorName={comparison.competitor} />
+    </Shell>
+  </section>
+
+  <!-- Feature Highlights -->
+  {comparison.highlights.length > 0 && (
+    <section class="border-border/40 border-t py-16 sm:py-20">
+      <Shell variant="wide">
+        <ComparisonHighlights client:visible competitorName={comparison.competitor} highlights={comparison.highlights} />
+      </Shell>
+    </section>
+  )}
+
+  <!-- Switching Steps -->
+  <section class="border-border/40 border-t py-16 sm:py-20">
+    <Shell variant="wide">
+      <h2 class="mb-10 text-2xl sm:text-3xl">Switching from {comparison.competitor}</h2>
+      <StaggerGroup client:visible className="space-y-4">
+        {comparison.switchingSteps.map((step, index) => (
+          <StaggerItem>
+            <li class="flex gap-4">
+              <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground text-sm">
+                {index + 1}
+              </span>
+              <p class="pt-1 text-muted-foreground leading-relaxed">{step}</p>
+            </li>
+          </StaggerItem>
+        ))}
+      </StaggerGroup>
+    </Shell>
+  </section>
+
+  <CTA
+    client:visible
+    description="Deploy your first workflow in under 10 minutes."
+    heading={`Ready to switch from ${comparison.competitor}?`}
+    showInstallSnippet={false}
+  />
+</LandingLayout>

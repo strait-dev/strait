@@ -1,0 +1,79 @@
+---
+import LandingLayout from "@/layouts/LandingLayout.astro";
+import SEO from "@/components/SEO.astro";
+import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
+import Reveal from "@/components/landing/reveal.tsx";
+import { StaggerGroup, StaggerItem } from "@/components/landing/stagger-group.tsx";
+import Shell from "@/components/layout/shell.tsx";
+import { FEATURE_PAGES } from "@/app/(landing)/features/data.ts";
+---
+
+<LandingLayout>
+  <Fragment slot="head">
+    <SEO
+      title="Features — Strait"
+      description="Explore Strait features: PostgreSQL queue, workflow DAGs, retries, approval gates, cost budgets, real-time CDC, and SDK endpoints."
+      path="/features"
+      keywords={["Strait features", "job orchestration features", "PostgreSQL queue", "workflow DAGs"]}
+    />
+  </Fragment>
+
+  <section class="relative isolate overflow-hidden pt-32 pb-16 sm:pt-40 sm:pb-20">
+    <div class="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_transparent,_var(--background)_70%)]" />
+
+    <Shell variant="wide">
+      <div class="max-w-3xl">
+        <span class="kicker">Features</span>
+        <Reveal client:visible variant="blur">
+          <h1 class="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
+            <span class="text-foreground">
+              Everything you need to run production workflows.
+            </span>
+          </h1>
+        </Reveal>
+        <p class="mt-6 max-w-2xl text-lg text-muted-foreground/70 leading-relaxed">
+          A complete runtime with queueing, orchestration, and operations
+          built in. Not a framework — a production-grade platform.
+        </p>
+      </div>
+    </Shell>
+  </section>
+
+  <section class="py-16 sm:py-20">
+    <Shell variant="wide">
+      <StaggerGroup client:visible className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {FEATURE_PAGES.map((feature) => (
+          <StaggerItem>
+            <a
+              class="group flex h-full flex-col rounded-2xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md sm:p-8"
+              href={`/features/${feature.slug}`}
+            >
+              <h2 class="font-semibold text-foreground text-xl group-hover:text-primary">
+                {feature.name}
+              </h2>
+              <p class="mt-1 text-muted-foreground text-sm">
+                {feature.subheadline}
+              </p>
+              <p class="mt-4 flex-1 text-muted-foreground/70 text-sm leading-relaxed">
+                {feature.description}
+              </p>
+              <div class="mt-4 flex items-center gap-1 text-primary text-sm">
+                Learn more
+                <svg class="size-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </div>
+            </a>
+          </StaggerItem>
+        ))}
+      </StaggerGroup>
+    </Shell>
+  </section>
+
+  <CTA
+    client:visible
+    description="Zero-broker, production-grade from the first run."
+    heading="Ready to deploy your first workflow?"
+    showInstallSnippet={false}
+  />
+</LandingLayout>

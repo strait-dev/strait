@@ -1,0 +1,80 @@
+---
+import LandingLayout from "@/layouts/LandingLayout.astro";
+import SEO from "@/components/SEO.astro";
+import JsonLd from "@/components/JsonLd.astro";
+import {
+  getHowToSchema,
+  getOrganizationSchema,
+  getSoftwareApplicationSchema,
+  getWebSiteSchema,
+} from "@/lib/structured-data.tsx";
+import Hero from "@/app/(landing)/components/common/hero/hero.tsx";
+import PricingTeaser from "@/app/(landing)/components/pricing/pricing-teaser.tsx";
+import FeatureBentoGrid from "@/components/landing/feature-bento-grid.tsx";
+import CodeExampleSection from "@/app/(landing)/components/code-examples/code-example-section.tsx";
+import ComparisonSection from "@/app/(landing)/components/comparison/comparison-section.tsx";
+import ProblemSection from "@/app/(landing)/components/common/hero/problem-section.tsx";
+import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
+import PricingComparison from "@/components/pricing/pricing-comparison.tsx";
+import PricingFaq from "@/components/pricing/pricing-faq.tsx";
+
+const HOW_TO_STEPS = [
+  {
+    title: "Install the SDK and define a job",
+    description:
+      "Install the Strait SDK in TypeScript, Python, Go, Ruby, or Rust. Define job handlers with retries, backoff, and cost budgets.",
+  },
+  {
+    title: "Create workflows and trigger runs",
+    description:
+      "Build workflow DAGs with step dependencies, conditions, and approval gates. Trigger runs via API, SDK, or schedule.",
+  },
+  {
+    title: "Monitor, observe, and scale",
+    description:
+      "Track run state, costs, and health scores in real time. Scale with managed container execution across regions.",
+  },
+];
+
+const organizationSchema = getOrganizationSchema();
+const webSiteSchema = getWebSiteSchema();
+const softwareAppSchema = getSoftwareApplicationSchema();
+const howToSchema = getHowToSchema(HOW_TO_STEPS);
+---
+
+<LandingLayout>
+  <Fragment slot="head">
+    <SEO
+      path="/"
+      appendSiteTitle={false}
+      keywords={[
+        "Go job orchestration",
+        "PostgreSQL job queue",
+        "workflow DAG engine",
+        "background job processing",
+        "run retries and dead letter queue",
+        "workflow approvals",
+        "AI agent orchestration",
+        "managed execution",
+        "open source job queue",
+        "Strait",
+      ]}
+    />
+  </Fragment>
+  <JsonLd data={organizationSchema} />
+  <JsonLd data={webSiteSchema} />
+  <JsonLd data={softwareAppSchema} />
+  {howToSchema && <JsonLd data={howToSchema} />}
+  <Hero client:load />
+  <ProblemSection client:visible />
+  <FeatureBentoGrid client:visible />
+  <div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
+  <CodeExampleSection client:visible />
+  <div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
+  <ComparisonSection client:visible />
+  <div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
+  <PricingTeaser client:visible />
+  <PricingComparison client:visible />
+  <PricingFaq client:visible />
+  <CTA client:visible />
+</LandingLayout>
