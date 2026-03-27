@@ -24,7 +24,7 @@ import { Input } from "@strait/ui/components/input";
 import { toast } from "@strait/ui/components/toast/index";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { OrganizationData } from "@/hooks/auth/use-organization";
 import {
   useDeleteOrganizationWithToken,
@@ -110,7 +110,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
     }
   };
 
-  const handleResendCode = useCallback(async () => {
+  const handleResendCode = async () => {
     if (resendCooldown > 0 || resendCode.isPending) {
       return;
     }
@@ -126,7 +126,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
           : "Failed to resend code. Please try again."
       );
     }
-  }, [resendCooldown, resendCode, organizationId]);
+  };
 
   const handleVerifyAndDelete = async () => {
     if (verificationCode.length < 6) {
