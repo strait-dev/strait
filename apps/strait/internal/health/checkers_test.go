@@ -100,6 +100,7 @@ func TestNewSchedulerChecker(t *testing.T) {
 		wantErrPart string
 	}{
 		{name: "fresh tick", lastTick: now.Add(-20 * time.Millisecond), maxAge: 200 * time.Millisecond},
+		{name: "zero tick", lastTick: time.Time{}, maxAge: 200 * time.Millisecond, wantErr: true, wantErrPart: "scheduler tick unavailable"},
 		{name: "stale tick", lastTick: now.Add(-2 * time.Second), maxAge: 100 * time.Millisecond, wantErr: true, wantErrPart: "scheduler stale"},
 	}
 
