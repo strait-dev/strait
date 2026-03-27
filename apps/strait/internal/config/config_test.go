@@ -1011,6 +1011,35 @@ func TestParseCSVEnv(t *testing.T) {
 	}
 }
 
+func TestLoad_FlyMissingAppName(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("COMPUTE_RUNTIME", "fly")
+	t.Setenv("FLY_API_TOKEN", "fly-token")
+	t.Setenv("STRAIT_EDITION", "cloud")
+	// FLY_APP_NAME intentionally not set.
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for fly without FLY_APP_NAME, got nil")
+	}
+	if !strings.Contains(err.Error(), "FLY_APP_NAME") {
+		t.Fatalf("error = %q, want substring FLY_APP_NAME", err.Error())
+	}
+}
+
+func TestLoad_InvalidRedisURL(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("REDIS_URL", "redis://loc%zz")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid REDIS_URL, got nil")
+	}
+	if !strings.Contains(err.Error(), "REDIS_URL") {
+		t.Fatalf("error = %q, want substring REDIS_URL", err.Error())
+	}
+}
+
 func TestLoad_WfMaxStepCapDefault(t *testing.T) {
 	setRequiredEnv(t)
 

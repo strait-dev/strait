@@ -463,7 +463,7 @@ const UsageDashboard = () => {
               </span>
             </div>
             <Button
-              onClick={() => navigate({ to: "/app/billing", search: { tab: "spending" } })}
+              onClick={() => navigate({ to: "/app/billing" })}
               size="sm"
               variant="outline"
             >

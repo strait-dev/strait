@@ -24,6 +24,12 @@ Strait DAG execution currently includes:
 - Runtime graph introspection with critical-path estimates
 - Branch-local recovery operations (`retry step`, `replay subtree`)
 - Stalled workflow reconciliation via scheduler reaper policy
+- Compensating transactions with reverse-order rollback handlers on step failure
+- Expected completion tracking via critical-path analysis through the DAG
+- Stage notifications on step completion, failure, or skip transitions
+- Canary deployments with weighted version routing and auto-promote/rollback
+- Workflow simulation with dry-run, sandbox, and failure-injection modes
+- Visual debug view with per-step inspection, data flow, and cross-run comparison
 
 ## DAG runtime model
 

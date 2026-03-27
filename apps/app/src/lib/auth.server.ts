@@ -1,4 +1,6 @@
+import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
+import { type KeyLike, SignJWT, importPKCS8 } from "jose";
 import {
   checkout,
   polar,
@@ -16,6 +18,7 @@ import {
 } from "@strait/transactional";
 import { betterAuth } from "better-auth";
 import {
+  jwt,
   magicLink,
   oneTap,
   organization,
@@ -23,11 +26,38 @@ import {
 } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { Pool } from "pg";
+import {
+  ALL_OAUTH_SCOPES,
+  DEFAULT_REGISTRATION_SCOPES,
+  OIDC_ALGORITHM,
+  OIDC_KEY_ID,
+  OAUTH_CONSENT_PAGE,
+  OAUTH_LOGIN_PAGE,
+  STRAIT_API_SCOPES,
+} from "@/lib/oauth-scopes";
 import { resend } from "@/lib/resend.server";
 
 export const authPool = new Pool({
   connectionString: process.env.AUTH_DATABASE_URL,
 });
+
+// Cache the OIDC private key import — importPKCS8 parses PEM and is CPU
+// work that should happen once, not on every token sign. If import fails
+// (e.g. invalid PEM), the cache is cleared so the next call retries
+// instead of returning the rejected promise forever.
+let oidcPrivateKeyPromise: Promise<KeyLike> | null = null;
+function getOIDCPrivateKey(): Promise<KeyLike> {
+  if (!oidcPrivateKeyPromise) {
+    oidcPrivateKeyPromise = importPKCS8(
+      process.env.OIDC_PRIVATE_KEY_PEM as string,
+      OIDC_ALGORITHM
+    ).catch((err) => {
+      oidcPrivateKeyPromise = null;
+      throw err;
+    });
+  }
+  return oidcPrivateKeyPromise;
+}
 
 const polarClient = process.env.POLAR_ACCESS_TOKEN
   ? new Polar({
@@ -57,6 +87,7 @@ export const auth = betterAuth({
   database: authPool,
   baseURL: process.env.BETTER_AUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET,
+  disabledPaths: ["/token"],
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,
@@ -138,6 +169,60 @@ export const auth = betterAuth({
     }),
     oneTap(),
     twoFactor(),
+    jwt({
+      jwks: {
+        keyPairConfig: { alg: OIDC_ALGORITHM },
+        // Point to our own JWKS endpoint so the Go service can fetch
+        // the public key dynamically if needed.
+        remoteUrl: `${process.env.BETTER_AUTH_URL ?? "http://localhost:5173"}/api/auth/jwks`,
+      },
+      jwt: {
+        issuer: process.env.OIDC_ISSUER,
+        audience: process.env.OIDC_AUDIENCE,
+        // Custom sign function: signs with the RSA private key from env
+        // instead of the auto-generated key pair in the database. This
+        // ensures the Go OIDC verifier (which holds the matching public
+        // key) can validate all tokens.
+        sign: process.env.OIDC_PRIVATE_KEY_PEM
+          ? async (payload) => {
+              const privateKey = await getOIDCPrivateKey();
+              return new SignJWT(payload)
+                .setProtectedHeader({
+                  alg: OIDC_ALGORITHM,
+                  typ: "JWT",
+                  kid: OIDC_KEY_ID,
+                })
+                .sign(privateKey);
+            }
+          : undefined,
+      },
+    }),
+    oauthProvider({
+      loginPage: OAUTH_LOGIN_PAGE,
+      consentPage: OAUTH_CONSENT_PAGE,
+      // List of valid audiences for JWT access tokens. Without this, the
+      // plugin issues opaque tokens instead of JWTs. The Go OIDC verifier
+      // expects JWTs signed with RS256.
+      validAudiences: process.env.OIDC_AUDIENCE
+        ? [process.env.OIDC_AUDIENCE]
+        : undefined,
+      scopes: [...ALL_OAUTH_SCOPES],
+      allowDynamicClientRegistration: true,
+      allowUnauthenticatedClientRegistration: true,
+      clientRegistrationDefaultScopes: [...DEFAULT_REGISTRATION_SCOPES],
+      clientRegistrationAllowedScopes: [...STRAIT_API_SCOPES],
+      accessTokenExpiresIn: 900, // 15 minutes — short-lived for security
+      refreshTokenExpiresIn: 2_592_000, // 30 days
+      codeExpiresIn: 600, // 10 minutes
+      rateLimit: {
+        token: { window: 60, max: 20 },
+        authorize: { window: 60, max: 30 },
+        register: { window: 60, max: 5 },
+        revoke: { window: 60, max: 30 },
+        userinfo: { window: 60, max: 60 },
+        introspect: { window: 60, max: 100 },
+      },
+    }),
     // SSO disabled: @better-auth/sso has a known ESM incompatibility
     // (samlify requires camelcase@9 ESM-only from CJS). Re-enable when
     // https://github.com/better-auth/better-auth/issues/8620 is fixed.

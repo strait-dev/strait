@@ -52,6 +52,7 @@ func TestValidateScopes_AllConstants(t *testing.T) {
 		ScopeRunsRead, ScopeRunsWrite,
 		ScopeWorkflowsRead, ScopeWorkflowsWrite, ScopeWorkflowsTrigger,
 		ScopeSecretsRead, ScopeSecretsWrite,
+		ScopeWebhooksRead, ScopeWebhooksWrite,
 		ScopeAPIKeysManage, ScopeRBACManage, ScopeStatsRead,
 		ScopeProjectsRead, ScopeProjectsWrite, ScopeProjectsManage,
 	}

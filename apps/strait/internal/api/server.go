@@ -265,6 +265,12 @@ type WorkflowStore interface {
 	CountActiveWorkflowRunsByVersion(ctx context.Context, workflowID, versionID string) (int, error)
 	CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error)
 	ListActiveWorkflowVersions(ctx context.Context, workflowID string) ([]store.ActiveVersion, error)
+
+	// Canary deployments.
+	CreateCanaryDeployment(ctx context.Context, canary *domain.CanaryDeployment) error
+	GetActiveCanaryDeployment(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
+	UpdateCanaryDeploymentTraffic(ctx context.Context, workflowID string, trafficPct int) error
+	CompleteCanaryDeployment(ctx context.Context, workflowID, status string) error
 }
 
 // DeploymentStore handles deployment version lifecycle operations.

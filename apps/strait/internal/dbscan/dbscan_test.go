@@ -115,6 +115,40 @@ func TestNilIfZeroInt(t *testing.T) {
 	})
 }
 
+func TestNilIfEmptyIntSlice(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil slice returns nil", func(t *testing.T) {
+		t.Parallel()
+		if got := NilIfEmptyIntSlice(nil); got != nil {
+			t.Errorf("NilIfEmptyIntSlice(nil) = %v, want nil", got)
+		}
+	})
+
+	t.Run("empty slice returns nil", func(t *testing.T) {
+		t.Parallel()
+		if got := NilIfEmptyIntSlice([]int{}); got != nil {
+			t.Errorf("NilIfEmptyIntSlice([]int{}) = %v, want nil", got)
+		}
+	})
+
+	t.Run("non-empty slice returns value", func(t *testing.T) {
+		t.Parallel()
+		input := []int{1, 2, 3}
+		got := NilIfEmptyIntSlice(input)
+		if got == nil {
+			t.Fatal("NilIfEmptyIntSlice(non-empty) should not be nil")
+		}
+		s, ok := got.([]int)
+		if !ok {
+			t.Fatalf("expected []int, got %T", got)
+		}
+		if len(s) != 3 || s[0] != 1 || s[1] != 2 || s[2] != 3 {
+			t.Errorf("got %v, want [1 2 3]", s)
+		}
+	})
+}
+
 // mockScanner implements Scanner for unit testing ScanRun.
 // Uses reflect to assign values to arbitrary destination pointers.
 type mockScanner struct {
@@ -168,6 +202,8 @@ func TestScanRun_AllFields(t *testing.T) {
 	createdBy := "user-1"
 	batchID := "batch-001"
 	concurrencyKey := "key-001"
+	executionMode := "http"
+	machineID := "machine-001"
 	metadata := []byte(`{"env":"prod","region":"eu"}`)
 
 	s := &mockScanner{
@@ -204,6 +240,8 @@ func TestScanRun_AllFields(t *testing.T) {
 			&createdBy,               // CreatedBy
 			&batchID,                 // BatchID
 			&concurrencyKey,          // ConcurrencyKey
+			&executionMode,           // ExecutionMode
+			&machineID,               // MachineID
 		},
 	}
 
@@ -293,6 +331,12 @@ func TestScanRun_AllFields(t *testing.T) {
 	if run.ConcurrencyKey != "key-001" {
 		t.Errorf("ConcurrencyKey = %q, want %q", run.ConcurrencyKey, "key-001")
 	}
+	if run.ExecutionMode != domain.ExecutionModeHTTP {
+		t.Errorf("ExecutionMode = %q, want %q", run.ExecutionMode, domain.ExecutionModeHTTP)
+	}
+	if run.MachineID != "machine-001" {
+		t.Errorf("MachineID = %q, want %q", run.MachineID, "machine-001")
+	}
 	if run.ExecutionTrace == nil {
 		t.Error("ExecutionTrace is nil, want non-nil")
 	}
@@ -336,6 +380,8 @@ func TestScanRun_NilOptionals(t *testing.T) {
 			(*string)(nil),    // CreatedBy
 			(*string)(nil),    // BatchID
 			(*string)(nil),    // ConcurrencyKey
+			(*string)(nil),    // ExecutionMode
+			(*string)(nil),    // MachineID
 		},
 	}
 
@@ -398,7 +444,145 @@ func TestScanRun_NilOptionals(t *testing.T) {
 	if run.ConcurrencyKey != "" {
 		t.Errorf("ConcurrencyKey = %q, want empty", run.ConcurrencyKey)
 	}
+	if run.ExecutionMode != "" {
+		t.Errorf("ExecutionMode = %q, want empty", run.ExecutionMode)
+	}
+	if run.MachineID != "" {
+		t.Errorf("MachineID = %q, want empty", run.MachineID)
+	}
 	if run.ExecutionTrace != nil {
 		t.Errorf("ExecutionTrace = %v, want nil", run.ExecutionTrace)
+	}
+}
+
+func TestScanRun_InvalidMetadataJSON(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(time.Microsecond)
+
+	s := &mockScanner{
+		values: scanRunBaseValues(now, func(v *scanRunValues) {
+			v.metadata = []byte(`{invalid`)
+		}),
+	}
+
+	run, err := ScanRun(s)
+	if err == nil {
+		t.Fatal("ScanRun() expected error for invalid metadata JSON")
+	}
+	if run != nil {
+		t.Errorf("ScanRun() run = %v, want nil on error", run)
+	}
+}
+
+func TestScanRun_InvalidExecutionTraceJSON(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(time.Microsecond)
+
+	s := &mockScanner{
+		values: scanRunBaseValues(now, func(v *scanRunValues) {
+			v.executionTrace = []byte(`not-json`)
+		}),
+	}
+
+	run, err := ScanRun(s)
+	if err == nil {
+		t.Fatal("ScanRun() expected error for invalid execution trace JSON")
+	}
+	if run != nil {
+		t.Errorf("ScanRun() run = %v, want nil on error", run)
+	}
+}
+
+func TestScanRun_InvalidTagsJSON(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(time.Microsecond)
+
+	s := &mockScanner{
+		values: scanRunBaseValues(now, func(v *scanRunValues) {
+			v.tags = []byte(`{bad-tags`)
+		}),
+	}
+
+	run, err := ScanRun(s)
+	if err == nil {
+		t.Fatal("ScanRun() expected error for invalid tags JSON")
+	}
+	if run != nil {
+		t.Errorf("ScanRun() run = %v, want nil on error", run)
+	}
+}
+
+func TestScanRun_EmptyObjectTags(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(time.Microsecond)
+
+	s := &mockScanner{
+		values: scanRunBaseValues(now, func(v *scanRunValues) {
+			v.tags = []byte(`{}`)
+		}),
+	}
+
+	run, err := ScanRun(s)
+	if err != nil {
+		t.Fatalf("ScanRun() error = %v", err)
+	}
+	if len(run.Tags) != 0 {
+		t.Errorf("Tags = %v, want empty for {}", run.Tags)
+	}
+}
+
+// scanRunValues holds the mutable fields for building mock scanner values.
+type scanRunValues struct {
+	metadata       []byte
+	executionTrace []byte
+	tags           []byte
+}
+
+// scanRunBaseValues creates a set of mock scanner values with sensible defaults.
+// The mutate function allows overriding specific fields for targeted tests.
+func scanRunBaseValues(now time.Time, mutate func(*scanRunValues)) []any {
+	v := &scanRunValues{
+		metadata:       nil,
+		executionTrace: nil,
+		tags:           nil,
+	}
+	if mutate != nil {
+		mutate(v)
+	}
+	return []any{
+		"run-test",                 // ID
+		"job-test",                 // JobID
+		"proj-test",                // ProjectID
+		domain.RunStatus("queued"), // Status
+		1,                          // Attempt
+		nil,                        // Payload
+		nil,                        // Result
+		v.metadata,                 // Metadata
+		(*string)(nil),             // Error
+		(*string)(nil),             // ErrorClass
+		"manual",                   // TriggeredBy
+		(*time.Time)(nil),          // ScheduledAt
+		(*time.Time)(nil),          // StartedAt
+		(*time.Time)(nil),          // FinishedAt
+		(*time.Time)(nil),          // HeartbeatAt
+		(*time.Time)(nil),          // NextRetryAt
+		(*time.Time)(nil),          // ExpiresAt
+		(*string)(nil),             // ParentRunID
+		0,                          // Priority
+		(*string)(nil),             // IdempotencyKey
+		0,                          // JobVersion
+		now,                        // CreatedAt
+		(*string)(nil),             // WorkflowStepRunID
+		v.executionTrace,           // ExecutionTrace
+		false,                      // DebugMode
+		(*string)(nil),             // ContinuationOf
+		0,                          // LineageDepth
+		v.tags,                     // Tags
+		(*string)(nil),             // JobVersionID
+		(*string)(nil),             // CreatedBy
+		(*string)(nil),             // BatchID
+		(*string)(nil),             // ConcurrencyKey
+		(*string)(nil),             // ExecutionMode
+		(*string)(nil),             // MachineID
 	}
 }

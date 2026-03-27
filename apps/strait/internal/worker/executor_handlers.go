@@ -384,6 +384,11 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		ExecTrace: execTrace, Attempt: run.Attempt,
 	})
 	e.notifyWorkflowCallback(ctx, run)
+
+	// Trigger on_failure job/workflow if configured.
+	if e.onCompleteTrigger != nil {
+		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, errMsg)
+	}
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, execTrace *domain.ExecutionTrace) {
@@ -485,6 +490,11 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		ExecTrace: execTrace, Attempt: run.Attempt,
 	})
 	e.notifyWorkflowCallback(ctx, run)
+
+	// Trigger on_failure job/workflow if configured.
+	if e.onCompleteTrigger != nil {
+		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, "execution timed out")
+	}
 }
 
 // completeRunWithWebhook atomically updates run status and enqueues a webhook
@@ -555,6 +565,17 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 	})
 	e.notifyWorkflowCallback(ctx, run)
 	// No webhook for system failures — job may not be available
+}
+
+// handleSystemFailureWithJob wraps handleSystemFailure and additionally fires
+// on_failure triggers when the job is available. Some system failure paths
+// (panic recovery, job-not-found) don't have the job object, so the base
+// handleSystemFailure cannot require it.
+func (e *Executor) handleSystemFailureWithJob(ctx context.Context, run *domain.JobRun, job *domain.Job, reason string) {
+	e.handleSystemFailure(ctx, run, reason)
+	if job != nil && e.onCompleteTrigger != nil {
+		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, reason)
+	}
 }
 
 func durationMillisecondsAtLeastOne(d time.Duration) int64 {

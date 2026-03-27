@@ -3,13 +3,16 @@ package domain
 import "slices"
 
 var validWorkflowTransitions = map[WorkflowRunStatus][]WorkflowRunStatus{
-	WfStatusPending:   {WfStatusRunning, WfStatusCanceled},
-	WfStatusRunning:   {WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled},
-	WfStatusPaused:    {WfStatusRunning, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled},
-	WfStatusCompleted: {},
-	WfStatusFailed:    {},
-	WfStatusTimedOut:  {},
-	WfStatusCanceled:  {},
+	WfStatusPending:            {WfStatusRunning, WfStatusCanceled},
+	WfStatusRunning:            {WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled},
+	WfStatusPaused:             {WfStatusRunning, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled},
+	WfStatusCompleted:          {},
+	WfStatusFailed:             {WfStatusCompensating},
+	WfStatusTimedOut:           {WfStatusCompensating},
+	WfStatusCanceled:           {},
+	WfStatusCompensating:       {WfStatusCompensated, WfStatusCompensationFailed, WfStatusCanceled},
+	WfStatusCompensated:        {},
+	WfStatusCompensationFailed: {},
 }
 
 func ValidateWorkflowTransition(from, to WorkflowRunStatus) error {

@@ -19,13 +19,14 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import Account from "@/components/(settings)/account";
+import { AuthorizedApps } from "@/components/(settings)/authorized-apps";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 import {
   emailPreferencesQueryOptions,
   useUpdateEmailPreferences,
 } from "@/hooks/billing/use-email-preferences";
-import { CreditCardIcon, UserIcon } from "@/lib/icons";
+import { CreditCardIcon, LinkSquareIcon, UserIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/settings/")({
@@ -94,10 +95,18 @@ function RouteComponent() {
               <HugeiconsIcon className="size-4" icon={CreditCardIcon} />
               Usage & Billing
             </TabsTrigger>
+            <TabsTrigger className="flex items-center gap-2" value="apps">
+              <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
+              Authorized Apps
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent className="mt-6 space-y-6" value="account">
             <Account user={session.user} />
+          </TabsContent>
+
+          <TabsContent className="mt-6 space-y-6" value="apps">
+            <AuthorizedApps />
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="billing">

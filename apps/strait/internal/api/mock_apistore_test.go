@@ -70,6 +70,9 @@ var _ APIStore = &APIStoreMock{}
 //			CleanupExpiredDeviceCodesFunc: func(ctx context.Context) (int64, error) {
 //				panic("mock out the CleanupExpiredDeviceCodes method")
 //			},
+//			CompleteCanaryDeploymentFunc: func(ctx context.Context, workflowID string, status string) error {
+//				panic("mock out the CompleteCanaryDeployment method")
+//			},
 //			CountActiveEventTriggersByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
 //				panic("mock out the CountActiveEventTriggersByProject method")
 //			},
@@ -108,6 +111,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			CreateBatchOperationFunc: func(ctx context.Context, op *domain.BatchOperation) error {
 //				panic("mock out the CreateBatchOperation method")
+//			},
+//			CreateCanaryDeploymentFunc: func(ctx context.Context, canary *domain.CanaryDeployment) error {
+//				panic("mock out the CreateCanaryDeployment method")
 //			},
 //			CreateDeploymentVersionFunc: func(ctx context.Context, deployment *domain.DeploymentVersion) error {
 //				panic("mock out the CreateDeploymentVersion method")
@@ -273,6 +279,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			GetAPIKeyByIDFunc: func(ctx context.Context, id string) (*domain.APIKey, error) {
 //				panic("mock out the GetAPIKeyByID method")
+//			},
+//			GetActiveCanaryDeploymentFunc: func(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error) {
+//				panic("mock out the GetActiveCanaryDeployment method")
 //			},
 //			GetApprovalStatsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ApprovalStats, error) {
 //				panic("mock out the GetApprovalStats method")
@@ -664,6 +673,9 @@ var _ APIStore = &APIStoreMock{}
 //			TouchAPIKeyLastUsedFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the TouchAPIKeyLastUsed method")
 //			},
+//			UpdateCanaryDeploymentTrafficFunc: func(ctx context.Context, workflowID string, trafficPct int) error {
+//				panic("mock out the UpdateCanaryDeploymentTraffic method")
+//			},
 //			UpdateEnvironmentFunc: func(ctx context.Context, env *domain.Environment) error {
 //				panic("mock out the UpdateEnvironment method")
 //			},
@@ -794,6 +806,9 @@ type APIStoreMock struct {
 	// CleanupExpiredDeviceCodesFunc mocks the CleanupExpiredDeviceCodes method.
 	CleanupExpiredDeviceCodesFunc func(ctx context.Context) (int64, error)
 
+	// CompleteCanaryDeploymentFunc mocks the CompleteCanaryDeployment method.
+	CompleteCanaryDeploymentFunc func(ctx context.Context, workflowID string, status string) error
+
 	// CountActiveEventTriggersByProjectFunc mocks the CountActiveEventTriggersByProject method.
 	CountActiveEventTriggersByProjectFunc func(ctx context.Context, projectID string) (int, error)
 
@@ -832,6 +847,9 @@ type APIStoreMock struct {
 
 	// CreateBatchOperationFunc mocks the CreateBatchOperation method.
 	CreateBatchOperationFunc func(ctx context.Context, op *domain.BatchOperation) error
+
+	// CreateCanaryDeploymentFunc mocks the CreateCanaryDeployment method.
+	CreateCanaryDeploymentFunc func(ctx context.Context, canary *domain.CanaryDeployment) error
 
 	// CreateDeploymentVersionFunc mocks the CreateDeploymentVersion method.
 	CreateDeploymentVersionFunc func(ctx context.Context, deployment *domain.DeploymentVersion) error
@@ -997,6 +1015,9 @@ type APIStoreMock struct {
 
 	// GetAPIKeyByIDFunc mocks the GetAPIKeyByID method.
 	GetAPIKeyByIDFunc func(ctx context.Context, id string) (*domain.APIKey, error)
+
+	// GetActiveCanaryDeploymentFunc mocks the GetActiveCanaryDeployment method.
+	GetActiveCanaryDeploymentFunc func(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
 
 	// GetApprovalStatsFunc mocks the GetApprovalStats method.
 	GetApprovalStatsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ApprovalStats, error)
@@ -1388,6 +1409,9 @@ type APIStoreMock struct {
 	// TouchAPIKeyLastUsedFunc mocks the TouchAPIKeyLastUsed method.
 	TouchAPIKeyLastUsedFunc func(ctx context.Context, id string) error
 
+	// UpdateCanaryDeploymentTrafficFunc mocks the UpdateCanaryDeploymentTraffic method.
+	UpdateCanaryDeploymentTrafficFunc func(ctx context.Context, workflowID string, trafficPct int) error
+
 	// UpdateEnvironmentFunc mocks the UpdateEnvironment method.
 	UpdateEnvironmentFunc func(ctx context.Context, env *domain.Environment) error
 
@@ -1617,6 +1641,15 @@ type APIStoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// CompleteCanaryDeployment holds details about calls to the CompleteCanaryDeployment method.
+		CompleteCanaryDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WorkflowID is the workflowID argument value.
+			WorkflowID string
+			// Status is the status argument value.
+			Status string
+		}
 		// CountActiveEventTriggersByProject holds details about calls to the CountActiveEventTriggersByProject method.
 		CountActiveEventTriggersByProject []struct {
 			// Ctx is the ctx argument value.
@@ -1713,6 +1746,13 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// Op is the op argument value.
 			Op *domain.BatchOperation
+		}
+		// CreateCanaryDeployment holds details about calls to the CreateCanaryDeployment method.
+		CreateCanaryDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Canary is the canary argument value.
+			Canary *domain.CanaryDeployment
 		}
 		// CreateDeploymentVersion holds details about calls to the CreateDeploymentVersion method.
 		CreateDeploymentVersion []struct {
@@ -2136,6 +2176,13 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+		}
+		// GetActiveCanaryDeployment holds details about calls to the GetActiveCanaryDeployment method.
+		GetActiveCanaryDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WorkflowID is the workflowID argument value.
+			WorkflowID string
 		}
 		// GetApprovalStats holds details about calls to the GetApprovalStats method.
 		GetApprovalStats []struct {
@@ -3407,6 +3454,15 @@ type APIStoreMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// UpdateCanaryDeploymentTraffic holds details about calls to the UpdateCanaryDeploymentTraffic method.
+		UpdateCanaryDeploymentTraffic []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WorkflowID is the workflowID argument value.
+			WorkflowID string
+			// TrafficPct is the trafficPct argument value.
+			TrafficPct int
+		}
 		// UpdateEnvironment holds details about calls to the UpdateEnvironment method.
 		UpdateEnvironment []struct {
 			// Ctx is the ctx argument value.
@@ -3651,6 +3707,7 @@ type APIStoreMock struct {
 	lockCancelJobRunsByWorkflowRun         sync.RWMutex
 	lockCancelNonTerminalStepRuns          sync.RWMutex
 	lockCleanupExpiredDeviceCodes          sync.RWMutex
+	lockCompleteCanaryDeployment           sync.RWMutex
 	lockCountActiveEventTriggersByProject  sync.RWMutex
 	lockCountActiveWorkflowRunsByVersion   sync.RWMutex
 	lockCountBatchBufferItems              sync.RWMutex
@@ -3664,6 +3721,7 @@ type APIStoreMock struct {
 	lockCreateAPIKey                       sync.RWMutex
 	lockCreateAuditEvent                   sync.RWMutex
 	lockCreateBatchOperation               sync.RWMutex
+	lockCreateCanaryDeployment             sync.RWMutex
 	lockCreateDeploymentVersion            sync.RWMutex
 	lockCreateDeviceCode                   sync.RWMutex
 	lockCreateEnvironment                  sync.RWMutex
@@ -3719,6 +3777,7 @@ type APIStoreMock struct {
 	lockFindRecentRunByPayload             sync.RWMutex
 	lockGetAPIKeyByHash                    sync.RWMutex
 	lockGetAPIKeyByID                      sync.RWMutex
+	lockGetActiveCanaryDeployment          sync.RWMutex
 	lockGetApprovalStats                   sync.RWMutex
 	lockGetBatchOperation                  sync.RWMutex
 	lockGetComputeCostAnalytics            sync.RWMutex
@@ -3849,6 +3908,7 @@ type APIStoreMock struct {
 	lockSumRunCostMicrousd                 sync.RWMutex
 	lockSumRunTotalTokens                  sync.RWMutex
 	lockTouchAPIKeyLastUsed                sync.RWMutex
+	lockUpdateCanaryDeploymentTraffic      sync.RWMutex
 	lockUpdateEnvironment                  sync.RWMutex
 	lockUpdateEventSource                  sync.RWMutex
 	lockUpdateEventTriggerStatus           sync.RWMutex
@@ -4593,6 +4653,49 @@ func (mock *APIStoreMock) CleanupExpiredDeviceCodesCalls() []struct {
 	return calls
 }
 
+// CompleteCanaryDeployment calls CompleteCanaryDeploymentFunc.
+func (mock *APIStoreMock) CompleteCanaryDeployment(ctx context.Context, workflowID string, status string) error {
+	callInfo := struct {
+		Ctx        context.Context
+		WorkflowID string
+		Status     string
+	}{
+		Ctx:        ctx,
+		WorkflowID: workflowID,
+		Status:     status,
+	}
+	mock.lockCompleteCanaryDeployment.Lock()
+	mock.calls.CompleteCanaryDeployment = append(mock.calls.CompleteCanaryDeployment, callInfo)
+	mock.lockCompleteCanaryDeployment.Unlock()
+	if mock.CompleteCanaryDeploymentFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CompleteCanaryDeploymentFunc(ctx, workflowID, status)
+}
+
+// CompleteCanaryDeploymentCalls gets all the calls that were made to CompleteCanaryDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.CompleteCanaryDeploymentCalls())
+func (mock *APIStoreMock) CompleteCanaryDeploymentCalls() []struct {
+	Ctx        context.Context
+	WorkflowID string
+	Status     string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		WorkflowID string
+		Status     string
+	}
+	mock.lockCompleteCanaryDeployment.RLock()
+	calls = mock.calls.CompleteCanaryDeployment
+	mock.lockCompleteCanaryDeployment.RUnlock()
+	return calls
+}
+
 // CountActiveEventTriggersByProject calls CountActiveEventTriggersByProjectFunc.
 func (mock *APIStoreMock) CountActiveEventTriggersByProject(ctx context.Context, projectID string) (int, error) {
 	callInfo := struct {
@@ -5119,6 +5222,45 @@ func (mock *APIStoreMock) CreateBatchOperationCalls() []struct {
 	mock.lockCreateBatchOperation.RLock()
 	calls = mock.calls.CreateBatchOperation
 	mock.lockCreateBatchOperation.RUnlock()
+	return calls
+}
+
+// CreateCanaryDeployment calls CreateCanaryDeploymentFunc.
+func (mock *APIStoreMock) CreateCanaryDeployment(ctx context.Context, canary *domain.CanaryDeployment) error {
+	callInfo := struct {
+		Ctx    context.Context
+		Canary *domain.CanaryDeployment
+	}{
+		Ctx:    ctx,
+		Canary: canary,
+	}
+	mock.lockCreateCanaryDeployment.Lock()
+	mock.calls.CreateCanaryDeployment = append(mock.calls.CreateCanaryDeployment, callInfo)
+	mock.lockCreateCanaryDeployment.Unlock()
+	if mock.CreateCanaryDeploymentFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateCanaryDeploymentFunc(ctx, canary)
+}
+
+// CreateCanaryDeploymentCalls gets all the calls that were made to CreateCanaryDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.CreateCanaryDeploymentCalls())
+func (mock *APIStoreMock) CreateCanaryDeploymentCalls() []struct {
+	Ctx    context.Context
+	Canary *domain.CanaryDeployment
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Canary *domain.CanaryDeployment
+	}
+	mock.lockCreateCanaryDeployment.RLock()
+	calls = mock.calls.CreateCanaryDeployment
+	mock.lockCreateCanaryDeployment.RUnlock()
 	return calls
 }
 
@@ -7351,6 +7493,46 @@ func (mock *APIStoreMock) GetAPIKeyByIDCalls() []struct {
 	mock.lockGetAPIKeyByID.RLock()
 	calls = mock.calls.GetAPIKeyByID
 	mock.lockGetAPIKeyByID.RUnlock()
+	return calls
+}
+
+// GetActiveCanaryDeployment calls GetActiveCanaryDeploymentFunc.
+func (mock *APIStoreMock) GetActiveCanaryDeployment(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error) {
+	callInfo := struct {
+		Ctx        context.Context
+		WorkflowID string
+	}{
+		Ctx:        ctx,
+		WorkflowID: workflowID,
+	}
+	mock.lockGetActiveCanaryDeployment.Lock()
+	mock.calls.GetActiveCanaryDeployment = append(mock.calls.GetActiveCanaryDeployment, callInfo)
+	mock.lockGetActiveCanaryDeployment.Unlock()
+	if mock.GetActiveCanaryDeploymentFunc == nil {
+		var (
+			canaryDeploymentOut *domain.CanaryDeployment
+			errOut              error
+		)
+		return canaryDeploymentOut, errOut
+	}
+	return mock.GetActiveCanaryDeploymentFunc(ctx, workflowID)
+}
+
+// GetActiveCanaryDeploymentCalls gets all the calls that were made to GetActiveCanaryDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetActiveCanaryDeploymentCalls())
+func (mock *APIStoreMock) GetActiveCanaryDeploymentCalls() []struct {
+	Ctx        context.Context
+	WorkflowID string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		WorkflowID string
+	}
+	mock.lockGetActiveCanaryDeployment.RLock()
+	calls = mock.calls.GetActiveCanaryDeployment
+	mock.lockGetActiveCanaryDeployment.RUnlock()
 	return calls
 }
 
@@ -13255,6 +13437,49 @@ func (mock *APIStoreMock) TouchAPIKeyLastUsedCalls() []struct {
 	mock.lockTouchAPIKeyLastUsed.RLock()
 	calls = mock.calls.TouchAPIKeyLastUsed
 	mock.lockTouchAPIKeyLastUsed.RUnlock()
+	return calls
+}
+
+// UpdateCanaryDeploymentTraffic calls UpdateCanaryDeploymentTrafficFunc.
+func (mock *APIStoreMock) UpdateCanaryDeploymentTraffic(ctx context.Context, workflowID string, trafficPct int) error {
+	callInfo := struct {
+		Ctx        context.Context
+		WorkflowID string
+		TrafficPct int
+	}{
+		Ctx:        ctx,
+		WorkflowID: workflowID,
+		TrafficPct: trafficPct,
+	}
+	mock.lockUpdateCanaryDeploymentTraffic.Lock()
+	mock.calls.UpdateCanaryDeploymentTraffic = append(mock.calls.UpdateCanaryDeploymentTraffic, callInfo)
+	mock.lockUpdateCanaryDeploymentTraffic.Unlock()
+	if mock.UpdateCanaryDeploymentTrafficFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.UpdateCanaryDeploymentTrafficFunc(ctx, workflowID, trafficPct)
+}
+
+// UpdateCanaryDeploymentTrafficCalls gets all the calls that were made to UpdateCanaryDeploymentTraffic.
+// Check the length with:
+//
+//	len(mockedAPIStore.UpdateCanaryDeploymentTrafficCalls())
+func (mock *APIStoreMock) UpdateCanaryDeploymentTrafficCalls() []struct {
+	Ctx        context.Context
+	WorkflowID string
+	TrafficPct int
+} {
+	var calls []struct {
+		Ctx        context.Context
+		WorkflowID string
+		TrafficPct int
+	}
+	mock.lockUpdateCanaryDeploymentTraffic.RLock()
+	calls = mock.calls.UpdateCanaryDeploymentTraffic
+	mock.lockUpdateCanaryDeploymentTraffic.RUnlock()
 	return calls
 }
 
