@@ -174,6 +174,76 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 	})
 }
 
+// TestOIDCScopeFiltering verifies that privileged scopes are stripped from
+// OIDC tokens. Even if a JWT contains wildcard or admin scopes, the Go
+// verifier must not honor them — these are reserved for internal API keys.
+func TestOIDCScopeFiltering(t *testing.T) {
+	t.Parallel()
+
+	t.Run("wildcard scope stripped", func(t *testing.T) {
+		c := &oidcClaims{Scope: "* jobs:read"}
+		scopes := c.Scopes()
+		for _, s := range scopes {
+			if s == "*" {
+				t.Fatal("wildcard scope must not pass through OIDC token filter")
+			}
+		}
+		if len(scopes) != 1 || scopes[0] != "jobs:read" {
+			t.Fatalf("scopes = %v, want [jobs:read]", scopes)
+		}
+	})
+
+	t.Run("api-keys:manage stripped", func(t *testing.T) {
+		c := &oidcClaims{Scope: "jobs:read api-keys:manage runs:read"}
+		scopes := c.Scopes()
+		for _, s := range scopes {
+			if s == "api-keys:manage" {
+				t.Fatal("api-keys:manage must not pass through OIDC token filter")
+			}
+		}
+		if len(scopes) != 2 {
+			t.Fatalf("scopes = %v, want [jobs:read runs:read]", scopes)
+		}
+	})
+
+	t.Run("rbac:manage stripped", func(t *testing.T) {
+		c := &oidcClaims{Scope: "rbac:manage stats:read"}
+		scopes := c.Scopes()
+		for _, s := range scopes {
+			if s == "rbac:manage" {
+				t.Fatal("rbac:manage must not pass through OIDC token filter")
+			}
+		}
+		if len(scopes) != 1 || scopes[0] != "stats:read" {
+			t.Fatalf("scopes = %v, want [stats:read]", scopes)
+		}
+	})
+
+	t.Run("all privileged scopes stripped returns nil", func(t *testing.T) {
+		c := &oidcClaims{Scope: "* api-keys:manage rbac:manage"}
+		scopes := c.Scopes()
+		if scopes != nil {
+			t.Fatalf("scopes = %v, want nil (all privileged stripped)", scopes)
+		}
+	})
+
+	t.Run("normal scopes pass through", func(t *testing.T) {
+		c := &oidcClaims{Scope: "jobs:read jobs:write runs:read workflows:trigger"}
+		scopes := c.Scopes()
+		if len(scopes) != 4 {
+			t.Fatalf("scopes = %v, want 4 scopes", scopes)
+		}
+	})
+
+	t.Run("OIDC scopes stripped", func(t *testing.T) {
+		c := &oidcClaims{Scope: "openid profile email jobs:read"}
+		scopes := c.Scopes()
+		if len(scopes) != 1 || scopes[0] != "jobs:read" {
+			t.Fatalf("scopes = %v, want [jobs:read] (OIDC scopes filtered out)", scopes)
+		}
+	})
+}
+
 func signTestToken(t *testing.T, key *rsa.PrivateKey, claims jwt.MapClaims) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)

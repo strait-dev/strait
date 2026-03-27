@@ -30,6 +30,14 @@ func (c *oidcClaims) Scopes() []string {
 	raw := strings.Split(c.Scope, " ")
 	var valid []string
 	for _, s := range raw {
+		// Accept recognized Strait API scopes but exclude privileged
+		// scopes that must not be obtainable via OAuth tokens:
+		// - wildcard (*): grants unrestricted access (internal API keys only)
+		// - api-keys:manage: allows creating/revoking API keys
+		// - rbac:manage: allows changing role assignments
+		if s == domain.ScopeAll || s == domain.ScopeAPIKeysManage || s == domain.ScopeRBACManage {
+			continue
+		}
 		if domain.ValidScopes[s] {
 			valid = append(valid, s)
 		}
