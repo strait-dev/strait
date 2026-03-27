@@ -282,17 +282,17 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                       value={verificationCode}
                     />
                   </Field>
-                  <button
-                    className="mt-2 flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground disabled:opacity-50"
+                  <Button
+                    className="mt-2 h-auto gap-1 p-0 text-muted-foreground text-xs hover:text-foreground"
                     disabled={resendCooldown > 0 || resendCode.isPending}
                     onClick={handleResendCode}
-                    type="button"
+                    variant="link"
                   >
                     <HugeiconsIcon icon={RefreshIcon} size={12} />
                     {resendCooldown > 0
                       ? `Resend code in ${resendCooldown}s`
                       : "Resend code"}
-                  </button>
+                  </Button>
                 </div>
                 <AlertDialogFooter>
                   <div className="flex justify-end gap-4">
