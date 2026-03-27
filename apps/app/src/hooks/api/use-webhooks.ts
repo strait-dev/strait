@@ -13,6 +13,7 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -143,6 +144,9 @@ export const useCreateWebhook = () => {
     mutationKey: ["webhooks", "create"],
     mutationFn: (data: { webhook_url: string; event_types: string[] }) =>
       createWebhookFn({ data }),
+    onSuccess: (data) => {
+      getPostHog()?.capture("webhook_created", { webhook_id: data?.id });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
     },
@@ -154,6 +158,9 @@ export const useDeleteWebhook = () => {
   return useMutation({
     mutationKey: ["webhooks", "delete"],
     mutationFn: (id: string) => deleteWebhookFn({ data: { id } }),
+    onSuccess: (_data, id) => {
+      getPostHog()?.capture("webhook_deleted", { webhook_id: id });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
     },
@@ -166,6 +173,9 @@ export const useTestWebhook = () => {
     mutationKey: ["webhooks", "test"],
     mutationFn: (webhookUrl: string) =>
       testWebhookFn({ data: { url: webhookUrl } }),
+    onSuccess: () => {
+      getPostHog()?.capture("webhook_tested");
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.webhooks.deliveries._def,

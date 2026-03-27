@@ -8,6 +8,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { auth } from "@/lib/auth.server";
 
 export type InvitationData = {
@@ -193,6 +194,7 @@ export const useCreateInvitation = () => {
       organizationId: string;
     }) => createInvitationServerFn({ data }),
     onSuccess: (_data, variables) => {
+      getPostHog()?.capture("member_invited", { role: variables.role });
       queryClient.invalidateQueries({
         queryKey: queryKeys.invitations.list(variables.organizationId).queryKey,
       });
@@ -326,6 +328,7 @@ export const useAcceptInvitation = () => {
       return result.data;
     },
     onSuccess: () => {
+      getPostHog()?.capture("invitation_accepted");
       queryClient.invalidateQueries({
         queryKey: queryKeys.userInvitations._def,
       });
@@ -355,6 +358,7 @@ export const useRejectInvitation = () => {
       return result.data;
     },
     onSuccess: () => {
+      getPostHog()?.capture("invitation_rejected");
       queryClient.invalidateQueries({
         queryKey: queryKeys.userInvitations._def,
       });

@@ -13,6 +13,7 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -115,6 +116,9 @@ export const useTriggerJob = () => {
     mutationKey: ["jobs", "trigger"],
     mutationFn: (data: { id: string; payload?: unknown }) =>
       triggerJobFn({ data }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("job_triggered", { job_id: variables.id });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -128,6 +132,9 @@ export const usePauseJob = () => {
     mutationKey: ["jobs", "pause"],
     mutationFn: (data: { id: string }) =>
       updateJobFn({ data: { id: data.id, enabled: false } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("job_paused", { job_id: variables.id });
+    },
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.jobs._def });
 
@@ -175,6 +182,9 @@ export const useResumeJob = () => {
     mutationKey: ["jobs", "resume"],
     mutationFn: (data: { id: string }) =>
       updateJobFn({ data: { id: data.id, enabled: true } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("job_resumed", { job_id: variables.id });
+    },
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.jobs._def });
 
@@ -221,6 +231,9 @@ export const useDeleteJob = () => {
   return useMutation({
     mutationKey: ["jobs", "delete"],
     mutationFn: (data: { id: string }) => deleteJobFn({ data }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("job_deleted", { job_id: variables.id });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });

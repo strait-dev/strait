@@ -9,6 +9,7 @@ import type { JobRun, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { cancelRunFn } from "@/hooks/api/use-runs";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -95,6 +96,9 @@ export const useRetryDlqItem = () => {
     mutationKey: ["dlq", "retry"],
     mutationFn: (data: { id: string }) =>
       replayDlqRunFn({ data: { runId: data.id } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("dlq_item_retried", { run_id: variables.id });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -108,6 +112,9 @@ export const useDiscardDlqItem = () => {
     mutationKey: ["dlq", "discard"],
     mutationFn: (data: { id: string }) =>
       cancelRunFn({ data: { runId: data.id } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("dlq_item_discarded", { run_id: variables.id });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -121,6 +128,9 @@ export const useBulkRetryDlq = () => {
     mutationKey: ["dlq", "bulkRetry"],
     mutationFn: (data: { ids: string[] }) =>
       bulkReplayDlqFn({ data: { run_ids: data.ids } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("dlq_bulk_retried", { count: variables.ids.length });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -134,6 +144,9 @@ export const useBulkDiscardDlq = () => {
     mutationKey: ["dlq", "bulkDiscard"],
     mutationFn: (data: { ids: string[] }) =>
       bulkCancelRunsFn({ data: { run_ids: data.ids } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("dlq_bulk_discarded", { count: variables.ids.length });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });

@@ -12,6 +12,7 @@ import {
   listProjectsServerFn,
   setActiveProjectServerFn,
 } from "@/lib/project-handler";
+import { getPostHog } from "@/lib/analytics";
 
 // ---------------------------------------------------------------------------
 // Query options
@@ -49,6 +50,9 @@ export const useCreateProject = () => {
       name: string;
       description?: string;
     }) => createProjectServerFn({ data }),
+    onSuccess: (data) => {
+      getPostHog()?.capture("project_created", { project_id: data?.id });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.projects._def,
@@ -63,6 +67,9 @@ export const useDeleteProject = () => {
   return useMutation({
     mutationKey: ["projects", "delete"],
     mutationFn: (data: { id: string }) => deleteProjectServerFn({ data }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("project_deleted", { project_id: variables.id });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.projects._def,
@@ -78,7 +85,8 @@ export const useSetActiveProject = () => {
     mutationKey: ["projects", "setActive"],
     mutationFn: (data: { projectId: string }) =>
       setActiveProjectServerFn({ data }),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("project_switched", { project_id: variables.projectId });
       // Invalidate all project-scoped data queries
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });

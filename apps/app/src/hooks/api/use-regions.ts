@@ -7,6 +7,7 @@ import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import type { ProjectSettings, Region } from "@/hooks/api/types";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { requireProjectAccess } from "@/middlewares/require-access";
@@ -92,6 +93,9 @@ export const useUpdateProjectSettings = () => {
     mutationKey: ["project-settings", "update"],
     mutationFn: (data: { projectId: string; default_region: string }) =>
       updateProjectSettingsFn({ data }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("project_settings_updated", { project_id: variables.projectId, setting_key: "default_region" });
+    },
     onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["project-settings", variables.projectId],

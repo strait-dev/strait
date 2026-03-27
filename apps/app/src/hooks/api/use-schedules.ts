@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import type { Job, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { fetchJobs, triggerJobFn, updateJobFn } from "@/hooks/api/use-jobs";
+import { getPostHog } from "@/lib/analytics";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 
@@ -28,6 +29,9 @@ export const usePauseSchedule = () => {
     mutationKey: ["schedules", "pause"],
     mutationFn: (data: { id: string }) =>
       updateJobFn({ data: { id: data.id, enabled: false } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("schedule_paused", { schedule_id: variables.id });
+    },
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.schedules._def });
 
@@ -57,6 +61,9 @@ export const useResumeSchedule = () => {
     mutationKey: ["schedules", "resume"],
     mutationFn: (data: { id: string }) =>
       updateJobFn({ data: { id: data.id, enabled: true } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("schedule_resumed", { schedule_id: variables.id });
+    },
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.schedules._def });
 
@@ -85,6 +92,9 @@ export const useTriggerSchedule = () => {
   return useMutation({
     mutationKey: ["schedules", "trigger"],
     mutationFn: (data: { id: string }) => triggerJobFn({ data }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("schedule_triggered", { schedule_id: variables.id });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });
     },

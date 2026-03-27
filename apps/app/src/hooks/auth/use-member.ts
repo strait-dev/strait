@@ -8,6 +8,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { auth } from "@/lib/auth.server";
 
 export type MemberData = {
@@ -110,6 +111,7 @@ export const useUpdateMemberRole = () => {
       organizationId: string;
     }) => updateMemberRoleServerFn({ data }),
     onSuccess: (_data, variables) => {
+      getPostHog()?.capture("member_role_changed", { role: variables.role });
       queryClient.invalidateQueries({
         queryKey: queryKeys.members.list(variables.organizationId).queryKey,
       });
@@ -125,6 +127,7 @@ export const useRemoveMember = () => {
     mutationFn: (data: { memberIdOrEmail: string; organizationId: string }) =>
       removeMemberServerFn({ data }),
     onSuccess: (_data, variables) => {
+      getPostHog()?.capture("member_removed");
       queryClient.invalidateQueries({
         queryKey: queryKeys.members.list(variables.organizationId).queryKey,
       });

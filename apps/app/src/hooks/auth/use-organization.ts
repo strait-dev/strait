@@ -30,6 +30,7 @@ import type {
   VerifyOrganizationDeletionResponseSchema,
   VerifyOrganizationDeletionSchema,
 } from "@/lib/schema";
+import { getPostHog } from "@/lib/analytics";
 
 export type OrganizationData = {
   id: string;
@@ -274,7 +275,8 @@ export const useCreateOrganization = () => {
     mutationKey: ["organizations", "create"],
     mutationFn: (data: { name: string; slug?: string | null }) =>
       createOrganizationServerFn({ data }),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      getPostHog()?.capture("org_created", { org_id: data?.id });
       queryClient.invalidateQueries({
         queryKey: queryKeys.organizations._def,
       });
@@ -292,7 +294,8 @@ export const useUpdateOrganization = () => {
     mutationKey: ["organizations", "update"],
     mutationFn: (params: UpdateOrganizationParams) =>
       updateOrganizationServerFn({ data: params }),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("org_updated", { org_id: variables.id });
       queryClient.invalidateQueries({
         queryKey: queryKeys.organizations._def,
       });
@@ -341,6 +344,9 @@ export const useRequestOrganizationDeletion = () => {
   >({
     mutationKey: ["organizations", "requestDeletion"],
     mutationFn: (data) => requestOrganizationDeletionServerFn({ data }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("org_deletion_requested", { org_id: variables.organizationId });
+    },
   });
 };
 
