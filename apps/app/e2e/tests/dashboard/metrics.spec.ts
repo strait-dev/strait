@@ -11,7 +11,7 @@ test.describe("Dashboard Metrics", () => {
   });
 
   test("success rate card shows percentage", async ({ page }) => {
-    const card = page.getByText("Success Rate").locator("..");
+    const card = page.getByText("Success Rate").locator("../..");
     await expect(card).toBeVisible();
     await expect(card).toContainText("%");
   });

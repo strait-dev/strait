@@ -185,7 +185,31 @@ async function signInAndSaveState(
     origins: [],
   };
 
-  // Verify the session works
+  // Set active organization on the session so the app sees the project context
+  const sessionToken = tokenMatch[1];
+  const cookieHeader = `better-auth.session_token=${sessionToken}`;
+
+  // Get user's org ID from the session
+  const sessionRes = await fetch(`${baseURL}/api/auth/session`, {
+    headers: { Cookie: cookieHeader, Origin: baseURL },
+  });
+  if (sessionRes.ok) {
+    const session = await sessionRes.json();
+    const orgId = session?.user?.defaultOrganizationId;
+    if (orgId) {
+      await fetch(`${baseURL}/api/auth/organization/set-active`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: cookieHeader,
+          Origin: baseURL,
+        },
+        body: JSON.stringify({ organizationId: orgId }),
+      });
+    }
+  }
+
+  // Verify the session works and save storageState
   const browser = await chromium.launch();
   const context = await browser.newContext({ storageState });
   const page = await context.newPage();

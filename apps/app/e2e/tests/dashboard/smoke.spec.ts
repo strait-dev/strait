@@ -34,7 +34,7 @@ test.describe("Dashboard Smoke", () => {
   test("recent runs table and live activity feed render", async ({ page }) => {
     await page.goto("/app/dashboard");
 
-    await expect(page.getByText("Recent Runs")).toBeVisible();
+    await expect(page.getByText("Recent Runs", { exact: true })).toBeVisible();
     await expect(
       page.getByText("Live Activity", { exact: true })
     ).toBeVisible();
