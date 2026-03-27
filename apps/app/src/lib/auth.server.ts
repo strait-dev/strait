@@ -1,3 +1,4 @@
+import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
 import {
   checkout,
@@ -16,6 +17,7 @@ import {
 } from "@strait/transactional";
 import { betterAuth } from "better-auth";
 import {
+  jwt,
   magicLink,
   oneTap,
   organization,
@@ -57,6 +59,7 @@ export const auth = betterAuth({
   database: authPool,
   baseURL: process.env.BETTER_AUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET,
+  disabledPaths: ["/token"],
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,
@@ -138,6 +141,66 @@ export const auth = betterAuth({
     }),
     oneTap(),
     twoFactor(),
+    jwt({
+      jwks: {
+        keyPairConfig: { alg: "RS256" },
+      },
+      jwt: {
+        issuer: process.env.OIDC_ISSUER,
+        audience: process.env.OIDC_AUDIENCE,
+      },
+    }),
+    oauthProvider({
+      loginPage: "/login",
+      consentPage: "/oauth/consent",
+      scopes: [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "jobs:read",
+        "jobs:write",
+        "jobs:trigger",
+        "runs:read",
+        "runs:write",
+        "workflows:read",
+        "workflows:write",
+        "workflows:trigger",
+        "secrets:read",
+        "secrets:write",
+        "stats:read",
+        "projects:read",
+        "projects:write",
+        "projects:manage",
+      ],
+      allowDynamicClientRegistration: true,
+      allowUnauthenticatedClientRegistration: true,
+      clientRegistrationDefaultScopes: ["jobs:read", "runs:read", "stats:read"],
+      clientRegistrationAllowedScopes: [
+        "jobs:read",
+        "jobs:write",
+        "jobs:trigger",
+        "runs:read",
+        "runs:write",
+        "workflows:read",
+        "workflows:write",
+        "workflows:trigger",
+        "secrets:read",
+        "secrets:write",
+        "stats:read",
+        "projects:read",
+        "projects:write",
+        "projects:manage",
+      ],
+      rateLimit: {
+        token: { window: 60, max: 20 },
+        authorize: { window: 60, max: 30 },
+        register: { window: 60, max: 5 },
+        revoke: { window: 60, max: 30 },
+        userinfo: { window: 60, max: 60 },
+        introspect: { window: 60, max: 100 },
+      },
+    }),
     // SSO disabled: @better-auth/sso has a known ESM incompatibility
     // (samlify requires camelcase@9 ESM-only from CJS). Re-enable when
     // https://github.com/better-auth/better-auth/issues/8620 is fixed.
