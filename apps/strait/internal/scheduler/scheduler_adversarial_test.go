@@ -785,7 +785,7 @@ func TestBatchFlusher_MultipleBatches(t *testing.T) {
 	flusher.poll(context.Background())
 
 	if enqueued.Load() != 3 {
-		t.Fatalf("expected 3 batch runs for 3 flushable batches, got %d", enqueued)
+		t.Fatalf("expected 3 batch runs for 3 flushable batches, got %d", enqueued.Load())
 	}
 }
 
