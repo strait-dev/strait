@@ -155,6 +155,24 @@ Example:
 }
 ```
 
+TypeScript runtime helpers in `@strait/agents-sdk` can build this envelope directly:
+
+```ts
+const steps = fanOutSteps({
+  dependsOn: ["planner"],
+  workers: [
+    { agentId: "agent_logs" },
+    { agentId: "agent_metrics" },
+  ],
+  synthesizer: {
+    stepRef: "synthesis",
+    agentId: "agent_synthesizer",
+  },
+});
+
+return ctx.createDynamicSteps(steps, { knownStepRefs: ["planner"] });
+```
+
 Guardrails:
 - Dynamic steps are scoped to the current workflow run only.
 - Runtime expansion still enforces duplicate `step_ref` rejection, DAG validation, and the overall 1000-step workflow limit.

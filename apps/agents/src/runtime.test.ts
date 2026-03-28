@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,7 +7,7 @@ import {
   parseEnvelope,
   serializeOutputLine,
 } from "./runtime";
-import type { DispatchEnvelope } from "./types";
+import type { DispatchEnvelope, RuntimeOutputLine } from "./types";
 
 const baseEnvelope: DispatchEnvelope = {
   version: "v1",
@@ -32,6 +33,29 @@ const baseEnvelope: DispatchEnvelope = {
     run_token: "token-1",
   },
 };
+
+const invalidPlannerPayloadError = /workerAgentIds must be an array/i;
+const nonEmptyStringArbitrary = fc
+  .string({ minLength: 1 })
+  .filter((value) => value.trim().length > 0);
+
+function getCompletionResult(
+  outputs: readonly RuntimeOutputLine[]
+): Record<string, unknown> {
+  const completion = outputs.findLast(
+    (output) => output.kind === "event" && output.event.type === "complete"
+  );
+  if (
+    completion?.kind !== "event" ||
+    completion.event.type !== "complete" ||
+    completion.event.result == null ||
+    typeof completion.event.result !== "object" ||
+    Array.isArray(completion.event.result)
+  ) {
+    throw new Error("missing completion result");
+  }
+  return completion.event.result as Record<string, unknown>;
+}
 
 describe("agents runtime", () => {
   it("parses and validates a dispatch envelope", async () => {
@@ -95,8 +119,8 @@ describe("agents runtime", () => {
       buildRuntimeOutput({
         ...baseEnvelope,
         payload: {
-          _scenario: "fail",
           _error: "boom",
+          _scenario: "fail",
         },
       })
     );
@@ -108,5 +132,150 @@ describe("agents runtime", () => {
         error: "boom",
       },
     });
+  });
+
+  it("builds a dynamic planner result for workflow fan-out", async () => {
+    const outputs = await Effect.runPromise(
+      buildRuntimeOutput({
+        ...baseEnvelope,
+        agent: {
+          ...baseEnvelope.agent,
+          slug: "planner",
+        },
+        payload: {
+          _mode: "dynamic_planner",
+          summaryStyle: "incident-brief",
+          topic: "billing outage",
+          workerAgentIds: ["agent-logs", "agent-metrics", "agent-deployments"],
+        },
+      })
+    );
+
+    const result = getCompletionResult(outputs);
+    expect(result.plan_summary).toBe("planned 3 dynamic worker steps");
+    expect(result.dynamic_steps).toEqual([
+      {
+        agent_id: "agent-logs",
+        depends_on: ["planner"],
+        payload: {
+          lens: "track-1",
+          topic: "billing outage",
+        },
+        step_ref: "worker-1",
+      },
+      {
+        agent_id: "agent-metrics",
+        depends_on: ["planner"],
+        payload: {
+          lens: "track-2",
+          topic: "billing outage",
+        },
+        step_ref: "worker-2",
+      },
+      {
+        agent_id: "agent-deployments",
+        depends_on: ["planner"],
+        payload: {
+          lens: "track-3",
+          topic: "billing outage",
+        },
+        step_ref: "worker-3",
+      },
+      {
+        agent_id: "agent-synthesizer",
+        depends_on: ["worker-1", "worker-2", "worker-3"],
+        payload: {
+          summary_style: "incident-brief",
+          topic: "billing outage",
+        },
+        step_ref: "synthesis",
+      },
+    ]);
+  });
+
+  it("builds worker and synthesizer local runtime outputs", async () => {
+    const workerOutputs = await Effect.runPromise(
+      buildRuntimeOutput({
+        ...baseEnvelope,
+        payload: {
+          _mode: "worker",
+          lens: "logs",
+          topic: "runtime failures",
+        },
+      })
+    );
+    const synthOutputs = await Effect.runPromise(
+      buildRuntimeOutput({
+        ...baseEnvelope,
+        payload: {
+          _mode: "synthesizer",
+          summaryStyle: "brief",
+          topic: "runtime failures",
+        },
+      })
+    );
+
+    expect(getCompletionResult(workerOutputs)).toMatchObject({
+      finding: "Investigated runtime failures via logs.",
+    });
+    expect(getCompletionResult(synthOutputs)).toMatchObject({
+      summary: "Prepared a brief summary for runtime failures.",
+    });
+  });
+
+  it("rejects invalid planner payloads", async () => {
+    await expect(
+      Effect.runPromise(
+        buildRuntimeOutput({
+          ...baseEnvelope,
+          payload: {
+            _mode: "dynamic_planner",
+            workerAgentIds: "not-an-array",
+          },
+        })
+      )
+    ).rejects.toThrow(invalidPlannerPayloadError);
+  });
+
+  it("produces stable worker fan-out shapes for arbitrary worker lists", () => {
+    fc.assert(
+      fc.property(
+        fc.uniqueArray(nonEmptyStringArbitrary, {
+          minLength: 1,
+          maxLength: 8,
+        }),
+        (workerAgentIds) => {
+          const outputs = Effect.runSync(
+            buildRuntimeOutput({
+              ...baseEnvelope,
+              agent: {
+                ...baseEnvelope.agent,
+                slug: "planner",
+              },
+              payload: {
+                _mode: "dynamic_planner",
+                topic: "runtime failures",
+                workerAgentIds,
+              },
+            })
+          );
+
+          const result = getCompletionResult(outputs);
+          const dynamicSteps = result.dynamic_steps as Record<
+            string,
+            unknown
+          >[];
+          expect(dynamicSteps).toHaveLength(workerAgentIds.length + 1);
+          expect(
+            new Set(
+              dynamicSteps
+                .slice(0, Math.max(dynamicSteps.length - 1, 0))
+                .map((step) => String(step.step_ref))
+            ).size
+          ).toBe(workerAgentIds.length);
+        }
+      ),
+      { numRuns: 50 }
+    );
   });
 });

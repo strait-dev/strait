@@ -16,6 +16,12 @@ import type {
   ToolCallReport,
   UsageReport,
 } from "./types";
+import {
+  type AgentWorkflowStepDefinition,
+  createDynamicSteps,
+  type DynamicWorkflowStepEnvelope,
+  type DynamicWorkflowStepOptions,
+} from "./workflow";
 
 type RunUsageResponse = {
   id: string;
@@ -193,6 +199,13 @@ export class StraitContext {
 
   budgetExceeded(): void {
     this.#budget.assertWithinLimits();
+  }
+
+  createDynamicSteps(
+    steps: AgentWorkflowStepDefinition[],
+    options?: DynamicWorkflowStepOptions
+  ): DynamicWorkflowStepEnvelope {
+    return createDynamicSteps(steps, options);
   }
 
   heartbeat(signal?: AbortSignal): Promise<{ status: string }> {

@@ -1,5 +1,5 @@
 import type { StraitContext } from "../src/index";
-import { agentStep, agentWorkflow, strait } from "../src/index";
+import { agentStep, agentWorkflow, fanOutSteps, strait } from "../src/index";
 
 type PlannerInput = {
   topic: string;
@@ -35,30 +35,29 @@ export const plannerAgent = strait.agent<
   ): Promise<{ dynamic_steps: DynamicStepPayload[] }> {
     await ctx.workflow.state.set("topic", input.topic);
     await ctx.workflow.state.set("worker_count", input.workerAgentIds.length);
-
-    const workerSteps = input.workerAgentIds.map((agentId, index) => ({
-      step_ref: `research-${index + 1}`,
-      agent_id: agentId,
-      depends_on: ["planner"],
-      payload: {
-        topic: input.topic,
-        lens: ["logs", "metrics", "deployments"][index] ?? `track-${index + 1}`,
-      },
-    }));
-
-    return {
-      dynamic_steps: [
-        ...workerSteps,
-        {
-          step_ref: "synthesis",
-          agent_id: SYNTHESIZER_AGENT_ID,
-          depends_on: workerSteps.map((step) => step.step_ref),
-          payload: {
-            topic: input.topic,
-            summary_style: "incident-brief",
-          },
+    const steps = fanOutSteps({
+      dependsOn: ["planner"],
+      stepRefPrefix: "research",
+      synthesizer: {
+        agentId: SYNTHESIZER_AGENT_ID,
+        payload: {
+          topic: input.topic,
+          summary_style: "incident-brief",
         },
-      ],
+        stepRef: "synthesis",
+      },
+      workers: input.workerAgentIds.map((agentId, index) => ({
+        agentId,
+        payload: {
+          topic: input.topic,
+          lens:
+            ["logs", "metrics", "deployments"][index] ?? `track-${index + 1}`,
+        },
+      })),
+    });
+
+    return ctx.createDynamicSteps(steps, { knownStepRefs: ["planner"] }) as {
+      dynamic_steps: DynamicStepPayload[];
     };
   },
 });

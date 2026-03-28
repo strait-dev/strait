@@ -190,4 +190,48 @@ describe("StraitContext", () => {
       },
     });
   });
+
+  it("creates validated dynamic workflow expansion envelopes", () => {
+    const context = new StraitContext({
+      baseUrl,
+      runId,
+      runToken,
+      fetch: vi.fn<typeof fetch>(),
+    });
+
+    expect(
+      context.createDynamicSteps(
+        [
+          {
+            agent_id: "agent-web",
+            depends_on: ["planner"],
+            step_ref: "search-web",
+            step_type: "job",
+          },
+          {
+            agent_id: "agent-synth",
+            depends_on: ["search-web"],
+            step_ref: "synthesize",
+            step_type: "job",
+          },
+        ],
+        { knownStepRefs: ["planner"] }
+      )
+    ).toEqual({
+      dynamic_steps: [
+        {
+          agent_id: "agent-web",
+          depends_on: ["planner"],
+          step_ref: "search-web",
+          step_type: "job",
+        },
+        {
+          agent_id: "agent-synth",
+          depends_on: ["search-web"],
+          step_ref: "synthesize",
+          step_type: "job",
+        },
+      ],
+    });
+  });
 });

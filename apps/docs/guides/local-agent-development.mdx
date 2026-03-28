@@ -57,11 +57,13 @@ When the agent code needs provider wrappers instead of manual callback calls, us
 - `withStrait()` for Vercel AI SDK, OpenAI, and Anthropic
 - `createAIStep()` for checkpointed local orchestration primitives
 - `createSandboxTool()` for sandbox-targeted tools
+- `ctx.createDynamicSteps()` plus `fanOutSteps()` for planner-driven DAG expansion
 
 Reference implementations for this loop live in:
 
 - `packages/agents-sdk/examples/incident-triage-agent.ts`
 - `packages/agents-sdk/examples/dynamic-planner-workflow.ts`
+- `packages/agents-sdk/examples/multi-agent-research-pipeline.ts`
 
 ## Development Loop
 
@@ -124,6 +126,14 @@ Planner-style steps can also emit:
 ```
 
 The runtime validates this envelope against the current workflow DAG before it persists any new step.
+
+For local runtime dogfooding, `apps/agents` also supports structured local modes through the agent config or payload:
+
+- `dynamic_planner` emits a validated `dynamic_steps` envelope
+- `worker` emits a structured finding payload
+- `synthesizer` emits a synthesized summary payload
+
+This keeps the local runtime useful for orchestration testing instead of acting as a pure echo stub.
 
 ## Recommended Validation
 

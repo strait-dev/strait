@@ -22,6 +22,7 @@ Reference examples live in:
 
 - `packages/agents-sdk/examples/incident-triage-agent.ts`
 - `packages/agents-sdk/examples/dynamic-planner-workflow.ts`
+- `packages/agents-sdk/examples/multi-agent-research-pipeline.ts`
 
 ## Installation
 
@@ -165,9 +166,14 @@ The SDK includes agent-oriented workflow helpers:
 - `agentStep()`
 - `approvalStep()`
 - `agentWorkflow()`
+- `createDynamicSteps()`
+- `fanOutSteps()`
 - `pipelinePattern()`
 - `debatePattern()`
 - `orchestratorPattern()`
+- `waitForEventStep()`
+- `sleepStep()`
+- `subWorkflowStep()`
 
 ```ts
 import { orchestratorPattern } from "@strait/agents-sdk";
@@ -185,7 +191,26 @@ const workflow = orchestratorPattern({
 });
 ```
 
-Planner-style steps can request runtime DAG expansion by returning a `dynamic_steps` envelope from a completed step. See [Agents](/docs/concepts/agents) and [Workflows](/docs/concepts/workflows) for the runtime rules.
+Planner-style steps can request runtime DAG expansion by returning a validated `dynamic_steps` envelope from a completed step:
+
+```ts
+const steps = fanOutSteps({
+  dependsOn: ["planner"],
+  stepRefPrefix: "research",
+  synthesizer: {
+    stepRef: "synthesis",
+    agentId: "agent_synthesizer",
+  },
+  workers: [
+    { agentId: "agent_logs" },
+    { agentId: "agent_metrics" },
+  ],
+});
+
+return ctx.createDynamicSteps(steps, { knownStepRefs: ["planner"] });
+```
+
+This aligns with the runtime `dynamic_steps` contract documented in [Workflows](/docs/concepts/workflows).
 
 ## Local Evaluation Framework
 

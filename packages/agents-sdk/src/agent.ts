@@ -5,9 +5,14 @@ import {
   agentStep,
   agentWorkflow,
   approvalStep,
+  createDynamicSteps,
   debatePattern,
+  fanOutSteps,
   orchestratorPattern,
   pipelinePattern,
+  sleepStep,
+  subWorkflowStep,
+  waitForEventStep,
 } from "./workflow";
 
 export interface StraitAgentDefinition<
@@ -44,7 +49,12 @@ export const strait = {
   agentStep,
   agentWorkflow,
   approvalStep,
+  createDynamicSteps,
   debatePattern,
+  fanOutSteps,
   orchestratorPattern,
   pipelinePattern,
+  sleepStep,
+  subWorkflowStep,
+  waitForEventStep,
 };
