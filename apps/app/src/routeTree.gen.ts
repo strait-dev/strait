@@ -33,6 +33,7 @@ import { Route as AppSchedulesIndexRouteImport } from './routes/app/schedules/in
 import { Route as AppRunsIndexRouteImport } from './routes/app/runs/index'
 import { Route as AppLogsIndexRouteImport } from './routes/app/logs/index'
 import { Route as AppJobsIndexRouteImport } from './routes/app/jobs/index'
+import { Route as AppAgentsIndexRouteImport } from './routes/app/agents/index'
 import { Route as AppEventsIndexRouteImport } from './routes/app/events/index'
 import { Route as AppDlqIndexRouteImport } from './routes/app/dlq/index'
 import { Route as AppBillingIndexRouteImport } from './routes/app/billing/index'
@@ -169,6 +170,11 @@ const AppJobsIndexRoute = AppJobsIndexRouteImport.update({
   path: '/jobs/',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
+  id: '/agents/',
+  path: '/agents/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppEventsIndexRoute = AppEventsIndexRouteImport.update({
   id: '/events/',
   path: '/events/',
@@ -278,6 +284,7 @@ export interface FileRoutesByFullPath {
   '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
+  '/app/agents/': typeof AppAgentsIndexRoute
   '/app/jobs/': typeof AppJobsIndexRoute
   '/app/logs/': typeof AppLogsIndexRoute
   '/app/runs/': typeof AppRunsIndexRoute
@@ -318,6 +325,7 @@ export interface FileRoutesByTo {
   '/app/billing': typeof AppBillingIndexRoute
   '/app/dlq': typeof AppDlqIndexRoute
   '/app/events': typeof AppEventsIndexRoute
+  '/app/agents': typeof AppAgentsIndexRoute
   '/app/jobs': typeof AppJobsIndexRoute
   '/app/logs': typeof AppLogsIndexRoute
   '/app/runs': typeof AppRunsIndexRoute
@@ -360,6 +368,7 @@ export interface FileRoutesById {
   '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
+  '/app/agents/': typeof AppAgentsIndexRoute
   '/app/jobs/': typeof AppJobsIndexRoute
   '/app/logs/': typeof AppLogsIndexRoute
   '/app/runs/': typeof AppRunsIndexRoute
@@ -403,6 +412,7 @@ export interface FileRouteTypes {
     | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
+    | '/app/agents/'
     | '/app/jobs/'
     | '/app/logs/'
     | '/app/runs/'
@@ -443,6 +453,7 @@ export interface FileRouteTypes {
     | '/app/billing'
     | '/app/dlq'
     | '/app/events'
+    | '/app/agents'
     | '/app/jobs'
     | '/app/logs'
     | '/app/runs'
@@ -484,6 +495,7 @@ export interface FileRouteTypes {
     | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
+    | '/app/agents/'
     | '/app/jobs/'
     | '/app/logs/'
     | '/app/runs/'
@@ -696,6 +708,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDlqIndexRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/agents/': {
+      id: '/app/agents/'
+      path: '/agents'
+      fullPath: '/app/agents/'
+      preLoaderRoute: typeof AppAgentsIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/billing/': {
       id: '/app/billing/'
       path: '/billing'
@@ -807,6 +826,7 @@ interface AppLayoutRouteChildren {
   AppBillingIndexRoute: typeof AppBillingIndexRoute
   AppDlqIndexRoute: typeof AppDlqIndexRoute
   AppEventsIndexRoute: typeof AppEventsIndexRoute
+  AppAgentsIndexRoute: typeof AppAgentsIndexRoute
   AppJobsIndexRoute: typeof AppJobsIndexRoute
   AppLogsIndexRoute: typeof AppLogsIndexRoute
   AppRunsIndexRoute: typeof AppRunsIndexRoute
@@ -834,6 +854,7 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppBillingIndexRoute: AppBillingIndexRoute,
   AppDlqIndexRoute: AppDlqIndexRoute,
   AppEventsIndexRoute: AppEventsIndexRoute,
+  AppAgentsIndexRoute: AppAgentsIndexRoute,
   AppJobsIndexRoute: AppJobsIndexRoute,
   AppLogsIndexRoute: AppLogsIndexRoute,
   AppRunsIndexRoute: AppRunsIndexRoute,

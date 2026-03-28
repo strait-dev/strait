@@ -21,6 +21,7 @@ import {
   PlayActionIcon,
   SearchIcon,
   SettingsOutlineIcon,
+  SparklesIcon,
   TrendingUpIcon,
   UserIcon,
   WebhookIcon,
@@ -47,6 +48,12 @@ const navigationRoutes: CommandRoute[] = [
     icon: BriefcaseIcon,
     to: "/app/jobs",
     keywords: "tasks cron scheduled",
+  },
+  {
+    title: "Agents",
+    icon: SparklesIcon,
+    to: "/app/agents",
+    keywords: "ai llm assistants",
   },
   {
     title: "Workflows",

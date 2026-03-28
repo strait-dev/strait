@@ -2,6 +2,7 @@ import { createQueryKeyStore } from "@lukemorales/query-key-factory";
 import type { ListParams } from "@/hooks/api/types";
 
 type ListJobsSearch = ListParams & { status?: string; search?: string };
+type ListAgentsSearch = ListParams;
 type ListRunsSearch = ListParams & {
   status?: string;
   job_id?: string;
@@ -95,6 +96,12 @@ export const queryKeys = createQueryKeyStore({
   jobs: {
     list: (search?: ListJobsSearch) => [{ search }],
     detail: (id: string) => [id],
+  },
+
+  agents: {
+    list: (search?: ListAgentsSearch) => [{ search }],
+    detail: (id: string) => [id],
+    runs: (agentId: string, search?: ListParams) => [agentId, { search }],
   },
 
   runs: {

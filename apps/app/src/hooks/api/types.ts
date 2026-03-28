@@ -58,6 +58,12 @@ export type ExecutionTrace = Schema["ExecutionTrace"];
 /** Job definition. */
 export type Job = Schema["Job"];
 
+/** Managed agent definition. */
+export type Agent = Schema["Agent"];
+
+/** Agent deployment metadata. */
+export type AgentDeployment = Schema["AgentDeployment"];
+
 /** Job run. */
 export type JobRun = Schema["JobRun"];
 
