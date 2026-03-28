@@ -247,11 +247,27 @@ func TestListWorkflowStepDecisions(t *testing.T) {
 		Name:      ptr("wf-decisions"),
 		Slug:      ptr("wf-decisions-" + covID()),
 	})
+	jobA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr(projectID)})
+	stepA := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+		JobID:   ptr(jobA.ID),
+		StepRef: ptr("step-a"),
+	})
+	jobB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr(projectID)})
+	stepB := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+		JobID:   ptr(jobB.ID),
+		StepRef: ptr("step-b"),
+	})
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: ptr(projectID)})
+	srA := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, stepA.ID, &testutil.WorkflowStepRunOpts{
+		StepRef: ptr("step-a"),
+	})
+	srB := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, stepB.ID, &testutil.WorkflowStepRunOpts{
+		StepRef: ptr("step-b"),
+	})
 
 	d1 := &domain.WorkflowStepDecision{
 		WorkflowRunID: run.ID,
-		StepRunID:     covID(),
+		StepRunID:     srA.ID,
 		StepRef:       "step-a",
 		DecisionType:  "retry",
 		Decision:      "retry",
@@ -263,7 +279,7 @@ func TestListWorkflowStepDecisions(t *testing.T) {
 
 	d2 := &domain.WorkflowStepDecision{
 		WorkflowRunID: run.ID,
-		StepRunID:     covID(),
+		StepRunID:     srB.ID,
 		StepRef:       "step-b",
 		DecisionType:  "skip",
 		Decision:      "skip",
@@ -306,8 +322,12 @@ func TestListWorkflowStepDecisions(t *testing.T) {
 	if byType[0].DecisionType != "skip" {
 		t.Fatalf("expected decision_type=skip, got %q", byType[0].DecisionType)
 	}
-	if string(byType[0].Details) != `{"reason":"missing_input"}` {
-		t.Fatalf("unexpected details: %s", string(byType[0].Details))
+	var detailsMap map[string]string
+	if err := json.Unmarshal(byType[0].Details, &detailsMap); err != nil {
+		t.Fatalf("unmarshal details: %v", err)
+	}
+	if detailsMap["reason"] != "missing_input" {
+		t.Fatalf("unexpected details reason: %s", detailsMap["reason"])
 	}
 }
 

@@ -185,7 +185,7 @@ For advanced analytics dashboards, cost tracking, log search, and alerting -- us
 
 Trigger jobs programmatically from your application:
 
-**TypeScript**:
+**TypeScript** ([github.com/strait-dev/strait-ts](https://github.com/strait-dev/strait-ts)):
 ```bash
 npm install @strait/ts
 ```
