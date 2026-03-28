@@ -33,7 +33,11 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
-import { runsQueryOptions, useRetryRun, useCancelRun } from "@/hooks/api/use-runs";
+import {
+  runsQueryOptions,
+  useCancelRun,
+  useRetryRun,
+} from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
   CalendarIcon,
@@ -92,7 +96,10 @@ function RunsPage() {
   const table = useReactTable({
     data: tableData,
     columns: createRunColumns({
-      onView: (run) => { setSelectedRun(run); setSheetOpen(true); },
+      onView: (run) => {
+        setSelectedRun(run);
+        setSheetOpen(true);
+      },
       onRetry: (run) => retryRun.mutate({ run_id: run.id }),
       onCancel: (run) => cancelRun.mutate({ run_id: run.id }),
     }),

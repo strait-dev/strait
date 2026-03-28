@@ -31,7 +31,12 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Workflow } from "@/hooks/api/types";
-import { workflowsQueryOptions, useTriggerWorkflow, usePauseWorkflow, useResumeWorkflow } from "@/hooks/api/use-workflows";
+import {
+  usePauseWorkflow,
+  useResumeWorkflow,
+  useTriggerWorkflow,
+  workflowsQueryOptions,
+} from "@/hooks/api/use-workflows";
 import {
   EyeIcon,
   FilterIcon,
@@ -104,8 +109,12 @@ function WorkflowsPage() {
   const table = useReactTable({
     data: filteredData,
     columns: createWorkflowColumns({
-      onView: (workflow) => { setSelectedWorkflow(workflow); setSheetOpen(true); },
-      onTrigger: (workflow) => triggerWorkflow.mutate({ workflowId: workflow.id }),
+      onView: (workflow) => {
+        setSelectedWorkflow(workflow);
+        setSheetOpen(true);
+      },
+      onTrigger: (workflow) =>
+        triggerWorkflow.mutate({ workflowId: workflow.id }),
       onPauseResume: (workflow) => {
         if (workflow.enabled) {
           pauseWorkflow.mutate({ workflowId: workflow.id });

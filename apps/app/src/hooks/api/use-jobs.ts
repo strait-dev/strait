@@ -7,6 +7,7 @@ import {
 import { createServerFn } from "@tanstack/react-start";
 import type {
   Job,
+  JobHealthResponse,
   JobRun,
   ListParams,
   PaginatedResponse,
@@ -16,10 +17,6 @@ import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchJobs = createServerFn({ method: "GET" })
   .inputValidator(
@@ -74,6 +71,17 @@ export const updateJobFn = createServerFn({ method: "POST" })
     );
   });
 
+export const fetchJobHealth = createServerFn({ method: "GET" })
+  .inputValidator((data: { id: string; window?: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }): Promise<JobHealthResponse> => {
+    return await runWithSentryReport(
+      apiEffect<JobHealthResponse>(`/v1/jobs/${data.id}/health`, {
+        params: { window: data.window },
+      })
+    );
+  });
+
 export const deleteJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
@@ -83,9 +91,28 @@ export const deleteJobFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
+export const pauseJobFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string; reason?: string }) => data)
+  .middleware([authMiddleware])
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<Job> => {
+    return await runWithSentryReport(
+      apiEffect<Job>(`/v1/jobs/${data.id}/pause`, {
+        method: "POST",
+        body: { reason: data.reason },
+      })
+    );
+  });
+
+export const resumeJobFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string }) => data)
+  .middleware([authMiddleware])
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<Job> => {
+    return await runWithSentryReport(
+      apiEffect<Job>(`/v1/jobs/${data.id}/resume`, { method: "POST" })
+    );
+  });
 
 type ListJobsInput = ListParams & { status?: string; search?: string };
 
@@ -106,9 +133,13 @@ export const jobQueryOptions = (id: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
+export const jobHealthQueryOptions = (id: string, window = "7d") =>
+  queryOptions({
+    queryKey: [...queryKeys.jobs.detail(id).queryKey, "health", window],
+    queryFn: () => fetchJobHealth({ data: { id, window } }),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
 
 export const useTriggerJob = () => {
   const queryClient = useQueryClient();
@@ -137,8 +168,8 @@ export const usePauseJob = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["jobs", "pause"],
-    mutationFn: (data: { id: string }) =>
-      updateJobFn({ data: { id: data.id, enabled: false } }),
+    mutationFn: (data: { id: string; reason?: string }) =>
+      pauseJobFn({ data }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("job_paused", { job_id: variables.id });
     },
@@ -192,8 +223,7 @@ export const useResumeJob = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["jobs", "resume"],
-    mutationFn: (data: { id: string }) =>
-      updateJobFn({ data: { id: data.id, enabled: true } }),
+    mutationFn: (data: { id: string }) => resumeJobFn({ data }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("job_resumed", { job_id: variables.id });
     },

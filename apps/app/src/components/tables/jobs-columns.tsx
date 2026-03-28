@@ -11,7 +11,9 @@ type JobColumnActions = {
   onPauseResume?: (job: Job) => void;
 };
 
-export const createJobColumns = (actions: JobColumnActions = {}): ColumnDef<Job>[] => [
+export const createJobColumns = (
+  actions: JobColumnActions = {}
+): ColumnDef<Job>[] => [
   createSelectColumn<Job>(),
   {
     accessorKey: "name",
@@ -62,8 +64,20 @@ export const createJobColumns = (actions: JobColumnActions = {}): ColumnDef<Job>
       }),
   },
   createActionsColumn<Job>([
-    { label: "View", icon: EyeIcon, onClick: (row) => actions.onView?.(row.original) },
-    { label: "Trigger", icon: PlayActionIcon, onClick: (row) => actions.onTrigger?.(row.original) },
-    { label: "Pause / Resume", icon: PauseActionIcon, onClick: (row) => actions.onPauseResume?.(row.original) },
+    {
+      label: "View",
+      icon: EyeIcon,
+      onClick: (row) => actions.onView?.(row.original),
+    },
+    {
+      label: "Trigger",
+      icon: PlayActionIcon,
+      onClick: (row) => actions.onTrigger?.(row.original),
+    },
+    {
+      label: "Pause / Resume",
+      icon: PauseActionIcon,
+      onClick: (row) => actions.onPauseResume?.(row.original),
+    },
   ]),
 ];

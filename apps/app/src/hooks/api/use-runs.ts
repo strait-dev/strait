@@ -17,9 +17,6 @@ import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchRuns = createServerFn({ method: "GET" })
   .inputValidator(
@@ -90,9 +87,6 @@ export const cancelRunFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 type RunsSearchParams = ListParams & {
   status?: string;
@@ -125,9 +119,6 @@ export const runEventsQueryOptions = (runId: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useRetryRun = () => {
   const queryClient = useQueryClient();

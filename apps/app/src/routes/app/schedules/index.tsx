@@ -31,7 +31,12 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
-import { schedulesQueryOptions, useTriggerSchedule, usePauseSchedule, useResumeSchedule } from "@/hooks/api/use-schedules";
+import {
+  schedulesQueryOptions,
+  usePauseSchedule,
+  useResumeSchedule,
+  useTriggerSchedule,
+} from "@/hooks/api/use-schedules";
 import {
   CalendarIcon,
   EyeIcon,
@@ -105,7 +110,10 @@ function SchedulesPage() {
   const table = useReactTable({
     data: filteredData,
     columns: createScheduleColumns({
-      onView: (schedule) => { setSelectedSchedule(schedule); setSheetOpen(true); },
+      onView: (schedule) => {
+        setSelectedSchedule(schedule);
+        setSheetOpen(true);
+      },
       onTrigger: (schedule) => triggerSchedule.mutate({ id: schedule.id }),
       onPauseResume: (schedule) => {
         if (schedule.enabled) {

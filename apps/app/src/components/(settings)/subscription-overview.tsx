@@ -14,6 +14,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { getPostHog } from "@/lib/analytics";
 import {
   AlarmClockIcon,
   AlertCircleIcon,
@@ -22,7 +23,6 @@ import {
   LinkSquareIcon,
   SparklesIcon,
 } from "@/lib/icons";
-import { getPostHog } from "@/lib/analytics";
 import { captureException } from "@/lib/sentry";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 

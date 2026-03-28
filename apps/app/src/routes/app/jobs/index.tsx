@@ -32,7 +32,12 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
-import { jobsQueryOptions, useTriggerJob, usePauseJob, useResumeJob } from "@/hooks/api/use-jobs";
+import {
+  jobsQueryOptions,
+  usePauseJob,
+  useResumeJob,
+  useTriggerJob,
+} from "@/hooks/api/use-jobs";
 import {
   BriefcaseIcon,
   EyeIcon,
@@ -110,7 +115,10 @@ function JobsPage() {
   const table = useReactTable({
     data: filteredData,
     columns: createJobColumns({
-      onView: (job) => { setSelectedJob(job); setSheetOpen(true); },
+      onView: (job) => {
+        setSelectedJob(job);
+        setSheetOpen(true);
+      },
       onTrigger: (job) => triggerJob.mutate({ id: job.id }),
       onPauseResume: (job) => {
         if (job.enabled) {

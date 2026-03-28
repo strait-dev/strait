@@ -176,7 +176,11 @@ const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
           >
             View details
           </Button>
-          <Button className="w-full" disabled={triggerJob.isPending} onClick={() => triggerJob.mutate({ id: job.id })}>
+          <Button
+            className="w-full"
+            disabled={triggerJob.isPending}
+            onClick={() => triggerJob.mutate({ id: job.id })}
+          >
             <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
             Trigger
           </Button>

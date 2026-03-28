@@ -13,9 +13,7 @@ import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-// ---------------------------------------------------------------------------
 // Bulk cancel server function (uses the dedicated bulk endpoint)
-// ---------------------------------------------------------------------------
 
 const bulkCancelRunsFn = createServerFn({ method: "POST" })
   .inputValidator((data: { run_ids: string[] }) => data)
@@ -29,9 +27,6 @@ const bulkCancelRunsFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchDlqRuns = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams & { search?: string }) => data)
@@ -73,9 +68,6 @@ export const bulkReplayDlqFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 export const dlqQueryOptions = (search?: ListParams & { search?: string }) =>
   queryOptions({
@@ -86,9 +78,6 @@ export const dlqQueryOptions = (search?: ListParams & { search?: string }) =>
     placeholderData: keepPreviousData,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useRetryDlqItem = () => {
   const queryClient = useQueryClient();

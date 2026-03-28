@@ -68,5 +68,3 @@ export const DeleteLastOrganizationWithTokenSchema = z.object({
   organizationId: z.string({ message: "Invalid organization ID" }),
   verificationToken: z.string({ message: "Invalid verification token" }),
 });
-
-

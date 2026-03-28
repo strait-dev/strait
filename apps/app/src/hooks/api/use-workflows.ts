@@ -17,9 +17,6 @@ import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchWorkflows = createServerFn({ method: "GET" })
   .inputValidator(
@@ -113,9 +110,6 @@ export const updateWorkflowFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 export const workflowsQueryOptions = (search?: string) =>
   queryOptions({
@@ -150,9 +144,6 @@ export const workflowRunsQueryOptions = (workflowId: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useTriggerWorkflow = () => {
   const queryClient = useQueryClient();

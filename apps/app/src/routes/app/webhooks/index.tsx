@@ -31,7 +31,10 @@ import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floa
 import WebhookDetailSheet from "@/components/webhooks/webhook-detail-sheet";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { WebhookSubscription } from "@/hooks/api/types";
-import { webhooksQueryOptions, useDeleteWebhook } from "@/hooks/api/use-webhooks";
+import {
+  useDeleteWebhook,
+  webhooksQueryOptions,
+} from "@/hooks/api/use-webhooks";
 import {
   EyeIcon,
   FilterIcon,

@@ -35,8 +35,8 @@ import {
   dlqQueryOptions,
   useBulkDiscardDlq,
   useBulkRetryDlq,
-  useRetryDlqItem,
   useDiscardDlqItem,
+  useRetryDlqItem,
 } from "@/hooks/api/use-dlq";
 import {
   AlertIcon,
@@ -94,7 +94,10 @@ function DlqPage() {
   const table = useReactTable({
     data: tableData,
     columns: createDlqColumns({
-      onView: (run) => { setSelectedRun(run); setSheetOpen(true); },
+      onView: (run) => {
+        setSelectedRun(run);
+        setSheetOpen(true);
+      },
       onRetry: (run) => retryDlqItem.mutate({ id: run.id }),
       onDiscard: (run) => discardDlqItem.mutate({ id: run.id }),
     }),

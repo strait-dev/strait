@@ -11,7 +11,9 @@ type WebhookColumnActions = {
   onDelete?: (webhook: WebhookSubscription) => void;
 };
 
-export const createWebhookColumns = (actions: WebhookColumnActions = {}): ColumnDef<WebhookSubscription>[] => [
+export const createWebhookColumns = (
+  actions: WebhookColumnActions = {}
+): ColumnDef<WebhookSubscription>[] => [
   createSelectColumn<WebhookSubscription>(),
   {
     accessorKey: "webhook_url",
@@ -51,7 +53,11 @@ export const createWebhookColumns = (actions: WebhookColumnActions = {}): Column
       }),
   },
   createActionsColumn<WebhookSubscription>([
-    { label: "View", icon: EyeIcon, onClick: (row) => actions.onView?.(row.original) },
+    {
+      label: "View",
+      icon: EyeIcon,
+      onClick: (row) => actions.onView?.(row.original),
+    },
     {
       label: "Delete",
       icon: TrashIcon,

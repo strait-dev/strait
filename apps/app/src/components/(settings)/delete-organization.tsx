@@ -67,10 +67,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
     if (resendCooldown <= 0) {
       return;
     }
-    const timer = setTimeout(
-      () => setResendCooldown((c) => c - 1),
-      1000
-    );
+    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
   }, [resendCooldown]);
 
@@ -206,7 +203,11 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
           onOpenChange={(open) => !open && handleClose()}
           open={isOpen}
         >
-          <Button disabled={isLastOrg} onClick={handleOpen} variant="destructive">
+          <Button
+            disabled={isLastOrg}
+            onClick={handleOpen}
+            variant="destructive"
+          >
             <HugeiconsIcon className="size-4" icon={TrashIcon} />
             Delete Organization
           </Button>

@@ -11,7 +11,7 @@ import { cn } from "@strait/ui/utils/index";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { DisplayStatus, JobRun } from "@/hooks/api/types";
-import { useRetryRun, useCancelRun } from "@/hooks/api/use-runs";
+import { useCancelRun, useRetryRun } from "@/hooks/api/use-runs";
 import {
   AlertIcon,
   BriefcaseIcon,
@@ -236,13 +236,23 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
             View details
           </Button>
           {isFailed && (
-            <Button className="w-full" disabled={retryRun.isPending} onClick={() => retryRun.mutate({ run_id: run.id })} variant="outline">
+            <Button
+              className="w-full"
+              disabled={retryRun.isPending}
+              onClick={() => retryRun.mutate({ run_id: run.id })}
+              variant="outline"
+            >
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
               Retry
             </Button>
           )}
           {isActive && (
-            <Button className="w-full" disabled={cancelRun.isPending} onClick={() => cancelRun.mutate({ run_id: run.id })} variant="outline">
+            <Button
+              className="w-full"
+              disabled={cancelRun.isPending}
+              onClick={() => cancelRun.mutate({ run_id: run.id })}
+              variant="outline"
+            >
               <HugeiconsIcon className="mr-1.5" icon={XCircleIcon} size={14} />
               Cancel
             </Button>
