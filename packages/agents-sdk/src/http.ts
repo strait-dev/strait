@@ -1,3 +1,5 @@
+import { Duration, Effect, Either } from "effect";
+import { runPromise } from "./effects";
 import { StraitAPIError, StraitSDKError } from "./errors";
 import type { RetryPolicy, StraitContextOptions } from "./types";
 
@@ -33,13 +35,11 @@ function resolveRetryPolicy(
   return { maxAttempts, baseDelayMs, maxDelayMs };
 }
 
-function sleep(ms: number): Promise<void> {
+function sleepEffect(ms: number): Effect.Effect<void> {
   if (ms <= 0) {
-    return Promise.resolve();
+    return Effect.void;
   }
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+  return Effect.sleep(Duration.millis(ms));
 }
 
 function buildSDKURL(baseUrl: string, runId: string, path: string): string {
@@ -143,7 +143,9 @@ export class StraitHTTPClient {
       signal?: AbortSignal;
     } = {}
   ): Promise<TResponse> {
-    return this.#request<TResponse>("POST", path, body, options);
+    return runPromise(
+      this.#requestEffect<TResponse>("POST", path, body, options)
+    );
   }
 
   get<TResponse>(
@@ -153,7 +155,9 @@ export class StraitHTTPClient {
       signal?: AbortSignal;
     } = {}
   ): Promise<TResponse> {
-    return this.#request<TResponse>("GET", path, undefined, options);
+    return runPromise(
+      this.#requestEffect<TResponse>("GET", path, undefined, options)
+    );
   }
 
   delete<TResponse>(
@@ -163,10 +167,12 @@ export class StraitHTTPClient {
       signal?: AbortSignal;
     } = {}
   ): Promise<TResponse> {
-    return this.#request<TResponse>("DELETE", path, undefined, options);
+    return runPromise(
+      this.#requestEffect<TResponse>("DELETE", path, undefined, options)
+    );
   }
 
-  async #request<TResponse>(
+  #requestEffect<TResponse>(
     method: "DELETE" | "GET" | "POST",
     path: string,
     body: unknown,
@@ -174,12 +180,48 @@ export class StraitHTTPClient {
       retryable?: boolean;
       signal?: AbortSignal;
     }
-  ): Promise<TResponse> {
+  ): Effect.Effect<TResponse, StraitAPIError | StraitSDKError | Error> {
     const attempts = options.retryable ? this.#retryPolicy.maxAttempts : 1;
     const url = buildSDKURL(this.#baseUrl, this.#runId, path);
 
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      try {
+    return Effect.gen(this, function* () {
+      let lastError: StraitAPIError | StraitSDKError | Error =
+        new StraitSDKError("unreachable retry state");
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const result = yield* Effect.either(
+          this.#attemptRequest<TResponse>(url, method, body, options.signal)
+        );
+        if (Either.isRight(result)) {
+          return result.right;
+        }
+
+        lastError = result.left;
+        const hasAttemptsRemaining = attempt < attempts;
+        if (!(hasAttemptsRemaining && this.#shouldRetryError(lastError))) {
+          return yield* Effect.fail(lastError);
+        }
+
+        yield* sleepEffect(
+          Math.min(
+            this.#retryPolicy.baseDelayMs * attempt,
+            this.#retryPolicy.maxDelayMs
+          )
+        );
+      }
+
+      return yield* Effect.fail(lastError);
+    });
+  }
+
+  #attemptRequest<TResponse>(
+    url: string,
+    method: "DELETE" | "GET" | "POST",
+    body: unknown,
+    signal?: AbortSignal
+  ): Effect.Effect<TResponse, StraitAPIError | Error> {
+    return Effect.tryPromise({
+      try: async () => {
         const headers = new Headers({
           Authorization: `Bearer ${this.#runToken}`,
           "X-SDK-Version": this.#sdkVersion,
@@ -189,43 +231,38 @@ export class StraitHTTPClient {
           headers.set("Content-Type", "application/json");
           encodedBody = JSON.stringify(body);
         }
+
         const response = await this.#fetch(url, {
           method,
           headers,
           body: encodedBody,
-          signal: options.signal,
+          signal,
         });
-
         const parsedBody = await parseResponseBody(response);
         if (response.ok) {
           return parsedBody as TResponse;
         }
 
-        const error = makeAPIError(response, parsedBody);
-        if (attempt < attempts && isRetryableStatus(response.status)) {
-          await sleep(
-            Math.min(
-              this.#retryPolicy.baseDelayMs * attempt,
-              this.#retryPolicy.maxDelayMs
-            )
-          );
-          continue;
+        throw makeAPIError(response, parsedBody);
+      },
+      catch: (error) => {
+        if (error instanceof StraitAPIError) {
+          return error;
         }
-        throw error;
-      } catch (error) {
-        if (attempt < attempts && error instanceof StraitAPIError === false) {
-          await sleep(
-            Math.min(
-              this.#retryPolicy.baseDelayMs * attempt,
-              this.#retryPolicy.maxDelayMs
-            )
-          );
-          continue;
-        }
-        throw error;
-      }
+        return error instanceof Error ? error : new Error(String(error));
+      },
+    });
+  }
+
+  #shouldRetryError(error: StraitAPIError | Error): boolean {
+    if (error instanceof StraitAPIError) {
+      return isRetryableStatus(error.status);
     }
 
-    throw new StraitSDKError("unreachable retry state");
+    if (error.name === "AbortError") {
+      return false;
+    }
+
+    return true;
   }
 }

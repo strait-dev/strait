@@ -179,7 +179,7 @@ func TestRetryFlowWithRealPersistence(t *testing.T) {
 	defer srv.Close()
 
 	payload := `{"retry":"test"}`
-	now := time.Now()
+	now := time.Now().Add(-time.Second)
 	d := &domain.WebhookDelivery{
 		WebhookURL:  srv.URL,
 		RetryPolicy: domain.WebhookRetryPolicyFixed,
@@ -563,16 +563,23 @@ func TestDeliveryStatusTracking(t *testing.T) {
 	}
 
 	// Verify it appears in pending retries.
-	pending, err := st.ListPendingWebhookRetries(ctx)
-	if err != nil {
-		t.Fatalf("ListPendingWebhookRetries() error = %v", err)
-	}
+	deadline := time.Now().Add(2 * time.Second)
 	found := false
-	for _, p := range pending {
-		if p.ID == d.ID {
-			found = true
+	for time.Now().Before(deadline) {
+		pending, err := st.ListPendingWebhookRetries(ctx)
+		if err != nil {
+			t.Fatalf("ListPendingWebhookRetries() error = %v", err)
+		}
+		for _, p := range pending {
+			if p.ID == d.ID {
+				found = true
+				break
+			}
+		}
+		if found {
 			break
 		}
+		time.Sleep(25 * time.Millisecond)
 	}
 	if !found {
 		t.Fatal("delivery not found in pending retries list")
@@ -586,7 +593,7 @@ func TestDeliveryStatusTracking(t *testing.T) {
 		_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
 	}()
 
-	deadline := time.After(5 * time.Second)
+	waitForDelivery := time.After(5 * time.Second)
 	for {
 		got, err = st.GetWebhookDelivery(ctx, d.ID)
 		if err != nil {
@@ -596,7 +603,7 @@ func TestDeliveryStatusTracking(t *testing.T) {
 			break
 		}
 		select {
-		case <-deadline:
+		case <-waitForDelivery:
 			t.Fatalf("timed out waiting for delivery, status = %q", got.Status)
 		default:
 			time.Sleep(50 * time.Millisecond)
@@ -620,7 +627,7 @@ func TestDeliveryStatusTracking(t *testing.T) {
 	}
 
 	// Verify it no longer appears in pending retries.
-	pending, err = st.ListPendingWebhookRetries(ctx)
+	pending, err := st.ListPendingWebhookRetries(ctx)
 	if err != nil {
 		t.Fatalf("ListPendingWebhookRetries() after delivery error = %v", err)
 	}

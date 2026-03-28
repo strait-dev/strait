@@ -19,10 +19,14 @@
     "apps/agents": {
       "name": "@strait/agents",
       "version": "0.0.0",
+      "dependencies": {
+        "effect": "3.21.0",
+      },
       "devDependencies": {
         "@types/node": "^25.5.0",
         "@typescript/native-preview": "^7.0.0-dev.20260327.2",
         "typescript": "^6.0.2",
+        "vitest": "^4.1.2",
       },
     },
     "apps/app": {
@@ -171,6 +175,7 @@
       "dependencies": {
         "@anthropic-ai/sdk": "^0.80.0",
         "ai": "^6.0.141",
+        "effect": "3.21.0",
         "openai": "^6.33.0",
       },
       "devDependencies": {

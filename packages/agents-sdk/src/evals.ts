@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+import { runPromise } from "./effects";
 import { StraitSDKError } from "./errors";
 import type { JsonValue } from "./types";
 
@@ -122,53 +124,85 @@ export async function runEvalSuite<TInput, TResult>(
   const normalizedSuite = defineEvalSuite(suite);
   const startedAt = Date.now();
 
-  const caseResults = await Promise.all(
-    normalizedSuite.cases.map(async (testCase) => {
-      const caseStartedAt = Date.now();
+  const caseResults = await runPromise(
+    Effect.forEach(
+      normalizedSuite.cases,
+      (testCase) =>
+        Effect.gen(function* () {
+          const caseStartedAt = Date.now();
 
-      try {
-        const result = await execute(testCase.input, testCase);
-        const assertions = await Promise.all(
-          (testCase.assertions ?? []).map(async (assertion) => ({
-            name: assertion.name,
-            message: assertion.message,
-            passed: await assertion.assert(result),
-          }))
-        );
+          const executionResult = yield* Effect.either(
+            Effect.tryPromise({
+              try: () => execute(testCase.input, testCase),
+              catch: (error) =>
+                error instanceof Error ? error : new Error(String(error)),
+            })
+          );
+          if (executionResult._tag === "Left") {
+            const error = executionResult.left;
+            return {
+              caseName: testCase.name,
+              durationMs: Date.now() - caseStartedAt,
+              tags: testCase.tags ?? [],
+              passed: false,
+              assertions: [],
+              error: error instanceof Error ? error.message : String(error),
+            } satisfies EvalCaseResult<TResult>;
+          }
 
-        const judgeResult = testCase.judge
-          ? await testCase.judge.judge(result)
-          : undefined;
+          const result = executionResult.right;
+          const assertions = yield* Effect.forEach(
+            testCase.assertions ?? [],
+            (assertion) =>
+              Effect.gen(function* () {
+                const passed = yield* Effect.tryPromise(() =>
+                  Promise.resolve(assertion.assert(result))
+                ).pipe(
+                  Effect.mapError((error) =>
+                    error instanceof Error ? error : new Error(String(error))
+                  )
+                );
+                return {
+                  name: assertion.name,
+                  message: assertion.message,
+                  passed,
+                } satisfies EvalAssertionResult;
+              })
+          );
 
-        const passed =
-          assertions.every((assertion) => assertion.passed) &&
-          (judgeResult?.passed ?? true);
+          const judgeResult = testCase.judge
+            ? yield* Effect.tryPromise(() =>
+                Promise.resolve(testCase.judge?.judge(result))
+              ).pipe(
+                Effect.mapError((error) =>
+                  error instanceof Error ? error : new Error(String(error))
+                )
+              )
+            : undefined;
 
-        return {
-          caseName: testCase.name,
-          durationMs: Date.now() - caseStartedAt,
-          tags: testCase.tags ?? [],
-          passed,
-          result,
-          assertions,
-          judge: judgeResult
-            ? {
-                name: testCase.judge?.name ?? "judge",
-                ...judgeResult,
-              }
-            : undefined,
-        } satisfies EvalCaseResult<TResult>;
-      } catch (error) {
-        return {
-          caseName: testCase.name,
-          durationMs: Date.now() - caseStartedAt,
-          tags: testCase.tags ?? [],
-          passed: false,
-          assertions: [],
-          error: error instanceof Error ? error.message : String(error),
-        } satisfies EvalCaseResult<TResult>;
+          const passed =
+            assertions.every((assertion) => assertion.passed) &&
+            (judgeResult?.passed ?? true);
+
+          return {
+            caseName: testCase.name,
+            durationMs: Date.now() - caseStartedAt,
+            tags: testCase.tags ?? [],
+            passed,
+            result,
+            assertions,
+            judge: judgeResult
+              ? {
+                  name: testCase.judge?.name ?? "judge",
+                  ...judgeResult,
+                }
+              : undefined,
+          } satisfies EvalCaseResult<TResult>;
+        }),
+      {
+        concurrency: "unbounded",
       }
-    })
+    )
   );
 
   const passed = caseResults.filter((result) => result.passed).length;
