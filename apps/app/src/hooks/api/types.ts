@@ -1,18 +1,11 @@
 // Canonical frontend types for the orchestration data model.
-// Entity types are derived from the Huma-generated OpenAPI schema where available.
 // Run `bun run generate:api` to regenerate the schema from the live Go API.
 
 import type { components } from "@/lib/api/schema";
 
-// ---------------------------------------------------------------------------
-// Schema type alias for convenience
-// ---------------------------------------------------------------------------
 
 type Schema = components["schemas"];
 
-// ---------------------------------------------------------------------------
-// Enums & union types
-// ---------------------------------------------------------------------------
 
 /** Matches Go domain.RunStatus constants. */
 export type RunStatus =
@@ -61,9 +54,6 @@ export type StepRunStatus =
 /** Matches Go domain.VersionPolicy. */
 export type VersionPolicy = "pin" | "latest" | "minor";
 
-// ---------------------------------------------------------------------------
-// Entity types — derived from Huma-generated OpenAPI component schemas
-// ---------------------------------------------------------------------------
 
 /** Timing breakdown for a job run execution. */
 export type ExecutionTrace = Schema["ExecutionTrace"];
@@ -101,9 +91,6 @@ export type APIKey = Schema["CreateAPIKeyResponse"];
 /** Response from POST /v1/api-keys/{keyID}/rotate. */
 export type RotateAPIKeyResponse = Schema["RotateAPIKeyRequest"];
 
-// ---------------------------------------------------------------------------
-// Types not exposed as named Huma schemas (manual definitions)
-// ---------------------------------------------------------------------------
 
 /** Workflow DAG definition. Extracted from WorkflowResponse. */
 export type Workflow = {

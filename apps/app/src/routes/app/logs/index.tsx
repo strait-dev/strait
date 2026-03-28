@@ -36,7 +36,6 @@ import { FileTextIcon, FilterIcon, SearchIcon } from "@/lib/icons";
 import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
-// --- Route ---
 
 export const searchSchema = z.object({
   query: z.string().optional(),

@@ -126,7 +126,6 @@ function StatusTooltip({
   );
 }
 
-// --- Page ---
 
 function JobDetailPage() {
   const { id } = Route.useParams();

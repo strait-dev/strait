@@ -18,9 +18,6 @@ import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchJobs = createServerFn({ method: "GET" })
   .inputValidator(
@@ -95,9 +92,6 @@ export const deleteJobFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 type ListJobsInput = ListParams & { status?: string; search?: string };
 
@@ -126,9 +120,6 @@ export const jobHealthQueryOptions = (id: string, window = "7d") =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useTriggerJob = () => {
   const queryClient = useQueryClient();

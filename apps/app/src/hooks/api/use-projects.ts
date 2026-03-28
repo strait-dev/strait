@@ -14,9 +14,6 @@ import {
   setActiveProjectServerFn,
 } from "@/lib/project-handler";
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 export const projectsQueryOptions = (organizationId: string) =>
   queryOptions({
@@ -36,9 +33,6 @@ export const projectQueryOptions = (id: string) =>
     enabled: !!id,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useCreateProject = () => {
   const queryClient = useQueryClient();
