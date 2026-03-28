@@ -164,9 +164,7 @@ async function signInAndSaveState(
     );
   }
 
-  const tokenMatch = sessionCookie.match(
-    /better-auth\.session_token=([^;]+)/
-  );
+  const tokenMatch = sessionCookie.match(/better-auth\.session_token=([^;]+)/);
   if (!tokenMatch) {
     throw new Error("Could not parse session token from cookie");
   }
