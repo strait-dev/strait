@@ -32,7 +32,6 @@ test.describe("Workflow Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const overview = page.getByText("Overview");
       if (await overview.isVisible({ timeout: 3000 }).catch(() => false)) {
         await expect(overview).toBeVisible();
@@ -50,7 +49,6 @@ test.describe("Workflow Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       // DAG flow uses react-flow which renders SVG/canvas elements
       const dagContainer = page.locator(
         "[class*='react-flow'], [class*='dag'], canvas"
@@ -76,11 +74,10 @@ test.describe("Workflow Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const stepsTab = page.getByText("Steps");
       if (await stepsTab.isVisible({ timeout: 3000 }).catch(() => false)) {
         await stepsTab.click();
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(500);
       }
     }
   });
@@ -95,11 +92,10 @@ test.describe("Workflow Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const runsTab = page.getByText("Runs");
       if (await runsTab.isVisible({ timeout: 3000 }).catch(() => false)) {
         await runsTab.click();
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(500);
       }
     }
   });
@@ -114,7 +110,6 @@ test.describe("Workflow Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const config = page.getByText("Configuration");
       if (await config.isVisible({ timeout: 3000 }).catch(() => false)) {
         await expect(config).toBeVisible();
@@ -132,7 +127,6 @@ test.describe("Workflow Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const triggerBtn = page.getByRole("button", { name: /trigger/i });
       if (await triggerBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await expect(triggerBtn).toBeVisible();
@@ -150,7 +144,6 @@ test.describe("Workflow Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const badge = page.locator("[class*='badge']").first();
       if (await badge.isVisible()) {
         await expect(badge).toBeVisible();

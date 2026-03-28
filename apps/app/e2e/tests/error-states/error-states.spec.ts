@@ -3,7 +3,6 @@ import { expect, test } from "../../fixtures";
 test.describe("Error States", () => {
   test("404 page renders for unknown route", async ({ page }) => {
     await page.goto("/app/this-page-does-not-exist-12345");
-    await page.waitForTimeout(2000);
     // Should show some kind of error/not found or redirect
     await expect(page.locator("body")).toBeVisible();
   });

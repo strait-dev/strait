@@ -10,10 +10,14 @@ export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
   forbidOnly: isCI,
-  retries: isCI ? 2 : 0,
-  workers: isCI ? 1 : undefined,
+  retries: isCI ? 1 : 0,
+  workers: isCI ? 2 : undefined,
+  maxFailures: isCI ? 20 : undefined,
   reporter: isCI ? [["html"], ["github"]] : "html",
-  timeout: 30_000,
+  timeout: 15_000,
+  expect: {
+    timeout: 8000,
+  },
   globalSetup: resolve(__dirname, "global-setup.ts"),
   globalTeardown: resolve(__dirname, "global-teardown.ts"),
   use: {
@@ -21,6 +25,8 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     storageState: resolve(__dirname, "../playwright/.auth/user.json"),
+    navigationTimeout: 15_000,
+    actionTimeout: 10_000,
   },
   projects: [
     {

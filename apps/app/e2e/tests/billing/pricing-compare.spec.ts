@@ -15,7 +15,6 @@ test.describe("Pricing Comparison", () => {
 
   test("migration calculator renders", async ({ page }) => {
     await page.goto("/app/pricing/compare");
-    await page.waitForTimeout(3000);
     await expect(page.locator("main")).toBeVisible();
   });
 

@@ -49,7 +49,6 @@ test.describe("Signup", () => {
       .getByRole("button", { name: "Create account", exact: true })
       .click();
 
-    await page.waitForTimeout(3000);
     await expect(page).toHaveURL(/signup/);
   });
 

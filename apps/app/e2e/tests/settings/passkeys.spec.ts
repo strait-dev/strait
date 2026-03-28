@@ -3,7 +3,6 @@ import { expect, test } from "../../fixtures";
 test.describe("Passkeys", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/settings");
-    await page.waitForTimeout(2000);
   });
 
   test("passkeys section visible", async ({ page }) => {

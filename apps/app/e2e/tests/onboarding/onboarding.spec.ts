@@ -9,19 +9,17 @@ test.describe("Onboarding", () => {
   test("onboarding or dashboard renders", async ({ page }) => {
     await page.goto("/app");
     // User may see onboarding, dashboard, or redirect
-    await page.waitForTimeout(2000);
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("code examples or dashboard present", async ({ page }) => {
     await page.goto("/app");
-    await page.waitForTimeout(2000);
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("navigation works from onboarding", async ({ page }) => {
     await page.goto("/app");
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
     await page.goto("/app/jobs");
     await expect(page).toHaveURL(/\/app\/jobs/);
   });
@@ -33,7 +31,6 @@ test.describe("Onboarding", () => {
 
   test("sidebar is accessible", async ({ page }) => {
     await page.goto("/app");
-    await page.waitForTimeout(2000);
     await expect(page.locator("body")).toBeVisible();
   });
 
@@ -44,7 +41,6 @@ test.describe("Onboarding", () => {
 
   test("overview renders content", async ({ page }) => {
     await page.goto("/app");
-    await page.waitForTimeout(2000);
     await expect(page.locator("body")).toBeVisible();
   });
 });

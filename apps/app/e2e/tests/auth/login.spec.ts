@@ -30,14 +30,13 @@ test.describe("Login", () => {
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
 
     // Should show error or stay on login page
-    await page.waitForTimeout(3000);
     await expect(page).toHaveURL(/login/);
   });
 
   test("empty form stays on login page", async ({ page }) => {
     await page.goto("/login");
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
     await expect(page).toHaveURL(/login/);
   });
 

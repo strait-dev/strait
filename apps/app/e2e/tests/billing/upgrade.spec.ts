@@ -8,7 +8,6 @@ test.describe("Upgrade Page", () => {
 
   test("shows plan cards", async ({ page }) => {
     await page.goto("/app/upgrade");
-    await page.waitForTimeout(3000);
     // Should show at least one plan option
     const planCard = page.getByText(/starter|pro|enterprise|free/i);
     await expect(planCard.first()).toBeVisible({ timeout: 10_000 });
@@ -16,7 +15,6 @@ test.describe("Upgrade Page", () => {
 
   test("monthly/yearly toggle exists", async ({ page }) => {
     await page.goto("/app/upgrade");
-    await page.waitForTimeout(3000);
     const toggle = page.getByText(/monthly|yearly|annual/i);
     if (
       await toggle

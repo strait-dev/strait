@@ -33,7 +33,6 @@ test.describe("Run Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const badge = page.locator("[class*='badge']").first();
       if (await badge.isVisible()) {
         await expect(badge).toBeVisible();
@@ -51,7 +50,6 @@ test.describe("Run Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       // Run detail should show job name, status, duration etc
       await expect(page.locator("main").or(page.locator("body"))).toBeVisible();
     }
@@ -67,11 +65,10 @@ test.describe("Run Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const eventsTab = page.getByText("Events");
       if (await eventsTab.isVisible({ timeout: 3000 }).catch(() => false)) {
         await eventsTab.click();
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(500);
       }
     }
   });
@@ -88,7 +85,6 @@ test.describe("Run Detail Page", () => {
     const link = row.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const errorAlert = page.locator("[role='alert']");
       if (await errorAlert.isVisible()) {
         await expect(errorAlert).toBeVisible();
@@ -106,7 +102,6 @@ test.describe("Run Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const retryBtn = page.getByRole("button", { name: /retry|replay/i });
       if (await retryBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await expect(retryBtn).toBeVisible();
@@ -124,7 +119,6 @@ test.describe("Run Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       // Execution trace or detail cells should be present
       await expect(page.locator("main").or(page.locator("body"))).toBeVisible();
     }
@@ -154,7 +148,6 @@ test.describe("Run Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const overviewTab = page.getByText("Overview");
       const eventsTab = page.getByText("Events");
       if (

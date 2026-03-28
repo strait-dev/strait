@@ -12,7 +12,6 @@ test.describe("Verify Email", () => {
 
   test("invalid token shows error", async ({ page }) => {
     await page.goto("/verify-email?token=invalid-token-12345");
-    await page.waitForTimeout(3000);
     const error = page.getByText(/failed|invalid|expired/i);
     const content = page.locator("main").or(page.locator("body"));
     await expect(error.or(content)).toBeVisible({ timeout: 10_000 });

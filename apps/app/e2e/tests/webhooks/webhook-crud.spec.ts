@@ -14,7 +14,7 @@ test.describe("Webhook CRUD", () => {
     const firstRow = page.locator("table tbody tr").first();
     if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
       await firstRow.click();
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(500);
       const sheet = page.locator("[role='dialog']");
       if (await sheet.isVisible({ timeout: 3000 }).catch(() => false)) {
         await expect(sheet).toBeVisible();

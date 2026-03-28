@@ -32,7 +32,6 @@ test.describe("Schedule Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const schedule = page.getByText("Schedule");
       if (await schedule.isVisible({ timeout: 3000 }).catch(() => false)) {
         await expect(schedule).toBeVisible();
@@ -50,7 +49,6 @@ test.describe("Schedule Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const config = page.getByText("Configuration");
       if (await config.isVisible({ timeout: 3000 }).catch(() => false)) {
         await expect(config).toBeVisible();
@@ -68,7 +66,6 @@ test.describe("Schedule Detail Page", () => {
     const link = firstRow.locator("a").first();
     if (await link.isVisible()) {
       await link.click();
-      await page.waitForTimeout(2000);
       const triggerBtn = page.getByRole("button", { name: /trigger/i });
       if (await triggerBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await expect(triggerBtn).toBeVisible();

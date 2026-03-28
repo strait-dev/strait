@@ -9,7 +9,7 @@ test.describe("Run Detail Sheet", () => {
       return;
     }
     await firstRow.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
     // Sheet should be visible with run details
     const sheet = page.locator("[role='dialog']");
     if (await sheet.isVisible()) {
@@ -25,7 +25,7 @@ test.describe("Run Detail Sheet", () => {
       return;
     }
     await firstRow.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
     const sheet = page.locator("[role='dialog']");
     if (await sheet.isVisible()) {
       const badge = sheet.locator("[class*='badge']").first();
@@ -41,7 +41,7 @@ test.describe("Run Detail Sheet", () => {
       return;
     }
     await firstRow.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
   });
 
   test("close button dismisses the sheet", async ({ page }) => {
@@ -52,7 +52,7 @@ test.describe("Run Detail Sheet", () => {
       return;
     }
     await firstRow.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
     const sheet = page.locator("[role='dialog']");
     if (await sheet.isVisible()) {
       const closeButton = sheet

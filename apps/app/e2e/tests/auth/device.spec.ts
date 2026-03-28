@@ -3,7 +3,6 @@ import { expect, test } from "../../fixtures";
 test.describe("Device Authorization", () => {
   test("page loads with code param", async ({ page }) => {
     await page.goto("/device?code=TEST-CODE");
-    await page.waitForTimeout(2000);
     const heading = page.getByText(/authorize|device/i);
     const content = page.locator("main").or(page.locator("body"));
     await expect(heading.or(content)).toBeVisible({ timeout: 10_000 });

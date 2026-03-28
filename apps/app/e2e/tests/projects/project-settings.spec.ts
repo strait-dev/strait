@@ -4,7 +4,6 @@ test.describe("Project Settings", () => {
   test("project settings page loads", async ({ page }) => {
     // Find project ID from the sidebar or session
     await page.goto("/app/dashboard");
-    await page.waitForTimeout(2000);
     const settingsLink = page.locator("a[href*='/app/projects/']").first();
     if (await settingsLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await settingsLink.click();
@@ -21,18 +20,15 @@ test.describe("Project Settings", () => {
 
   test("project settings renders content", async ({ page }) => {
     await page.goto("/app/dashboard");
-    await page.waitForTimeout(2000);
     const settingsLink = page.locator("a[href*='/app/projects/']").first();
     if (await settingsLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await settingsLink.click();
-      await page.waitForTimeout(2000);
       await expect(page.locator("main").or(page.locator("body"))).toBeVisible();
     }
   });
 
   test("page renders without crashing", async ({ page }) => {
     await page.goto("/app/dashboard");
-    await page.waitForTimeout(2000);
     const settingsLink = page.locator("a[href*='/app/projects/']").first();
     if (await settingsLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await settingsLink.click();

@@ -3,7 +3,6 @@ import { expect, test } from "../../fixtures";
 test.describe("Theme", () => {
   test("theme toggle button exists", async ({ page }) => {
     await page.goto("/app/dashboard");
-    await page.waitForTimeout(2000);
     // Theme toggle is typically a button with sun/moon icon
     const themeBtn = page
       .locator("button[aria-label*='theme'], button[aria-label*='mode']")
@@ -23,7 +22,6 @@ test.describe("Theme", () => {
 
   test("page has a color scheme class", async ({ page }) => {
     await page.goto("/app/dashboard");
-    await page.waitForTimeout(2000);
     const html = page.locator("html");
     const cls = await html.getAttribute("class");
     // Should have either 'dark' or 'light' class

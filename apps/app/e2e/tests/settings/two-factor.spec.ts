@@ -3,7 +3,6 @@ import { expect, test } from "../../fixtures";
 test.describe("Two-Factor Authentication", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/settings");
-    await page.waitForTimeout(2000);
   });
 
   test("2FA section visible on settings page", async ({ page }) => {

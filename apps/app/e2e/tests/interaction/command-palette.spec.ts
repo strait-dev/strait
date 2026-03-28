@@ -3,7 +3,6 @@ import { expect, test } from "../../fixtures";
 test.describe("Command Palette", () => {
   test("opens with keyboard shortcut", async ({ page }) => {
     await page.goto("/app/dashboard");
-    await page.waitForTimeout(2000);
     await page.keyboard.press("Meta+k");
     await page.waitForTimeout(500);
     const dialog = page.locator("[role='dialog'], [cmdk-dialog], [data-cmdk]");
@@ -19,7 +18,6 @@ test.describe("Command Palette", () => {
 
   test("escape closes the palette", async ({ page }) => {
     await page.goto("/app/dashboard");
-    await page.waitForTimeout(2000);
     await page.keyboard.press("Meta+k");
     await page.waitForTimeout(500);
     const dialog = page.locator("[role='dialog'], [cmdk-dialog], [data-cmdk]");
@@ -36,7 +34,6 @@ test.describe("Command Palette", () => {
 
   test("search input is focused when opened", async ({ page }) => {
     await page.goto("/app/dashboard");
-    await page.waitForTimeout(2000);
     await page.keyboard.press("Meta+k");
     await page.waitForTimeout(500);
     const input = page.locator("[cmdk-input], [role='dialog'] input").first();
