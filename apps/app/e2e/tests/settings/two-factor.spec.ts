@@ -9,7 +9,12 @@ test.describe("Two-Factor Authentication", () => {
     const section = page
       .getByText("Two-Factor Authentication", { exact: true })
       .or(page.getByText("2FA"));
-    if (await section.first().isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (
+      await section
+        .first()
+        .isVisible({ timeout: 10_000 })
+        .catch(() => false)
+    ) {
       await expect(section.first()).toBeVisible();
     }
   });

@@ -9,7 +9,12 @@ test.describe("Session Management", () => {
     const sessions = page
       .getByText("Active Sessions", { exact: true })
       .or(page.getByText("Sessions"));
-    if (await sessions.first().isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (
+      await sessions
+        .first()
+        .isVisible({ timeout: 10_000 })
+        .catch(() => false)
+    ) {
       await expect(sessions.first()).toBeVisible();
     }
   });
