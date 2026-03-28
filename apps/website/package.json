@@ -17,15 +17,15 @@
     "run-all": "bun run biome:fix:unsafe && bun run biome:format && bun run biome:write && bun run biome:lint && bun run typecheck"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^12.5.1",
-    "@astrojs/react": "^4.3.0",
-    "@astrojs/sitemap": "^3.3.1",
+    "@astrojs/cloudflare": "^13.1.4",
+    "@astrojs/react": "^5.0.2",
+    "@astrojs/sitemap": "^3.7.2",
     "@hugeicons/core-free-icons": "^4.0.0",
     "@hugeicons/react": "^1.1.6",
     "@strait/billing": "workspace:*",
     "@strait/ui": "workspace:*",
     "@tailwindcss/vite": "^4.2.2",
-    "astro": "^5.9.4",
+    "astro": "^6.1.1",
     "basehub": "^9.5.3",
     "clsx": "^2.1.1",
     "embla-carousel-autoplay": "^8.6.0",
@@ -47,10 +47,10 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "@typescript/native-preview": "^7.0.0-dev.20260326.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260327.2",
     "babel-plugin-react-compiler": "^1.0.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.3",
-    "vitest": "^4.1.1"
+    "vitest": "^4.1.2"
   }
 }
