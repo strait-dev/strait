@@ -8,6 +8,15 @@
     "dark": "#1E40AF"
   },
   "favicon": "/favicon.svg",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "metadata": {
+    "og:site_name": "Strait Docs",
+    "og:description": "Documentation for Strait, the open-source job orchestration platform.",
+    "twitter:site": "@leonardomso"
+  },
   "navigation": {
     "tabs": [
       {
@@ -128,7 +137,7 @@
           },
           {
             "group": "Endpoints",
-            "openapi": "openapi.yaml"
+            "openapi": "https://api.strait.dev/reference"
           }
         ]
       },
@@ -145,9 +154,32 @@
       }
     ]
   },
-  "api": {
-    "openapi": "openapi.yaml"
+  "navbar": {
+    "links": [
+      {
+        "label": "Website",
+        "url": "https://strait.dev"
+      },
+      {
+        "label": "Dashboard",
+        "url": "https://app.strait.dev"
+      }
+    ]
   },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/leonardomso/strait",
+      "x": "https://twitter.com/leonardomso",
+      "linkedin": "https://linkedin.com/company/strait"
+    }
+  },
+  "api": {
+    "baseUrl": "https://api.strait.dev",
+    "playground": {
+      "mode": "simple"
+    }
+  },
+  "openapi": "https://api.strait.dev/reference",
   "search": {
     "enabled": true
   },
@@ -156,5 +188,46 @@
   },
   "feedback": {
     "thumbsRating": true
-  }
+  },
+  "seo": {
+    "indexHiddenPages": false
+  },
+  "redirects": [
+    {
+      "source": "/docs/getting-started",
+      "destination": "/introduction"
+    },
+    {
+      "source": "/docs/getting-started/:slug",
+      "destination": "/:slug"
+    },
+    {
+      "source": "/docs/concepts/:slug",
+      "destination": "/concepts/:slug"
+    },
+    {
+      "source": "/docs/guides/:slug",
+      "destination": "/guides/:slug"
+    },
+    {
+      "source": "/docs/sdks/:slug",
+      "destination": "/sdks/:slug"
+    },
+    {
+      "source": "/docs/api-reference/:slug",
+      "destination": "/api-reference/:slug"
+    },
+    {
+      "source": "/docs/cli/:slug",
+      "destination": "/cli/:slug"
+    },
+    {
+      "source": "/docs/operations/:slug",
+      "destination": "/operations/:slug"
+    },
+    {
+      "source": "/docs/development/:slug",
+      "destination": "/development/:slug"
+    }
+  ]
 }
