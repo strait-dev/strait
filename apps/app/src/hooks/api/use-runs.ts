@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import type {
+  DebugBundle,
   JobRun,
   ListParams,
   PaginatedResponse,
@@ -65,6 +66,16 @@ export const fetchRunEvents = createServerFn({ method: "GET" })
     );
   });
 
+export const fetchRunDebugBundle = createServerFn({ method: "GET" })
+  .inputValidator((data: { runId: string }) => data)
+  .middleware([authMiddleware])
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<DebugBundle> => {
+    return await runWithSentryReport(
+      apiEffect<DebugBundle>(`/v1/runs/${data.runId}/debug-bundle`)
+    );
+  });
+
 export const replayRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
@@ -113,6 +124,14 @@ export const runEventsQueryOptions = (runId: string) =>
   queryOptions({
     queryKey: queryKeys.runs.events(runId).queryKey,
     queryFn: () => fetchRunEvents({ data: { runId } }),
+    staleTime: HIGH_CHURN_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
+export const runDebugBundleQueryOptions = (runId: string) =>
+  queryOptions({
+    queryKey: queryKeys.runs.debugBundle(runId).queryKey,
+    queryFn: () => fetchRunDebugBundle({ data: { runId } }),
     staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });

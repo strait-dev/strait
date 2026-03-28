@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { Agent } from "@/hooks/api/types";
-import { filterAgents, sortAgentsByUpdatedAt } from "./agent-list-utils";
+import type { Agent, JobRun, RunStatus, RunUsage } from "@/hooks/api/types";
+import {
+  buildAgentListRows,
+  filterAgents,
+  sortAgentsByUpdatedAt,
+} from "./agent-list-utils";
 
 const baseAgent = {
   config: {},
@@ -15,10 +19,56 @@ const baseAgent = {
   updated_at: "2026-03-21T09:00:00Z",
 } satisfies Agent;
 
+function makeRun(id: string, status: RunStatus, createdAt: string): JobRun {
+  return {
+    attempt: 1,
+    created_at: createdAt,
+    debug_mode: false,
+    error: undefined,
+    execution_trace: undefined,
+    finished_at: createdAt,
+    id,
+    job_id: "job_123",
+    job_version: 1,
+    lineage_depth: 0,
+    payload: null,
+    priority: 0,
+    project_id: "project_123",
+    result: null,
+    started_at: createdAt,
+    status,
+    triggered_by: "manual",
+  };
+}
+
+function makeUsage(
+  id: string,
+  runId: string,
+  costMicrousd: number,
+  createdAt: string
+): RunUsage {
+  return {
+    completion_tokens: 10,
+    cost_microusd: costMicrousd,
+    created_at: createdAt,
+    id,
+    model: "gpt-5.4",
+    prompt_tokens: 20,
+    provider: "openai",
+    run_id: runId,
+    total_tokens: 30,
+  };
+}
+
 describe("agent-list-utils", () => {
   it("filters agents across name, slug, model, and description", () => {
-    const agents: Agent[] = [
-      baseAgent,
+    const agents = [
+      {
+        ...baseAgent,
+        active_runs: 0,
+        total_cost_microusd: 0,
+        total_runs: 0,
+      },
       {
         ...baseAgent,
         id: "agent-2",
@@ -27,6 +77,9 @@ describe("agent-list-utils", () => {
         model: "claude-sonnet-4-5",
         description: "Handles incident response",
         updated_at: "2026-03-22T09:00:00Z",
+        active_runs: 0,
+        total_cost_microusd: 0,
+        total_runs: 0,
       },
     ];
 
@@ -50,5 +103,49 @@ describe("agent-list-utils", () => {
     expect(
       sortAgentsByUpdatedAt([older, newer]).map((agent) => agent.id)
     ).toEqual(["agent-newer", "agent-older"]);
+  });
+
+  it("builds agent list rows with run counts, active counts, and total cost", () => {
+    const rows = buildAgentListRows(
+      [
+        baseAgent,
+        {
+          ...baseAgent,
+          id: "agent-2",
+          name: "Ops Agent",
+          slug: "ops-agent",
+          updated_at: "2026-03-22T09:00:00Z",
+        },
+      ],
+      {
+        "agent-1": {
+          runs: [
+            makeRun("run-1", "completed", "2026-03-28T09:00:00Z"),
+            makeRun("run-2", "executing", "2026-03-28T10:00:00Z"),
+          ],
+          usage: [
+            makeUsage("usage-1", "run-1", 500, "2026-03-28T09:01:00Z"),
+            makeUsage("usage-2", "run-2", 250, "2026-03-28T10:01:00Z"),
+          ],
+        },
+        "agent-2": {
+          runs: [],
+          usage: [],
+        },
+      }
+    );
+
+    expect(rows[0]).toMatchObject({
+      id: "agent-2",
+      total_cost_microusd: 0,
+      total_runs: 0,
+    });
+    expect(rows[1]).toMatchObject({
+      active_runs: 1,
+      id: "agent-1",
+      last_run_status: "executing",
+      total_cost_microusd: 750,
+      total_runs: 2,
+    });
   });
 });

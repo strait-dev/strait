@@ -1,5 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-
 import {
   Alert,
   AlertDescription,
@@ -22,29 +21,39 @@ import {
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  buildRunTimeline,
+  type RunTimelineItem,
+  summarizeRunDebugBundle,
+} from "@/components/agents/run-debug-utils";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
+import ChartTooltip from "@/components/dashboard/chart-tooltip";
 import StatusBadge from "@/components/dashboard/status-badge";
 import DetailCell from "@/components/runs/detail-cell";
 import ExecutionTraceBar from "@/components/runs/execution-trace-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
-import type {
-  JobRun,
-  PaginatedResponse,
-  RunEvent,
-  RunStatus,
-} from "@/hooks/api/types";
-import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
-import { formatDuration } from "@/lib/format";
+import type { DebugBundle, RunStatus } from "@/hooks/api/types";
+import { runDebugBundleQueryOptions } from "@/hooks/api/use-runs";
+import { formatDuration, formatMicroUsd } from "@/lib/format";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
+import { CHART_COLORS } from "@/lib/status-colors";
 
 export const Route = createFileRoute("/app/runs/$id")({
   loader: async ({ context, params }) => {
-    await Promise.all([
-      context.queryClient.ensureQueryData(runQueryOptions(params.id)),
-      context.queryClient.ensureQueryData(runEventsQueryOptions(params.id)),
-    ]);
+    await context.queryClient.ensureQueryData(
+      runDebugBundleQueryOptions(params.id)
+    );
   },
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
@@ -64,19 +73,321 @@ const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set([
   "waiting",
 ]);
 
+const USAGE_LABEL_MAP = {
+  cost_microusd: {
+    color: CHART_COLORS.active,
+    format: formatMicroUsd,
+    label: "Cost",
+  },
+};
+
+type UsageSeriesEntry = {
+  cost_microusd: number;
+  label: string;
+};
+
+function getTimelineItemKey(item: RunTimelineItem): string {
+  if (item.kind === "checkpoint") {
+    return `${item.kind}-${item.sequence}`;
+  }
+  if (item.kind === "event") {
+    return `${item.kind}-${item.created_at}-${item.type}-${item.message}`;
+  }
+  if (item.kind === "tool_call") {
+    return `${item.kind}-${item.created_at}-${item.tool_name}-${item.status}`;
+  }
+  return `${item.kind}-${item.created_at}-${item.provider}-${item.model}-${item.cost_microusd}`;
+}
+
+function TimelineRow({ item }: { item: RunTimelineItem }) {
+  if (item.kind === "event") {
+    return (
+      <div className="rounded-md border p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="font-medium text-sm">{item.label}</p>
+            <p className="text-muted-foreground text-xs">{item.message}</p>
+          </div>
+          <span className="font-mono text-muted-foreground text-xs">
+            {new Date(item.created_at).toLocaleTimeString()}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (item.kind === "checkpoint") {
+    return (
+      <div className="rounded-md border p-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="font-medium text-sm">{item.label}</p>
+          <span className="font-mono text-muted-foreground text-xs">
+            {new Date(item.created_at).toLocaleTimeString()}
+          </span>
+        </div>
+        <pre className="mt-2 whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-xs">
+          {JSON.stringify(item.state, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+
+  if (item.kind === "tool_call") {
+    return (
+      <div className="rounded-md border p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="font-medium text-sm">{item.tool_name}</p>
+            <p className="text-muted-foreground text-xs">{item.status}</p>
+          </div>
+          <span className="font-mono text-muted-foreground text-xs">
+            {item.duration_ms ? `${item.duration_ms}ms` : "-"}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="font-medium text-sm">{item.label}</p>
+          <p className="text-muted-foreground text-xs">
+            {item.total_tokens.toLocaleString()} tokens
+          </p>
+        </div>
+        <span className="font-mono text-muted-foreground text-xs">
+          {formatMicroUsd(item.cost_microusd)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function RunSummaryCards({
+  checkpointCount,
+  toolCallCount,
+  totalCostMicrousd,
+  totalTokens,
+}: {
+  checkpointCount: number;
+  toolCallCount: number;
+  totalCostMicrousd: number;
+  totalTokens: number;
+}) {
+  return (
+    <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="font-medium text-muted-foreground text-sm">
+            Total Cost
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-2xl">{formatMicroUsd(totalCostMicrousd)}</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="font-medium text-muted-foreground text-sm">
+            Total Tokens
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-2xl">{totalTokens.toLocaleString()}</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="font-medium text-muted-foreground text-sm">
+            Checkpoints
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-2xl">{checkpointCount}</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="font-medium text-muted-foreground text-sm">
+            Tool Calls
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-2xl">{toolCallCount.toLocaleString()}</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function RunTelemetryTab({
+  isActive,
+  latestCheckpoint,
+  modelBreakdown,
+  toolBreakdown,
+  usageSeries,
+}: {
+  isActive: boolean;
+  latestCheckpoint: unknown;
+  modelBreakdown: ReturnType<typeof summarizeRunDebugBundle>["model_breakdown"];
+  toolBreakdown: ReturnType<typeof summarizeRunDebugBundle>["tool_breakdown"];
+  usageSeries: UsageSeriesEntry[];
+}) {
+  return (
+    <TabsContent className="mt-6 space-y-6" value="telemetry">
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>LLM Call Cost</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {usageSeries.length > 0 ? (
+              <div className="h-[260px]">
+                <ResponsiveContainer height="100%" width="100%">
+                  <BarChart data={usageSeries}>
+                    <CartesianGrid
+                      className="stroke-border"
+                      strokeDasharray="3 3"
+                    />
+                    <XAxis dataKey="label" tickLine={false} />
+                    <YAxis
+                      tickFormatter={(value) => formatMicroUsd(value)}
+                      tickLine={false}
+                      width={90}
+                    />
+                    <Tooltip
+                      content={<ChartTooltip labelMap={USAGE_LABEL_MAP} />}
+                    />
+                    <Bar
+                      dataKey="cost_microusd"
+                      fill={CHART_COLORS.active}
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No usage records were emitted for this run.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Model Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {modelBreakdown.length > 0 ? (
+              modelBreakdown.map((entry) => (
+                <div
+                  className="flex items-center justify-between text-sm"
+                  key={entry.label}
+                >
+                  <span className="text-muted-foreground">{entry.label}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-muted-foreground text-xs">
+                      {entry.total_tokens.toLocaleString()} tokens
+                    </span>
+                    <span className="font-medium">
+                      {formatMicroUsd(entry.cost_microusd)}
+                    </span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No model usage recorded.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Tool Calls</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {toolBreakdown.length > 0 ? (
+              toolBreakdown.map((tool) => (
+                <div className="rounded-md border p-3" key={tool.tool_name}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium text-sm">
+                      {tool.tool_name}
+                    </span>
+                    <span className="font-mono text-muted-foreground text-xs">
+                      {tool.count} calls
+                    </span>
+                  </div>
+                  <p className="mt-1 text-muted-foreground text-xs">
+                    {tool.failed_count} failed
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No tool calls recorded.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Checkpoint State</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {latestCheckpoint ? (
+              <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed">
+                {JSON.stringify(latestCheckpoint, null, 2)}
+              </pre>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No checkpoints were recorded.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Streaming</CardTitle>
+        </CardHeader>
+        <CardContent className="text-muted-foreground text-sm">
+          {isActive
+            ? "This run is active. Connect to the SSE stream endpoint to observe live token chunks."
+            : "Live stream replay is only available while a run is active in the current local implementation."}
+        </CardContent>
+      </Card>
+    </TabsContent>
+  );
+}
+
 function RunDetailPage() {
   const { id } = Route.useParams();
   usePageEvent("run_detail_viewed", { run_id: id });
-  const { data: run } = useSuspenseQuery(runQueryOptions(id)) as {
-    data: JobRun | undefined;
+  const { data: bundle } = useSuspenseQuery({
+    ...runDebugBundleQueryOptions(id),
+    refetchInterval: (query) => {
+      const nextBundle = query.state.data as DebugBundle | undefined;
+      const nextRun = nextBundle?.run;
+      return nextRun && ACTIVE_STATUSES.has(nextRun.status as RunStatus)
+        ? 3000
+        : false;
+    },
+    refetchIntervalInBackground: true,
+  }) as {
+    data: DebugBundle | undefined;
   };
-  const { data: eventsData } = useSuspenseQuery(runEventsQueryOptions(id)) as {
-    data: PaginatedResponse<RunEvent> | undefined;
-  };
-  const events = eventsData?.data ?? [];
-  const [activeTab, setActiveTab] = useState("logs");
+  const [activeTab, setActiveTab] = useState("timeline");
 
-  if (!run) {
+  if (!bundle) {
     return (
       <Shell>
         <EntityNotFound backTo="/app/runs" entity="Run" />
@@ -84,12 +395,18 @@ function RunDetailPage() {
     );
   }
 
+  const run = bundle.run;
   const isFailed = FAILED_STATUSES.has(run.status as RunStatus);
   const isActive = ACTIVE_STATUSES.has(run.status as RunStatus);
+  const summary = summarizeRunDebugBundle(bundle);
+  const timeline = buildRunTimeline(bundle);
+  const usageSeries = (bundle.usage ?? []).map((usage, index) => ({
+    cost_microusd: usage.cost_microusd,
+    label: `${index + 1}`,
+  }));
 
   return (
     <Shell>
-      {/* Header */}
       <div className="flex flex-col gap-3 pt-4 pb-6 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-2 overflow-hidden">
           <div className="flex items-center gap-3">
@@ -97,6 +414,11 @@ function RunDetailPage() {
               {run.id}
             </h1>
             <StatusBadge showDot status={run.status as RunStatus} />
+            {isActive ? (
+              <span className="text-muted-foreground text-xs">
+                Live refresh: 3s
+              </span>
+            ) : null}
           </div>
           <p className="text-pretty text-muted-foreground text-sm">
             Job:{" "}
@@ -121,7 +443,6 @@ function RunDetailPage() {
         </div>
       </div>
 
-      {/* Error banner */}
       {isFailed && run.error && (
         <Alert className="mb-6" variant="destructive">
           <HugeiconsIcon icon={AlertCircleIcon} size={16} />
@@ -130,7 +451,13 @@ function RunDetailPage() {
         </Alert>
       )}
 
-      {/* Execution Overview */}
+      <RunSummaryCards
+        checkpointCount={summary.checkpoint_count}
+        toolCallCount={bundle.tool_calls?.length ?? 0}
+        totalCostMicrousd={summary.total_cost_microusd}
+        totalTokens={summary.total_tokens}
+      />
+
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Execution Overview</CardTitle>
@@ -167,7 +494,6 @@ function RunDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Execution Trace */}
       {run.execution_trace && (
         <Card className="mb-6">
           <CardHeader>
@@ -179,26 +505,58 @@ function RunDetailPage() {
         </Card>
       )}
 
-      {/* Tabs */}
       <Tabs className="w-full" onValueChange={setActiveTab} value={activeTab}>
         <TabsList>
-          <TabsTrigger value="logs">Logs</TabsTrigger>
+          <TabsTrigger value="timeline">Timeline</TabsTrigger>
+          <TabsTrigger value="telemetry">Telemetry</TabsTrigger>
           <TabsTrigger value="payload">Payload</TabsTrigger>
           <TabsTrigger value="response">Response</TabsTrigger>
         </TabsList>
 
-        <TabsContent className="mt-6" value="logs">
-          <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">
-            {events && events.length > 0
-              ? events
-                  .map(
-                    (evt) =>
-                      `[${new Date(evt.created_at).toISOString()}] [${(evt.level ?? "info").toUpperCase()}] ${evt.message}`
-                  )
-                  .join("\n")
-              : "No log events available for this run."}
-          </pre>
+        <TabsContent className="mt-6 space-y-6" value="timeline">
+          <Card>
+            <CardHeader>
+              <CardTitle>Run Timeline</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {timeline.length > 0 ? (
+                timeline.map((item) => (
+                  <TimelineRow item={item} key={getTimelineItemKey(item)} />
+                ))
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No timeline records were captured for this run.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Event Log</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <pre className="max-h-[400px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">
+                {bundle.events && bundle.events.length > 0
+                  ? bundle.events
+                      .map(
+                        (evt) =>
+                          `[${new Date(evt.created_at).toISOString()}] [${(evt.level ?? "info").toUpperCase()}] ${evt.message}`
+                      )
+                      .join("\n")
+                  : "No log events available for this run."}
+              </pre>
+            </CardContent>
+          </Card>
         </TabsContent>
+
+        <RunTelemetryTab
+          isActive={isActive}
+          latestCheckpoint={summary.latest_checkpoint}
+          modelBreakdown={summary.model_breakdown}
+          toolBreakdown={summary.tool_breakdown}
+          usageSeries={usageSeries}
+        />
 
         <TabsContent className="mt-6" value="payload">
           <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">

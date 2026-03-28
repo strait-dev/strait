@@ -102,6 +102,26 @@ const TOKEN_LABEL_MAP = {
   },
 };
 
+const TOOL_LABEL_MAP = {
+  count: {
+    color: CHART_COLORS.warning,
+    label: "Tool Calls",
+  },
+};
+
+const formatDurationMs = (value: number) => {
+  if (value <= 0) {
+    return "-";
+  }
+  if (value < 1000) {
+    return `${value}ms`;
+  }
+  if (value < 60_000) {
+    return `${(value / 1000).toFixed(1)}s`;
+  }
+  return `${(value / 60_000).toFixed(1)}m`;
+};
+
 const StatCard = ({
   label,
   value,
@@ -351,6 +371,16 @@ function AgentDetailPage() {
                   label="Updated"
                   value={formatDateTime(agent.updated_at)}
                 />
+                <ConfigRow
+                  icon={ActivityIcon}
+                  label="Average Duration"
+                  value={formatDurationMs(costSummary.average_duration_ms)}
+                />
+                <ConfigRow
+                  icon={SparklesIcon}
+                  label="Average Tokens / Run"
+                  value={costSummary.average_tokens_per_run.toLocaleString()}
+                />
               </CardContent>
             </Card>
           </div>
@@ -415,7 +445,41 @@ function AgentDetailPage() {
               label="Latest Run Cost"
               value={formatMicroUsd(costSummary.latest_run_cost_microusd)}
             />
+            <StatCard
+              label="Projected Monthly"
+              value={formatMicroUsd(
+                costSummary.forecast.projected_monthly_cost_microusd
+              )}
+            />
           </div>
+
+          {costSummary.budget_limit_microusd ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Budget Utilization</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Used</span>
+                  <span className="font-medium">
+                    {formatMicroUsd(costSummary.total_cost_microusd)} /{" "}
+                    {formatMicroUsd(costSummary.budget_limit_microusd)}
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width]"
+                    style={{
+                      width: `${Math.min(
+                        (costSummary.budget_utilization_ratio ?? 0) * 100,
+                        100
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
             <Card>
@@ -481,7 +545,7 @@ function AgentDetailPage() {
                             className="stroke-border"
                             strokeDasharray="3 3"
                           />
-                          <XAxis dataKey="provider" tickLine={false} />
+                          <XAxis dataKey="label" tickLine={false} />
                           <YAxis
                             tickFormatter={(value) => formatMicroUsd(value)}
                             tickLine={false}
@@ -502,10 +566,10 @@ function AgentDetailPage() {
                       {costSummary.providers.map((provider) => (
                         <div
                           className="flex items-center justify-between text-sm"
-                          key={provider.provider}
+                          key={provider.label}
                         >
                           <span className="text-muted-foreground capitalize">
-                            {provider.provider}
+                            {provider.label}
                           </span>
                           <div className="flex items-center gap-3">
                             <span className="font-mono text-muted-foreground text-xs">
@@ -536,35 +600,191 @@ function AgentDetailPage() {
             </Card>
           </div>
 
-          {costSummary.daily.length > 0 && (
+          <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+            {costSummary.daily.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Daily Token Volume</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[220px]">
+                    <ResponsiveContainer height="100%" width="100%">
+                      <BarChart data={costSummary.daily}>
+                        <CartesianGrid
+                          className="stroke-border"
+                          strokeDasharray="3 3"
+                        />
+                        <XAxis dataKey="date" tickLine={false} />
+                        <YAxis tickLine={false} width={90} />
+                        <Tooltip
+                          content={<ChartTooltip labelMap={TOKEN_LABEL_MAP} />}
+                        />
+                        <Bar
+                          dataKey="total_tokens"
+                          fill={CHART_COLORS.warning}
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader>
-                <CardTitle>Daily Token Volume</CardTitle>
+                <CardTitle>Tool Call Frequency</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-[220px]">
-                  <ResponsiveContainer height="100%" width="100%">
-                    <BarChart data={costSummary.daily}>
-                      <CartesianGrid
-                        className="stroke-border"
-                        strokeDasharray="3 3"
+                {costSummary.tools.length > 0 ? (
+                  <div className="space-y-4">
+                    <div className="h-[220px]">
+                      <ResponsiveContainer height="100%" width="100%">
+                        <BarChart data={costSummary.tools}>
+                          <CartesianGrid
+                            className="stroke-border"
+                            strokeDasharray="3 3"
+                          />
+                          <XAxis dataKey="tool_name" tickLine={false} />
+                          <YAxis tickLine={false} width={70} />
+                          <Tooltip
+                            content={<ChartTooltip labelMap={TOOL_LABEL_MAP} />}
+                          />
+                          <Bar
+                            dataKey="count"
+                            fill={CHART_COLORS.warning}
+                            radius={[4, 4, 0, 0]}
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="space-y-2">
+                      {costSummary.tools.slice(0, 5).map((tool) => (
+                        <div
+                          className="flex items-center justify-between text-sm"
+                          key={tool.tool_name}
+                        >
+                          <span className="text-muted-foreground">
+                            {tool.tool_name}
+                          </span>
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-muted-foreground text-xs">
+                              avg {formatDurationMs(tool.average_duration_ms)}
+                            </span>
+                            <span className="font-medium">
+                              {tool.count} calls
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <TableEmptyState
+                    description="Tool usage metrics will populate as runs emit tool-call telemetry."
+                    hideButton
+                    icon={
+                      <HugeiconsIcon
+                        className="size-6 text-foreground"
+                        icon={SparklesIcon}
                       />
-                      <XAxis dataKey="date" tickLine={false} />
-                      <YAxis tickLine={false} width={90} />
-                      <Tooltip
-                        content={<ChartTooltip labelMap={TOKEN_LABEL_MAP} />}
-                      />
-                      <Bar
-                        dataKey="total_tokens"
-                        fill={CHART_COLORS.warning}
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                    }
+                    title="No tool data yet"
+                  />
+                )}
               </CardContent>
             </Card>
-          )}
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+            <Card>
+              <CardHeader>
+                <CardTitle>Model Spend</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {costSummary.models.length > 0 ? (
+                  <div className="space-y-3">
+                    {costSummary.models.map((model) => (
+                      <div
+                        className="flex items-center justify-between text-sm"
+                        key={model.label}
+                      >
+                        <span className="text-muted-foreground">
+                          {model.label}
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-muted-foreground text-xs">
+                            {model.total_tokens.toLocaleString()} tokens
+                          </span>
+                          <span className="font-medium">
+                            {formatMicroUsd(model.cost_microusd)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <TableEmptyState
+                    description="Per-model spend will appear as runs report usage."
+                    hideButton
+                    icon={
+                      <HugeiconsIcon
+                        className="size-6 text-foreground"
+                        icon={SparklesIcon}
+                      />
+                    }
+                    title="No model data yet"
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Run Cost Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {costSummary.run_breakdown.length > 0 ? (
+                  <div className="space-y-3">
+                    {costSummary.run_breakdown.slice(0, 5).map((run) => (
+                      <div className="rounded-md border p-3" key={run.run_id}>
+                        <div className="flex items-center justify-between gap-3">
+                          <Link
+                            className="font-mono text-sm hover:underline"
+                            params={{ id: run.run_id }}
+                            to="/app/runs/$id"
+                          >
+                            {run.run_id}
+                          </Link>
+                          <StatusBadge status={run.status as DisplayStatus} />
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs">
+                          <span>{formatMicroUsd(run.cost_microusd)}</span>
+                          <span>
+                            {run.total_tokens.toLocaleString()} tokens
+                          </span>
+                          <span>{run.tool_calls} tools</span>
+                          <span>{formatDurationMs(run.duration_ms)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <TableEmptyState
+                    description="Per-run cost breakdown will appear once the agent has usage records."
+                    hideButton
+                    icon={
+                      <HugeiconsIcon
+                        className="size-6 text-foreground"
+                        icon={ActivityIcon}
+                      />
+                    }
+                    title="No run cost data yet"
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent className="mt-6" value="config">

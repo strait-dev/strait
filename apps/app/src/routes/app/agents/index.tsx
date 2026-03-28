@@ -14,7 +14,10 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-import { filterAgents } from "@/components/agents/agent-list-utils";
+import {
+  type AgentListRow,
+  filterAgents,
+} from "@/components/agents/agent-list-utils";
 import CreateAgentDialog from "@/components/agents/create-agent-dialog";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
@@ -22,8 +25,7 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import { agentColumns } from "@/components/tables/agents-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import type { Agent } from "@/hooks/api/types";
-import { agentsQueryOptions } from "@/hooks/api/use-agents";
+import { agentListRowsQueryOptions } from "@/hooks/api/use-agents";
 import { SearchIcon, SparklesIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -37,7 +39,7 @@ export const Route = createFileRoute("/app/agents/")({
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(agentsQueryOptions());
+      await context.queryClient.ensureQueryData(agentListRowsQueryOptions());
     }
     return { hasProject, session };
   },
@@ -51,10 +53,10 @@ function AgentsPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data } = useQuery({
-    ...agentsQueryOptions(),
+    ...agentListRowsQueryOptions(),
     enabled: hasProject,
   });
-  const agents = data as Agent[] | undefined;
+  const agents = data as AgentListRow[] | undefined;
 
   const filteredData = useMemo(
     () => filterAgents(hasProject ? (agents ?? []) : [], search.query),
@@ -83,7 +85,7 @@ function AgentsPage() {
 
   const emptyState = hasProject ? (
     <TableEmptyState
-      description="No agents yet. Create and deploy your first managed agent from the API."
+      description="No agents yet. Create and deploy your first managed agent from the dashboard."
       hideButton
       icon={
         <HugeiconsIcon className="size-6 text-foreground" icon={SparklesIcon} />
@@ -126,7 +128,7 @@ function AgentsPage() {
         ) : null}
       </div>
 
-      <DataTable<Agent> emptyState={emptyState} table={table} />
+      <DataTable<AgentListRow> emptyState={emptyState} table={table} />
 
       {hasProject && session.user.activeProjectId ? (
         <CreateAgentDialog

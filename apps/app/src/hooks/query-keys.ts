@@ -109,6 +109,7 @@ export const queryKeys = createQueryKeyStore({
     list: (search?: ListRunsSearch) => [{ search }],
     detail: (id: string) => [id],
     events: (runId: string) => [runId],
+    debugBundle: (runId: string) => [runId, "debug-bundle"],
   },
 
   schedules: {

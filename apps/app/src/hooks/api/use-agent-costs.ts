@@ -4,7 +4,13 @@ import {
   type AgentCostSummary,
   buildAgentCostSummary,
 } from "@/components/agents/agent-cost-utils";
-import type { JobRun, PaginatedResponse, RunUsage } from "@/hooks/api/types";
+import type {
+  Agent,
+  JobRun,
+  PaginatedResponse,
+  RunToolCall,
+  RunUsage,
+} from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
@@ -16,6 +22,10 @@ export const fetchAgentCostSummary = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }): Promise<AgentCostSummary> => {
+    const agent = await runWithSentryReport(
+      apiEffect<Agent>(`/v1/agents/${data.agentId}`)
+    );
+
     const runs = await runWithSentryReport(
       apiEffect<JobRun[]>(`/v1/agents/${data.agentId}/runs`, {
         params: {
@@ -36,8 +46,24 @@ export const fetchAgentCostSummary = createServerFn({ method: "GET" })
       )
     );
 
+    const toolCallPages = await Promise.all(
+      runs.map((run) =>
+        runWithSentryReport(
+          apiEffect<PaginatedResponse<RunToolCall>>(
+            `/v1/runs/${run.id}/tool-calls`,
+            {
+              params: {
+                limit: data.usageLimit ?? 100,
+              },
+            }
+          )
+        )
+      )
+    );
+
     const usageRecords = usagePages.flatMap((page) => page.data);
-    return buildAgentCostSummary(runs, usageRecords);
+    const toolCalls = toolCallPages.flatMap((page) => page.data);
+    return buildAgentCostSummary(runs, usageRecords, toolCalls, agent.config);
   });
 
 export const agentCostSummaryQueryOptions = (agentId: string) =>

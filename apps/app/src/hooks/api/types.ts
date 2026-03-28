@@ -67,6 +67,15 @@ export type AgentDeployment = Schema["AgentDeployment"];
 /** Job run. */
 export type JobRun = Schema["JobRun"];
 
+/** Debug bundle for a run. */
+export type DebugBundle = Schema["DebugBundle"];
+
+/** Checkpoint record emitted for a run. */
+export type RunCheckpoint = Schema["RunCheckpoint"];
+
+/** Tool call record emitted for a run. */
+export type RunToolCall = Schema["RunToolCall"];
+
 /** Usage record emitted for a run. */
 export type RunUsage = Schema["RunUsage"];
 
