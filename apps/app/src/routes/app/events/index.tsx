@@ -5,11 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { z } from "zod/v4";
-
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import EventRow from "@/components/events/event-row";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
@@ -36,6 +36,7 @@ export const Route = createFileRoute("/app/events/")({
 });
 
 function EventsPage() {
+  usePageEvent("events_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();

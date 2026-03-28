@@ -21,6 +21,7 @@ import Account from "@/components/(settings)/account";
 import { AuthorizedApps } from "@/components/(settings)/authorized-apps";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import {
   emailPreferencesQueryOptions,
   useUpdateEmailPreferences,
@@ -76,6 +77,7 @@ function EmailPreferencesCard() {
 }
 
 function RouteComponent() {
+  usePageEvent("settings_viewed");
   const { session } = Route.useLoaderData();
 
   return (

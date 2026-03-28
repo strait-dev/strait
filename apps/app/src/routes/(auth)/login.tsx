@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { useEffect } from "react";
 import AuthDivider from "@/components/(auth)/auth-divider";
 import AuthLayout from "@/components/(auth)/auth-layout";
 import OneTapInitializer from "@/components/(auth)/one-tap-initializer";
@@ -11,6 +12,7 @@ import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
 import { BuildingIcon, MailIcon } from "@/lib/icons";
+import { storeUtmParams } from "@/lib/utm";
 
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   OAuthSignin: "Could not start the sign-in process. Please try again.",
@@ -40,7 +42,19 @@ export const Route = createFileRoute("/(auth)/login")({
 });
 
 function LoginPage() {
-  const { redirect: redirectTo, error: searchError } = Route.useSearch();
+  const search = Route.useSearch();
+  const { redirect: redirectTo, error: searchError } = search;
+
+  useEffect(() => {
+    storeUtmParams({
+      utm_source: search.utm_source,
+      utm_medium: search.utm_medium,
+      utm_campaign: search.utm_campaign,
+      utm_term: search.utm_term,
+      utm_content: search.utm_content,
+      ref: search.ref,
+    });
+  }, [search]);
 
   return (
     <AuthLayout title="Sign in to Strait">

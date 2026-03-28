@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import {
   createProjectServerFn,
   deleteProjectServerFn,
@@ -13,9 +14,6 @@ import {
   setActiveProjectServerFn,
 } from "@/lib/project-handler";
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 export const projectsQueryOptions = (organizationId: string) =>
   queryOptions({
@@ -35,9 +33,6 @@ export const projectQueryOptions = (id: string) =>
     enabled: !!id,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useCreateProject = () => {
   const queryClient = useQueryClient();
@@ -49,6 +44,15 @@ export const useCreateProject = () => {
       name: string;
       description?: string;
     }) => createProjectServerFn({ data }),
+    onSuccess: (data) => {
+      getPostHog()?.capture("project_created", { project_id: data?.id });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "project_created",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.projects._def,
@@ -63,6 +67,16 @@ export const useDeleteProject = () => {
   return useMutation({
     mutationKey: ["projects", "delete"],
     mutationFn: (data: { id: string }) => deleteProjectServerFn({ data }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("project_deleted", { project_id: variables.id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "project_deleted",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        project_id: variables.id,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.projects._def,
@@ -78,7 +92,10 @@ export const useSetActiveProject = () => {
     mutationKey: ["projects", "setActive"],
     mutationFn: (data: { projectId: string }) =>
       setActiveProjectServerFn({ data }),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("project_switched", {
+        project_id: variables.projectId,
+      });
       // Invalidate all project-scoped data queries
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -87,6 +104,13 @@ export const useSetActiveProject = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.events._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "project_switched",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        project_id: variables.projectId,
+      });
     },
   });
 };

@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { setPostHog } from "@/lib/analytics";
 
 type PostHogInstance = typeof import("posthog-js").default;
 
@@ -44,8 +45,14 @@ export const PostHogProvider = ({ children }: PostHogProviderProps) => {
             capture_pageview: isDevelopment ? false : "history_change",
             capture_pageleave: !isDevelopment,
             autocapture: !isDevelopment,
+            disable_session_recording: isDevelopment,
+            session_recording: {
+              maskAllInputs: true,
+              maskTextSelector: "[data-mask]",
+            },
           });
         }
+        setPostHog(posthog);
         setClient(posthog);
       })
       .catch((error: unknown) => {

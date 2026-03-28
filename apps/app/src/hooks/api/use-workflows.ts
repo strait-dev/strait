@@ -13,12 +13,10 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchWorkflows = createServerFn({ method: "GET" })
   .inputValidator(
@@ -112,9 +110,6 @@ export const updateWorkflowFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 export const workflowsQueryOptions = (search?: string) =>
   queryOptions({
@@ -149,9 +144,6 @@ export const workflowRunsQueryOptions = (workflowId: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useTriggerWorkflow = () => {
   const queryClient = useQueryClient();
@@ -159,6 +151,18 @@ export const useTriggerWorkflow = () => {
     mutationKey: ["workflows", "trigger"],
     mutationFn: (params: { workflowId: string; payload?: unknown }) =>
       triggerWorkflowFn({ data: params }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("workflow_triggered", {
+        workflow_id: variables.workflowId,
+      });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "workflow_triggered",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        workflow_id: variables.workflowId,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -172,6 +176,11 @@ export const usePauseWorkflow = () => {
     mutationKey: ["workflows", "pause"],
     mutationFn: (params: { workflowId: string }) =>
       updateWorkflowFn({ data: { id: params.workflowId, enabled: false } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("workflow_paused", {
+        workflow_id: variables.workflowId,
+      });
+    },
     onMutate: async (params) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.workflows._def });
 
@@ -206,6 +215,11 @@ export const usePauseWorkflow = () => {
           context.previousDetail
         );
       }
+      getPostHog()?.capture("mutation_error", {
+        action: "workflow_paused",
+        error_message: _err instanceof Error ? _err.message : "Unknown error",
+        workflow_id: params.workflowId,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });
@@ -219,6 +233,11 @@ export const useResumeWorkflow = () => {
     mutationKey: ["workflows", "resume"],
     mutationFn: (params: { workflowId: string }) =>
       updateWorkflowFn({ data: { id: params.workflowId, enabled: true } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("workflow_resumed", {
+        workflow_id: variables.workflowId,
+      });
+    },
     onMutate: async (params) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.workflows._def });
 
@@ -253,6 +272,11 @@ export const useResumeWorkflow = () => {
           context.previousDetail
         );
       }
+      getPostHog()?.capture("mutation_error", {
+        action: "workflow_resumed",
+        error_message: _err instanceof Error ? _err.message : "Unknown error",
+        workflow_id: params.workflowId,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });

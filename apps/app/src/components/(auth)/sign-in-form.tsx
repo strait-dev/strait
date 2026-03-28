@@ -8,6 +8,7 @@ import { useForm } from "@tanstack/react-form";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { z } from "zod";
+import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon } from "@/lib/icons";
@@ -45,6 +46,10 @@ const SignInForm = ({
         password,
         callbackURL: redirectTo ?? "/app",
       });
+
+      if (!result.error) {
+        getPostHog()?.capture("auth_signed_in", { method: "email" });
+      }
 
       if (result.error) {
         if (result.error.status === 403 && onTwoFactorRequired) {

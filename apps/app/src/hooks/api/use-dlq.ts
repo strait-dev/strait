@@ -9,12 +9,11 @@ import type { JobRun, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { cancelRunFn } from "@/hooks/api/use-runs";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-// ---------------------------------------------------------------------------
 // Bulk cancel server function (uses the dedicated bulk endpoint)
-// ---------------------------------------------------------------------------
 
 const bulkCancelRunsFn = createServerFn({ method: "POST" })
   .inputValidator((data: { run_ids: string[] }) => data)
@@ -28,9 +27,6 @@ const bulkCancelRunsFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchDlqRuns = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams & { search?: string }) => data)
@@ -72,9 +68,6 @@ export const bulkReplayDlqFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 export const dlqQueryOptions = (search?: ListParams & { search?: string }) =>
   queryOptions({
@@ -85,9 +78,6 @@ export const dlqQueryOptions = (search?: ListParams & { search?: string }) =>
     placeholderData: keepPreviousData,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useRetryDlqItem = () => {
   const queryClient = useQueryClient();
@@ -95,6 +85,16 @@ export const useRetryDlqItem = () => {
     mutationKey: ["dlq", "retry"],
     mutationFn: (data: { id: string }) =>
       replayDlqRunFn({ data: { runId: data.id } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("dlq_item_retried", { run_id: variables.id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "dlq_item_retried",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        run_id: variables.id,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -108,6 +108,16 @@ export const useDiscardDlqItem = () => {
     mutationKey: ["dlq", "discard"],
     mutationFn: (data: { id: string }) =>
       cancelRunFn({ data: { runId: data.id } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("dlq_item_discarded", { run_id: variables.id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "dlq_item_discarded",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        run_id: variables.id,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -121,6 +131,18 @@ export const useBulkRetryDlq = () => {
     mutationKey: ["dlq", "bulkRetry"],
     mutationFn: (data: { ids: string[] }) =>
       bulkReplayDlqFn({ data: { run_ids: data.ids } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("dlq_bulk_retried", {
+        count: variables.ids.length,
+      });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "dlq_bulk_retried",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        count: variables.ids.length,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
@@ -134,6 +156,18 @@ export const useBulkDiscardDlq = () => {
     mutationKey: ["dlq", "bulkDiscard"],
     mutationFn: (data: { ids: string[] }) =>
       bulkCancelRunsFn({ data: { run_ids: data.ids } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("dlq_bulk_discarded", {
+        count: variables.ids.length,
+      });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "dlq_bulk_discarded",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        count: variables.ids.length,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dlq._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });

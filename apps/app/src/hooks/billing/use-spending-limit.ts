@@ -6,6 +6,7 @@ import {
 import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
+import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
@@ -90,6 +91,17 @@ export const useUpdateSpendingLimit = () => {
   return useMutation({
     mutationFn: (params: { limitMicrousd: number; action: string }) =>
       updateSpendingLimitServerFn({ data: params }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("spending_limit_updated", {
+        new_limit: variables.limitMicrousd,
+      });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "spending_limit_updated",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.billing.spendingLimit.queryKey,

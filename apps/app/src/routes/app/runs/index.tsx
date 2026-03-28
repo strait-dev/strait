@@ -28,11 +28,16 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import StatusBadge from "@/components/dashboard/status-badge";
-import { runColumns } from "@/components/tables/runs-columns";
+import { createRunColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
-import { runsQueryOptions } from "@/hooks/api/use-runs";
+import {
+  runsQueryOptions,
+  useCancelRun,
+  useRetryRun,
+} from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
   CalendarIcon,
@@ -71,9 +76,16 @@ function RunsPage() {
   const { hasProject, session } = Route.useLoaderData();
   const { data } = useQuery({ ...runsQueryOptions(), enabled: hasProject });
   const search = Route.useSearch();
+  usePageEvent("runs_list_viewed", {
+    has_query: !!search.query,
+    has_status_filter: (search.status?.length ?? 0) > 0,
+    status_filter_count: search.status?.length ?? 0,
+  });
   const navigate = Route.useNavigate();
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const retryRun = useRetryRun();
+  const cancelRun = useCancelRun();
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const selectedStatuses = (search.status ?? []) as RunStatus[];
@@ -83,7 +95,14 @@ function RunsPage() {
 
   const table = useReactTable({
     data: tableData,
-    columns: runColumns,
+    columns: createRunColumns({
+      onView: (run) => {
+        setSelectedRun(run);
+        setSheetOpen(true);
+      },
+      onRetry: (run) => retryRun.mutate({ run_id: run.id }),
+      onCancel: (run) => cancelRun.mutate({ run_id: run.id }),
+    }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -236,14 +255,18 @@ function RunsPage() {
                   label: "Retry",
                   icon: RefreshIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const id of selectedIds) {
+                      retryRun.mutate({ run_id: id });
+                    }
                   },
                 },
                 {
                   label: "Cancel",
                   icon: XCircleIcon,
                   onClick: () => {
-                    /* TODO */
+                    for (const id of selectedIds) {
+                      cancelRun.mutate({ run_id: id });
+                    }
                   },
                   variant: "destructive" as const,
                 },

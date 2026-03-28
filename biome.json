@@ -181,6 +181,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["**/e2e/**/*.ts"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "useTopLevelRegex": "off"
+          }
+        }
+      }
     }
   ]
 }

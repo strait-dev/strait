@@ -24,12 +24,14 @@ import type {
 } from "@/components/upgrade/plan-selection";
 import { PlanSelection } from "@/components/upgrade/plan-selection";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import {
   apiPlansToComparisonFeatures,
   apiPlansToPricingPlans,
   getPlansServerFn,
 } from "@/hooks/billing/use-plans";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { getPostHog } from "@/lib/analytics";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
 import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
@@ -105,6 +107,7 @@ export const Route = createFileRoute("/app/upgrade")({
 });
 
 function RouteComponent() {
+  usePageEvent("upgrade_page_viewed");
   const search = Route.useSearch();
   const { pricingPlans, comparisonFeatures } = Route.useLoaderData();
   const { data: subscriptionState } = useSuspenseQuery(
@@ -149,6 +152,11 @@ function RouteComponent() {
       });
     },
     onSuccess: (data) => {
+      getPostHog()?.capture("subscription_checkout_started", {
+        plan: selectedPlan,
+        billing_interval: billingInterval,
+        $set: { plan: selectedPlan },
+      });
       if (data.checkoutUrl) {
         window.location.assign(data.checkoutUrl);
       }

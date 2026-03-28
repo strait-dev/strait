@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import MigrationCalculator from "@/components/billing/migration-calculator";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 
 export const Route = createFileRoute("/app/pricing/compare")({
   errorComponent: DefaultCatchBoundary,
@@ -11,6 +12,8 @@ export const Route = createFileRoute("/app/pricing/compare")({
 });
 
 function RouteComponent() {
+  usePageEvent("pricing_compared");
+
   return (
     <Shell>
       <div className="flex w-full flex-col gap-6">

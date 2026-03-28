@@ -34,6 +34,7 @@ import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import type z from "zod/v4";
+import { getPostHog } from "@/lib/analytics";
 import { ChatIcon, LoadingIcon } from "@/lib/icons";
 import { resend } from "@/lib/resend.server";
 import { FeedbackFormSchema } from "@/lib/schema";
@@ -137,6 +138,7 @@ const FeedbackDialog = ({ user }: Props) => {
         success: "Feedback sent successfully",
         error: "Error sending feedback",
       });
+      getPostHog()?.capture("feedback_submitted");
     });
   };
 

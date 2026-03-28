@@ -13,12 +13,10 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
@@ -82,9 +80,6 @@ export const testWebhookFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 export const webhooksQueryOptions = (search?: ListParams) =>
   queryOptions({
@@ -110,20 +105,6 @@ export const webhookQueryOptions = (id: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-/**
- * Seed individual webhook detail caches from a list response.
- * Call this after fetching the list to avoid redundant list fetches
- * when navigating to a detail view.
- */
-export function seedWebhookDetailCaches(
-  queryClient: ReturnType<typeof useQueryClient>,
-  subscriptions: WebhookSubscription[]
-) {
-  for (const sub of subscriptions) {
-    queryClient.setQueryData(queryKeys.webhooks.detail(sub.id).queryKey, sub);
-  }
-}
-
 export const webhookDeliveriesQueryOptions = (webhookId: string) =>
   queryOptions({
     queryKey: queryKeys.webhooks.deliveries(webhookId).queryKey,
@@ -133,9 +114,6 @@ export const webhookDeliveriesQueryOptions = (webhookId: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useCreateWebhook = () => {
   const queryClient = useQueryClient();
@@ -143,6 +121,15 @@ export const useCreateWebhook = () => {
     mutationKey: ["webhooks", "create"],
     mutationFn: (data: { webhook_url: string; event_types: string[] }) =>
       createWebhookFn({ data }),
+    onSuccess: (data) => {
+      getPostHog()?.capture("webhook_created", { webhook_id: data?.id });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "webhook_created",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
     },
@@ -154,6 +141,16 @@ export const useDeleteWebhook = () => {
   return useMutation({
     mutationKey: ["webhooks", "delete"],
     mutationFn: (id: string) => deleteWebhookFn({ data: { id } }),
+    onSuccess: (_data, id) => {
+      getPostHog()?.capture("webhook_deleted", { webhook_id: id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "webhook_deleted",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        webhook_id: variables,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webhooks._def });
     },
@@ -166,6 +163,15 @@ export const useTestWebhook = () => {
     mutationKey: ["webhooks", "test"],
     mutationFn: (webhookUrl: string) =>
       testWebhookFn({ data: { url: webhookUrl } }),
+    onSuccess: () => {
+      getPostHog()?.capture("webhook_tested");
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "webhook_tested",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.webhooks.deliveries._def,

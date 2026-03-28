@@ -6,6 +6,7 @@ import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
 import { z } from "zod";
+import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon } from "@/lib/icons";
@@ -45,6 +46,7 @@ const MagicLinkForm = ({ redirectTo, disabled }: MagicLinkFormProps) => {
         return;
       }
 
+      getPostHog()?.capture("auth_signed_in", { method: "magic_link" });
       setSent(true);
     },
   });

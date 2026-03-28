@@ -13,12 +13,10 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, HIGH_CHURN_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchRuns = createServerFn({ method: "GET" })
   .inputValidator(
@@ -89,9 +87,6 @@ export const cancelRunFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 type RunsSearchParams = ListParams & {
   status?: string;
@@ -124,9 +119,6 @@ export const runEventsQueryOptions = (runId: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useRetryRun = () => {
   const queryClient = useQueryClient();
@@ -134,6 +126,16 @@ export const useRetryRun = () => {
     mutationKey: ["runs", "retry"],
     mutationFn: (data: { run_id: string }) =>
       replayRunFn({ data: { runId: data.run_id } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("run_retried", { run_id: variables.run_id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "run_retried",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        run_id: variables.run_id,
+      });
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
     },
@@ -146,6 +148,9 @@ export const useCancelRun = () => {
     mutationKey: ["runs", "cancel"],
     mutationFn: (data: { run_id: string }) =>
       cancelRunFn({ data: { runId: data.run_id } }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("run_canceled", { run_id: variables.run_id });
+    },
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.runs._def });
 
@@ -182,6 +187,11 @@ export const useCancelRun = () => {
           context.previousDetail
         );
       }
+      getPostHog()?.capture("mutation_error", {
+        action: "run_canceled",
+        error_message: _err instanceof Error ? _err.message : "Unknown error",
+        run_id: data.run_id,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });

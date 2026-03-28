@@ -8,6 +8,8 @@ import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import { ngrok } from "vite-plugin-ngrok";
 
+const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
+
 /**
  * Vite plugin that serves /.well-known/oauth-authorization-server and
  * /.well-known/openid-configuration by calling the Better Auth API
@@ -80,7 +82,7 @@ export default defineConfig({
       project: process.env.SENTRY_PROJECT,
       authToken: process.env.SENTRY_AUTH_TOKEN,
     }),
-    ngrok(),
+    ...(enableNgrok ? [ngrok()] : []),
   ],
   optimizeDeps: {
     include: ["@hugeicons/react"],

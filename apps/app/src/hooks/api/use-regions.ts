@@ -7,13 +7,11 @@ import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import type { ProjectSettings, Region } from "@/hooks/api/types";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { requireProjectAccess } from "@/middlewares/require-access";
 
-// ---------------------------------------------------------------------------
-// Server functions
-// ---------------------------------------------------------------------------
 
 export const fetchRegions = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -61,9 +59,6 @@ export const updateProjectSettingsFn = createServerFn({ method: "POST" })
     );
   });
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 export const regionsQueryOptions = () =>
   queryOptions({
@@ -82,9 +77,6 @@ export const projectSettingsQueryOptions = (projectId: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useUpdateProjectSettings = () => {
   const queryClient = useQueryClient();
@@ -92,6 +84,19 @@ export const useUpdateProjectSettings = () => {
     mutationKey: ["project-settings", "update"],
     mutationFn: (data: { projectId: string; default_region: string }) =>
       updateProjectSettingsFn({ data }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("project_settings_updated", {
+        project_id: variables.projectId,
+        setting_key: "default_region",
+      });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "project_settings_updated",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        project_id: variables.projectId,
+      });
+    },
     onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["project-settings", variables.projectId],

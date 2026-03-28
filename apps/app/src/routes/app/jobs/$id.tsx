@@ -14,7 +14,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
@@ -28,6 +28,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -39,15 +40,26 @@ import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
-import ChartTooltip from "@/components/dashboard/chart-tooltip";
+
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import StatusBadge from "@/components/dashboard/status-badge";
-import { runColumns } from "@/components/tables/runs-columns";
+import { createRunColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
-import { jobQueryOptions } from "@/hooks/api/use-jobs";
-import { runsQueryOptions } from "@/hooks/api/use-runs";
+import {
+  jobHealthQueryOptions,
+  jobQueryOptions,
+  usePauseJob,
+  useResumeJob,
+  useTriggerJob,
+} from "@/hooks/api/use-jobs";
+import {
+  runsQueryOptions,
+  useCancelRun,
+  useRetryRun,
+} from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
   ClockIcon,
@@ -65,7 +77,12 @@ export const Route = createFileRoute("/app/jobs/$id")({
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(jobQueryOptions(params.id)),
-      context.queryClient.ensureQueryData(runsQueryOptions()),
+      context.queryClient.ensureQueryData(
+        runsQueryOptions({ job_id: params.id })
+      ),
+      context.queryClient.ensureQueryData(
+        jobHealthQueryOptions(params.id, "7d")
+      ),
     ]);
   },
   pendingComponent: DetailPageSkeleton,
@@ -73,87 +90,78 @@ export const Route = createFileRoute("/app/jobs/$id")({
   component: JobDetailPage,
 });
 
-// --- Mock chart data generator ---
+type HealthWindow = "1h" | "1d" | "7d" | "30d";
 
-type DateRange = "7d" | "14d" | "30d" | "90d";
-
-const DATE_RANGES: { value: DateRange; label: string; days: number }[] = [
-  { value: "7d", label: "7 days", days: 7 },
-  { value: "14d", label: "14 days", days: 14 },
-  { value: "30d", label: "30 days", days: 30 },
-  { value: "90d", label: "90 days", days: 90 },
+const HEALTH_WINDOWS: { value: HealthWindow; label: string }[] = [
+  { value: "1h", label: "1 hour" },
+  { value: "1d", label: "24 hours" },
+  { value: "7d", label: "7 days" },
+  { value: "30d", label: "30 days" },
 ];
 
-function generateChartData(days: number) {
-  const data: { date: string; completed: number; failed: number }[] = [];
-  const now = new Date();
-  const fmt =
-    days <= 14
-      ? { month: "short" as const, day: "numeric" as const }
-      : { month: "short" as const, day: "numeric" as const };
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    data.push({
-      date: d.toLocaleDateString("en-US", fmt),
-      completed: Math.floor(Math.random() * 40) + 60,
-      failed: Math.floor(Math.random() * 6),
-    });
+function StatusTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: { label: string; value: number; fill: string } }>;
+}) {
+  if (!(active && payload?.length)) {
+    return null;
   }
-  return data;
+  const data = payload[0].payload;
+  return (
+    <div className="rounded-lg border border-border bg-popover px-3 py-2 shadow-md">
+      <div className="flex items-center gap-2">
+        <span
+          className="size-2.5 shrink-0 rounded-full"
+          style={{ backgroundColor: data.fill }}
+        />
+        <span className="text-muted-foreground">{data.label}</span>
+        <span className="ml-auto font-medium text-popover-foreground tabular-nums">
+          {data.value.toLocaleString()}
+        </span>
+      </div>
+    </div>
+  );
 }
 
-function computeStats(chartData: { completed: number; failed: number }[]) {
-  const totalSuccess = chartData.reduce((s, d) => s + d.completed, 0);
-  const totalFailed = chartData.reduce((s, d) => s + d.failed, 0);
-  const totalRuns = totalSuccess + totalFailed;
-  const successRate =
-    totalRuns > 0 ? ((totalSuccess / totalRuns) * 100).toFixed(1) : "0";
-  const avgDuration = (2 + Math.random() * 5).toFixed(1);
-  return {
-    successRate: `${successRate}%`,
-    totalRuns: totalRuns.toLocaleString(),
-    avgDuration: `${avgDuration}s`,
-    failedRuns: totalFailed.toLocaleString(),
-  };
-}
-
-const CHART_LABEL_MAP = {
-  completed: { label: "Completed", color: CHART_COLORS.success },
-  failed: { label: "Failed", color: CHART_COLORS.error },
-};
-
-const CHART_LEGEND = [
-  { label: "Completed", color: CHART_COLORS.success },
-  { label: "Failed", color: CHART_COLORS.error },
-];
-
-// --- Page ---
 
 function JobDetailPage() {
   const { id } = Route.useParams();
+  usePageEvent("job_detail_viewed", { job_id: id });
   const { data: job } = useSuspenseQuery(jobQueryOptions(id)) as {
     data: Job | undefined;
   };
-  const { data: runsData } = useSuspenseQuery(runsQueryOptions()) as {
+  const { data: runsData } = useSuspenseQuery(
+    runsQueryOptions({ job_id: id })
+  ) as {
     data: PaginatedResponse<JobRun> | undefined;
   };
 
   const [activeTab, setActiveTab] = useState("overview");
-  const [dateRange, setDateRange] = useState<DateRange>("7d");
+  const [healthWindow, setHealthWindow] = useState<HealthWindow>("7d");
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
 
-  // Filter runs for this job
-  const jobRuns = useMemo(
-    () => (runsData?.data ?? []).filter((r) => r.job_id === job?.id),
-    [runsData, job?.id]
-  );
+  const { data: health } = useQuery(jobHealthQueryOptions(id, healthWindow));
+
+  const triggerJob = useTriggerJob();
+  const pauseJob = usePauseJob();
+  const resumeJob = useResumeJob();
+  const retryRun = useRetryRun();
+  const cancelRun = useCancelRun();
+
+  const jobRuns = runsData?.data ?? [];
 
   const table = useReactTable({
     data: jobRuns,
-    columns: runColumns,
+    columns: createRunColumns({
+      onView: (run) => handleRowClick(run),
+      onRetry: (run) => retryRun.mutate({ run_id: run.id }),
+      onCancel: (run) => cancelRun.mutate({ run_id: run.id }),
+    }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -166,9 +174,46 @@ function JobDetailPage() {
 
   const selectedIds = Object.keys(rowSelection).filter((k) => rowSelection[k]);
 
-  const rangeDays = DATE_RANGES.find((r) => r.value === dateRange)?.days ?? 7;
-  const chartData = useMemo(() => generateChartData(rangeDays), [rangeDays]);
-  const stats = useMemo(() => computeStats(chartData), [chartData]);
+  const stats = useMemo(() => {
+    if (!health) {
+      return {
+        successRate: "0%",
+        totalRuns: "0",
+        avgDuration: "0s",
+        failedRuns: "0",
+      };
+    }
+    return {
+      successRate: `${health.success_rate.toFixed(1)}%`,
+      totalRuns: health.total_runs.toLocaleString(),
+      avgDuration: `${health.avg_duration_secs.toFixed(1)}s`,
+      failedRuns: health.failed_runs.toLocaleString(),
+    };
+  }, [health]);
+
+  const chartData = useMemo(() => {
+    if (!health) {
+      return [];
+    }
+    return [
+      {
+        label: "Completed",
+        value: health.completed_runs,
+        fill: CHART_COLORS.success,
+      },
+      { label: "Failed", value: health.failed_runs, fill: CHART_COLORS.error },
+      {
+        label: "Timed Out",
+        value: health.timed_out_runs,
+        fill: CHART_COLORS.neutral,
+      },
+      {
+        label: "Canceled",
+        value: health.canceled_runs,
+        fill: CHART_COLORS.neutral,
+      },
+    ].filter((d) => d.value > 0);
+  }, [health]);
 
   function handleRowClick(run: JobRun) {
     setSelectedRun(run);
@@ -204,11 +249,24 @@ function JobDetailPage() {
           )}
         </div>
         <div className="flex gap-2">
-          <Button size="sm">
+          <Button
+            disabled={triggerJob.isPending}
+            onClick={() => triggerJob.mutate({ id: job.id })}
+            size="sm"
+          >
             <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
-            Trigger
+            {triggerJob.isPending ? "Triggering..." : "Trigger"}
           </Button>
-          <Button size="sm" variant="outline">
+          <Button
+            disabled={pauseJob.isPending || resumeJob.isPending}
+            onClick={() =>
+              job.enabled
+                ? pauseJob.mutate({ id: job.id })
+                : resumeJob.mutate({ id: job.id })
+            }
+            size="sm"
+            variant="outline"
+          >
             <HugeiconsIcon
               className="mr-1.5"
               icon={job.enabled ? PauseActionIcon : PlayActionIcon}
@@ -228,16 +286,16 @@ function JobDetailPage() {
         </TabsList>
 
         <TabsContent className="mt-6 space-y-6" value="overview">
-          {/* Date range selector */}
+          {/* Time window selector */}
           <div className="flex items-center gap-1">
-            {DATE_RANGES.map((range) => (
+            {HEALTH_WINDOWS.map((w) => (
               <Button
-                key={range.value}
-                onClick={() => setDateRange(range.value)}
+                key={w.value}
+                onClick={() => setHealthWindow(w.value)}
                 size="sm"
-                variant={dateRange === range.value ? "default" : "outline"}
+                variant={healthWindow === w.value ? "default" : "outline"}
               >
-                {range.label}
+                {w.label}
               </Button>
             ))}
           </div>
@@ -250,68 +308,53 @@ function JobDetailPage() {
             <StatCard label="Failed Runs" value={stats.failedRuns} />
           </div>
 
-          {/* Run History Bar Chart */}
+          {/* Run Status Distribution */}
           <Card>
-            <CardHeader className="flex flex-col gap-2 pb-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardHeader className="pb-2">
               <CardTitle className="font-medium text-sm">
-                Run History (Last {rangeDays} Days)
+                Run Status Distribution
               </CardTitle>
-              <div className="flex items-center gap-1">
-                {CHART_LEGEND.map((item) => (
-                  <div
-                    className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    key={item.label}
-                  >
-                    <span
-                      className="size-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: item.color }}
-                    />
-                    <span>{item.label}</span>
-                  </div>
-                ))}
-              </div>
             </CardHeader>
             <CardContent>
-              <div className="h-[240px]">
-                <ResponsiveContainer
-                  height="100%"
-                  minHeight={1}
-                  minWidth={1}
-                  width="100%"
-                >
-                  <BarChart data={chartData}>
-                    <CartesianGrid
-                      className="stroke-border"
-                      strokeDasharray="3 3"
-                    />
-                    <XAxis
-                      className="text-muted-foreground"
-                      dataKey="date"
-                      tick={{ fontSize: 12 }}
-                    />
-                    <YAxis
-                      className="text-muted-foreground"
-                      tick={{ fontSize: 12 }}
-                    />
-                    <Tooltip
-                      content={<ChartTooltip labelMap={CHART_LABEL_MAP} />}
-                      cursor={{ fill: "var(--muted)" }}
-                    />
-                    <Bar
-                      dataKey="completed"
-                      fill={CHART_COLORS.success}
-                      radius={[2, 2, 0, 0]}
-                      stackId="runs"
-                    />
-                    <Bar
-                      dataKey="failed"
-                      fill={CHART_COLORS.error}
-                      radius={[2, 2, 0, 0]}
-                      stackId="runs"
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              {chartData.length > 0 ? (
+                <div className="h-[240px]">
+                  <ResponsiveContainer
+                    height="100%"
+                    minHeight={1}
+                    minWidth={1}
+                    width="100%"
+                  >
+                    <BarChart data={chartData}>
+                      <CartesianGrid
+                        className="stroke-border"
+                        strokeDasharray="3 3"
+                      />
+                      <XAxis
+                        className="text-muted-foreground"
+                        dataKey="label"
+                        tick={{ fontSize: 12 }}
+                      />
+                      <YAxis
+                        className="text-muted-foreground"
+                        tick={{ fontSize: 12 }}
+                      />
+                      <Tooltip
+                        content={<StatusTooltip />}
+                        cursor={{ fill: "var(--muted)" }}
+                      />
+                      <Bar dataKey="value" radius={[2, 2, 0, 0]}>
+                        {chartData.map((entry) => (
+                          <Cell fill={entry.fill} key={entry.label} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="py-8 text-center text-muted-foreground text-sm">
+                  No run data available for this time window.
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -431,14 +474,18 @@ function JobDetailPage() {
                         label: "Retry",
                         icon: RefreshIcon,
                         onClick: () => {
-                          // TODO
+                          for (const id of selectedIds) {
+                            retryRun.mutate({ run_id: id });
+                          }
                         },
                       },
                       {
                         label: "Cancel",
                         icon: XCircleIcon,
                         onClick: () => {
-                          // TODO
+                          for (const id of selectedIds) {
+                            cancelRun.mutate({ run_id: id });
+                          }
                         },
                         variant: "destructive" as const,
                       },
