@@ -16,6 +16,7 @@ export {
   normalizeUsageReport,
 } from "./pricing";
 export { createVercelAIAdapter } from "./vercel-ai";
+export { createOpenAIAdapter } from "./openai";
 export type {
   AgentBudget,
   BudgetSnapshot,

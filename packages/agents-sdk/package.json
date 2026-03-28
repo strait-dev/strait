@@ -20,6 +20,7 @@
     "./budget": "./src/budget.ts",
     "./context": "./src/context.ts",
     "./errors": "./src/errors.ts",
+    "./openai": "./src/openai.ts",
     "./pricing": "./src/pricing.ts",
     "./types": "./src/types.ts",
     "./vercel-ai": "./src/vercel-ai.ts"
