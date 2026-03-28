@@ -187,3 +187,115 @@ func TestHandleSDKDeleteState(t *testing.T) {
 		t.Fatalf("expected key=mykey, got %s", deletedKey)
 	}
 }
+
+func TestHandleSDKSetWorkflowState_Success(t *testing.T) {
+	t.Parallel()
+
+	var captured *domain.RunState
+	ms := &APIStoreMock{
+		GetRunFunc: func(context.Context, string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", WorkflowStepRunID: "step-run-1"}, nil
+		},
+		GetStepRunByJobRunIDFunc: func(context.Context, string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{ID: "step-run-1", WorkflowRunID: "wf-run-1"}, nil
+		},
+		UpsertRunStateFunc: func(_ context.Context, s *domain.RunState) error {
+			captured = s
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/workflow-state", "run-1",
+		`{"key":"shared-plan","value":{"phase":"research"}}`)
+	TypedHandler(srv, http.StatusCreated, srv.handleSDKSetWorkflowState)(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if captured == nil {
+		t.Fatal("UpsertRunState was not called")
+	}
+	if captured.RunID != "wf-run-1" {
+		t.Fatalf("expected run_id=wf-run-1, got %s", captured.RunID)
+	}
+}
+
+func TestHandleSDKWorkflowState_RejectsNonWorkflowRuns(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(context.Context, string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1"}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodGet, "/sdk/v1/runs/run-1/workflow-state", "run-1", "")
+	TypedHandler(srv, http.StatusOK, srv.handleSDKListWorkflowState)(w, r)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKGetWorkflowState_Found(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(context.Context, string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", WorkflowStepRunID: "step-run-1"}, nil
+		},
+		GetStepRunByJobRunIDFunc: func(context.Context, string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{ID: "step-run-1", WorkflowRunID: "wf-run-1"}, nil
+		},
+		GetRunStateFunc: func(_ context.Context, runID, key string) (*domain.RunState, error) {
+			return &domain.RunState{RunID: runID, StateKey: key, Value: json.RawMessage(`"ready"`)}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodGet, "/sdk/v1/runs/run-1/workflow-state/shared-plan", "run-1", "")
+	rctx := chi.RouteContext(r.Context())
+	rctx.URLParams.Add("key", "shared-plan")
+	TypedHandler(srv, http.StatusOK, srv.handleSDKGetWorkflowState)(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKDeleteWorkflowState(t *testing.T) {
+	t.Parallel()
+
+	var deletedRunID string
+	ms := &APIStoreMock{
+		GetRunFunc: func(context.Context, string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", WorkflowStepRunID: "step-run-1"}, nil
+		},
+		GetStepRunByJobRunIDFunc: func(context.Context, string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{ID: "step-run-1", WorkflowRunID: "wf-run-1"}, nil
+		},
+		DeleteRunStateFunc: func(_ context.Context, runID, _ string) error {
+			deletedRunID = runID
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodDelete, "/sdk/v1/runs/run-1/workflow-state/shared-plan", "run-1", "")
+	rctx := chi.RouteContext(r.Context())
+	rctx.URLParams.Add("key", "shared-plan")
+	TypedHandler(srv, http.StatusNoContent, srv.handleSDKDeleteWorkflowState)(w, r)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if deletedRunID != "wf-run-1" {
+		t.Fatalf("expected delete on wf-run-1, got %s", deletedRunID)
+	}
+}

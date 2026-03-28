@@ -1726,6 +1726,30 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleSDKDeleteState)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "sdk-set-workflow-state", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/workflow-state",
+		Summary: "Set workflow state", Description: "Sets a key-value pair in the parent workflow run's shared state store for workflow-backed runs.",
+		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
+	}, s.handleSDKSetWorkflowState)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "sdk-list-workflow-state", Method: http.MethodGet, Path: "/sdk/v1/runs/{runID}/workflow-state",
+		Summary: "List workflow state", Description: "Returns shared workflow state for workflow-backed runs.",
+		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
+	}, s.handleSDKListWorkflowState)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "sdk-get-workflow-state", Method: http.MethodGet, Path: "/sdk/v1/runs/{runID}/workflow-state/{key}",
+		Summary: "Get workflow state value", Description: "Returns a specific shared workflow state value for workflow-backed runs.",
+		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
+	}, s.handleSDKGetWorkflowState)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "sdk-delete-workflow-state", Method: http.MethodDelete, Path: "/sdk/v1/runs/{runID}/workflow-state/{key}",
+		Summary: "Delete workflow state value", Description: "Removes a key-value pair from shared workflow state for workflow-backed runs.",
+		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
+	}, s.handleSDKDeleteWorkflowState)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "sdk-stream-chunk", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/stream",
 		Summary: "Send a stream chunk", Description: "Sends a streaming chunk for real-time output from LLM-powered runs.",
 		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 500},

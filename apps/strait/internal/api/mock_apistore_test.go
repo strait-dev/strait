@@ -409,6 +409,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetRunsByIDsFunc: func(ctx context.Context, ids []string) (map[string]*domain.JobRun, error) {
 //				panic("mock out the GetRunsByIDs method")
 //			},
+//			GetStepRunByJobRunIDFunc: func(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
+//				panic("mock out the GetStepRunByJobRunID method")
+//			},
 //			GetStepRunByWorkflowRunAndRefFunc: func(ctx context.Context, workflowRunID string, stepRef string) (*domain.WorkflowStepRun, error) {
 //				panic("mock out the GetStepRunByWorkflowRunAndRef method")
 //			},
@@ -1198,6 +1201,9 @@ type APIStoreMock struct {
 
 	// GetRunsByIDsFunc mocks the GetRunsByIDs method.
 	GetRunsByIDsFunc func(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+
+	// GetStepRunByJobRunIDFunc mocks the GetStepRunByJobRunID method.
+	GetStepRunByJobRunIDFunc func(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
 
 	// GetStepRunByWorkflowRunAndRefFunc mocks the GetStepRunByWorkflowRunAndRef method.
 	GetStepRunByWorkflowRunAndRefFunc func(ctx context.Context, workflowRunID string, stepRef string) (*domain.WorkflowStepRun, error)
@@ -2646,6 +2652,13 @@ type APIStoreMock struct {
 			// Ids is the ids argument value.
 			Ids []string
 		}
+		// GetStepRunByJobRunID holds details about calls to the GetStepRunByJobRunID method.
+		GetStepRunByJobRunID []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// JobRunID is the jobRunID argument value.
+			JobRunID string
+		}
 		// GetStepRunByWorkflowRunAndRef holds details about calls to the GetStepRunByWorkflowRunAndRef method.
 		GetStepRunByWorkflowRunAndRef []struct {
 			// Ctx is the ctx argument value.
@@ -4086,6 +4099,7 @@ type APIStoreMock struct {
 	lockGetRunByIdempotencyKey             sync.RWMutex
 	lockGetRunState                        sync.RWMutex
 	lockGetRunsByIDs                       sync.RWMutex
+	lockGetStepRunByJobRunID               sync.RWMutex
 	lockGetStepRunByWorkflowRunAndRef      sync.RWMutex
 	lockGetTagPolicyActions                sync.RWMutex
 	lockGetTopCosts                        sync.RWMutex
@@ -9616,6 +9630,46 @@ func (mock *APIStoreMock) GetRunsByIDsCalls() []struct {
 	mock.lockGetRunsByIDs.RLock()
 	calls = mock.calls.GetRunsByIDs
 	mock.lockGetRunsByIDs.RUnlock()
+	return calls
+}
+
+// GetStepRunByJobRunID calls GetStepRunByJobRunIDFunc.
+func (mock *APIStoreMock) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
+	callInfo := struct {
+		Ctx      context.Context
+		JobRunID string
+	}{
+		Ctx:      ctx,
+		JobRunID: jobRunID,
+	}
+	mock.lockGetStepRunByJobRunID.Lock()
+	mock.calls.GetStepRunByJobRunID = append(mock.calls.GetStepRunByJobRunID, callInfo)
+	mock.lockGetStepRunByJobRunID.Unlock()
+	if mock.GetStepRunByJobRunIDFunc == nil {
+		var (
+			workflowStepRunOut *domain.WorkflowStepRun
+			errOut             error
+		)
+		return workflowStepRunOut, errOut
+	}
+	return mock.GetStepRunByJobRunIDFunc(ctx, jobRunID)
+}
+
+// GetStepRunByJobRunIDCalls gets all the calls that were made to GetStepRunByJobRunID.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetStepRunByJobRunIDCalls())
+func (mock *APIStoreMock) GetStepRunByJobRunIDCalls() []struct {
+	Ctx      context.Context
+	JobRunID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		JobRunID string
+	}
+	mock.lockGetStepRunByJobRunID.RLock()
+	calls = mock.calls.GetStepRunByJobRunID
+	mock.lockGetStepRunByJobRunID.RUnlock()
 	return calls
 }
 

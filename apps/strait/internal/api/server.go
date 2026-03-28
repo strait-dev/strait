@@ -208,6 +208,7 @@ type RunStore interface {
 	GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error)
 	ListRunState(ctx context.Context, runID string) ([]domain.RunState, error)
 	DeleteRunState(ctx context.Context, runID, key string) error
+	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
 	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
 	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
 	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
