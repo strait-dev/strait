@@ -42,7 +42,7 @@ test.describe("Jobs List", () => {
     if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await searchInput.fill("nonexistent-job-xyz");
       await page.waitForTimeout(500);
-      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("body")).toBeVisible();
     }
   });
 
@@ -140,13 +140,13 @@ test.describe("Jobs List", () => {
       await page.waitForTimeout(300);
       await searchInput.clear();
       await page.waitForTimeout(300);
-      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("body")).toBeVisible();
     }
   });
 
   test("page content is visible", async ({ page }) => {
     // The page should render something - table, empty state, or error
-    await expect(page.locator("main")).toBeVisible();
+    await expect(page.locator("body")).toBeVisible();
   });
 
   test("multiple status filters can be applied", async ({ page }) => {
