@@ -62,8 +62,9 @@ describe("StraitContext integration", () => {
 
     await context.checkpoint({ phase: "planning" });
     await context.stream({ chunk: "hello", done: true });
+    await context.workflow.state.set("shared-plan", { phase: "fan-out" });
 
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(3);
     expect(requests[0]).toMatchObject({
       path: "/sdk/v1/runs/run-env-1/checkpoint",
       authorization: "Bearer token-env-1",
@@ -81,6 +82,17 @@ describe("StraitContext integration", () => {
       body: {
         chunk: "hello",
         done: true,
+      },
+    });
+    expect(requests[2]).toMatchObject({
+      path: "/sdk/v1/runs/run-env-1/workflow-state",
+      authorization: "Bearer token-env-1",
+      sdkVersion: "2.0.0",
+      body: {
+        key: "shared-plan",
+        value: {
+          phase: "fan-out",
+        },
       },
     });
   });

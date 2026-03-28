@@ -9,6 +9,23 @@ export {
   UnknownPricingError,
 } from "./errors";
 export {
+  agentStep,
+  agentWorkflow,
+  approvalStep,
+  debatePattern,
+  orchestratorPattern,
+  pipelinePattern,
+} from "./workflow";
+export type {
+  AgentWorkflowDefinition,
+  AgentWorkflowStepDefinition,
+  ApprovalStepOptions,
+  DebatePatternDefinition,
+  OrchestratorPatternDefinition,
+  PipelinePatternDefinition,
+  WorkflowFailurePolicy,
+} from "./workflow";
+export {
   createPricingCatalog,
   defaultPricingCatalog,
   estimateUsageCostMicrousd,

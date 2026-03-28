@@ -120,7 +120,7 @@ export class StraitHTTPClient {
     }
   }
 
-  async post<TResponse>(
+  post<TResponse>(
     path: string,
     body: unknown,
     options: {
@@ -128,19 +128,56 @@ export class StraitHTTPClient {
       signal?: AbortSignal;
     } = {}
   ): Promise<TResponse> {
+    return this.#request<TResponse>("POST", path, body, options);
+  }
+
+  get<TResponse>(
+    path: string,
+    options: {
+      retryable?: boolean;
+      signal?: AbortSignal;
+    } = {}
+  ): Promise<TResponse> {
+    return this.#request<TResponse>("GET", path, undefined, options);
+  }
+
+  delete<TResponse>(
+    path: string,
+    options: {
+      retryable?: boolean;
+      signal?: AbortSignal;
+    } = {}
+  ): Promise<TResponse> {
+    return this.#request<TResponse>("DELETE", path, undefined, options);
+  }
+
+  async #request<TResponse>(
+    method: "DELETE" | "GET" | "POST",
+    path: string,
+    body: unknown,
+    options: {
+      retryable?: boolean;
+      signal?: AbortSignal;
+    }
+  ): Promise<TResponse> {
     const attempts = options.retryable ? this.#retryPolicy.maxAttempts : 1;
     const url = buildSDKURL(this.#baseUrl, this.#runId, path);
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
+        const headers = new Headers({
+          Authorization: `Bearer ${this.#runToken}`,
+          "X-SDK-Version": this.#sdkVersion,
+        });
+        let encodedBody: string | undefined;
+        if (body !== undefined) {
+          headers.set("Content-Type", "application/json");
+          encodedBody = JSON.stringify(body);
+        }
         const response = await this.#fetch(url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${this.#runToken}`,
-            "Content-Type": "application/json",
-            "X-SDK-Version": this.#sdkVersion,
-          },
-          body: JSON.stringify(body),
+          method,
+          headers,
+          body: encodedBody,
           signal: options.signal,
         });
 

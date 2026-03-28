@@ -149,4 +149,44 @@ describe("StraitContext", () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("uses workflow-scoped state endpoints for shared orchestration state", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          run_id: "wf-run-1",
+          state_key: "shared-plan",
+          value: { phase: "research" },
+          updated_at: "2026-03-28T09:00:00Z",
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        }
+      )
+    );
+
+    const context = new StraitContext({
+      baseUrl,
+      runId,
+      runToken,
+      fetch: fetchMock,
+    });
+
+    await context.workflow.state.set("shared-plan", { phase: "research" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe("https://api.strait.test/sdk/v1/runs/run-123/workflow-state");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      key: "shared-plan",
+      value: {
+        phase: "research",
+      },
+    });
+  });
 });

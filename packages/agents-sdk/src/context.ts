@@ -44,9 +44,23 @@ type RunToolCallResponse = {
   status: string;
 };
 
+type RunStateResponse = {
+  run_id: string;
+  state_key: string;
+  value: JsonValue;
+  updated_at: string;
+};
+
 type JobRunResponse = {
   id: string;
   status: string;
+};
+
+type StateScopeClient = {
+  set: (key: string, value: JsonValue, signal?: AbortSignal) => Promise<RunStateResponse>;
+  get: (key: string, signal?: AbortSignal) => Promise<RunStateResponse>;
+  list: (signal?: AbortSignal) => Promise<RunStateResponse[]>;
+  delete: (key: string, signal?: AbortSignal) => Promise<void>;
 };
 
 function assertNonEmptyString(value: string, field: string): string {
@@ -99,12 +113,69 @@ export class StraitContext {
   readonly #budget: BudgetLedger;
 
   readonly runId: string;
+  readonly run: { state: StateScopeClient };
+  readonly workflow: { state: StateScopeClient };
 
   constructor(options: StraitContextOptions) {
     this.runId = assertNonEmptyString(options.runId, "runId");
     this.#client = new StraitHTTPClient(options);
     this.#pricingCatalog = options.pricingCatalog ?? defaultPricingCatalog;
     this.#budget = new BudgetLedger(options.budget);
+    this.run = {
+      state: this.#createStateScope("/state"),
+    };
+    this.workflow = {
+      state: this.#createStateScope("/workflow-state"),
+    };
+  }
+
+  #createStateScope(basePath: string): StateScopeClient {
+    return {
+      set: (key, value, signal) => this.#setState(basePath, key, value, signal),
+      get: (key, signal) => this.#getState(basePath, key, signal),
+      list: (signal) => this.#client.get<RunStateResponse[]>(basePath, { retryable: true, signal }),
+      delete: async (key, signal) => {
+        await this.#deleteState(basePath, key, signal);
+      },
+    };
+  }
+
+  #setState(
+    basePath: string,
+    key: string,
+    value: JsonValue,
+    signal?: AbortSignal
+  ): Promise<RunStateResponse> {
+    return this.#client.post<RunStateResponse>(
+      basePath,
+      {
+        key: assertNonEmptyString(key, "key"),
+        value,
+      },
+      { retryable: true, signal }
+    );
+  }
+
+  #getState(
+    basePath: string,
+    key: string,
+    signal?: AbortSignal
+  ): Promise<RunStateResponse> {
+    return this.#client.get<RunStateResponse>(
+      `${basePath}/${encodeURIComponent(assertNonEmptyString(key, "key"))}`,
+      { retryable: true, signal }
+    );
+  }
+
+  async #deleteState(
+    basePath: string,
+    key: string,
+    signal?: AbortSignal
+  ): Promise<void> {
+    await this.#client.delete<void>(
+      `${basePath}/${encodeURIComponent(assertNonEmptyString(key, "key"))}`,
+      { retryable: true, signal }
+    );
   }
 
   budgetSnapshot(): BudgetSnapshot {

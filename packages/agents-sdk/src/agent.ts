@@ -1,5 +1,13 @@
 import type { StraitContext } from "./context";
 import type { AgentBudget, JsonValue } from "./types";
+import {
+  agentWorkflow,
+  agentStep,
+  approvalStep,
+  debatePattern,
+  orchestratorPattern,
+  pipelinePattern,
+} from "./workflow";
 
 export interface StraitAgentDefinition<TInput = JsonValue, TResult = JsonValue> {
   name: string;
@@ -18,4 +26,10 @@ export function agent<TInput = JsonValue, TResult = JsonValue>(
 
 export const strait = {
   agent,
+  agentStep,
+  agentWorkflow,
+  approvalStep,
+  debatePattern,
+  orchestratorPattern,
+  pipelinePattern,
 };
