@@ -1,6 +1,7 @@
 ---
 import { basehub } from "basehub";
 import JsonLd from "@/components/JsonLd.astro";
+import Pagination from "@/components/landing-page/blog/pagination.tsx";
 import { PostFragment as PostFragmentQuery } from "@/components/landing-page/blog/post.tsx";
 import PostFeatured from "@/components/landing-page/blog/post-featured.tsx";
 import PostPreview from "@/components/landing-page/blog/post-preview.tsx";
@@ -13,16 +14,29 @@ import {
   getCollectionPageSchema,
 } from "@/lib/structured-data.tsx";
 
-const BASE_URL = import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
+const BASE_URL = import.meta.env.PUBLIC_WEBSITE_URL || "https://strait.dev";
 const POSTS_PER_PAGE = 8;
 
 let posts: any[] = [];
 let totalCount = 0;
 
+// Fetch blog hero data
+let heroTitle = "Engineering the future of job orchestration.";
+let heroSubtitle =
+  "Product updates, engineering deep dives, and best practices for background jobs, workflows, and AI agents.";
+let heroBadge = "Our Blog";
+
 try {
   const data = await basehub().query({
     website: {
       blog: {
+        hero: {
+          hero: {
+            title: true,
+            subtitle: true,
+            badge: true,
+          },
+        },
         posts: {
           __args: {
             orderBy: "publishedAt__DESC",
@@ -36,11 +50,29 @@ try {
       },
     },
   });
-  posts = (data as any).website.blog.posts.items;
-  totalCount = (data as any).website.blog.posts._meta.totalCount;
-} catch (e) {
-  // If basehub fails, continue with empty posts
+  const result = data as any;
+  posts = result.website.blog.posts.items;
+  totalCount = result.website.blog.posts._meta.totalCount;
+
+  if (result.website.blog.hero?.hero) {
+    const h = result.website.blog.hero.hero;
+    if (h.title) {
+      heroTitle = h.title;
+    }
+    if (h.subtitle) {
+      heroSubtitle = h.subtitle;
+    }
+    if (h.badge) {
+      heroBadge = h.badge;
+    }
+  }
+} catch {
+  // Basehub unavailable
 }
+
+const totalPages = Math.ceil(totalCount / POSTS_PER_PAGE);
+const featuredPost = posts.length > 0 ? posts[0] : null;
+const remainingPosts = posts.length > 1 ? posts.slice(1) : [];
 
 const blogUrl = `${BASE_URL}/blog`;
 const breadcrumbSchema = getBreadcrumbSchema([
@@ -49,84 +81,85 @@ const breadcrumbSchema = getBreadcrumbSchema([
 ]);
 const collectionSchema = getCollectionPageSchema({
   name: "Strait Blog",
-  description:
-    "Tips, insights, and ideas on AI-powered writing and productivity.",
+  description: heroSubtitle,
   url: blogUrl,
 });
-
-const featuredPost = posts.length > 0 ? posts[0] : null;
-const remainingPosts = posts.length > 1 ? posts.slice(1) : [];
-const totalPages = Math.ceil(totalCount / POSTS_PER_PAGE);
 ---
 
 <LandingLayout>
-  <Fragment slot="head">
-    <SEO
-      title="Blog"
-      description="Tips, insights, and best practices for job orchestration, workflow automation, and background processing."
-      path="/blog"
-    />
-  </Fragment>
-  <main class="flex flex-col">
-    <JsonLd data={breadcrumbSchema} />
-    <JsonLd data={collectionSchema} />
+	<Fragment slot="head">
+		<SEO
+			title="Blog"
+			description={heroSubtitle}
+			path="/blog"
+		/>
+	</Fragment>
+	<main class="flex flex-col">
+		<JsonLd data={breadcrumbSchema} />
+		<JsonLd data={collectionSchema} />
 
-    <section class="relative isolate overflow-hidden pt-32 pb-12 sm:pt-40 sm:pb-16">
-      <div class="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_var(--primary)/0.06,_transparent_40%)]" />
-      <div class="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_transparent,_var(--background)_70%)]" />
-      <Shell variant="wide">
-        <div class="mx-auto max-w-3xl text-center">
-          <span class="kicker">Blog</span>
-          <h1 class="mt-4 text-balance text-4xl leading-[1.12] sm:text-5xl lg:text-6xl">
-            Insights for builders
-          </h1>
-          <p class="mt-4 text-pretty text-muted-foreground leading-relaxed">
-            Engineering deep dives, best practices, and updates from the Strait team.
-          </p>
-        </div>
-      </Shell>
-    </section>
+		<!-- Blog Hero (inline) -->
+		<section class="relative isolate overflow-hidden pt-32 pb-12 sm:pt-40 sm:pb-16">
+			<div class="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_var(--primary)/0.06,_transparent_40%)]" />
+			<div class="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_transparent,_var(--background)_70%)]" />
+			<div class="paper-texture absolute inset-0 -z-10 opacity-[0.02]" />
 
-    {posts.length === 0 ? (
-      <section class="py-20 sm:py-28">
-        <Shell variant="wide">
-          <p class="text-center text-lg text-muted-foreground">
-            No posts found. Check back soon!
-          </p>
-        </Shell>
-      </section>
-    ) : (
-      <section class="pb-20 sm:pb-28">
-        <Shell variant="wide">
-          {featuredPost && (
-            <div class="pb-8">
-              <PostFeatured client:only="react" {...featuredPost} />
-            </div>
-          )}
+			<Shell variant="wide">
+				<div class="mx-auto flex max-w-3xl flex-col items-center text-center">
+					<span class="kicker">{heroBadge}</span>
+					<h1 class="mt-6 text-balance text-4xl leading-[1.15] sm:text-5xl lg:text-6xl">
+						<span class="text-foreground">{heroTitle}</span>
+					</h1>
+					<p class="mt-4 max-w-2xl text-pretty text-muted-foreground leading-relaxed">
+						{heroSubtitle}
+					</p>
+				</div>
+			</Shell>
+		</section>
 
-          {remainingPosts.length > 0 && (
-            <div class="overflow-hidden rounded-2xl border border-border/50">
-              <div class="grid grid-cols-1 gap-px bg-border/50 md:grid-cols-2">
-                {remainingPosts.map((post: any) => (
-                  <div class="bg-background p-6">
-                    <PostPreview client:only="react" {...post} />
-                  </div>
-                ))}
-              </div>
+		{posts.length === 0 ? (
+			<section class="py-20 sm:py-28">
+				<Shell variant="wide">
+					<p class="text-center text-lg text-muted-foreground">
+						No posts found. Check back soon!
+					</p>
+				</Shell>
+			</section>
+		) : (
+			<section class="pb-20 sm:pb-28">
+				<Shell variant="wide">
+					{featuredPost && (
+						<div class="pb-8">
+							<PostFeatured client:only="react" {...featuredPost} />
+						</div>
+					)}
 
-              {totalPages > 1 && (
-                <div class="border-border/50 border-t bg-background py-8 text-center">
-                  <a href="/blog/page/2" class="text-primary text-sm hover:underline">
-                    Next page &rarr;
-                  </a>
-                </div>
-              )}
-            </div>
-          )}
-        </Shell>
-      </section>
-    )}
+					{remainingPosts.length > 0 && (
+						<div class="overflow-hidden rounded-2xl border border-border/50">
+							<div class="grid grid-cols-1 gap-px bg-border/50 md:grid-cols-2">
+								{remainingPosts.map((post: any) => (
+									<div class="bg-background p-6">
+										<PostPreview client:only="react" {...post} />
+									</div>
+								))}
+							</div>
 
-    <CTA client:only="react" />
-  </main>
+							{totalPages > 1 && (
+								<div class="border-border/50 border-t bg-background py-8">
+									<Pagination
+										client:only="react"
+										currentPage={1}
+										totalPages={totalPages}
+										basePath="/blog"
+									/>
+								</div>
+							)}
+						</div>
+					)}
+				</Shell>
+			</section>
+		)}
+
+		<CTA client:only="react" />
+	</main>
 </LandingLayout>
