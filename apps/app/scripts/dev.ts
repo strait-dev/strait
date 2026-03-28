@@ -1,11 +1,19 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { ensureLocalDevUser } from "./lib/local-auth-user";
-import { applyLocalDefaults, migrateAuthDatabase, waitForBaseURL } from "./lib/local-bootstrap";
+import {
+  applyLocalDefaults,
+  migrateAuthDatabase,
+  resolveAvailableDevServerOptions,
+  waitForBaseURL,
+  withResolvedDevServerArgs,
+} from "./lib/local-bootstrap";
 
 async function main() {
   const args = process.argv.slice(2);
-  const env = applyLocalDefaults(process.env, args);
+  const resolvedOptions = await resolveAvailableDevServerOptions(process.env, args);
+  const devArgs = withResolvedDevServerArgs(args, resolvedOptions);
+  const env = applyLocalDefaults(process.env, args, resolvedOptions);
   const cwd = new URL("..", import.meta.url);
 
   Object.assign(process.env, env);
@@ -13,7 +21,7 @@ async function main() {
   console.log("Bootstrapping local auth schema...");
   await migrateAuthDatabase();
 
-  const child = spawn("bun", ["run", "dev:raw", ...args], {
+  const child = spawn("bun", ["run", "dev:raw", ...devArgs], {
     cwd,
     env,
     stdio: "inherit",

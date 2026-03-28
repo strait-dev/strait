@@ -183,6 +183,29 @@ func TestAPIKey_RevocationImmediate(t *testing.T) {
 	}
 }
 
+func TestAPIKey_NilLookupRejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	req.Header.Set("Authorization", "Bearer strait_nil_lookup_for_testing_purpose")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Project-Id", "proj-1")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("nil api key lookup should return 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // TestAPIKey_ExpiredKeyRejected verifies that an expired key returns 401.
 func TestAPIKey_ExpiredKeyRejected(t *testing.T) {
 	t.Parallel()

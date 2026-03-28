@@ -47,6 +47,17 @@ func TestValidateCreateRequest(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "config must be object",
+			req: CreateAgentRequest{
+				ProjectID: "proj-1",
+				Name:      "Support Agent",
+				Slug:      "support-agent",
+				Model:     "gpt-5.4",
+				Config:    json.RawMessage(`"not-an-object"`),
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -14,8 +14,6 @@ import type {
   AgentDeployment,
   JobRun,
   ListParams,
-  PaginatedResponse,
-  RunUsage,
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
@@ -60,42 +58,7 @@ export const fetchAgentListRows = createServerFn({ method: "GET" })
       })
     );
 
-    const runsByAgentEntries = await Promise.all(
-      agents.map(async (agent) => {
-        const runs = await runWithSentryReport(
-          apiEffect<JobRun[]>(`/v1/agents/${agent.id}/runs`, {
-            params: {
-              limit: 20,
-            },
-          })
-        );
-
-        const usagePages = await Promise.all(
-          runs.map((run) =>
-            runWithSentryReport(
-              apiEffect<PaginatedResponse<RunUsage>>(
-                `/v1/runs/${run.id}/usage`,
-                {
-                  params: {
-                    limit: 50,
-                  },
-                }
-              )
-            )
-          )
-        );
-
-        return [
-          agent.id,
-          {
-            runs,
-            usage: usagePages.flatMap((page) => page.data),
-          },
-        ] as const;
-      })
-    );
-
-    return buildAgentListRows(agents, Object.fromEntries(runsByAgentEntries));
+    return buildAgentListRows(agents, {});
   });
 
 export const createAgentFn = createServerFn({ method: "POST" })

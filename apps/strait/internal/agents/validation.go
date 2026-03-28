@@ -113,5 +113,12 @@ func validateConfig(config json.RawMessage) error {
 	if !json.Valid(config) {
 		return &ValidationError{field: "config", message: "must be valid JSON"}
 	}
+	var decoded any
+	if err := json.Unmarshal(config, &decoded); err != nil {
+		return &ValidationError{field: "config", message: "must be valid JSON"}
+	}
+	if _, ok := decoded.(map[string]any); !ok {
+		return &ValidationError{field: "config", message: "must be a JSON object"}
+	}
 	return nil
 }

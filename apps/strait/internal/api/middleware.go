@@ -180,6 +180,10 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 			respondError(w, r, http.StatusUnauthorized, "invalid api key")
 			return
 		}
+		if apiKey == nil {
+			respondError(w, r, http.StatusUnauthorized, "invalid api key")
+			return
+		}
 
 		if apiKey.RevokedAt != nil {
 			s.authLimiter.RecordFailure(r.Context(), clientIP)
@@ -199,14 +203,16 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		touchCtx := context.WithoutCancel(r.Context())
-		s.bgPool.Submit(func() {
-			ctx, cancel := context.WithTimeout(touchCtx, 2*time.Second)
-			defer cancel()
-			if err := s.store.TouchAPIKeyLastUsed(ctx, apiKey.ID); err != nil {
-				slog.Error("failed to touch api key last used", "key_id", apiKey.ID, "error", err)
-			}
-		})
+		if s.bgPool != nil {
+			touchCtx := context.WithoutCancel(r.Context())
+			s.bgPool.Submit(func() {
+				ctx, cancel := context.WithTimeout(touchCtx, 2*time.Second)
+				defer cancel()
+				if err := s.store.TouchAPIKeyLastUsed(ctx, apiKey.ID); err != nil {
+					slog.Error("failed to touch api key last used", "key_id", apiKey.ID, "error", err)
+				}
+			})
+		}
 
 		ctx := context.WithValue(r.Context(), ctxProjectIDKey, apiKey.ProjectID)
 		ctx = context.WithValue(ctx, ctxScopesKey, apiKey.Scopes)

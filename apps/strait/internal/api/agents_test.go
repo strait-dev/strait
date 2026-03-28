@@ -128,6 +128,93 @@ func TestHandleCreateAgentSuccess(t *testing.T) {
 	}
 }
 
+func TestHandleCreateAgentRejectsNonObjectConfig(t *testing.T) {
+	t.Parallel()
+
+	srv := newAgentTestServer(t, &stubAgentService{
+		createAgentFunc: func(context.Context, agentsvc.CreateAgentRequest) (*domain.Agent, error) {
+			t.Fatal("createAgent should not be called")
+			return nil, nil
+		},
+		getAgentFunc:   func(context.Context, string, string) (*domain.Agent, error) { return nil, nil },
+		listAgentsFunc: func(context.Context, string, int, *time.Time) ([]domain.Agent, error) { return nil, nil },
+		updateAgentFunc: func(context.Context, agentsvc.UpdateAgentRequest) (*domain.Agent, error) {
+			return nil, nil
+		},
+		deleteAgentFunc: func(context.Context, string, string) error { return nil },
+		deployAgentFunc: func(context.Context, string, string, string) (*domain.AgentDeployment, error) {
+			return nil, nil
+		},
+		runAgentFunc: func(context.Context, agentsvc.RunAgentRequest) (*domain.JobRun, error) {
+			return nil, nil
+		},
+		listAgentRunsFunc: func(context.Context, string, string, int, int) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+	})
+
+	req := authedProjectRequest(
+		http.MethodPost,
+		"/v1/agents",
+		`{"project_id":"proj-1","name":"Support Agent","slug":"support-agent","model":"gpt-5.4","config":"not-an-object"}`,
+		"proj-1",
+	)
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleUpdateAgentRejectsNonObjectConfig(t *testing.T) {
+	t.Parallel()
+
+	srv := newAgentTestServer(t, &stubAgentService{
+		createAgentFunc: func(context.Context, agentsvc.CreateAgentRequest) (*domain.Agent, error) { return nil, nil },
+		getAgentFunc: func(context.Context, string, string) (*domain.Agent, error) {
+			return &domain.Agent{
+				ID:        "agent-1",
+				ProjectID: "proj-1",
+				Name:      "Support Agent",
+				Slug:      "support-agent",
+				Model:     "gpt-5.4",
+				Config:    json.RawMessage(`{"temperature":0.2}`),
+			}, nil
+		},
+		listAgentsFunc: func(context.Context, string, int, *time.Time) ([]domain.Agent, error) { return nil, nil },
+		updateAgentFunc: func(context.Context, agentsvc.UpdateAgentRequest) (*domain.Agent, error) {
+			t.Fatal("updateAgent should not be called")
+			return nil, nil
+		},
+		deleteAgentFunc: func(context.Context, string, string) error { return nil },
+		deployAgentFunc: func(context.Context, string, string, string) (*domain.AgentDeployment, error) {
+			return nil, nil
+		},
+		runAgentFunc: func(context.Context, agentsvc.RunAgentRequest) (*domain.JobRun, error) {
+			return nil, nil
+		},
+		listAgentRunsFunc: func(context.Context, string, string, int, int) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+	})
+
+	req := authedProjectRequest(
+		http.MethodPatch,
+		"/v1/agents/agent-1",
+		`{"config":["not-an-object"]}`,
+		"proj-1",
+	)
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleRunAgentNotDeployed(t *testing.T) {
 	t.Parallel()
 

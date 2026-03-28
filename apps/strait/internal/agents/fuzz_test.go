@@ -7,6 +7,8 @@ import (
 
 func FuzzValidateConfig(f *testing.F) {
 	f.Add([]byte(`{"temperature":0.2}`))
+	f.Add([]byte(`"string-config"`))
+	f.Add([]byte(`[1,2,3]`))
 	f.Add([]byte(`{"temperature":`))
 	f.Add([]byte{})
 
@@ -26,9 +28,21 @@ func FuzzValidateConfig(f *testing.F) {
 				t.Fatal("expected oversized config error")
 			}
 		case json.Valid(raw):
-			if err != nil {
-				t.Fatalf("validateConfig(valid) error = %v", err)
+			var decoded any
+			if unmarshalErr := json.Unmarshal(raw, &decoded); unmarshalErr != nil {
+				t.Fatalf("json.Unmarshal(valid) error = %v", unmarshalErr)
 			}
+			_, isObject := decoded.(map[string]any)
+			if isObject {
+				if err != nil {
+					t.Fatalf("validateConfig(valid object) error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				return
+			}
+			t.Fatal("expected non-object config error")
 		default:
 			if err == nil {
 				t.Fatal("expected invalid JSON error")

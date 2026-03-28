@@ -1,3 +1,4 @@
+import net from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { getMigrations } from "better-auth/db/migration";
 import pg from "pg";
@@ -55,6 +56,8 @@ type DevServerOptions = {
   port: string;
 };
 
+const LOOPBACK_HOSTS = ["127.0.0.1", "::1", "localhost"] as const;
+
 function normalizePublicHost(host: string) {
   if (host === "0.0.0.0" || host === "::") {
     return LOCAL_AUTH_HOST_FALLBACK;
@@ -93,12 +96,114 @@ export function parseDevServerOptions(args: string[]): DevServerOptions {
   };
 }
 
-export function applyLocalDefaults(
+async function isPortOccupied(host: string, port: string) {
+  const hosts = host === "localhost" ? LOOPBACK_HOSTS : [host];
+
+  for (const candidateHost of hosts) {
+    const occupied = await new Promise<boolean>((resolve) => {
+      const socket = new net.Socket();
+
+      socket.setTimeout(250);
+      socket.once("connect", () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.once("timeout", () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.once("error", (error: NodeJS.ErrnoException) => {
+        socket.destroy();
+        resolve(!["ECONNREFUSED", "EHOSTUNREACH", "ENETUNREACH", "EAFNOSUPPORT"].includes(error.code ?? ""));
+      });
+
+      socket.connect(Number.parseInt(port, 10), candidateHost);
+    });
+
+    if (occupied) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function canListenOnPort(host: string, port: string) {
+  if (await isPortOccupied(host, port)) {
+    return false;
+  }
+
+  return await new Promise<boolean>((resolve) => {
+    const server = net.createServer();
+
+    server.once("error", () => {
+      resolve(false);
+    });
+
+    server.once("listening", () => {
+      server.close(() => resolve(true));
+    });
+
+    server.listen(Number.parseInt(port, 10), host);
+  });
+}
+
+export async function resolveAvailableDevServerOptions(
   source: NodeJS.ProcessEnv,
   args: string[]
+): Promise<DevServerOptions> {
+  const parsed = parseDevServerOptions(args);
+
+  if (source.BETTER_AUTH_URL || source.VITE_BASE_URL) {
+    return parsed;
+  }
+
+  let port = Number.parseInt(parsed.port, 10);
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const candidate = String(port + attempt);
+    if (await canListenOnPort(parsed.host, candidate)) {
+      return {
+        host: parsed.host,
+        port: candidate,
+      };
+    }
+  }
+
+  throw new Error(
+    `Unable to find an available local dev port starting at ${parsed.port}`
+  );
+}
+
+export function withResolvedDevServerArgs(
+  args: string[],
+  resolved: DevServerOptions
+) {
+  const nextArgs: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--host" || arg === "--port") {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--host=") || arg.startsWith("--port=")) {
+      continue;
+    }
+    nextArgs.push(arg);
+  }
+
+  nextArgs.push("--host", resolved.host, "--port", resolved.port);
+  return nextArgs;
+}
+
+export function applyLocalDefaults(
+  source: NodeJS.ProcessEnv,
+  args: string[],
+  resolvedOptions?: DevServerOptions
 ): NodeJS.ProcessEnv {
   const env = { ...source };
-  const { host, port } = parseDevServerOptions(args);
+  const { host, port } = resolvedOptions ?? parseDevServerOptions(args);
   const derivedBaseURL = `http://${host}:${port}`;
 
   for (const [key, value] of Object.entries(LOCAL_DEFAULTS)) {

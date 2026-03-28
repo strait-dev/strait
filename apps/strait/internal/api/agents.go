@@ -129,6 +129,9 @@ func (s *Server) handleCreateAgent(ctx context.Context, input *CreateAgentInput)
 	if req.ProjectID != "" && projectID != req.ProjectID {
 		return nil, huma.Error403Forbidden("access denied")
 	}
+	if err := validateAgentConfigJSON(req.Config); err != nil {
+		return nil, err
+	}
 
 	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
 		ProjectID:   projectID,
@@ -246,6 +249,9 @@ func (s *Server) handleUpdateAgent(ctx context.Context, input *UpdateAgentInput)
 		updated.Model = *req.Model
 	}
 	if req.Config != nil {
+		if err := validateAgentConfigJSON(*req.Config); err != nil {
+			return nil, err
+		}
 		updated.Config = *req.Config
 	}
 
@@ -387,4 +393,22 @@ func mapAgentServiceError(err error) error {
 
 	slog.Error("agent handler failed", "error", err)
 	return huma.Error500InternalServerError("agent request failed")
+}
+
+func validateAgentConfigJSON(config json.RawMessage) error {
+	if len(config) == 0 {
+		return nil
+	}
+	if !json.Valid(config) {
+		return huma.Error400BadRequest("config must be valid JSON")
+	}
+
+	var decoded any
+	if err := json.Unmarshal(config, &decoded); err != nil {
+		return huma.Error400BadRequest("config must be valid JSON")
+	}
+	if _, ok := decoded.(map[string]any); !ok {
+		return huma.Error400BadRequest("config must be a JSON object")
+	}
+	return nil
 }
