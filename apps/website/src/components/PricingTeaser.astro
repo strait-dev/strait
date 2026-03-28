@@ -27,7 +27,9 @@ import Shell from "@/components/layout/shell.tsx";
       </span>
     </div>
 
-    <StaticPricingTable client:only="react" />
+    <div class="min-h-[300px]">
+      <StaticPricingTable client:only="react" />
+    </div>
 
     <div class="mt-10 flex flex-col items-center gap-3 text-center">
       <p class="max-w-lg text-muted-foreground text-sm">

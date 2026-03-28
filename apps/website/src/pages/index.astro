@@ -112,12 +112,18 @@ const howToSchema = getHowToSchema(HOW_TO_STEPS);
 	<ProblemSection />
 	<FeatureBentoGrid />
 	<div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
-	<CodeExampleSection client:load />
+	<div class="min-h-[400px]">
+		<CodeExampleSection client:only="react" />
+	</div>
 	<div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
 	<ComparisonSection />
 	<div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
 	<PricingTeaser />
-	<PricingComparison client:load />
-	<PricingFaq client:load />
+	<div class="min-h-[400px]">
+		<PricingComparison client:only="react" />
+	</div>
+	<div class="min-h-[300px]">
+		<PricingFaq client:only="react" />
+	</div>
 	<CTA />
 </LandingLayout>
