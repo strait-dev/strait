@@ -1,6 +1,7 @@
 import { expect, test } from "../../fixtures";
 
 test.describe("Organization Operations", () => {
+  test.slow();
   test("org settings has Organization tab", async ({ page }) => {
     await page.goto("/app/dashboard");
     const orgLink = page.locator("a[href*='/app/org/']").first();

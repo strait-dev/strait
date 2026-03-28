@@ -18,7 +18,6 @@ import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-
 export const fetchJobs = createServerFn({ method: "GET" })
   .inputValidator(
     (data: ListParams & { status?: string; search?: string }) => data
@@ -92,6 +91,28 @@ export const deleteJobFn = createServerFn({ method: "POST" })
     );
   });
 
+export const pauseJobFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string; reason?: string }) => data)
+  .middleware([authMiddleware])
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<Job> => {
+    return await runWithSentryReport(
+      apiEffect<Job>(`/v1/jobs/${data.id}/pause`, {
+        method: "POST",
+        body: { reason: data.reason },
+      })
+    );
+  });
+
+export const resumeJobFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string }) => data)
+  .middleware([authMiddleware])
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<Job> => {
+    return await runWithSentryReport(
+      apiEffect<Job>(`/v1/jobs/${data.id}/resume`, { method: "POST" })
+    );
+  });
 
 type ListJobsInput = ListParams & { status?: string; search?: string };
 
@@ -120,7 +141,6 @@ export const jobHealthQueryOptions = (id: string, window = "7d") =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-
 export const useTriggerJob = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -148,8 +168,8 @@ export const usePauseJob = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["jobs", "pause"],
-    mutationFn: (data: { id: string }) =>
-      updateJobFn({ data: { id: data.id, enabled: false } }),
+    mutationFn: (data: { id: string; reason?: string }) =>
+      pauseJobFn({ data }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("job_paused", { job_id: variables.id });
     },
@@ -203,8 +223,7 @@ export const useResumeJob = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["jobs", "resume"],
-    mutationFn: (data: { id: string }) =>
-      updateJobFn({ data: { id: data.id, enabled: true } }),
+    mutationFn: (data: { id: string }) => resumeJobFn({ data }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("job_resumed", { job_id: variables.id });
     },

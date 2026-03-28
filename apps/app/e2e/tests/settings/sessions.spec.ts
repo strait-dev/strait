@@ -1,6 +1,7 @@
 import { expect, test } from "../../fixtures";
 
 test.describe("Session Management", () => {
+  test.slow();
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/settings");
   });

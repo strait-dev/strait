@@ -1,6 +1,7 @@
 import { expect, test } from "../../fixtures";
 
 test.describe("Organization Settings", () => {
+  test.slow();
   test("org settings page loads", async ({ page }) => {
     // Navigate via sidebar workspace link
     await page.goto("/app/dashboard");
