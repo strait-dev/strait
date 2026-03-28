@@ -33,6 +33,7 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import StatusBadge from "@/components/dashboard/status-badge";
 import WorkflowDAGFlow from "@/components/dashboard/workflow-dag-flow";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
   PaginatedResponse,
   Workflow,
@@ -111,6 +112,7 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
 
 function WorkflowDetailPage() {
   const { id } = Route.useParams();
+  usePageEvent("workflow_detail_viewed", { workflow_id: id });
   const { data: workflow } = useSuspenseQuery(workflowQueryOptions(id)) as {
     data: Workflow | undefined;
   };

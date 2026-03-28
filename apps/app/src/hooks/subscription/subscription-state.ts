@@ -65,7 +65,7 @@ export const normalizePlanSlug = (
   }
 };
 
-export const nextPlanFor = (
+const nextPlanFor = (
   plan: PlanSlug
 ): { plan: PlanSlug; name: string } | null => {
   switch (plan) {

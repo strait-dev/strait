@@ -30,6 +30,7 @@ import {
   fetchUsageExportPdf,
 } from "@/hooks/billing/use-usage-export";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
+import { getPostHog } from "@/lib/analytics";
 import { formatMicroUsd } from "@/lib/format";
 import { ActivityIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
@@ -81,7 +82,10 @@ const UsageHistoryTab = () => {
         `usage-${period}.csv`
       );
     },
-    onSuccess: () => toast.success("CSV exported successfully"),
+    onSuccess: () => {
+      toast.success("CSV exported successfully");
+      getPostHog()?.capture("usage_export_csv");
+    },
     onError: () => toast.error("Failed to export CSV"),
   });
 
@@ -98,7 +102,10 @@ const UsageHistoryTab = () => {
         `usage-${period}.pdf`
       );
     },
-    onSuccess: () => toast.success("PDF exported successfully"),
+    onSuccess: () => {
+      toast.success("PDF exported successfully");
+      getPostHog()?.capture("usage_export_pdf");
+    },
     onError: () => toast.error("Failed to export PDF"),
   });
 

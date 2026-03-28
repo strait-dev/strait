@@ -14,6 +14,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { getPostHog } from "@/lib/analytics";
 import {
   AlarmClockIcon,
   AlertCircleIcon,
@@ -49,6 +50,7 @@ const SubscriptionOverview = () => {
 
   // Helper to open portal
   const openPortal = useCallback(async (loadingKey: string) => {
+    getPostHog()?.capture("billing_portal_opened", { action: loadingKey });
     setIsLoading(loadingKey);
     try {
       const result = await getCustomerPortalUrlServerFn();

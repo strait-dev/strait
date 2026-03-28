@@ -6,7 +6,14 @@ import type { WebhookSubscription } from "@/hooks/api/types";
 import { EyeIcon, TrashIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
-export const webhookColumns: ColumnDef<WebhookSubscription>[] = [
+type WebhookColumnActions = {
+  onView?: (webhook: WebhookSubscription) => void;
+  onDelete?: (webhook: WebhookSubscription) => void;
+};
+
+export const createWebhookColumns = (
+  actions: WebhookColumnActions = {}
+): ColumnDef<WebhookSubscription>[] => [
   createSelectColumn<WebhookSubscription>(),
   {
     accessorKey: "webhook_url",
@@ -46,11 +53,15 @@ export const webhookColumns: ColumnDef<WebhookSubscription>[] = [
       }),
   },
   createActionsColumn<WebhookSubscription>([
-    { label: "View", icon: EyeIcon, onClick: () => undefined },
+    {
+      label: "View",
+      icon: EyeIcon,
+      onClick: (row) => actions.onView?.(row.original),
+    },
     {
       label: "Delete",
       icon: TrashIcon,
-      onClick: () => undefined,
+      onClick: (row) => actions.onDelete?.(row.original),
       variant: "destructive",
     },
   ]),

@@ -34,6 +34,7 @@ import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import type z from "zod/v4";
+import { getPostHog } from "@/lib/analytics";
 import { HelpCircleIcon, LoadingIcon } from "@/lib/icons";
 import { resend } from "@/lib/resend.server";
 import { SupportFormSchema } from "@/lib/schema";
@@ -136,6 +137,7 @@ const SupportDialog = ({ user }: Props) => {
     }
 
     startTransition(() => {
+      getPostHog()?.capture("support_submitted");
       toast.promise(supportAction({ data: values }), {
         loading: "Sending request...",
         success: "Request sent successfully",
@@ -145,7 +147,15 @@ const SupportDialog = ({ user }: Props) => {
   };
 
   return (
-    <Credenza onOpenChange={setOpen} open={open}>
+    <Credenza
+      onOpenChange={(isOpen) => {
+        setOpen(isOpen);
+        if (isOpen) {
+          getPostHog()?.capture("support_opened");
+        }
+      }}
+      open={open}
+    >
       <CredenzaTrigger
         render={
           <Button

@@ -43,9 +43,10 @@ import TableEmptyState from "@/components/common/table-empty-state";
 
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import StatusBadge from "@/components/dashboard/status-badge";
-import { runColumns } from "@/components/tables/runs-columns";
+import { createRunColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
   jobHealthQueryOptions,
@@ -129,6 +130,7 @@ function StatusTooltip({
 
 function JobDetailPage() {
   const { id } = Route.useParams();
+  usePageEvent("job_detail_viewed", { job_id: id });
   const { data: job } = useSuspenseQuery(jobQueryOptions(id)) as {
     data: Job | undefined;
   };
@@ -156,7 +158,11 @@ function JobDetailPage() {
 
   const table = useReactTable({
     data: jobRuns,
-    columns: runColumns,
+    columns: createRunColumns({
+      onView: (run) => handleRowClick(run),
+      onRetry: (run) => retryRun.mutate({ run_id: run.id }),
+      onCancel: (run) => cancelRun.mutate({ run_id: run.id }),
+    }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -191,10 +197,22 @@ function JobDetailPage() {
       return [];
     }
     return [
-      { label: "Completed", value: health.completed_runs, fill: CHART_COLORS.success },
+      {
+        label: "Completed",
+        value: health.completed_runs,
+        fill: CHART_COLORS.success,
+      },
       { label: "Failed", value: health.failed_runs, fill: CHART_COLORS.error },
-      { label: "Timed Out", value: health.timed_out_runs, fill: CHART_COLORS.neutral },
-      { label: "Canceled", value: health.canceled_runs, fill: CHART_COLORS.neutral },
+      {
+        label: "Timed Out",
+        value: health.timed_out_runs,
+        fill: CHART_COLORS.neutral,
+      },
+      {
+        label: "Canceled",
+        value: health.canceled_runs,
+        fill: CHART_COLORS.neutral,
+      },
     ].filter((d) => d.value > 0);
   }, [health]);
 
@@ -293,7 +311,7 @@ function JobDetailPage() {
 
           {/* Run Status Distribution */}
           <Card>
-            <CardHeader className="flex flex-col gap-2 pb-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardHeader className="pb-2">
               <CardTitle className="font-medium text-sm">
                 Run Status Distribution
               </CardTitle>
@@ -457,20 +475,18 @@ function JobDetailPage() {
                         label: "Retry",
                         icon: RefreshIcon,
                         onClick: () => {
-                          for (const runId of selectedIds) {
-                            retryRun.mutate({ run_id: runId });
+                          for (const id of selectedIds) {
+                            retryRun.mutate({ run_id: id });
                           }
-                          setRowSelection({});
                         },
                       },
                       {
                         label: "Cancel",
                         icon: XCircleIcon,
                         onClick: () => {
-                          for (const runId of selectedIds) {
-                            cancelRun.mutate({ run_id: runId });
+                          for (const id of selectedIds) {
+                            cancelRun.mutate({ run_id: id });
                           }
-                          setRowSelection({});
                         },
                         variant: "destructive" as const,
                       },

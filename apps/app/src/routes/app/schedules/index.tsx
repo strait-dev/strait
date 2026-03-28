@@ -21,19 +21,20 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import ScheduleDetailSheet from "@/components/dashboard/schedule-detail-sheet";
-import { scheduleColumns } from "@/components/tables/schedules-columns";
+import { createScheduleColumns } from "@/components/tables/schedules-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import {
   schedulesQueryOptions,
   usePauseSchedule,
+  useResumeSchedule,
   useTriggerSchedule,
 } from "@/hooks/api/use-schedules";
 import {
@@ -70,14 +71,15 @@ export const Route = createFileRoute("/app/schedules/")({
 });
 
 function SchedulesPage() {
+  usePageEvent("schedules_list_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [selectedSchedule, setSelectedSchedule] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-
   const triggerSchedule = useTriggerSchedule();
   const pauseSchedule = usePauseSchedule();
+  const resumeSchedule = useResumeSchedule();
 
   const { data } = useQuery({
     ...schedulesQueryOptions(),
@@ -107,7 +109,20 @@ function SchedulesPage() {
 
   const table = useReactTable({
     data: filteredData,
-    columns: scheduleColumns,
+    columns: createScheduleColumns({
+      onView: (schedule) => {
+        setSelectedSchedule(schedule);
+        setSheetOpen(true);
+      },
+      onTrigger: (schedule) => triggerSchedule.mutate({ id: schedule.id }),
+      onPauseResume: (schedule) => {
+        if (schedule.enabled) {
+          pauseSchedule.mutate({ id: schedule.id });
+        } else {
+          resumeSchedule.mutate({ id: schedule.id });
+        }
+      },
+    }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -252,20 +267,27 @@ function SchedulesPage() {
                   label: "Trigger",
                   icon: PlayActionIcon,
                   onClick: () => {
-                    for (const scheduleId of selectedIds) {
-                      triggerSchedule.mutate({ id: scheduleId });
+                    for (const id of selectedIds) {
+                      triggerSchedule.mutate({ id });
                     }
-                    setRowSelection({});
                   },
                 },
                 {
                   label: "Pause",
                   icon: PauseActionIcon,
                   onClick: () => {
-                    for (const scheduleId of selectedIds) {
-                      pauseSchedule.mutate({ id: scheduleId });
+                    for (const id of selectedIds) {
+                      pauseSchedule.mutate({ id });
                     }
-                    setRowSelection({});
+                  },
+                },
+                {
+                  label: "Resume",
+                  icon: PlayActionIcon,
+                  onClick: () => {
+                    for (const id of selectedIds) {
+                      resumeSchedule.mutate({ id });
+                    }
                   },
                 },
               ]}

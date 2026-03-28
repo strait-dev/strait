@@ -21,15 +21,15 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
-import { webhookColumns } from "@/components/tables/webhooks-columns";
+import { createWebhookColumns } from "@/components/tables/webhooks-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import WebhookDetailSheet from "@/components/webhooks/webhook-detail-sheet";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { WebhookSubscription } from "@/hooks/api/types";
 import {
   useDeleteWebhook,
@@ -67,6 +67,7 @@ export const Route = createFileRoute("/app/webhooks/")({
 });
 
 function WebhooksPage() {
+  usePageEvent("webhooks_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -74,8 +75,6 @@ function WebhooksPage() {
     ...webhooksQueryOptions(),
     enabled: hasProject,
   });
-
-  const deleteWebhook = useDeleteWebhook();
 
   const selectedStatuses = search.status ?? [];
 
@@ -98,11 +97,14 @@ function WebhooksPage() {
   const [selectedWebhook, setSelectedWebhook] =
     useState<WebhookSubscription | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const deleteWebhook = useDeleteWebhook();
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const table = useReactTable({
     data: filteredData,
-    columns: webhookColumns,
+    columns: createWebhookColumns({
+      onDelete: (wh) => deleteWebhook.mutate(wh.id),
+    }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -254,10 +256,9 @@ function WebhooksPage() {
                   label: "Delete",
                   icon: TrashIcon,
                   onClick: () => {
-                    for (const webhookId of selectedIds) {
-                      deleteWebhook.mutate(webhookId);
+                    for (const id of selectedIds) {
+                      deleteWebhook.mutate(id);
                     }
-                    setRowSelection({});
                   },
                   variant: "destructive" as const,
                 },

@@ -3,10 +3,18 @@ import { usePostHog } from "@/components/providers/posthog-provider";
 import {
   AUTH_EVENTS,
   type AuthEventProperties,
+  BILLING_EVENTS,
+  type BillingEventProperties,
+  NAVIGATION_EVENTS,
+  type NavigationEventProperties,
   ONBOARDING_EVENTS,
   type OnboardingEventProperties,
+  PRODUCT_EVENTS,
+  type ProductEventProperties,
   SUBSCRIPTION_EVENTS,
   type SubscriptionEventProperties,
+  TEAM_EVENTS,
+  type TeamEventProperties,
 } from "@/hooks/analytics/events";
 import type { Session } from "@/routes/__root";
 
@@ -20,17 +28,10 @@ type IdentifyUserOptions = {
   isTrialing?: boolean;
 };
 
-/**
- * Central analytics hook for tracking events across the app.
- * Provides typed methods for auth, onboarding, and subscription events.
- */
 export const useAnalytics = () => {
   const posthog = usePostHog();
   const identifiedRef = useRef<string | null>(null);
 
-  /**
-   * Identify user with PostHog and set organization group
-   */
   const identifyUser = useCallback(
     ({
       userId,
@@ -45,12 +46,10 @@ export const useAnalytics = () => {
         return;
       }
 
-      // Avoid re-identifying same user
       if (identifiedRef.current === userId) {
         return;
       }
 
-      // Identify the user
       posthog.identify(userId, {
         email,
         name: name || undefined,
@@ -59,7 +58,6 @@ export const useAnalytics = () => {
         organization_id: organizationId || undefined,
       });
 
-      // Set organization group for B2B analytics
       if (organizationId) {
         posthog.group("organization", organizationId, {
           name: organizationName || undefined,
@@ -72,9 +70,6 @@ export const useAnalytics = () => {
     [posthog]
   );
 
-  /**
-   * Identify user from session object
-   */
   const identifyFromSession = useCallback(
     (
       session: Session,
@@ -101,9 +96,6 @@ export const useAnalytics = () => {
     [identifyUser]
   );
 
-  /**
-   * Reset user identification (on logout)
-   */
   const resetUser = useCallback(() => {
     if (!posthog) {
       return;
@@ -112,9 +104,6 @@ export const useAnalytics = () => {
     identifiedRef.current = null;
   }, [posthog]);
 
-  /**
-   * Track auth events with type-safe properties
-   */
   const trackAuth = useCallback(
     <E extends keyof typeof AUTH_EVENTS>(
       event: E,
@@ -128,9 +117,6 @@ export const useAnalytics = () => {
     [posthog]
   );
 
-  /**
-   * Track onboarding events with type-safe properties
-   */
   const trackOnboarding = useCallback(
     <E extends keyof typeof ONBOARDING_EVENTS>(
       event: E,
@@ -144,9 +130,6 @@ export const useAnalytics = () => {
     [posthog]
   );
 
-  /**
-   * Track subscription events with type-safe properties
-   */
   const trackSubscription = useCallback(
     <E extends keyof typeof SUBSCRIPTION_EVENTS>(
       event: E,
@@ -160,6 +143,58 @@ export const useAnalytics = () => {
     [posthog]
   );
 
+  const trackProduct = useCallback(
+    <E extends keyof typeof PRODUCT_EVENTS>(
+      event: E,
+      properties?: ProductEventProperties[E]
+    ) => {
+      if (!posthog) {
+        return;
+      }
+      posthog.capture(PRODUCT_EVENTS[event], properties);
+    },
+    [posthog]
+  );
+
+  const trackTeam = useCallback(
+    <E extends keyof typeof TEAM_EVENTS>(
+      event: E,
+      properties?: TeamEventProperties[E]
+    ) => {
+      if (!posthog) {
+        return;
+      }
+      posthog.capture(TEAM_EVENTS[event], properties);
+    },
+    [posthog]
+  );
+
+  const trackNavigation = useCallback(
+    <E extends keyof typeof NAVIGATION_EVENTS>(
+      event: E,
+      properties?: NavigationEventProperties[E]
+    ) => {
+      if (!posthog) {
+        return;
+      }
+      posthog.capture(NAVIGATION_EVENTS[event], properties);
+    },
+    [posthog]
+  );
+
+  const trackBilling = useCallback(
+    <E extends keyof typeof BILLING_EVENTS>(
+      event: E,
+      properties?: BillingEventProperties[E]
+    ) => {
+      if (!posthog) {
+        return;
+      }
+      posthog.capture(BILLING_EVENTS[event], properties);
+    },
+    [posthog]
+  );
+
   return {
     identifyUser,
     identifyFromSession,
@@ -167,6 +202,10 @@ export const useAnalytics = () => {
     trackAuth,
     trackOnboarding,
     trackSubscription,
+    trackProduct,
+    trackTeam,
+    trackNavigation,
+    trackBilling,
     posthog,
   };
 };

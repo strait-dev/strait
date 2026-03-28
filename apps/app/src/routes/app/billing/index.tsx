@@ -19,6 +19,7 @@ import InlineError from "@/components/common/inline-error";
 import NotFound from "@/components/common/not-found";
 import { QueryErrorBoundary } from "@/components/common/query-error-boundary";
 import TabSkeleton from "@/components/common/tab-skeleton";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import { anomalyAlertsQueryOptions } from "@/hooks/billing/use-anomaly-alerts";
 import { anomalyConfigQueryOptions } from "@/hooks/billing/use-anomaly-config";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
@@ -57,6 +58,8 @@ export const Route = createFileRoute("/app/billing/")({
 });
 
 function RouteComponent() {
+  usePageEvent("billing_viewed");
+
   return (
     <Shell>
       <div className="flex w-full flex-col gap-6">

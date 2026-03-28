@@ -7,10 +7,12 @@ import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
 import { z } from "zod";
+import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
+import { consumeUtmParams, utmToSetOnce } from "@/lib/utm";
 
 const signUpSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -50,6 +52,15 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
         return;
       }
 
+      const utm = consumeUtmParams();
+      const setOnce: Record<string, string> = {
+        initial_signup_date: new Date().toISOString(),
+        ...(utm ? utmToSetOnce(utm) : {}),
+      };
+      getPostHog()?.capture("auth_signed_up", {
+        method: "email",
+        $set_once: setOnce,
+      });
       setEmailSent(true);
     },
   });

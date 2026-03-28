@@ -21,18 +21,19 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import WorkflowDetailSheet from "@/components/dashboard/workflow-detail-sheet";
-import { workflowColumns } from "@/components/tables/workflows-columns";
+import { createWorkflowColumns } from "@/components/tables/workflows-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Workflow } from "@/hooks/api/types";
 import {
   usePauseWorkflow,
+  useResumeWorkflow,
   useTriggerWorkflow,
   workflowsQueryOptions,
 } from "@/hooks/api/use-workflows";
@@ -70,6 +71,7 @@ export const Route = createFileRoute("/app/workflows/")({
 });
 
 function WorkflowsPage() {
+  usePageEvent("workflows_list_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const { data } = useQuery({
     ...workflowsQueryOptions(),
@@ -81,9 +83,9 @@ function WorkflowsPage() {
     null
   );
   const [sheetOpen, setSheetOpen] = useState(false);
-
   const triggerWorkflow = useTriggerWorkflow();
   const pauseWorkflow = usePauseWorkflow();
+  const resumeWorkflow = useResumeWorkflow();
 
   const selectedStatuses = search.status ?? [];
 
@@ -106,7 +108,21 @@ function WorkflowsPage() {
 
   const table = useReactTable({
     data: filteredData,
-    columns: workflowColumns,
+    columns: createWorkflowColumns({
+      onView: (workflow) => {
+        setSelectedWorkflow(workflow);
+        setSheetOpen(true);
+      },
+      onTrigger: (workflow) =>
+        triggerWorkflow.mutate({ workflowId: workflow.id }),
+      onPauseResume: (workflow) => {
+        if (workflow.enabled) {
+          pauseWorkflow.mutate({ workflowId: workflow.id });
+        } else {
+          resumeWorkflow.mutate({ workflowId: workflow.id });
+        }
+      },
+    }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -254,20 +270,27 @@ function WorkflowsPage() {
                   label: "Trigger",
                   icon: PlayActionIcon,
                   onClick: () => {
-                    for (const workflowId of selectedIds) {
-                      triggerWorkflow.mutate({ workflowId });
+                    for (const id of selectedIds) {
+                      triggerWorkflow.mutate({ workflowId: id });
                     }
-                    setRowSelection({});
                   },
                 },
                 {
                   label: "Pause",
                   icon: PauseActionIcon,
                   onClick: () => {
-                    for (const workflowId of selectedIds) {
-                      pauseWorkflow.mutate({ workflowId });
+                    for (const id of selectedIds) {
+                      pauseWorkflow.mutate({ workflowId: id });
                     }
-                    setRowSelection({});
+                  },
+                },
+                {
+                  label: "Resume",
+                  icon: PlayActionIcon,
+                  onClick: () => {
+                    for (const id of selectedIds) {
+                      resumeWorkflow.mutate({ workflowId: id });
+                    }
                   },
                 },
               ]}

@@ -2,6 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { toast } from "@strait/ui/components/toast/index";
 import { useState } from "react";
+import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { KeyIcon, LoadingIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
@@ -18,6 +19,10 @@ const PasskeyButton = ({ disabled }: PasskeyButtonProps) => {
     setIsLoading(true);
     try {
       const result = await authClient.signIn.passkey();
+
+      if (!result?.error) {
+        getPostHog()?.capture("auth_signed_in", { method: "passkey" });
+      }
 
       if (result?.error) {
         captureSentryAuthError(result.error, {

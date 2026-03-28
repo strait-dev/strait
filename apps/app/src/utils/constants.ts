@@ -24,11 +24,6 @@ export const TIMER_INTERVAL_MS = 1000;
 export const PERCENTAGE_MULTIPLIER = 100;
 
 /**
- * Maximum slug length for organization names
- */
-export const MAX_SLUG_LENGTH = 50;
-
-/**
  * Default pincode length
  */
 export const DEFAULT_PINCODE_LENGTH = 6;

@@ -24,15 +24,16 @@ import { Input } from "@strait/ui/components/input";
 import { toast } from "@strait/ui/components/toast/index";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { OrganizationData } from "@/hooks/auth/use-organization";
 import {
   useDeleteOrganizationWithToken,
   useOrganizations,
   useRequestOrganizationDeletion,
+  useResendOrganizationDeletionCode,
   useVerifyOrganizationDeletion,
 } from "@/hooks/auth/use-organization";
-import { AlertIcon, LoadingIcon, TrashIcon } from "@/lib/icons";
+import { AlertIcon, LoadingIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
 
 type Props = {
   organizationId: string;
@@ -46,6 +47,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
   const [step, setStep] = useState<Step>("confirm");
   const [confirmName, setConfirmName] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const navigate = useNavigate();
   const router = useRouter();
@@ -53,6 +55,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
   const requestDeletion = useRequestOrganizationDeletion();
   const verifyDeletion = useVerifyOrganizationDeletion();
   const deleteMutation = useDeleteOrganizationWithToken();
+  const resendCode = useResendOrganizationDeletionCode();
   const { data: orgsData } = useOrganizations();
 
   const isPending =
@@ -60,10 +63,19 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
     verifyDeletion.isPending ||
     deleteMutation.isPending;
 
+  useEffect(() => {
+    if (resendCooldown <= 0) {
+      return;
+    }
+    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
   const handleOpen = () => {
     setStep("confirm");
     setConfirmName("");
     setVerificationCode("");
+    setResendCooldown(0);
     setIsOpen(true);
   };
 
@@ -72,6 +84,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
     setStep("confirm");
     setConfirmName("");
     setVerificationCode("");
+    setResendCooldown(0);
   };
 
   const handleRequestDeletion = async () => {
@@ -81,14 +94,33 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
     }
 
     try {
-      await requestDeletion.mutateAsync({ organizationId });
+      const result = await requestDeletion.mutateAsync({ organizationId });
       toast.success("Verification code sent to your email.");
+      setResendCooldown(result.cooldownRemaining ?? 60);
       setStep("verify");
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
           : "Failed to request deletion. Please try again."
+      );
+    }
+  };
+
+  const handleResendCode = async () => {
+    if (resendCooldown > 0 || resendCode.isPending) {
+      return;
+    }
+
+    try {
+      const result = await resendCode.mutateAsync({ organizationId });
+      toast.success("Verification code resent.");
+      setResendCooldown(result.cooldownRemaining ?? 60);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to resend code. Please try again."
       );
     }
   };
@@ -115,12 +147,17 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
       const otherOrgs = (orgsData?.page ?? []).filter(
         (org: OrganizationData) => org.id !== organizationId
       );
-      const nextOrgId = otherOrgs[0]?.id ?? "";
+
+      if (otherOrgs.length === 0) {
+        toast.error("You cannot delete your only organization.");
+        setStep("verify");
+        return;
+      }
 
       await deleteMutation.mutateAsync({
         organizationId,
         verificationToken: result.verificationToken,
-        nextOrganizationId: nextOrgId,
+        nextOrganizationId: otherOrgs[0].id,
       });
 
       await queryClient.invalidateQueries();
@@ -138,6 +175,11 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
     }
   };
 
+  const otherOrgs = (orgsData?.page ?? []).filter(
+    (org: OrganizationData) => org.id !== organizationId
+  );
+  const isLastOrg = otherOrgs.length === 0;
+
   return (
     <Card>
       <CardHeader>
@@ -150,8 +192,9 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
         <Alert variant="destructive">
           <HugeiconsIcon className="size-4" icon={AlertIcon} />
           <AlertDescription>
-            Warning: This action is irreversible and all organization data will
-            be permanently lost.
+            {isLastOrg
+              ? "You cannot delete your only organization. Create a new organization first before deleting this one."
+              : "Warning: This action is irreversible and all organization data will be permanently lost."}
           </AlertDescription>
         </Alert>
       </CardContent>
@@ -160,7 +203,11 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
           onOpenChange={(open) => !open && handleClose()}
           open={isOpen}
         >
-          <Button onClick={handleOpen} variant="destructive">
+          <Button
+            disabled={isLastOrg}
+            onClick={handleOpen}
+            variant="destructive"
+          >
             <HugeiconsIcon className="size-4" icon={TrashIcon} />
             Delete Organization
           </Button>
@@ -236,6 +283,17 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                       value={verificationCode}
                     />
                   </Field>
+                  <Button
+                    className="mt-2 h-auto gap-1 p-0 text-muted-foreground text-xs hover:text-foreground"
+                    disabled={resendCooldown > 0 || resendCode.isPending}
+                    onClick={handleResendCode}
+                    variant="link"
+                  >
+                    <HugeiconsIcon icon={RefreshIcon} size={12} />
+                    {resendCooldown > 0
+                      ? `Resend code in ${resendCooldown}s`
+                      : "Resend code"}
+                  </Button>
                 </div>
                 <AlertDialogFooter>
                   <div className="flex justify-end gap-4">

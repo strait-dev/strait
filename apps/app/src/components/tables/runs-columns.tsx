@@ -27,7 +27,15 @@ function formatDuration(
   return `${mins}m ${secs}s`;
 }
 
-export const runColumns: ColumnDef<JobRun>[] = [
+type RunColumnActions = {
+  onView?: (run: JobRun) => void;
+  onRetry?: (run: JobRun) => void;
+  onCancel?: (run: JobRun) => void;
+};
+
+export const createRunColumns = (
+  actions: RunColumnActions = {}
+): ColumnDef<JobRun>[] => [
   createSelectColumn<JobRun>(),
   {
     accessorKey: "id",
@@ -89,8 +97,20 @@ export const runColumns: ColumnDef<JobRun>[] = [
       }),
   },
   createActionsColumn<JobRun>([
-    { label: "View", icon: EyeIcon, onClick: () => undefined },
-    { label: "Retry", icon: RefreshIcon, onClick: () => undefined },
-    { label: "Cancel", icon: XCircleIcon, onClick: () => undefined },
+    {
+      label: "View",
+      icon: EyeIcon,
+      onClick: (row) => actions.onView?.(row.original),
+    },
+    {
+      label: "Retry",
+      icon: RefreshIcon,
+      onClick: (row) => actions.onRetry?.(row.original),
+    },
+    {
+      label: "Cancel",
+      icon: XCircleIcon,
+      onClick: (row) => actions.onCancel?.(row.original),
+    },
   ]),
 ];

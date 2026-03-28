@@ -22,7 +22,6 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
@@ -30,6 +29,7 @@ import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import ExpandedEventDetail from "@/components/events/expanded-event-detail";
 import { logColumns } from "@/components/events/log-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { FileTextIcon, FilterIcon, SearchIcon } from "@/lib/icons";
@@ -61,6 +61,7 @@ export const Route = createFileRoute("/app/logs/")({
 });
 
 function LogsPage() {
+  usePageEvent("logs_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();

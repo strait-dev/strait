@@ -28,6 +28,7 @@ import ErrorComponent from "@/components/common/error-component";
 import StatusBadge from "@/components/dashboard/status-badge";
 import DetailCell from "@/components/runs/detail-cell";
 import ExecutionTraceBar from "@/components/runs/execution-trace-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
   JobRun,
   PaginatedResponse,
@@ -65,6 +66,7 @@ const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set([
 
 function RunDetailPage() {
   const { id } = Route.useParams();
+  usePageEvent("run_detail_viewed", { run_id: id });
   const { data: run } = useSuspenseQuery(runQueryOptions(id)) as {
     data: JobRun | undefined;
   };
