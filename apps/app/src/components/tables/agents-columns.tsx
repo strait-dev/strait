@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import type { Agent } from "@/hooks/api/types";
@@ -11,7 +12,13 @@ export const agentColumns: ColumnDef<Agent>[] = [
     header: "Name",
     cell: ({ row }) => (
       <div className="flex flex-col gap-0.5">
-        <span className="font-medium">{row.original.name}</span>
+        <Link
+          className="font-medium hover:underline"
+          params={{ id: row.original.id }}
+          to="/app/agents/$id"
+        >
+          {row.original.name}
+        </Link>
         {row.original.description && (
           <span className="text-muted-foreground text-xs">
             {row.original.description}

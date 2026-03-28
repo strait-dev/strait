@@ -1,4 +1,9 @@
-import { keepPreviousData, queryOptions } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  queryOptions,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import type {
   Agent,
@@ -112,3 +117,35 @@ export const agentRunsQueryOptions = (
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
+
+export const useDeployAgent = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: ["agents", "deploy"],
+    mutationFn: (data: { agentId: string }) => deployAgentFn({ data }),
+    onSettled: (_result, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents._def });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.agents.detail(variables.agentId).queryKey,
+      });
+    },
+  });
+};
+
+export const useRunAgent = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: ["agents", "run"],
+    mutationFn: (data: { agentId: string; payload?: unknown }) =>
+      runAgentFn({ data }),
+    onSettled: (_result, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents._def });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.agents.runs(variables.agentId).queryKey,
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
+    },
+  });
+};
