@@ -30,10 +30,12 @@ Strait DAG execution currently includes:
 - Canary deployments with weighted version routing and auto-promote/rollback
 - Workflow simulation with dry-run, sandbox, and failure-injection modes
 - Visual debug view with per-step inspection, data flow, and cross-run comparison
+- Runtime DAG expansion via step outputs (`dynamic_steps`) without mutating workflow versions
 
 ## DAG runtime model
 
 A workflow run materializes as many `workflow_step_runs` as there are steps in the selected workflow version snapshot.
+When runtime expansion is used, additional per-run step definitions are stored separately and merged into runtime reads for that workflow run only.
 
 Key runtime fields:
 
@@ -43,6 +45,30 @@ Key runtime fields:
 - `attempt`: step-level attempt counter
 
 Progression is callback-driven. When a step reaches terminal state (or is skipped), the engine advances dependent steps by incrementing counters and evaluating scheduling constraints.
+
+## Runtime expansion contract
+
+A completed step can request per-run DAG expansion by returning:
+
+```json
+{
+  "dynamic_steps": [
+    {
+      "step_ref": "worker-a",
+      "job_id": "job_worker_a",
+      "depends_on": ["planner"]
+    }
+  ]
+}
+```
+
+The runtime validates the proposed steps before materializing them:
+- duplicate `step_ref` values are rejected
+- dependencies must point to an existing runtime step or another proposed dynamic step
+- the combined static + dynamic graph must remain acyclic
+- the total runtime step count must stay within the workflow step limit
+
+Dependencies that were already satisfied before insertion are pre-counted, so newly added children can become runnable in the same callback pass when eligible.
 
 ## Scheduling and fan-in mechanics
 

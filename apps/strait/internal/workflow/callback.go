@@ -25,10 +25,12 @@ type StepCallback struct {
 }
 
 type CallbackStore interface {
+	GetAgent(ctx context.Context, id string) (*domain.Agent, error)
 	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
 	GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	UpdateStepRunStatusFrom(ctx context.Context, id string, from, to domain.StepRunStatus, fields map[string]any) error
+	CreateWorkflowDynamicExpansion(ctx context.Context, workflowRunID, parentStepRunID string, expansions []storepkg.DynamicWorkflowExpansion) error
 	IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]storepkg.StepDepResult, error)
 	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
@@ -42,6 +44,7 @@ type CallbackStore interface {
 	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	SkipStepRunsByRefs(ctx context.Context, workflowRunID string, refs []string, finishedAt time.Time) (int64, error)
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
+	ListDynamicWorkflowStepsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStep, error)
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
 	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
@@ -109,6 +112,7 @@ func (s *StepCallback) loadWfCtx(ctx context.Context, workflowRunID string) (*wf
 // loadStepDefinitions reads step definitions from the snapshot when available,
 // falling back to the live workflow_version_steps table for pre-snapshot runs.
 func (s *StepCallback) loadStepDefinitions(ctx context.Context, wfRun *domain.WorkflowRun) ([]domain.WorkflowStep, error) {
+	var steps []domain.WorkflowStep
 	if wfRun.WorkflowSnapshotID != "" {
 		snapshot, err := s.store.GetWorkflowSnapshot(ctx, wfRun.WorkflowSnapshotID)
 		if err != nil {
@@ -120,17 +124,65 @@ func (s *StepCallback) loadStepDefinitions(ctx context.Context, wfRun *domain.Wo
 				s.logger.Warn("failed to parse snapshot, falling back to live table",
 					"workflow_run_id", wfRun.ID, "snapshot_id", wfRun.WorkflowSnapshotID, "error", parseErr)
 			} else {
-				return def.Steps, nil
+				steps = def.Steps
 			}
 		}
 	}
 
-	// Fallback: read from live workflow_version_steps table.
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
-	if err != nil {
-		return nil, fmt.Errorf("list steps by workflow version: %w", err)
+	if steps == nil {
+		var err error
+		steps, err = s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+		if err != nil {
+			return nil, fmt.Errorf("list steps by workflow version: %w", err)
+		}
 	}
+
+	dynamicSteps, err := s.store.ListDynamicWorkflowStepsByWorkflowRun(ctx, wfRun.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list dynamic workflow steps: %w", err)
+	}
+	if len(dynamicSteps) == 0 {
+		return steps, nil
+	}
+
+	knownRefs := make(map[string]struct{}, len(steps)+len(dynamicSteps))
+	for _, step := range steps {
+		knownRefs[step.StepRef] = struct{}{}
+	}
+	for _, step := range dynamicSteps {
+		if _, exists := knownRefs[step.StepRef]; exists {
+			return nil, fmt.Errorf("duplicate runtime step_ref %q", step.StepRef)
+		}
+		knownRefs[step.StepRef] = struct{}{}
+		steps = append(steps, step)
+	}
+
 	return steps, nil
+}
+
+func (s *StepCallback) prepareCompletedStep(
+	ctx context.Context,
+	stepRun *domain.WorkflowStepRun,
+	wc *wfCtx,
+	fields map[string]any,
+) ([]storepkg.DynamicWorkflowExpansion, error) {
+	rawOut, ok := fields["output"].(json.RawMessage)
+	if !ok || len(rawOut) == 0 {
+		return nil, nil
+	}
+
+	if step, exists := wc.stepByRef[stepRun.StepRef]; exists && step.OutputTransform != "" {
+		transformed, err := ApplyOutputTransform(rawOut, step.OutputTransform)
+		if err != nil {
+			s.logger.Warn("output transform failed, keeping original output",
+				"step_ref", stepRun.StepRef, "transform", step.OutputTransform, "error", err)
+		} else {
+			rawOut = transformed
+			fields["output"] = transformed
+		}
+	}
+
+	return s.parseDynamicWorkflowExpansion(ctx, stepRun, wc, rawOut)
 }
 
 func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {
@@ -238,19 +290,15 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	}
 
 	stepStatus, fields := mapRunStatusToStepStatus(run)
+	var dynamicExpansions []storepkg.DynamicWorkflowExpansion
 
-	// Apply output transformation for completed steps before persisting.
 	if stepStatus == domain.StepCompleted {
-		if rawOut, ok := fields["output"].(json.RawMessage); ok && len(rawOut) > 0 {
-			if step, ok := wc.stepByRef[stepRun.StepRef]; ok && step.OutputTransform != "" {
-				transformed, transformErr := ApplyOutputTransform(rawOut, step.OutputTransform)
-				if transformErr != nil {
-					s.logger.Warn("output transform failed, keeping original output",
-						"step_ref", stepRun.StepRef, "transform", step.OutputTransform, "error", transformErr)
-				} else {
-					fields["output"] = transformed
-				}
-			}
+		expansions, err := s.prepareCompletedStep(ctx, stepRun, wc, fields)
+		if err != nil {
+			stepStatus = domain.StepFailed
+			fields["error"] = fmt.Sprintf("dynamic workflow expansion: %v", err)
+		} else {
+			dynamicExpansions = expansions
 		}
 	}
 
@@ -288,6 +336,10 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 
 	switch stepStatus {
 	case domain.StepCompleted:
+		if err := s.persistDynamicWorkflowExpansion(ctx, stepRun, wc, dynamicExpansions); err != nil {
+			stepRun.Error = err.Error()
+			return s.failWorkflowAndCancel(ctx, wc.run, stepRun)
+		}
 		// Auto-emit event if step has event_emit_key configured.
 		s.tryEmitEvent(ctx, stepRun, wc)
 
@@ -355,6 +407,11 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 	// Auto-emit event if step has event_emit_key configured.
 	s.tryEmitEvent(ctx, targetStepRun, wc)
 
+	if err := s.applyDynamicWorkflowExpansion(ctx, targetStepRun, wc); err != nil {
+		targetStepRun.Error = err.Error()
+		return s.failWorkflowAndCancel(ctx, wc.run, targetStepRun)
+	}
+
 	// Fan-in and start ready children.
 	if err := s.fanInAndStartReadyChildren(ctx, targetStepRun, wc); err != nil {
 		s.logger.Error("failed to process event-completed step", "step_ref", targetStepRun.StepRef, "error", err)
@@ -386,6 +443,14 @@ func (s *StepCallback) OnStepCompleted(ctx context.Context, workflowRunID string
 	}
 
 	s.tryEmitEvent(ctx, target, wc)
+
+	if err := s.applyDynamicWorkflowExpansion(ctx, target, wc); err != nil {
+		target.Error = err.Error()
+		if failErr := s.failWorkflowAndCancel(ctx, wc.run, target); failErr != nil {
+			s.logger.Error("OnStepCompleted: failed to fail workflow after dynamic expansion error", "workflow_run_id", workflowRunID, "error", failErr)
+		}
+		return
+	}
 
 	if err := s.fanInAndStartReadyChildren(ctx, target, wc); err != nil {
 		s.logger.Error("OnStepCompleted: failed to advance workflow", "step_ref", target.StepRef, "error", err)

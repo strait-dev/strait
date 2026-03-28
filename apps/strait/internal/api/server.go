@@ -256,6 +256,7 @@ type WorkflowStore interface {
 	CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error
 	CreateWorkflowStep(ctx context.Context, step *domain.WorkflowStep) error
 	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
+	ListDynamicWorkflowStepsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStep, error)
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	DeleteStepsByWorkflow(ctx context.Context, workflowID string) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
@@ -290,6 +291,7 @@ type WorkflowStore interface {
 	GetActiveCanaryDeployment(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
 	UpdateCanaryDeploymentTraffic(ctx context.Context, workflowID string, trafficPct int) error
 	CompleteCanaryDeployment(ctx context.Context, workflowID, status string) error
+	GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error)
 }
 
 // DeploymentStore handles deployment version lifecycle operations.

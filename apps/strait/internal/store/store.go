@@ -263,6 +263,13 @@ type StepDepResult struct {
 	WorkflowRunID string
 }
 
+// DynamicWorkflowExpansion describes a runtime-added workflow step plus its
+// materialized step run state.
+type DynamicWorkflowExpansion struct {
+	Step    domain.WorkflowStep
+	StepRun domain.WorkflowStepRun
+}
+
 type WorkflowRunStore interface {
 	CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
@@ -279,9 +286,11 @@ type WorkflowRunStore interface {
 
 type WorkflowStepRunStore interface {
 	CreateWorkflowStepRun(ctx context.Context, sr *domain.WorkflowStepRun) error
+	CreateWorkflowDynamicExpansion(ctx context.Context, workflowRunID, parentStepRunID string, expansions []DynamicWorkflowExpansion) error
 	GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
 	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
 	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
+	ListDynamicWorkflowStepsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStep, error)
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
 	ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)

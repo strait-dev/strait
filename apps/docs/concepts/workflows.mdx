@@ -122,6 +122,44 @@ Version analysis APIs:
 These endpoints are intended for operations and incident response, not only workflow authoring.
 For detailed endpoint payloads and operational runbooks, see [DAG Runtime](/concepts/dag-runtime) and [DAG Operations Playbook](/guides/dag-operations-playbook).
 
+## Dynamic DAG Expansion
+
+Workflow runs can expand at runtime without mutating the authored workflow version or snapshot. A completed step may return a top-level `dynamic_steps` array in its output, and Strait will materialize those steps for that workflow run only.
+
+Each dynamic step uses the same authoring shape as a normal workflow step, including:
+- `step_ref`
+- `depends_on`
+- `job_id` or `agent_id`
+- `payload`
+- `condition`
+- the usual step-type fields such as `approval_*`, `sub_workflow_id`, `event_*`, and `sleep_duration_secs`
+
+Example:
+
+```json
+{
+  "summary": "planned 2 worker steps",
+  "dynamic_steps": [
+    {
+      "step_ref": "draft",
+      "agent_id": "agent_writer",
+      "depends_on": ["plan"],
+      "payload": { "section": "draft" }
+    },
+    {
+      "step_ref": "review",
+      "agent_id": "agent_reviewer",
+      "depends_on": ["draft"]
+    }
+  ]
+}
+```
+
+Guardrails:
+- Dynamic steps are scoped to the current workflow run only.
+- Runtime expansion still enforces duplicate `step_ref` rejection, DAG validation, and the overall 1000-step workflow limit.
+- Dynamic steps participate in normal scheduling, retries, conditions, fan-in, graph/debug views, replay, and compensation planning once materialized.
+
 ## Workflow FSMs
 
 ### Workflow Run FSM

@@ -685,9 +685,11 @@ func TestMergePayloads(t *testing.T) {
 }
 
 type mockCallbackStore struct {
+	getAgentFn                          func(ctx context.Context, id string) (*domain.Agent, error)
 	getStepRunByJobRunIDFn              func(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
 	getWorkflowStepRunFn                func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
 	updateStepRunStatusFn               func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	createWorkflowDynamicExpansionFn    func(ctx context.Context, workflowRunID, parentStepRunID string, expansions []store.DynamicWorkflowExpansion) error
 	incrementStepDepsFn                 func(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error)
 	incrementStepRunAttemptFn           func(ctx context.Context, id string, newAttempt int) error
 	getWorkflowRunFn                    func(ctx context.Context, id string) (*domain.WorkflowRun, error)
@@ -701,6 +703,7 @@ type mockCallbackStore struct {
 	cancelNonTerminalStepRunsFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	skipStepRunsByRefsFn                func(ctx context.Context, workflowRunID string, refs []string, finishedAt time.Time) (int64, error)
 	getStepOutputsFn                    func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
+	listDynamicWorkflowStepsByRunFn     func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStep, error)
 	listStepsByWorkflowVerFn            func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	getWorkflowFn                       func(ctx context.Context, id string) (*domain.Workflow, error)
 	getStepRunByRunAndRefFn             func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
@@ -718,6 +721,13 @@ type mockCallbackStore struct {
 	updateEventTriggerStatusFn          func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	advisoryXactLockFn                  func(ctx context.Context, lockID int64) error
 	createWorkflowStepDecisionFn        func(ctx context.Context, d *domain.WorkflowStepDecision) error
+}
+
+func (m *mockCallbackStore) GetAgent(ctx context.Context, id string) (*domain.Agent, error) {
+	if m.getAgentFn != nil {
+		return m.getAgentFn(ctx, id)
+	}
+	return nil, nil
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
@@ -790,6 +800,13 @@ func (m *mockCallbackStore) UpdateStepRunStatus(ctx context.Context, id string, 
 func (m *mockCallbackStore) UpdateStepRunStatusFrom(ctx context.Context, id string, _ domain.StepRunStatus, to domain.StepRunStatus, fields map[string]any) error {
 	if m.updateStepRunStatusFn != nil {
 		return m.updateStepRunStatusFn(ctx, id, to, fields)
+	}
+	return nil
+}
+
+func (m *mockCallbackStore) CreateWorkflowDynamicExpansion(ctx context.Context, workflowRunID, parentStepRunID string, expansions []store.DynamicWorkflowExpansion) error {
+	if m.createWorkflowDynamicExpansionFn != nil {
+		return m.createWorkflowDynamicExpansionFn(ctx, workflowRunID, parentStepRunID, expansions)
 	}
 	return nil
 }
@@ -988,6 +1005,13 @@ func (m *mockCallbackStore) SkipStepRunsByRefs(ctx context.Context, workflowRunI
 func (m *mockCallbackStore) GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error) {
 	if m.getStepOutputsFn != nil {
 		return m.getStepOutputsFn(ctx, workflowRunID, stepRefs)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) ListDynamicWorkflowStepsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStep, error) {
+	if m.listDynamicWorkflowStepsByRunFn != nil {
+		return m.listDynamicWorkflowStepsByRunFn(ctx, workflowRunID)
 	}
 	return nil, nil
 }

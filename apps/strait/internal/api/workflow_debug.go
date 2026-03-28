@@ -22,7 +22,7 @@ func (s *Server) handleGetWorkflowRunDebug(ctx context.Context, input *GetWorkfl
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
 
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	steps, err := s.loadWorkflowRunSteps(ctx, wfRun)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to load workflow steps")
 	}

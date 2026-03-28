@@ -45,7 +45,7 @@ func (q *Queries) CreateWorkflowStepRun(ctx context.Context, sr *domain.Workflow
 		query,
 		sr.ID,
 		sr.WorkflowRunID,
-		sr.WorkflowStepID,
+		dbscan.NilIfEmptyString(sr.WorkflowStepID),
 		sr.StepRef,
 		dbscan.NilIfEmptyString(sr.JobRunID),
 		sr.Status,
@@ -368,17 +368,41 @@ func (q *Queries) IncrementStepDeps(ctx context.Context, workflowRunID string, c
 	defer span.End()
 
 	query := `
+		WITH candidate_steps AS (
+			SELECT
+				wsr.id AS step_run_id,
+				wsr.step_ref,
+				wvs.job_id,
+				wvs.condition,
+				wvs.payload
+			FROM workflow_step_runs wsr
+			JOIN workflow_runs wr ON wr.id = wsr.workflow_run_id
+			JOIN workflow_version_steps wvs
+			  ON wvs.workflow_version_id = wr.workflow_id || ':v' || wr.workflow_version
+			WHERE wsr.workflow_run_id = $1
+			  AND wsr.status = 'waiting'
+			  AND wvs.step_ref = wsr.step_ref
+			  AND $2 = ANY(wvs.depends_on)
+			UNION ALL
+			SELECT
+				wsr.id AS step_run_id,
+				wsr.step_ref,
+				COALESCE(wds.definition->>'job_id', '') AS job_id,
+				wds.definition->'condition' AS condition,
+				wds.definition->'payload' AS payload
+			FROM workflow_step_runs wsr
+			JOIN workflow_dynamic_steps wds
+			  ON wds.workflow_run_id = wsr.workflow_run_id
+			 AND wds.step_ref = wsr.step_ref
+			WHERE wsr.workflow_run_id = $1
+			  AND wsr.status = 'waiting'
+			  AND $2 = ANY(wds.depends_on)
+		)
 		UPDATE workflow_step_runs wsr
 		SET deps_completed = deps_completed + 1
-		FROM workflow_runs wr
-		JOIN workflow_version_steps wvs
-		  ON wvs.workflow_version_id = wr.workflow_id || ':v' || wr.workflow_version
-		WHERE wr.id = wsr.workflow_run_id
-		  AND wvs.step_ref = wsr.step_ref
-		  AND wsr.workflow_run_id = $1
-		  AND wsr.status = 'waiting'
-		  AND $2 = ANY(wvs.depends_on)
-		RETURNING wsr.id, wsr.step_ref, wsr.deps_completed, wsr.deps_required, wvs.job_id, wvs.condition, wvs.payload, wsr.workflow_run_id`
+		FROM candidate_steps cs
+		WHERE wsr.id = cs.step_run_id
+		RETURNING wsr.id, wsr.step_ref, wsr.deps_completed, wsr.deps_required, cs.job_id, cs.condition, cs.payload, wsr.workflow_run_id`
 
 	rows, err := q.db.Query(ctx, query, workflowRunID, completedStepRef)
 	if err != nil {
@@ -556,6 +580,7 @@ func (q *Queries) SkipStepRunsByRefs(ctx context.Context, workflowRunID string, 
 
 func scanWorkflowStepRun(scanner scanTarget) (*domain.WorkflowStepRun, error) {
 	var sr domain.WorkflowStepRun
+	var workflowStepID *string
 	var jobRunID *string
 	var output []byte
 	var stepRunError *string
@@ -566,7 +591,7 @@ func scanWorkflowStepRun(scanner scanTarget) (*domain.WorkflowStepRun, error) {
 	err := scanner.Scan(
 		&sr.ID,
 		&sr.WorkflowRunID,
-		&sr.WorkflowStepID,
+		&workflowStepID,
 		&sr.StepRef,
 		&jobRunID,
 		&sr.Status,
@@ -585,6 +610,9 @@ func scanWorkflowStepRun(scanner scanTarget) (*domain.WorkflowStepRun, error) {
 
 	if jobRunID != nil {
 		sr.JobRunID = *jobRunID
+	}
+	if workflowStepID != nil {
+		sr.WorkflowStepID = *workflowStepID
 	}
 	if output != nil {
 		sr.Output = json.RawMessage(output)

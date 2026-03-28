@@ -33,6 +33,7 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | `workflow_version_steps` | Version-pinned step snapshots used by running workflow runs |
 | `workflow_steps` | Current mutable step definitions (dependencies, conditions, retries, concurrency/resource hints) |
 | `workflow_runs` | Workflow execution instances (status, payload, parent lineage, version pin) |
+| `workflow_dynamic_steps` | Per-run dynamic step definitions materialized from runtime expansion outputs |
 | `workflow_step_runs` | Per-step runtime state (status, deps counters, output/error, timing) |
 | `workflow_step_decisions` | Explainability log for scheduler/condition decisions during progression |
 | `workflow_policies` | Project-level DAG governance controls (`max_fan_out`, `max_depth`, forbidden types, approval requirement) |

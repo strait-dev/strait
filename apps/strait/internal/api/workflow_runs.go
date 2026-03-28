@@ -504,9 +504,9 @@ func (s *Server) handleGetWorkflowRunGraph(ctx context.Context, input *GetWorkfl
 	if err != nil {
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, run.WorkflowID, run.WorkflowVersion)
+	steps, err := s.loadWorkflowRunSteps(ctx, run)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to list workflow steps")
+		return nil, huma.Error500InternalServerError("failed to load workflow steps")
 	}
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, input.WorkflowRunID, 10000, nil)
 	if err != nil {
@@ -776,9 +776,9 @@ func (s *Server) handleReplayWorkflowSubtree(ctx context.Context, input *ReplayW
 	if err != nil {
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, run.WorkflowID, run.WorkflowVersion)
+	steps, err := s.loadWorkflowRunSteps(ctx, run)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to list workflow steps")
+		return nil, huma.Error500InternalServerError("failed to load workflow steps")
 	}
 	children := map[string][]string{}
 	exists := false

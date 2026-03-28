@@ -32,7 +32,7 @@ func (s *Server) handleCompensateWorkflowRun(ctx context.Context, input *Compens
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	steps, err := s.loadWorkflowRunSteps(ctx, wfRun)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to load workflow steps")
 	}
@@ -74,7 +74,7 @@ func (s *Server) handleGetCompensationPlan(ctx context.Context, input *GetCompen
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
 
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	steps, err := s.loadWorkflowRunSteps(ctx, wfRun)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to load workflow steps")
 	}
