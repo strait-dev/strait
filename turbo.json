@@ -174,7 +174,10 @@
     "VITE_POSTHOG_KEY",
     "VITE_POSTHOG_HOST",
     "VITE_GOOGLE_CLIENT_ID",
-    "NEXT_PUBLIC_DASHBOARD_URL",
+    "PUBLIC_WEBSITE_URL",
+    "PUBLIC_DASHBOARD_URL",
+    "PUBLIC_GTM_ID",
+    "PUBLIC_WEBSITE_ACCENT",
 
     "AUTH_DATABASE_URL",
     "BETTER_AUTH_URL",
@@ -215,13 +218,11 @@
       "inputs": ["$TURBO_DEFAULT$", ".env"],
       "dependsOn": ["^build"],
       "outputs": [
-        ".next/**",
-        "!.next/cache/**",
-        "next-env.d.ts",
+        "dist/**",
+        ".astro/**",
         ".expo/**",
         ".output/**",
-        ".vercel/output/**",
-        "dist/**"
+        ".vercel/output/**"
       ]
     },
     "start": {

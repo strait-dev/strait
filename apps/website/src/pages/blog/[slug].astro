@@ -134,7 +134,7 @@ const breadcrumbSchema = getBreadcrumbSchema([
   <div>
     <JsonLd data={articleSchema} />
     <JsonLd data={breadcrumbSchema} />
-    <Post client:load {...post} />
-    <CTA client:visible />
+    <Post client:only="react" {...post} />
+    <CTA client:only="react" />
   </div>
 </LandingLayout>

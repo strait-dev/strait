@@ -27,7 +27,7 @@ import LandingLayout from "@/layouts/LandingLayout.astro";
     <Shell variant="wide">
       <div class="max-w-3xl">
         <span class="kicker">Features</span>
-        <Reveal client:visible variant="blur">
+        <Reveal client:only="react" variant="blur">
           <h1 class="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
             <span class="text-foreground">
               Everything you need to run production workflows.
@@ -44,7 +44,7 @@ import LandingLayout from "@/layouts/LandingLayout.astro";
 
   <section class="py-16 sm:py-20">
     <Shell variant="wide">
-      <StaggerGroup client:visible className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <StaggerGroup client:only="react" className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {FEATURE_PAGES.map((feature) => (
           <StaggerItem>
             <a
@@ -74,7 +74,7 @@ import LandingLayout from "@/layouts/LandingLayout.astro";
   </section>
 
   <CTA
-    client:visible
+    client:only="react"
     description="Zero-broker, production-grade from the first run."
     heading="Ready to deploy your first workflow?"
     showInstallSnippet={false}

@@ -100,7 +100,7 @@ const totalPages = Math.ceil(totalCount / POSTS_PER_PAGE);
         <Shell variant="wide">
           {featuredPost && (
             <div class="pb-8">
-              <PostFeatured client:load {...featuredPost} />
+              <PostFeatured client:only="react" {...featuredPost} />
             </div>
           )}
 
@@ -109,7 +109,7 @@ const totalPages = Math.ceil(totalCount / POSTS_PER_PAGE);
               <div class="grid grid-cols-1 gap-px bg-border/50 md:grid-cols-2">
                 {remainingPosts.map((post: any) => (
                   <div class="bg-background p-6">
-                    <PostPreview client:load {...post} />
+                    <PostPreview client:only="react" {...post} />
                   </div>
                 ))}
               </div>
@@ -127,6 +127,6 @@ const totalPages = Math.ceil(totalCount / POSTS_PER_PAGE);
       </section>
     )}
 
-    <CTA client:visible />
+    <CTA client:only="react" />
   </main>
 </LandingLayout>

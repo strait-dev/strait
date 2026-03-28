@@ -67,7 +67,7 @@ const related = feature.relatedSlugs
 
       <div class="max-w-3xl">
         <span class="kicker">{feature.name}</span>
-        <Reveal client:visible variant="blur">
+        <Reveal client:only="react" variant="blur">
           <h1 class="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
             <span class="text-foreground">{feature.headline}</span>{" "}
             <span class="text-muted-foreground">{feature.subheadline}</span>
@@ -95,7 +95,7 @@ const related = feature.relatedSlugs
   <section class="border-border/40 border-y py-16 sm:py-20">
     <Shell variant="wide">
       <h2 class="mb-10 text-2xl sm:text-3xl">Technical specs</h2>
-      <StaggerGroup client:visible className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <StaggerGroup client:only="react" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {feature.specs.map((spec) => (
           <StaggerItem>
             <div class="rounded-xl border border-border/60 bg-card p-5">
@@ -112,7 +112,7 @@ const related = feature.relatedSlugs
   <section class="py-16 sm:py-20">
     <Shell variant="wide">
       <h2 class="mb-2 text-2xl sm:text-3xl">{feature.codeExample.title}</h2>
-      <Reveal client:visible variant="scale">
+      <Reveal client:only="react" variant="scale">
         <MockBrowserWindow className="mt-8" url={`main.${feature.codeExample.language}`}>
           <pre class="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
             <code class="text-foreground/80">{feature.codeExample.code}</code>
@@ -127,7 +127,7 @@ const related = feature.relatedSlugs
     <section class="border-border/40 border-t py-16 sm:py-20">
       <Shell variant="wide">
         <h2 class="mb-8 text-2xl sm:text-3xl">Related features</h2>
-        <StaggerGroup client:visible className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <StaggerGroup client:only="react" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {related.map((r) => r && (
             <StaggerItem>
               <a
@@ -145,7 +145,7 @@ const related = feature.relatedSlugs
   )}
 
   <CTA
-    client:visible
+    client:only="react"
     description="Deploy your first workflow in under 10 minutes."
     heading={`Ready to try ${feature.name}?`}
     showInstallSnippet={false}

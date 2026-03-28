@@ -93,12 +93,12 @@ const faqSchema = getFAQPageSchema(PRICING_FAQ_ITEMS);
           </p>
         </div>
 
-        <StaticPricingTable client:visible />
+        <StaticPricingTable client:only="react" />
       </Shell>
     </section>
 
-    <PricingComparison client:visible />
-    <PricingFaq client:visible />
-    <CTA client:visible />
+    <PricingComparison client:only="react" />
+    <PricingFaq client:only="react" />
+    <CTA client:only="react" />
   </main>
 </LandingLayout>

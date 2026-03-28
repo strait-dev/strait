@@ -58,20 +58,20 @@ const breadcrumbs = getBreadcrumbSchema([
 
       <div class="max-w-3xl">
         <span class="kicker">{useCase.title}</span>
-        <Reveal client:visible variant="blur">
+        <Reveal client:only="react" variant="blur">
           <h1 class="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
             <span class="text-foreground">{useCase.headline}</span>
           </h1>
         </Reveal>
 
         <div class="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
-          <Reveal client:visible delay={0.1} variant="fade-left">
+          <Reveal client:only="react" delay={0.1} variant="fade-left">
             <div class="rounded-xl border border-border/60 bg-card p-6">
               <p class="font-medium text-foreground text-sm uppercase tracking-wider">The Problem</p>
               <p class="mt-3 text-muted-foreground leading-relaxed">{useCase.problem}</p>
             </div>
           </Reveal>
-          <Reveal client:visible delay={0.15} variant="fade-right">
+          <Reveal client:only="react" delay={0.15} variant="fade-right">
             <div class="rounded-xl border border-primary/30 bg-primary/5 p-6">
               <p class="font-medium text-primary text-sm uppercase tracking-wider">The Solution</p>
               <p class="mt-3 text-muted-foreground leading-relaxed">{useCase.solution}</p>
@@ -99,7 +99,7 @@ const breadcrumbs = getBreadcrumbSchema([
     <Shell variant="wide">
       <h2 class="mb-10 text-2xl sm:text-3xl">How it works</h2>
       <LoadingCarousel
-        client:visible
+        client:only="react"
         autoplayDelay={4000}
         slides={useCase.workflowSteps.map((step, index) => ({
           number: index + 1,
@@ -114,7 +114,7 @@ const breadcrumbs = getBreadcrumbSchema([
   <section class="py-16 sm:py-20">
     <Shell variant="wide">
       <h2 class="mb-8 text-2xl sm:text-3xl">Relevant features</h2>
-      <StaggerGroup client:visible className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <StaggerGroup client:only="react" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {useCase.relevantFeatures.map((feature) => (
           <StaggerItem>
             <a
@@ -131,7 +131,7 @@ const breadcrumbs = getBreadcrumbSchema([
   </section>
 
   <CTA
-    client:visible
+    client:only="react"
     description="Deploy your first workflow in under 10 minutes."
     heading={`Ready to build ${useCase.title.toLowerCase()}?`}
     showInstallSnippet={false}

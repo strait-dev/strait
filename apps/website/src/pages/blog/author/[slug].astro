@@ -176,7 +176,7 @@ const description = author.role
         {featuredPost && (
           <Shell variant="wide">
             <div class="pb-12">
-              <PostFeatured client:load {...featuredPost} />
+              <PostFeatured client:only="react" {...featuredPost} />
             </div>
           </Shell>
         )}
@@ -187,7 +187,7 @@ const description = author.role
               <div class="grid grid-cols-1 gap-px bg-border/50 md:grid-cols-2">
                 {remainingPosts.map((post: any) => (
                   <div class="bg-background p-6">
-                    <PostPreview client:load {...post} />
+                    <PostPreview client:only="react" {...post} />
                   </div>
                 ))}
               </div>

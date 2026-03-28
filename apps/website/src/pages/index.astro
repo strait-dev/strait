@@ -65,16 +65,16 @@ const howToSchema = getHowToSchema(HOW_TO_STEPS);
   <JsonLd data={webSiteSchema} />
   <JsonLd data={softwareAppSchema} />
   {howToSchema && <JsonLd data={howToSchema} />}
-  <Hero client:load />
-  <ProblemSection client:visible />
-  <FeatureBentoGrid client:visible />
+  <Hero client:only="react" />
+  <ProblemSection client:only="react" />
+  <FeatureBentoGrid client:only="react" />
   <div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
-  <CodeExampleSection client:visible />
+  <CodeExampleSection client:only="react" />
   <div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
-  <ComparisonSection client:visible />
+  <ComparisonSection client:only="react" />
   <div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
-  <PricingTeaser client:visible />
-  <PricingComparison client:visible />
-  <PricingFaq client:visible />
-  <CTA client:visible />
+  <PricingTeaser client:only="react" />
+  <PricingComparison client:only="react" />
+  <PricingFaq client:only="react" />
+  <CTA client:only="react" />
 </LandingLayout>
