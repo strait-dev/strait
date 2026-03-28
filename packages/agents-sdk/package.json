@@ -20,6 +20,7 @@
     "./anthropic": "./src/anthropic.ts",
     "./budget": "./src/budget.ts",
     "./context": "./src/context.ts",
+    "./evals": "./src/evals.ts",
     "./errors": "./src/errors.ts",
     "./openai": "./src/openai.ts",
     "./pricing": "./src/pricing.ts",

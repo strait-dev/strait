@@ -166,6 +166,50 @@ const workflow = orchestratorPattern({
 
 Planner-style steps can request runtime DAG expansion by returning a `dynamic_steps` envelope from a completed step. See [Agents](/docs/concepts/agents) and [Workflows](/docs/concepts/workflows) for the runtime rules.
 
+## Local Evaluation Framework
+
+The package also includes local eval helpers for regression-testing agent behavior before deployment:
+
+- `defineEvalSuite()`
+- `runEvalSuite()`
+- `expectTextContains()`
+- `expectPathEquals()`
+- `expectArrayMinLength()`
+
+```ts
+import {
+  defineEvalSuite,
+  expectArrayMinLength,
+  expectTextContains,
+  runEvalSuite,
+} from "@strait/agents-sdk";
+
+const suite = defineEvalSuite({
+  name: "Incident Triage",
+  cases: [
+    {
+      name: "returns actionable output",
+      input: { topic: "billing regression" },
+      assertions: [
+        expectTextContains("mentions billing", (result) => result.summary, ["billing"]),
+        expectArrayMinLength("includes actions", (result) => result.actions, 2),
+      ],
+    },
+  ],
+});
+
+const result = await runEvalSuite(suite, async (input) => ({
+  summary: `Investigated ${input.topic}.`,
+  actions: ["Roll back the deployment", "Inspect queue latency"],
+}));
+```
+
+This framework is local-only and intentionally generic. You provide the executor callback, which makes it easy to evaluate:
+
+- `strait.agent()` definitions invoked with a test context
+- captured production traces replayed locally
+- adapter-wrapped provider calls with mocked transports
+
 ## Provider Adapters
 
 The package also includes adapter wrappers for:

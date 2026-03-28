@@ -3,6 +3,13 @@ export { createAnthropicAdapter } from "./anthropic";
 export { BudgetLedger } from "./budget";
 export { StraitContext, createStraitContext } from "./context";
 export {
+  defineEvalSuite,
+  expectArrayMinLength,
+  expectPathEquals,
+  expectTextContains,
+  runEvalSuite,
+} from "./evals";
+export {
   BudgetExceededError,
   StraitAPIError,
   StraitSDKError,

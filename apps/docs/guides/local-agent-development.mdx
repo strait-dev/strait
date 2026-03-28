@@ -128,6 +128,15 @@ cd apps/strait && go test -tags integration ./...
 cd apps/strait && golangci-lint run --timeout=5m ./...
 ```
 
+## Regression Evals
+
+For local behavior checks, add eval suites next to your agent code with the helpers from `@strait/agents-sdk/evals`. These suites are useful for:
+
+- happy-path regression checks
+- adversarial prompt cases
+- schema and shape assertions
+- judge-style scoring layered on top of deterministic assertions
+
 ## Related References
 
 - [Agents](/docs/concepts/agents)
