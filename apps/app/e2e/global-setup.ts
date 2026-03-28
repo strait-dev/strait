@@ -28,6 +28,9 @@ async function ensureUserExists(
       );
     }
 
+    // Wait for the user to be created (the Polar hook may fail but user is still inserted)
+    await new Promise((r) => setTimeout(r, 2000));
+
     userRow = await pool.query(
       `SELECT "id", "defaultOrganizationId", "activeProjectId" FROM "user" WHERE "email" = $1`,
       [email]
@@ -35,7 +38,9 @@ async function ensureUserExists(
   }
 
   if (userRow.rows.length === 0) {
-    throw new Error("Failed to create test user");
+    throw new Error(
+      `Failed to create test user ${email}. Check that the app is running at ${baseURL}`
+    );
   }
 
   await pool.query(`UPDATE "user" SET "emailVerified" = true WHERE "id" = $1`, [
