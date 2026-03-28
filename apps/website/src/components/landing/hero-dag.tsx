@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 
 type NodeStatus = "queued" | "executing" | "completed" | "failed" | "approval";

@@ -1,4 +1,3 @@
-
 import { cn } from "@strait/ui/utils";
 import { useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef } from "react";

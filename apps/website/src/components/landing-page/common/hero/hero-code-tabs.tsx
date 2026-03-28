@@ -1,4 +1,3 @@
-
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SPRING_SNAPPY } from "@/lib/motion.ts";

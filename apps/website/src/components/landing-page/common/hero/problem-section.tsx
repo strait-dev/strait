@@ -1,4 +1,3 @@
-
 import Reveal from "@/components/landing/reveal.tsx";
 import {
   StaggerGroup,

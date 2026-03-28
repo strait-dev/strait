@@ -1,4 +1,3 @@
-
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 import MockBrowserWindow from "@/components/magicui/mock-browser-window.tsx";

@@ -1,4 +1,3 @@
-
 import { motion, useInView } from "motion/react";
 import { type ReactNode, useRef } from "react";
 import { fadeSlideUp, staggerContainer } from "@/lib/motion.ts";

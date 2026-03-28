@@ -1,4 +1,3 @@
-
 import { cn } from "@strait/ui/utils";
 import Autoplay from "embla-carousel-autoplay";
 import useEmblaCarousel from "embla-carousel-react";

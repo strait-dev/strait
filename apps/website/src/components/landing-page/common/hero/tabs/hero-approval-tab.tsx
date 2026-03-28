@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 
 type StepStatus = "completed" | "executing" | "approval" | "queued";
