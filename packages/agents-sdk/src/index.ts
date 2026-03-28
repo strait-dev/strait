@@ -1,4 +1,5 @@
 export { agent, strait } from "./agent";
+export { createAnthropicAdapter } from "./anthropic";
 export { BudgetLedger } from "./budget";
 export { StraitContext, createStraitContext } from "./context";
 export {
