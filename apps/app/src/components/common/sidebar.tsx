@@ -27,8 +27,6 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Suspense, useState } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
-import { FEATURE_FLAGS } from "@/hooks/posthog/flags";
-import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag";
 import {
   AlertIcon,
   AnalyticsIcon,
@@ -107,7 +105,6 @@ const AppSidebar = ({ session }: Props) => {
   const { data: subscriptionState } = useSuspenseQuery(
     subscriptionStateQueryOptions()
   );
-  const isAssistantEnabled = useFeatureFlag(FEATURE_FLAGS.AI_ASSISTANT);
   const { shouldShowUpgrade, hasPendingPayment } = subscriptionState;
 
   const [environment, setEnvironment] = useState<Environment>("production");
@@ -117,12 +114,10 @@ const AppSidebar = ({ session }: Props) => {
   const pathname = useRouterState({
     select: (s) => s.location.pathname,
   });
-  const mainNavItems = isAssistantEnabled
-    ? [
-        ...mainNav,
-        { title: "Copilot", url: "/app/copilot", icon: SparklesIcon },
-      ]
-    : mainNav;
+  const mainNavItems = [
+    ...mainNav,
+    { title: "Copilot", url: "/app/copilot", icon: SparklesIcon },
+  ];
 
   /** Check whether a nav item is active based on the current pathname. */
   const isActive = (item: NavItem) => {

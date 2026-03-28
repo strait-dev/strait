@@ -45,7 +45,7 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import { summarizeAgentRuns } from "@/components/agents/agent-detail-utils";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import StatusBadge from "@/components/dashboard/status-badge";
-import { runColumns } from "@/components/tables/runs-columns";
+import { createRunColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type { Agent, DisplayStatus, JobRun } from "@/hooks/api/types";
 import { agentCostSummaryQueryOptions } from "@/hooks/api/use-agent-costs";
@@ -145,6 +145,16 @@ function AgentDetailPage() {
   const runs = agentRuns ?? [];
   const summary = useMemo(() => summarizeAgentRuns(runs), [runs]);
   const liveRefresh = summary.activeRuns > 0;
+  const runColumns = useMemo(
+    () =>
+      createRunColumns({
+        onView: (run) => {
+          setSelectedRun(run);
+          setSheetOpen(true);
+        },
+      }),
+    []
+  );
 
   const table = useReactTable({
     data: runs,

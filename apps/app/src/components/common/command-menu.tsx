@@ -11,8 +11,6 @@ import {
 } from "@strait/ui/components/command";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { FEATURE_FLAGS } from "@/hooks/posthog/flags";
-import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag";
 import {
   AlertIcon,
   BriefcaseIcon,
@@ -108,7 +106,6 @@ interface CommandMenuProps {
 const CommandMenu = ({ organizationId }: CommandMenuProps) => {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const isAssistantEnabled = useFeatureFlag(FEATURE_FLAGS.AI_ASSISTANT);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -132,17 +129,15 @@ const CommandMenu = ({ organizationId }: CommandMenuProps) => {
   const orgSettingsRoute = organizationId
     ? `/app/org/${organizationId}`
     : "/app/settings";
-  const routes = isAssistantEnabled
-    ? [
-        ...navigationRoutes,
-        {
-          title: "Copilot",
-          icon: SparklesIcon,
-          to: "/app/copilot",
-          keywords: "assistant copilot ai agents",
-        },
-      ]
-    : navigationRoutes;
+  const routes = [
+    ...navigationRoutes,
+    {
+      title: "Copilot",
+      icon: SparklesIcon,
+      to: "/app/copilot",
+      keywords: "assistant copilot ai agents",
+    },
+  ];
 
   return (
     <>

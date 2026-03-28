@@ -23,8 +23,6 @@ import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import { agentsQueryOptions } from "@/hooks/api/use-agents";
 import type { Agent, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
-import { FEATURE_FLAGS } from "@/hooks/posthog/flags";
-import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag";
 import { PlayActionIcon, SparklesIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -53,7 +51,6 @@ export const Route = createFileRoute("/app/copilot")({
 
 function CopilotPage() {
   const { hasProject, session } = Route.useLoaderData();
-  const isAssistantEnabled = useFeatureFlag(FEATURE_FLAGS.AI_ASSISTANT);
   const [prompt, setPrompt] = useState(buildSuggestedPrompts()[0] ?? "");
 
   const { data: agentsData } = useQuery({
@@ -74,21 +71,6 @@ function CopilotPage() {
     return (
       <Shell>
         <NoProjectState user={session.user} />
-      </Shell>
-    );
-  }
-
-  if (!isAssistantEnabled) {
-    return (
-      <Shell>
-        <Card>
-          <CardHeader>
-            <CardTitle>Copilot Preview Disabled</CardTitle>
-            <CardDescription>
-              The `ai_assistant` feature flag is disabled for this project.
-            </CardDescription>
-          </CardHeader>
-        </Card>
       </Shell>
     );
   }
