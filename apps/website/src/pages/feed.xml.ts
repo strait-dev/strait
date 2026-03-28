@@ -43,33 +43,33 @@ export const GET: APIRoute = async () => {
 
   try {
     const data = await basehub().query({
-    website: {
-      blog: {
-        posts: {
-          __args: {
-            orderBy: "publishedAt__DESC",
-            first: 50,
-          },
-          items: {
-            _id: true,
-            _title: true,
-            _slug: true,
-            description: true,
-            publishedAt: true,
-            categories: true,
-            authors: {
-              _title: true,
+      website: {
+        blog: {
+          posts: {
+            __args: {
+              orderBy: "publishedAt__DESC",
+              first: 50,
             },
-            body: {
-              json: {
-                content: true,
+            items: {
+              _id: true,
+              _title: true,
+              _slug: true,
+              description: true,
+              publishedAt: true,
+              categories: true,
+              authors: {
+                _title: true,
+              },
+              body: {
+                json: {
+                  content: true,
+                },
               },
             },
           },
         },
       },
-    },
-  });
+    });
 
     posts = (data as any).website.blog.posts.items.filter(
       (post: any) => post._slug !== "nos-somos-a-strait"

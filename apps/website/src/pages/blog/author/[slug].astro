@@ -1,13 +1,13 @@
 ---
 import { basehub } from "basehub";
-import LandingLayout from "@/layouts/LandingLayout.astro";
-import SEO from "@/components/SEO.astro";
 import JsonLd from "@/components/JsonLd.astro";
-import Shell from "@/components/layout/shell.tsx";
+import { PostFragment as PostFragmentQuery } from "@/components/landing-page/blog/post.tsx";
 import PostFeatured from "@/components/landing-page/blog/post-featured.tsx";
 import PostPreview from "@/components/landing-page/blog/post-preview.tsx";
-import { PostFragment as PostFragmentQuery } from "@/components/landing-page/blog/post.tsx";
+import Shell from "@/components/layout/shell.tsx";
+import SEO from "@/components/SEO.astro";
 import { siteConfig } from "@/config/site.ts";
+import LandingLayout from "@/layouts/LandingLayout.astro";
 import {
   getBreadcrumbSchema,
   getPersonSchema,
@@ -72,10 +72,15 @@ try {
   // Continue with empty
 }
 
-const findAuthorFromPosts = (posts: any[], authorSlug: string): Author | null => {
+const findAuthorFromPosts = (
+  posts: any[],
+  authorSlug: string
+): Author | null => {
   for (const post of posts) {
     const found = post.authors?.find((a: any) => a._slug === authorSlug);
-    if (found) { return found; }
+    if (found) {
+      return found;
+    }
   }
   return null;
 };
@@ -91,7 +96,8 @@ const authorPosts = allPosts.filter((post: any) =>
 
 const totalPosts = authorPosts.length;
 const featuredPost = authorPosts.length > 0 ? authorPosts[0] : null;
-const remainingPosts = authorPosts.length > 1 ? authorPosts.slice(1, POSTS_PER_PAGE) : [];
+const remainingPosts =
+  authorPosts.length > 1 ? authorPosts.slice(1, POSTS_PER_PAGE) : [];
 
 const authorUrl = `${BASE_URL}/blog/author/${author._slug}`;
 

@@ -1,13 +1,15 @@
 ---
-import LandingLayout from "@/layouts/LandingLayout.astro";
-import SEO from "@/components/SEO.astro";
-import JsonLd from "@/components/JsonLd.astro";
 import { formatPlanPrice, PLANS } from "@strait/billing/products";
+import JsonLd from "@/components/JsonLd.astro";
+import CTA from "@/components/landing-page/common/cta/cta.tsx";
 import { StaticPricingTable } from "@/components/landing-page/pricing/static-pricing-table.tsx";
 import Shell from "@/components/layout/shell.tsx";
 import PricingComparison from "@/components/pricing/pricing-comparison.tsx";
-import PricingFaq, { PRICING_FAQ_ITEMS } from "@/components/pricing/pricing-faq.tsx";
-import CTA from "@/components/landing-page/common/cta/cta.tsx";
+import PricingFaq, {
+  PRICING_FAQ_ITEMS,
+} from "@/components/pricing/pricing-faq.tsx";
+import SEO from "@/components/SEO.astro";
+import LandingLayout from "@/layouts/LandingLayout.astro";
 import {
   getFAQPageSchema,
   getPricingProductsSchema,

@@ -1,16 +1,22 @@
 ---
-import LandingLayout from "@/layouts/LandingLayout.astro";
-import SEO from "@/components/SEO.astro";
-import JsonLd from "@/components/JsonLd.astro";
-import CTA from "@/components/landing-page/common/cta/cta.tsx";
 import ComparisonHighlights from "@/components/compare/comparison-highlights.tsx";
 import ComparisonTable from "@/components/compare/comparison-table.tsx";
+import JsonLd from "@/components/JsonLd.astro";
 import Reveal from "@/components/landing/reveal.tsx";
-import { StaggerGroup, StaggerItem } from "@/components/landing/stagger-group.tsx";
+import {
+  StaggerGroup,
+  StaggerItem,
+} from "@/components/landing/stagger-group.tsx";
+import CTA from "@/components/landing-page/common/cta/cta.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import SEO from "@/components/SEO.astro";
+import {
+  getAllComparisonSlugs,
+  getComparisonBySlug,
+} from "@/data/comparisons.ts";
+import LandingLayout from "@/layouts/LandingLayout.astro";
 import { getBreadcrumbSchema } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
-import { getAllComparisonSlugs, getComparisonBySlug } from "@/data/comparisons.ts";
 
 export function getStaticPaths() {
   return getAllComparisonSlugs().map((slug) => ({ params: { slug } }));
@@ -26,7 +32,10 @@ const BASE_URL = import.meta.env.PUBLIC_WEBSITE_URL || "https://trystrait.ai";
 const breadcrumbs = getBreadcrumbSchema([
   { name: "Home", url: BASE_URL },
   { name: "Compare", url: `${BASE_URL}/compare` },
-  { name: `Strait vs ${comparison.competitor}`, url: `${BASE_URL}/compare/${comparison.slug}` },
+  {
+    name: `Strait vs ${comparison.competitor}`,
+    url: `${BASE_URL}/compare/${comparison.slug}`,
+  },
 ]);
 ---
 

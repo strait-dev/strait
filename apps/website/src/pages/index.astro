@@ -1,22 +1,22 @@
 ---
-import LandingLayout from "@/layouts/LandingLayout.astro";
-import SEO from "@/components/SEO.astro";
 import JsonLd from "@/components/JsonLd.astro";
+import FeatureBentoGrid from "@/components/landing/feature-bento-grid.tsx";
+import CodeExampleSection from "@/components/landing-page/code-examples/code-example-section.tsx";
+import CTA from "@/components/landing-page/common/cta/cta.tsx";
+import Hero from "@/components/landing-page/common/hero/hero.tsx";
+import ProblemSection from "@/components/landing-page/common/hero/problem-section.tsx";
+import ComparisonSection from "@/components/landing-page/comparison/comparison-section.tsx";
+import PricingTeaser from "@/components/landing-page/pricing/pricing-teaser.tsx";
+import PricingComparison from "@/components/pricing/pricing-comparison.tsx";
+import PricingFaq from "@/components/pricing/pricing-faq.tsx";
+import SEO from "@/components/SEO.astro";
+import LandingLayout from "@/layouts/LandingLayout.astro";
 import {
   getHowToSchema,
   getOrganizationSchema,
   getSoftwareApplicationSchema,
   getWebSiteSchema,
 } from "@/lib/structured-data.tsx";
-import Hero from "@/components/landing-page/common/hero/hero.tsx";
-import PricingTeaser from "@/components/landing-page/pricing/pricing-teaser.tsx";
-import FeatureBentoGrid from "@/components/landing/feature-bento-grid.tsx";
-import CodeExampleSection from "@/components/landing-page/code-examples/code-example-section.tsx";
-import ComparisonSection from "@/components/landing-page/comparison/comparison-section.tsx";
-import ProblemSection from "@/components/landing-page/common/hero/problem-section.tsx";
-import CTA from "@/components/landing-page/common/cta/cta.tsx";
-import PricingComparison from "@/components/pricing/pricing-comparison.tsx";
-import PricingFaq from "@/components/pricing/pricing-faq.tsx";
 
 const HOW_TO_STEPS = [
   {

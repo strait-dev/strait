@@ -1,15 +1,18 @@
 ---
-import LandingLayout from "@/layouts/LandingLayout.astro";
-import SEO from "@/components/SEO.astro";
-import JsonLd from "@/components/JsonLd.astro";
-import CTA from "@/components/landing-page/common/cta/cta.tsx";
 import LoadingCarousel from "@/components/cultui/loading-carousel.tsx";
+import JsonLd from "@/components/JsonLd.astro";
 import Reveal from "@/components/landing/reveal.tsx";
-import { StaggerGroup, StaggerItem } from "@/components/landing/stagger-group.tsx";
+import {
+  StaggerGroup,
+  StaggerItem,
+} from "@/components/landing/stagger-group.tsx";
+import CTA from "@/components/landing-page/common/cta/cta.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import SEO from "@/components/SEO.astro";
+import { getAllUseCaseSlugs, getUseCaseBySlug } from "@/data/use-cases.ts";
+import LandingLayout from "@/layouts/LandingLayout.astro";
 import { getBreadcrumbSchema } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
-import { getAllUseCaseSlugs, getUseCaseBySlug } from "@/data/use-cases.ts";
 
 export function getStaticPaths() {
   return getAllUseCaseSlugs().map((slug) => ({ params: { slug } }));

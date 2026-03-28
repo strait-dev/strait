@@ -1,13 +1,13 @@
 ---
 import { basehub } from "basehub";
-import LandingLayout from "@/layouts/LandingLayout.astro";
-import SEO from "@/components/SEO.astro";
 import JsonLd from "@/components/JsonLd.astro";
-import Shell from "@/components/layout/shell.tsx";
-import CTA from "@/components/landing-page/common/cta/cta.tsx";
+import { PostFragment as PostFragmentQuery } from "@/components/landing-page/blog/post.tsx";
 import PostFeatured from "@/components/landing-page/blog/post-featured.tsx";
 import PostPreview from "@/components/landing-page/blog/post-preview.tsx";
-import { PostFragment as PostFragmentQuery } from "@/components/landing-page/blog/post.tsx";
+import CTA from "@/components/landing-page/common/cta/cta.tsx";
+import Shell from "@/components/layout/shell.tsx";
+import SEO from "@/components/SEO.astro";
+import LandingLayout from "@/layouts/LandingLayout.astro";
 import {
   getBreadcrumbSchema,
   getCollectionPageSchema,
@@ -49,7 +49,8 @@ const breadcrumbSchema = getBreadcrumbSchema([
 ]);
 const collectionSchema = getCollectionPageSchema({
   name: "Strait Blog",
-  description: "Tips, insights, and ideas on AI-powered writing and productivity.",
+  description:
+    "Tips, insights, and ideas on AI-powered writing and productivity.",
   url: blogUrl,
 });
 
