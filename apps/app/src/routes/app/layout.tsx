@@ -169,7 +169,7 @@ function RouteComponent() {
 
     const utm = consumeUtmParams();
     const setOnce: Record<string, string> = {
-      initial_signup_date: new Date().toISOString(),
+      initial_signup_date: new Date(session.user.createdAt).toISOString(),
       ...(utm ? utmToSetOnce(utm) : {}),
     };
     posthog.setPersonProperties({}, setOnce);
