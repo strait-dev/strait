@@ -30,7 +30,8 @@ jobs:
       github.event.workflow_run.head_branch == 'master'
     steps:
       - name: Check all required workflows passed
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        id: check-workflows
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const required = ['Test', 'Lint', 'Security'];
@@ -42,17 +43,22 @@ jobs:
             for (const name of required) {
               const run = runs.workflow_runs.find(r => r.name === name && r.status === 'completed');
               if (!run || run.conclusion !== 'success') {
-                core.setFailed(`Required workflow "${name}" has not succeeded yet.`);
+                core.info(`Workflow "${name}" has not succeeded yet — skipping deploy until all pass.`);
+                core.setOutput('ready', 'false');
                 return;
               }
             }
             core.info('All required workflows passed.');
+            core.setOutput('ready', 'true');
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        if: steps.check-workflows.outputs.ready == 'true'
 
       - uses: superfly/flyctl-actions/setup-flyctl@63da3ecc5e2793b98a3f2519b3d75d4f4c11cec2 # master
+        if: steps.check-workflows.outputs.ready == 'true'
 
       - run: flyctl deploy -a strait
+        if: steps.check-workflows.outputs.ready == 'true'
         working-directory: apps/strait
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -64,7 +70,7 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Verify CI passed for this commit
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const required = ['Test', 'Lint', 'Security'];
