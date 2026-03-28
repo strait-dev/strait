@@ -232,17 +232,31 @@ func TestIntegration_ConsumerReceivesAndDispatches(t *testing.T) {
 		}
 	}
 
+	ackDeadline := time.After(5 * time.Second)
+	for {
+		_, ack10 := acked.Load("ack-10")
+		_, ack11 := acked.Load("ack-11")
+		if ack10 && ack11 {
+			break
+		}
+
+		select {
+		case <-ackDeadline:
+			if !ack10 {
+				t.Error("ack-10 was not acknowledged")
+			}
+			if !ack11 {
+				t.Error("ack-11 was not acknowledged")
+			}
+			return
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
 	cancel()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	_ = consumer.Shutdown(shutdownCtx)
-
-	if _, ok := acked.Load("ack-10"); !ok {
-		t.Error("ack-10 was not acknowledged")
-	}
-	if _, ok := acked.Load("ack-11"); !ok {
-		t.Error("ack-11 was not acknowledged")
-	}
 }
 
 // --------------------------------------------------------------------------
