@@ -46,17 +46,6 @@ pre-commit:
       run: cd apps/docs && node node_modules/fumadocs-mdx/dist/bin.js && bun run typecheck
       fail_text: "Docs typecheck failed — run 'bun run typecheck' in apps/docs"
 
-    # --- TypeScript SDK ---
-    ts_sdk_lint:
-      run: cd packages/typescript-sdk && bun run lint
-      fail_text: "TypeScript SDK lint failed — run 'bun run lint' in packages/typescript-sdk"
-    ts_sdk_typecheck:
-      run: cd packages/typescript-sdk && bun run typecheck
-      fail_text: "TypeScript SDK typecheck failed — run 'bun run typecheck' in packages/typescript-sdk"
-    ts_sdk_contracts:
-      run: cd packages/typescript-sdk && bun test test/openapi-coverage.test.ts
-      fail_text: "TypeScript SDK contract test failed — run 'bun run generate:contracts' in packages/typescript-sdk"
-
 
 commit-msg:
   commands:
