@@ -1,25 +1,27 @@
 ---
 title: "Introduction"
-description: "A production-grade Go job orchestration service for engineering teams and AI agents."
+description: "Open-source job orchestration for background jobs, workflows, and AI agents. One binary, one database, zero message brokers."
 icon: "book-open"
 og:image: "/images/og.png"
 ---
 
-Strait is a production-grade Go job orchestration service designed for teams building reliable, scalable background job processing. It accepts job definitions via REST API, queues runs in PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED` (no external message broker required), and dispatches them via HTTP to your endpoints with intelligent retry strategies.
+## What is Strait?
 
-**Everything you need in one binary.** Single Go executable. No runtime dependencies. Deploy and scale horizontally.
+Strait is an open-source platform that runs your background jobs, orchestrates multi-step workflows, and manages AI agent pipelines. You define what needs to happen. Strait handles the retries, scheduling, dependencies, and monitoring.
 
-## What Problem Does It Solve?
+One Go binary. One PostgreSQL database. No Redis required. No RabbitMQ. No SQS. Just deploy and start running jobs.
 
-Engineering teams face challenges with background job processing:
+## Why teams switch to Strait
 
-- **Reliability**: Jobs fail and need to retry with exponential backoff
-- **Observability**: Understanding why jobs failed, execution time, and resource usage
-- **Scheduling**: Running jobs on cron schedules with delayed execution and retention
-- **Orchestration**: Coordinating multi-step workflows with dependencies and conditions
-- **Infrastructure**: Managing message brokers, queues, and job state stores separately
+Most teams start with a simple queue and a retry loop. Then they need scheduling. Then workflow dependencies. Then approval gates. Then cost tracking for AI agents. Before long, they're maintaining five different systems that don't talk to each other.
 
-Strait combines queue, state, scheduler, and executor in one system—eliminating operational complexity while providing production-grade features.
+Strait replaces that patchwork with one system:
+
+- **Jobs fail gracefully.** Every run follows a 13-state lifecycle. Retries use exponential backoff, fixed delays, or custom sequences. Exhausted runs go to a dead letter queue for review.
+- **Workflows run as DAGs.** Define step dependencies, approval gates, sub-workflows, event waits, and sleep delays. Strait validates the graph and runs it.
+- **Everything is observable.** See exactly where every run is, why it failed, how long it took, and what it cost. Real-time streaming, not polling.
+- **Five SDKs, same architecture.** TypeScript, Python, Go, Ruby, and Rust. Pick your language, define your jobs, run them anywhere.
+- **Self-host or use managed.** Deploy on your infrastructure with just PostgreSQL, or use the managed platform at [app.strait.dev](https://app.strait.dev).
 
 ## Key Capabilities
 
@@ -175,25 +177,25 @@ Strait fits these patterns:
 ## Getting Started
 
 <CardGroup cols={2}>
-  <Card title="Quick Start" icon="bolt" href="/docs/quickstart">
-    Get strait running in minutes. Clone repository, start infrastructure with Docker Compose, and trigger your first job.
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Get Strait running in minutes. Clone repository, start infrastructure with Docker Compose, and trigger your first job.
   </Card>
-  <Card title="Architecture" icon="sitemap" href="/docs/architecture">
+  <Card title="Architecture" icon="sitemap" href="/architecture">
     Deep dive into internals. Learn about queue mechanics, FSM states, workflow engine, and technology choices.
   </Card>
 </CardGroup>
 
 <CardGroup cols={2}>
-  <Card title="SDK Reference" icon="code" href="/docs/sdks/overview">
+  <Card title="SDK Reference" icon="code" href="/sdks/overview">
     Official SDKs for TypeScript, Python, Go, Ruby, and Rust with full feature parity. Authoring DSL, composition helpers, and typed errors.
   </Card>
-  <Card title="CLI Reference" icon="terminal" href="/docs/cli/overview">
+  <Card title="CLI Reference" icon="terminal" href="/cli/overview">
     Complete CLI documentation. 48+ commands organized by category with examples and shell completion.
   </Card>
 </CardGroup>
 
 <CardGroup cols={2}>
-  <Card title="API Reference" icon="api" href="/docs/api-reference/overview">
+  <Card title="API Reference" icon="api" href="/api-reference/overview">
     REST API endpoints for job management, triggering, workflow orchestration, and SDK interactions.
   </Card>
 </CardGroup>
@@ -225,16 +227,16 @@ Core domain concepts you'll encounter:
 Step-by-step guides for common tasks:
 
 <CardGroup cols={2}>
-  <Card title="Authentication" icon="lock" href="/docs/guides/authentication">
+  <Card title="Authentication" icon="lock" href="/guides/authentication">
     Internal secret auth for API endpoints and JWT run token auth for SDK. API key management with system keychain storage.
   </Card>
-  <Card title="Deployment" icon="cloud" href="/docs/guides/deployment">
+  <Card title="Deployment" icon="cloud" href="/guides/deployment">
     Docker deployment, Fly.io configuration, horizontal scaling strategies, and production readiness checklist.
   </Card>
-  <Card title="Security" icon="shield" href="/docs/guides/security">
+  <Card title="Security" icon="shield" href="/guides/security">
     SSRF protection, rate limiting, encryption at rest, and secure webhook delivery.
   </Card>
-  <Card title="Cost Budgets" icon="money-bill" href="/docs/concepts/cost-budgets">
+  <Card title="Cost Budgets" icon="money-bill" href="/concepts/cost-budgets">
     Per-run and daily project limits. AI model usage tracking with micro-USD precision. Budget enforcement before execution.
   </Card>
 </CardGroup>
@@ -244,13 +246,13 @@ Step-by-step guides for common tasks:
 Contributing to Strait or running it locally:
 
 <CardGroup cols={2}>
-  <Card title="Contributing" icon="users" href="/docs/development/contributing">
+  <Card title="Contributing" icon="users" href="/development/contributing">
     Setup development environment, code style, commit conventions, and PR guidelines.
   </Card>
-  <Card title="Testing" icon="check-circle" href="/docs/development/testing">
+  <Card title="Testing" icon="check-circle" href="/development/testing">
     Unit tests, integration tests with testcontainers, E2E tests, fuzz testing, and benchmarks.
   </Card>
-  <Card title="Database Schema" icon="database" href="/docs/development/database-schema">
+  <Card title="Database Schema" icon="database" href="/development/database-schema">
     Complete table definitions, indexes, and relationships for PostgreSQL schema.
   </Card>
 </CardGroup>
@@ -259,14 +261,14 @@ Contributing to Strait or running it locally:
 
 Ready to dive deeper?
 
-- Learn about the **[queue mechanics](/docs/architecture#queue-mechanics) and how `SKIP LOCKED` works
-- Understand the **[workflow engine](/docs/architecture#workflow-engine) and DAG execution
-- Explore **[retry strategies](/docs/concepts/retry-strategies) — exponential, linear, fixed, and custom
-- Set up **[webhooks](/docs/concepts/webhooks) with HMAC signing for event delivery
-- Build durable workflows with **[event triggers](/docs/concepts/event-triggers)** — wait for external events without holding goroutines
-- Configure **[cost budgets](/docs/concepts/cost-budgets) for AI workloads
+- Learn about the [queue mechanics](/architecture#queue-mechanics) and how `SKIP LOCKED` works
+- Understand the [workflow engine](/architecture#workflow-engine) and DAG execution
+- Explore [retry strategies](/concepts/retry-strategies) -- exponential, linear, fixed, and custom
+- Set up [webhooks](/concepts/webhooks) with HMAC signing for event delivery
+- Build durable workflows with [event triggers](/concepts/event-triggers) -- wait for external events without holding goroutines
+- Configure [cost budgets](/concepts/cost-budgets) for AI workloads
 
-Or jump straight into the **[Quick Start Guide](/docs/quickstart)** and run your first job in 5 minutes.
+Or jump straight into the [Quick Start Guide](/quickstart) and run your first job in 5 minutes.
 
 ## Explore the Docs
 

@@ -4,7 +4,7 @@ description: "Tracking the results of bulk job trigger requests."
 sidebarTitle: "Batch Operations"
 ---
 
-A `BatchOperation` tracks the outcome of a bulk trigger request against a [Job](/docs/concepts/jobs). When you trigger a job with multiple items in a single request (via `POST /v1/jobs/{jobID}/trigger-bulk`), Strait creates a batch operation to record how many items were submitted and how many [Runs](/docs/concepts/runs) were actually created.
+A `BatchOperation` tracks the outcome of a bulk trigger request against a [Job](/concepts/jobs). When you trigger a job with multiple items in a single request (via `POST /v1/jobs/{jobID}/trigger-bulk`), Strait creates a batch operation to record how many items were submitted and how many [Runs](/concepts/runs) were actually created.
 
 ## BatchOperation Model
 
@@ -28,7 +28,7 @@ Batch operations are **not** created directly through the API. They are created 
 1. A client sends a `POST /v1/jobs/{jobID}/trigger-bulk` request containing multiple items.
 2. Strait creates a `BatchOperation` record with `item_count` set to the number of items in the request.
 3. For each item, Strait attempts to create a run. The resulting runs have their `batch_id` field set to the batch operation's `id`.
-4. `created_count` reflects the number of runs that were actually created. This may be lower than `item_count` if some items were deduplicated (see [dedup_window_secs](/docs/concepts/jobs)).
+4. `created_count` reflects the number of runs that were actually created. This may be lower than `item_count` if some items were deduplicated (see [dedup_window_secs](/concepts/jobs)).
 5. Once all items have been processed, `finished_at` is set.
 
 <Note>
@@ -54,5 +54,5 @@ A batch operation is considered complete when `finished_at` is non-null.
 
 ## Related Concepts
 
-- [Jobs](/docs/concepts/jobs): The job definition that was bulk-triggered.
-- [Runs](/docs/concepts/runs): Individual execution instances created by the batch. Each run's `batch_id` links back to its originating batch operation.
+- [Jobs](/concepts/jobs): The job definition that was bulk-triggered.
+- [Runs](/concepts/runs): Individual execution instances created by the batch. Each run's `batch_id` links back to its originating batch operation.

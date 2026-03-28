@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-description: "Deep dive into strait internals, design decisions, and component interactions."
+description: "Deep dive into Strait internals, design decisions, and component interactions."
 icon: "sitemap"
 og:image: "/images/og.png"
 ---
@@ -161,7 +161,7 @@ The core logic resides in `internal/` directory, organized into specialized pack
 | Utilities | samber/lo | Type-safe generic collection operations |
 | Testing | google/go-cmp, testcontainers-go | Structural diffs, real Postgres/Redis in integration tests |
 
-For detailed rationale behind each technology choice, see [Technology Choices](/docs/development/technology-choices).
+For detailed rationale behind each technology choice, see [Technology Choices](/development/technology-choices).
 
 ## Queue Mechanics
 
@@ -286,7 +286,7 @@ The system implements two distinct authentication schemes:
     Worker calls `DequeueN`, claiming runs via `SKIP LOCKED` and updating status to `dequeued`. Optimistic lock ensures only one worker claims each run.
   </Step>
   <Step title="Execute">
-    Execution submitted to pond/v2 worker pool using `context.WithoutCancel`. This ensures in-flight jobs complete even if strait process shuts down. Background goroutine sends heartbeats to `job_runs.heartbeat_at`.
+    Execution submitted to pond/v2 worker pool using `context.WithoutCancel`. This ensures in-flight jobs complete even if Strait process shuts down. Background goroutine sends heartbeats to `job_runs.heartbeat_at`.
   </Step>
   <Step title="Resolve Environment">
     If job has `environment_id`, executor resolves environment variables. Check for `ENDPOINT_URL` override and validate with SSRF protection (blocks private/loopback IPs).
@@ -304,7 +304,7 @@ The system implements two distinct authentication schemes:
     If attempt >= max_attempts, transition to `dead_letter` instead of `failed`. Dead-lettered runs excluded from normal listings.
   </Step>
   <Step title="Webhook">
-    Upon reaching terminal state, send signed POST to job's `webhook_url`. Job-run webhooks are retried up to 3 times with exponential backoff (1s, 5s delays). Event-trigger webhooks use persistent delivery via the `webhook_deliveries` table with up to 5 retries and exponential backoff, surviving process restarts. See [Webhooks](/docs/concepts/webhooks) for the full delivery lifecycle.
+    Upon reaching terminal state, send signed POST to job's `webhook_url`. Job-run webhooks are retried up to 3 times with exponential backoff (1s, 5s delays). Event-trigger webhooks use persistent delivery via the `webhook_deliveries` table with up to 5 retries and exponential backoff, surviving process restarts. See [Webhooks](/concepts/webhooks) for the full delivery lifecycle.
   </Step>
   <Step title="PubSub">
     State change published to Redis channel `run:{runID}` for SSE streaming.
@@ -425,7 +425,7 @@ Operators can recover or replay portions of a DAG without retriggering the entir
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry` resets a terminal step to `pending` and resumes progression.
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree` resets the selected step and all descendants to `pending`, then resumes progression.
 
-These controls are useful for branch-local retries after transient failures and for deterministic replay during incident mitigation. See [DAG Runtime](/docs/concepts/dag-runtime) for endpoint behavior details and [DAG Operations Playbook](/docs/guides/dag-operations-playbook) for production runbooks.
+These controls are useful for branch-local retries after transient failures and for deterministic replay during incident mitigation. See [DAG Runtime](/concepts/dag-runtime) for endpoint behavior details and [DAG Operations Playbook](/guides/dag-operations-playbook) for production runbooks.
 
 ## Data Model
 
@@ -693,7 +693,7 @@ This flexibility enables horizontal scaling without multiple deployment artifact
 
 ### context.WithoutCancel for In-flight Jobs
 
-When a job run is dispatched, it uses a child context created with `context.WithoutCancel(parent)`. This means if the parent context is canceled (strait shutdown), the goroutine continues execution until the HTTP request completes. Combined with `errgroup`, this ensures graceful shutdown—in-flight jobs finish before the process exits.
+When a job run is dispatched, it uses a child context created with `context.WithoutCancel(parent)`. This means if the parent context is canceled (Strait shutdown), the goroutine continues execution until the HTTP request completes. Combined with `errgroup`, this ensures graceful shutdown—in-flight jobs finish before the process exits.
 
 ### Engine Capabilities
 
@@ -904,7 +904,7 @@ Strait implements several resilience patterns to protect against cascading failu
 - **Rate Limiting**: Per-job `rate_limit_max` and `rate_limit_window_secs` control dispatch throughput.
 - **Retry Strategies**: Configurable per-job with exponential, linear, fixed, or custom per-attempt delays. All strategies apply +/-20% jitter to prevent thundering herd.
 
-For detailed resilience patterns, see [Resilience](/docs/concepts/resilience).
+For detailed resilience patterns, see [Resilience](/concepts/resilience).
 
 ## Managed Container Execution
 
@@ -964,7 +964,7 @@ The pause/resume flow preserves the `machine_id` on the run row so that the stop
 
 Every managed run records wall-clock compute usage in the `run_compute_usage` table (run ID, project ID, machine preset, duration in seconds, cost in micro-USD). Daily budget enforcement checks the project quota before creating a machine. The budget monitor fires a warning webhook at 80% utilization.
 
-For the full managed execution reference, see [Managed Execution](/docs/concepts/managed-execution).
+For the full managed execution reference, see [Managed Execution](/concepts/managed-execution).
 
 ## ClickHouse Analytics
 
@@ -996,23 +996,23 @@ The `clickhouse.Engine` maintains an in-memory buffer that flushes to ClickHouse
 | `CLICKHOUSE_BATCH_SIZE` | `100` | Flush threshold |
 | `CLICKHOUSE_FLUSH_INTERVAL` | `10s` | Max time between flushes |
 
-For the full ClickHouse reference, see [ClickHouse Analytics](/docs/concepts/clickhouse-analytics).
+For the full ClickHouse reference, see [ClickHouse Analytics](/concepts/clickhouse-analytics).
 
 ## Related Documentation
 
-- [Introduction](/docs/introduction) — Product overview and key features
-- [Quick Start](/docs/quickstart) — Getting started guide
-- [Jobs](/docs/concepts/jobs) — Job definitions and configuration
-- [Runs](/docs/concepts/runs) — Run lifecycle and FSM
-- [Workflows](/docs/concepts/workflows) — DAG orchestration details
-- [DAG Runtime](/docs/concepts/dag-runtime) — Detailed DAG scheduler behavior, explainability, policy enforcement, and recovery controls
-- [DAG Operations Playbook](/docs/guides/dag-operations-playbook) — On-call triage, recovery, and hardening runbook for DAG incidents
-- [Managed Execution](/docs/concepts/managed-execution) — Fly Machines container runtime, warm pool, pause/resume
-- [ClickHouse Analytics](/docs/concepts/clickhouse-analytics) — Optional analytics backend for run metrics and cost tracking
-- [Event Triggers](/docs/concepts/event-triggers) — Durable external event waits
-- [CDC](/docs/concepts/cdc) — Real-time change data capture
-- [Resilience](/docs/concepts/resilience) — Circuit breaker, rate limiting, and graceful degradation
-- [Security](/docs/guides/security) — SSRF protection, HMAC signing, and access control
+- [Introduction](/introduction) -- Product overview and key features
+- [Quick Start](/quickstart) -- Getting started guide
+- [Jobs](/concepts/jobs) -- Job definitions and configuration
+- [Runs](/concepts/runs) -- Run lifecycle and FSM
+- [Workflows](/concepts/workflows) -- DAG orchestration details
+- [DAG Runtime](/concepts/dag-runtime) -- Detailed DAG scheduler behavior, explainability, policy enforcement, and recovery controls
+- [DAG Operations Playbook](/guides/dag-operations-playbook) -- On-call triage, recovery, and hardening runbook for DAG incidents
+- [Managed Execution](/concepts/managed-execution) -- Fly Machines container runtime, warm pool, pause/resume
+- [ClickHouse Analytics](/concepts/clickhouse-analytics) -- Optional analytics backend for run metrics and cost tracking
+- [Event Triggers](/concepts/event-triggers) -- Durable external event waits
+- [CDC](/concepts/cdc) -- Real-time change data capture
+- [Resilience](/concepts/resilience) -- Circuit breaker, rate limiting, and graceful degradation
+- [Security](/guides/security) -- SSRF protection, HMAC signing, and access control
 
 ## Performance Characteristics
 

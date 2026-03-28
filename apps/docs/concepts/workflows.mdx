@@ -16,14 +16,14 @@ A workflow is defined as a Directed Acyclic Graph (DAG) where:
 Validation guardrail: a workflow can include up to **1000** steps.
 
 <Note>
-For implementation-level behavior (scheduler decisions, explainability APIs, critical-path estimates, policy enforcement, and replay controls), see [DAG Runtime](/docs/concepts/dag-runtime).
+For implementation-level behavior (scheduler decisions, explainability APIs, critical-path estimates, policy enforcement, and replay controls), see [DAG Runtime](/concepts/dag-runtime).
 </Note>
 
 ## Step Types
 
 | Type | Description |
 | :--- | :--- |
-| `job` | Executes a standard [Job](/docs/concepts/jobs). |
+| `job` | Executes a standard [Job](/concepts/jobs). |
 | `approval` | A human-in-the-loop gate that waits for manual approval or rejection. |
 | `sub_workflow` | Triggers another workflow as a nested step. |
 | `wait_for_event` | Pauses until an external event arrives via API. See [Event Triggers](/concepts/event-triggers). |
@@ -120,7 +120,7 @@ Version analysis APIs:
 - `POST /v1/workflows/{workflowID}/simulate`
 
 These endpoints are intended for operations and incident response, not only workflow authoring.
-For detailed endpoint payloads and operational runbooks, see [DAG Runtime](/docs/concepts/dag-runtime) and [DAG Operations Playbook](/docs/guides/dag-operations-playbook).
+For detailed endpoint payloads and operational runbooks, see [DAG Runtime](/concepts/dag-runtime) and [DAG Operations Playbook](/guides/dag-operations-playbook).
 
 ## Workflow FSMs
 

@@ -39,24 +39,21 @@
             ]
           },
           {
-            "group": "AI Agents",
-            "pages": ["ai/index"]
-          },
-          {
-            "group": "Integrations",
-            "pages": ["integrations/index"]
-          },
-          {
-            "group": "Concepts",
+            "group": "Core Concepts",
             "pages": [
               "concepts/jobs",
               "concepts/runs",
               "concepts/workflows",
-              "concepts/dag-runtime",
-              "concepts/scheduling",
               "concepts/retry-strategies",
-              "concepts/resilience",
               "concepts/event-triggers",
+              "concepts/scheduling"
+            ]
+          },
+          {
+            "group": "More Concepts",
+            "pages": [
+              "concepts/dag-runtime",
+              "concepts/resilience",
               "concepts/webhooks",
               "concepts/environments",
               "concepts/versioning",
@@ -73,15 +70,23 @@
             ]
           },
           {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/database"
+            ]
+          },
+          {
             "group": "Guides",
             "pages": [
               "guides/authentication",
+              "guides/deployment",
+              "guides/security",
+              "guides/sdk-integration",
               "guides/oidc",
               "guides/rbac",
               "guides/audit-events",
               "guides/api-key-rotation",
-              "guides/security",
-              "guides/deployment",
               "guides/performance-tuning",
               "guides/load-testing",
               "guides/capacity-planning",
@@ -89,17 +94,27 @@
               "guides/debug-bundles",
               "guides/job-groups",
               "guides/idempotency",
-              "guides/sdk-integration",
               "guides/workflow-approvals",
               "guides/dag-operations-playbook",
               "guides/event-triggers"
             ]
           },
           {
-            "group": "Configuration",
+            "group": "AI Agents",
+            "pages": ["ai/index"]
+          },
+          {
+            "group": "Integrations",
+            "pages": ["integrations/index"]
+          },
+          {
+            "group": "Operations",
             "pages": [
-              "configuration/environment-variables",
-              "configuration/database"
+              "operations/monitoring-and-alerts",
+              "operations/oidc-rollout",
+              "operations/rbac-policy-rollout",
+              "operations/api-key-rotation-rollout",
+              "operations/incident-response-authz"
             ]
           },
           {
@@ -110,16 +125,6 @@
               "development/database-schema",
               "development/technology-choices",
               "migrations"
-            ]
-          },
-          {
-            "group": "Operations",
-            "pages": [
-              "operations/monitoring-and-alerts",
-              "operations/oidc-rollout",
-              "operations/rbac-policy-rollout",
-              "operations/api-key-rotation-rollout",
-              "operations/incident-response-authz"
             ]
           }
         ]

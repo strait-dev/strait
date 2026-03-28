@@ -7,7 +7,7 @@ An `EventSource` is a named inbound event channel. External systems dispatch eve
 
 ## Event Sources vs Event Triggers
 
-Event Sources and [Event Triggers](/docs/concepts/event-triggers) serve different purposes:
+Event Sources and [Event Triggers](/concepts/event-triggers) serve different purposes:
 
 - **Event Sources** are inbound channels for receiving external events and routing them to jobs or workflows. They are always-on endpoints that evaluate subscriptions on every dispatch.
 - **Event Triggers** are durable waits used by workflow steps and runs to pause execution until a matching event arrives. They are created by in-flight runs and consumed once.
@@ -109,6 +109,6 @@ Event sources and their subscriptions are managed through the following API oper
 
 ## Related Concepts
 
-- [Event Triggers](/docs/concepts/event-triggers) -- Durable waits for events within workflow steps and runs.
-- [Jobs](/docs/concepts/jobs) -- The unit of work that event subscriptions can target.
-- [Workflows](/docs/concepts/workflows) -- Multi-step orchestrations that event subscriptions can target.
+- [Event Triggers](/concepts/event-triggers) -- Durable waits for events within workflow steps and runs.
+- [Jobs](/concepts/jobs) -- The unit of work that event subscriptions can target.
+- [Workflows](/concepts/workflows) -- Multi-step orchestrations that event subscriptions can target.

@@ -72,4 +72,4 @@ Retries can be configured at multiple levels:
 
 When a run exhausts its `max_attempts`, it transitions to the `dead_letter` state instead of `failed`. This allows engineers to inspect the failure and manually "replay" the run (resetting it to `queued`) once the underlying issue is resolved.
 
-Runs can also be routed to the DLQ early via **poison pill detection**. When a job has `poison_pill_threshold` configured and the same error repeats consecutively across that many attempts, the run is fast-tracked to DLQ instead of continuing to retry. See [Resilience: Poison Pill Detection](/docs/concepts/resilience#poison-pill-detection) for details.
+Runs can also be routed to the DLQ early via **poison pill detection**. When a job has `poison_pill_threshold` configured and the same error repeats consecutively across that many attempts, the run is fast-tracked to DLQ instead of continuing to retry. See [Resilience: Poison Pill Detection](/concepts/resilience#poison-pill-detection) for details.

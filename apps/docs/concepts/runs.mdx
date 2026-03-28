@@ -4,7 +4,7 @@ description: "The execution lifecycle of a job."
 icon: "play"
 ---
 
-A `JobRun` represents a single execution instance of a [Job](/docs/concepts/jobs). It tracks the state, payload, result, and timing of the execution.
+A `JobRun` represents a single execution instance of a [Job](/concepts/jobs). It tracks the state, payload, result, and timing of the execution.
 
 ## JobRun Model
 
@@ -112,7 +112,7 @@ The lifecycle of a run is strictly managed by a 13-state FSM.
 - **failed**: Finished with an error (non-2xx response) and no retries left.
 - **timed_out**: Execution exceeded the configured `timeout_secs`.
 - **crashed**: Worker process terminated unexpectedly while executing.
-- **system_failed**: Internal strait error (e.g., database failure).
+- **system_failed**: Internal Strait error (e.g., database failure).
 - **canceled**: Manually terminated by a user or system.
 - **expired**: Run exceeded its `run_ttl_secs` before starting.
 - **dead_letter**: Permanently failed run moved to the DLQ for manual inspection.
