@@ -1,5 +1,4 @@
 ---
-import { ClientRouter } from "astro:transitions";
 import "@/styles/fonts.css";
 import "@strait/ui/globals.css";
 
@@ -28,10 +27,9 @@ const gtmId = import.meta.env.PUBLIC_GTM_ID;
 		<link rel="manifest" href="/site.webmanifest" />
 		<link rel="preconnect" href="https://assets.basehub.com" crossorigin />
 		<link rel="preconnect" href="https://basehub.earth" crossorigin />
-		<ClientRouter />
 		<slot name="head" />
 	</head>
-	<body class="font-sans selection:bg-primary selection:text-primary-foreground" transition:animate="fade">
+	<body class="font-sans selection:bg-primary selection:text-primary-foreground">
 		<slot />
 		{gtmId && (
 			<script
