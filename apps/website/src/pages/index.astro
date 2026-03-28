@@ -1,41 +1,41 @@
 ---
-import JsonLd from "@/components/JsonLd.astro";
-import FeatureBentoGrid from "@/components/FeatureBentoGrid.astro";
-import CodeExampleSection from "@/components/landing-page/code-examples/code-example-section.tsx";
-import CTA from "@/components/CTA.astro";
-import ProblemSection from "@/components/ProblemSection.astro";
 import ComparisonSection from "@/components/ComparisonSection.astro";
+import CTA from "@/components/CTA.astro";
+import FeatureBentoGrid from "@/components/FeatureBentoGrid.astro";
+import JsonLd from "@/components/JsonLd.astro";
+import CodeExampleSection from "@/components/landing-page/code-examples/code-example-section.tsx";
+import Shell from "@/components/layout/shell.tsx";
 import PricingTeaser from "@/components/PricingTeaser.astro";
+import ProblemSection from "@/components/ProblemSection.astro";
 import PricingComparison from "@/components/pricing/pricing-comparison.tsx";
 import PricingFaq from "@/components/pricing/pricing-faq.tsx";
 import SEO from "@/components/SEO.astro";
-import Shell from "@/components/layout/shell.tsx";
-import LandingLayout from "@/layouts/LandingLayout.astro";
 import { siteConfig } from "@/config/site.ts";
-import { dashboardHref } from "@/lib/urls.ts";
+import LandingLayout from "@/layouts/LandingLayout.astro";
 import {
-	getHowToSchema,
-	getOrganizationSchema,
-	getSoftwareApplicationSchema,
-	getWebSiteSchema,
+  getHowToSchema,
+  getOrganizationSchema,
+  getSoftwareApplicationSchema,
+  getWebSiteSchema,
 } from "@/lib/structured-data.tsx";
+import { dashboardHref } from "@/lib/urls.ts";
 
 const HOW_TO_STEPS = [
-	{
-		title: "Install the SDK and define a job",
-		description:
-			"Install the Strait SDK in TypeScript, Python, Go, Ruby, or Rust. Define job handlers with retries, backoff, and cost budgets.",
-	},
-	{
-		title: "Create workflows and trigger runs",
-		description:
-			"Build workflow DAGs with step dependencies, conditions, and approval gates. Trigger runs via API, SDK, or schedule.",
-	},
-	{
-		title: "Monitor, observe, and scale",
-		description:
-			"Track run state, costs, and health scores in real time. Scale with managed container execution across regions.",
-	},
+  {
+    title: "Install the SDK and define a job",
+    description:
+      "Install the Strait SDK in TypeScript, Python, Go, Ruby, or Rust. Define job handlers with retries, backoff, and cost budgets.",
+  },
+  {
+    title: "Create workflows and trigger runs",
+    description:
+      "Build workflow DAGs with step dependencies, conditions, and approval gates. Trigger runs via API, SDK, or schedule.",
+  },
+  {
+    title: "Monitor, observe, and scale",
+    description:
+      "Track run state, costs, and health scores in real time. Scale with managed container execution across regions.",
+  },
 ];
 
 const organizationSchema = getOrganizationSchema();
