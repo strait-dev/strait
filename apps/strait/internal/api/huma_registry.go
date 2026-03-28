@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -621,11 +622,23 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Webhooks"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleListWebhookDeliveries)
 
-	RegisterTypedOp(api, OpMeta{
-		ID: "retry-webhook-delivery-legacy", Method: http.MethodPost, Path: "/v1/webhook-deliveries/{deliveryID}/retry",
-		Summary: "Retry a webhook delivery (legacy)", Description: "Retries a failed webhook delivery. Legacy endpoint, prefer /v1/webhooks/deliveries/{id}/retry.",
-		Tags: []string{"Webhooks"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
-	}, s.handleRetryWebhookDelivery)
+	// Registered manually (not via RegisterTypedOp) because the handler's input
+	// struct declares both DeliveryID and ID to support two path variants. Using
+	// RegisterTypedOp would leak the wrong parameter into each route's spec.
+	huma.Register(api, huma.Operation{
+		OperationID: "retry-webhook-delivery-legacy",
+		Method:      http.MethodPost,
+		Path:        "/v1/webhook-deliveries/{deliveryID}/retry",
+		Summary:     "Retry a webhook delivery (legacy)",
+		Description: "Retries a failed webhook delivery. Legacy endpoint, prefer /v1/webhooks/deliveries/{id}/retry.",
+		Tags:        []string{"Webhooks"},
+		Security:    bearerSecurity,
+		Errors:      []int{400, 401, 404, 409, 500},
+	}, func(_ context.Context, _ *struct {
+		DeliveryID string `path:"deliveryID" doc:"Webhook delivery ID" example:"whd_01HX8BQNP4"`
+	}) (*RetryWebhookDeliveryOutput, error) {
+		return nil, nil //nolint:nilnil // doc-only stub
+	})
 
 	// -- Webhooks --
 	RegisterTypedOp(api, OpMeta{
@@ -646,11 +659,20 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Webhooks"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleGetWebhookDelivery)
 
-	RegisterTypedOp(api, OpMeta{
-		ID: "retry-webhook-delivery", Method: http.MethodPost, Path: "/v1/webhooks/deliveries/{id}/retry",
-		Summary: "Retry a webhook delivery", Description: "Retries a failed webhook delivery attempt.",
-		Tags: []string{"Webhooks"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
-	}, s.handleRetryWebhookDelivery)
+	huma.Register(api, huma.Operation{
+		OperationID: "retry-webhook-delivery",
+		Method:      http.MethodPost,
+		Path:        "/v1/webhooks/deliveries/{id}/retry",
+		Summary:     "Retry a webhook delivery",
+		Description: "Retries a failed webhook delivery attempt.",
+		Tags:        []string{"Webhooks"},
+		Security:    bearerSecurity,
+		Errors:      []int{400, 401, 404, 409, 500},
+	}, func(_ context.Context, _ *struct {
+		ID string `path:"id" doc:"Webhook delivery ID" example:"whd_01HX8BQNP4"`
+	}) (*RetryWebhookDeliveryOutput, error) {
+		return nil, nil //nolint:nilnil // doc-only stub
+	})
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "replay-webhook-delivery", Method: http.MethodPost, Path: "/v1/webhooks/deliveries/{id}/replay",
