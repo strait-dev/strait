@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import Shell from "@/components/layout/shell.tsx";
 import DottedMap from "@/components/magicui/dotted-map.tsx";

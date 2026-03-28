@@ -1,0 +1,25 @@
+---
+title: "AuthZ Incident Response"
+description: "Runbook for authentication and authorization incidents."
+sidebarTitle: "Incident Response"
+---
+
+## Common Incident Types
+
+- sudden 401 spike (token/key validation issues)
+- sudden 403 spike (RBAC/policy misconfiguration)
+- audit event write failures
+
+## Triage Checklist
+
+1. Check recent auth/RBAC deployments and config changes.
+2. Inspect 401/403 rates and top failing routes.
+3. Confirm OIDC issuer/audience and key material.
+4. Validate permission-cache behavior and invalidation events.
+5. Verify DB health for audit event writes.
+
+## Mitigation
+
+- Temporarily roll back OIDC/RBAC changes.
+- Reapply known-good role/policy snapshots.
+- If needed, use internal-secret path for emergency admin actions.

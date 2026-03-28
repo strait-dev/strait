@@ -1,0 +1,75 @@
+---
+title: "Retry Strategies"
+description: "How Strait handles execution failures."
+icon: "rotate"
+---
+
+When a job execution fails (non-2xx response or timeout), Strait uses a retry strategy to determine when to attempt the execution again.
+
+## Core Strategies
+
+The system supports four primary retry strategies, defined in `apps/strait/internal/worker/backoff.go`.
+
+### 1. Exponential (Default)
+The delay increases exponentially with each attempt.
+- **Formula**: `base * 2^(attempt-1)`
+- **Example**:
+    - Attempt 1: ~1s
+    - Attempt 2: ~2s
+    - Attempt 3: ~4s
+    - Attempt 4: ~8s
+- **Use Case**: Best for transient network issues or rate-limited endpoints.
+
+### 2. Linear
+The delay increases by a constant amount with each attempt.
+- **Formula**: `base * attempt`
+- **Example**:
+    - Attempt 1: ~1s
+    - Attempt 2: ~2s
+    - Attempt 3: ~3s
+- **Use Case**: Predictable, gradually increasing backoff.
+
+### 3. Fixed
+The delay remains constant for every attempt.
+- **Formula**: `base`
+- **Example**:
+    - Attempt 1: ~1s
+    - Attempt 2: ~1s
+    - Attempt 3: ~1s
+- **Use Case**: Polling-style retries where the interval should not change.
+
+### 4. Custom
+Uses a user-provided array of delays in seconds.
+- **Behavior**: `[1, 5, 30, 120]`
+    - Attempt 1: 1s
+    - Attempt 2: 5s
+    - Attempt 3: 30s
+    - Attempt 4: 120s
+- **Note**: If the number of attempts exceeds the array length, the last value in the array is repeated.
+- **Use Case**: Full control over the retry sequence.
+
+## Common Properties
+
+### Jitter
+A **±20% jitter** is applied to all calculated delays. This prevents "thundering herd" effects where many failed runs retry at the exact same millisecond, potentially overwhelming the target endpoint again.
+
+### Delay Bounds
+- **Floor**: A minimum delay of **1 second** is enforced to prevent zero or negative delays.
+- **Cap**: All delays are capped at a maximum of **1 hour**.
+
+### Next Retry Gating
+The calculated delay is added to the current time to set the `next_retry_at` field on the run. The queue will not dequeue the run until this time has passed.
+
+## Configuration
+
+Retries can be configured at multiple levels:
+
+- **Job Level**: Set `retry_strategy` and `retry_delays_secs` on the Job definition.
+- **Workflow Step Level**: Steps can override the job's strategy using `retry_backoff`, `retry_initial_delay_secs`, and `retry_max_delay_secs`.
+- **Run Override**: Individual runs can be triggered with overrides for `max_attempts`, `retry_backoff`, etc.
+
+## Dead Letter Queue (DLQ)
+
+When a run exhausts its `max_attempts`, it transitions to the `dead_letter` state instead of `failed`. This allows engineers to inspect the failure and manually "replay" the run (resetting it to `queued`) once the underlying issue is resolved.
+
+Runs can also be routed to the DLQ early via **poison pill detection**. When a job has `poison_pill_threshold` configured and the same error repeats consecutively across that many attempts, the run is fast-tracked to DLQ instead of continuing to retry. See [Resilience: Poison Pill Detection](/concepts/resilience#poison-pill-detection) for details.

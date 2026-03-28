@@ -1,0 +1,149 @@
+---
+import { basehub } from "basehub";
+import PostContent from "@/components/blog/PostContent.tsx";
+import PostNavigation from "@/components/blog/PostNavigation.astro";
+import PostRelated from "@/components/blog/PostRelated.astro";
+import JsonLd from "@/components/JsonLd.astro";
+import { PostFragment as PostFragmentQuery } from "@/components/landing-page/blog/post.tsx";
+import { countWords } from "@/components/landing-page/blog/utils.ts";
+import CTA from "@/components/landing-page/common/cta/cta.tsx";
+import Shell from "@/components/layout/shell.tsx";
+import SEO from "@/components/SEO.astro";
+import { siteConfig } from "@/config/site.ts";
+import LandingLayout from "@/layouts/LandingLayout.astro";
+import {
+  getBlogPostingSchema,
+  getBreadcrumbSchema,
+} from "@/lib/structured-data.tsx";
+
+export async function getStaticPaths() {
+  let allPosts: any[] = [];
+  try {
+    const data = await basehub({
+      token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN,
+      cache: "no-store",
+    }).query({
+      website: {
+        blog: {
+          posts: {
+            __args: { orderBy: "publishedAt__DESC" },
+            items: PostFragmentQuery,
+          },
+        },
+      },
+    });
+    allPosts = (data as any).website.blog.posts.items.filter(
+      (p: any) => p._slug !== "nos-somos-a-strait"
+    );
+  } catch {
+    return [];
+  }
+
+  return allPosts.map((post: any, index: number) => {
+    const prevPost =
+      index < allPosts.length - 1
+        ? { title: allPosts[index + 1]._title, slug: allPosts[index + 1]._slug }
+        : null;
+    const nextPost =
+      index > 0
+        ? { title: allPosts[index - 1]._title, slug: allPosts[index - 1]._slug }
+        : null;
+
+    const categories: string[] = post.categories ?? [];
+    const otherPosts = allPosts.filter((p: any) => p._id !== post._id);
+    const categoryMatched =
+      categories.length > 0
+        ? otherPosts.filter((p: any) =>
+            p.categories?.some((c: string) => categories.includes(c))
+          )
+        : [];
+    const relatedPosts = (
+      categoryMatched.length >= 3 ? categoryMatched : otherPosts
+    ).slice(0, 3);
+
+    return {
+      params: { slug: post._slug },
+      props: { post, prevPost, nextPost, relatedPosts },
+    };
+  });
+}
+
+const { post, prevPost, nextPost, relatedPosts } = Astro.props;
+
+const baseUrl = import.meta.env.PUBLIC_WEBSITE_URL || "https://strait.dev";
+const postUrl = `${baseUrl}/blog/${post._slug}`;
+
+const postKeywords = post.keywords
+  ? post.keywords
+      .split(",")
+      .map((k: string) => k.trim())
+      .filter(Boolean)
+  : undefined;
+
+const wordCount = countWords(
+  post.body.json.content as Parameters<typeof countWords>[0]
+);
+
+const articleSchema = getBlogPostingSchema({
+  headline: post._title ?? "Blog Post",
+  description: post.description ?? "",
+  image: post.image?.light?.url ?? `${baseUrl}/og.png`,
+  datePublished: new Date(post.publishedAt).toISOString(),
+  ...(post.modifiedDate && {
+    dateModified: new Date(post.modifiedDate).toISOString(),
+  }),
+  authors:
+    post.authors?.map((a: any) => ({
+      name: a._title,
+      ...(a.image?.url && { image: a.image.url }),
+    })) ?? [],
+  url: postUrl,
+  section: post.categories?.[0] ?? undefined,
+  keywords: postKeywords,
+  wordCount,
+});
+
+const breadcrumbSchema = getBreadcrumbSchema([
+  { name: "Home", url: baseUrl },
+  { name: "Blog", url: `${baseUrl}/blog` },
+  { name: post._title ?? "Post", url: postUrl },
+]);
+---
+
+<LandingLayout>
+	<Fragment slot="head">
+		<SEO
+			title={post._title ?? "Blog Post"}
+			description={post.description ?? siteConfig.description}
+			path={`/blog/${post._slug}`}
+			noIndex={!post.publishedAt}
+			ogImage={post.image?.light?.url ?? siteConfig.ogImage}
+			ogTitle={post.ogTitle ?? undefined}
+			ogDescription={post.ogDescription ?? undefined}
+			twitterTitle={post.twitterTitle ?? undefined}
+			twitterDescription={post.twitterDescription ?? undefined}
+			keywords={postKeywords}
+			article={{
+				publishedTime: new Date(post.publishedAt).toISOString(),
+				...(post.modifiedDate && {
+					modifiedTime: new Date(post.modifiedDate).toISOString(),
+				}),
+				authors: post.authors?.map((a: any) => a._title) ?? [],
+				section: post.categories?.[0] ?? undefined,
+				tags: post.categories ?? undefined,
+			}}
+		/>
+	</Fragment>
+
+	<JsonLd data={articleSchema} />
+	<JsonLd data={breadcrumbSchema} />
+
+	<PostContent client:only="react" {...post} />
+
+	<Shell variant="wide">
+		<PostNavigation prevPost={prevPost} nextPost={nextPost} />
+		<PostRelated posts={relatedPosts} />
+	</Shell>
+
+	<CTA client:only="react" />
+</LandingLayout>

@@ -1,51 +1,12 @@
-# Lefthook git hooks configuration.
-# Mirrors the CI lint pipelines for Go backend, apps, and all SDKs.
-# All hooks run on every commit to catch cross-cutting issues early.
-
 pre-commit:
   parallel: true
   commands:
-    # --- Go backend (build, vet, lint) ---
-    go_build:
-      run: cd apps/strait && go build ./...
-      fail_text: "Go build failed — fix compilation errors before committing"
-    go_vet:
-      run: cd apps/strait && go vet ./...
-      fail_text: "go vet failed — fix vet issues before committing"
-    lint:
-      run: cd apps/strait && golangci-lint run --timeout=5m --allow-parallel-runners ./...
-      fail_text: "golangci-lint failed — fix lint errors before committing"
-    govulncheck:
-      run: cd apps/strait && govulncheck ./...
-      fail_text: "govulncheck found vulnerabilities — run 'govulncheck ./...' in apps/strait"
-    openapi_parity:
-      run: cd apps/strait && go run ./scripts/check-openapi-parity
-      fail_text: "OpenAPI parity check failed — sync routes.go with both OpenAPI specs before committing"
-
-    # --- Frontend app (apps/app) ---
-    app_lint:
-      run: cd apps/app && bun run biome:lint
-      fail_text: "App lint failed — run 'bun run biome:lint' in apps/app"
+    run_all:
+      run: bun run run-all
+      fail_text: "run-all failed"
     app_typecheck:
       run: cd apps/app && bun run typecheck
-      fail_text: "App typecheck failed — run 'bun run typecheck' in apps/app"
-
-    # --- Website (apps/website) ---
-    website_lint:
-      run: cd apps/website && bun run biome:lint
-      fail_text: "Website lint failed — run 'bun run biome:lint' in apps/website"
-    website_typecheck:
-      run: cd apps/website && bun run typecheck
-      fail_text: "Website typecheck failed — run 'bun run typecheck' in apps/website"
-
-    # --- Docs (apps/docs) ---
-    docs_lint:
-      run: cd apps/docs && bun run biome:lint
-      fail_text: "Docs lint failed — run 'bun run biome:lint' in apps/docs"
-    docs_typecheck:
-      run: cd apps/docs && node node_modules/fumadocs-mdx/dist/bin.js && bun run typecheck
-      fail_text: "Docs typecheck failed — run 'bun run typecheck' in apps/docs"
-
+      fail_text: "App typecheck failed"
 
 commit-msg:
   commands:

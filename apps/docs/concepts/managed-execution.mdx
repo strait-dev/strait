@@ -1,0 +1,321 @@
+---
+title: "Managed Execution"
+description: "Run jobs inside ephemeral Fly Machines with warm starts, pause/resume, and cost tracking."
+sidebarTitle: "Managed Execution"
+---
+
+Managed execution lets you run user code inside ephemeral containers on [Fly Machines](https://fly.io/docs/machines/) instead of dispatching HTTP requests to an external endpoint. The orchestrator provisions the machine, injects environment variables and an SDK token, waits for the process to exit, and records the result.
+
+## Overview
+
+By default, Strait executes jobs by sending an HTTP POST to a user-provided endpoint and interpreting the response as the run result. **Managed execution** replaces this with a container-based model: the orchestrator creates (or reuses) a Fly Machine, starts it with the run context injected as environment variables, and waits for the container process to exit.
+
+### When to Use Managed Execution
+
+| Use Case | Why Managed? |
+| :--- | :--- |
+| Long-running jobs (minutes to hours) | No HTTP timeout constraints; the container runs until the process exits. |
+| Custom runtimes | Bring any Docker image -- Python ML pipelines, Rust binaries, Node scripts. |
+| GPU workloads | Use Fly Machine presets with dedicated performance CPUs (GPU support via Fly). |
+| Isolated execution | Each run gets its own ephemeral machine with no shared state. |
+| Checkpoint / resume | Pause a running container and resume it later with preserved machine state. |
+
+### Comparison with HTTP Execution
+
+| Aspect | HTTP (`http`) | Managed (`managed`) |
+| :--- | :--- | :--- |
+| Dispatch mechanism | POST to `endpoint_url` | Provision + start Fly Machine |
+| Result delivery | HTTP response body | SDK callback or exit code |
+| Timeout model | HTTP request timeout | Container process lifetime |
+| Cold start | None (endpoint already running) | 5-15s (cold) or 1-2s (warm pool) |
+| Infrastructure cost | User manages servers | Per-second compute billing by preset |
+| Pause / resume | Not supported | Supported (machine stop / start) |
+
+## Execution Modes
+
+A job's `execution_mode` field determines how runs are dispatched.
+
+### `http` (default)
+
+The executor sends an HTTP POST to the job's `endpoint_url` with the run payload. The HTTP response status and body determine the run outcome.
+
+### `managed`
+
+The executor provisions (or reuses) a Fly Machine, injects the run context as environment variables, and waits for the container to exit. The run outcome is determined by either the SDK completion callback or the container exit code.
+
+```json
+{
+  "name": "train-model",
+  "slug": "train-model",
+  "execution_mode": "managed",
+  "machine_preset": "medium-1x",
+  "image": "registry.fly.io/my-org/trainer:latest"
+}
+```
+
+## Machine Presets
+
+Machine presets define the CPU and memory allocation for managed runs. The preset is specified on the job configuration via the `machine_preset` field.
+
+| Preset | CPUs | CPU Type | Memory |
+| :--- | :--- | :--- | :--- |
+| `micro` | 1 | shared | 256 MB |
+| `small-1x` | 1 | shared | 512 MB |
+| `small-2x` | 1 | shared | 1024 MB |
+| `medium-1x` | 2 | performance | 4096 MB |
+| `medium-2x` | 2 | performance | 8192 MB |
+| `large-1x` | 4 | performance | 8192 MB |
+| `large-2x` | 8 | performance | 16384 MB |
+
+## How Managed Dispatch Works
+
+When the executor dequeues a run for a managed job, it follows a multi-step dispatch flow:
+
+1. **Dequeue run.** The executor picks up a `queued` run from the queue.
+2. **Semaphore gate.** The run must acquire a slot from the `MAX_CONCURRENT_MACHINES` semaphore. If no slot is available, the run is snoozed back to `queued`.
+3. **Budget check.** The daily compute cost limit for the project is verified. If the budget is exceeded, the run is rejected.
+4. **Transition dequeued to executing.** The run status moves from `dequeued` to `executing`, recording `started_at`.
+5. **Build environment variables.** The executor assembles the full set of env vars (see [Environment Variables Injected](#environment-variables-injected)).
+6. **Machine resolution.** The executor resolves a machine using a three-tier strategy:
+   - **Warm pool:** Acquire a stopped machine from the pool, keyed by `image:region`. Start it with the new environment.
+   - **Paused machine:** If the run has a preserved `machine_id` from a previous pause, start that specific machine with fresh env vars.
+   - **Cold create:** Provision a new Fly Machine with `auto_destroy=false`.
+7. **Wait for container exit.** The executor blocks until the machine process exits.
+8. **Record compute usage.** Wall-clock duration and preset cost rate are recorded in `run_compute_usage`.
+9. **Handle result.** The executor checks for an SDK completion callback (race check). If no SDK result, the exit code is interpreted: `0` = completed, non-zero = failed.
+
+## Machine Lifecycle
+
+Managed machines follow a well-defined lifecycle through Fly's machine states.
+
+```text
+  cold create ──> created ──> started ──> running ──> stopped
+                                                        │
+                                    ┌───────────────────┤
+                                    v                   v
+                               reused (warm)       destroyed
+                               via Start()         via Destroy()
+```
+
+### Key Behaviors
+
+- **`auto_destroy=false`** is set on all managed machines. This keeps machines in the `stopped` state after exit, enabling warm pool reuse.
+- **Start method:** The executor GETs the current machine config, PUTs updated environment variables, then POSTs a start request. This ensures each reuse gets fresh run context.
+- **Stop:** Sends a stop signal to the machine. If the machine returns a 404, it is treated as `ErrMachineGone` and the caller handles accordingly.
+- **Destroy:** Force-deletes the machine via the Fly API. Used during pool eviction, pruning, and shutdown.
+
+## Warm Machine Pool
+
+The warm machine pool reduces cold start latency from 5-15 seconds down to 1-2 seconds by reusing stopped machines.
+
+### How It Works
+
+After a clean exit (exit code `0` and SDK completion received), the stopped machine is returned to the pool instead of being destroyed. The pool is keyed by `image:region`, so machines are only reused for runs with the same container image in the same region.
+
+### Pool Configuration
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `WARM_POOL_ENABLED` | `true` | Enable or disable the warm pool. |
+| `WARM_POOL_MAX_PER_JOB` | `3` | Maximum stopped machines per `image:region` key. |
+
+### Eviction
+
+When a pool key reaches its capacity, the **oldest** entry is evicted and destroyed via a callback. Eviction is bounded by a semaphore (max 10 concurrent destroy operations) with inline fallback if the semaphore is full.
+
+### Pruner
+
+A background goroutine runs every **5 minutes** and removes machines that have been idle for more than **10 minutes**. Pruned machines are destroyed via the Fly API.
+
+### Shutdown
+
+On executor shutdown, the pool is fully drained. All pooled machines are destroyed to prevent orphaned resources.
+
+## Pause and Resume
+
+Managed runs support pause and resume, allowing long-running jobs to be suspended and continued later on the same machine.
+
+### Pause Flow
+
+1. The API receives a pause request and transitions the run from `executing` to `paused`.
+2. `Stop()` is called on the machine, gracefully stopping the container process.
+3. The `machine_id` is preserved on the run record.
+
+### Resume Flow
+
+1. The API receives a resume request and transitions the run from `paused` to `queued`.
+2. The `machine_id` is **not** cleared, so the run retains its machine reference.
+3. When the executor re-dispatches the run, it detects the preserved `machine_id` and calls `Start(run.MachineID, freshEnv)` to reuse the stopped machine.
+4. If the machine is gone (due to `auto_destroy`, Fly timeout, or manual deletion), the executor falls back to a cold `Create`.
+
+### Workflow Resume
+
+When paused runs are part of a workflow, `RequeuePausedJobRuns` also preserves the `machine_id`, ensuring workflows can resume containers across step boundaries.
+
+## Environment Variables Injected
+
+The executor injects the following environment variables into every managed machine:
+
+| Variable | Description |
+| :--- | :--- |
+| `STRAIT_RUN_ID` | Unique identifier of the current run. |
+| `STRAIT_JOB_SLUG` | Slug of the job being executed. |
+| `STRAIT_ATTEMPT` | Current retry attempt number (starts at 1). |
+| `STRAIT_API_URL` | Base URL of the Strait API for SDK callbacks. |
+| `STRAIT_SDK_TOKEN` | Short-lived token scoped to this run for SDK authentication. |
+| `STRAIT_PAYLOAD` | The run payload, inline if the serialized size is 64 KB or less. |
+| `STRAIT_PAYLOAD_MODE` | Set to `fetch` when the payload exceeds 64 KB. The SDK must fetch it from the API. |
+| `STRAIT_SECRET_*` | One variable per project secret, prefixed with `STRAIT_SECRET_`. |
+| `STRAIT_MEMORY_LIMIT_MB` | Memory limit for the container in MB, derived from the machine preset. |
+| `STRAIT_CLEAN_START` | Set to `true` when a pooled or paused machine is reused, signaling the SDK to clear scratch state. |
+| `STRAIT_LAST_CHECKPOINT` | Last checkpoint data saved by the SDK (retry only). |
+| `STRAIT_CHECKPOINT_AT` | Timestamp of the last checkpoint (retry only). |
+| `STRAIT_PREVIOUS_ERROR` | Error message from the previous attempt (retry only). |
+
+## Compute Cost Tracking
+
+Managed execution is billed on a per-second, per-preset basis using micro-USD precision.
+
+### Cost Rates
+
+Each preset has a per-second cost rate in micro-USD. The rate reflects the CPU and memory allocation of the preset.
+
+### Billing Model
+
+- **Wall-clock billing:** Cost is calculated from `started_at` to `finished_at`, covering the full duration the machine was running.
+- **Storage:** Usage is recorded in the `run_compute_usage` table, linked to the run ID.
+
+### Daily Budget Enforcement
+
+Projects can set a daily compute cost limit. The budget is checked at dispatch time (step 3 in the dispatch flow). If the project has exceeded its daily limit, the run is rejected before a machine is provisioned.
+
+## Error Classification
+
+The executor classifies container exit codes into categories for appropriate handling:
+
+| Exit Code | Signal | Classification | Action |
+| :--- | :--- | :--- | :--- |
+| `0` | -- | Success | Complete run, return machine to pool |
+| `1`-`128` | -- | Application error | Retry (respects `max_attempts`) |
+| `137` | SIGKILL (OOM) | Out of memory | Trigger OOM preset auto-upgrade |
+| `139` | SIGSEGV | Segmentation fault | Fail run, fetch crash logs |
+| `143` | SIGTERM | Graceful termination | Retry with backoff |
+
+On any non-zero exit, the executor fetches crash logs from the Fly API and attaches them to the run record for post-mortem debugging.
+
+## OOM Handling and Preset Auto-Upgrade
+
+When a container exits with code `137` (OOM kill), the executor automatically upgrades the machine preset and retries:
+
+```text
+micro -> small-1x -> small-2x -> medium-1x -> medium-2x -> large-1x -> large-2x
+```
+
+- The upgrade is recorded in `job_preset_recommendations` with a 24-hour decay window.
+- If the run is already on `large-2x` (max preset), it transitions to `dead_letter`.
+- Historical OOM data influences future runs: if a job has OOM'd within the last 24 hours, new runs start at the recommended preset instead of the configured default.
+
+## Crash Diagnostics
+
+When a managed run exits with a non-zero exit code, the executor fetches the container's stdout/stderr logs from the Fly API. These logs are stored on the run record and surfaced through the API, enabling developers to diagnose failures without accessing Fly directly.
+
+## Multi-Region Failover
+
+When machine provisioning returns a `503` (region capacity exhaustion), the executor fails over to alternate regions:
+
+1. The primary region (from `FLY_REGION`) is attempted first.
+2. On `503`, the executor retries in configured fallback regions.
+3. The run is snoozed only if all regions are exhausted.
+
+This prevents regional outages from blocking execution when capacity is available elsewhere.
+
+## Budget Reservation
+
+Budget enforcement uses a two-phase atomic reservation model to prevent over-spend under concurrent dispatch:
+
+1. **Reserve**: Before provisioning a machine, the executor atomically reserves estimated cost against the project's daily budget. If the reservation would exceed the budget, the run is rejected.
+2. **Commit**: After the run completes, the reservation is replaced with the actual computed cost.
+
+A soft-limit warning fires at **80%** of the daily budget, emitting a structured log and metric alert before runs start being rejected.
+
+## Resource Monitoring
+
+The SDK resource monitoring endpoint (`/sdk/v1/runs/{runID}/resources`) accepts in-container resource usage reports from the SDK.
+
+### How It Works
+
+1. The executor injects `STRAIT_MEMORY_LIMIT_MB` into the container environment, set to the preset's memory allocation.
+2. The Python and TypeScript SDKs start a background monitor at **5-second intervals** that reads container memory usage from `/sys/fs/cgroup`.
+3. At **80%** memory utilization, the SDK emits a warning log.
+4. At **90%** memory utilization, the SDK emits an error log.
+5. Resource reports are posted to the orchestrator API for tracking and alerting.
+
+## Disk Sanitization
+
+Machines reused from the warm pool or resumed from a paused state receive a clean filesystem via `STRAIT_CLEAN_START`:
+
+- When a pooled or paused machine is started, `STRAIT_CLEAN_START=true` is injected into the environment.
+- The SDK (or user code) uses this signal to clear scratch directories, temp files, and cached state from previous runs.
+- This prevents data leakage between runs sharing the same machine.
+
+## Error Handling
+
+### Machine Gone (`ErrMachineGone`)
+
+Returned when a machine has been deleted (404 from Fly). The caller falls back to provisioning a new machine via `Create`.
+
+### Retryable Errors
+
+HTTP status codes `429`, `500`, `503`, and connection refused errors are treated as transient infrastructure failures. The run is **snoozed** back to `queued` with a backoff delay. The machine is stopped before snoozing to prevent orphaned running containers.
+
+### Fatal Errors
+
+HTTP `422` (invalid configuration) is treated as a non-recoverable error. The run transitions directly to `system_failed`.
+
+### HTTP Client
+
+The Fly API client uses **per-request context timeouts** rather than a global HTTP client timeout. This prevents one slow request from affecting the timeout budget of subsequent requests.
+
+### Snooze Path
+
+When a run is snoozed due to a transient error, the machine is stopped first. This ensures no container is left running while the run sits in the queue.
+
+### Cancel Race
+
+If a `Stop` call fails during cancellation (e.g., the machine is in a transitional state), `Destroy` is used as a fallback to ensure the machine is cleaned up.
+
+## Configuration
+
+The following environment variables configure the managed execution subsystem:
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `COMPUTE_RUNTIME` | Compute backend: `none`, `fly`, or `docker`. | `none` |
+| `FLY_API_TOKEN` | API token for authenticating with the Fly Machines API. | -- |
+| `FLY_APP_NAME` | Fly application name where machines are provisioned. | -- |
+| `FLY_REGION` | Default region for new machines. | `iad` |
+| `EXTERNAL_API_URL` | Public API URL passed to containers for SDK callbacks. | -- |
+| `MAX_CONCURRENT_MACHINES` | Maximum machines running simultaneously (semaphore size). | `10` |
+| `WARM_POOL_ENABLED` | Enable the warm machine pool. | `true` |
+| `WARM_POOL_MAX_PER_JOB` | Maximum pooled machines per `image:region` key. | `3` |
+| `WARM_POOL_TTL` | TTL for idle warm machines before they are destroyed. | `5m` |
+
+## Observability
+
+### Metrics
+
+| Metric | Type | Description |
+| :--- | :--- | :--- |
+| `strait_managed_dispatch_total` | Counter | Total managed dispatches, labeled by `status` (`pool`, `pause_reuse`, `cold_start`, `infra_retry`, `system_failed`). |
+| `strait_managed_dispatch_duration` | Histogram | End-to-end duration of managed dispatch (machine resolution through exit). |
+| `strait_managed_machines_active` | Gauge | Number of machines currently running managed workloads. |
+
+### Structured Logging
+
+Key log entries for debugging managed dispatch:
+
+```text
+level=info msg="managed dispatch resolved machine" run_id=<id> machine_id=<id> source=pool
+level=info msg="managed dispatch resolved machine" run_id=<id> machine_id=<id> source=pause_reuse
+level=info msg="managed dispatch resolved machine" run_id=<id> machine_id=<id> source=cold_start
+```

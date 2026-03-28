@@ -1,0 +1,114 @@
+---
+title: "API Reference Overview"
+description: "Authentication, error formats, and common patterns for the Strait API."
+icon: "square-terminal"
+og:image: "/images/og.png"
+---
+
+<Info>
+  See guides: [Authentication & Authorization](/guides/authentication), [OIDC Authentication](/guides/oidc), [RBAC & Policy Authorization](/guides/rbac), [Audit Events](/guides/audit-events), [API Key Rotation](/guides/api-key-rotation).
+</Info>
+
+## Authentication
+
+The Strait API supports four authentication methods depending on the client and use case.
+
+### Internal Secret
+Used for administrative tasks and internal service-to-service communication.
+- **Header**: `X-Internal-Secret: <your-secret>`
+- **Bearer Token**: `Authorization: Bearer <your-secret>`
+
+### API Keys
+Used for project-specific operations. API keys are prefixed with `strait_`.
+- **Header**: `Authorization: Bearer strait_...`
+
+### OIDC Bearer Tokens (Optional)
+Used for user API access when OIDC verification is enabled.
+- **Header**: `Authorization: Bearer <oidc-token>`
+
+### JWT Run Tokens
+Used by the SDK within a job run context to authenticate heartbeats, logs, and checkpoints.
+- **Header**: `Authorization: Bearer <jwt-token>`
+
+## Error Response Format
+
+All API errors follow a standard JSON structure:
+
+```json
+{
+  "error": "Detailed error message",
+  "code": "optional_error_code",
+  "request_id": "req_abc123"
+}
+```
+
+## Pagination
+
+List endpoints use cursor-based pagination.
+- **Query Parameters**:
+  - `limit`: Number of items to return (default: 50, max: 100).
+  - `cursor`: The cursor for the next page (usually a timestamp or ID).
+- **Response**: Includes a `next_cursor` field if more results are available.
+
+## Rate Limiting
+
+Rate limits are applied per IP address:
+- **Global API**: 100 requests per minute.
+- **Job Trigger**: 10 triggers per minute.
+- **Bulk Trigger**: 30 bulk triggers per minute.
+
+## Request Limits
+
+- **Body Size**: 1MB default limit for JSON payloads.
+- **Content-Type**: `application/json` is required for all POST/PATCH requests.
+
+## Common Query Parameters
+
+- `project_id`: Required for most list endpoints to scope results to a specific project.
+- `status`: Used on run and workflow-run listings to filter by current state.
+
+## DAG and Dependency Runtime Endpoints
+
+### Planning and Diagnostics
+
+- `POST /v1/workflows/{workflowID}/plan`: Topological plan preview for the current workflow version (supports step overrides).
+- `GET /v1/runs/{runID}/dependency-status`: Returns dependency definitions for a run and whether it is currently unblocked.
+- `GET /v1/workflow-runs/{workflowRunID}/graph`: Runtime graph (nodes, edges, runnable set, critical-path estimates).
+- `GET /v1/workflow-runs/{workflowRunID}/explain`: Scheduler/condition decision stream with optional `step_ref` and `decision_type` filters.
+
+### Recovery and Governance
+
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry`: Reset one terminal step to `pending` and resume progression.
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree`: Reset the selected step and descendants, then resume progression.
+- `GET /v1/workflow-policies/{projectID}` / `PUT /v1/workflow-policies/{projectID}`: Read and update project-level DAG governance policy.
+
+### Bulk Operations
+
+- `POST /v1/jobs/{jobID}/trigger/bulk`: Trigger up to 100 runs in a single request. Supports per-item payload, priority, idempotency keys, and tags. Returns structured results with per-item status. Rate limited to 30 requests per minute.
+- `POST /v1/runs/bulk-cancel`: Cancel up to 100 runs in a single request. Returns per-run cancel status with error details for runs that could not be canceled.
+
+### Version Analysis
+
+- `POST /v1/workflows/{workflowID}/simulate`: Returns snapshot ordering metadata (`predicted_order`, `step_count`).
+- `GET /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}`: Added/removed step refs between versions.
+- `GET /v1/workflows/{workflowID}/versions/{versionID}/impact`: How many sampled runs currently match a version.
+
+## Example Requests
+
+```bash
+# Runtime graph snapshot
+curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/graph" \
+  -H "Authorization: Bearer strait_live_abc123"
+```
+
+```bash
+# Explain why a step is waiting/skipped
+curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/explain?step_ref=deploy&decision_type=resource" \
+  -H "Authorization: Bearer strait_live_abc123"
+```
+
+```bash
+# Replay a failed branch from step 'deploy'
+curl -X POST "https://strait.dev/v1/workflow-runs/wr_123/steps/deploy/replay-subtree" \
+  -H "Authorization: Bearer strait_live_abc123"
+```

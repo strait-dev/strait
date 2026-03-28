@@ -1,0 +1,64 @@
+---
+title: "Audit Events"
+description: "Track and query security-sensitive actions with audit_events."
+---
+
+Strait records security-sensitive and control-plane operations in the `audit_events` table (migration 000057).
+
+## Schema
+
+The `audit_events` table stores immutable audit records:
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `TEXT` | UUIDv7 primary key |
+| `project_id` | `TEXT` | Project scope |
+| `actor_type` | `TEXT` | `api_key`, `user`, or `system` |
+| `actor_id` | `TEXT` | Identity of the actor |
+| `action` | `TEXT` | Action performed (e.g., `role.created`, `api_key.revoked`) |
+| `resource_type` | `TEXT` | Target resource type (e.g., `role`, `api_key`, `job`) |
+| `resource_id` | `TEXT` | Target resource ID |
+| `created_at` | `TIMESTAMPTZ` | When the event occurred |
+
+Indexed by `(project_id, created_at DESC)` and `(resource_type, resource_id, created_at DESC)` for efficient querying.
+
+## Endpoint
+
+- `GET /v1/audit-events`
+
+### Filters
+- `project_id` (required, unless present in request context)
+- `actor_id`
+- `resource_type`
+- `resource_id`
+- `from` (RFC3339)
+- `to` (RFC3339)
+- `order` (`asc` or `desc`, default `desc`)
+- `limit`
+- `cursor`
+
+Results support cursor pagination and optional time-window filtering.
+
+## Event Coverage
+
+### Current Coverage
+- Role create/update/delete
+- Member assign/remove/bulk assign
+- Resource policy and tag policy create/delete
+- API key revoke/rotate
+- Job destructive operations
+
+### Planned Extensions
+- `before_state` / `after_state` JSONB columns for change tracking (sensitive fields redacted)
+- `ip_address` and `user_agent` columns for forensic context
+- Extended coverage: job CRUD, run trigger/cancel/replay, workflow CRUD, webhook subscription changes
+
+## Why It Matters
+
+Audit events give you:
+- Actor attribution (`actor_type`, `actor_id`)
+- Target attribution (`resource_type`, `resource_id`)
+- Action classification (`action`)
+- Timestamped forensic history for incident response
+
+For role and policy behavior, see [RBAC & Policy Authorization](/guides/rbac).

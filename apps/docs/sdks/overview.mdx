@@ -1,0 +1,149 @@
+---
+title: "SDK Overview"
+description: "Official Strait SDKs for TypeScript, Python, Go, Ruby, and Rust — each in its own dedicated repository."
+icon: "code"
+og:image: "/images/og.png"
+---
+
+Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust**. All five SDKs share the same feature set, configuration model, and API coverage.
+
+The **Python**, **Go**, **Ruby**, **Rust**, and **MCP** SDKs have moved to dedicated repositories. The TypeScript SDK remains in this monorepo.
+
+## Repositories
+
+| SDK | Repository | Install |
+|---|---|---|
+| **TypeScript** | [strait-dev/strait-ts](https://github.com/strait-dev/strait-ts) | `npm install @strait/ts` |
+| **Python** | [strait-dev/strait-python](https://github.com/strait-dev/strait-python) | `pip install strait-python` |
+| **Go** | [strait-dev/strait-go](https://github.com/strait-dev/strait-go) | `go get github.com/strait-dev/strait-go` |
+| **Ruby** | [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby) | `gem install strait` |
+| **Rust** | [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust) | `cargo add strait` |
+| **MCP** | [strait-dev/mcp](https://github.com/strait-dev/mcp) | See repository README |
+
+## Feature Parity
+
+All five SDKs implement the same capabilities:
+
+| Feature | TypeScript | Python | Go | Ruby | Rust |
+|---|---|---|---|---|---|
+| **API operations** (186 endpoints) | `client.jobs.list()` | `client.jobs.list()` | `jobs.List(ctx)` | `jobs.list` | `jobs.list().await` |
+| **Config from `strait.json`** | `createClientFromConfigFile()` | `Client.from_file()` | `NewClientFromFile()` | `Client.from_file` | `Client::from_file()` |
+| **Config from env vars** | `createClientFromEnv()` | `Client.from_env()` | `NewClientFromEnv()` | `Client.from_env` | `Client::from_env()` |
+| **Authoring DSL** | `defineJob()` / `defineWorkflow()` | `define_job()` / `define_workflow()` | `DefineJob()` / `DefineWorkflow()` | `define_job` / `define_workflow` | `define_job()` / `define_workflow()` |
+| **Composition helpers** | `withRetry()`, `waitForRun()`, `paginate()` | `with_retry()`, `wait_for_run()`, `paginate()` | `WithRetry()`, `WaitForRun()`, `Paginate()` | `with_retry`, `wait_for_run`, `paginate` | `with_retry()`, `wait_for_run()`, `paginate()` |
+| **FSM state machines** | XState v5 actors | `transition_run()` | `CanTransitionRun()` | `can_transition_run?` | `can_transition_run()` |
+| **DAG validation** | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm |
+| **Middleware hooks** | `onRequest` / `onResponse` / `onError` | `on_request` / `on_response` / `on_error` | `OnRequest` / `OnResponse` / `OnError` | `on_request` / `on_response` / `on_error` | `on_request` / `on_response` / `on_error` |
+| **Typed errors** | 10 error classes | 10 exception types | 10 error types | 10 error classes | 10 error variants |
+| **Custom HTTP client** | Custom `fetch` | `httpx.Client` | `HTTPDoer` interface | `#call` interface | `reqwest::Client` |
+
+## Quick Start
+
+The fastest way to get started is with a `strait.json` config file and the `STRAIT_API_KEY` environment variable.
+
+**1. Set your API key:**
+
+```bash
+export STRAIT_API_KEY="sk_live_..."
+```
+
+**2. Create a client:**
+
+<CodeGroup>
+  ```ts TypeScript
+  import { createClientFromConfigFile } from "@strait/ts/node";
+
+  const client = await createClientFromConfigFile();
+  const jobs = await client.jobs.list({ query: { project_id: "proj_1" } });
+  ```
+
+  ```python Python
+  from strait import Client
+
+  client = Client.from_file()
+  jobs = client.jobs.list()
+  ```
+
+  ```go Go
+  import (
+      strait "github.com/strait-dev/strait-go"
+  )
+
+  client, err := strait.NewClientFromFile(nil)
+  jobs := operations.NewJobsService(client)
+  result, err := jobs.List(ctx, nil)
+  ```
+</CodeGroup>
+
+## SDK Architecture
+
+Each SDK is organized into the same five layers:
+
+```
++-------------------------------------------+
+|  Authoring DSL                            |  defineJob() / defineWorkflow()
++-------------------------------------------+
+|  Composition Helpers                      |  retry, wait, paginate, deploy
++-------------------------------------------+
+|  Domain Operations (19 services)          |  jobs, runs, workflows, ...
++-------------------------------------------+
+|  HTTP Client + Middleware                 |  auth, headers, error mapping
++-------------------------------------------+
+|  Configuration                            |  strait.json / env vars / inline
++-------------------------------------------+
+```
+
+### Domain Operations (19 Services)
+
+All 186 API operations are organized into typed service classes:
+
+| Service | Operations |
+|---|---|
+| `jobs` | list, create, get, update, delete, trigger, bulk_trigger, clone |
+| `runs` | list, get, delete, replay, bulk_cancel, get_dlq |
+| `workflows` | list, create, get, update, delete, trigger, get_diff, get_policy |
+| `workflow_runs` | list, get, pause, resume, approve_step, skip_step |
+| `deployments` | list, create, finalize, promote, rollback |
+| `environments` | list, create, get, update, delete |
+| `secrets` | list, create, delete |
+| `api_keys` | list, create, delete, rotate |
+| `webhooks` | list_subscriptions, create_subscription, delete_subscription, list_deliveries, get_delivery, retry_delivery |
+| `event_triggers` | list_events, get_event, delete_event, send_event, send_prefix, purge_event, get_stat |
+| `event_sources` | list, get, create, update, delete |
+| `batch_operations` | list, get |
+| `stats` | list |
+| `analytics` | get_performance |
+| `log_drains` | list, create, get, update, delete |
+| `sdk_runs` | annotate, checkpoint, complete, continue, fail, heartbeat, log, output, progress, spawn, tool_call, usage, wait_for_event |
+| `rbac` | list_audit_events, list_members, create_member, delete_member, bulk_member, list_roles, create_role, get_role, update_role, delete_role, list_resource_policies, create_resource_policy, delete_resource_policy, list_tag_policies, create_tag_policy, delete_tag_policy, seed_roles |
+| `job_groups` | list, create, get, update, delete, list_jobs, pause_all, resume_all, get_stats |
+| `health` | list, get_ready, list_metrics |
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/sdks/configuration">
+    `strait.json` schema reference, environment variable overrides, and config file discovery.
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript">
+    Effect-first SDK with generated operations, authoring DSL, and XState FSMs.
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="Python SDK" icon="python" href="/sdks/python">
+    Now in its own repository at github.com/strait-dev/strait-python.
+  </Card>
+  <Card title="Go SDK" icon="golang" href="/sdks/go">
+    Now in its own repository at github.com/strait-dev/strait-go.
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="Ruby SDK" icon="gem" href="/sdks/ruby">
+    Now in its own repository at github.com/strait-dev/strait-ruby.
+  </Card>
+  <Card title="Rust SDK" icon="rust" href="/sdks/rust">
+    Now in its own repository at github.com/strait-dev/strait-rust.
+  </Card>
+</CardGroup>

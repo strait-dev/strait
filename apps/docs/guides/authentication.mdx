@@ -1,0 +1,300 @@
+---
+title: "Authentication & Authorization"
+description: "Authentication schemes, API key scopes, actor identity, and role-based access control."
+icon: "key"
+---
+
+Strait supports multiple authentication mechanisms and a layered authorization model: API key scopes for machine access and role-based access control (RBAC) for user access.
+
+<Info>
+  See also: [OIDC Authentication](/guides/oidc), [RBAC & Policy Authorization](/guides/rbac), [API Key Rotation](/guides/api-key-rotation), [Audit Events](/guides/audit-events), [Security](/guides/security).
+</Info>
+
+## Authentication Schemes
+
+### 1. Internal Secret
+
+A global shared secret for administrative tasks and internal service-to-service communication.
+
+<Info>
+  Configure via the `INTERNAL_SECRET` environment variable.
+</Info>
+
+```bash
+# Header-based
+curl -H "X-Internal-Secret: your-secret-here" https://strait.dev/v1/jobs
+
+# Bearer token (alternative)
+curl -H "Authorization: Bearer your-secret-here" https://strait.dev/v1/jobs
+```
+
+Internal secret auth grants full access to all endpoints — no scope or role checks are applied. This is the path used by the app to communicate with Strait.
+
+### 2. API Keys
+
+Per-project API keys with scoped permissions. Recommended for external integrations.
+
+```bash
+curl -H "Authorization: Bearer strait_your_api_key_here" https://strait.dev/v1/jobs
+```
+
+API keys:
+- Start with `strait_` prefix
+- Are SHA-256 hashed before storage
+- Track `last_used_at` timestamps
+- Support `expires_at` for time-limited access
+- Can be revoked at any time
+- Support rotation with grace periods (`replaced_by_key_id`, `grace_expires_at`)
+- Are scoped to a project and a set of permissions
+
+### 3. JWT Run Tokens (SDK)
+
+Short-lived JWTs scoped to a specific run, used by the SDK for `/sdk/v1` endpoints.
+
+- **Algorithm:** HS256
+- **Subject:** The `runID`
+- **Signing Key:** `JWT_SIGNING_KEY` environment variable
+
+### 4. OIDC Bearer Tokens (Optional)
+
+For user-facing API calls, non-`strait_` bearer tokens can be validated via OIDC when configured.
+
+- Configure issuer/audience/public-key verifier settings in server config
+- Valid tokens are mapped to actor identity and project context
+- OIDC and internal-secret header-based identity can coexist during rollout
+
+---
+
+## API Key Scopes
+
+Every API key has a list of scopes that control what it can do. Scopes are enforced on every request.
+
+### Available Scopes
+
+| Scope | Description |
+|-------|-------------|
+| `*` | Full access (wildcard) |
+| `jobs:read` | List and get jobs, job groups, environments, dependencies, versions, health |
+| `jobs:write` | Create, update, delete jobs, groups, environments, dependencies |
+| `jobs:trigger` | Trigger job runs (single and bulk) |
+| `runs:read` | List and get runs, events, checkpoints, outputs, debug bundles |
+| `runs:write` | Cancel runs, replay, update metadata, set debug mode |
+| `workflows:read` | List and get workflows, steps, runs, labels, dry-run, graph |
+| `workflows:write` | Create, update, delete workflows, pause/resume, approve/skip steps |
+| `workflows:trigger` | Trigger workflow runs, retry workflow runs |
+| `secrets:read` | List job secrets |
+| `secrets:write` | Create and delete job secrets |
+| `api-keys:manage` | Create, list, and revoke API keys |
+| `rbac:manage` | Create/update/delete roles, assign/remove members |
+| `stats:read` | View queue statistics |
+
+### Backwards Compatibility
+
+API keys with **empty scopes** (`[]`) retain full access. This ensures pre-existing keys continue to work after the scope enforcement upgrade.
+
+### Scope Validation
+
+Unknown scopes are rejected at API key creation time:
+
+```bash
+# This will return 400
+curl -X POST https://strait.dev/v1/api-keys \
+  -d '{"project_id":"proj_1","name":"bad-key","scopes":["invalid:scope"]}'
+```
+
+---
+
+## Actor Identity
+
+Every request is attributed to an actor for audit purposes.
+
+### How Actor Identity Works
+
+**API key requests:** The actor is always `apikey:<key-id>` with type `api_key`. Actor headers (`X-Actor-Id`) are **ignored** on API key requests to prevent impersonation.
+
+**Internal secret requests:** The app can pass user identity via headers:
+
+```bash
+curl -H "X-Internal-Secret: your-secret" \
+     -H "X-Project-Id: proj_123" \
+     -H "X-Actor-Id: user_abc123" \
+     -H "X-Actor-Email: alice@example.com" \
+     -H "X-Actor-Name: Alice" \
+     https://strait.dev/v1/jobs
+```
+
+When these headers are present, Strait:
+1. Sets `actor_type = "user"` and `actor_id = "user_abc123"` in the request context
+2. Applies `X-Project-Id` to request context when project-scoped authorization is required
+3. Asynchronously syncs the actor profile to the `known_actors` table
+4. Records the actor as `created_by` or `updated_by` on mutations
+
+### Audit Columns
+
+The following tables have audit columns:
+- `jobs` — `created_by`, `updated_by`
+- `workflows` — `created_by`, `updated_by`
+- `job_runs` — `created_by`
+- `workflow_runs` — `created_by`
+
+These are populated automatically from the request actor context.
+
+<Warning>
+  **Security:** API key auth never honors `X-Actor-Id` headers. This prevents API key holders from impersonating users to gain RBAC permissions. Only the internal secret auth path trusts actor headers.
+</Warning>
+
+---
+
+## Role-Based Access Control (RBAC)
+
+RBAC provides fine-grained access control for users (as opposed to API keys, which use scopes).
+
+### How It Works
+
+1. **Roles** define a set of permissions (same scope strings as API keys)
+2. **Members** link a user (from your external auth provider) to a role within a project
+3. When a user makes a request (via internal secret + `X-Actor-Id`), the middleware loads their role and checks permissions
+
+### System Roles
+
+Four built-in system roles are available:
+
+| Role | Permissions |
+|------|------------|
+| **admin** | `*` (full access) |
+| **operator** | `jobs:read`, `jobs:write`, `jobs:trigger`, `runs:read`, `runs:write`, `workflows:read`, `workflows:write`, `workflows:trigger`, `secrets:read`, `stats:read`, `rbac:manage` |
+| **viewer** | `jobs:read`, `runs:read`, `workflows:read`, `stats:read` |
+| **triggerer** | `jobs:read`, `jobs:trigger`, `runs:read`, `workflows:read`, `workflows:trigger` |
+
+System roles cannot be modified or deleted.
+
+### Custom Roles
+
+Create project-specific roles with any combination of permissions:
+
+```bash
+curl -X POST https://strait.dev/v1/roles \
+  -H "X-Internal-Secret: your-secret" \
+  -d '{
+    "name": "deployer",
+    "description": "Can manage and trigger jobs, but not manage keys or roles",
+    "permissions": ["jobs:read", "jobs:write", "jobs:trigger", "runs:read", "runs:write"]
+  }'
+```
+
+### Managing Members
+
+Assign a user to a role:
+
+```bash
+curl -X POST https://strait.dev/v1/members \
+  -H "X-Internal-Secret: your-secret" \
+  -d '{"user_id": "user_abc123", "role_id": "role_xyz"}'
+```
+
+List project members:
+
+```bash
+curl https://strait.dev/v1/members -H "X-Internal-Secret: your-secret"
+```
+
+Remove a member:
+
+```bash
+curl -X DELETE https://strait.dev/v1/members/user_abc123 \
+  -H "X-Internal-Secret: your-secret"
+```
+
+### Permission Resolution
+
+The `requirePermission` middleware resolves authorization in this order:
+
+1. **Internal secret** (no scopes in context) → **allow** immediately
+2. **API key** → check if key's scopes include the required permission
+3. **User** → load role permissions from DB (cached for 30s), check if role includes the required permission
+
+```
+Request → Auth middleware → requirePermission(scope)
+                                  │
+                                  ├─ scopes == nil? → ALLOW (internal secret)
+                                  │
+                                  ├─ actorType == "api_key"?
+                                  │     └─ HasScope(scopes, required)? → ALLOW / 403
+                                  │
+                                  ├─ actorType == "user"?
+                                  │     └─ GetUserPermissions(project, user)
+                                  │           └─ HasScope(permissions, required)? → ALLOW / 403
+                                  │
+                                  └─ unknown type → 403
+```
+
+### Permission Cache
+
+User permissions are cached for 30 seconds to avoid hitting the database on every request. The cache is automatically invalidated when:
+- A member's role is changed (`POST /v1/members`)
+- A member is removed (`DELETE /v1/members/{userID}`)
+
+---
+
+## Middleware Chain
+
+Authentication flows through these middleware in `apps/strait/internal/api/middleware.go`:
+
+1. **`apiKeyOrSecretAuth`** — Routes to API key auth (`strait_` bearer), OIDC bearer auth (optional), or internal secret auth
+2. **`apiKeyAuth`** — Validates key hash, checks revocation/expiration/rotation grace, sets scopes + `actorType=api_key` in context
+3. **`internalSecretAuth`** — Constant-time secret comparison, optionally extracts actor from `X-Actor-*` and project from `X-Project-Id`
+4. **`oidcAuth`** — Validates configured OIDC bearer tokens and maps claims into actor/project context
+5. **`requirePermission(scope)`** — Checks authorization based on actor type (see Permission Resolution above)
+6. **`runTokenAuth`** — JWT validation for SDK endpoints only
+
+## Managing API Keys
+
+### Create
+
+```bash
+curl -X POST https://strait.dev/v1/api-keys \
+  -H "X-Internal-Secret: your-secret" \
+  -d '{
+    "project_id": "proj_123",
+    "name": "ci-deploy-key",
+    "scopes": ["jobs:read", "jobs:write", "jobs:trigger"]
+  }'
+```
+
+The response includes the raw key (shown only once):
+
+```json
+{
+  "id": "key_abc",
+  "key": "strait_abc123...",
+  "project_id": "proj_123",
+  "name": "ci-deploy-key",
+  "scopes": ["jobs:read", "jobs:write", "jobs:trigger"]
+}
+```
+
+### List
+
+```bash
+curl https://strait.dev/v1/api-keys?project_id=proj_123 \
+  -H "X-Internal-Secret: your-secret"
+```
+
+### Revoke
+
+```bash
+curl -X DELETE https://strait.dev/v1/api-keys/key_abc \
+  -H "X-Internal-Secret: your-secret"
+```
+
+Revoked keys immediately return 401 on subsequent requests.
+
+### Rotate (with Grace Period)
+
+```bash
+curl -X POST https://strait.dev/v1/api-keys/key_abc/rotate \
+  -H "X-Internal-Secret: your-secret" \
+  -d '{"name":"ci-deploy-key-rotated","grace_period_seconds":3600}'
+```
+
+Rotation issues a new key and marks the previous key as replaced. The old key can remain valid until `grace_expires_at` to support zero-downtime credential rollouts.

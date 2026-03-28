@@ -2,40 +2,12 @@
   "name": "@strait/docs",
   "version": "0.0.0",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "bun run generate:openapi && next build",
-    "generate:openapi": "tsx scripts/generate-openapi.mts",
-    "postbuild": "bun run generate:llms",
-    "generate:llms": "tsx scripts/generate-llms-txt.mts",
-    "biome:lint": "biome lint ./app ./lib ./scripts",
-    "biome:format": "biome format --write ./app ./lib ./scripts",
-    "typecheck": "tsgo --noEmit"
-  },
-  "dependencies": {
-    "@next/third-parties": "^16.2.1",
-    "@strait/ui": "workspace:*",
-    "fumadocs-core": "^16.7.7",
-    "fumadocs-mdx": "^14.2.11",
-    "fumadocs-openapi": "^10.6.0",
-    "fumadocs-ui": "^16.7.7",
-    "geist": "^1.7.0",
-    "next": "^16.2.1",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "dev": "mintlify dev --port 3001",
+    "build": "echo 'Mintlify builds are handled by the Mintlify platform'",
+    "typecheck": "echo 'No typecheck needed for Mintlify docs'"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.2.2",
-    "@types/mdx": "^2.0.13",
-    "@types/node": "^25.5.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "^7.0.0-dev.20260327.2",
-    "babel-plugin-react-compiler": "^1.0.0",
-    "tailwindcss": "^4.2.2",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2",
-    "yaml": "^2.8.3"
+    "mintlify": "latest"
   }
 }

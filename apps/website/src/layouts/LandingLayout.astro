@@ -1,0 +1,17 @@
+---
+import Footer from "@/components/common/Footer.astro";
+import Header from "@/components/common/Header.astro";
+import BaseLayout from "./BaseLayout.astro";
+
+interface Props {
+  description?: string;
+  title?: string;
+}
+---
+
+<BaseLayout>
+	<slot name="head" slot="head" />
+	<Header />
+	<slot />
+	<Footer />
+</BaseLayout>

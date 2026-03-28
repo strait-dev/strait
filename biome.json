@@ -68,6 +68,31 @@
       }
     },
     {
+      "includes": ["**/components/landing-page/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useAnchorContent": "off",
+            "noRedundantAlt": "off"
+          },
+          "correctness": {
+            "useImageSize": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.astro"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off",
+            "noUnusedImports": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["**/packages/ui/src/components/**/*.tsx"],
       "linter": {
         "rules": {

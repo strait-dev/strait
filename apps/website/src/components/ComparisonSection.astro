@@ -1,0 +1,152 @@
+---
+import Shell from "@/components/layout/shell.tsx";
+
+const COMPETITORS = ["Strait", "Trigger.dev", "Inngest", "Temporal"] as const;
+
+const ROWS = [
+  {
+    feature: "Language SDKs",
+    values: [
+      "5 (TS, Py, Go, Rb, Rust)",
+      "1 (TypeScript)",
+      "4 (TS, Py, Go, Kt)",
+      "7 (Go, Java, PHP, Py, TS, .NET, Rb)",
+    ],
+  },
+  {
+    feature: "Self-hosting",
+    values: ["Simple", "Docker/K8s", "Available", "Complex"],
+  },
+  {
+    feature: "AI cost tracking",
+    values: ["Built-in per-run budgets", "No", "Limited", "No"],
+  },
+  {
+    feature: "License",
+    values: ["Apache 2.0", "Apache 2.0", "SSPL (server)", "MIT"],
+  },
+  {
+    feature: "Execution model",
+    values: [
+      "Containers with warm pools",
+      "Serverless",
+      "Serverless",
+      "Bring your own",
+    ],
+  },
+  {
+    feature: "Workflow approvals",
+    values: [
+      "Built-in gates",
+      "wait.forToken()",
+      "waitForEvent()",
+      "Via Signals",
+    ],
+  },
+] as const;
+---
+
+<section class="border-border/40 border-y py-16 sm:py-20">
+  <Shell variant="wide">
+    <div class="mb-14 max-w-3xl">
+      <h2 class="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
+        How Strait compares.
+      </h2>
+      <p class="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
+        More SDKs, simpler self-hosting, and AI cost tracking that
+        competitors don't offer.
+      </p>
+    </div>
+
+    {/* Desktop table */}
+    <div class="hidden md:block">
+      <div class="overflow-hidden rounded-2xl border border-border/40">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-border/40 border-b bg-muted/30">
+              <th
+                class="px-6 py-4 text-left font-medium text-muted-foreground"
+                scope="col"
+              >
+                Feature
+              </th>
+              {COMPETITORS.map((name, i) => (
+                <th
+                  class={`px-6 py-4 text-left font-semibold ${
+                    i === 0 ? "bg-primary/5 text-primary" : "text-foreground"
+                  }`}
+                  scope="col"
+                >
+                  {name}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ROWS.map((row) => (
+              <tr
+                class="border-border/40 border-b transition-colors last:border-b-0 hover:bg-muted/20"
+              >
+                <th
+                  class="px-6 py-4 text-left font-medium text-foreground"
+                  scope="row"
+                >
+                  {row.feature}
+                </th>
+                {row.values.map((value, i) => (
+                  <td
+                    class={`px-6 py-4 ${
+                      i === 0
+                        ? "bg-primary/5 font-medium text-foreground"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    <div class="flex items-center gap-2">
+                      {i === 0 && (
+                        <svg class="size-4 shrink-0 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                      )}
+                      {value}
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {/* Mobile cards */}
+    <div class="flex flex-col gap-6 md:hidden">
+      {COMPETITORS.slice(1).map((competitor) => {
+        const competitorIdx = COMPETITORS.indexOf(competitor);
+        return (
+          <div class="rounded-2xl border border-border/40 bg-card/50 p-5">
+            <h3 class="mb-4 font-semibold text-foreground">
+              Strait vs. {competitor}
+            </h3>
+            <div class="flex flex-col gap-3">
+              {ROWS.map((row) => (
+                <div
+                  class="flex min-w-0 items-start justify-between gap-4 text-sm"
+                >
+                  <span class="shrink-0 text-muted-foreground">
+                    {row.feature}
+                  </span>
+                  <div class="min-w-0 text-right">
+                    <div class="truncate font-medium text-primary">
+                      {row.values[0]}
+                    </div>
+                    <div class="truncate text-muted-foreground/60 text-xs">
+                      vs. {row.values[competitorIdx]}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </Shell>
+</section>

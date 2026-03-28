@@ -1,8 +1,8 @@
 # Strait
 
-> Open-source job orchestration platform. Schedule jobs, build workflow DAGs, manage retries, and monitor runs — all from one dashboard.
+> Open-source job orchestration platform. Schedule jobs, build workflow DAGs, chain jobs, manage retries, run canary deployments, simulate workflows, and monitor everything -- all from one dashboard.
 
-Strait handles the hard parts of background job execution: scheduling, retries with exponential backoff, dependency graphs, concurrency limits, and real-time monitoring. One API, five SDKs, zero vendor lock-in.
+Strait handles the hard parts of background job execution: scheduling, retries with exponential backoff, dependency graphs, concurrency limits, job chaining, saga-pattern compensation, canary deployments, workflow simulation, real-time analytics, and full observability. One API, five SDKs, zero vendor lock-in.
 
 Website: https://strait.dev
 App: https://app.strait.dev
@@ -13,19 +13,37 @@ Docs: https://docs.strait.dev
 - **No more lost jobs.** Every execution follows a 13-state finite state machine. You know exactly where each run is at all times.
 - **Retries that work.** Exponential backoff, fixed delays, custom sequences, and a dead letter queue for runs that exhaust all attempts.
 - **Workflows, not scripts.** Define multi-step DAGs with job steps, approval gates, sub-workflows, event waits, and sleep delays.
+- **Job chaining.** Trigger follow-up jobs on completion or failure with `on_complete_trigger_job` and `on_failure_trigger_job` (max chain depth: 10).
+- **Saga-pattern compensation.** Rollback failed workflow steps via `compensation_job_id` with dedicated states: compensating, compensated, compensation_failed.
+- **Durable workflows.** Track `expected_completion_at` on runs, set `expected_duration_secs` per step, and receive stage notifications on step transitions.
+- **Canary deployments.** Weighted version routing with automatic promote/rollback based on health thresholds.
+- **Workflow simulator.** Dry run, sandbox, and failure injection modes via `POST /v1/workflows/{id}/simulate`.
+- **Test suites.** Define workflow tests with mock servers and get JUnit XML output for CI integration.
+- **Workflow debugger.** Debug view, run comparison, and data flow tracking across workflow steps.
 - **Language-agnostic.** TypeScript, Python, Go, Ruby, and Rust SDKs with identical architecture. Define jobs in your language, run them anywhere.
-- **Self-hosted or managed.** Deploy on your infrastructure with PostgreSQL and optional Redis — or use the managed platform at strait.dev.
+- **Self-hosted or managed.** Deploy on your infrastructure with PostgreSQL and optional Redis -- or use the managed platform at strait.dev.
+- **AI agent orchestration.** Cost tracking, tool call management, and purpose-built agent workflows.
 
 ## Key Features
 
-1. **Job orchestration** — Durable, retriable units of work with endpoint URLs, cron scheduling, concurrency limits, and webhook notifications.
-2. **Workflow DAGs** — Multi-step pipelines with five step types and dependency graphs validated with topological sort.
-3. **13-state FSM** — Deterministic run lifecycle from queued to completed with 14 transition events.
-4. **Event triggers** — Pub/sub event routing with key-based and prefix-based matching.
-5. **Atomic deployments** — Create, finalize, promote, and rollback job versions without downtime.
-6. **Real-time dashboard** — Monitor jobs, runs, workflows, schedules, logs, events, and webhooks.
-7. **API keys and RBAC** — Granular scopes, role-based access control, and audit logging.
-8. **186 API endpoints** — 19 domain services covering every aspect of job orchestration.
+1. **Job orchestration** -- Durable, retriable units of work with endpoint URLs, cron scheduling, concurrency limits, and webhook notifications.
+2. **Workflow DAGs** -- Multi-step pipelines with five step types and dependency graphs validated with topological sort.
+3. **13-state FSM** -- Deterministic run lifecycle from queued to completed with 14 transition events.
+4. **Job chaining** -- `on_complete_trigger_job` and `on_failure_trigger_job` fields to chain jobs sequentially (max depth: 10).
+5. **Compensation (saga pattern)** -- Rollback via `compensation_job_id` on workflow steps with compensating/compensated/compensation_failed states.
+6. **Durable workflows** -- `expected_completion_at` on runs, `expected_duration_secs` per step, stage notifications on step transitions.
+7. **Canary deployments** -- `canary_deployments` table with weighted version routing, auto-promote and auto-rollback on health thresholds.
+8. **Workflow simulator** -- `POST /v1/workflows/{id}/simulate` with dry_run, sandbox, and failure_injection modes.
+9. **Test suites** -- Workflow test definitions, mock server, JUnit XML output for CI pipelines.
+10. **Workflow debugger** -- Debug view, run comparison, data flow tracking across steps.
+11. **Event triggers** -- Pub/sub event routing with key-based and prefix-based matching.
+12. **Atomic deployments** -- Create, finalize, promote, and rollback job versions without downtime.
+13. **ClickHouse analytics** -- Custom analytics exporter with 12 tables and 32 API endpoints under `/v1/analytics/`.
+14. **Observability** -- Grafana Cloud (metrics + logs), ClickHouse (traces + analytics), Sentry (errors), Better Stack (uptime), OpenTelemetry integration.
+15. **AI agent orchestration** -- Cost tracking, tool call management, and agent workflow patterns.
+16. **Real-time dashboard** -- Monitor jobs, runs, workflows, schedules, logs, events, and webhooks.
+17. **API keys and RBAC** -- Granular scopes, role-based access control, and audit logging.
+18. **186 API endpoints** -- 19 domain services covering every aspect of job orchestration.
 
 ## SDKs
 
@@ -37,11 +55,46 @@ Docs: https://docs.strait.dev
 
 ## Use Cases
 
-- **Payment processing** — Schedule and retry payment batches with idempotency keys and concurrency limits.
-- **Data pipelines** — Build ETL workflows with step dependencies, approval gates, and error handling.
-- **Notification systems** — Fan out emails, push notifications, and webhooks with rate limiting and dead letter recovery.
-- **CI/CD automation** — Trigger deployments, run tests, and manage release pipelines with atomic rollbacks.
-- **Scheduled reports** — Generate and deliver reports on cron schedules with timezone support.
+- **AI agent workflows** -- Orchestrate LLM agents with cost budgets, tool call tracking, and multi-step agent pipelines.
+- **Background processing** -- Execute long-running tasks with retries, concurrency limits, and dead letter recovery.
+- **Data pipelines** -- Build ETL workflows with step dependencies, approval gates, and error handling.
+- **Payment processing** -- Schedule and retry payment batches with idempotency keys and concurrency limits.
+- **Scheduled tasks** -- Generate and deliver reports on cron schedules with timezone support.
+
+## Pricing
+
+- **Free**: $0/mo -- For hobby projects and experimentation.
+- **Starter**: $29/mo -- For small teams getting started with job orchestration.
+- **Pro**: $99/mo -- For growing teams with production workloads.
+- **Enterprise**: Custom pricing -- For large organizations with advanced requirements.
+
+## Pages
+
+### Feature Pages
+- PostgreSQL Queue: https://strait.dev/features/postgresql-queue
+- Workflow DAGs: https://strait.dev/features/workflow-dags
+- Approval Gates: https://strait.dev/features/approval-gates
+- Retries and DLQ: https://strait.dev/features/retries-dlq
+- Cost Budgets: https://strait.dev/features/cost-budgets
+- Real-Time CDC: https://strait.dev/features/real-time-cdc
+- SDK Endpoints: https://strait.dev/features/sdk-endpoints
+
+### Comparison Pages
+- Strait vs Temporal: https://strait.dev/compare/temporal
+- Strait vs Inngest: https://strait.dev/compare/inngest
+- Strait vs Trigger.dev: https://strait.dev/compare/trigger-dev
+- Strait vs Hatchet: https://strait.dev/compare/hatchet
+- Strait vs BullMQ: https://strait.dev/compare/bullmq
+- Strait vs Celery: https://strait.dev/compare/celery
+- Strait vs Sidekiq: https://strait.dev/compare/sidekiq
+- Strait vs AWS Step Functions: https://strait.dev/compare/aws-step-functions
+
+### Use Case Pages
+- AI Agent Workflows: https://strait.dev/use-cases/ai-agent-workflows
+- Background Processing: https://strait.dev/use-cases/background-processing
+- Data Pipelines: https://strait.dev/use-cases/data-pipelines
+- Payment Processing: https://strait.dev/use-cases/payment-processing
+- Scheduled Tasks: https://strait.dev/use-cases/scheduled-tasks
 
 ## Links
 

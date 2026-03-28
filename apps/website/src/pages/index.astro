@@ -1,0 +1,129 @@
+---
+import ComparisonSection from "@/components/ComparisonSection.astro";
+import CTA from "@/components/CTA.astro";
+import FeatureBentoGrid from "@/components/FeatureBentoGrid.astro";
+import JsonLd from "@/components/JsonLd.astro";
+import CodeExampleSection from "@/components/landing-page/code-examples/code-example-section.tsx";
+import Shell from "@/components/layout/shell.tsx";
+import PricingTeaser from "@/components/PricingTeaser.astro";
+import ProblemSection from "@/components/ProblemSection.astro";
+import PricingComparison from "@/components/pricing/pricing-comparison.tsx";
+import PricingFaq from "@/components/pricing/pricing-faq.tsx";
+import SEO from "@/components/SEO.astro";
+import { siteConfig } from "@/config/site.ts";
+import LandingLayout from "@/layouts/LandingLayout.astro";
+import {
+  getHowToSchema,
+  getOrganizationSchema,
+  getSoftwareApplicationSchema,
+  getWebSiteSchema,
+} from "@/lib/structured-data.tsx";
+import { dashboardHref } from "@/lib/urls.ts";
+
+const HOW_TO_STEPS = [
+  {
+    title: "Install the SDK and define a job",
+    description:
+      "Install the Strait SDK in TypeScript, Python, Go, Ruby, or Rust. Define job handlers with retries, backoff, and cost budgets.",
+  },
+  {
+    title: "Create workflows and trigger runs",
+    description:
+      "Build workflow DAGs with step dependencies, conditions, and approval gates. Trigger runs via API, SDK, or schedule.",
+  },
+  {
+    title: "Monitor, observe, and scale",
+    description:
+      "Track run state, costs, and health scores in real time. Scale with managed container execution across regions.",
+  },
+];
+
+const organizationSchema = getOrganizationSchema();
+const webSiteSchema = getWebSiteSchema();
+const softwareAppSchema = getSoftwareApplicationSchema();
+const howToSchema = getHowToSchema(HOW_TO_STEPS);
+---
+
+<LandingLayout>
+	<Fragment slot="head">
+		<SEO
+			path="/"
+			appendSiteTitle={false}
+			keywords={[
+				"Go job orchestration",
+				"PostgreSQL job queue",
+				"workflow DAG engine",
+				"background job processing",
+				"run retries and dead letter queue",
+				"workflow approvals",
+				"AI agent orchestration",
+				"managed execution",
+				"open source job queue",
+				"Strait",
+			]}
+		/>
+	</Fragment>
+	<JsonLd data={organizationSchema} />
+	<JsonLd data={webSiteSchema} />
+	<JsonLd data={softwareAppSchema} />
+	{howToSchema && <JsonLd data={howToSchema} />}
+
+	<!-- Hero (static, no React, no animations) -->
+	<section class="relative isolate overflow-hidden pt-32 pb-16 sm:pt-40 sm:pb-24">
+		<Shell variant="wide">
+			<div class="mx-auto flex max-w-4xl flex-col items-center text-center">
+				<span class="kicker">SHIP PRODUCTS, NOT JOB INFRASTRUCTURE</span>
+
+				<h1 class="mt-6 text-balance text-4xl leading-[1.12] sm:text-5xl lg:text-6xl">
+					Background jobs, workflows, and
+					<span class="text-primary">AI agents</span> that never lose state.
+				</h1>
+				<p class="mx-auto mt-4 max-w-2xl text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
+					One platform to queue, orchestrate, and observe every async
+					workload. Open-source, self-hostable, written in Go.
+				</p>
+
+				<div class="mt-10 flex flex-col items-center gap-4 sm:flex-row">
+					<a
+						class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm shadow-xs transition-shadow duration-300 hover:shadow-md"
+						href={dashboardHref("/login")}
+					>
+						Run Your First Job
+						<svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					</a>
+					<a
+						class="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 font-medium text-sm shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+						href={siteConfig.links.github}
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						View on GitHub
+						<svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					</a>
+				</div>
+			</div>
+		</Shell>
+	</section>
+
+	<ProblemSection />
+	<FeatureBentoGrid />
+	<div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
+	<div class="min-h-[400px]">
+		<CodeExampleSection client:only="react" />
+	</div>
+	<div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
+	<ComparisonSection />
+	<div class="mx-auto h-px w-full max-w-[1600px] bg-border/40" />
+	<PricingTeaser />
+	<div class="min-h-[400px]">
+		<PricingComparison client:only="react" />
+	</div>
+	<div class="min-h-[300px]">
+		<PricingFaq client:only="react" />
+	</div>
+	<CTA />
+</LandingLayout>

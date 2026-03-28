@@ -1,0 +1,269 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "Strait",
+  "theme": "luma",
+  "colors": {
+    "primary": "#FF4F00",
+    "light": "#FF4F00",
+    "dark": "#FF4F00"
+  },
+  "favicon": "/favicon.svg",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg",
+    "href": "https://strait.dev"
+  },
+  "metadata": {
+    "og:site_name": "Strait Docs",
+    "og:image": "/images/og.png",
+    "og:description": "Documentation for Strait, the open-source job orchestration platform for background jobs, workflows, and AI agents.",
+    "og:type": "website",
+    "og:locale": "en_US",
+    "twitter:card": "summary_large_image",
+    "twitter:site": "@leonardomso",
+    "twitter:image": "/images/og.png",
+    "robots": "index, follow"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture",
+              "changelog"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/jobs",
+              "concepts/runs",
+              "concepts/workflows",
+              "concepts/retry-strategies",
+              "concepts/event-triggers",
+              "concepts/scheduling"
+            ]
+          },
+          {
+            "group": "More Concepts",
+            "pages": [
+              "concepts/dag-runtime",
+              "concepts/resilience",
+              "concepts/webhooks",
+              "concepts/environments",
+              "concepts/versioning",
+              "concepts/cost-budgets",
+              "concepts/cdc",
+              "concepts/adaptive-concurrency",
+              "concepts/audit-logging",
+              "concepts/webhook-subscriptions",
+              "concepts/managed-execution",
+              "concepts/clickhouse-analytics",
+              "concepts/log-drains",
+              "concepts/event-sources",
+              "concepts/batch-operations"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/database"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/authentication",
+              "guides/deployment",
+              "guides/security",
+              "guides/sdk-integration",
+              "guides/oidc",
+              "guides/rbac",
+              "guides/audit-events",
+              "guides/api-key-rotation",
+              "guides/performance-tuning",
+              "guides/load-testing",
+              "guides/capacity-planning",
+              "guides/job-dependencies",
+              "guides/debug-bundles",
+              "guides/job-groups",
+              "guides/idempotency",
+              "guides/workflow-approvals",
+              "guides/dag-operations-playbook",
+              "guides/event-triggers"
+            ]
+          },
+          {
+            "group": "AI Agents",
+            "pages": ["ai/index"]
+          },
+          {
+            "group": "Integrations",
+            "pages": ["integrations/index"]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/monitoring-and-alerts",
+              "operations/oidc-rollout",
+              "operations/rbac-policy-rollout",
+              "operations/api-key-rotation-rollout",
+              "operations/incident-response-authz"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/contributing",
+              "development/testing",
+              "development/database-schema",
+              "development/technology-choices",
+              "migrations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "SDKs",
+        "groups": [
+          {
+            "group": "SDK Reference",
+            "pages": [
+              "sdks/overview",
+              "sdks/configuration",
+              "sdks/typescript",
+              "sdks/python",
+              "sdks/go",
+              "sdks/ruby",
+              "sdks/rust"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api-reference/overview"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "https://api.strait.dev/reference/openapi.json"
+          }
+        ]
+      },
+      {
+        "tab": "CLI",
+        "groups": [
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "cli/overview"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Billing",
+        "groups": [
+          {
+            "group": "Billing",
+            "pages": [
+              "billing/pricing",
+              "billing/faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Website",
+        "href": "https://strait.dev"
+      },
+      {
+        "label": "Dashboard",
+        "href": "https://app.strait.dev"
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/leonardomso/strait",
+      "x": "https://twitter.com/leonardomso",
+      "linkedin": "https://linkedin.com/company/strait"
+    }
+  },
+  "api": {
+    "baseUrl": "https://api.strait.dev",
+    "playground": {
+      "mode": "simple"
+    }
+  },
+  "openapi": "https://api.strait.dev/reference/openapi.json",
+  "search": {
+    "enabled": true
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "feedback": {
+    "thumbsRating": true
+  },
+  "seo": {
+    "indexHiddenPages": false
+  },
+  "redirects": [
+    {
+      "source": "/docs/getting-started",
+      "destination": "/introduction"
+    },
+    {
+      "source": "/docs/getting-started/:slug",
+      "destination": "/:slug"
+    },
+    {
+      "source": "/docs/concepts/:slug",
+      "destination": "/concepts/:slug"
+    },
+    {
+      "source": "/docs/guides/:slug",
+      "destination": "/guides/:slug"
+    },
+    {
+      "source": "/docs/sdks/:slug",
+      "destination": "/sdks/:slug"
+    },
+    {
+      "source": "/docs/api-reference/:slug",
+      "destination": "/api-reference/:slug"
+    },
+    {
+      "source": "/docs/cli/:slug",
+      "destination": "/cli/:slug"
+    },
+    {
+      "source": "/docs/operations/:slug",
+      "destination": "/operations/:slug"
+    },
+    {
+      "source": "/docs/development/:slug",
+      "destination": "/development/:slug"
+    },
+    {
+      "source": "/configuration/:slug",
+      "destination": "/configuration/:slug"
+    }
+  ]
+}

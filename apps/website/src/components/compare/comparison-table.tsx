@@ -1,4 +1,4 @@
-import type { ComparisonCategory } from "@/app/(landing)/compare/data.ts";
+import type { ComparisonCategory } from "@/data/comparisons.ts";
 
 import ComparisonTableClient from "./comparison-table.client.tsx";
 import type { ComparisonSection } from "./comparison-table.types.ts";

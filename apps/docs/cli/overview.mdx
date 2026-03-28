@@ -1,0 +1,32 @@
+---
+title: "CLI"
+description: "The Strait CLI has moved to its own repository."
+icon: "terminal"
+og:image: "/images/og.png"
+---
+
+The Strait CLI now lives in a dedicated repository:
+
+**[github.com/strait-dev/cli](https://github.com/strait-dev/cli)**
+
+Refer to the repository README for installation, usage, and the full command reference.
+
+## Installation
+
+```bash
+# Homebrew
+brew install strait-dev/tap/strait
+
+# Or build from source
+git clone https://github.com/strait-dev/cli.git
+cd cli
+go build -o strait ./cmd/strait
+```
+
+## Command Groups
+
+- `jobs`, `runs`, `workflows`, `workflow-runs`, `events`
+- `build`, `deploy`, `project`, `secrets`
+- `perf`, `team`, `audit`, `status`, `doctor`
+
+For full documentation, see the [CLI repository](https://github.com/strait-dev/cli).

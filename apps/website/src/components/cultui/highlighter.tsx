@@ -1,5 +1,3 @@
-"use client";
-
 import { cn } from "@strait/ui/utils";
 import { useEffect, useRef, useState } from "react";
 import type { RoughAnnotation } from "rough-notation/lib/model.js";

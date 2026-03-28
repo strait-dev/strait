@@ -1,0 +1,105 @@
+---
+import Shell from "@/components/layout/shell.tsx";
+import { siteConfig } from "@/config/site.ts";
+import { dashboardHref } from "@/lib/urls.ts";
+import HeaderDropdown from "./HeaderDropdown.tsx";
+import MobileNav from "./HeaderMobileNav.tsx";
+import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
+---
+
+<header class="fixed inset-x-0 top-0 z-50 border-border/40 border-b bg-background/5 backdrop-blur-md">
+	<Shell variant="wide">
+		<nav class="py-3">
+			<div class="flex h-12 items-center justify-between">
+				<a class="flex items-center space-x-2" href="/">
+					<span class="sr-only">{siteConfig.name}</span>
+					<img
+						alt={siteConfig.logo.alt}
+						class="h-8 w-auto"
+						height={siteConfig.logo.height}
+						src={siteConfig.logo.src}
+						width={siteConfig.logo.width}
+					/>
+				</a>
+
+				<div class="hidden items-center gap-6 md:flex">
+					{NAV_ITEMS.map((item) => {
+						if (isNavGroup(item)) {
+							return (
+								<div class="nav-dropdown-wrapper">
+									<span class="nav-dropdown-placeholder inline-flex h-9 items-center gap-1 rounded-md px-3 font-medium text-foreground/80 text-sm">
+										{item.label}
+										<svg class="size-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+											<path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" />
+										</svg>
+									</span>
+									<HeaderDropdown client:only="react" group={item} />
+								</div>
+							);
+						}
+
+						return (
+							<a
+								class="inline-flex h-9 items-center gap-1 rounded-md px-3 font-medium text-foreground/80 text-sm transition-colors hover:text-foreground"
+								href={item.href}
+							>
+								{item.label}
+							</a>
+						);
+					})}
+				</div>
+
+				<div class="hidden items-center gap-3 md:flex">
+					<a
+						class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 font-medium text-sm shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+						href={dashboardHref("/login")}
+					>
+						Sign in
+					</a>
+					<a
+						class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm shadow-xs transition-shadow duration-300 hover:shadow-md"
+						href={dashboardHref("/login")}
+					>
+						Run your first job
+						<svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					</a>
+				</div>
+
+				<div class="md:hidden">
+					<div class="nav-mobile-placeholder">
+						<button
+							class="inline-flex size-10 items-center justify-center rounded-md text-foreground/80 hover:bg-muted/50"
+							aria-label="Open menu"
+							type="button"
+						>
+							<svg class="size-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+								<path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round" stroke-linejoin="round" />
+							</svg>
+						</button>
+					</div>
+					<MobileNav client:only="react" />
+				</div>
+			</div>
+		</nav>
+	</Shell>
+</header>
+
+<script is:inline>
+// Hide static placeholders once React mounts the real components
+const observer = new MutationObserver(() => {
+	document.querySelectorAll('.nav-dropdown-wrapper').forEach(wrapper => {
+		if (wrapper.querySelector('nav')) {
+			const placeholder = wrapper.querySelector('.nav-dropdown-placeholder');
+			if (placeholder) placeholder.style.display = 'none';
+		}
+	});
+	const mobileWrapper = document.querySelector('.md\\:hidden');
+	if (mobileWrapper && mobileWrapper.querySelector('[aria-controls="mobile-nav-panel"]')) {
+		const placeholder = mobileWrapper.querySelector('.nav-mobile-placeholder');
+		if (placeholder) placeholder.style.display = 'none';
+	}
+});
+observer.observe(document.querySelector('header'), { childList: true, subtree: true });
+</script>

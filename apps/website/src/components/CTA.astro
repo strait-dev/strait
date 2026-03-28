@@ -1,0 +1,67 @@
+---
+import Shell from "@/components/layout/shell.tsx";
+import { dashboardHref } from "@/lib/urls.ts";
+
+type Props = {
+  heading?: string;
+  description?: string;
+  showInstallSnippet?: boolean;
+};
+
+const {
+  heading = "Run your first job in 5 minutes",
+  description = "Free tier included. No credit card required.",
+  showInstallSnippet = true,
+} = Astro.props;
+---
+
+<section
+  aria-labelledby="cta-title"
+  class="relative overflow-hidden border-border/40 border-y py-24 sm:py-32"
+>
+  <div class="absolute inset-0 -z-10 bg-primary/10" />
+
+  <Shell className="relative z-10" variant="wide">
+    <div class="max-w-3xl">
+      <h2
+        class="text-balance text-2xl leading-[1.1] sm:text-3xl lg:text-4xl"
+        id="cta-title"
+      >
+        {heading}
+      </h2>
+
+      {showInstallSnippet && (
+        <div class="mt-8 inline-block overflow-hidden rounded-lg border border-border/40 bg-muted/30 px-6 py-3">
+          <pre class="font-mono text-foreground/80 text-sm">
+            <code>npm install @strait/ts{" "}<span class="text-muted-foreground/50"># or pip, go get, gem, cargo</span></code>
+          </pre>
+        </div>
+      )}
+
+      <div class="mt-10 flex flex-col gap-4 sm:flex-row">
+        <a
+          class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm shadow-xs transition-shadow duration-300 hover:shadow-md"
+          href={dashboardHref("/login")}
+        >
+          Start Building Free
+          <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </a>
+        <a
+          class="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 font-medium text-sm shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+          href="/docs/quickstart"
+        >
+          Read the Docs
+          <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </a>
+      </div>
+
+      <p class="mt-6 text-muted-foreground/60 text-sm">
+        {description}
+      </p>
+    </div>
+  </Shell>
+</section>

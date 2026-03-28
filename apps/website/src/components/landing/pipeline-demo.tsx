@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import Shell from "@/components/layout/shell.tsx";
 import MockBrowserWindow from "@/components/magicui/mock-browser-window.tsx";

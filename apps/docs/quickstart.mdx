@@ -1,0 +1,386 @@
+---
+title: "Quick Start"
+description: "Get Strait up and running in minutes."
+icon: "rocket"
+og:image: "/images/og.png"
+---
+
+Follow these steps to set up Strait locally and run your first job. You'll have a production-grade job orchestration service running in under 10 minutes.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+<Steps>
+  <Step title="Go 1.26+">
+    Required to build and run Strait from source. Verify with `go version`. Download from [golang.org/dl](https://golang.org/dl).
+  </Step>
+  <Step title="Docker and Docker Compose">
+    Required to run PostgreSQL, Redis, and Sequin locally. Verify with `docker --version` and `docker compose version`. Download from [docker.com](https://www.docker.com/products/docker-desktop).
+  </Step>
+  <Step title="curl (optional)">
+    For API interaction examples. Most users can use the CLI instead. Verify with `curl --version`.
+  </Step>
+</Steps>
+
+## Step 1: Clone and Start Infrastructure
+
+<Info>
+Docker Compose will start PostgreSQL 18, Redis 8, and Sequin in isolated containers. Ports exposed: PostgreSQL (5432), Redis (6379), Strait API (8080).
+</Info>
+
+```bash
+# Clone the repository
+git clone https://github.com/leonardomso/strait.git
+cd strait
+
+# Start all services
+docker compose -f apps/strait/docker-compose.yml up -d
+
+# Verify services are running
+docker compose -f apps/strait/docker-compose.yml ps
+```
+
+Expected output:
+```
+NAME              STATUS
+strait      Up
+postgres           Up
+redis             Up
+sequin            Up
+```
+
+<Troubleshoot>
+**Problem**: `docker compose -f apps/strait/docker-compose.yml up -d` fails with port already in use.
+
+**Solution**: Stop the conflicting service or change port mapping in `apps/strait/docker-compose.yml`. Check with `lsof -i :8080` on macOS/Linux or `netstat -ano | findstr :8080` on Windows.
+</Troubleshoot>
+
+<Troubleshoot>
+**Problem**: Docker Compose command not found.
+
+**Solution**: Install Docker Compose or use `docker compose` (V2 syntax). Older installations use `docker-compose` (hyphen).
+</Troubleshoot>
+
+## Step 2: Set Environment Variables
+
+Configure necessary environment variables for Strait to connect to infrastructure.
+
+<Info>
+Strait validates required environment variables on startup. Missing variables cause a clear error message with configuration instructions.
+</Info>
+
+```bash
+# Database connection - required
+export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
+
+# Redis connection - required
+export REDIS_URL=redis://localhost:6379
+
+# Internal API secret - required (minimum 32 characters)
+export INTERNAL_SECRET=your-secret-here-change-this-in-production
+
+# JWT signing key - required (minimum 32 characters)
+export JWT_SIGNING_KEY=your-jwt-key-must-be-at-least-32-chars-long
+
+# Optional: Log level (debug, info, warn, error)
+# export LOG_LEVEL=info
+```
+
+<Warning>
+**Never commit secrets to version control.** Use environment variables, secret managers (AWS Secrets Manager, HashiCorp Vault), or `.env` files added to `.gitignore`.
+</Warning>
+
+<Troubleshoot>
+**Problem**: `DATABASE_URL` connection refused.
+
+**Solution**: Verify PostgreSQL container is running with `docker compose -f apps/strait/docker-compose.yml ps postgres`. Check logs with `docker compose -f apps/strait/docker-compose.yml logs postgres`. Ensure port 5432 is not already in use.
+</Troubleshoot>
+
+<Troubleshoot>
+**Problem**: `JWT_SIGNING_KEY too short` error on startup.
+
+**Solution**: Generate a secure key with at least 32 characters: `openssl rand -base64 32` or use a password manager.
+</Troubleshoot>
+
+## Step 3: Build and Run Strait
+
+Build Strait binary and start it in `all` mode (API + worker combined).
+
+```bash
+# Build the server from source
+cd apps/strait && go build -o strait ./cmd/strait
+
+# Run in all mode (API + worker in one process)
+./strait --mode all
+```
+
+<Info>
+**Startup Process**:
+1. Connect to PostgreSQL and apply any pending migrations automatically
+2. Open HTTP server on port 8080
+3. Start worker pool and scheduler background tasks
+4. Print startup banner with configuration summary
+
+**Separate Modes**: Use `--mode api` or `--mode worker` for horizontal scaling in production.
+</Info>
+
+<Success>
+You should see:
+```
+Connected to PostgreSQL
+Applied 47 migrations
+Connected to Redis
+API server listening on :8080
+Worker pool started (10 workers)
+Scheduler running
+```
+</Success>
+
+<Troubleshoot>
+**Problem**: Build fails with import errors.
+
+**Solution**: Ensure Go 1.26+ is installed: `go version`. Run `cd apps/strait && go mod download` to fetch dependencies. Check for corporate proxy settings affecting module downloads.
+</Troubleshoot>
+
+## Step 4: Create a Job
+
+Create a new job definition via REST API or CLI. Jobs define the template for recurring tasks.
+
+<Info>
+Jobs are the core unit of work. They define the endpoint URL, timeout, retry strategy, and other configuration. Runs are execution instances of jobs.
+</Info>
+
+<CodeGroup>
+  ```bash curl
+  # Create a job
+  curl -X POST http://localhost:8080/v1/jobs \
+    -H "Authorization: Bearer your-secret-here" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "project_id": "proj_123",
+      "name": "Hello World",
+      "slug": "hello-world",
+      "endpoint_url": "https://httpbin.org/post",
+      "timeout_secs": 60,
+      "max_attempts": 3
+    }'
+  ```
+
+  ```bash CLI
+  # Using Strait CLI (recommended)
+  ./strait jobs create \
+    --name "Hello World" \
+    --slug "hello-world" \
+    --endpoint "https://httpbin.org/post" \
+    --timeout-secs 60 \
+    --max-attempts 3
+  ```
+</CodeGroup>
+
+Expected response:
+```json
+{
+  "id": "job_abc123",
+  "project_id": "proj_123",
+  "name": "Hello World",
+  "slug": "hello-world",
+  "endpoint_url": "https://httpbin.org/post",
+  "created_at": "2026-03-09T10:00:00Z"
+}
+```
+
+<Tip>
+**Use the CLI** for most operations. It handles authentication, pagination, and output formatting automatically. See [CLI Reference](/cli/overview) for all commands.
+</Tip>
+
+## Step 5: Trigger a Job
+
+Trigger a run for the job you just created. Strait will enqueue the run and a worker will dispatch it to the endpoint.
+
+```bash
+# Trigger with a payload
+curl -X POST http://localhost:8080/v1/jobs/hello-world/trigger \
+  -H "Authorization: Bearer your-secret-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payload": {
+      "greeting": "Hello from Strait!"
+    }
+  }'
+```
+
+Expected response:
+```json
+{
+  "id": "run_xyz789",
+  "job_id": "job_abc123",
+  "status": "queued",
+  "priority": 0,
+  "created_at": "2026-03-09T10:05:00Z",
+  "scheduled_at": null
+  "next_retry_at": null
+}
+```
+
+<Steps>
+  <Step title="Dequeued">
+    Worker claims the run using `SELECT FOR UPDATE SKIP LOCKED` and transitions to `dequeued` state.
+  </Step>
+  <Step title="Executing">
+    Worker sends HTTP POST to `https://httpbin.org/post` with the payload.
+  </Step>
+  <Step title="Completed">
+    If the endpoint returns 2xx, run transitions to `completed` and result is stored.
+  </Step>
+  <Step title="Failed / Retrying">
+    If the endpoint returns non-2xx, run is scheduled for retry using exponential backoff.
+  </Step>
+</Steps>
+
+## Step 6: Watch the Run
+
+Monitor the status of your job run in real-time.
+
+```bash
+# Get run status
+curl http://localhost:8080/v1/runs/run_xyz789 \
+  -H "Authorization: Bearer your-secret-here"
+
+# Or use the CLI watch command
+./strait runs watch run_xyz789
+```
+
+Run lifecycle states: `queued` → `dequeued` → `executing` → `completed` or `failed`.
+
+<Info>
+**Real-time updates**: Subscribe to Server-Sent Events via the `/v1/runs/{runID}/stream` endpoint for live status updates without polling.
+</Info>
+
+## Step 7: Create a Simple Workflow
+
+Workflows allow you to chain multiple jobs together in a DAG (Directed Acyclic Graph). Steps can depend on outputs from parent steps.
+
+```bash
+# Create a workflow with two sequential steps
+curl -X POST http://localhost:8080/v1/workflows \
+  -H "Authorization: Bearer your-secret-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_123",
+    "name": "Data Pipeline",
+    "slug": "data-pipeline",
+    "steps": [
+      {
+        "step_ref": "extract",
+        "job_id": "job_abc123",
+        "payload": {"action": "extract"}
+      },
+      {
+        "step_ref": "transform",
+        "job_id": "job_abc123",
+        "depends_on": ["extract"],
+        "payload": {"action": "transform"}
+      }
+    ]
+  }'
+```
+
+<Info>
+**Workflow Execution**: When triggered, Strait creates a `workflow_run`. Step `extract` executes first, then `transform` executes only after `extract` completes. The DAG engine handles fan-in automatically when multiple steps depend on the same parent.
+</Info>
+
+## Troubleshooting
+
+<Steps>
+  <Step title="PostgreSQL Connection Issues">
+    <Details>
+      **Symptoms**: `connection refused`, `no such host`, or timeout errors in Strait logs.
+      **Checks**: `docker compose -f apps/strait/docker-compose.yml ps postgres`, `docker compose -f apps/strait/docker-compose.yml logs postgres`, verify `DATABASE_URL` matches container credentials.
+      **Fix**: Ensure PostgreSQL container is healthy, check network connectivity, verify port 5432 is not blocked by firewall.
+    </Details>
+  </Step>
+  <Step title="Job Not Picked Up">
+    <Details>
+      **Symptoms**: Run stuck in `queued` state for extended time.
+      **Checks**: Worker pool status (`strait stats`), check for worker errors in logs, verify `--mode all` includes worker.
+      **Fix**: Worker may have crashed—check logs, restart Strait, verify DATABASE_URL and REDIS_URL are set correctly.
+    </Details>
+  </Step>
+  <Step title="Endpoint Timeouts">
+    <Details>
+      **Symptoms**: Jobs consistently timeout with `status=timed_out`.
+      **Checks**: Verify endpoint URL is reachable (`curl -I`), check endpoint logs, compare timeout_secs with actual execution time.
+      **Fix**: Increase `timeout_secs` in job configuration, optimize endpoint performance, or investigate network latency.
+    </Details>
+  </Step>
+  <Step title="Repeated Failures">
+    <Details>
+      **Symptoms**: Job reaches `max_attempts` and transitions to `failed` or `dead_letter`.
+      **Checks**: Review endpoint logs for errors, check payload format, verify authentication headers.
+      **Fix**: Fix underlying issue in endpoint code, adjust `retry_delays_secs` for custom retry strategy, increase `max_attempts`.
+    </Details>
+  </Step>
+  <Step title="SSRF Blocking">
+    <Details>
+      **Symptoms**: Job execution rejected with SSRF protection error.
+      **Checks**: Verify endpoint URL is not a private IP (10.x, 172.16-31.x, 192.168.x), loopback (127.x), or link-local (169.254.x).
+      **Fix**: Use public endpoint URLs, configure environments with `ENDPOINT_URL` variable, or disable SSRF validation (not recommended for production).
+    </Details>
+  </Step>
+</Steps>
+
+## Common Mistakes
+
+<Warning>
+**Mistake 1: Committing secrets to git.** Always use environment variables or secret managers. Add `.env` to `.gitignore`.
+</Warning>
+
+<Warning>
+**Mistake 2: Using weak INTERNAL_SECRET.** Generate a cryptographically secure secret with at least 32 characters. Use different secrets for development vs. production.
+</Warning>
+
+<Warning>
+**Mistake 3: Insufficient JWT_SIGNING_KEY.** The key must be at least 32 characters for HS256 algorithm security. Generate with `openssl rand -base64 32` or use a password manager.
+</Warning>
+
+<Warning>
+**Mistake 4: Not checking worker pool capacity.** Monitor queue depth with `strait stats`. If jobs are queuing faster than workers can process, increase pool size via `WORKER_POOL_SIZE` environment variable.
+</Warning>
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Architecture Deep Dive" icon="sitemap" href="/architecture">
+    Learn about queue mechanics, the 13-state FSM, workflow engine, and why we chose our technology stack.
+  </Card>
+  <Card title="Concepts" icon="book" href="/concepts/jobs">
+    Understand jobs, runs, workflows, scheduling, retry strategies, and cost budgets in depth.
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="CLI Reference" icon="terminal" href="/cli/overview">
+    Master 48+ CLI commands with shell completion, contexts, aliases, and output formats.
+  </Card>
+  <Card title="API Documentation" icon="api" href="/api-reference/overview">
+    REST API endpoints for job management, workflow orchestration, and SDK interactions.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Jobs" icon="briefcase" href="/concepts/jobs">
+    Learn how jobs work in Strait.
+  </Card>
+  <Card title="Workflows" icon="diagram-project" href="/concepts/workflows">
+    Build multi-step workflow DAGs.
+  </Card>
+  <Card title="SDKs" icon="code" href="/sdks/overview">
+    Choose your language and start building.
+  </Card>
+  <Card title="Deployment" icon="cloud-arrow-up" href="/guides/deployment">
+    Deploy Strait to production.
+  </Card>
+</CardGroup>

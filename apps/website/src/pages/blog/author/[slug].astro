@@ -1,0 +1,189 @@
+---
+import { basehub } from "basehub";
+import JsonLd from "@/components/JsonLd.astro";
+import { PostFragment as PostFragmentQuery } from "@/components/landing-page/blog/post.tsx";
+import PostFeatured from "@/components/landing-page/blog/post-featured.tsx";
+import PostPreview from "@/components/landing-page/blog/post-preview.tsx";
+import Shell from "@/components/layout/shell.tsx";
+import SEO from "@/components/SEO.astro";
+import { siteConfig } from "@/config/site.ts";
+import LandingLayout from "@/layouts/LandingLayout.astro";
+import {
+  getBreadcrumbSchema,
+  getPersonSchema,
+} from "@/lib/structured-data.tsx";
+
+const BASE_URL = import.meta.env.PUBLIC_WEBSITE_URL || "https://strait.dev";
+const POSTS_PER_PAGE = 8;
+
+type Author = {
+  _id: string;
+  _title: string;
+  _slug: string;
+  role: string | null;
+  image: { url: string } | null;
+  company: { _title: string } | null;
+  x: string | null;
+};
+
+export async function getStaticPaths() {
+  let allPosts: any[] = [];
+  try {
+    const data = await basehub({
+      token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN,
+      cache: "no-store",
+    }).query({
+      website: {
+        blog: {
+          posts: {
+            __args: { orderBy: "publishedAt__DESC", first: 100 },
+            items: PostFragmentQuery,
+          },
+        },
+      },
+    });
+    allPosts = (data as any).website.blog.posts.items;
+  } catch {
+    return [];
+  }
+
+  const authorMap = new Map<string, { author: Author; posts: any[] }>();
+
+  for (const post of allPosts) {
+    for (const author of post.authors ?? []) {
+      if (!author._slug) {
+        continue;
+      }
+      if (!authorMap.has(author._slug)) {
+        authorMap.set(author._slug, { author, posts: [] });
+      }
+      // biome-ignore lint/style/noNonNullAssertion: checked above
+      authorMap.get(author._slug)!.posts.push(post);
+    }
+  }
+
+  return [...authorMap.entries()].map(([slug, { author, posts }]) => ({
+    params: { slug },
+    props: { author, authorPosts: posts },
+  }));
+}
+
+const { author, authorPosts } = Astro.props as {
+  author: Author;
+  authorPosts: any[];
+};
+
+const totalPosts = authorPosts.length;
+const featuredPost = authorPosts.length > 0 ? authorPosts[0] : null;
+const remainingPosts =
+  authorPosts.length > 1 ? authorPosts.slice(1, POSTS_PER_PAGE) : [];
+
+const authorUrl = `${BASE_URL}/blog/author/${author._slug}`;
+
+const personSchema = getPersonSchema({
+  name: author._title,
+  url: authorUrl,
+  image: author.image?.url,
+  jobTitle: author.role ?? undefined,
+  worksFor: author.company?._title ?? "Strait",
+  sameAs: author.x ? [`https://x.com/${author.x}`] : undefined,
+});
+
+const breadcrumbSchema = getBreadcrumbSchema([
+  { name: "Home", url: BASE_URL },
+  { name: "Blog", url: `${BASE_URL}/blog` },
+  { name: author._title, url: authorUrl },
+]);
+
+const title = `${author._title} - Author at Strait`;
+const description = author.role
+  ? `${author._title} is a ${author.role}${author.company?._title ? ` at ${author.company._title}` : ""}. Read their articles on the Strait blog.`
+  : `Read articles by ${author._title} on the Strait blog.`;
+---
+
+<LandingLayout>
+	<Fragment slot="head">
+		<SEO
+			title={title}
+			description={description}
+			path={`/blog/author/${author._slug}`}
+			ogImage={author.image?.url ?? siteConfig.ogImage}
+			canonical={`${BASE_URL}/blog/author/${author._slug}`}
+		/>
+	</Fragment>
+	<main class="flex flex-col">
+		<JsonLd data={personSchema} />
+		<JsonLd data={breadcrumbSchema} />
+
+		<section class="relative isolate overflow-hidden pt-32 pb-12 sm:pt-40 sm:pb-16">
+			<div class="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_var(--primary)/0.06,_transparent_40%)]" />
+			<div class="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,_transparent,_var(--background)_70%)]" />
+			<div class="paper-texture absolute inset-0 -z-10 opacity-[0.02]" />
+
+			<Shell variant="wide">
+				<div class="mx-auto flex max-w-3xl flex-col items-center text-center">
+					{author.image?.url && (
+						<div class="relative mb-6 size-24 overflow-hidden rounded-full border-4 border-background shadow-lg sm:size-32">
+							<img
+								alt={author._title}
+								class="h-full w-full object-cover"
+								src={author.image.url}
+							/>
+						</div>
+					)}
+
+					<h1 class="text-balance text-3xl text-foreground sm:text-4xl lg:text-5xl">
+						{author._title}
+					</h1>
+
+					{author.role && (
+						<p class="mt-2 text-lg text-muted-foreground">
+							{author.role}
+							{author.company?._title && ` at ${author.company._title}`}
+						</p>
+					)}
+
+					<p class="mt-6 text-muted-foreground text-sm">
+						{totalPosts} {totalPosts === 1 ? "article" : "articles"} published
+					</p>
+				</div>
+			</Shell>
+		</section>
+
+		{authorPosts.length > 0 ? (
+			<section class="pb-20 sm:pb-28">
+				{featuredPost && (
+					<Shell variant="wide">
+						<div class="pb-12">
+							<PostFeatured client:only="react" {...featuredPost} />
+						</div>
+					</Shell>
+				)}
+
+				{remainingPosts.length > 0 && (
+					<Shell variant="wide">
+						<div class="overflow-hidden rounded-2xl border border-border/50">
+							<div class="grid grid-cols-1 gap-px bg-border/50 md:grid-cols-2">
+								{remainingPosts.map((post: any) => (
+									<div class="bg-background p-6">
+										<PostPreview client:only="react" {...post} />
+									</div>
+								))}
+							</div>
+						</div>
+					</Shell>
+				)}
+			</section>
+		) : (
+			<section class="pb-20 sm:pb-28">
+				<Shell variant="wide">
+					<div class="text-center">
+						<p class="text-lg text-muted-foreground">
+							No articles published yet. Check back soon!
+						</p>
+					</div>
+				</Shell>
+			</section>
+		)}
+	</main>
+</LandingLayout>

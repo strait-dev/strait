@@ -1,5 +1,3 @@
-"use client";
-
 import { cn } from "@strait/ui/utils";
 
 type MockBrowserWindowProps = {
