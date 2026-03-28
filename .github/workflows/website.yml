@@ -31,9 +31,9 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@735343b667d3e6f658f44e0c1d8e7feff0a1f5d1 # v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
@@ -48,9 +48,9 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@735343b667d3e6f658f44e0c1d8e7feff0a1f5d1 # v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
@@ -66,9 +66,9 @@ jobs:
     timeout-minutes: 15
     needs: [lint, typecheck]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@735343b667d3e6f658f44e0c1d8e7feff0a1f5d1 # v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
@@ -85,7 +85,7 @@ jobs:
 
       - name: Upload build artifact
         if: github.ref == 'refs/heads/master'
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
+        uses: actions/upload-artifact@v4
         with:
           name: website-dist
           path: apps/website/dist/
