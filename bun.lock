@@ -62,7 +62,7 @@
         "better-auth": "1.5.6",
         "date-fns": "^4.1.0",
         "drizzle-orm": "^0.45.2",
-        "effect": "^3.21.0",
+        "effect": "3.21.0",
         "generate-password-ts": "^1.6.5",
         "nanoid": "^5.1.7",
         "next-themes": "^0.4.6",
@@ -173,16 +173,26 @@
       "name": "@strait/agents-sdk",
       "version": "1.0.0",
       "dependencies": {
-        "@anthropic-ai/sdk": "^0.80.0",
-        "ai": "^6.0.141",
         "effect": "3.21.0",
-        "openai": "^6.33.0",
       },
       "devDependencies": {
+        "@anthropic-ai/sdk": "^0.80.0",
         "@types/node": "^25.5.0",
         "@typescript/native-preview": "^7.0.0-dev.20260327.2",
+        "ai": "^6.0.141",
+        "openai": "^6.33.0",
         "vitest": "^4.1.2",
       },
+      "peerDependencies": {
+        "@anthropic-ai/sdk": ">=0.80.0",
+        "ai": ">=6.0.0",
+        "openai": ">=6.0.0",
+      },
+      "optionalPeers": [
+        "@anthropic-ai/sdk",
+        "ai",
+        "openai",
+      ],
     },
     "packages/billing": {
       "name": "@strait/billing",

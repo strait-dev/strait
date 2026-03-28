@@ -1,5 +1,9 @@
 export { agent, strait } from "./agent";
-export { createAnthropicAdapter } from "./anthropic";
+export { createAIStep } from "./ai-step";
+export {
+  createAnthropicAdapter,
+  withStrait as withAnthropic,
+} from "./anthropic";
 export { BudgetLedger } from "./budget";
 export { createStraitContext, StraitContext } from "./context";
 export {
@@ -15,7 +19,7 @@ export {
   expectTextContains,
   runEvalSuite,
 } from "./evals";
-export { createOpenAIAdapter } from "./openai";
+export { createOpenAIAdapter, withStrait as withOpenAI } from "./openai";
 export {
   createPricingCatalog,
   defaultPricingCatalog,
@@ -24,8 +28,10 @@ export {
   lookupPricing,
   normalizeUsageReport,
 } from "./pricing";
+export { createSandboxTool } from "./sandbox";
 export type {
   AgentBudget,
+  BudgetInput,
   BudgetSnapshot,
   CheckpointOptions,
   JsonPrimitive,
@@ -41,8 +47,16 @@ export type {
   StreamChunkReport,
   ToolCallReport,
   UsageReport,
+  UsageTotals,
 } from "./types";
-export { createVercelAIAdapter } from "./vercel-ai";
+export {
+  autoBudget,
+  budgetExceeded,
+  createVercelAIAdapter,
+  provider as straitProvider,
+  straitTelemetry,
+  withStrait,
+} from "./vercel-ai";
 export type {
   AgentWorkflowDefinition,
   AgentWorkflowStepDefinition,

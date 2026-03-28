@@ -1,10 +1,14 @@
-import type { StraitContext } from "./context";
-import type { JsonValue } from "./types";
-
-type AdapterContext = Pick<
-  StraitContext,
-  "reportToolCall" | "reportUsage" | "stream"
->;
+import type { AdapterContextInput, AdapterTelemetryOptions } from "./internal";
+import {
+  budgetGuard,
+  createAdapterContext,
+  reportCheckpointState,
+  reportStreamChunk,
+  reportToolEvent,
+  reportUsageEvent,
+  resolveAdapterContext,
+  toJsonValue,
+} from "./internal";
 
 type AnthropicUsage = {
   input_tokens: number;
@@ -21,14 +25,15 @@ type AnthropicToolUseBlock = {
 type AnthropicContentBlock =
   | AnthropicToolUseBlock
   | {
-      type: "text";
       text: string;
+      type: "text";
     }
   | Record<string, unknown>;
 
 type AnthropicMessage = {
   content: AnthropicContentBlock[];
   model: string;
+  stop_reason?: string | null;
   usage?: AnthropicUsage;
 };
 
@@ -41,53 +46,33 @@ type AnthropicMessagesLike = {
   stream: (...args: unknown[]) => AnthropicMessageStreamLike;
 };
 
+type AnthropicToolRunnerLike = {
+  on(event: string, listener: (...args: unknown[]) => unknown): unknown;
+  finalMessage?: () => PromiseLike<AnthropicMessage>;
+};
+
+type AnthropicBetaMessagesLike = {
+  toolRunner: (...args: unknown[]) => AnthropicToolRunnerLike;
+};
+
 type AnthropicClientLike = {
+  beta?: {
+    messages?: AnthropicBetaMessagesLike;
+  };
   messages: AnthropicMessagesLike;
 } & Record<PropertyKey, unknown>;
 
-export interface AnthropicAdapterOptions {
-  streamId?: string;
-}
-
-function toJSONValue(value: unknown): JsonValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-
-  if (value == null) {
-    return null;
-  }
-
-  if (value instanceof Error) {
-    return {
-      name: value.name,
-      message: value.message,
-    };
-  }
-
-  try {
-    return JSON.parse(JSON.stringify(value)) as JsonValue;
-  } catch {
-    return {
-      value: String(value),
-    };
-  }
-}
+export interface AnthropicAdapterOptions extends AdapterTelemetryOptions {}
 
 async function reportUsage(
-  context: AdapterContext,
+  context: ReturnType<typeof resolveAdapterContext>,
   message: AnthropicMessage
 ): Promise<void> {
   if (message.usage == null) {
     return;
   }
 
-  await context.reportUsage({
+  await reportUsageEvent(context, {
     provider: "anthropic",
     model: message.model,
     promptTokens: message.usage.input_tokens,
@@ -97,7 +82,7 @@ async function reportUsage(
 }
 
 async function reportToolUses(
-  context: AdapterContext,
+  context: ReturnType<typeof resolveAdapterContext>,
   message: AnthropicMessage
 ): Promise<void> {
   const toolUses = message.content.filter(
@@ -108,28 +93,28 @@ async function reportToolUses(
 
   await Promise.all(
     toolUses.map((toolUse) =>
-      context.reportToolCall({
+      reportToolEvent(context, {
         toolName: toolUse.name,
-        input: toJSONValue(toolUse.input),
+        input: toJsonValue(toolUse.input),
         status: "requested",
       })
     )
   );
 }
 
-function wireStream(
-  context: AdapterContext,
+function wireMessageStream(
+  context: ReturnType<typeof resolveAdapterContext>,
   runner: AnthropicMessageStreamLike,
-  options?: AnthropicAdapterOptions
+  options: AnthropicAdapterOptions
 ): AnthropicMessageStreamLike {
   runner.on("text", (delta) => {
     if (typeof delta !== "string") {
       return;
     }
 
-    return context.stream({
+    return reportStreamChunk(context, {
       chunk: delta,
-      streamId: options?.streamId,
+      streamId: options.streamId,
     });
   });
 
@@ -146,9 +131,9 @@ function wireStream(
     return Promise.all([
       reportUsage(context, message as AnthropicMessage),
       reportToolUses(context, message as AnthropicMessage),
-      context.stream({
+      reportStreamChunk(context, {
         chunk: "",
-        streamId: options?.streamId,
+        streamId: options.streamId,
         done: true,
       }),
     ]).then(() => undefined);
@@ -157,17 +142,77 @@ function wireStream(
   return runner;
 }
 
-export function createAnthropicAdapter<TClient extends AnthropicClientLike>(
+function wireToolRunner(
+  context: ReturnType<typeof resolveAdapterContext>,
+  runner: AnthropicToolRunnerLike,
+  options: AnthropicAdapterOptions
+): AnthropicToolRunnerLike {
+  let iteration = 0;
+
+  runner.on("text", (delta) => {
+    if (typeof delta !== "string") {
+      return;
+    }
+
+    return reportStreamChunk(context, {
+      chunk: delta,
+      streamId: options.streamId,
+    });
+  });
+
+  runner.on("finalMessage", (message) => {
+    if (
+      message == null ||
+      typeof message !== "object" ||
+      typeof (message as AnthropicMessage).model !== "string" ||
+      !Array.isArray((message as AnthropicMessage).content)
+    ) {
+      return;
+    }
+
+    iteration += 1;
+
+    return Promise.all([
+      reportUsage(context, message as AnthropicMessage),
+      reportToolUses(context, message as AnthropicMessage),
+      reportCheckpointState(
+        context,
+        {
+          source: options.checkpoint?.source ?? "anthropic.toolRunner",
+          onStepFinish: async () => ({
+            iteration,
+            phase: "tool_runner_iteration",
+            stopReason: (message as AnthropicMessage).stop_reason ?? null,
+          }),
+        },
+        message
+      ),
+      reportStreamChunk(context, {
+        chunk: "",
+        streamId: options.streamId,
+        done: true,
+      }),
+    ]).then(() => undefined);
+  });
+
+  return runner;
+}
+
+export function withStrait<TClient extends AnthropicClientLike>(
   client: TClient,
-  context: AdapterContext,
-  options?: AnthropicAdapterOptions
+  options: AnthropicAdapterOptions = {}
 ): TClient {
+  const context = resolveAdapterContext(options);
   const create = client.messages.create.bind(client.messages);
   const stream = client.messages.stream.bind(client.messages);
+  const toolRunner = client.beta?.messages?.toolRunner?.bind(
+    client.beta.messages
+  );
 
   const wrappedMessages = {
     ...client.messages,
     create(...args: unknown[]) {
+      budgetGuard(context);
       const messagePromise = create(...args);
       Promise.resolve(messagePromise)
         .then(async (message) => {
@@ -178,10 +223,23 @@ export function createAnthropicAdapter<TClient extends AnthropicClientLike>(
       return messagePromise;
     },
     stream(...args: unknown[]) {
+      budgetGuard(context);
       const runner = stream(...args);
-      return wireStream(context, runner, options);
+      return wireMessageStream(context, runner, options);
     },
   } satisfies AnthropicMessagesLike;
+
+  const wrappedBetaMessages =
+    toolRunner == null
+      ? client.beta?.messages
+      : ({
+          ...client.beta?.messages,
+          toolRunner(...args: unknown[]) {
+            budgetGuard(context);
+            const runner = toolRunner(...args);
+            return wireToolRunner(context, runner, options);
+          },
+        } satisfies AnthropicBetaMessagesLike);
 
   return new Proxy(client, {
     get(target, prop, receiver) {
@@ -189,7 +247,25 @@ export function createAnthropicAdapter<TClient extends AnthropicClientLike>(
         return wrappedMessages;
       }
 
+      if (prop === "beta") {
+        return {
+          ...client.beta,
+          messages: wrappedBetaMessages,
+        };
+      }
+
       return Reflect.get(target, prop, receiver);
     },
+  });
+}
+
+export function createAnthropicAdapter<TClient extends AnthropicClientLike>(
+  client: TClient,
+  context: AdapterContextInput,
+  options: Omit<AnthropicAdapterOptions, "context"> = {}
+): TClient {
+  return withStrait(client, {
+    ...options,
+    context: createAdapterContext(context),
   });
 }

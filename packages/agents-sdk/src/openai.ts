@@ -1,14 +1,21 @@
-import type { StraitContext } from "./context";
-import type { JsonValue } from "./types";
-
-type AdapterContext = Pick<
-  StraitContext,
-  "reportToolCall" | "reportUsage" | "stream"
->;
+import type { AdapterContextInput, AdapterTelemetryOptions } from "./internal";
+import {
+  budgetGuard,
+  createAdapterContext,
+  parseJsonish,
+  reportCheckpointState,
+  reportStreamChunk,
+  reportToolEvent,
+  reportUsageEvent,
+  resolveAdapterContext,
+} from "./internal";
 
 type OpenAIUsage = {
-  prompt_tokens: number;
   completion_tokens: number;
+  prompt_tokens: number;
+  prompt_tokens_details?: {
+    cached_tokens?: number;
+  };
   total_tokens: number;
 };
 
@@ -18,8 +25,8 @@ type OpenAIChatCompletion = {
 };
 
 type OpenAIToolCall = {
-  name: string;
   arguments: string;
+  name: string;
 };
 
 type OpenAIEventStreamLike = {
@@ -28,57 +35,75 @@ type OpenAIEventStreamLike = {
 
 type OpenAICompletionsLike = {
   create: (...args: unknown[]) => PromiseLike<OpenAIChatCompletion>;
-  stream: (...args: unknown[]) => OpenAIEventStreamLike;
   runTools: (...args: unknown[]) => OpenAIEventStreamLike;
+  stream: (...args: unknown[]) => OpenAIEventStreamLike;
 };
 
+type OpenAIResponsesLike = {
+  create: (...args: unknown[]) => PromiseLike<{
+    model?: string;
+    usage?: OpenAIUsage;
+  }>;
+};
+
+type OpenAIThreadsLike = Record<PropertyKey, unknown>;
+
 type OpenAIClientLike = {
+  beta?: {
+    threads?: OpenAIThreadsLike;
+  };
   chat: {
     completions: OpenAICompletionsLike;
   };
+  responses?: OpenAIResponsesLike;
 } & Record<PropertyKey, unknown>;
 
-export interface OpenAIAdapterOptions {
-  streamId?: string;
-}
+export interface OpenAIAdapterOptions extends AdapterTelemetryOptions {}
 
-function parseJSONish(value: string): JsonValue {
-  try {
-    return JSON.parse(value) as JsonValue;
-  } catch {
-    return value;
-  }
-}
+type PendingToolCall = {
+  arguments: string;
+  name: string;
+  startedAt: number;
+};
 
 async function reportUsage(
-  context: AdapterContext,
+  context: ReturnType<typeof resolveAdapterContext>,
   completion: OpenAIChatCompletion
 ): Promise<void> {
   if (completion.usage == null) {
     return;
   }
 
-  await context.reportUsage({
+  await reportUsageEvent(context, {
     provider: "openai",
     model: completion.model,
     promptTokens: completion.usage.prompt_tokens,
     completionTokens: completion.usage.completion_tokens,
     totalTokens: completion.usage.total_tokens,
+    ...(completion.usage.prompt_tokens_details?.cached_tokens == null
+      ? {}
+      : {
+          promptTokenDetails: {
+            cacheReadTokens:
+              completion.usage.prompt_tokens_details.cached_tokens,
+          },
+        }),
   });
 }
 
 function wireStream(
-  context: AdapterContext,
+  context: ReturnType<typeof resolveAdapterContext>,
   runner: OpenAIEventStreamLike,
-  options?: OpenAIAdapterOptions
+  options: OpenAIAdapterOptions
 ): OpenAIEventStreamLike {
   runner.on("content", (delta) => {
     if (typeof delta !== "string") {
       return;
     }
-    return context.stream({
+
+    return reportStreamChunk(context, {
       chunk: delta,
-      streamId: options?.streamId,
+      streamId: options.streamId,
     });
   });
 
@@ -93,9 +118,9 @@ function wireStream(
 
     return Promise.all([
       reportUsage(context, completion as OpenAIChatCompletion),
-      context.stream({
+      reportStreamChunk(context, {
         chunk: "",
-        streamId: options?.streamId,
+        streamId: options.streamId,
         done: true,
       }),
     ]).then(() => undefined);
@@ -105,20 +130,21 @@ function wireStream(
 }
 
 function wireToolRunner(
-  context: AdapterContext,
+  context: ReturnType<typeof resolveAdapterContext>,
   runner: OpenAIEventStreamLike,
-  options?: OpenAIAdapterOptions
+  options: OpenAIAdapterOptions
 ): OpenAIEventStreamLike {
-  const pendingToolCalls: OpenAIToolCall[] = [];
+  const pendingToolCalls: PendingToolCall[] = [];
+  let iteration = 0;
 
   runner.on("content", (delta) => {
     if (typeof delta !== "string") {
       return;
     }
 
-    return context.stream({
+    return reportStreamChunk(context, {
       chunk: delta,
-      streamId: options?.streamId,
+      streamId: options.streamId,
     });
   });
 
@@ -132,7 +158,10 @@ function wireToolRunner(
       return;
     }
 
-    pendingToolCalls.push(functionCall as OpenAIToolCall);
+    pendingToolCalls.push({
+      ...(functionCall as OpenAIToolCall),
+      startedAt: Date.now(),
+    });
   });
 
   runner.on("functionToolCallResult", (result) => {
@@ -141,12 +170,29 @@ function wireToolRunner(
       return;
     }
 
-    return context.reportToolCall({
-      toolName: toolCall.name,
-      input: parseJSONish(toolCall.arguments),
-      output: parseJSONish(result),
-      status: "completed",
-    });
+    iteration += 1;
+
+    return Promise.all([
+      reportToolEvent(context, {
+        toolName: toolCall.name,
+        input: parseJsonish(toolCall.arguments),
+        output: parseJsonish(result),
+        durationMs: Date.now() - toolCall.startedAt,
+        status: "completed",
+      }),
+      reportCheckpointState(
+        context,
+        {
+          source: options.checkpoint?.source ?? "openai.runTools",
+          onStepFinish: async () => ({
+            iteration,
+            toolName: toolCall.name,
+            phase: "tool_result",
+          }),
+        },
+        result
+      ),
+    ]).then(() => undefined);
   });
 
   runner.on("finalChatCompletion", (completion) => {
@@ -160,9 +206,9 @@ function wireToolRunner(
 
     return Promise.all([
       reportUsage(context, completion as OpenAIChatCompletion),
-      context.stream({
+      reportStreamChunk(context, {
         chunk: "",
-        streamId: options?.streamId,
+        streamId: options.streamId,
         done: true,
       }),
     ]).then(() => undefined);
@@ -171,11 +217,50 @@ function wireToolRunner(
   return runner;
 }
 
-export function createOpenAIAdapter<TClient extends OpenAIClientLike>(
+function wrapResponses<TResponses extends OpenAIResponsesLike>(
+  responses: TResponses,
+  context: ReturnType<typeof resolveAdapterContext>
+): TResponses {
+  const create = responses.create.bind(responses);
+
+  return {
+    ...responses,
+    create(...args: unknown[]) {
+      budgetGuard(context);
+      const responsePromise = create(...args);
+      Promise.resolve(responsePromise)
+        .then((response) => {
+          if (response.usage == null || response.model == null) {
+            return;
+          }
+
+          return reportUsageEvent(context, {
+            provider: "openai",
+            model: response.model,
+            promptTokens: response.usage.prompt_tokens,
+            completionTokens: response.usage.completion_tokens,
+            totalTokens: response.usage.total_tokens,
+            ...(response.usage.prompt_tokens_details?.cached_tokens == null
+              ? {}
+              : {
+                  promptTokenDetails: {
+                    cacheReadTokens:
+                      response.usage.prompt_tokens_details.cached_tokens,
+                  },
+                }),
+          });
+        })
+        .catch(() => undefined);
+      return responsePromise;
+    },
+  } satisfies OpenAIResponsesLike as TResponses;
+}
+
+export function withStrait<TClient extends OpenAIClientLike>(
   client: TClient,
-  context: AdapterContext,
-  options?: OpenAIAdapterOptions
+  options: OpenAIAdapterOptions = {}
 ): TClient {
+  const context = resolveAdapterContext(options);
   const create = client.chat.completions.create.bind(client.chat.completions);
   const stream = client.chat.completions.stream.bind(client.chat.completions);
   const runTools = client.chat.completions.runTools.bind(
@@ -185,6 +270,8 @@ export function createOpenAIAdapter<TClient extends OpenAIClientLike>(
   const wrappedCompletions = {
     ...client.chat.completions,
     create(...args: unknown[]) {
+      budgetGuard(context);
+
       const completionPromise = create(...args);
       Promise.resolve(completionPromise)
         .then((completion) => reportUsage(context, completion))
@@ -192,10 +279,12 @@ export function createOpenAIAdapter<TClient extends OpenAIClientLike>(
       return completionPromise;
     },
     stream(...args: unknown[]) {
+      budgetGuard(context);
       const runner = stream(...args);
       return wireStream(context, runner, options);
     },
     runTools(...args: unknown[]) {
+      budgetGuard(context);
       const runner = runTools(...args);
       return wireToolRunner(context, runner, options);
     },
@@ -206,12 +295,33 @@ export function createOpenAIAdapter<TClient extends OpenAIClientLike>(
     completions: wrappedCompletions,
   };
 
+  const wrappedResponses =
+    client.responses == null
+      ? undefined
+      : wrapResponses(client.responses, context);
+
   return new Proxy(client, {
     get(target, prop, receiver) {
       if (prop === "chat") {
         return wrappedChat;
       }
+
+      if (prop === "responses") {
+        return wrappedResponses;
+      }
+
       return Reflect.get(target, prop, receiver);
     },
+  });
+}
+
+export function createOpenAIAdapter<TClient extends OpenAIClientLike>(
+  client: TClient,
+  context: AdapterContextInput,
+  options: Omit<OpenAIAdapterOptions, "context"> = {}
+): TClient {
+  return withStrait(client, {
+    ...options,
+    context: createAdapterContext(context),
   });
 }

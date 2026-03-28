@@ -52,6 +52,12 @@ It receives dispatch input from the Go control plane and uses the Agents SDK to 
 - stream chunks
 - terminal completion or failure
 
+When the agent code needs provider wrappers instead of manual callback calls, use:
+
+- `withStrait()` for Vercel AI SDK, OpenAI, and Anthropic
+- `createAIStep()` for checkpointed local orchestration primitives
+- `createSandboxTool()` for sandbox-targeted tools
+
 Reference implementations for this loop live in:
 
 - `packages/agents-sdk/examples/incident-triage-agent.ts`
@@ -64,6 +70,12 @@ Reference implementations for this loop live in:
 3. Trigger a run from the agent API.
 4. Observe the resulting run, checkpoints, tool calls, and usage in the dashboard or API.
 5. Iterate on the agent entrypoint in `apps/agents`.
+
+Inside that loop, prefer adapter-wrapped clients so budget guards, checkpoint telemetry, and stream forwarding stay consistent with production behavior:
+
+```ts
+import { createAIStep, withStrait as withOpenAI } from "@strait/agents-sdk";
+```
 
 ## Minimal Agent Example
 

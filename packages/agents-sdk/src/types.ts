@@ -13,6 +13,8 @@ export interface AgentBudget {
   maxToolCalls?: number;
 }
 
+export type BudgetInput = AgentBudget | number | string;
+
 export interface RetryPolicy {
   baseDelayMs: number;
   maxAttempts: number;
@@ -30,9 +32,18 @@ export interface ModelPricing {
 export type PricingCatalog = readonly ModelPricing[];
 
 export interface UsageReport {
+  completionTokenDetails?: {
+    reasoningTokens?: number;
+    textTokens?: number;
+  };
   completionTokens: number;
   costMicrousd?: number;
+  metadata?: JsonValue;
   model: string;
+  promptTokenDetails?: {
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
   promptTokens: number;
   provider: string;
   totalTokens?: number;
@@ -86,7 +97,7 @@ export interface BudgetSnapshot {
 
 export interface StraitContextOptions {
   baseUrl: string;
-  budget?: AgentBudget;
+  budget?: BudgetInput;
   fetch?: typeof fetch;
   pricingCatalog?: PricingCatalog;
   retry?: Partial<RetryPolicy>;
@@ -99,4 +110,24 @@ export interface StraitContextEnv {
   STRAIT_API_URL?: string;
   STRAIT_RUN_ID?: string;
   STRAIT_RUN_TOKEN?: string;
+}
+
+export interface UsageTotals {
+  completionTokens: number;
+  costMicrousd: number;
+  promptTokens: number;
+  totalTokens: number;
+}
+
+export interface SandboxExecutionTarget {
+  image?: string;
+  mode: "dynamic-worker";
+  timeoutMs?: number;
+}
+
+export interface SandboxTool<TInput = JsonValue, TResult = JsonValue> {
+  description?: string;
+  execute: (input: TInput) => Promise<TResult>;
+  name: string;
+  sandbox: SandboxExecutionTarget;
 }

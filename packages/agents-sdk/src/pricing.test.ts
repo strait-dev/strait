@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createPricingCatalog,
+  defaultPricingCatalog,
   estimateUsageCostMicrousd,
   getPricingOrThrow,
   lookupPricing,
@@ -49,6 +50,20 @@ describe("pricing", () => {
     );
 
     expect(cost).toBe(73);
+  });
+
+  it("supports fractional per-token pricing for google models", () => {
+    const cost = estimateUsageCostMicrousd(
+      {
+        provider: "google",
+        model: "gemini-2.5-pro",
+        promptTokens: 4,
+        completionTokens: 2,
+      },
+      defaultPricingCatalog
+    );
+
+    expect(cost).toBe(25);
   });
 
   it("normalizes totals and cost when the caller omits them", () => {
@@ -128,5 +143,17 @@ describe("pricing", () => {
       expect(report.totalTokens).toBe(promptTokens + completionTokens);
       expect(report.costMicrousd).toBe(promptTokens + completionTokens);
     }
+  });
+
+  it("ships default entries for openai, anthropic, and google", () => {
+    expect(
+      lookupPricing(defaultPricingCatalog, "openai", "gpt-4o")
+    ).toBeTruthy();
+    expect(
+      lookupPricing(defaultPricingCatalog, "anthropic", "claude-sonnet-4-5")
+    ).toBeTruthy();
+    expect(
+      lookupPricing(defaultPricingCatalog, "google", "gemini-2.5-pro")
+    ).toBeTruthy();
   });
 });

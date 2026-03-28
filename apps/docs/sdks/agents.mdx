@@ -137,6 +137,27 @@ export const triageAgent = strait.agent({
 });
 ```
 
+`strait.agent()` also accepts `handler` as an alias for `run`, and budget strings such as `"$5.00"` are normalized into microusd limits automatically.
+
+## AI Step Primitives
+
+For local orchestration wrappers that sit above the raw provider adapters, use `createAIStep()`:
+
+```ts
+import { createAIStep, StraitContext } from "@strait/agents-sdk";
+
+const ctx = StraitContext.fromEnv();
+const ai = createAIStep(ctx);
+
+await ai.wrap("summarize", Promise.resolve({ ok: true }));
+```
+
+The helper exposes three local-first primitives:
+
+- `ai.wrap()` for checkpointed async work
+- `ai.infer()` for provider-agnostic OpenAI and Anthropic inference
+- `ai.agentLoop()` for checkpointed tool-loop execution through wrapped clients
+
 ## Workflow Helpers
 
 The SDK includes agent-oriented workflow helpers:
@@ -212,11 +233,11 @@ This framework is local-only and intentionally generic. You provide the executor
 
 ## Provider Adapters
 
-The package also includes adapter wrappers for:
+The package includes tree-shakeable adapter wrappers for:
 
-- Vercel AI SDK
-- OpenAI
-- Anthropic
+- `@strait/agents-sdk/ai-sdk`
+- `@strait/agents-sdk/openai`
+- `@strait/agents-sdk/anthropic`
 
 These adapters preserve the provider client surface while adding:
 
@@ -225,6 +246,50 @@ These adapters preserve the provider client surface while adding:
 - stream chunk reporting
 - tool-call telemetry
 - checkpoint integration
+
+### Vercel AI SDK
+
+```ts
+import { withStrait, budgetExceeded, straitTelemetry } from "@strait/agents-sdk/ai-sdk";
+
+const wrappedModel = withStrait(model, { context: ctx, streamId: "assistant" });
+
+const stopWhen = [budgetExceeded("$5.00")];
+const telemetry = straitTelemetry({ context: ctx, streamId: "assistant" });
+```
+
+The AI SDK adapter also ships:
+
+- `straitTelemetry()` for passive lifecycle hooks
+- `budgetExceeded()` for `stopWhen`
+- `autoBudget()` for model switching near budget thresholds
+- `provider()` for auto-wrapping a custom provider registry
+
+### OpenAI and Anthropic
+
+```ts
+import { withStrait as withOpenAI } from "@strait/agents-sdk/openai";
+import { withStrait as withAnthropic } from "@strait/agents-sdk/anthropic";
+
+const openai = withOpenAI(client, { context: ctx });
+const anthropic = withAnthropic(claude, { context: ctx });
+```
+
+Both proxy wrappers preserve the client shape while adding usage reporting, stream chunk forwarding, budget guards, and checkpointed tool-loop telemetry.
+
+## Sandbox Tools
+
+For tools that should run in the sandboxed execution path, use `createSandboxTool()`:
+
+```ts
+import { createSandboxTool } from "@strait/agents-sdk";
+
+const searchTool = createSandboxTool({
+  name: "web-search",
+  timeoutMs: 30_000,
+  execute: async (input: { query: string }) => ({ query: input.query, ok: true }),
+});
+```
 
 ## Retry Behavior
 

@@ -1,6 +1,7 @@
 import { BudgetLedger } from "./budget";
 import { StraitSDKError } from "./errors";
 import { StraitHTTPClient } from "./http";
+import { normalizeBudgetInput } from "./internal";
 import { defaultPricingCatalog, normalizeUsageReport } from "./pricing";
 import type {
   BudgetSnapshot,
@@ -124,7 +125,7 @@ export class StraitContext {
     this.runId = assertNonEmptyString(options.runId, "runId");
     this.#client = new StraitHTTPClient(options);
     this.#pricingCatalog = options.pricingCatalog ?? defaultPricingCatalog;
-    this.#budget = new BudgetLedger(options.budget);
+    this.#budget = new BudgetLedger(normalizeBudgetInput(options.budget));
     this.run = {
       state: this.#createStateScope("/state"),
     };
@@ -188,6 +189,10 @@ export class StraitContext {
 
   budgetSnapshot(): BudgetSnapshot {
     return this.#budget.snapshot();
+  }
+
+  budgetExceeded(): void {
+    this.#budget.assertWithinLimits();
   }
 
   heartbeat(signal?: AbortSignal): Promise<{ status: string }> {

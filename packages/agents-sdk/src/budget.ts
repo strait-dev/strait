@@ -84,6 +84,49 @@ export class BudgetLedger {
     return this.snapshot();
   }
 
+  assertWithinLimits(): BudgetSnapshot {
+    if (
+      this.#limits.maxTokens != null &&
+      this.#limits.maxTokens > 0 &&
+      this.#totals.totalTokens >= this.#limits.maxTokens
+    ) {
+      throw new BudgetExceededError(
+        "tokens",
+        this.#limits.maxTokens,
+        this.#totals.totalTokens,
+        0
+      );
+    }
+
+    if (
+      this.#limits.maxCostMicrousd != null &&
+      this.#limits.maxCostMicrousd > 0 &&
+      this.#totals.costMicrousd >= this.#limits.maxCostMicrousd
+    ) {
+      throw new BudgetExceededError(
+        "cost",
+        this.#limits.maxCostMicrousd,
+        this.#totals.costMicrousd,
+        0
+      );
+    }
+
+    if (
+      this.#limits.maxToolCalls != null &&
+      this.#limits.maxToolCalls > 0 &&
+      this.#toolCalls >= this.#limits.maxToolCalls
+    ) {
+      throw new BudgetExceededError(
+        "tool_calls",
+        this.#limits.maxToolCalls,
+        this.#toolCalls,
+        0
+      );
+    }
+
+    return this.snapshot();
+  }
+
   snapshot(): BudgetSnapshot {
     return {
       ...this.#totals,

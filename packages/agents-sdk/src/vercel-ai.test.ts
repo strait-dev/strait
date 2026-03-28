@@ -142,13 +142,23 @@ describe("createVercelAIAdapter", () => {
     expect(result).toEqual({
       text: "done",
     });
-    expect(reportUsage).toHaveBeenCalledWith({
-      provider: "openai",
-      model: "gpt-4.1",
-      promptTokens: 12,
-      completionTokens: 8,
-      totalTokens: 20,
-    });
+    expect(reportUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+        model: "gpt-4.1",
+        promptTokens: 12,
+        completionTokens: 8,
+        totalTokens: 20,
+        promptTokenDetails: {
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        completionTokenDetails: {
+          reasoningTokens: 0,
+          textTokens: 8,
+        },
+      })
+    );
     expect(reportToolCall).toHaveBeenCalledWith({
       toolName: "search",
       input: {
@@ -170,7 +180,11 @@ describe("createVercelAIAdapter", () => {
     );
     expect(onStepFinish).toHaveBeenCalledWith(stepEvent);
     expect(onToolCallFinish).toHaveBeenCalledTimes(1);
-    expect(stream).not.toHaveBeenCalled();
+    expect(stream).toHaveBeenCalledWith({
+      chunk: "",
+      done: true,
+      streamId: undefined,
+    });
   });
 
   it("wraps streamText and forwards streamed deltas", async () => {

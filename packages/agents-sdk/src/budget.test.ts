@@ -79,4 +79,21 @@ describe("BudgetLedger", () => {
     );
     expect(ledger.snapshot().toolCalls).toBe(1);
   });
+
+  it("fails fast when a new call starts after the cost budget is exhausted", () => {
+    const ledger = new BudgetLedger({
+      maxCostMicrousd: 100,
+    });
+
+    ledger.recordUsage({
+      provider: "local",
+      model: "local-agent",
+      promptTokens: 4,
+      completionTokens: 6,
+      totalTokens: 10,
+      costMicrousd: 100,
+    });
+
+    expect(() => ledger.assertWithinLimits()).toThrow(BudgetExceededError);
+  });
 });

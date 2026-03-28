@@ -14,6 +14,60 @@ const defaultEntries = [
     outputCostMicrousd: 10,
     aliases: ["local"],
   },
+  {
+    provider: "openai",
+    model: "gpt-4.1",
+    inputCostMicrousd: 2,
+    outputCostMicrousd: 8,
+    aliases: ["gpt-4.1-2025-04-14"],
+  },
+  {
+    provider: "openai",
+    model: "gpt-4.1-mini",
+    inputCostMicrousd: 0.4,
+    outputCostMicrousd: 1.6,
+  },
+  {
+    provider: "openai",
+    model: "gpt-4o",
+    inputCostMicrousd: 2.5,
+    outputCostMicrousd: 10,
+    aliases: ["gpt-4o-2024-11-20"],
+  },
+  {
+    provider: "openai",
+    model: "gpt-4o-mini",
+    inputCostMicrousd: 0.15,
+    outputCostMicrousd: 0.6,
+  },
+  {
+    provider: "anthropic",
+    model: "claude-sonnet-4-5",
+    inputCostMicrousd: 3,
+    outputCostMicrousd: 15,
+    aliases: ["claude-sonnet-4-5-20250929", "claude-sonnet-4-20250514"],
+  },
+  {
+    provider: "anthropic",
+    model: "claude-opus-4",
+    inputCostMicrousd: 15,
+    outputCostMicrousd: 75,
+    aliases: ["claude-opus-4-20250514"],
+  },
+  {
+    provider: "google",
+    model: "gemini-2.5-pro",
+    inputCostMicrousd: 1.25,
+    outputCostMicrousd: 10,
+    aliases: ["gemini-2.5-pro-preview-05-06"],
+  },
+  {
+    provider: "google",
+    model: "gemini-2.5-flash",
+    inputCostMicrousd: 0.3,
+    outputCostMicrousd: 2.5,
+    aliases: ["gemini-2.5-flash-preview-05-20"],
+  },
 ] as const satisfies PricingCatalog;
 
 function normalizeKeyPart(value: string, field: string): string {
@@ -24,9 +78,9 @@ function normalizeKeyPart(value: string, field: string): string {
   return normalized;
 }
 
-function assertNonNegativeInt(value: number, field: string): void {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new StraitSDKError(`${field} must be a non-negative integer`);
+function assertNonNegativeNumber(value: number, field: string): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new StraitSDKError(`${field} must be a non-negative number`);
   }
 }
 
@@ -44,8 +98,11 @@ export function createPricingCatalog(entries: PricingCatalog): PricingCatalog {
   const seen = new Set<string>();
   return entries.map((entry) => {
     const normalized = cloneEntry(entry);
-    assertNonNegativeInt(normalized.inputCostMicrousd, "inputCostMicrousd");
-    assertNonNegativeInt(normalized.outputCostMicrousd, "outputCostMicrousd");
+    assertNonNegativeNumber(normalized.inputCostMicrousd, "inputCostMicrousd");
+    assertNonNegativeNumber(
+      normalized.outputCostMicrousd,
+      "outputCostMicrousd"
+    );
 
     const keys = [normalized.model, ...(normalized.aliases ?? [])];
     for (const key of keys) {
@@ -101,17 +158,17 @@ export function estimateUsageCostMicrousd(
   >,
   catalog: PricingCatalog = defaultPricingCatalog
 ): number | null {
-  assertNonNegativeInt(usage.promptTokens, "promptTokens");
-  assertNonNegativeInt(usage.completionTokens, "completionTokens");
+  assertNonNegativeNumber(usage.promptTokens, "promptTokens");
+  assertNonNegativeNumber(usage.completionTokens, "completionTokens");
 
   const entry = lookupPricing(catalog, usage.provider, usage.model);
   if (entry == null) {
     return null;
   }
 
-  return (
+  return Math.round(
     usage.promptTokens * entry.inputCostMicrousd +
-    usage.completionTokens * entry.outputCostMicrousd
+      usage.completionTokens * entry.outputCostMicrousd
   );
 }
 
@@ -122,12 +179,12 @@ export function normalizeUsageReport(
   const provider = normalizeKeyPart(usage.provider, "provider");
   const model = normalizeKeyPart(usage.model, "model");
 
-  assertNonNegativeInt(usage.promptTokens, "promptTokens");
-  assertNonNegativeInt(usage.completionTokens, "completionTokens");
+  assertNonNegativeNumber(usage.promptTokens, "promptTokens");
+  assertNonNegativeNumber(usage.completionTokens, "completionTokens");
 
   const totalTokens =
     usage.totalTokens ?? usage.promptTokens + usage.completionTokens;
-  assertNonNegativeInt(totalTokens, "totalTokens");
+  assertNonNegativeNumber(totalTokens, "totalTokens");
 
   const estimatedCost = estimateUsageCostMicrousd(
     {
@@ -140,7 +197,7 @@ export function normalizeUsageReport(
   );
 
   const costMicrousd = usage.costMicrousd ?? estimatedCost ?? 0;
-  assertNonNegativeInt(costMicrousd, "costMicrousd");
+  assertNonNegativeNumber(costMicrousd, "costMicrousd");
 
   return {
     provider,

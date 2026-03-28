@@ -100,13 +100,15 @@ describe("createOpenAIAdapter", () => {
         total_tokens: 18,
       },
     });
-    expect(reportUsage).toHaveBeenCalledWith({
-      provider: "openai",
-      model: "gpt-4.1",
-      promptTokens: 11,
-      completionTokens: 7,
-      totalTokens: 18,
-    });
+    expect(reportUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+        model: "gpt-4.1",
+        promptTokens: 11,
+        completionTokens: 7,
+        totalTokens: 18,
+      })
+    );
     expect(adapter.foo).toBe("bar");
   });
 
@@ -163,13 +165,15 @@ describe("createOpenAIAdapter", () => {
       streamId: undefined,
       done: true,
     });
-    expect(reportUsage).toHaveBeenCalledWith({
-      provider: "openai",
-      model: "gpt-4.1",
-      promptTokens: 15,
-      completionTokens: 5,
-      totalTokens: 20,
-    });
+    expect(reportUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+        model: "gpt-4.1",
+        promptTokens: 15,
+        completionTokens: 5,
+        totalTokens: 20,
+      })
+    );
   });
 
   it("wraps runTools and records tool execution plus usage", async () => {
@@ -226,23 +230,27 @@ describe("createOpenAIAdapter", () => {
     await flushTasks();
 
     expect(result).toBe(runner);
-    expect(reportToolCall).toHaveBeenCalledWith({
-      toolName: "search",
-      input: {
-        query: "weather",
-      },
-      output: {
-        city: "Madrid",
-      },
-      status: "completed",
-    });
-    expect(reportUsage).toHaveBeenCalledWith({
-      provider: "openai",
-      model: "gpt-4.1",
-      promptTokens: 21,
-      completionTokens: 13,
-      totalTokens: 34,
-    });
+    expect(reportToolCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "search",
+        input: {
+          query: "weather",
+        },
+        output: {
+          city: "Madrid",
+        },
+        status: "completed",
+      })
+    );
+    expect(reportUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+        model: "gpt-4.1",
+        promptTokens: 21,
+        completionTokens: 13,
+        totalTokens: 34,
+      })
+    );
     expect(reportStream).toHaveBeenNthCalledWith(1, {
       chunk: "thinking",
       streamId: "tool-runner",
