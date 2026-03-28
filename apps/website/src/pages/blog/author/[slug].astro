@@ -29,7 +29,7 @@ type Author = {
 export async function getStaticPaths() {
 	let allPosts: any[] = [];
 	try {
-		const data = await basehub({ cache: "no-store" }).query({
+		const data = await basehub({ token: import.meta.env.BASEHUB_TOKEN, cache: "no-store" }).query({
 			website: {
 				blog: {
 					posts: {

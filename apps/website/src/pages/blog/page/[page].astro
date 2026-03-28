@@ -14,7 +14,7 @@ const POSTS_PER_PAGE = 8;
 export async function getStaticPaths() {
 	let totalCount = 0;
 	try {
-		const countData = await basehub({ cache: "no-store" }).query({
+		const countData = await basehub({ token: import.meta.env.BASEHUB_TOKEN, cache: "no-store" }).query({
 			website: { blog: { posts: { _meta: { totalCount: true } } } },
 		});
 		totalCount = (countData as any).website.blog.posts._meta.totalCount;
@@ -43,7 +43,7 @@ const skip = (currentPage - 1) * POSTS_PER_PAGE;
 let posts: any[] = [];
 
 try {
-	const data = await basehub().query({
+	const data = await basehub({ token: import.meta.env.BASEHUB_TOKEN }).query({
 		website: {
 			blog: {
 				posts: {
