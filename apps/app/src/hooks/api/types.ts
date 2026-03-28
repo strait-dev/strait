@@ -67,6 +67,11 @@ export type AgentDeployment = Schema["AgentDeployment"];
 /** Job run. */
 export type JobRun = Schema["JobRun"];
 
+/** Usage record emitted for a run. */
+export type RunUsage = Schema["RunUsage"];
+
+/** Job group. */
+export type JobGroup = Schema["JobGroup"];
 /** Workflow step (node in a workflow DAG). */
 export type WorkflowStep = Schema["WorkflowStep"];
 

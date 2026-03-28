@@ -101,6 +101,7 @@ export const queryKeys = createQueryKeyStore({
   agents: {
     list: (search?: ListAgentsSearch) => [{ search }],
     detail: (id: string) => [id],
+    costs: (agentId: string) => [agentId, "costs"],
     runs: (agentId: string, search?: ListParams) => [agentId, { search }],
   },
 

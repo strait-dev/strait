@@ -23,7 +23,20 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { useMemo, useState } from "react";
+import type { AgentCostSummary } from "@/components/agents/agent-cost-utils";
+import ChartTooltip from "@/components/dashboard/chart-tooltip";
 import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
@@ -35,12 +48,14 @@ import StatusBadge from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type { Agent, DisplayStatus, JobRun } from "@/hooks/api/types";
+import { agentCostSummaryQueryOptions } from "@/hooks/api/use-agent-costs";
 import {
   agentQueryOptions,
   agentRunsQueryOptions,
   useDeployAgent,
   useRunAgent,
 } from "@/hooks/api/use-agents";
+import { formatMicroUsd } from "@/lib/format";
 import {
   ActivityIcon,
   BriefcaseIcon,
@@ -50,6 +65,7 @@ import {
   SparklesIcon,
   TagIcon,
 } from "@/lib/icons";
+import { CHART_COLORS } from "@/lib/status-colors";
 
 export const Route = createFileRoute("/app/agents/$id")({
   loader: async ({ context, params }) => {
@@ -58,6 +74,7 @@ export const Route = createFileRoute("/app/agents/$id")({
       context.queryClient.ensureQueryData(
         agentRunsQueryOptions(params.id, { limit: 50 })
       ),
+      context.queryClient.ensureQueryData(agentCostSummaryQueryOptions(params.id)),
     ]);
   },
   pendingComponent: DetailPageSkeleton,
@@ -67,6 +84,21 @@ export const Route = createFileRoute("/app/agents/$id")({
 
 const formatDateTime = (value: string | undefined) =>
   value ? new Date(value).toLocaleString() : "-";
+
+const COST_LABEL_MAP = {
+  cost_microusd: {
+    color: CHART_COLORS.active,
+    format: formatMicroUsd,
+    label: "Cost",
+  },
+};
+
+const TOKEN_LABEL_MAP = {
+  total_tokens: {
+    color: CHART_COLORS.warning,
+    label: "Tokens",
+  },
+};
 
 const StatCard = ({ label, value }: { label: string; value: string | number }) => {
   return (
@@ -89,10 +121,19 @@ function AgentDetailPage() {
   const { data: agent } = useSuspenseQuery(agentQueryOptions(id)) as {
     data: Agent | undefined;
   };
-  const { data: agentRuns } = useSuspenseQuery(
-    agentRunsQueryOptions(id, { limit: 50 })
-  ) as {
+  const { data: agentRuns } = useSuspenseQuery({
+    ...agentRunsQueryOptions(id, { limit: 50 }),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+  }) as {
     data: JobRun[] | undefined;
+  };
+  const { data: costSummary } = useSuspenseQuery({
+    ...agentCostSummaryQueryOptions(id),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+  }) as {
+    data: AgentCostSummary;
   };
   const deployAgent = useDeployAgent();
   const runAgent = useRunAgent();
@@ -103,6 +144,7 @@ function AgentDetailPage() {
 
   const runs = agentRuns ?? [];
   const summary = useMemo(() => summarizeAgentRuns(runs), [runs]);
+  const liveRefresh = summary.activeRuns > 0;
 
   const table = useReactTable({
     data: runs,
@@ -136,6 +178,7 @@ function AgentDetailPage() {
               {agent.name}
             </h1>
             <Badge variant="outline">{agent.model}</Badge>
+            {liveRefresh && <Badge variant="secondary">Live refresh: 5s</Badge>}
             <code className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
               {agent.slug}
             </code>
@@ -184,6 +227,7 @@ function AgentDetailPage() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="runs">Recent Runs</TabsTrigger>
+          <TabsTrigger value="costs">Costs</TabsTrigger>
           <TabsTrigger value="config">Config</TabsTrigger>
         </TabsList>
 
@@ -324,6 +368,172 @@ function AgentDetailPage() {
               table={table}
             />
           </div>
+        </TabsContent>
+
+        <TabsContent className="mt-6 space-y-6" value="costs">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label="Total AI Cost"
+              value={formatMicroUsd(costSummary.total_cost_microusd)}
+            />
+            <StatCard
+              label="Average / Run"
+              value={formatMicroUsd(costSummary.average_cost_microusd)}
+            />
+            <StatCard
+              label="Total Tokens"
+              value={costSummary.total_tokens.toLocaleString()}
+            />
+            <StatCard
+              label="Latest Run Cost"
+              value={formatMicroUsd(costSummary.latest_run_cost_microusd)}
+            />
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+            <Card>
+              <CardHeader>
+                <CardTitle>Daily Cost Trend</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {costSummary.daily.length > 0 ? (
+                  <div className="h-[260px]">
+                    <ResponsiveContainer height="100%" width="100%">
+                      <AreaChart data={costSummary.daily}>
+                        <CartesianGrid
+                          className="stroke-border"
+                          strokeDasharray="3 3"
+                        />
+                        <XAxis dataKey="date" tickLine={false} />
+                        <YAxis
+                          tickFormatter={(value) => formatMicroUsd(value)}
+                          tickLine={false}
+                          width={90}
+                        />
+                        <Tooltip content={<ChartTooltip labelMap={COST_LABEL_MAP} />} />
+                        <Area
+                          dataKey="cost_microusd"
+                          fill={CHART_COLORS.active}
+                          fillOpacity={0.18}
+                          stroke={CHART_COLORS.active}
+                          strokeWidth={2}
+                          type="monotone"
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <TableEmptyState
+                    description="Cost trend data will appear once runs report usage."
+                    hideButton
+                    icon={
+                      <HugeiconsIcon
+                        className="size-6 text-foreground"
+                        icon={ActivityIcon}
+                      />
+                    }
+                    title="No usage data yet"
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Provider Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {costSummary.providers.length > 0 ? (
+                  <div className="space-y-4">
+                    <div className="h-[220px]">
+                      <ResponsiveContainer height="100%" width="100%">
+                        <BarChart data={costSummary.providers}>
+                          <CartesianGrid
+                            className="stroke-border"
+                            strokeDasharray="3 3"
+                          />
+                          <XAxis dataKey="provider" tickLine={false} />
+                          <YAxis
+                            tickFormatter={(value) => formatMicroUsd(value)}
+                            tickLine={false}
+                            width={90}
+                          />
+                          <Tooltip
+                            content={<ChartTooltip labelMap={COST_LABEL_MAP} />}
+                          />
+                          <Bar
+                            dataKey="cost_microusd"
+                            fill={CHART_COLORS.active}
+                            radius={[4, 4, 0, 0]}
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="space-y-2">
+                      {costSummary.providers.map((provider) => (
+                        <div
+                          className="flex items-center justify-between text-sm"
+                          key={provider.provider}
+                        >
+                          <span className="text-muted-foreground capitalize">
+                            {provider.provider}
+                          </span>
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-muted-foreground text-xs">
+                              {provider.total_tokens.toLocaleString()} tokens
+                            </span>
+                            <span className="font-medium">
+                              {formatMicroUsd(provider.cost_microusd)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <TableEmptyState
+                    description="Provider and token breakdowns will populate as usage records arrive."
+                    hideButton
+                    icon={
+                      <HugeiconsIcon
+                        className="size-6 text-foreground"
+                        icon={SparklesIcon}
+                      />
+                    }
+                    title="No provider data yet"
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {costSummary.daily.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Daily Token Volume</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[220px]">
+                  <ResponsiveContainer height="100%" width="100%">
+                    <BarChart data={costSummary.daily}>
+                      <CartesianGrid
+                        className="stroke-border"
+                        strokeDasharray="3 3"
+                      />
+                      <XAxis dataKey="date" tickLine={false} />
+                      <YAxis tickLine={false} width={90} />
+                      <Tooltip content={<ChartTooltip labelMap={TOKEN_LABEL_MAP} />} />
+                      <Bar
+                        dataKey="total_tokens"
+                        fill={CHART_COLORS.warning}
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent className="mt-6" value="config">
