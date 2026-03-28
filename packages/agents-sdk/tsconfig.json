@@ -1,0 +1,9 @@
+{
+  "extends": "../config/base.json",
+  "display": "@strait/agents-sdk",
+  "compilerOptions": {
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["."],
+  "exclude": ["node_modules", "coverage", "dist"]
+}

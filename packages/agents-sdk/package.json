@@ -1,0 +1,31 @@
+{
+  "name": "@strait/agents-sdk",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rm -rf .turbo coverage node_modules",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "biome:lint": "biome lint .",
+    "biome:format": "biome format --write .",
+    "biome:write": "biome check --write .",
+    "biome:fix:unsafe": "biome check --fix --unsafe .",
+    "typecheck": "tsgo --noEmit"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent": "./src/agent.ts",
+    "./budget": "./src/budget.ts",
+    "./context": "./src/context.ts",
+    "./errors": "./src/errors.ts",
+    "./pricing": "./src/pricing.ts",
+    "./types": "./src/types.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260326.1",
+    "vitest": "^4.1.1"
+  }
+}

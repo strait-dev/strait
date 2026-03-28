@@ -165,6 +165,15 @@
         "vitest": "^4.1.2",
       },
     },
+    "packages/agents-sdk": {
+      "name": "@strait/agents-sdk",
+      "version": "1.0.0",
+      "devDependencies": {
+        "@types/node": "^25.5.0",
+        "@typescript/native-preview": "^7.0.0-dev.20260326.1",
+        "vitest": "^4.1.1",
+      },
+    },
     "packages/billing": {
       "name": "@strait/billing",
       "version": "0.1.0",
@@ -1554,6 +1563,8 @@
     "@standard-schema/utils": ["@standard-schema/utils@0.3.0", "", {}, "sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g=="],
 
     "@strait/agents": ["@strait/agents@workspace:apps/agents"],
+
+    "@strait/agents-sdk": ["@strait/agents-sdk@workspace:packages/agents-sdk"],
 
     "@strait/app": ["@strait/app@workspace:apps/app"],
 
