@@ -168,12 +168,11 @@ function RouteComponent() {
     }
 
     const utm = consumeUtmParams();
-    if (utm) {
-      const setOnce = utmToSetOnce(utm);
-      if (Object.keys(setOnce).length > 0) {
-        posthog.setPersonProperties({}, setOnce);
-      }
-    }
+    const setOnce: Record<string, string> = {
+      initial_signup_date: new Date().toISOString(),
+      ...(utm ? utmToSetOnce(utm) : {}),
+    };
+    posthog.setPersonProperties({}, setOnce);
 
     hasIdentifiedRef.current = true;
   }, [posthog, session, subscription, subscriptionState]);

@@ -53,10 +53,13 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
       }
 
       const utm = consumeUtmParams();
-      const setOnce = utm ? utmToSetOnce(utm) : {};
+      const setOnce: Record<string, string> = {
+        initial_signup_date: new Date().toISOString(),
+        ...(utm ? utmToSetOnce(utm) : {}),
+      };
       getPostHog()?.capture("auth_signed_up", {
         method: "email",
-        ...(Object.keys(setOnce).length > 0 ? { $set_once: setOnce } : {}),
+        $set_once: setOnce,
       });
       setEmailSent(true);
     },
