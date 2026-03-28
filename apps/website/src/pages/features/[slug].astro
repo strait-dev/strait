@@ -1,13 +1,7 @@
 ---
+import CTA from "@/components/CTA.astro";
 import JsonLd from "@/components/JsonLd.astro";
-import Reveal from "@/components/landing/reveal.tsx";
-import {
-  StaggerGroup,
-  StaggerItem,
-} from "@/components/landing/stagger-group.tsx";
-import CTA from "@/components/landing-page/common/cta/cta.tsx";
 import Shell from "@/components/layout/shell.tsx";
-import MockBrowserWindow from "@/components/magicui/mock-browser-window.tsx";
 import SEO from "@/components/SEO.astro";
 import {
   FEATURE_PAGES,
@@ -67,12 +61,10 @@ const related = feature.relatedSlugs
 
       <div class="max-w-3xl">
         <span class="kicker">{feature.name}</span>
-        <Reveal client:only="react" variant="blur">
-          <h1 class="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
-            <span class="text-foreground">{feature.headline}</span>{" "}
-            <span class="text-muted-foreground">{feature.subheadline}</span>
-          </h1>
-        </Reveal>
+        <h1 class="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
+          <span class="text-foreground">{feature.headline}</span>{" "}
+          <span class="text-muted-foreground">{feature.subheadline}</span>
+        </h1>
         <p class="mt-6 max-w-2xl text-lg text-muted-foreground/70 leading-relaxed">
           {feature.description}
         </p>
@@ -95,16 +87,16 @@ const related = feature.relatedSlugs
   <section class="border-border/40 border-y py-16 sm:py-20">
     <Shell variant="wide">
       <h2 class="mb-10 text-2xl sm:text-3xl">Technical specs</h2>
-      <StaggerGroup client:only="react" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {feature.specs.map((spec) => (
-          <StaggerItem>
+          <div>
             <div class="rounded-xl border border-border/60 bg-card p-5">
               <p class="text-muted-foreground text-sm">{spec.label}</p>
               <p class="mt-1 font-medium text-foreground">{spec.value}</p>
             </div>
-          </StaggerItem>
+          </div>
         ))}
-      </StaggerGroup>
+      </div>
     </Shell>
   </section>
 
@@ -112,13 +104,19 @@ const related = feature.relatedSlugs
   <section class="py-16 sm:py-20">
     <Shell variant="wide">
       <h2 class="mb-2 text-2xl sm:text-3xl">{feature.codeExample.title}</h2>
-      <Reveal client:only="react" variant="scale">
-        <MockBrowserWindow className="mt-8" url={`main.${feature.codeExample.language}`}>
-          <pre class="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
-            <code class="text-foreground/80">{feature.codeExample.code}</code>
-          </pre>
-        </MockBrowserWindow>
-      </Reveal>
+      <div class="mt-8 overflow-hidden rounded-2xl border border-border/60 bg-muted/40">
+        <div class="flex items-center justify-between border-border/50 border-b px-4 py-3">
+          <div class="flex items-center gap-1.5">
+            <span class="size-3 rounded-full bg-[#FF5F57]" />
+            <span class="size-3 rounded-full bg-[#FEBC2E]" />
+            <span class="size-3 rounded-full bg-[#28C840]" />
+            <span class="ml-3 text-muted-foreground/50 text-xs">{`main.${feature.codeExample.language}`}</span>
+          </div>
+        </div>
+        <pre class="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
+          <code class="text-foreground/80">{feature.codeExample.code}</code>
+        </pre>
+      </div>
     </Shell>
   </section>
 
@@ -127,9 +125,9 @@ const related = feature.relatedSlugs
     <section class="border-border/40 border-t py-16 sm:py-20">
       <Shell variant="wide">
         <h2 class="mb-8 text-2xl sm:text-3xl">Related features</h2>
-        <StaggerGroup client:only="react" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {related.map((r) => r && (
-            <StaggerItem>
+            <div>
               <a
                 class="group block rounded-xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md"
                 href={`/features/${r.slug}`}
@@ -137,15 +135,14 @@ const related = feature.relatedSlugs
                 <h3 class="font-semibold text-foreground group-hover:text-primary">{r.name}</h3>
                 <p class="mt-2 text-muted-foreground text-sm leading-relaxed">{r.subheadline}</p>
               </a>
-            </StaggerItem>
+            </div>
           ))}
-        </StaggerGroup>
+        </div>
       </Shell>
     </section>
   )}
 
   <CTA
-    client:only="react"
     description="Deploy your first workflow in under 10 minutes."
     heading={`Ready to try ${feature.name}?`}
     showInstallSnippet={false}

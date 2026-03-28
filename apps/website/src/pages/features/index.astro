@@ -1,10 +1,5 @@
 ---
-import Reveal from "@/components/landing/reveal.tsx";
-import {
-  StaggerGroup,
-  StaggerItem,
-} from "@/components/landing/stagger-group.tsx";
-import CTA from "@/components/landing-page/common/cta/cta.tsx";
+import CTA from "@/components/CTA.astro";
 import Shell from "@/components/layout/shell.tsx";
 import SEO from "@/components/SEO.astro";
 import { FEATURE_PAGES } from "@/data/features.ts";
@@ -27,13 +22,11 @@ import LandingLayout from "@/layouts/LandingLayout.astro";
     <Shell variant="wide">
       <div class="max-w-3xl">
         <span class="kicker">Features</span>
-        <Reveal client:only="react" variant="blur">
-          <h1 class="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
-            <span class="text-foreground">
-              Everything you need to run production workflows.
-            </span>
-          </h1>
-        </Reveal>
+        <h1 class="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
+          <span class="text-foreground">
+            Everything you need to run production workflows.
+          </span>
+        </h1>
         <p class="mt-6 max-w-2xl text-lg text-muted-foreground/70 leading-relaxed">
           A complete runtime with queueing, orchestration, and operations
           built in. Not a framework — a production-grade platform.
@@ -44,9 +37,9 @@ import LandingLayout from "@/layouts/LandingLayout.astro";
 
   <section class="py-16 sm:py-20">
     <Shell variant="wide">
-      <StaggerGroup client:only="react" className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {FEATURE_PAGES.map((feature) => (
-          <StaggerItem>
+          <div>
             <a
               class="group flex h-full flex-col rounded-2xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md sm:p-8"
               href={`/features/${feature.slug}`}
@@ -67,14 +60,13 @@ import LandingLayout from "@/layouts/LandingLayout.astro";
                 </svg>
               </div>
             </a>
-          </StaggerItem>
+          </div>
         ))}
-      </StaggerGroup>
+      </div>
     </Shell>
   </section>
 
   <CTA
-    client:only="react"
     description="Zero-broker, production-grade from the first run."
     heading="Ready to deploy your first workflow?"
     showInstallSnippet={false}
