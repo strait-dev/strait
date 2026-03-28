@@ -1,0 +1,131 @@
+name: Sync SDK/CLI/MCP Docs
+
+on:
+  # Triggered by external SDK repos via repository_dispatch
+  repository_dispatch:
+    types: [sync-docs]
+  # Manual trigger
+  workflow_dispatch:
+  # Also run on schedule to catch any missed updates
+  schedule:
+    - cron: "0 */6 * * *" # Every 6 hours
+
+permissions:
+  contents: write
+
+env:
+  GH_ORG: strait-dev
+
+jobs:
+  sync:
+    name: Sync docs from SDK repos
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync TypeScript SDK docs
+        continue-on-error: true
+        run: |
+          rm -rf /tmp/sdk-docs
+          git clone --depth 1 --sparse https://github.com/$GH_ORG/strait-ts-sdk.git /tmp/sdk-docs/ts 2>/dev/null || true
+          if [ -d "/tmp/sdk-docs/ts/docs" ]; then
+            mkdir -p apps/docs/sdks/typescript
+            cp /tmp/sdk-docs/ts/docs/*.mdx apps/docs/sdks/typescript/ 2>/dev/null || true
+            echo "Synced TypeScript SDK docs"
+          else
+            echo "No docs/ directory in strait-ts-sdk"
+          fi
+
+      - name: Sync Python SDK docs
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --sparse https://github.com/$GH_ORG/strait-python-sdk.git /tmp/sdk-docs/py 2>/dev/null || true
+          if [ -d "/tmp/sdk-docs/py/docs" ]; then
+            mkdir -p apps/docs/sdks/python
+            cp /tmp/sdk-docs/py/docs/*.mdx apps/docs/sdks/python/ 2>/dev/null || true
+            echo "Synced Python SDK docs"
+          else
+            echo "No docs/ directory in strait-python-sdk"
+          fi
+
+      - name: Sync Go SDK docs
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --sparse https://github.com/$GH_ORG/strait-go-sdk.git /tmp/sdk-docs/go 2>/dev/null || true
+          if [ -d "/tmp/sdk-docs/go/docs" ]; then
+            mkdir -p apps/docs/sdks/go
+            cp /tmp/sdk-docs/go/docs/*.mdx apps/docs/sdks/go/ 2>/dev/null || true
+            echo "Synced Go SDK docs"
+          else
+            echo "No docs/ directory in strait-go-sdk"
+          fi
+
+      - name: Sync Ruby SDK docs
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --sparse https://github.com/$GH_ORG/strait-ruby-sdk.git /tmp/sdk-docs/rb 2>/dev/null || true
+          if [ -d "/tmp/sdk-docs/rb/docs" ]; then
+            mkdir -p apps/docs/sdks/ruby
+            cp /tmp/sdk-docs/rb/docs/*.mdx apps/docs/sdks/ruby/ 2>/dev/null || true
+            echo "Synced Ruby SDK docs"
+          else
+            echo "No docs/ directory in strait-ruby-sdk"
+          fi
+
+      - name: Sync Rust SDK docs
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --sparse https://github.com/$GH_ORG/strait-rust-sdk.git /tmp/sdk-docs/rs 2>/dev/null || true
+          if [ -d "/tmp/sdk-docs/rs/docs" ]; then
+            mkdir -p apps/docs/sdks/rust
+            cp /tmp/sdk-docs/rs/docs/*.mdx apps/docs/sdks/rust/ 2>/dev/null || true
+            echo "Synced Rust SDK docs"
+          else
+            echo "No docs/ directory in strait-rust-sdk"
+          fi
+
+      - name: Sync CLI docs
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --sparse https://github.com/$GH_ORG/strait-cli.git /tmp/sdk-docs/cli 2>/dev/null || true
+          if [ -d "/tmp/sdk-docs/cli/docs" ]; then
+            mkdir -p apps/docs/cli
+            cp /tmp/sdk-docs/cli/docs/*.mdx apps/docs/cli/ 2>/dev/null || true
+            echo "Synced CLI docs"
+          else
+            echo "No docs/ directory in strait-cli"
+          fi
+
+      - name: Sync MCP docs
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --sparse https://github.com/$GH_ORG/strait-mcp.git /tmp/sdk-docs/mcp 2>/dev/null || true
+          if [ -d "/tmp/sdk-docs/mcp/docs" ]; then
+            mkdir -p apps/docs/mcp
+            cp /tmp/sdk-docs/mcp/docs/*.mdx apps/docs/mcp/ 2>/dev/null || true
+            echo "Synced MCP docs"
+          else
+            echo "No docs/ directory in strait-mcp"
+          fi
+
+      - name: Check for changes
+        id: check
+        run: |
+          if [ -n "$(git status --porcelain apps/docs/)" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No docs changes to sync"
+          fi
+
+      - name: Commit and push
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apps/docs/
+          git commit -m "docs: sync SDK/CLI/MCP docs from external repos"
+          git push
