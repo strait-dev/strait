@@ -10,12 +10,19 @@
   "favicon": "/favicon.svg",
   "logo": {
     "dark": "/logo/dark.svg",
-    "light": "/logo/light.svg"
+    "light": "/logo/light.svg",
+    "href": "https://strait.dev"
   },
   "metadata": {
     "og:site_name": "Strait Docs",
-    "og:description": "Documentation for Strait, the open-source job orchestration platform.",
-    "twitter:site": "@leonardomso"
+    "og:image": "/images/og.png",
+    "og:description": "Documentation for Strait, the open-source job orchestration platform for background jobs, workflows, and AI agents.",
+    "og:type": "website",
+    "og:locale": "en_US",
+    "twitter:card": "summary_large_image",
+    "twitter:site": "@leonardomso",
+    "twitter:image": "/images/og.png",
+    "robots": "index, follow"
   },
   "navigation": {
     "tabs": [
@@ -228,6 +235,10 @@
     {
       "source": "/docs/development/:slug",
       "destination": "/development/:slug"
+    },
+    {
+      "source": "/configuration/:slug",
+      "destination": "/configuration/:slug"
     }
   ]
 }
