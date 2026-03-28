@@ -1,6 +1,6 @@
-# Strait — Full Reference
+# Strait -- Full Reference
 
-> Open-source job orchestration platform with 13-state FSM, workflow DAGs, smart retry, event triggers, and multi-language SDK support across TypeScript, Python, Go, Ruby, and Rust.
+> Open-source job orchestration platform with 13-state FSM, workflow DAGs, job chaining, saga-pattern compensation, canary deployments, workflow simulation, ClickHouse analytics, full observability, and multi-language SDK support across TypeScript, Python, Go, Ruby, and Rust.
 
 For a quick summary, see: https://strait.dev/llms.txt
 
@@ -12,11 +12,20 @@ Strait is a job orchestration platform that provides:
 - **Scheduler**: Cron-based job scheduling with timezone support
 - **PostgreSQL Queue**: Durable message queue for job runs (PlanetScale compatible)
 - **Redis**: Optional caching and rate limiting (Upstash compatible)
+- **ClickHouse**: Analytics data store with 12 tables and custom exporter for traces and analytics
+- **OpenTelemetry Collector**: Distributed tracing and metrics export
 
 ### Operation Modes
 - `api`: API server only
 - `worker`: Worker executor only
 - `all`: Both API server and worker (default)
+
+### Infrastructure
+- **Primary database**: PostgreSQL (raw SQL with pgx/v5, no ORM)
+- **Analytics database**: ClickHouse (12 tables, custom analytics exporter)
+- **Cache**: Redis (optional, for rate limiting and caching)
+- **Hosting**: Fly.io (apps: strait, strait-sequin, strait-otel-collector)
+- **Observability stack**: Grafana Cloud (metrics + logs), ClickHouse (traces + analytics), Sentry (errors), Better Stack (uptime)
 
 ## Core Concepts
 
@@ -29,12 +38,22 @@ Jobs are durable, retriable units of work. Each job has:
 - Cron scheduling with timezone support
 - Webhook notifications
 
+### Job Chaining
+Jobs can trigger follow-up jobs upon completion or failure:
+- `on_complete_trigger_job`: Job slug to trigger when the current job completes successfully
+- `on_failure_trigger_job`: Job slug to trigger when the current job fails
+- Maximum chain depth: 10 (prevents infinite chains)
+- Chained jobs inherit context from the parent job run
+- Chains can be combined with workflows for complex orchestration patterns
+
 ### Runs
 Runs are individual job executions following a 13-state FSM:
 
-**States**: delayed, queued, dequeued, executing, waiting, completed, failed, timed_out, crashed, system_failed, canceled, expired, dead_letter, replay_staged
+**States**: delayed, queued, dequeued, executing, waiting, completed, failed, timed_out, crashed, system_failed, canceled, expired, dead_letter, replay_staged, compensating, compensated, compensation_failed
 
 **Terminal states**: completed, failed, timed_out, crashed, system_failed, canceled, expired
+
+**Compensation states**: compensating (rollback in progress), compensated (rollback succeeded), compensation_failed (rollback failed)
 
 **Events**: ENQUEUE, DEQUEUE, EXECUTE, COMPLETE, FAIL, TIMEOUT, CRASH, SYSTEM_FAIL, CANCEL, EXPIRE, WAIT, REQUEUE, DEAD_LETTER, REPLAY
 
@@ -47,6 +66,22 @@ Multi-step DAG orchestration with 5 step types:
 - **Sleep**: Fixed delay between steps
 
 Steps support: depends_on (DAG edges), conditions, on_failure actions, retry configuration, timeout overrides, output transforms, concurrency keys, resource classes.
+
+### Compensation (Saga Pattern)
+Strait supports saga-pattern rollback for workflow steps:
+- Each workflow step can specify a `compensation_job_id` that runs if the step or downstream steps fail
+- Compensation jobs execute in reverse order of the original workflow execution
+- Three dedicated states track compensation: `compensating`, `compensated`, `compensation_failed`
+- Compensation is triggered automatically when a workflow step fails and has a compensation job configured
+- Partial compensation is supported -- only steps that completed successfully are compensated
+
+### Durable Workflows
+Workflows track execution progress with duration expectations and notifications:
+- `expected_completion_at`: Timestamp when the workflow run is expected to finish
+- `expected_duration_secs`: Per-step expected duration for progress tracking
+- Stage notifications fire on step transitions (start, complete, fail) for external monitoring
+- Long-running workflows can set timeouts per step and per run
+- Progress tracking allows dashboards and alerts to show completion percentage
 
 ### Event Triggers
 Pub/sub event system supporting:
@@ -61,6 +96,102 @@ Atomic deployment pipeline:
 2. Finalize (validate)
 3. Promote (activate)
 4. Rollback (revert to previous)
+
+### Canary Deployments
+Gradual rollout of new job versions with automatic health monitoring:
+- `canary_deployments` table tracks active canary rollouts
+- Weighted version routing: split traffic between current and canary versions (e.g., 5%, 10%, 25%, 50%, 100%)
+- Health threshold configuration: define success rate and latency thresholds for auto-promotion
+- Auto-promote: canary version is automatically promoted to primary when health thresholds are met
+- Auto-rollback: canary version is automatically rolled back when health degrades below thresholds
+- Manual override: operators can force-promote or force-rollback at any time
+- Integrates with the analytics system for real-time health metrics
+
+### Workflow Simulator
+Test workflows without executing real side effects:
+- **Endpoint**: `POST /v1/workflows/{id}/simulate`
+- **Modes**:
+  - `dry_run`: Validate the workflow DAG and step configuration without executing anything
+  - `sandbox`: Execute workflow steps against sandbox/mock endpoints
+  - `failure_injection`: Simulate specific step failures to test error handling and compensation paths
+- Simulation results include: step execution order, estimated duration, resource usage, and potential failure points
+- Useful for validating workflow changes before deploying to production
+
+### Test Suites
+Automated testing framework for workflows:
+- **Package**: `workflow/testing/`
+- Define test cases with expected inputs, outputs, and step behavior
+- Mock server intercepts HTTP calls and returns predefined responses
+- Assert on step execution order, output data, and state transitions
+- JUnit XML output for CI/CD pipeline integration
+- Test individual steps or entire workflow DAGs
+- Failure scenarios can be defined to test retry and compensation logic
+
+### Workflow Debugger
+Interactive debugging tools for workflow execution:
+- **Package**: `workflow/debugger.go`
+- **Debug view**: Step-by-step execution trace with input/output data at each step
+- **Run comparison**: Compare two workflow runs side by side to identify behavioral differences
+- **Data flow tracking**: Trace data transformations as they flow through workflow steps
+- Integrates with the dashboard for visual debugging
+- Available via API for programmatic debugging in CI environments
+
+## Analytics
+
+### ClickHouse Analytics
+Strait uses ClickHouse as a dedicated analytics data store:
+- **Custom analytics exporter**: Streams execution data from PostgreSQL to ClickHouse
+- **12 tables**: Covering jobs, runs, workflows, steps, events, deployments, and more
+- **32 API endpoints**: All under `/v1/analytics/` for querying analytics data
+- **Query capabilities**: Time-series aggregation, percentile calculations, histograms, top-N queries
+- **Retention**: Configurable retention policies per table
+- **Postgres fallback**: Analytics queries fall back to PostgreSQL when ClickHouse is unavailable
+
+### Analytics API Endpoints (under /v1/analytics/)
+The 32 analytics endpoints cover:
+- Job performance metrics (throughput, latency, success rates)
+- Run distribution by state, job, and time window
+- Workflow execution analytics (step duration, bottleneck identification)
+- Error rate tracking and failure pattern analysis
+- Queue depth and processing lag metrics
+- Resource utilization and cost tracking
+- Custom time-range queries with configurable granularity
+
+## Observability
+
+### Grafana Cloud
+- **Metrics**: Prometheus-compatible metrics exported via OpenTelemetry
+- **Logs**: Structured logs shipped to Grafana Loki
+- **Dashboards**: Pre-built dashboards at https://strait.grafana.net
+- **Alert rules**: Defined in `packages/monitoring/` for automated alerting
+
+### ClickHouse (Traces and Analytics)
+- **Distributed tracing**: OpenTelemetry traces stored in ClickHouse for long-term retention
+- **Analytics queries**: 32 API endpoints for querying execution analytics
+- **Custom exporter**: Streams data from the primary PostgreSQL database
+
+### Sentry
+- **Error tracking**: Automatic capture of panics, unhandled errors, and HTTP errors
+- **Performance monitoring**: Transaction-level tracing for API endpoints
+
+### Better Stack
+- **Uptime monitoring**: Health check endpoints monitored for availability
+- **Incident management**: Automated alerting on downtime
+
+### OpenTelemetry
+- **Collector**: Dedicated `strait-otel-collector` app on Fly.io
+- **Traces**: Distributed tracing across all services
+- **Metrics**: Runtime metrics, job execution metrics, queue depth metrics
+- **Logs**: Structured log correlation with traces
+
+## AI Agent Orchestration
+
+Strait provides first-class support for AI agent workflows:
+- **Cost tracking**: Track LLM API costs per run with `usage` reporting on SDK runs
+- **Tool call management**: Record and monitor tool calls made by AI agents via the `tool-call` SDK run endpoint
+- **Agent workflows**: Build multi-step agent pipelines as workflow DAGs with branching, approval gates, and human-in-the-loop steps
+- **Budget enforcement**: Set cost limits on workflow runs to prevent runaway agent spending
+- **Use case page**: https://strait.dev/use-cases/ai-agent-workflows
 
 ## Dashboard
 
@@ -100,37 +231,37 @@ Configuration (strait.json / env vars / inline)
 ```
 
 ### 19 Domain Services
-1. **Jobs** — CRUD, clone, trigger, bulk trigger, versions, dependencies, batch operations
-2. **Runs** — CRUD, checkpoints, children, debug, DLQ, events, lineage, outputs, replay, tool calls, usage
-3. **Workflows** — CRUD, clone, dry run, plan, simulate, trigger, graph, versions, diff, policy, explain, labels, impact
-4. **Workflow Runs** — CRUD, pause, resume, retry, steps, approve/retry/skip/force-complete/replay-subtree steps
-5. **Deployments** — List, create, finalize, promote, rollback
-6. **Environments** — CRUD, variables
-7. **Secrets** — List, create, delete
-8. **API Keys** — List, create, delete, rotate
-9. **Webhooks** — Subscriptions CRUD, deliveries, retry
-10. **Event Triggers** — Events CRUD, send, send by prefix, purge, stats
-11. **Event Sources** — CRUD, subscribe, subscriptions, dispatch
-12. **Batch Operations** — List, get
-13. **Stats** — List
-14. **Analytics** — Performance metrics
-15. **Log Drains** — CRUD
-16. **SDK Runs** — 13 endpoints: annotate, checkpoint, complete, continue, fail, heartbeat, log, output, progress, spawn, tool-call, usage, wait-for-event
-17. **RBAC** — Audit events, members, roles, resource policies, tag policies, seed
-18. **Job Groups** — CRUD, list jobs, pause/resume all, stats
-19. **Health** — Health check, readiness, metrics
+1. **Jobs** -- CRUD, clone, trigger, bulk trigger, versions, dependencies, batch operations
+2. **Runs** -- CRUD, checkpoints, children, debug, DLQ, events, lineage, outputs, replay, tool calls, usage
+3. **Workflows** -- CRUD, clone, dry run, plan, simulate, trigger, graph, versions, diff, policy, explain, labels, impact
+4. **Workflow Runs** -- CRUD, pause, resume, retry, steps, approve/retry/skip/force-complete/replay-subtree steps
+5. **Deployments** -- List, create, finalize, promote, rollback
+6. **Environments** -- CRUD, variables
+7. **Secrets** -- List, create, delete
+8. **API Keys** -- List, create, delete, rotate
+9. **Webhooks** -- Subscriptions CRUD, deliveries, retry
+10. **Event Triggers** -- Events CRUD, send, send by prefix, purge, stats
+11. **Event Sources** -- CRUD, subscribe, subscriptions, dispatch
+12. **Batch Operations** -- List, get
+13. **Stats** -- List
+14. **Analytics** -- Performance metrics, 32 endpoints under /v1/analytics/
+15. **Log Drains** -- CRUD
+16. **SDK Runs** -- 13 endpoints: annotate, checkpoint, complete, continue, fail, heartbeat, log, output, progress, spawn, tool-call, usage, wait-for-event
+17. **RBAC** -- Audit events, members, roles, resource policies, tag policies, seed
+18. **Job Groups** -- CRUD, list jobs, pause/resume all, stats
+19. **Health** -- Health check, readiness, metrics
 
 ### Error Types (10)
-1. TransportError — Network failures
-2. DecodeError — JSON parse failures
-3. ValidationError — Config/input validation (with issues list)
-4. UnauthorizedError — 401/403 (with status, body)
-5. NotFoundError — 404
-6. ConflictError — 409
-7. RateLimitedError — 429
-8. ApiError — Other HTTP errors
-9. TimeoutError — Polling timeout (with run_id, elapsed_ms)
-10. DagValidationError — DAG issues (cycles, missing_refs, duplicate_refs)
+1. TransportError -- Network failures
+2. DecodeError -- JSON parse failures
+3. ValidationError -- Config/input validation (with issues list)
+4. UnauthorizedError -- 401/403 (with status, body)
+5. NotFoundError -- 404
+6. ConflictError -- 409
+7. RateLimitedError -- 429
+8. ApiError -- Other HTTP errors
+9. TimeoutError -- Polling timeout (with run_id, elapsed_ms)
+10. DagValidationError -- DAG issues (cycles, missing_refs, duplicate_refs)
 
 ## Configuration
 
@@ -144,10 +275,10 @@ Configuration (strait.json / env vars / inline)
 ```
 
 ### Environment Variables
-- `STRAIT_BASE_URL` — API base URL (required)
-- `STRAIT_API_KEY` — API key (required, always from env)
-- `STRAIT_AUTH_TYPE` — Auth type: bearer, apiKey, runToken (default: apiKey)
-- `STRAIT_TIMEOUT_MS` — Request timeout in ms (default: 30000)
+- `STRAIT_BASE_URL` -- API base URL (required)
+- `STRAIT_API_KEY` -- API key (required, always from env)
+- `STRAIT_AUTH_TYPE` -- Auth type: bearer, apiKey, runToken (default: apiKey)
+- `STRAIT_TIMEOUT_MS` -- Request timeout in ms (default: 30000)
 
 Priority: env vars > strait.json > inline options
 
@@ -185,9 +316,147 @@ let client = StraitClient::from_env()?;
 let jobs = client.jobs().list(None).await?;
 ```
 
+### Job Chaining Example (TypeScript)
+```typescript
+import { createClient } from "@strait/sdk";
+const client = createClient({ baseUrl: "...", apiKey: "..." });
+
+// Create a job that chains to another on completion
+await client.jobs.create({
+  slug: "process-payment",
+  endpoint_url: "https://api.example.com/process",
+  on_complete_trigger_job: "send-receipt",
+  on_failure_trigger_job: "notify-payment-failure",
+});
+```
+
+### Workflow with Compensation (TypeScript)
+```typescript
+await client.workflows.create({
+  slug: "order-fulfillment",
+  steps: [
+    {
+      slug: "charge-payment",
+      type: "job",
+      job_slug: "charge-card",
+      compensation_job_id: "refund-card",
+    },
+    {
+      slug: "reserve-inventory",
+      type: "job",
+      job_slug: "reserve-stock",
+      compensation_job_id: "release-stock",
+      depends_on: ["charge-payment"],
+    },
+    {
+      slug: "ship-order",
+      type: "job",
+      job_slug: "create-shipment",
+      depends_on: ["reserve-inventory"],
+    },
+  ],
+});
+```
+
+### Workflow Simulation (TypeScript)
+```typescript
+const result = await client.workflows.simulate("order-fulfillment", {
+  mode: "failure_injection",
+  failure_config: {
+    step_slug: "reserve-inventory",
+    error_type: "timeout",
+  },
+});
+// result contains: step execution order, compensation steps triggered, estimated duration
+```
+
+## Pricing
+
+### Free ($0/mo)
+- For hobby projects and experimentation
+- Limited job runs per month
+- Community support
+
+### Starter ($29/mo)
+- For small teams getting started with job orchestration
+- Higher run limits
+- Email support
+
+### Pro ($99/mo)
+- For growing teams with production workloads
+- Advanced analytics and monitoring
+- Priority support
+- Canary deployments
+- Workflow simulator
+
+### Enterprise (Custom)
+- For large organizations with advanced requirements
+- Unlimited runs
+- Dedicated support
+- Custom SLAs
+- SSO and advanced RBAC
+- On-premise deployment option
+
+Pricing page: https://strait.dev/pricing
+
+## Pages
+
+### Core Pages
+- Homepage: https://strait.dev
+- Pricing: https://strait.dev/pricing
+- Blog: https://strait.dev/blog
+- Documentation: https://docs.strait.dev
+
+### Feature Pages
+- PostgreSQL Queue: https://strait.dev/features/postgresql-queue
+- Workflow DAGs: https://strait.dev/features/workflow-dags
+- Approval Gates: https://strait.dev/features/approval-gates
+- Retries and DLQ: https://strait.dev/features/retries-dlq
+- Cost Budgets: https://strait.dev/features/cost-budgets
+- Real-Time CDC: https://strait.dev/features/real-time-cdc
+- SDK Endpoints: https://strait.dev/features/sdk-endpoints
+
+### Comparison Pages
+- Strait vs Temporal: https://strait.dev/compare/temporal
+- Strait vs Inngest: https://strait.dev/compare/inngest
+- Strait vs Trigger.dev: https://strait.dev/compare/trigger-dev
+- Strait vs Hatchet: https://strait.dev/compare/hatchet
+- Strait vs BullMQ: https://strait.dev/compare/bullmq
+- Strait vs Celery: https://strait.dev/compare/celery
+- Strait vs Sidekiq: https://strait.dev/compare/sidekiq
+- Strait vs AWS Step Functions: https://strait.dev/compare/aws-step-functions
+
+### Use Case Pages
+- AI Agent Workflows: https://strait.dev/use-cases/ai-agent-workflows
+- Background Processing: https://strait.dev/use-cases/background-processing
+- Data Pipelines: https://strait.dev/use-cases/data-pipelines
+- Payment Processing: https://strait.dev/use-cases/payment-processing
+- Scheduled Tasks: https://strait.dev/use-cases/scheduled-tasks
+
+## What Makes Strait Different
+
+Compared to alternatives like Temporal, Inngest, Trigger.dev, Hatchet, BullMQ, Celery, Sidekiq, and AWS Step Functions:
+
+1. **PostgreSQL-native**: Uses PostgreSQL as the primary queue -- no separate message broker required. Your jobs live in the same database as your application data.
+2. **13-state FSM**: More granular run lifecycle than most alternatives. Every state transition is auditable.
+3. **Five SDKs, one architecture**: TypeScript, Python, Go, Ruby, and Rust all follow the same 5-layer pattern. Switch languages without re-learning.
+4. **Built-in saga pattern**: First-class compensation with `compensation_job_id` on workflow steps. No custom rollback logic needed.
+5. **Job chaining without workflows**: Simple `on_complete_trigger_job`/`on_failure_trigger_job` for linear chains without the overhead of workflow DAGs.
+6. **Canary deployments**: Built-in weighted routing and health-based auto-promote/rollback. Most alternatives require external tooling.
+7. **Workflow simulator**: Test workflows in dry_run, sandbox, or failure_injection modes before deploying. Unique to Strait.
+8. **ClickHouse analytics**: 32 dedicated analytics endpoints backed by ClickHouse with PostgreSQL fallback. Deep insight into job performance.
+9. **Self-hosted or managed**: Full feature parity between self-hosted and managed deployments. No vendor lock-in.
+10. **AI-first agent support**: Built-in cost tracking, tool call management, and agent workflow patterns for LLM-powered applications.
+
 ## Links
 
 - Website: https://strait.dev
 - App: https://app.strait.dev
 - Docs: https://docs.strait.dev
 - GitHub: https://github.com/leonardomso/strait
+
+## Contact
+
+- Email: leo@strait.dev
+- Twitter: https://twitter.com/leonardomso
+- GitHub: https://github.com/leonardomso
