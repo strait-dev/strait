@@ -679,22 +679,31 @@ func TestIntegration_ConsumerBatchCollectPublish(t *testing.T) {
 		}
 	}
 
-	// Allow the consumer time to ack messages after publishing to Redis.
-	// The ack HTTP call happens asynchronously after the publish, so
-	// canceling immediately can race with the ack request.
-	time.Sleep(500 * time.Millisecond)
+	ackDeadline := time.After(5 * time.Second)
+	for {
+		_, ack1 := acked.Load("ack-batch-1")
+		_, ack2 := acked.Load("ack-batch-2")
+		if ack1 && ack2 {
+			break
+		}
+
+		select {
+		case <-ackDeadline:
+			if !ack1 {
+				t.Error("ack-batch-1 was not acknowledged")
+			}
+			if !ack2 {
+				t.Error("ack-batch-2 was not acknowledged")
+			}
+			return
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 
 	cancel()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	_ = consumer.Shutdown(shutdownCtx)
-
-	if _, ok := acked.Load("ack-batch-1"); !ok {
-		t.Error("ack-batch-1 was not acknowledged")
-	}
-	if _, ok := acked.Load("ack-batch-2"); !ok {
-		t.Error("ack-batch-2 was not acknowledged")
-	}
 }
 
 // --------------------------------------------------------------------------

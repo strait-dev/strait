@@ -90,6 +90,7 @@ func newExecutor(
 
 	q := queue.NewPostgresQueue(env.DB.Pool)
 	st := store.New(env.DB.Pool)
+	st.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	pub := pubsub.NewRedisPublisher(env.Redis.Client)
 
 	pool := worker.NewPool(concurrency)
@@ -115,8 +116,6 @@ func newExecutor(
 
 	t.Cleanup(func() {
 		exec.CloseCache()
-		// Do not call pub.Close() -- it closes the shared env.Redis.Client
-		// which breaks subsequent tests that reuse the same TestEnv.
 		_ = pool.Shutdown(context.Background())
 	})
 
@@ -140,6 +139,7 @@ func TestJobExecutionEndToEnd(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
+	st.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	q := queue.NewPostgresQueue(env.DB.Pool)
 	job := mustCreateJob(t, ctx, st, "project-e2e", srv.URL)
 
@@ -196,6 +196,7 @@ func TestHeartbeatWithRealRedis(t *testing.T) {
 	mustCleanEnv(t, ctx)
 
 	st := store.New(env.DB.Pool)
+	st.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	q := queue.NewPostgresQueue(env.DB.Pool)
 	job := mustCreateJob(t, ctx, st, "project-heartbeat", "https://example.com/noop")
 
@@ -255,6 +256,7 @@ func TestDispatchWithRealQueue(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
+	st.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	q := queue.NewPostgresQueue(env.DB.Pool)
 	job := mustCreateJob(t, ctx, st, "project-dispatch", srv.URL)
 
@@ -343,6 +345,7 @@ func TestConcurrentJobExecution(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
+	st.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	q := queue.NewPostgresQueue(env.DB.Pool)
 	job := mustCreateJob(t, ctx, st, "project-concurrent", srv.URL)
 
@@ -391,8 +394,8 @@ func TestConcurrentJobExecution(t *testing.T) {
 	}
 }
 
-// TestFailedJobHandling verifies that when the endpoint returns an error,
-// the run is eventually marked as failed or system_failed in the database.
+// TestFailedJobHandling verifies that when the endpoint returns an error and
+// no retries remain, the run is eventually marked terminal in the database.
 func TestFailedJobHandling(t *testing.T) {
 	ctx := context.Background()
 	env := mustEnv(t)
@@ -405,6 +408,7 @@ func TestFailedJobHandling(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
+	st.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	q := queue.NewPostgresQueue(env.DB.Pool)
 	// Create a job with max_attempts=1 so it immediately fails without retries.
 	job := &domain.Job{
@@ -436,15 +440,11 @@ func TestFailedJobHandling(t *testing.T) {
 
 	go exec.Run(execCtx)
 
-	// With max_attempts=1, the executor dead-letters the run on first failure
-	// (no retries available). StatusDeadLetter is not in IsTerminal() since
-	// dead-lettered runs can be manually retried, so check for it directly.
 	deadline := time.After(15 * time.Second)
 	for {
 		select {
 		case <-deadline:
-			got, _ := st.GetRun(ctx, run.ID)
-			t.Fatalf("timed out waiting for run to be dead-lettered; current status = %q", got.Status)
+			t.Fatal("timed out waiting for run to reach terminal state")
 		default:
 		}
 
@@ -452,16 +452,19 @@ func TestFailedJobHandling(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetRun() error = %v", err)
 		}
-		if got.Status == domain.StatusDeadLetter {
+		if got.Status.IsTerminal() {
+			if got.Status != domain.StatusDeadLetter {
+				t.Fatalf("expected status %q, got %q", domain.StatusDeadLetter, got.Status)
+			}
 			if got.Error == "" {
-				t.Fatal("dead-lettered run has empty error field")
+				t.Fatal("failed run has empty error field")
 			}
 			if got.FinishedAt == nil {
-				t.Fatal("dead-lettered run has nil finished_at")
+				t.Fatal("failed run has nil finished_at")
 			}
 			return
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -485,6 +488,7 @@ func TestWorkerGracefulShutdown(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
+	st.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	q := queue.NewPostgresQueue(env.DB.Pool)
 	job := mustCreateJob(t, ctx, st, "project-shutdown", srv.URL)
 
@@ -514,13 +518,11 @@ func TestWorkerGracefulShutdown(t *testing.T) {
 		t.Fatal("timed out waiting for handler to start")
 	}
 
-	// Allow the handler to complete while the executor is still running,
-	// then give it time to write the result to DB before canceling.
-	close(handlerComplete)
-	time.Sleep(500 * time.Millisecond)
-
-	// Now trigger shutdown.
+	// Trigger shutdown while the job is still in-flight.
 	cancel()
+
+	// Allow the handler to complete.
+	close(handlerComplete)
 
 	// Wait for executor to finish.
 	select {
@@ -536,23 +538,35 @@ func TestWorkerGracefulShutdown(t *testing.T) {
 		t.Fatalf("Shutdown() error = %v", err)
 	}
 
-	// Verify the run completed successfully despite shutdown.
-	got, err := st.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
+	// Verify the run reaches a terminal state after shutdown. The executor can
+	// stop polling before the in-flight request commits its final transition, so
+	// poll briefly instead of asserting on the first read.
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			got, err := st.GetRun(ctx, run.ID)
+			if err != nil {
+				t.Fatalf("GetRun() error = %v", err)
+			}
+			t.Fatalf("expected terminal status after shutdown, got %q", got.Status)
+		default:
+		}
+
+		got, err := st.GetRun(ctx, run.ID)
+		if err != nil {
+			t.Fatalf("GetRun() error = %v", err)
+		}
+		if got.Status.IsTerminal() {
+			if got.Status == domain.StatusCompleted {
+				return
+			}
+			t.Logf("run reached terminal status %q (acceptable for graceful shutdown)", got.Status)
+			return
+		}
+
+		time.Sleep(50 * time.Millisecond)
 	}
-	if !got.Status.IsTerminal() {
-		t.Fatalf("expected terminal status after shutdown, got %q", got.Status)
-	}
-	if got.Status == domain.StatusCompleted {
-		// Best case: the in-flight job finished.
-		return
-	}
-	// The run may also have been marked system_failed if the context
-	// cancellation raced with completion. Both outcomes are acceptable
-	// for graceful shutdown -- the key property is that it reached a
-	// terminal state rather than being stuck in executing.
-	t.Logf("run reached terminal status %q (acceptable for graceful shutdown)", got.Status)
 }
 
 // TestEndToEndWithPayloadAndResult verifies that payload is sent to the

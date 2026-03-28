@@ -228,6 +228,55 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleListJobs)
 
+	// -- Agents --
+	RegisterTypedOp(api, OpMeta{
+		ID: "create-agent", Method: http.MethodPost, Path: "/v1/agents",
+		Summary: "Create an agent", Description: "Creates a new agent and its hidden backing job in the current project.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 409, 429, 500},
+	}, s.handleCreateAgent)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-agents", Method: http.MethodGet, Path: "/v1/agents",
+		Summary: "List agents", Description: "Returns a paginated list of agents in the current project.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListAgents)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-agent", Method: http.MethodGet, Path: "/v1/agents/{agentID}",
+		Summary: "Get an agent", Description: "Returns details for a specific agent.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleGetAgent)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-agent", Method: http.MethodPatch, Path: "/v1/agents/{agentID}",
+		Summary: "Update an agent", Description: "Updates mutable agent fields in the current project.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
+	}, s.handleUpdateAgent)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "delete-agent", Method: http.MethodDelete, Path: "/v1/agents/{agentID}",
+		Summary: "Delete an agent", Description: "Deletes an agent and its hidden backing job.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleDeleteAgent)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "deploy-agent", Method: http.MethodPost, Path: "/v1/agents/{agentID}/deploy",
+		Summary: "Deploy an agent", Description: "Creates a new local-stub deployment for an agent.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 429, 500},
+	}, s.handleDeployAgent)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "run-agent", Method: http.MethodPost, Path: "/v1/agents/{agentID}/run",
+		Summary: "Run an agent", Description: "Triggers a local stub run for the latest deployed agent version.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 429, 500},
+	}, s.handleRunAgent)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-agent-runs", Method: http.MethodGet, Path: "/v1/agents/{agentID}/runs",
+		Summary: "List agent runs", Description: "Returns runs associated with an agent's hidden backing job.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListAgentRuns)
+
 	RegisterTypedOp(api, OpMeta{
 		ID: "batch-create-jobs", Method: http.MethodPost, Path: "/v1/jobs/batch",
 		Summary: "Batch create jobs", Description: "Creates multiple jobs in a single request.",

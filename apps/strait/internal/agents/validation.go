@@ -1,0 +1,117 @@
+package agents
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+const (
+	maxAgentNameLength = 255
+	maxAgentSlugLength = 128
+	maxAgentModelLen   = 255
+	maxAgentConfigSize = 1 << 20
+)
+
+type ValidationError struct {
+	field   string
+	message string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("%s %s", e.field, e.message)
+}
+
+func validateCreateRequest(req CreateAgentRequest) error {
+	if strings.TrimSpace(req.ProjectID) == "" {
+		return &ValidationError{field: "project_id", message: "is required"}
+	}
+	if err := validateName(req.Name); err != nil {
+		return err
+	}
+	if err := validateSlug(req.Slug); err != nil {
+		return err
+	}
+	if err := validateModel(req.Model); err != nil {
+		return err
+	}
+	return validateConfig(req.Config)
+}
+
+func validateUpdateRequest(req UpdateAgentRequest) error {
+	if strings.TrimSpace(req.AgentID) == "" {
+		return &ValidationError{field: "agent_id", message: "is required"}
+	}
+	return validateCreateRequest(CreateAgentRequest{
+		ProjectID: req.ProjectID,
+		Name:      req.Name,
+		Slug:      req.Slug,
+		Model:     req.Model,
+		Config:    req.Config,
+	})
+}
+
+func validateRunRequest(req RunAgentRequest) error {
+	if strings.TrimSpace(req.ProjectID) == "" {
+		return &ValidationError{field: "project_id", message: "is required"}
+	}
+	if strings.TrimSpace(req.AgentID) == "" {
+		return &ValidationError{field: "agent_id", message: "is required"}
+	}
+	if len(req.Payload) == 0 {
+		return nil
+	}
+	if len(req.Payload) > maxAgentConfigSize {
+		return &ValidationError{field: "payload", message: fmt.Sprintf("too large (max %d bytes)", maxAgentConfigSize)}
+	}
+	if !json.Valid(req.Payload) {
+		return &ValidationError{field: "payload", message: "must be valid JSON"}
+	}
+	return nil
+}
+
+func validateName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return &ValidationError{field: "name", message: "is required"}
+	}
+	if len(name) > maxAgentNameLength {
+		return &ValidationError{field: "name", message: fmt.Sprintf("too long (max %d characters)", maxAgentNameLength)}
+	}
+	return nil
+}
+
+func validateSlug(slug string) error {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return &ValidationError{field: "slug", message: "is required"}
+	}
+	if len(slug) > maxAgentSlugLength {
+		return &ValidationError{field: "slug", message: fmt.Sprintf("too long (max %d characters)", maxAgentSlugLength)}
+	}
+	return nil
+}
+
+func validateModel(model string) error {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return &ValidationError{field: "model", message: "is required"}
+	}
+	if len(model) > maxAgentModelLen {
+		return &ValidationError{field: "model", message: fmt.Sprintf("too long (max %d characters)", maxAgentModelLen)}
+	}
+	return nil
+}
+
+func validateConfig(config json.RawMessage) error {
+	if len(config) == 0 {
+		return nil
+	}
+	if len(config) > maxAgentConfigSize {
+		return &ValidationError{field: "config", message: fmt.Sprintf("too large (max %d bytes)", maxAgentConfigSize)}
+	}
+	if !json.Valid(config) {
+		return &ValidationError{field: "config", message: "must be valid JSON"}
+	}
+	return nil
+}

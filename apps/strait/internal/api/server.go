@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/agents"
 	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/compute"
@@ -488,6 +489,7 @@ type AnalyticsStore interface {
 type Server struct {
 	router             chi.Router
 	store              APIStore
+	agentService       agents.Service
 	analyticsStore     AnalyticsStore
 	queue              queue.Queue
 	pubsub             pubsub.Publisher
@@ -586,6 +588,7 @@ type UsageService interface {
 type ServerDeps struct {
 	Config             *config.Config
 	Store              APIStore
+	AgentService       agents.Service // Optional: enables /v1/agents endpoints.
 	AnalyticsStore     AnalyticsStore // Optional: ClickHouse-backed analytics queries.
 	Queue              queue.Queue
 	PubSub             pubsub.Publisher
@@ -631,6 +634,7 @@ func NewServer(deps ServerDeps) *Server {
 
 	srv := &Server{
 		store:              deps.Store,
+		agentService:       deps.AgentService,
 		analyticsStore:     deps.AnalyticsStore,
 		queue:              deps.Queue,
 		pubsub:             deps.PubSub,

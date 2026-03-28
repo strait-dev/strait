@@ -31,9 +31,10 @@ func SetupTestDB(ctx context.Context, migrationsPath string) (*TestDB, error) {
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
 		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(30*time.Second),
+			wait.ForAll(
+				wait.ForListeningPort("5432/tcp"),
+				wait.ForLog("database system is ready to accept connections"),
+			).WithStartupTimeout(30*time.Second),
 		),
 	)
 	if err != nil {
@@ -81,6 +82,7 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 	_, err := tdb.Pool.Exec(ctx, `TRUNCATE TABLE
 		resource_policies, project_member_roles, project_roles,
 		known_actors,
+		agent_deployments, agents,
 		workflow_run_labels, workflow_step_approvals,
 		workflow_step_runs, workflow_runs, workflow_version_steps,
 		workflow_versions, workflow_steps, workflows,

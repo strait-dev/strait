@@ -152,6 +152,53 @@ type Project struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type Agent struct {
+	ID          string          `json:"id"`
+	ProjectID   string          `json:"project_id"`
+	JobID       string          `json:"job_id"`
+	Name        string          `json:"name"`
+	Slug        string          `json:"slug"`
+	Description string          `json:"description,omitempty"`
+	Model       string          `json:"model"`
+	Config      json.RawMessage `json:"config,omitempty"`
+	CreatedBy   string          `json:"created_by,omitempty"`
+	UpdatedBy   string          `json:"updated_by,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+type AgentDeploymentStatus string
+
+const (
+	AgentDeploymentStatusPending    AgentDeploymentStatus = "pending"
+	AgentDeploymentStatusDeployed   AgentDeploymentStatus = "deployed"
+	AgentDeploymentStatusFailed     AgentDeploymentStatus = "failed"
+	AgentDeploymentStatusUndeployed AgentDeploymentStatus = "undeployed"
+)
+
+func (s AgentDeploymentStatus) IsValid() bool {
+	switch s {
+	case AgentDeploymentStatusPending, AgentDeploymentStatusDeployed, AgentDeploymentStatusFailed, AgentDeploymentStatusUndeployed:
+		return true
+	default:
+		return false
+	}
+}
+
+type AgentDeployment struct {
+	ID               string                `json:"id"`
+	AgentID          string                `json:"agent_id"`
+	Version          int                   `json:"version"`
+	Status           AgentDeploymentStatus `json:"status"`
+	Provider         string                `json:"provider"`
+	ConfigSnapshot   json.RawMessage       `json:"config_snapshot,omitempty"`
+	ProviderMetadata json.RawMessage       `json:"provider_metadata,omitempty"`
+	CreatedBy        string                `json:"created_by,omitempty"`
+	CreatedAt        time.Time             `json:"created_at"`
+	UpdatedAt        time.Time             `json:"updated_at"`
+	DeployedAt       *time.Time            `json:"deployed_at,omitempty"`
+}
+
 // ProjectRole defines a named set of permissions within a project.
 type ProjectRole struct {
 	ID           string    `json:"id"`
@@ -834,7 +881,7 @@ type DeploymentVersion struct {
 
 func (s RunStatus) IsTerminal() bool {
 	switch s {
-	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired:
+	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired, StatusDeadLetter:
 		return true
 	default:
 		return false

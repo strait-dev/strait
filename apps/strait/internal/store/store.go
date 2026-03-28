@@ -17,6 +17,9 @@ import (
 var (
 	ErrJobSlugConflict              = errors.New("job slug conflict")
 	ErrJobNotFound                  = errors.New("job not found")
+	ErrAgentNotFound                = errors.New("agent not found")
+	ErrAgentDeploymentNotFound      = errors.New("agent deployment not found")
+	ErrAgentSlugConflict            = errors.New("agent slug conflict")
 	ErrJobGroupNotFound             = errors.New("job group not found")
 	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
 	ErrEnvironmentNotFound          = errors.New("environment not found")

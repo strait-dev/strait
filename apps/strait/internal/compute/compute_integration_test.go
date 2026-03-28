@@ -4,7 +4,6 @@ package compute_test
 
 import (
 	"fmt"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -46,13 +45,10 @@ func TestPool_DefaultMaxPerKey(t *testing.T) {
 }
 
 func TestPool_MaxPerKeyEnforced(t *testing.T) {
-	var mu sync.Mutex
 	var evicted []string
 	pool := compute.NewMachinePool(2)
 	pool.SetOnEvict(func(machineID string) {
-		mu.Lock()
 		evicted = append(evicted, machineID)
-		mu.Unlock()
 	})
 
 	pool.Release("proj-1", "image:v1", "iad", "m-1")
@@ -66,8 +62,6 @@ func TestPool_MaxPerKeyEnforced(t *testing.T) {
 		t.Fatalf("Size() after eviction = %d, want 2", got)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
 	if len(evicted) != 1 || evicted[0] != "m-1" {
 		t.Errorf("evicted = %v, want [m-1]", evicted)
 	}
@@ -451,12 +445,15 @@ func TestPool_EvictionCallback(t *testing.T) {
 	if len(evicted) != 2 {
 		t.Fatalf("evicted count = %d, want 2", len(evicted))
 	}
-	// Eviction callbacks fire from goroutines so order is non-deterministic.
-	sort.Strings(evicted)
-	if evicted[0] != "m-1" {
-		t.Errorf("evicted[0] = %q, want %q", evicted[0], "m-1")
+
+	got := map[string]int{}
+	for _, machineID := range evicted {
+		got[machineID]++
 	}
-	if evicted[1] != "m-2" {
-		t.Errorf("evicted[1] = %q, want %q", evicted[1], "m-2")
+	if got["m-1"] != 1 {
+		t.Errorf("m-1 eviction count = %d, want 1", got["m-1"])
+	}
+	if got["m-2"] != 1 {
+		t.Errorf("m-2 eviction count = %d, want 1", got["m-2"])
 	}
 }

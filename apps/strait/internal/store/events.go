@@ -13,6 +13,8 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+var emptyJSONObject = json.RawMessage(`{}`)
+
 func (q *Queries) InsertEvent(ctx context.Context, event *domain.RunEvent) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.InsertEvent")
 	defer span.End()
@@ -26,6 +28,11 @@ func (q *Queries) InsertEvent(ctx context.Context, event *domain.RunEvent) error
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING created_at`
 
+	data := event.Data
+	if len(data) == 0 {
+		data = emptyJSONObject
+	}
+
 	err := q.db.QueryRow(
 		ctx,
 		query,
@@ -34,7 +41,7 @@ func (q *Queries) InsertEvent(ctx context.Context, event *domain.RunEvent) error
 		event.Type,
 		dbscan.NilIfEmptyString(event.Level),
 		event.Message,
-		dbscan.NilIfEmptyRawMessage(event.Data),
+		data,
 	).Scan(&event.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert event: %w", err)

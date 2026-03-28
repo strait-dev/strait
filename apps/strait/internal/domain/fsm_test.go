@@ -80,7 +80,7 @@ func TestRunStatusIsTerminal_AllStatuses(t *testing.T) {
 		{StatusSystemFailed, true},
 		{StatusCanceled, true},
 		{StatusExpired, true},
-		{StatusDeadLetter, false},
+		{StatusDeadLetter, true},
 		{StatusReplayStaged, false},
 	}
 
