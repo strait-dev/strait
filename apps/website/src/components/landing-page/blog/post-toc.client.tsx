@@ -1,4 +1,3 @@
-"use client";
 
 import { Menu01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";

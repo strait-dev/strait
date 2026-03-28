@@ -1,4 +1,3 @@
-"use client";
 
 import { PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";

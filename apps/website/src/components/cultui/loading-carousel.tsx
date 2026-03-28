@@ -1,4 +1,3 @@
-"use client";
 
 import { cn } from "@strait/ui/utils";
 import Autoplay from "embla-carousel-autoplay";

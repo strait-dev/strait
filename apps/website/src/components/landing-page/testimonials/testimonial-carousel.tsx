@@ -1,4 +1,3 @@
-"use client";
 
 import { Button } from "@strait/ui/components/button";
 import { cn } from "@strait/ui/utils";

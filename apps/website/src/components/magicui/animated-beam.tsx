@@ -1,4 +1,3 @@
-"use client";
 
 import { cn } from "@strait/ui/utils";
 import { motion, useReducedMotion } from "motion/react";

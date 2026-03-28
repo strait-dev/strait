@@ -9,6 +9,7 @@ export default defineConfig({
 	output: "static",
 	trailingSlash: "never",
 	compressHTML: true,
+	devToolbar: { enabled: false },
 
 	adapter: cloudflare({
 		imageService: "compile",

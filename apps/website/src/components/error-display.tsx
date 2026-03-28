@@ -1,4 +1,3 @@
-"use client";
 
 import { Button } from "@strait/ui/components/button";
 import { useEffect, useRef } from "react";

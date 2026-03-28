@@ -1,4 +1,3 @@
-"use client";
 
 import { HugeiconsIcon, type HugeiconsIconProps } from "@hugeicons/react";
 import { cn } from "@strait/ui/utils";

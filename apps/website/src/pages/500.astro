@@ -1,0 +1,43 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import SEO from "@/components/SEO.astro";
+import Header from "@/components/common/Header.astro";
+import Footer from "@/components/common/Footer.astro";
+---
+
+<BaseLayout>
+	<Fragment slot="head">
+		<SEO
+			title="Server Error"
+			description="Something went wrong. Please try again later."
+			path="/500"
+			noIndex={true}
+		/>
+	</Fragment>
+	<Header />
+	<main>
+		<div class="flex min-h-[60vh] flex-col items-center justify-center px-4 py-24 text-center">
+			<p class="font-mono text-muted-foreground text-sm">500</p>
+			<h1 class="mt-4 text-3xl sm:text-4xl">Something went wrong</h1>
+			<p class="mt-4 max-w-md text-muted-foreground leading-relaxed">
+				We hit an unexpected issue. Please try again, and if the problem
+				persists, reach out to our team.
+			</p>
+			<div class="mt-8 flex items-center gap-3">
+				<a
+					class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm"
+					href="/"
+				>
+					Go home
+				</a>
+				<a
+					class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 font-medium text-sm shadow-xs"
+					href="mailto:leo@strait.dev"
+				>
+					Contact support
+				</a>
+			</div>
+		</div>
+	</main>
+	<Footer />
+</BaseLayout>

@@ -1,4 +1,3 @@
-"use client";
 
 import { MinusSignIcon, Tick01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
