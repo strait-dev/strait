@@ -7,7 +7,9 @@ import { defineConfig } from "astro/config";
 export default defineConfig({
 	site: "https://strait.dev",
 	output: "static",
-	adapter: cloudflare(),
+	adapter: cloudflare({
+		imageService: "compile",
+	}),
 	integrations: [
 		react(),
 		sitemap(),
