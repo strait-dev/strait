@@ -1,6 +1,8 @@
 ---
 title: "Introduction"
 description: "A production-grade Go job orchestration service for engineering teams and AI agents."
+icon: "book-open"
+og:image: "/images/og.png"
 ---
 
 Strait is a production-grade Go job orchestration service designed for teams building reliable, scalable background job processing. It accepts job definitions via REST API, queues runs in PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED` (no external message broker required), and dispatches them via HTTP to your endpoints with intelligent retry strategies.
@@ -265,3 +267,20 @@ Ready to dive deeper?
 - Configure **[cost budgets](/docs/concepts/cost-budgets) for AI workloads
 
 Or jump straight into the **[Quick Start Guide](/docs/quickstart)** and run your first job in 5 minutes.
+
+## Explore the Docs
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Run your first job in under 10 minutes.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand how Strait works under the hood.
+  </Card>
+  <Card title="SDKs" icon="code" href="/sdks/overview">
+    Official client libraries for 5 languages.
+  </Card>
+  <Card title="API Reference" icon="square-terminal" href="/api-reference/overview">
+    Complete REST API documentation.
+  </Card>
+</CardGroup>

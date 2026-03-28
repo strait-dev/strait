@@ -1,6 +1,8 @@
 ---
 title: "Quick Start"
 description: "Get strait up and running in minutes."
+icon: "rocket"
+og:image: "/images/og.png"
 ---
 
 Follow these steps to set up strait locally and run your first job. You'll have a production-grade job orchestration service running in under 10 minutes.
@@ -363,5 +365,22 @@ curl -X POST http://localhost:8080/v1/workflows \
   </Card>
   <Card title="API Documentation" icon="api" href="/docs/api-reference/overview">
     REST API endpoints for job management, workflow orchestration, and SDK interactions.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Jobs" icon="briefcase" href="/concepts/jobs">
+    Learn how jobs work in Strait.
+  </Card>
+  <Card title="Workflows" icon="diagram-project" href="/concepts/workflows">
+    Build multi-step workflow DAGs.
+  </Card>
+  <Card title="SDKs" icon="code" href="/sdks/overview">
+    Choose your language and start building.
+  </Card>
+  <Card title="Deployment" icon="cloud-arrow-up" href="/guides/deployment">
+    Deploy Strait to production.
   </Card>
 </CardGroup>

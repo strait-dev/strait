@@ -39,6 +39,14 @@
             ]
           },
           {
+            "group": "AI Agents",
+            "pages": ["ai/index"]
+          },
+          {
+            "group": "Integrations",
+            "pages": ["integrations/index"]
+          },
+          {
             "group": "Concepts",
             "pages": [
               "concepts/jobs",
@@ -155,6 +163,18 @@
             "group": "CLI Reference",
             "pages": [
               "cli/overview"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Billing",
+        "groups": [
+          {
+            "group": "Billing",
+            "pages": [
+              "billing/pricing",
+              "billing/faq"
             ]
           }
         ]

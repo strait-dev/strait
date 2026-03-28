@@ -1,6 +1,7 @@
 ---
 title: "Batch Operations"
 description: "Tracking the results of bulk job trigger requests."
+sidebarTitle: "Batch Operations"
 ---
 
 A `BatchOperation` tracks the outcome of a bulk trigger request against a [Job](/docs/concepts/jobs). When you trigger a job with multiple items in a single request (via `POST /v1/jobs/{jobID}/trigger-bulk`), Strait creates a batch operation to record how many items were submitted and how many [Runs](/docs/concepts/runs) were actually created.
