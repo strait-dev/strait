@@ -1,8 +1,10 @@
 # Strait
 
 > Open-source job orchestration platform. Schedule jobs, build workflow DAGs, chain jobs, manage retries, run canary deployments, simulate workflows, and monitor everything -- all from one dashboard.
+> Open-source orchestration platform for jobs, workflows, and managed agents. Schedule work, build DAGs, manage retries, canary deployments, and monitor runs from one dashboard.
 
 Strait handles the hard parts of background job execution: scheduling, retries with exponential backoff, dependency graphs, concurrency limits, job chaining, saga-pattern compensation, canary deployments, workflow simulation, real-time analytics, and full observability. One API, five SDKs, zero vendor lock-in.
+Strait handles the hard parts of background execution: scheduling, retries with exponential backoff, dependency graphs, concurrency limits, job chaining, canary deployments, managed agent telemetry, and real-time monitoring. One control plane, multiple SDKs, zero vendor lock-in.
 
 Website: https://strait.dev
 App: https://app.strait.dev
@@ -29,25 +31,27 @@ Docs: https://docs.strait.dev
 1. **Job orchestration** -- Durable, retriable units of work with endpoint URLs, cron scheduling, concurrency limits, and webhook notifications.
 2. **Workflow DAGs** -- Multi-step pipelines with five step types and dependency graphs validated with topological sort.
 3. **13-state FSM** -- Deterministic run lifecycle from queued to completed with 14 transition events.
-4. **Job chaining** -- `on_complete_trigger_job` and `on_failure_trigger_job` fields to chain jobs sequentially (max depth: 10).
-5. **Compensation (saga pattern)** -- Rollback via `compensation_job_id` on workflow steps with compensating/compensated/compensation_failed states.
-6. **Durable workflows** -- `expected_completion_at` on runs, `expected_duration_secs` per step, stage notifications on step transitions.
-7. **Canary deployments** -- `canary_deployments` table with weighted version routing, auto-promote and auto-rollback on health thresholds.
-8. **Workflow simulator** -- `POST /v1/workflows/{id}/simulate` with dry_run, sandbox, and failure_injection modes.
-9. **Test suites** -- Workflow test definitions, mock server, JUnit XML output for CI pipelines.
-10. **Workflow debugger** -- Debug view, run comparison, data flow tracking across steps.
-11. **Event triggers** -- Pub/sub event routing with key-based and prefix-based matching.
-12. **Atomic deployments** -- Create, finalize, promote, and rollback job versions without downtime.
-13. **ClickHouse analytics** -- Custom analytics exporter with 12 tables and 32 API endpoints under `/v1/analytics/`.
-14. **Observability** -- Grafana Cloud (metrics + logs), ClickHouse (traces + analytics), Sentry (errors), Better Stack (uptime), OpenTelemetry integration.
-15. **AI agent orchestration** -- Cost tracking, tool call management, and agent workflow patterns.
-16. **Real-time dashboard** -- Monitor jobs, runs, workflows, schedules, logs, events, and webhooks.
-17. **API keys and RBAC** -- Granular scopes, role-based access control, and audit logging.
-18. **186 API endpoints** -- 19 domain services covering every aspect of job orchestration.
+4. **Managed agents** -- Local-first and Cloudflare-ready agent deployment with stream, checkpoint, tool-call, and usage telemetry.
+5. **Job chaining** -- `on_complete_trigger_job` and `on_failure_trigger_job` fields to chain jobs sequentially (max depth: 10).
+6. **Compensation (saga pattern)** -- Rollback via `compensation_job_id` on workflow steps with compensating/compensated/compensation_failed states.
+7. **Durable workflows** -- `expected_completion_at` on runs, `expected_duration_secs` per step, stage notifications on step transitions.
+8. **Canary deployments** -- `canary_deployments` table with weighted version routing, auto-promote and auto-rollback on health thresholds.
+9. **Workflow simulator** -- `POST /v1/workflows/{id}/simulate` with dry_run, sandbox, and failure_injection modes.
+10. **Test suites** -- Workflow test definitions, mock server, JUnit XML output for CI pipelines.
+11. **Workflow debugger** -- Debug view, run comparison, data flow tracking across steps.
+12. **Dynamic DAG workflows** -- Planner-style steps can emit validated `dynamic_steps` at runtime.
+13. **Event triggers** -- Pub/sub event routing with key-based and prefix-based matching.
+14. **Atomic deployments** -- Create, finalize, promote, and rollback job versions without downtime.
+15. **ClickHouse analytics** -- Custom analytics exporter with 12 tables and 32 API endpoints under `/v1/analytics/`.
+16. **Observability** -- Grafana Cloud (metrics + logs), ClickHouse (traces + analytics), Sentry (errors), Better Stack (uptime), OpenTelemetry integration.
+17. **Real-time dashboard** -- Monitor jobs, agents, runs, workflows, schedules, logs, events, and webhooks.
+18. **API keys and RBAC** -- Granular scopes, role-based access control, and audit logging.
+19. **186 API endpoints** -- 19 domain services covering orchestration, telemetry, and runtime control.
 
 ## SDKs
 
 - [TypeScript](https://docs.strait.dev/sdks/typescript): Effect and Promise APIs for Node.js
+- [Agents SDK](https://docs.strait.dev/sdks/agents): Runtime callbacks, workflow state, and AI provider adapters
 - [Python](https://docs.strait.dev/sdks/python): Sync and async clients for Python 3.11+
 - [Go](https://docs.strait.dev/sdks/go): Idiomatic Go with generics
 - [Ruby](https://docs.strait.dev/sdks/ruby): Faraday-based client for Ruby 3.1+

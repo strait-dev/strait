@@ -9,6 +9,10 @@ Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, 
 For detailed per-language documentation, see the [SDK Reference](/sdks/overview).
 </Info>
 
+<Info>
+Managed agents use a separate runtime package, [`@strait/agents-sdk`](/docs/sdks/agents), for run-token callbacks, workflow state, and provider adapters.
+</Info>
+
 ## Installing an SDK
 
 <CodeGroup>
@@ -223,6 +227,30 @@ Pause a run and wait for an external event (approvals, webhooks, third-party cal
 <Tip>
 Use the `heartbeat` endpoint regularly (every 30 seconds) in long-running jobs to prevent timeout.
 </Tip>
+
+## Managed Agent Runtime Integration
+
+Managed agents in this repository do not use the public management client inside the executing runtime. They use `@strait/agents-sdk`, which is built specifically for `/sdk/v1/runs/{runID}/...` callbacks.
+
+Typical usage inside a running agent:
+
+```ts
+import { StraitContext } from "@strait/agents-sdk";
+
+const ctx = StraitContext.fromEnv();
+
+await ctx.log({ message: "agent booted" });
+await ctx.progress({ percent: 10, message: "loading tools" });
+await ctx.reportUsage({
+  provider: "openai",
+  model: "gpt-5.4-mini",
+  promptTokens: 900,
+  completionTokens: 240,
+});
+await ctx.complete({ status: "ok" });
+```
+
+For the full runtime contract, see [Agents SDK](/docs/sdks/agents) and [Local Agent Development](/docs/guides/local-agent-development).
 
 ## What's Next?
 

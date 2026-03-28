@@ -1,0 +1,202 @@
+---
+title: "Agents SDK"
+description: "Local-first runtime SDK for managed agents, callbacks, workflow helpers, and provider adapters."
+---
+
+The Agents SDK (`@strait/agents-sdk`) is the runtime-side package used by managed agents to communicate with Strait.
+
+It is separate from the public API client SDKs. Instead of creating jobs and workflows through the management API, it is used inside an executing agent run to:
+
+- report progress and logs
+- persist checkpoints
+- record tool calls
+- report model usage and budget consumption
+- stream partial output
+- access run-scoped and workflow-scoped state
+
+## Package Scope
+
+The package lives in this monorepo at `packages/agents-sdk` and is currently used by the local execution app in `apps/agents`.
+
+## Installation
+
+```bash
+bun add @strait/agents-sdk
+```
+
+## Creating a Context
+
+Inside a managed run, create a `StraitContext` from the injected environment:
+
+```ts
+import { StraitContext } from "@strait/agents-sdk";
+
+const ctx = StraitContext.fromEnv();
+```
+
+Required environment variables:
+
+- `STRAIT_API_URL`
+- `STRAIT_RUN_ID`
+- `STRAIT_RUN_TOKEN`
+
+You can also construct the context manually:
+
+```ts
+import { createStraitContext } from "@strait/agents-sdk";
+
+const ctx = createStraitContext({
+  baseUrl: "http://127.0.0.1:8787",
+  runId: "run_123",
+  runToken: "jwt-token",
+  budget: {
+    maxCostMicrousd: 5_000_000,
+    maxTokens: 20_000,
+    maxToolCalls: 25,
+  },
+});
+```
+
+## Reporting Run Activity
+
+```ts
+await ctx.log({ level: "info", message: "starting agent run" });
+await ctx.progress({ percent: 25, message: "loaded prompt context" });
+await ctx.checkpoint({ phase: "planning", completed: 2 });
+
+await ctx.reportUsage({
+  provider: "openai",
+  model: "gpt-5.4-mini",
+  promptTokens: 1800,
+  completionTokens: 420,
+});
+
+await ctx.reportToolCall({
+  toolName: "search_issues",
+  input: { team: "core-platform" },
+  output: { matches: 6 },
+  durationMs: 183,
+  status: "completed",
+});
+
+await ctx.stream({ streamId: "assistant", chunk: "Drafting response..." });
+await ctx.stream({ streamId: "assistant", chunk: "", done: true });
+```
+
+## Completing or Failing a Run
+
+```ts
+await ctx.complete({
+  summary: "Resolved the billing incident and posted a rollback note.",
+});
+
+// or
+await ctx.fail("planner returned an invalid dynamic_steps payload");
+```
+
+## State Helpers
+
+The context exposes two state scopes:
+
+- `ctx.run.state.*` for run-scoped state
+- `ctx.workflow.state.*` for workflow-shared state
+
+```ts
+await ctx.run.state.set("cursor", { offset: 120 });
+await ctx.workflow.state.set("artifact_url", "s3://artifacts/report.json");
+
+const cursor = await ctx.run.state.get("cursor");
+const workflowState = await ctx.workflow.state.list();
+```
+
+## Agent Definitions
+
+Use `strait.agent()` to define a managed agent:
+
+```ts
+import { strait } from "@strait/agents-sdk";
+
+export const triageAgent = strait.agent({
+  name: "Issue Triage Agent",
+  slug: "issue-triage",
+  description: "Classifies issues and emits remediation steps.",
+  model: "gpt-5.4-mini",
+  budget: {
+    maxCostMicrousd: 2_000_000,
+    maxTokens: 12_000,
+  },
+  async run(ctx, input: { title: string; body: string }) {
+    await ctx.log({ message: `triaging ${input.title}` });
+    return { status: "classified" };
+  },
+});
+```
+
+## Workflow Helpers
+
+The SDK includes agent-oriented workflow helpers:
+
+- `agentStep()`
+- `approvalStep()`
+- `agentWorkflow()`
+- `pipelinePattern()`
+- `debatePattern()`
+- `orchestratorPattern()`
+
+```ts
+import { orchestratorPattern } from "@strait/agents-sdk";
+
+const workflow = orchestratorPattern({
+  name: "Incident Investigation",
+  slug: "incident-investigation",
+  projectId: "proj_123",
+  planner: { stepRef: "planner", agentId: "agent_planner" },
+  workers: [
+    { stepRef: "logs", agentId: "agent_logs" },
+    { stepRef: "metrics", agentId: "agent_metrics" },
+  ],
+  synthesizer: { stepRef: "summary", agentId: "agent_summary" },
+});
+```
+
+Planner-style steps can request runtime DAG expansion by returning a `dynamic_steps` envelope from a completed step. See [Agents](/docs/concepts/agents) and [Workflows](/docs/concepts/workflows) for the runtime rules.
+
+## Provider Adapters
+
+The package also includes adapter wrappers for:
+
+- Vercel AI SDK
+- OpenAI
+- Anthropic
+
+These adapters preserve the provider client surface while adding:
+
+- usage capture
+- budget accounting
+- stream chunk reporting
+- tool-call telemetry
+- checkpoint integration
+
+## Retry Behavior
+
+Context callbacks use a small retry policy for retryable failures. You can override it at construction time:
+
+```ts
+const ctx = createStraitContext({
+  baseUrl: process.env.STRAIT_API_URL!,
+  runId: process.env.STRAIT_RUN_ID!,
+  runToken: process.env.STRAIT_RUN_TOKEN!,
+  retry: {
+    maxAttempts: 3,
+    baseDelayMs: 50,
+    maxDelayMs: 500,
+  },
+});
+```
+
+## Next Steps
+
+- [Agents](/docs/concepts/agents)
+- [TypeScript SDK](/docs/sdks/typescript)
+- [SDK Integration](/docs/guides/sdk-integration)
+- [Local Agent Development](/docs/guides/local-agent-development)

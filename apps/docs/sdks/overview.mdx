@@ -7,6 +7,8 @@ og:image: "/images/og.png"
 
 Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust**. All five SDKs share the same feature set, configuration model, and API coverage.
 
+The monorepo also includes a separate runtime-side package, `@strait/agents-sdk`, for managed agent execution, callbacks, workflow state, and provider adapters.
+
 The **Python**, **Go**, **Ruby**, **Rust**, and **MCP** SDKs have moved to dedicated repositories. The TypeScript SDK remains in this monorepo.
 
 ## Repositories
@@ -19,6 +21,20 @@ The **Python**, **Go**, **Ruby**, **Rust**, and **MCP** SDKs have moved to dedic
 | **Ruby** | [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby) | `gem install strait` |
 | **Rust** | [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust) | `cargo add strait` |
 | **MCP** | [strait-dev/mcp](https://github.com/strait-dev/mcp) | See repository README |
+
+## Managed Agent Runtime SDK
+
+`@strait/agents-sdk` is not the public management client. It is the runtime package used by managed agents inside an executing run.
+
+Use it when you need to:
+
+- create a `StraitContext` from a run token
+- report usage, tool calls, checkpoints, and stream chunks
+- define agents with `strait.agent()`
+- compose agent-backed workflows and orchestration patterns
+- wrap Vercel AI SDK, OpenAI, or Anthropic clients with Strait telemetry
+
+See [Agents SDK](/docs/sdks/agents) for details.
 
 ## Feature Parity
 
@@ -123,6 +139,10 @@ All 186 API operations are organized into typed service classes:
 
 <CardGroup cols={2}>
   <Card title="Configuration" icon="gear" href="/sdks/configuration">
+  <Card title="Agents SDK" icon="sparkles" href="/docs/sdks/agents">
+    Runtime SDK for managed agents, workflow state, and provider adapters.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/docs/sdks/configuration">
     `strait.json` schema reference, environment variable overrides, and config file discovery.
   </Card>
   <Card title="TypeScript SDK" icon="js" href="/sdks/typescript">

@@ -43,6 +43,7 @@
             "pages": [
               "concepts/jobs",
               "concepts/runs",
+              "concepts/agents",
               "concepts/workflows",
               "concepts/retry-strategies",
               "concepts/event-triggers",
@@ -94,6 +95,8 @@
               "guides/debug-bundles",
               "guides/job-groups",
               "guides/idempotency",
+              "guides/local-agent-development",
+              "guides/sdk-integration",
               "guides/workflow-approvals",
               "guides/dag-operations-playbook",
               "guides/event-triggers"
@@ -136,6 +139,7 @@
             "group": "SDK Reference",
             "pages": [
               "sdks/overview",
+              "sdks/agents",
               "sdks/configuration",
               "sdks/typescript",
               "sdks/python",

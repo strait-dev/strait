@@ -33,10 +33,10 @@ import { Route as AppSchedulesIndexRouteImport } from './routes/app/schedules/in
 import { Route as AppRunsIndexRouteImport } from './routes/app/runs/index'
 import { Route as AppLogsIndexRouteImport } from './routes/app/logs/index'
 import { Route as AppJobsIndexRouteImport } from './routes/app/jobs/index'
-import { Route as AppAgentsIndexRouteImport } from './routes/app/agents/index'
 import { Route as AppEventsIndexRouteImport } from './routes/app/events/index'
 import { Route as AppDlqIndexRouteImport } from './routes/app/dlq/index'
 import { Route as AppBillingIndexRouteImport } from './routes/app/billing/index'
+import { Route as AppAgentsIndexRouteImport } from './routes/app/agents/index'
 import { Route as AppWorkflowsIdRouteImport } from './routes/app/workflows/$id'
 import { Route as AppWebhooksNewRouteImport } from './routes/app/webhooks/new'
 import { Route as AppWebhooksIdRouteImport } from './routes/app/webhooks/$id'
@@ -171,11 +171,6 @@ const AppJobsIndexRoute = AppJobsIndexRouteImport.update({
   path: '/jobs/',
   getParentRoute: () => AppLayoutRoute,
 } as any)
-const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
-  id: '/agents/',
-  path: '/agents/',
-  getParentRoute: () => AppLayoutRoute,
-} as any)
 const AppEventsIndexRoute = AppEventsIndexRouteImport.update({
   id: '/events/',
   path: '/events/',
@@ -189,6 +184,11 @@ const AppDlqIndexRoute = AppDlqIndexRouteImport.update({
 const AppBillingIndexRoute = AppBillingIndexRouteImport.update({
   id: '/billing/',
   path: '/billing/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
+  id: '/agents/',
+  path: '/agents/',
   getParentRoute: () => AppLayoutRoute,
 } as any)
 const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
@@ -288,10 +288,10 @@ export interface FileRoutesByFullPath {
   '/app/webhooks/$id': typeof AppWebhooksIdRoute
   '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/agents/': typeof AppAgentsIndexRoute
   '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
-  '/app/agents/': typeof AppAgentsIndexRoute
   '/app/jobs/': typeof AppJobsIndexRoute
   '/app/logs/': typeof AppLogsIndexRoute
   '/app/runs/': typeof AppRunsIndexRoute
@@ -330,10 +330,10 @@ export interface FileRoutesByTo {
   '/app/webhooks/$id': typeof AppWebhooksIdRoute
   '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/agents': typeof AppAgentsIndexRoute
   '/app/billing': typeof AppBillingIndexRoute
   '/app/dlq': typeof AppDlqIndexRoute
   '/app/events': typeof AppEventsIndexRoute
-  '/app/agents': typeof AppAgentsIndexRoute
   '/app/jobs': typeof AppJobsIndexRoute
   '/app/logs': typeof AppLogsIndexRoute
   '/app/runs': typeof AppRunsIndexRoute
@@ -374,10 +374,10 @@ export interface FileRoutesById {
   '/app/webhooks/$id': typeof AppWebhooksIdRoute
   '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/agents/': typeof AppAgentsIndexRoute
   '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
-  '/app/agents/': typeof AppAgentsIndexRoute
   '/app/jobs/': typeof AppJobsIndexRoute
   '/app/logs/': typeof AppLogsIndexRoute
   '/app/runs/': typeof AppRunsIndexRoute
@@ -419,10 +419,10 @@ export interface FileRouteTypes {
     | '/app/webhooks/$id'
     | '/app/webhooks/new'
     | '/app/workflows/$id'
+    | '/app/agents/'
     | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
-    | '/app/agents/'
     | '/app/jobs/'
     | '/app/logs/'
     | '/app/runs/'
@@ -461,10 +461,10 @@ export interface FileRouteTypes {
     | '/app/webhooks/$id'
     | '/app/webhooks/new'
     | '/app/workflows/$id'
+    | '/app/agents'
     | '/app/billing'
     | '/app/dlq'
     | '/app/events'
-    | '/app/agents'
     | '/app/jobs'
     | '/app/logs'
     | '/app/runs'
@@ -504,10 +504,10 @@ export interface FileRouteTypes {
     | '/app/webhooks/$id'
     | '/app/webhooks/new'
     | '/app/workflows/$id'
+    | '/app/agents/'
     | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
-    | '/app/agents/'
     | '/app/jobs/'
     | '/app/logs/'
     | '/app/runs/'
@@ -720,18 +720,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDlqIndexRouteImport
       parentRoute: typeof AppLayoutRoute
     }
-    '/app/agents/': {
-      id: '/app/agents/'
-      path: '/agents'
-      fullPath: '/app/agents/'
-      preLoaderRoute: typeof AppAgentsIndexRouteImport
-      parentRoute: typeof AppLayoutRoute
-    }
     '/app/billing/': {
       id: '/app/billing/'
       path: '/billing'
       fullPath: '/app/billing/'
       preLoaderRoute: typeof AppBillingIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/agents/': {
+      id: '/app/agents/'
+      path: '/agents'
+      fullPath: '/app/agents/'
+      preLoaderRoute: typeof AppAgentsIndexRouteImport
       parentRoute: typeof AppLayoutRoute
     }
     '/app/workflows/$id': {
@@ -790,19 +790,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppJobsIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
-    '/api/auth/jwks': {
-      id: '/api/auth/jwks'
-      path: '/api/auth/jwks'
-      fullPath: '/api/auth/jwks'
-      preLoaderRoute: typeof ApiAuthJwksRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/app/agents/$id': {
       id: '/app/agents/$id'
       path: '/agents/$id'
       fullPath: '/app/agents/$id'
       preLoaderRoute: typeof AppAgentsIdRouteImport
       parentRoute: typeof AppLayoutRoute
+    }
+    '/api/auth/jwks': {
+      id: '/api/auth/jwks'
+      path: '/api/auth/jwks'
+      fullPath: '/api/auth/jwks'
+      preLoaderRoute: typeof ApiAuthJwksRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -843,10 +843,10 @@ interface AppLayoutRouteChildren {
   AppWebhooksIdRoute: typeof AppWebhooksIdRoute
   AppWebhooksNewRoute: typeof AppWebhooksNewRoute
   AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
+  AppAgentsIndexRoute: typeof AppAgentsIndexRoute
   AppBillingIndexRoute: typeof AppBillingIndexRoute
   AppDlqIndexRoute: typeof AppDlqIndexRoute
   AppEventsIndexRoute: typeof AppEventsIndexRoute
-  AppAgentsIndexRoute: typeof AppAgentsIndexRoute
   AppJobsIndexRoute: typeof AppJobsIndexRoute
   AppLogsIndexRoute: typeof AppLogsIndexRoute
   AppRunsIndexRoute: typeof AppRunsIndexRoute
@@ -872,10 +872,10 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppWebhooksIdRoute: AppWebhooksIdRoute,
   AppWebhooksNewRoute: AppWebhooksNewRoute,
   AppWorkflowsIdRoute: AppWorkflowsIdRoute,
+  AppAgentsIndexRoute: AppAgentsIndexRoute,
   AppBillingIndexRoute: AppBillingIndexRoute,
   AppDlqIndexRoute: AppDlqIndexRoute,
   AppEventsIndexRoute: AppEventsIndexRoute,
-  AppAgentsIndexRoute: AppAgentsIndexRoute,
   AppJobsIndexRoute: AppJobsIndexRoute,
   AppLogsIndexRoute: AppLogsIndexRoute,
   AppRunsIndexRoute: AppRunsIndexRoute,

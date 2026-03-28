@@ -1,8 +1,8 @@
 # Strait
 
-> Open-source job orchestration platform. Schedule jobs, build workflow DAGs, manage retries, and monitor runs — all from one dashboard.
+> Open-source orchestration platform for jobs, workflows, and managed agents. Schedule work, build DAGs, manage retries, and monitor runs from one dashboard.
 
-Strait handles the hard parts of background job execution: scheduling, retries with exponential backoff, dependency graphs, concurrency limits, and real-time monitoring. One API, five SDKs, zero vendor lock-in.
+Strait handles the hard parts of background execution: scheduling, retries with exponential backoff, dependency graphs, concurrency limits, managed agent telemetry, and real-time monitoring. One control plane, multiple SDKs, zero vendor lock-in.
 
 Website: https://strait.dev
 App: https://app.strait.dev
@@ -15,13 +15,16 @@ Docs: https://docs.strait.dev
 3. **13-state run lifecycle** — Every job execution follows a deterministic finite state machine from queued to completed (or failed, timed out, canceled).
 4. **Smart retry** — Exponential backoff, fixed delays, and custom retry sequences with dead letter queue for permanently failed runs.
 5. **Event triggers** — Pub/sub event routing to start jobs and workflows based on external signals.
-6. **Real-time dashboard** — Monitor jobs, runs, workflows, schedules, logs, and events from a single interface.
-7. **API keys and RBAC** — Scope access with granular permissions per API key and role-based access control.
-8. **Multi-language SDKs** — TypeScript, Python, Go, Ruby, and Rust SDKs with identical architecture and authoring DSL.
+6. **Managed agents** — Create, deploy, and run model-driven agents locally with usage, checkpoint, stream, and tool-call telemetry.
+7. **Dynamic DAG workflows** — Let planner steps emit validated `dynamic_steps` at runtime without introducing a second workflow engine.
+8. **Real-time dashboard** — Monitor jobs, agents, runs, workflows, schedules, logs, and events from a single interface.
+9. **API keys and RBAC** — Scope access with granular permissions per API key and role-based access control.
+10. **Multi-language SDKs** — TypeScript, Python, Go, Ruby, and Rust SDKs with identical architecture and authoring DSL.
 
 ## SDKs
 
 - [TypeScript SDK](https://docs.strait.dev/sdks/typescript): Effect and Promise APIs for Node.js
+- [Agents SDK](https://docs.strait.dev/sdks/agents): Runtime callbacks, workflow state, and AI provider adapters for managed agents
 - [Python SDK](https://docs.strait.dev/sdks/python): Sync and async clients for Python 3.11+
 - [Go SDK](https://docs.strait.dev/sdks/go): Idiomatic Go with generics
 - [Ruby SDK](https://docs.strait.dev/sdks/ruby): Faraday-based client for Ruby 3.1+

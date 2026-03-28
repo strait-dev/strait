@@ -1,0 +1,131 @@
+---
+title: "Local Agent Development"
+description: "Build, deploy, and iterate on managed agents locally with apps/agents and the Agents SDK."
+---
+
+This guide covers the local-first development loop for managed agents in Strait.
+
+The current implementation is designed to prove the full control plane and runtime contract without requiring Cloudflare or any remote worker platform.
+
+## What Runs Locally
+
+- the API and worker in `apps/strait`
+- the local agent execution app in `apps/agents`
+- the runtime callback path powered by `@strait/agents-sdk`
+
+## Prerequisites
+
+Start local dependencies:
+
+```bash
+docker compose up -d
+```
+
+Set the minimum API environment:
+
+```bash
+export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
+export REDIS_URL=redis://localhost:6379
+export INTERNAL_SECRET=replace-with-32-chars-or-more
+export JWT_SIGNING_KEY=replace-with-32-chars-or-more
+```
+
+Start Strait:
+
+```bash
+cd apps/strait && go run ./cmd/strait --mode all
+```
+
+## Runtime App
+
+The local execution target lives in:
+
+```text
+apps/agents
+```
+
+It receives dispatch input from the Go control plane and uses the Agents SDK to report:
+
+- checkpoints
+- usage
+- tool calls
+- stream chunks
+- terminal completion or failure
+
+## Development Loop
+
+1. Create an agent through `/v1/agents`.
+2. Deploy the agent using the local provider.
+3. Trigger a run from the agent API.
+4. Observe the resulting run, checkpoints, tool calls, and usage in the dashboard or API.
+5. Iterate on the agent entrypoint in `apps/agents`.
+
+## Minimal Agent Example
+
+```ts
+import { StraitContext, strait } from "@strait/agents-sdk";
+
+export const summarizeIncident = strait.agent({
+  name: "Summarize Incident",
+  slug: "summarize-incident",
+  model: "gpt-5.4-mini",
+  async run(ctx: StraitContext, input: { incidentId: string }) {
+    await ctx.log({ message: `loading incident ${input.incidentId}` });
+    await ctx.progress({ percent: 20, message: "collecting evidence" });
+
+    await ctx.checkpoint({ phase: "collecting" });
+
+    return {
+      incidentId: input.incidentId,
+      summary: "Incident evidence collected locally.",
+    };
+  },
+});
+```
+
+## Workflow Integration
+
+Agents can be used as workflow steps through the hidden backing job model. This means:
+
+- workflow progression still uses the existing workflow engine
+- run telemetry still lands in the standard run tables
+- agent orchestration can reuse workflow pause, resume, approval, and dependency behavior
+
+Planner-style steps can also emit:
+
+```json
+{
+  "dynamic_steps": [
+    {
+      "step_ref": "follow-up",
+      "agent_id": "agent_followup",
+      "depends_on": ["planner"],
+      "payload": { "incidentId": "inc_123" }
+    }
+  ]
+}
+```
+
+The runtime validates this envelope against the current workflow DAG before it persists any new step.
+
+## Recommended Validation
+
+For agent-platform changes, run:
+
+```bash
+bun run typecheck
+bun run biome:lint
+bun run test
+cd apps/strait && go build ./...
+cd apps/strait && go test ./...
+cd apps/strait && go test -race ./...
+cd apps/strait && go test -tags integration ./...
+cd apps/strait && golangci-lint run --timeout=5m ./...
+```
+
+## Related References
+
+- [Agents](/docs/concepts/agents)
+- [Agents SDK](/docs/sdks/agents)
+- [Workflows](/docs/concepts/workflows)
+- [DAG Runtime](/docs/concepts/dag-runtime)

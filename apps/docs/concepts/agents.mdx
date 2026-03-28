@@ -1,0 +1,102 @@
+---
+title: "Agents"
+description: "Managed agents in Strait: control plane, local execution, runs, and workflow orchestration."
+---
+
+Strait agents are managed, deployable execution units that sit on top of the existing job and run substrate.
+
+They give you a higher-level control plane for long-running model-driven tasks without introducing a second run system. Agent runs reuse the same core telemetry pipeline as jobs:
+
+- `job_runs`
+- `run_usage`
+- `run_checkpoints`
+- `run_tool_calls`
+
+## Resource Model
+
+An agent tracks:
+
+- identity (`id`, `name`, `slug`, `description`)
+- execution model (`model`, config blob, runtime entrypoint metadata)
+- deployment state
+- a hidden backing `job_id`
+
+The hidden backing job is an implementation detail that preserves the existing run lifecycle, analytics, queueing, and workflow contracts.
+
+## Deployments
+
+Each agent can have one or more deployments recorded in `agent_deployments`.
+
+The initial implementation is local-first:
+
+- deployment is provider-neutral
+- execution targets `apps/agents`
+- no Cloudflare or remote worker dependency is required
+
+This lets the control plane, callback contract, and telemetry paths stabilize before a remote runtime is introduced.
+
+## Runtime Contract
+
+The local agent runtime receives a dispatch envelope and reports lifecycle state back through the SDK callback endpoints. The contract includes:
+
+- run dispatch input
+- stream chunks
+- checkpoints
+- tool-call reports
+- usage reports
+- terminal success or failure
+
+These callbacks are mapped directly onto the existing run FSM and persisted using the same run tables used by jobs.
+
+## SDK and Adapters
+
+The local runtime uses `@strait/agents-sdk` to report state back to Strait.
+
+The SDK provides:
+
+- `StraitContext`
+- pricing and budget enforcement
+- checkpoint, progress, and usage helpers
+- workflow state helpers
+- adapter wrappers for Vercel AI SDK, OpenAI, and Anthropic
+
+See [Agents SDK](/docs/sdks/agents) for the runtime-side API.
+
+## Workflow Orchestration
+
+Agents can participate in workflows through agent-backed job steps. The workflow engine continues to execute on the existing workflow substrate, while agent-specific behavior is layered on top.
+
+Current orchestration support includes:
+
+- agent-backed workflow steps
+- reusable pipeline, debate, and orchestrator helpers in the agents SDK
+- runtime DAG expansion via a completed-step output envelope
+
+Dynamic expansion uses this output shape:
+
+```json
+{
+  "dynamic_steps": [
+    {
+      "step_ref": "research-2",
+      "agent_id": "agent_123",
+      "depends_on": ["planner"],
+      "payload": { "topic": "billing regressions" }
+    }
+  ]
+}
+```
+
+Each dynamic step is validated against the current runtime DAG before it is materialized. Cycles, duplicate `step_ref` values, and invalid dependencies fail the parent step instead of mutating workflow state partially.
+
+## Local-First Milestone
+
+The current platform milestone is:
+
+1. create an agent
+2. deploy it locally
+3. run it through `apps/agents`
+4. capture usage, checkpoints, tool calls, and stream chunks
+5. inspect the run through the API and dashboard
+
+See [Local Agent Development](/docs/guides/local-agent-development) for the recommended development loop.

@@ -14,6 +14,10 @@ npm install @strait/ts
 bun add @strait/ts
 ```
 
+<Info>
+Managed agent execution uses a separate package, [`@strait/agents-sdk`](/docs/sdks/agents). Use `@strait/ts` for control-plane and management API calls, and use `@strait/agents-sdk` inside running agents.
+</Info>
+
 ## Client Creation
 
 ### From `strait.json` (recommended)
@@ -219,4 +223,23 @@ try {
 | `RateLimitedError` | 429 | Rate limit exceeded |
 | `ApiError` | other | Generic HTTP error |
 | `TimeoutError` | — | Polling timeout |
+
+## Managed Agents
+
+If you are authoring managed agents in this monorepo, use the runtime-side package instead of the public client:
+
+```ts
+import { StraitContext, strait } from "@strait/agents-sdk";
+
+export const summarize = strait.agent({
+  name: "Summarize",
+  model: "gpt-5.4-mini",
+  async run(ctx: StraitContext, input: { text: string }) {
+    await ctx.log({ message: "starting managed agent run" });
+    return { summary: input.text.slice(0, 120) };
+  },
+});
+```
+
+See [Agents SDK](/docs/sdks/agents) and [Local Agent Development](/docs/guides/local-agent-development).
 | `DagValidationError` | — | Invalid workflow DAG |
