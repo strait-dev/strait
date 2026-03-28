@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import { chromium } from "@playwright/test";
 import pg from "pg";
 
@@ -76,6 +77,39 @@ async function ensureOrgExists(
   return orgId;
 }
 
+async function syncProjectToApi(
+  projectId: string,
+  orgId: string,
+  apiURL: string,
+  internalSecret: string
+) {
+  if (!internalSecret) {
+    return false;
+  }
+
+  // Try to create the project in the Go API
+  const res = await fetch(`${apiURL}/v1/projects`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Internal-Secret": internalSecret,
+    },
+    body: JSON.stringify({
+      id: projectId,
+      org_id: orgId,
+      name: "Default Project",
+    }),
+  });
+
+  if (res.ok || res.status === 409) {
+    // 201 Created or 409 Conflict (already exists) -- both are fine
+    return true;
+  }
+
+  console.warn(`Project sync failed (${res.status}): ${await res.text()}`);
+  return false;
+}
+
 async function ensureProjectExists(
   pool: pg.Pool,
   userId: string,
@@ -84,56 +118,52 @@ async function ensureProjectExists(
   apiURL: string,
   internalSecret: string
 ) {
-  if (existingProjectId) {
-    return existingProjectId;
+  let projectId = existingProjectId;
+
+  if (!projectId) {
+    projectId = crypto.randomUUID();
+    const projectSlug = `project-${projectId.slice(0, 8)}`;
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        organization_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(organization_id, slug)
+      )
+    `);
+
+    await pool.query(
+      `INSERT INTO project (id, organization_id, name, slug, created_by)
+       VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+      [projectId, orgId, "Default Project", projectSlug, userId]
+    );
+
+    await pool.query(
+      `UPDATE "user" SET "activeProjectId" = $1 WHERE "id" = $2`,
+      [projectId, userId]
+    );
   }
 
-  const projectId = crypto.randomUUID();
-  const projectSlug = `project-${projectId.slice(0, 8)}`;
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS project (
-      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-      organization_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL,
-      description TEXT DEFAULT '',
-      created_by TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE(organization_id, slug)
-    )
-  `);
-
-  await pool.query(
-    `INSERT INTO project (id, organization_id, name, slug, created_by)
-     VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-    [projectId, orgId, "Default Project", projectSlug, userId]
+  // Always sync to Go API (handles both new and existing projects)
+  const synced = await syncProjectToApi(
+    projectId,
+    orgId,
+    apiURL,
+    internalSecret
   );
 
-  await pool.query(`UPDATE "user" SET "activeProjectId" = $1 WHERE "id" = $2`, [
-    projectId,
-    userId,
-  ]);
-
-  // Sync project to Go API (best-effort)
-  if (internalSecret) {
-    try {
-      await fetch(`${apiURL}/v1/projects`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Internal-Secret": internalSecret,
-        },
-        body: JSON.stringify({
-          id: projectId,
-          org_id: orgId,
-          name: "Default Project",
-        }),
-      });
-    } catch {
-      // Best-effort sync
-    }
+  if (!synced) {
+    console.warn(
+      "Project not synced to Go API. Data-seeded tests will fail. " +
+        "Ensure the Go backend is running at " +
+        apiURL
+    );
   }
 
   return projectId;
@@ -253,13 +283,19 @@ export default async function globalSetup() {
         user.id,
         user.defaultOrganizationId
       );
-      await ensureProjectExists(
+      const projectId = await ensureProjectExists(
         pool,
         user.id,
         orgId,
         user.activeProjectId,
         apiURL,
         internalSecret
+      );
+
+      // Save project context for data-seeded tests
+      fs.writeFileSync(
+        "playwright/.auth/project.json",
+        JSON.stringify({ projectId, orgId, userId: user.id })
       );
     } finally {
       await pool.end();

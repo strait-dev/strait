@@ -1,3 +1,5 @@
+import fs from "node:fs";
+
 /** API helper for seeding and cleaning up test data via the Go backend. */
 export class ApiHelper {
   private readonly baseUrl: string;
@@ -7,6 +9,18 @@ export class ApiHelper {
   constructor() {
     this.baseUrl = process.env.STRAIT_API_URL ?? "http://localhost:8080";
     this.secret = process.env.INTERNAL_SECRET ?? "";
+
+    // Auto-load project ID from global-setup
+    try {
+      const ctx = JSON.parse(
+        fs.readFileSync("playwright/.auth/project.json", "utf-8")
+      );
+      if (ctx.projectId) {
+        this.projectId = ctx.projectId;
+      }
+    } catch {
+      // project.json may not exist yet
+    }
   }
 
   setProjectId(id: string) {
