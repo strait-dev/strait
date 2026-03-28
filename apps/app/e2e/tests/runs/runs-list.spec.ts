@@ -112,7 +112,7 @@ test.describe("Runs List", () => {
   test("trigger type column shows trigger source", async ({ page }) => {
     const table = page.locator("table");
     if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(page.getByText("Trigger")).toBeVisible();
+      await expect(page.getByText("Trigger").first()).toBeVisible();
     }
   });
 

@@ -11,7 +11,7 @@ test.describe("Settings - Account", () => {
 
   test("user name is displayed", async ({ page }) => {
     // The user name input placeholder contains the name, or it's shown in text
-    const content = page.locator("main").or(page.locator("body"));
+    const content = page.locator("main");
     await expect(content).toBeVisible({ timeout: 10_000 });
   });
 

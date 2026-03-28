@@ -22,7 +22,9 @@ test.describe("Filter Combinations", () => {
 
   test.afterAll(async () => {
     for (const id of jobIds) {
-      await api.deleteJob(id).catch(() => { /* cleanup */ });
+      await api.deleteJob(id).catch(() => {
+        /* cleanup */
+      });
     }
   });
 

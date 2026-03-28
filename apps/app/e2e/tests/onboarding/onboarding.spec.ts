@@ -3,7 +3,7 @@ import { expect, test } from "../../fixtures";
 test.describe("Onboarding", () => {
   test("app overview page loads", async ({ page }) => {
     await page.goto("/app");
-    await expect(page.locator("main").or(page.locator("body"))).toBeVisible();
+    await expect(page.locator("body")).toBeVisible();
   });
 
   test("onboarding or dashboard renders", async ({ page }) => {
@@ -26,7 +26,7 @@ test.describe("Onboarding", () => {
 
   test("project context is set after onboarding", async ({ page }) => {
     await page.goto("/app/dashboard");
-    await expect(page.locator("main").or(page.locator("body"))).toBeVisible();
+    await expect(page.locator("body")).toBeVisible();
   });
 
   test("sidebar is accessible", async ({ page }) => {

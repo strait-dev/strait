@@ -29,7 +29,7 @@ test.describe("Logs", () => {
     const table = page.locator("table");
     if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
       await expect(
-        page.getByText("Status").or(page.getByText("Event"))
+        page.getByText("Status").or(page.getByText("Event")).first()
       ).toBeVisible();
     }
   });

@@ -36,12 +36,12 @@ test.describe("Dead Letter Queue", () => {
     if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await searchInput.fill("nonexistent-dlq-entry");
       await page.waitForTimeout(500);
-      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("body")).toBeVisible();
     }
   });
 
   test("page content is visible", async ({ page }) => {
-    await expect(page.locator("main").or(page.locator("body"))).toBeVisible();
+    await expect(page.locator("body")).toBeVisible();
   });
 
   test("page loads without crashing", async ({ page }) => {

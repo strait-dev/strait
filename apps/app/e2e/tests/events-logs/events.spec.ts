@@ -26,6 +26,6 @@ test.describe("Events", () => {
 
   test("page content area is present", async ({ page }) => {
     await page.goto("/app/events");
-    await expect(page.locator("main").or(page.locator("body"))).toBeVisible();
+    await expect(page.locator("body")).toBeVisible();
   });
 });

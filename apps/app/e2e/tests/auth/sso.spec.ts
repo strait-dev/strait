@@ -5,7 +5,7 @@ test.describe("SSO", () => {
 
   test("page loads with SSO form", async ({ page }) => {
     await page.goto("/sso");
-    await expect(page.getByText("Enterprise SSO")).toBeVisible();
+    await expect(page.getByText("Enterprise SSO").first()).toBeVisible();
   });
 
   test("back to sign in link works", async ({ page }) => {

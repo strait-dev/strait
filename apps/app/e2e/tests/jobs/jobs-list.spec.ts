@@ -146,7 +146,7 @@ test.describe("Jobs List", () => {
 
   test("page content is visible", async ({ page }) => {
     // The page should render something - table, empty state, or error
-    await expect(page.locator("main").or(page.locator("body"))).toBeVisible();
+    await expect(page.locator("main")).toBeVisible();
   });
 
   test("multiple status filters can be applied", async ({ page }) => {

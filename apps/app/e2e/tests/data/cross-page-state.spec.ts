@@ -20,7 +20,9 @@ test.describe("Cross-Page State", () => {
 
   test.afterAll(async () => {
     if (jobId) {
-      await api.deleteJob(jobId).catch(() => { /* cleanup */ });
+      await api.deleteJob(jobId).catch(() => {
+        /* cleanup */
+      });
     }
   });
 

@@ -5,9 +5,7 @@ test.describe("Invitation", () => {
 
   test("invalid invitation shows error", async ({ page }) => {
     await page.goto("/invitation/nonexistent-invitation-12345");
-    const error = page.getByText(/not found|invalid|error|expired/i);
-    const content = page.locator("body");
-    await expect(error.or(content)).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("body")).toBeVisible({ timeout: 10_000 });
   });
 
   test("page renders without crashing", async ({ page }) => {

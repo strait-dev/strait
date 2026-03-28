@@ -20,7 +20,9 @@ test.describe("Webhook Delivery", () => {
 
   test.afterAll(async () => {
     if (webhookId) {
-      await api.deleteWebhook(webhookId).catch(() => { /* cleanup */ });
+      await api.deleteWebhook(webhookId).catch(() => {
+        /* cleanup */
+      });
     }
   });
 
