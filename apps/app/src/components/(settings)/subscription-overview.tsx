@@ -22,6 +22,7 @@ import {
   LinkSquareIcon,
   SparklesIcon,
 } from "@/lib/icons";
+import { getPostHog } from "@/lib/analytics";
 import { captureException } from "@/lib/sentry";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 
@@ -49,6 +50,7 @@ const SubscriptionOverview = () => {
 
   // Helper to open portal
   const openPortal = useCallback(async (loadingKey: string) => {
+    getPostHog()?.capture("billing_portal_opened", { action: loadingKey });
     setIsLoading(loadingKey);
     try {
       const result = await getCustomerPortalUrlServerFn();

@@ -29,4 +29,10 @@ const safeRedirect = z
 export const authSearchSchema = z.object({
   redirect: safeRedirect,
   error: z.string().optional().catch(undefined),
+  utm_source: z.string().optional().catch(undefined),
+  utm_medium: z.string().optional().catch(undefined),
+  utm_campaign: z.string().optional().catch(undefined),
+  utm_term: z.string().optional().catch(undefined),
+  utm_content: z.string().optional().catch(undefined),
+  ref: z.string().optional().catch(undefined),
 });

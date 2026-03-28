@@ -35,6 +35,7 @@ import {
 } from "@/hooks/subscription/use-subscription";
 import { ensureSession } from "@/lib/auth-handler";
 import { setSentryUser } from "@/lib/sentry";
+import { consumeUtmParams, utmToSetOnce } from "@/lib/utm";
 import type { AuthUser, RouterContext, Session } from "@/routes/__root";
 
 export type AppRouteContext = RouterContext & {
@@ -166,7 +167,39 @@ function RouteComponent() {
       });
     }
 
+    const utm = consumeUtmParams();
+    const setOnce: Record<string, string> = {
+      initial_signup_date: new Date(session.user.createdAt).toISOString(),
+      ...(utm ? utmToSetOnce(utm) : {}),
+    };
+    posthog.setPersonProperties({}, setOnce);
+
     hasIdentifiedRef.current = true;
+  }, [posthog, session, subscription, subscriptionState]);
+
+  useEffect(() => {
+    if (!(posthog && hasIdentifiedRef.current && subscriptionState)) {
+      return;
+    }
+
+    const plan = subscriptionState.planSlug ?? "none";
+    const isTrialing = subscriptionState.isTrialing ?? false;
+    const trialEnd = subscriptionState.trialInfo?.trialEnd ?? null;
+
+    posthog.setPersonProperties({
+      plan,
+      is_trialing: isTrialing,
+      trial_ends_at: trialEnd,
+    });
+
+    const organizationId = session.user.defaultOrganizationId;
+    if (organizationId) {
+      posthog.group("organization", organizationId, {
+        plan,
+        is_trialing: isTrialing,
+        subscription_status: subscription?.status || "none",
+      });
+    }
   }, [posthog, session, subscription, subscriptionState]);
 
   const handleTrialModalClose = (open: boolean) => {

@@ -8,6 +8,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getPostHog } from "@/lib/analytics";
 import { auth } from "@/lib/auth.server";
 
 export type InvitationData = {
@@ -21,12 +22,6 @@ export type InvitationData = {
 };
 
 type InvitationRole = "member" | "admin" | "owner";
-
-/** API response format for invitations list. */
-export type InvitationsApiResponse = {
-  page: InvitationData[];
-  pageCount: number;
-};
 
 /** Parameters for invitation queries. */
 interface InvitationParams {
@@ -193,11 +188,18 @@ export const useCreateInvitation = () => {
       organizationId: string;
     }) => createInvitationServerFn({ data }),
     onSuccess: (_data, variables) => {
+      getPostHog()?.capture("member_invited", { role: variables.role });
       queryClient.invalidateQueries({
         queryKey: queryKeys.invitations.list(variables.organizationId).queryKey,
       });
       queryClient.invalidateQueries({
         queryKey: queryKeys.members._def,
+      });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "member_invited",
+        error_message: err instanceof Error ? err.message : "Unknown error",
       });
     },
   });
@@ -221,42 +223,6 @@ export const useCancelInvitation = () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.invitations._def,
       });
-    },
-  });
-};
-
-/** Updates (cancels) an invitation. */
-export const useUpdateInvitation = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationKey: ["invitations", "cancel"],
-    mutationFn: (data: { invitationId: string } | string) =>
-      cancelInvitationServerFn({
-        data:
-          typeof data === "string"
-            ? { invitationId: data }
-            : { invitationId: data.invitationId },
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.invitations._def });
-    },
-  });
-};
-
-/** Deletes (cancels) invitations. */
-export const useDeleteInvitations = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationKey: ["invitations", "cancel"],
-    mutationFn: (data: { invitationId: string } | string) =>
-      cancelInvitationServerFn({
-        data:
-          typeof data === "string"
-            ? { invitationId: data }
-            : { invitationId: data.invitationId },
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.invitations._def });
     },
   });
 };
@@ -326,6 +292,7 @@ export const useAcceptInvitation = () => {
       return result.data;
     },
     onSuccess: () => {
+      getPostHog()?.capture("invitation_accepted");
       queryClient.invalidateQueries({
         queryKey: queryKeys.userInvitations._def,
       });
@@ -334,6 +301,12 @@ export const useAcceptInvitation = () => {
       });
       queryClient.invalidateQueries({
         queryKey: queryKeys.members._def,
+      });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "invitation_accepted",
+        error_message: err instanceof Error ? err.message : "Unknown error",
       });
     },
   });
@@ -355,8 +328,15 @@ export const useRejectInvitation = () => {
       return result.data;
     },
     onSuccess: () => {
+      getPostHog()?.capture("invitation_rejected");
       queryClient.invalidateQueries({
         queryKey: queryKeys.userInvitations._def,
+      });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "invitation_rejected",
+        error_message: err instanceof Error ? err.message : "Unknown error",
       });
     },
   });

@@ -45,12 +45,12 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "@typescript/native-preview": "^7.0.0-dev.20260326.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260327.2",
     "babel-plugin-react-compiler": "^1.0.0",
     "postcss": "^8.5.8",
     "postcss-load-config": "^6.0.1",
     "typescript": "^6.0.2",
     "vite": "^8.0.3",
-    "vitest": "^4.1.1"
+    "vitest": "^4.1.2"
   }
 }

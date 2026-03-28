@@ -1,6 +1,6 @@
 import type { ExecutionTrace } from "@/hooks/api/types";
 
-export const TRACE_SEGMENTS: {
+const TRACE_SEGMENTS: {
   key: keyof ExecutionTrace;
   label: string;
   color: string;

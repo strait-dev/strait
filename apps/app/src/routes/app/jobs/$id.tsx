@@ -42,12 +42,13 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import ChartTooltip from "@/components/dashboard/chart-tooltip";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import StatusBadge from "@/components/dashboard/status-badge";
-import { runColumns } from "@/components/tables/runs-columns";
+import { createRunColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import { jobQueryOptions } from "@/hooks/api/use-jobs";
-import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { runsQueryOptions, useRetryRun, useCancelRun } from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
   ClockIcon,
@@ -132,6 +133,7 @@ const CHART_LEGEND = [
 
 function JobDetailPage() {
   const { id } = Route.useParams();
+  usePageEvent("job_detail_viewed", { job_id: id });
   const { data: job } = useSuspenseQuery(jobQueryOptions(id)) as {
     data: Job | undefined;
   };
@@ -144,6 +146,8 @@ function JobDetailPage() {
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const retryRun = useRetryRun();
+  const cancelRun = useCancelRun();
 
   // Filter runs for this job
   const jobRuns = useMemo(
@@ -153,7 +157,11 @@ function JobDetailPage() {
 
   const table = useReactTable({
     data: jobRuns,
-    columns: runColumns,
+    columns: createRunColumns({
+      onView: (run) => handleRowClick(run),
+      onRetry: (run) => retryRun.mutate({ run_id: run.id }),
+      onCancel: (run) => cancelRun.mutate({ run_id: run.id }),
+    }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -431,14 +439,18 @@ function JobDetailPage() {
                         label: "Retry",
                         icon: RefreshIcon,
                         onClick: () => {
-                          // TODO
+                          for (const id of selectedIds) {
+                            retryRun.mutate({ run_id: id });
+                          }
                         },
                       },
                       {
                         label: "Cancel",
                         icon: XCircleIcon,
                         onClick: () => {
-                          // TODO
+                          for (const id of selectedIds) {
+                            cancelRun.mutate({ run_id: id });
+                          }
                         },
                         variant: "destructive" as const,
                       },

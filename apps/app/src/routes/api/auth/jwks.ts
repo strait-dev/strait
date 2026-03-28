@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { exportJWK, importSPKI, importPKCS8 } from "jose";
+import { exportJWK, importPKCS8, importSPKI } from "jose";
 import {
+  OAUTH_CORS_HEADERS,
   OIDC_ALGORITHM,
   OIDC_KEY_ID,
-  OAUTH_CORS_HEADERS,
 } from "@/lib/oauth-scopes";
 import { captureException } from "@/lib/sentry";
 
@@ -42,12 +42,18 @@ export const Route = createFileRoute("/api/auth/jwks")({
             };
           } else {
             return new Response(JSON.stringify({ keys: [] }), {
-              headers: { "Content-Type": "application/json", ...OAUTH_CORS_HEADERS },
+              headers: {
+                "Content-Type": "application/json",
+                ...OAUTH_CORS_HEADERS,
+              },
             });
           }
 
           return new Response(JSON.stringify({ keys: [publicJwk] }), {
-            headers: { "Content-Type": "application/json", ...OAUTH_CORS_HEADERS },
+            headers: {
+              "Content-Type": "application/json",
+              ...OAUTH_CORS_HEADERS,
+            },
           });
         } catch (err) {
           captureException(err, { tags: { feature: "oauth", action: "jwks" } });

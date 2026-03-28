@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import ErrorComponent from "@/components/common/error-component";
 import DashboardContent from "@/components/dashboard/dashboard-content";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import {
   analyticsQueryOptions as analyticsQueryOptionsFn,
   statsQueryOptions as statsQueryOptionsFn,
@@ -33,6 +34,7 @@ export const Route = createFileRoute("/app/dashboard")({
 });
 
 function RouteComponent() {
+  usePageEvent("dashboard_viewed");
   const { hasProject, activeProjectId } = Route.useLoaderData();
 
   return (

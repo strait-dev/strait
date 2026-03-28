@@ -4,7 +4,15 @@ import type { JobRun } from "@/hooks/api/types";
 import { EyeIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
-export const dlqColumns: ColumnDef<JobRun>[] = [
+type DlqColumnActions = {
+  onView?: (run: JobRun) => void;
+  onRetry?: (run: JobRun) => void;
+  onDiscard?: (run: JobRun) => void;
+};
+
+export const createDlqColumns = (
+  actions: DlqColumnActions = {}
+): ColumnDef<JobRun>[] => [
   createSelectColumn<JobRun>(),
   {
     accessorKey: "id",
@@ -49,12 +57,20 @@ export const dlqColumns: ColumnDef<JobRun>[] = [
       }),
   },
   createActionsColumn<JobRun>([
-    { label: "View", icon: EyeIcon, onClick: () => undefined },
-    { label: "Retry", icon: RefreshIcon, onClick: () => undefined },
+    {
+      label: "View",
+      icon: EyeIcon,
+      onClick: (row) => actions.onView?.(row.original),
+    },
+    {
+      label: "Retry",
+      icon: RefreshIcon,
+      onClick: (row) => actions.onRetry?.(row.original),
+    },
     {
       label: "Discard",
       icon: TrashIcon,
-      onClick: () => undefined,
+      onClick: (row) => actions.onDiscard?.(row.original),
       variant: "destructive",
     },
   ]),

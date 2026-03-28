@@ -1,9 +1,5 @@
 import * as z from "zod";
 
-const DEFAULT_MAX_WORKSPACE_LENGTH = 100;
-const DEFAULT_MAX_USE_CASE_LENGTH = 8;
-const DEFAULT_MAX_DESCRIPTION_LENGTH = 500;
-
 export const FeedbackFormSchema = z.object({
   email: z.email("Invalid email"),
   subject: z
@@ -73,43 +69,4 @@ export const DeleteLastOrganizationWithTokenSchema = z.object({
   verificationToken: z.string({ message: "Invalid verification token" }),
 });
 
-// Step 1: Use Cases
-const useCasesSchema = z.object({
-  useCases: z
-    .array(z.string())
-    .min(1, "Please select at least one use case")
-    .max(DEFAULT_MAX_USE_CASE_LENGTH, "Please select up to 8 use cases"),
-});
 
-// Step 2: Workspace Setup
-const workspaceSetupSchema = z.object({
-  workspaceName: z
-    .string()
-    .min(2, "Workspace name must be at least 2 characters")
-    .max(
-      DEFAULT_MAX_WORKSPACE_LENGTH,
-      "Workspace name must be less than 100 characters"
-    ),
-  teamSize: z.string().min(1, "Please select your team size"),
-  environment: z.string().min(1, "Please select your primary environment"),
-  primaryGoals: z
-    .string()
-    .optional()
-    .refine(
-      (val) => {
-        if (!val) {
-          return true;
-        }
-        return val.length <= DEFAULT_MAX_DESCRIPTION_LENGTH;
-      },
-      { message: "Goals description must be less than 500 characters" }
-    ),
-});
-
-// Combined schema for the entire onboarding form
-export const onboardingSchema = z.object({
-  ...useCasesSchema.shape,
-  ...workspaceSetupSchema.shape,
-});
-
-export type OnboardingFormData = z.infer<typeof onboardingSchema>;

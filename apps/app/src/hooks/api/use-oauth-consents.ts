@@ -1,4 +1,8 @@
-import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  queryOptions,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { queryKeys } from "@/hooks/query-keys";
@@ -32,7 +36,9 @@ export const fetchOAuthConsents = createServerFn({ method: "GET" })
           clientName = client.name;
         }
       } catch (err) {
-        captureException(err, { tags: { feature: "oauth", action: "fetch_client" } });
+        captureException(err, {
+          tags: { feature: "oauth", action: "fetch_client" },
+        });
       }
       items.push({
         id: consent.id,

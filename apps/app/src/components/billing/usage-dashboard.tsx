@@ -458,8 +458,9 @@ const UsageDashboard = () => {
               </span>
               <span className="text-muted-foreground text-xs">
                 ${(usage.overage_microusd / 1_000_000).toFixed(2)} over your
-                included ${(usage.included_credit_microusd / 1_000_000).toFixed(2)} credit.
-                Set a spending limit to control costs.
+                included $
+                {(usage.included_credit_microusd / 1_000_000).toFixed(2)}{" "}
+                credit. Set a spending limit to control costs.
               </span>
             </div>
             <Button

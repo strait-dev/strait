@@ -22,19 +22,21 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useState } from "react";
 import { z } from "zod/v4";
-
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
-import { dlqColumns } from "@/components/tables/dlq-columns";
+import { createDlqColumns } from "@/components/tables/dlq-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
   dlqQueryOptions,
   useBulkDiscardDlq,
   useBulkRetryDlq,
+  useRetryDlqItem,
+  useDiscardDlqItem,
 } from "@/hooks/api/use-dlq";
 import {
   AlertIcon,
@@ -68,6 +70,7 @@ export const Route = createFileRoute("/app/dlq/")({
 });
 
 function DlqPage() {
+  usePageEvent("dlq_viewed");
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -82,13 +85,19 @@ function DlqPage() {
 
   const bulkRetry = useBulkRetryDlq();
   const bulkDiscard = useBulkDiscardDlq();
+  const retryDlqItem = useRetryDlqItem();
+  const discardDlqItem = useDiscardDlqItem();
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
   const tableData = hasProject ? (typed?.data ?? []) : [];
 
   const table = useReactTable({
     data: tableData,
-    columns: dlqColumns,
+    columns: createDlqColumns({
+      onView: (run) => { setSelectedRun(run); setSheetOpen(true); },
+      onRetry: (run) => retryDlqItem.mutate({ id: run.id }),
+      onDiscard: (run) => discardDlqItem.mutate({ id: run.id }),
+    }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
