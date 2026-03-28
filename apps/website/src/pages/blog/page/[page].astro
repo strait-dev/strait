@@ -12,23 +12,28 @@ import LandingLayout from "@/layouts/LandingLayout.astro";
 const POSTS_PER_PAGE = 8;
 
 export async function getStaticPaths() {
-	let totalCount = 0;
-	try {
-		const countData = await basehub({ token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN, cache: "no-store" }).query({
-			website: { blog: { posts: { _meta: { totalCount: true } } } },
-		});
-		totalCount = (countData as any).website.blog.posts._meta.totalCount;
-	} catch {
-		return [];
-	}
+  let totalCount = 0;
+  try {
+    const countData = await basehub({
+      token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN,
+      cache: "no-store",
+    }).query({
+      website: { blog: { posts: { _meta: { totalCount: true } } } },
+    });
+    totalCount = (countData as any).website.blog.posts._meta.totalCount;
+  } catch {
+    return [];
+  }
 
-	const totalPages = Math.ceil(totalCount / 8);
-	if (totalPages <= 1) { return []; }
+  const totalPages = Math.ceil(totalCount / 8);
+  if (totalPages <= 1) {
+    return [];
+  }
 
-	return Array.from({ length: totalPages - 1 }, (_, i) => ({
-		params: { page: String(i + 2) },
-		props: { totalPages },
-	}));
+  return Array.from({ length: totalPages - 1 }, (_, i) => ({
+    params: { page: String(i + 2) },
+    props: { totalPages },
+  }));
 }
 
 const { totalPages } = Astro.props as { totalPages: number };
@@ -36,30 +41,32 @@ const { page: pageParam } = Astro.params;
 const currentPage = Number(pageParam);
 
 if (currentPage === 1) {
-	return Astro.redirect("/blog");
+  return Astro.redirect("/blog");
 }
 
 const skip = (currentPage - 1) * POSTS_PER_PAGE;
 let posts: any[] = [];
 
 try {
-	const data = await basehub({ token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN }).query({
-		website: {
-			blog: {
-				posts: {
-					__args: {
-						orderBy: "publishedAt__DESC",
-						first: POSTS_PER_PAGE,
-						skip,
-					},
-					items: PostFragmentQuery,
-				},
-			},
-		},
-	});
-	posts = (data as any).website.blog.posts.items;
+  const data = await basehub({
+    token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN,
+  }).query({
+    website: {
+      blog: {
+        posts: {
+          __args: {
+            orderBy: "publishedAt__DESC",
+            first: POSTS_PER_PAGE,
+            skip,
+          },
+          items: PostFragmentQuery,
+        },
+      },
+    },
+  });
+  posts = (data as any).website.blog.posts.items;
 } catch {
-	// Basehub unavailable
+  // Basehub unavailable
 }
 
 const featuredPost = posts.length > 0 ? posts[0] : null;

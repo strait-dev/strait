@@ -27,7 +27,9 @@ let heroSubtitle =
 let heroBadge = "Our Blog";
 
 try {
-  const data = await basehub({ token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN }).query({
+  const data = await basehub({
+    token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN,
+  }).query({
     website: {
       blog: {
         hero: {

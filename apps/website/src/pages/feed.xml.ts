@@ -42,7 +42,9 @@ export const GET: APIRoute = async () => {
   let posts: any[] = [];
 
   try {
-    const data = await basehub({ token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN }).query({
+    const data = await basehub({
+      token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN,
+    }).query({
       website: {
         blog: {
           posts: {
