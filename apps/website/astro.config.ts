@@ -11,6 +11,10 @@ export default defineConfig({
 	compressHTML: true,
 	devToolbar: { enabled: false },
 
+	markdown: {
+		syntaxHighlight: "prism",
+	},
+
 	adapter: cloudflare({
 		imageService: "compile",
 	}),
