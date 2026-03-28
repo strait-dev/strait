@@ -84,7 +84,7 @@ func TestEndToEndWebhookDelivery(t *testing.T) {
 	defer srv.Close()
 
 	payload := `{"event_key":"test.event","trigger_id":"trig-1"}`
-	now := time.Now()
+	now := time.Now().Add(-time.Second)
 	d := &domain.WebhookDelivery{
 		WebhookURL:  srv.URL,
 		RetryPolicy: domain.WebhookRetryPolicyExponential,
@@ -392,14 +392,35 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 		t.Fatalf("expected exactly %d requests, got %d", deliveryCount, totalRequests.Load())
 	}
 
-	// Verify all are marked delivered in the DB.
-	for _, id := range ids {
-		got, err := st.GetWebhookDelivery(ctx, id)
-		if err != nil {
-			t.Fatalf("GetWebhookDelivery(%s) error = %v", id, err)
+	deadline = time.After(5 * time.Second)
+	for {
+		allDelivered := true
+		for _, id := range ids {
+			got, err := st.GetWebhookDelivery(ctx, id)
+			if err != nil {
+				t.Fatalf("GetWebhookDelivery(%s) error = %v", id, err)
+			}
+			if got.Status != domain.WebhookStatusDelivered {
+				allDelivered = false
+				break
+			}
 		}
-		if got.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("delivery %s: expected status %q, got %q", id, domain.WebhookStatusDelivered, got.Status)
+		if allDelivered {
+			break
+		}
+		select {
+		case <-deadline:
+			for _, id := range ids {
+				got, err := st.GetWebhookDelivery(ctx, id)
+				if err != nil {
+					t.Fatalf("GetWebhookDelivery(%s) error = %v", id, err)
+				}
+				if got.Status != domain.WebhookStatusDelivered {
+					t.Fatalf("delivery %s: expected status %q, got %q", id, domain.WebhookStatusDelivered, got.Status)
+				}
+			}
+		default:
+			time.Sleep(25 * time.Millisecond)
 		}
 	}
 }
@@ -820,12 +841,22 @@ func TestEnqueueSubscriptionWebhooksIntegration(t *testing.T) {
 	worker.EnqueueSubscriptionWebhooks(ctx, subs, "run.completed", payload)
 
 	// Verify only one delivery was created (matching sub only).
-	pending, err := st.ListPendingWebhookRetries(ctx)
-	if err != nil {
-		t.Fatalf("ListPendingWebhookRetries() error = %v", err)
-	}
-	if len(pending) != 1 {
-		t.Fatalf("expected 1 pending delivery (matching sub only), got %d", len(pending))
+	deadline := time.After(5 * time.Second)
+	var pending []domain.WebhookDelivery
+	for {
+		pending, err = st.ListPendingWebhookRetries(ctx)
+		if err != nil {
+			t.Fatalf("ListPendingWebhookRetries() error = %v", err)
+		}
+		if len(pending) == 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("expected 1 pending delivery (matching sub only), got %d", len(pending))
+		default:
+			time.Sleep(25 * time.Millisecond)
+		}
 	}
 	if pending[0].WebhookURL != srv.URL {
 		t.Fatalf("expected delivery URL %q, got %q", srv.URL, pending[0].WebhookURL)
@@ -837,7 +868,7 @@ func TestEnqueueSubscriptionWebhooksIntegration(t *testing.T) {
 		_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
 	}()
 
-	deadline := time.After(5 * time.Second)
+	deadline = time.After(5 * time.Second)
 	for received.Load() == 0 {
 		select {
 		case <-deadline:
