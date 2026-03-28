@@ -1,11 +1,11 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "Strait",
-  "theme": "quill",
+  "theme": "luma",
   "colors": {
-    "primary": "#2563EB",
-    "light": "#60A5FA",
-    "dark": "#1E40AF"
+    "primary": "#FF4F00",
+    "light": "#FF4F00",
+    "dark": "#FF4F00"
   },
   "favicon": "/favicon.svg",
   "logo": {
@@ -152,7 +152,7 @@
           },
           {
             "group": "Endpoints",
-            "openapi": "https://api.strait.dev/reference"
+            "openapi": "https://api.strait.dev/reference/openapi.json"
           }
         ]
       },
@@ -185,11 +185,11 @@
     "links": [
       {
         "label": "Website",
-        "url": "https://strait.dev"
+        "href": "https://strait.dev"
       },
       {
         "label": "Dashboard",
-        "url": "https://app.strait.dev"
+        "href": "https://app.strait.dev"
       }
     ]
   },
@@ -206,7 +206,7 @@
       "mode": "simple"
     }
   },
-  "openapi": "https://api.strait.dev/reference",
+  "openapi": "https://api.strait.dev/reference/openapi.json",
   "search": {
     "enabled": true
   },
