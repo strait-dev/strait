@@ -127,7 +127,7 @@ describe("runEvalSuite", () => {
 });
 
 describe("expectation helpers", () => {
-  it("checks JSON paths with stable serialization", async () => {
+  it("checks JSON paths with stable serialization", () => {
     const assertion = expectPathEquals<{ nested: { value: string } }>(
       "nested value matches",
       "nested.value",
