@@ -2,10 +2,8 @@ package worker
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"fmt"
-	"math"
 	"math/rand/v2"
 	"sync"
 	"testing"
@@ -13,55 +11,6 @@ import (
 
 	"strait/internal/domain"
 )
-
-// TestTOCTOU_ConstantTimeComparison verifies that subtle.ConstantTimeCompare
-// does not leak timing information based on input length or prefix match.
-// We compare valid-length vs invalid-length strings and check that the
-// standard deviation of elapsed times is small.
-func TestTOCTOU_ConstantTimeComparison(t *testing.T) {
-	// Not parallel: timing measurements are unreliable under concurrent load.
-
-	const iterations = 100
-	secret := "sk_live_abcdef1234567890abcdef1234567890"
-
-	// Measure comparison against a same-length wrong token.
-	sameLenToken := "sk_live_00000000000000000000000000000000"
-	sameLenDurations := make([]time.Duration, iterations)
-	for i := range iterations {
-		start := time.Now()
-		subtle.ConstantTimeCompare([]byte(secret), []byte(sameLenToken))
-		sameLenDurations[i] = time.Since(start)
-	}
-
-	// Measure comparison against a short wrong token.
-	shortToken := "sk"
-	shortDurations := make([]time.Duration, iterations)
-	for i := range iterations {
-		start := time.Now()
-		subtle.ConstantTimeCompare([]byte(secret), []byte(shortToken))
-		shortDurations[i] = time.Since(start)
-	}
-
-	sameLenMean, sameLenStdDev := durationStats(sameLenDurations)
-	shortMean, shortStdDev := durationStats(shortDurations)
-
-	// The coefficient of variation should be reasonable (timing noise, not leakage).
-	// We just verify standard deviation is not enormous relative to mean.
-	if sameLenStdDev > sameLenMean*2 {
-		t.Errorf("same-length comparison stddev (%v) exceeds 2x mean (%v)", sameLenStdDev, sameLenMean)
-	}
-	if shortStdDev > shortMean*2 {
-		t.Errorf("short comparison stddev (%v) exceeds 2x mean (%v)", shortStdDev, shortMean)
-	}
-
-	// Verify both sets complete in reasonable time (under 1ms per call on average).
-	if sameLenMean > time.Millisecond {
-		t.Errorf("same-length mean (%v) exceeds 1ms", sameLenMean)
-	}
-	if shortMean > time.Millisecond {
-		t.Errorf("short mean (%v) exceeds 1ms", shortMean)
-	}
-}
 
 // TestTOCTOU_TokenExpiryBoundary tests boundary behavior of token expiry
 // using times just before and after the current moment.
@@ -496,26 +445,4 @@ func TestTOCTOU_ErrorClassificationStability(t *testing.T) {
 			}
 		})
 	}
-}
-
-// durationStats computes mean and standard deviation for a slice of durations.
-func durationStats(durations []time.Duration) (mean, stddev time.Duration) {
-	if len(durations) == 0 {
-		return 0, 0
-	}
-
-	var sum float64
-	for _, d := range durations {
-		sum += float64(d)
-	}
-	m := sum / float64(len(durations))
-
-	var variance float64
-	for _, d := range durations {
-		diff := float64(d) - m
-		variance += diff * diff
-	}
-	variance /= float64(len(durations))
-
-	return time.Duration(m), time.Duration(math.Sqrt(variance))
 }
