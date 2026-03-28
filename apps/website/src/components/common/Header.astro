@@ -25,7 +25,7 @@ import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
 				<div class="hidden items-center gap-6 md:flex">
 					{NAV_ITEMS.map((item) => {
 						if (isNavGroup(item)) {
-							return <HeaderDropdown client:visible group={item} />;
+							return <HeaderDropdown client:only="react" group={item} />;
 						}
 
 						return (
@@ -57,7 +57,7 @@ import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
 					</a>
 				</div>
 
-				<MobileNav client:visible />
+				<MobileNav client:only="react" />
 			</div>
 		</nav>
 	</Shell>
