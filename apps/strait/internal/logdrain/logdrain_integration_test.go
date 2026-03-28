@@ -61,9 +61,9 @@ func mustClean(t *testing.T, ctx context.Context) {
 func seedProject(t *testing.T, ctx context.Context, st *store.Queries, projectID string) {
 	t.Helper()
 	project := &domain.Project{
-		ID:   projectID,
+		ID:    projectID,
 		OrgID: "org-" + projectID,
-		Name: "test-project-" + projectID,
+		Name:  "test-project-" + projectID,
 	}
 	if err := st.CreateProject(ctx, project); err != nil {
 		t.Fatalf("CreateProject() error = %v", err)
@@ -380,8 +380,16 @@ func TestWorker_FailedDelivery_RetryAndPoisonSkip(t *testing.T) {
 		close(done)
 	}()
 
-	// Allow enough ticks for maxRunRetries (3) failures + 1 skip tick.
-	time.Sleep(500 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		currentCalls := callCount
+		mu.Unlock()
+		if currentCalls >= 3 {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 	cancel()
 	<-done
 

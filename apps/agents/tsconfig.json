@@ -1,0 +1,9 @@
+{
+  "extends": "../../packages/config/base.json",
+  "display": "@strait/agents",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["./src/**/*.ts"],
+  "exclude": ["node_modules"]
+}

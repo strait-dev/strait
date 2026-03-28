@@ -400,89 +400,82 @@ func TestDequeueNFair_ConcurrentWorkers(t *testing.T) {
 	ctx := context.Background()
 	q := mustQueue(t)
 	st := mustStore(t)
-	mustClean(t, ctx)
-
-	// DequeueNFair uses DISTINCT ON (job_id) so each call can dequeue at most
-	// one run per distinct job. Create 20 distinct jobs (10 per project) with
-	// one run each. This gives 20 candidate rows so 4 workers requesting 5
-	// each can consume them all without contention on the same job_id.
 	const runsPerProject = 10
-	allRunIDs := make(map[string]struct{}, runsPerProject*2)
+	for attempt := 1; attempt <= 3; attempt++ {
+		mustClean(t, ctx)
 
-	for range runsPerProject {
-		job := mustCreateJob(t, ctx, st, "project-fair-concurrent-a")
-		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue() error = %v", err)
+		for range runsPerProject {
+			job := mustCreateJob(t, ctx, st, "project-fair-concurrent-a")
+			run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+			if err := q.Enqueue(ctx, run); err != nil {
+				t.Fatalf("Enqueue() error = %v", err)
+			}
 		}
-		allRunIDs[run.ID] = struct{}{}
-	}
-	for range runsPerProject {
-		job := mustCreateJob(t, ctx, st, "project-fair-concurrent-b")
-		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue() error = %v", err)
+		for range runsPerProject {
+			job := mustCreateJob(t, ctx, st, "project-fair-concurrent-b")
+			run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+			if err := q.Enqueue(ctx, run); err != nil {
+				t.Fatalf("Enqueue() error = %v", err)
+			}
 		}
-		allRunIDs[run.ID] = struct{}{}
-	}
 
-	var (
-		wg   sync.WaitGroup
-		mu   sync.Mutex
-		seen = make(map[string]int)
-	)
+		var (
+			wg   sync.WaitGroup
+			mu   sync.Mutex
+			seen = make(map[string]int)
+		)
 
-	errCh := make(chan error, 4)
-	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			runs, err := q.DequeueNFair(ctx, 5)
+		errCh := make(chan error, 4)
+		for range 4 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				runs, err := q.DequeueNFair(ctx, 5)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				mu.Lock()
+				for i := range runs {
+					seen[runs[i].ID]++
+				}
+				mu.Unlock()
+			}()
+		}
+
+		wg.Wait()
+		close(errCh)
+		for err := range errCh {
 			if err != nil {
-				errCh <- err
-				return
+				t.Fatalf("DequeueNFair() error = %v", err)
 			}
-			mu.Lock()
-			for i := range runs {
-				seen[runs[i].ID]++
+		}
+
+		duplicateSeen := false
+		for runID, count := range seen {
+			if count > 1 {
+				duplicateSeen = true
+				t.Logf("attempt %d observed duplicate dequeue for run %s (%d times)", attempt, runID, count)
+				break
 			}
-			mu.Unlock()
-		}()
-	}
-
-	wg.Wait()
-	close(errCh)
-	for err := range errCh {
-		if err != nil {
-			t.Fatalf("DequeueNFair() error = %v", err)
 		}
-	}
-
-	dupes := 0
-	for runID, count := range seen {
-		if count > 1 {
-			dupes++
-			t.Logf("WARN: run %s dequeued %d times (DISTINCT ON + SKIP LOCKED race under concurrency)", runID, count)
+		if duplicateSeen {
+			continue
 		}
-	}
-	// Under high concurrency, Postgres CTE inlining can cause rare double-dequeues.
-	// The production worker handles this via idempotent status transitions.
-	// CI shared runners have higher contention, so allow up to 8 duplicates
-	// before considering it a real regression (previously 2, but CI hit 5
-	// consistently under load).
-	if dupes > 8 {
-		t.Fatalf("too many duplicate dequeues (%d), possible regression in DequeueNFair", dupes)
+
+		// With DISTINCT ON (job_id) and SKIP LOCKED under concurrency, some
+		// workers may observe fewer candidates than requested when another
+		// transaction locks the same job_id candidate first. Verify that every
+		// dequeued run is unique and that we got at least as many as a single
+		// worker batch (5) and at most all runs (20).
+		if len(seen) < 5 {
+			t.Fatalf("unique dequeued runs = %d, want >= 5", len(seen))
+		}
+		if len(seen) > 20 {
+			t.Fatalf("unique dequeued runs = %d, want <= 20", len(seen))
+		}
+		return
 	}
 
-	// With DISTINCT ON (job_id) and SKIP LOCKED under concurrency, some
-	// workers may observe fewer candidates than requested when another
-	// transaction locks the same job_id candidate first. Verify that every
-	// dequeued run is unique and that we got at least as many as a single
-	// worker batch (5) and at most all runs (20).
-	if len(seen) < 5 {
-		t.Fatalf("unique dequeued runs = %d, want >= 5", len(seen))
-	}
-	if len(seen) > 20 {
-		t.Fatalf("unique dequeued runs = %d, want <= 20", len(seen))
-	}
+	t.Fatal("duplicate dequeue observed across all retry attempts")
 }

@@ -7,18 +7,26 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net/http/httptest"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"strait/internal/agents"
+	"strait/internal/api"
+	"strait/internal/config"
 	"strait/internal/domain"
+	"strait/internal/pubsub"
 	"strait/internal/store"
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
 )
+
+const runtimeTestJWTKey = "01234567890123456789012345678901"
 
 var testDB *testutil.TestDB
 
@@ -42,7 +50,29 @@ func TestServiceLifecycleReusesJobRuns(t *testing.T) {
 	mustClean(t, ctx)
 	projectID := mustCreateProject(t, ctx, q)
 
-	svc := agents.NewService(q, testDB.Pool)
+	recorder := &recordingPublisher{}
+	srv := api.NewServer(api.ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-internal-secret",
+			JWTSigningKey:      runtimeTestJWTKey,
+			MaxRequestBodySize: 1 << 20,
+			MaxResultSize:      1 << 20,
+		},
+		Store:  q,
+		PubSub: recorder,
+	})
+	httpServer := httptest.NewServer(srv)
+	defer httpServer.Close()
+	defer srv.Close()
+
+	svc := agents.NewService(
+		q,
+		testDB.Pool,
+		agents.WithAPIBaseURL(httpServer.URL),
+		agents.WithJWTSigningKey(runtimeTestJWTKey),
+	)
+	defer closeService(svc)
+
 	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
 		ProjectID:   projectID,
 		Name:        "Support Agent",
@@ -87,16 +117,62 @@ func TestServiceLifecycleReusesJobRuns(t *testing.T) {
 	if run.JobID != agent.JobID {
 		t.Fatalf("run.JobID = %q, want %q", run.JobID, agent.JobID)
 	}
-	if run.Status != domain.StatusCompleted {
-		t.Fatalf("run.Status = %s, want completed", run.Status)
+	if run.Status != domain.StatusQueued {
+		t.Fatalf("run.Status = %s, want queued", run.Status)
 	}
 
-	storedRun, err := q.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
+	storedRun := mustWaitForRunStatus(t, ctx, q, run.ID, domain.StatusCompleted)
 	if storedRun.JobID != agent.JobID {
 		t.Fatalf("storedRun.JobID = %q, want %q", storedRun.JobID, agent.JobID)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(storedRun.Result, &result); err != nil {
+		t.Fatalf("unmarshal run result: %v", err)
+	}
+	if result["agent_id"] != agent.ID {
+		t.Fatalf("result.agent_id = %v, want %s", result["agent_id"], agent.ID)
+	}
+
+	checkpoints, err := q.ListRunCheckpoints(ctx, run.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunCheckpoints() error = %v", err)
+	}
+	if len(checkpoints) != 1 {
+		t.Fatalf("checkpoint count = %d, want 1", len(checkpoints))
+	}
+
+	usage, err := q.ListRunUsage(ctx, run.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunUsage() error = %v", err)
+	}
+	if len(usage) != 1 {
+		t.Fatalf("usage count = %d, want 1", len(usage))
+	}
+	if usage[0].Provider != "local" {
+		t.Fatalf("usage provider = %q, want local", usage[0].Provider)
+	}
+
+	toolCalls, err := q.ListRunToolCalls(ctx, run.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunToolCalls() error = %v", err)
+	}
+	if len(toolCalls) != 1 {
+		t.Fatalf("tool call count = %d, want 1", len(toolCalls))
+	}
+	if toolCalls[0].ToolName != "local.echo" {
+		t.Fatalf("tool call = %q, want local.echo", toolCalls[0].ToolName)
+	}
+
+	streamMessages := recorder.Messages("run_stream:" + run.ID)
+	if len(streamMessages) != 2 {
+		t.Fatalf("stream message count = %d, want 2", len(streamMessages))
+	}
+	if !strings.Contains(streamMessages[0], `"chunk":"agent:support-agent:thinking "`) {
+		t.Fatalf("first stream chunk = %s", streamMessages[0])
+	}
+	if !strings.Contains(streamMessages[1], `"done":true`) {
+		t.Fatalf("second stream chunk = %s", streamMessages[1])
 	}
 
 	runs, err := svc.ListAgentRuns(ctx, projectID, agent.ID, 10, 0)
@@ -121,7 +197,27 @@ func TestServiceRunAgentFailurePersistsFailedRun(t *testing.T) {
 	mustClean(t, ctx)
 	projectID := mustCreateProject(t, ctx, q)
 
-	svc := agents.NewService(q, testDB.Pool)
+	srv := api.NewServer(api.ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-internal-secret",
+			JWTSigningKey:      runtimeTestJWTKey,
+			MaxRequestBodySize: 1 << 20,
+			MaxResultSize:      1 << 20,
+		},
+		Store: q,
+	})
+	httpServer := httptest.NewServer(srv)
+	defer httpServer.Close()
+	defer srv.Close()
+
+	svc := agents.NewService(
+		q,
+		testDB.Pool,
+		agents.WithAPIBaseURL(httpServer.URL),
+		agents.WithJWTSigningKey(runtimeTestJWTKey),
+	)
+	defer closeService(svc)
+
 	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
 		ProjectID: projectID,
 		Name:      "Failure Agent",
@@ -139,25 +235,134 @@ func TestServiceRunAgentFailurePersistsFailedRun(t *testing.T) {
 	run, err := svc.RunAgent(ctx, agents.RunAgentRequest{
 		ProjectID: projectID,
 		AgentID:   agent.ID,
-		Payload:   json.RawMessage(`{"_stub_error":"boom"}`),
+		Payload:   json.RawMessage(`{"_scenario":"fail","_error":"boom"}`),
 		Actor:     "user-1",
 	})
 	if err != nil {
 		t.Fatalf("RunAgent() error = %v", err)
 	}
-	if run.Status != domain.StatusFailed {
-		t.Fatalf("run.Status = %s, want failed", run.Status)
+
+	storedRun := mustWaitForRunStatus(t, ctx, q, run.ID, domain.StatusFailed)
+	if !strings.Contains(storedRun.Error, "boom") {
+		t.Fatalf("run.Error = %q, want boom", storedRun.Error)
+	}
+}
+
+func TestServiceRunAgentRuntimeDisconnectMapsToSystemFailure(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+
+	srv := api.NewServer(api.ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-internal-secret",
+			JWTSigningKey:      runtimeTestJWTKey,
+			MaxRequestBodySize: 1 << 20,
+			MaxResultSize:      1 << 20,
+		},
+		Store: q,
+	})
+	httpServer := httptest.NewServer(srv)
+	defer httpServer.Close()
+	defer srv.Close()
+
+	svc := agents.NewService(
+		q,
+		testDB.Pool,
+		agents.WithAPIBaseURL(httpServer.URL),
+		agents.WithJWTSigningKey(runtimeTestJWTKey),
+	)
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Disconnect Agent",
+		Slug:      "disconnect-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	if _, err := svc.DeployAgent(ctx, projectID, agent.ID, "user-1"); err != nil {
+		t.Fatalf("DeployAgent() error = %v", err)
 	}
 
-	events, err := q.ListEvents(ctx, run.ID, 10, nil)
+	run, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID: projectID,
+		AgentID:   agent.ID,
+		Payload:   json.RawMessage(`{"_scenario":"disconnect"}`),
+		Actor:     "user-1",
+	})
 	if err != nil {
-		t.Fatalf("ListEvents() error = %v", err)
+		t.Fatalf("RunAgent() error = %v", err)
 	}
-	if len(events) != 2 {
-		t.Fatalf("ListEvents() len = %d, want 2", len(events))
+
+	storedRun := mustWaitForRunStatus(t, ctx, q, run.ID, domain.StatusSystemFailed)
+	if !strings.Contains(storedRun.Error, "without terminal event") {
+		t.Fatalf("run.Error = %q, want runtime exit error", storedRun.Error)
 	}
-	if events[1].Type != domain.EventError {
-		t.Fatalf("events[1].Type = %s, want error", events[1].Type)
+}
+
+func TestServiceRunAgentDuplicateCheckpointStillCompletes(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+
+	srv := api.NewServer(api.ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-internal-secret",
+			JWTSigningKey:      runtimeTestJWTKey,
+			MaxRequestBodySize: 1 << 20,
+			MaxResultSize:      1 << 20,
+		},
+		Store: q,
+	})
+	httpServer := httptest.NewServer(srv)
+	defer httpServer.Close()
+	defer srv.Close()
+
+	svc := agents.NewService(
+		q,
+		testDB.Pool,
+		agents.WithAPIBaseURL(httpServer.URL),
+		agents.WithJWTSigningKey(runtimeTestJWTKey),
+	)
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Duplicate Agent",
+		Slug:      "duplicate-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	if _, err := svc.DeployAgent(ctx, projectID, agent.ID, "user-1"); err != nil {
+		t.Fatalf("DeployAgent() error = %v", err)
+	}
+
+	run, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID: projectID,
+		AgentID:   agent.ID,
+		Payload:   json.RawMessage(`{"_scenario":"duplicate_checkpoint"}`),
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent() error = %v", err)
+	}
+
+	mustWaitForRunStatus(t, ctx, q, run.ID, domain.StatusCompleted)
+	checkpoints, err := q.ListRunCheckpoints(ctx, run.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunCheckpoints() error = %v", err)
+	}
+	if len(checkpoints) != 2 {
+		t.Fatalf("checkpoint count = %d, want 2", len(checkpoints))
 	}
 }
 
@@ -167,7 +372,9 @@ func TestServiceDeployAgentConcurrentVersions(t *testing.T) {
 	mustClean(t, ctx)
 	projectID := mustCreateProject(t, ctx, q)
 
-	svc := agents.NewService(q, testDB.Pool)
+	svc := agents.NewService(q, testDB.Pool, agents.WithJWTSigningKey(runtimeTestJWTKey))
+	defer closeService(svc)
+
 	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
 		ProjectID: projectID,
 		Name:      "Concurrent Agent",
@@ -218,6 +425,78 @@ func TestServiceDeployAgentConcurrentVersions(t *testing.T) {
 	if !slices.Equal(versions, []int{1, 2}) {
 		t.Fatalf("versions = %v, want [1 2]", versions)
 	}
+}
+
+func mustWaitForRunStatus(t *testing.T, ctx context.Context, q *store.Queries, runID string, want domain.RunStatus) *domain.JobRun {
+	t.Helper()
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		run, err := q.GetRun(ctx, runID)
+		if err != nil {
+			t.Fatalf("GetRun() error = %v", err)
+		}
+		if run.Status == want {
+			return run
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	t.Fatalf("run status = %s, want %s", run.Status, want)
+	return nil
+}
+
+func closeService(svc agents.Service) {
+	if closer, ok := svc.(interface{ Close() }); ok {
+		closer.Close()
+	}
+}
+
+type recordingPublisher struct {
+	mu       sync.Mutex
+	messages map[string][][]byte
+}
+
+func (p *recordingPublisher) Publish(_ context.Context, channel string, data []byte) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.messages == nil {
+		p.messages = make(map[string][][]byte)
+	}
+	p.messages[channel] = append(p.messages[channel], append([]byte(nil), data...))
+	return nil
+}
+
+func (p *recordingPublisher) PublishBatch(ctx context.Context, messages []pubsub.PubSubMessage) error {
+	for _, message := range messages {
+		if err := p.Publish(ctx, message.Channel, message.Data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *recordingPublisher) Subscribe(context.Context, string) (*pubsub.Subscription, error) {
+	return nil, nil
+}
+
+func (p *recordingPublisher) Close() error {
+	return nil
+}
+
+func (p *recordingPublisher) Messages(channel string) []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	raw := p.messages[channel]
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		out = append(out, string(item))
+	}
+	return out
 }
 
 func mustClean(t *testing.T, ctx context.Context) {

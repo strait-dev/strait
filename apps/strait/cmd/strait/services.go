@@ -413,7 +413,12 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	}
 
 	referralSvc := billing.NewReferralService(billingStore)
-	agentSvc := agents.NewService(queries, txPool)
+	agentSvc := agents.NewService(
+		queries,
+		txPool,
+		agents.WithAPIBaseURL(agentRuntimeAPIBaseURL(cfg)),
+		agents.WithJWTSigningKey(cfg.JWTSigningKey),
+	)
 
 	srv := api.NewServer(api.ServerDeps{
 		Config:             cfg,
@@ -466,6 +471,16 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		defer shutdownCancel()
 		return httpServer.Shutdown(shutdownCtx)
 	})
+}
+
+func agentRuntimeAPIBaseURL(cfg *config.Config) string {
+	if cfg == nil {
+		return "http://127.0.0.1:8080"
+	}
+	if cfg.ExternalAPIURL != "" {
+		return cfg.ExternalAPIURL
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.

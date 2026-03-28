@@ -7,11 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
+	"github.com/alitto/pond/v2"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
@@ -54,6 +57,7 @@ type agentStore interface {
 	CreateRun(ctx context.Context, run *domain.JobRun) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
+	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	AdvisoryXactLock(ctx context.Context, lockID int64) error
 }
@@ -99,11 +103,18 @@ func (LocalStubProvider) Run(_ context.Context, agent *domain.Agent, deployment 
 }
 
 type localService struct {
-	store agentStore
-	txb   store.TxBeginner
-	p     Provider
-	now   func() time.Time
+	store         agentStore
+	txb           store.TxBeginner
+	p             Provider
+	runtime       RuntimeRunner
+	callbacks     RuntimeCallbackClient
+	now           func() time.Time
+	apiBaseURL    string
+	jwtSigningKey string
+	dispatchPool  pond.Pool
 }
+
+type Option func(*localService)
 
 type CreateAgentRequest struct {
 	ProjectID   string
@@ -133,12 +144,86 @@ type RunAgentRequest struct {
 	Actor     string
 }
 
-func NewService(q *store.Queries, txb store.TxBeginner) Service {
-	return &localService{
-		store: q,
-		txb:   txb,
-		p:     LocalStubProvider{},
-		now:   time.Now,
+func NewService(q *store.Queries, txb store.TxBeginner, opts ...Option) Service {
+	svc := &localService{
+		store:        q,
+		txb:          txb,
+		p:            LocalStubProvider{},
+		now:          time.Now,
+		dispatchPool: pond.NewPool(4),
+		apiBaseURL:   "http://127.0.0.1:8080",
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(svc)
+		}
+	}
+	if svc.runtime == nil {
+		svc.runtime = NewCommandRuntimeRunner(CommandRuntimeOptions{})
+	}
+	if svc.callbacks == nil {
+		svc.callbacks = NewHTTPCallbackClient(svc.apiBaseURL, &http.Client{Timeout: 15 * time.Second})
+	}
+	return svc
+}
+
+func WithProvider(p Provider) Option {
+	return func(s *localService) {
+		if p != nil {
+			s.p = p
+		}
+	}
+}
+
+func WithRuntimeRunner(r RuntimeRunner) Option {
+	return func(s *localService) {
+		if r != nil {
+			s.runtime = r
+		}
+	}
+}
+
+func WithCallbackClient(c RuntimeCallbackClient) Option {
+	return func(s *localService) {
+		if c != nil {
+			s.callbacks = c
+		}
+	}
+}
+
+func WithClock(now func() time.Time) Option {
+	return func(s *localService) {
+		if now != nil {
+			s.now = now
+		}
+	}
+}
+
+func WithAPIBaseURL(baseURL string) Option {
+	return func(s *localService) {
+		if baseURL != "" {
+			s.apiBaseURL = baseURL
+		}
+	}
+}
+
+func WithJWTSigningKey(key string) Option {
+	return func(s *localService) {
+		s.jwtSigningKey = key
+	}
+}
+
+func WithDispatchPool(pool pond.Pool) Option {
+	return func(s *localService) {
+		if pool != nil {
+			s.dispatchPool = pool
+		}
+	}
+}
+
+func (s *localService) Close() {
+	if s.dispatchPool != nil {
+		s.dispatchPool.StopAndWait()
 	}
 }
 
@@ -331,19 +416,17 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		return nil, ErrNotDeployed
 	}
 
-	now := s.now().UTC()
 	run := &domain.JobRun{
 		ID:            uuid.Must(uuid.NewV7()).String(),
 		JobID:         agent.JobID,
 		ProjectID:     agent.ProjectID,
-		Status:        domain.StatusExecuting,
+		Status:        domain.StatusQueued,
 		Attempt:       1,
 		Payload:       req.Payload,
 		TriggeredBy:   domain.TriggerManual,
 		JobVersion:    job.Version,
 		JobVersionID:  job.VersionID,
 		ExecutionMode: job.ExecutionMode,
-		StartedAt:     &now,
 		CreatedBy:     req.Actor,
 	}
 	if err := s.store.CreateRun(ctx, run); err != nil {
@@ -354,7 +437,7 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		RunID:   run.ID,
 		Type:    domain.EventStateChange,
 		Level:   "info",
-		Message: "agent run started",
+		Message: "agent run queued",
 		Data: mustJSON(map[string]any{
 			"agent_id":       agent.ID,
 			"deployment_id":  deployment.ID,
@@ -362,48 +445,14 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		}),
 	})
 
-	result, runErr := s.p.Run(ctx, agent, deployment, run)
-	finishedAt := s.now().UTC()
-	if runErr != nil {
-		run.Status = domain.StatusFailed
-		run.Error = runErr.Error()
-		run.FinishedAt = &finishedAt
-		if err := s.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
-			"finished_at": finishedAt,
-			"error":       runErr.Error(),
-		}); err != nil {
-			return nil, err
-		}
-		_ = s.store.InsertEvent(ctx, &domain.RunEvent{
-			RunID:   run.ID,
-			Type:    domain.EventError,
-			Level:   "error",
-			Message: "agent run failed",
-			Data:    mustJSON(map[string]any{"error": runErr.Error()}),
+	if s.dispatchPool != nil {
+		agentCopy := *agent
+		jobCopy := *job
+		deploymentCopy := *deployment
+		s.dispatchPool.Submit(func() {
+			s.dispatchRun(context.Background(), &agentCopy, &jobCopy, &deploymentCopy, run.ID)
 		})
-		return run, nil
 	}
-
-	run.Status = domain.StatusCompleted
-	run.Result = result
-	run.FinishedAt = &finishedAt
-	if err := s.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
-		"finished_at": finishedAt,
-		"result":      result,
-	}); err != nil {
-		return nil, err
-	}
-	_ = s.store.InsertEvent(ctx, &domain.RunEvent{
-		RunID:   run.ID,
-		Type:    domain.EventStateChange,
-		Level:   "info",
-		Message: "agent run completed",
-		Data: mustJSON(map[string]any{
-			"agent_id":       agent.ID,
-			"deployment_id":  deployment.ID,
-			"deployment_ver": deployment.Version,
-		}),
-	})
 	return run, nil
 }
 
@@ -459,4 +508,154 @@ func advisoryLockID(value string) int64 {
 func mustJSON(v any) json.RawMessage {
 	raw, _ := json.Marshal(v)
 	return raw
+}
+
+func (s *localService) dispatchRun(ctx context.Context, agent *domain.Agent, job *domain.Job, deployment *domain.AgentDeployment, runID string) {
+	if err := s.transitionRunToExecuting(ctx, runID); err != nil {
+		return
+	}
+
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return
+	}
+
+	envelope, token, err := s.buildRuntimeEnvelope(ctx, agent, job, deployment, run)
+	if err != nil {
+		s.markRuntimeSystemFailed(ctx, runID, fmt.Sprintf("build runtime envelope: %v", err))
+		return
+	}
+
+	state := &runtimeEventState{}
+	err = s.runtime.Run(ctx, envelope, func(handlerCtx context.Context, event RuntimeEvent) error {
+		if validateErr := state.Validate(&event); validateErr != nil {
+			return fmt.Errorf("validate runtime event: %w", validateErr)
+		}
+		_, sendErr := s.callbacks.Send(handlerCtx, run.ID, token, event)
+		if sendErr != nil {
+			return fmt.Errorf("forward runtime event %s: %w", event.Type, sendErr)
+		}
+		return nil
+	})
+	if err != nil {
+		s.markRuntimeSystemFailed(ctx, runID, err.Error())
+		return
+	}
+	if !state.terminalResult {
+		s.markRuntimeSystemFailed(ctx, runID, "runtime exited without terminal event")
+	}
+}
+
+func (s *localService) transitionRunToExecuting(ctx context.Context, runID string) error {
+	if err := s.store.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, map[string]any{}); err != nil {
+		return err
+	}
+	startedAt := s.now().UTC()
+	if err := s.store.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+		"started_at": startedAt,
+	}); err != nil {
+		return err
+	}
+	_ = s.store.InsertEvent(ctx, &domain.RunEvent{
+		RunID:   runID,
+		Type:    domain.EventStateChange,
+		Level:   "info",
+		Message: "agent run started",
+		Data:    mustJSON(map[string]any{"status": domain.StatusExecuting}),
+	})
+	return nil
+}
+
+func (s *localService) buildRuntimeEnvelope(ctx context.Context, agent *domain.Agent, job *domain.Job, deployment *domain.AgentDeployment, run *domain.JobRun) (RuntimeDispatchEnvelope, string, error) {
+	token, err := s.generateRunToken(run.ID, job.TimeoutSecs, run.ExpiresAt)
+	if err != nil {
+		return RuntimeDispatchEnvelope{}, "", err
+	}
+
+	envelope := RuntimeDispatchEnvelope{
+		Version: runtimeContractVersion,
+		Run: RuntimeDispatchRun{
+			ID:          run.ID,
+			ProjectID:   run.ProjectID,
+			Attempt:     run.Attempt,
+			TimeoutSecs: job.TimeoutSecs,
+		},
+		Agent: RuntimeDispatchAgent{
+			ID:     agent.ID,
+			Slug:   agent.Slug,
+			Model:  agent.Model,
+			Config: agent.Config,
+		},
+		Deployment: RuntimeDispatchDeployment{
+			ID:             deployment.ID,
+			Version:        deployment.Version,
+			Provider:       deployment.Provider,
+			ConfigSnapshot: deployment.ConfigSnapshot,
+		},
+		Payload: run.Payload,
+		Callback: RuntimeDispatchCallback{
+			BaseURL:  s.apiBaseURL,
+			RunID:    run.ID,
+			RunToken: token,
+		},
+	}
+
+	if run.Attempt > 1 {
+		envelope.Retry = &RuntimeDispatchRetry{}
+		cp, cpErr := s.store.GetLatestCheckpoint(ctx, run.ID)
+		if cpErr == nil && cp != nil {
+			envelope.Retry.LastCheckpoint = cp.State
+			envelope.Retry.CheckpointAt = cp.CreatedAt.UTC().Format(time.RFC3339Nano)
+		}
+		if run.Error != "" {
+			envelope.Retry.PreviousError = run.Error
+		}
+		if envelope.Retry.LastCheckpoint == nil && envelope.Retry.CheckpointAt == "" && envelope.Retry.PreviousError == "" {
+			envelope.Retry = nil
+		}
+	}
+
+	return envelope, token, nil
+}
+
+func (s *localService) generateRunToken(runID string, timeoutSecs int, expiresAt *time.Time) (string, error) {
+	if s.jwtSigningKey == "" {
+		return "", fmt.Errorf("JWT signing key is not configured")
+	}
+	exp := s.now().Add(time.Duration(timeoutSecs) * time.Second).Add(60 * time.Second)
+	if expiresAt != nil {
+		exp = *expiresAt
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Subject:   runID,
+		ExpiresAt: jwt.NewNumericDate(exp),
+		IssuedAt:  jwt.NewNumericDate(s.now()),
+	})
+	signed, err := token.SignedString([]byte(s.jwtSigningKey))
+	if err != nil {
+		return "", fmt.Errorf("sign runtime run token: %w", err)
+	}
+	return signed, nil
+}
+
+func (s *localService) markRuntimeSystemFailed(ctx context.Context, runID, errMsg string) {
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil || run == nil || run.Status.IsTerminal() {
+		return
+	}
+
+	finishedAt := s.now().UTC()
+	if updateErr := s.store.UpdateRunStatus(ctx, runID, run.Status, domain.StatusSystemFailed, map[string]any{
+		"finished_at": finishedAt,
+		"error":       errMsg,
+	}); updateErr != nil {
+		return
+	}
+	_ = s.store.InsertEvent(ctx, &domain.RunEvent{
+		RunID:   runID,
+		Type:    domain.EventError,
+		Level:   "error",
+		Message: "agent runtime failed",
+		Data:    mustJSON(map[string]any{"error": errMsg}),
+	})
 }

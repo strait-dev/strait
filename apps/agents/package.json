@@ -1,0 +1,17 @@
+{
+  "name": "@strait/agents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run ./src/index.ts",
+    "biome:lint": "biome lint ./src",
+    "biome:format": "biome format --write ./src",
+    "typecheck": "tsgo --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260326.1",
+    "typescript": "^6.0.2"
+  }
+}

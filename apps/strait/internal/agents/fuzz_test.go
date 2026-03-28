@@ -72,3 +72,26 @@ func FuzzValidateRunRequestPayload(f *testing.F) {
 		}
 	})
 }
+
+func FuzzRuntimeEventDecode(f *testing.F) {
+	f.Add([]byte(`{"type":"usage","provider":"local","model":"gpt-5.4"}`))
+	f.Add([]byte(`{"type":"checkpoint","state":{"cursor":1}}`))
+	f.Add([]byte(`{"type":"stream","chunk":"hello","done":true}`))
+	f.Add([]byte(`{"type":"fail","error":"boom"}`))
+	f.Add([]byte(`{"type":"complete","result":{"ok":true}}`))
+
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		if len(raw) > maxAgentConfigSize*2 {
+			t.Skip()
+		}
+
+		var event RuntimeEvent
+		err := json.Unmarshal(raw, &event)
+		if err != nil {
+			return
+		}
+
+		state := &runtimeEventState{}
+		_ = state.Validate(&event)
+	})
+}

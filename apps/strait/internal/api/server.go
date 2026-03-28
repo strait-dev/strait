@@ -714,6 +714,9 @@ func (s *Server) Close() {
 	if s.bgPool != nil {
 		s.bgPool.StopAndWait()
 	}
+	if closer, ok := s.agentService.(interface{ Close() }); ok {
+		closer.Close()
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
