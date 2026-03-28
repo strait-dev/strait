@@ -13,6 +13,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ThemeProvider } from "next-themes";
+import { useEffect, useState } from "react";
 import { getSession } from "@/lib/auth-handler";
 import { captureException } from "@/lib/sentry";
 
@@ -124,22 +125,31 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 
 function RootComponent() {
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="dark"
-      disableTransitionOnChange
-      enableColorScheme={false}
-      enableSystem={false}
-      themes={["light", "dark"]}
-    >
-      <RootDocument>
+    <RootDocument>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        disableTransitionOnChange
+        enableColorScheme={false}
+        enableSystem={false}
+        themes={["light", "dark"]}
+      >
         <Outlet />
-      </RootDocument>
-    </ThemeProvider>
+      </ThemeProvider>
+    </RootDocument>
   );
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const [isHydrated, setIsHydrated] = useState(false);
+  const enableTanStackDevtools =
+    import.meta.env.DEV &&
+    import.meta.env.VITE_ENABLE_TANSTACK_DEVTOOLS === "true";
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
   return (
     <html
       className="dark min-h-dvh bg-background antialiased"
@@ -152,27 +162,15 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           content="width=device-width, height=device-height, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no"
           name="viewport"
         />
-        <script
-          // biome-ignore lint: dangerouslySetInnerHTML needed for theme initialization
-          dangerouslySetInnerHTML={{
-            __html: `
-              try {
-                const theme = localStorage.getItem('theme') || 'dark';
-                const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                const effectiveTheme = theme === 'system' ? systemTheme : theme;
-                document.documentElement.classList.add(effectiveTheme);
-              } catch (e) {}
-            `,
-          }}
-        />
       </head>
       <body
         className="h-full bg-background text-foreground selection:bg-foreground selection:text-background"
+        data-hydrated={isHydrated ? "true" : "false"}
         suppressHydrationWarning
       >
         {children}
         <Toaster position="bottom-right" />
-        {import.meta.env.DEV && (
+        {enableTanStackDevtools && (
           <TanStackDevtools
             config={{ defaultOpen: false }}
             plugins={[

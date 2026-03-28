@@ -165,10 +165,15 @@ export async function waitForBaseURL(
       const response = await fetch(new URL("/login", baseURL), {
         redirect: "manual",
       });
-      if (response.ok || response.status < 500) {
+      const contentType = response.headers.get("content-type") ?? "";
+
+      if (response.ok && contentType.includes("text/html")) {
         return;
       }
-      lastError = new Error(`received HTTP ${response.status}`);
+
+      lastError = new Error(
+        `received HTTP ${response.status} with content-type ${contentType || "<empty>"}`
+      );
     } catch (error) {
       lastError = error;
     }

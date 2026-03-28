@@ -7,7 +7,7 @@ import {
   BreadcrumbSeparator,
 } from "@strait/ui/components/breadcrumb";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 
 const ROUTE_LABELS: Record<string, string> = {
   app: "Home",
@@ -79,18 +79,20 @@ const HeaderBreadcrumb = () => {
     <Breadcrumb className="min-w-0">
       <BreadcrumbList className="flex-nowrap overflow-hidden">
         {crumbs.map((crumb, i) => (
-          <BreadcrumbItem key={crumb.href}>
+          <Fragment key={crumb.href}>
             {i > 0 && <BreadcrumbSeparator />}
-            {crumb.isPage ? (
-              <BreadcrumbPage className="font-medium text-sm">
-                {crumb.label}
-              </BreadcrumbPage>
-            ) : (
-              <BreadcrumbLink render={<Link to={crumb.href} />}>
-                {crumb.label}
-              </BreadcrumbLink>
-            )}
-          </BreadcrumbItem>
+            <BreadcrumbItem>
+              {crumb.isPage ? (
+                <BreadcrumbPage className="font-medium text-sm">
+                  {crumb.label}
+                </BreadcrumbPage>
+              ) : (
+                <BreadcrumbLink render={<Link to={crumb.href} />}>
+                  {crumb.label}
+                </BreadcrumbLink>
+              )}
+            </BreadcrumbItem>
+          </Fragment>
         ))}
       </BreadcrumbList>
     </Breadcrumb>

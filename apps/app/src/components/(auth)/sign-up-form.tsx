@@ -5,7 +5,7 @@ import { Input } from "@strait/ui/components/input";
 import { PasswordInput } from "@strait/ui/components/password-input";
 import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
@@ -25,11 +25,28 @@ type SignUpFormProps = {
   disabled?: boolean;
 };
 
+async function waitForClientSession(): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const sessionResult = await authClient.getSession();
+    if (sessionResult.data?.session?.token) {
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+
+  throw new Error("Timed out waiting for browser session after sign-up");
+}
+
 const disableEmailVerification =
   process.env.DISABLE_EMAIL_VERIFICATION === "true";
 
 const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
+  const [isHydrated, setIsHydrated] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   const form = useForm({
     defaultValues: { name: "", email: "", password: "" },
@@ -66,7 +83,8 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
       });
 
       if (disableEmailVerification) {
-        window.location.href = redirectTo ?? "/app";
+        await waitForClientSession();
+        window.location.assign(redirectTo ?? "/app");
         return;
       }
 
@@ -116,7 +134,7 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
               <FieldLabel htmlFor={field.name}>Full name</FieldLabel>
               <Input
                 autoComplete="name"
-                disabled={disabled}
+                disabled={disabled || !isHydrated}
                 id={field.name}
                 onBlur={field.handleBlur}
                 onChange={(e) => field.handleChange(e.target.value)}
@@ -139,7 +157,7 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
               <FieldLabel htmlFor={field.name}>Email</FieldLabel>
               <Input
                 autoComplete="email"
-                disabled={disabled}
+                disabled={disabled || !isHydrated}
                 id={field.name}
                 onBlur={field.handleBlur}
                 onChange={(e) => field.handleChange(e.target.value)}
@@ -162,7 +180,7 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
               <FieldLabel htmlFor={field.name}>Password</FieldLabel>
               <PasswordInput
                 autoComplete="new-password"
-                disabled={disabled}
+                disabled={disabled || !isHydrated}
                 id={field.name}
                 onBlur={field.handleBlur}
                 onChange={(e) => field.handleChange(e.target.value)}
@@ -180,7 +198,7 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
 
         <Button
           className="w-full"
-          disabled={disabled || form.state.isSubmitting}
+          disabled={disabled || form.state.isSubmitting || !isHydrated}
           type="submit"
         >
           {form.state.isSubmitting ? (

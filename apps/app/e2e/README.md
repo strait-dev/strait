@@ -30,8 +30,8 @@ bun run e2e -- --grep "dashboard"
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `E2E_USER_EMAIL` | Yes | Email for the test user |
-| `E2E_USER_PASSWORD` | Yes | Password for the test user |
+| `E2E_USER_EMAIL` | No | Email for the test user (defaults to `e2e@local.strait`) |
+| `E2E_USER_PASSWORD` | No | Password for the test user (defaults to `e2epassword123`) |
 | `AUTH_DATABASE_URL` | No | Defaults to local Docker PostgreSQL auth DB |
 | `INTERNAL_SECRET` | No | Defaults to `strait-local-internal-secret-32chars` |
 | `STRAIT_API_URL` | No | Go API URL (default: `http://localhost:8080`) |

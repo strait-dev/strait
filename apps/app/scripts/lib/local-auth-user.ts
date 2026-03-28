@@ -49,6 +49,41 @@ async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isUserAlreadyExistsResponse(status: number, body: string) {
+  if (status !== 409 && status !== 422) {
+    return false;
+  }
+
+  const normalized = body.toLowerCase();
+  return (
+    normalized.includes("user already exists") ||
+    normalized.includes("user_already_exists")
+  );
+}
+
+async function waitForUserRow(
+  pool: pg.Pool,
+  email: string,
+  timeoutMs: number
+): Promise<SeededAuthUser | null> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const userRow = await pool.query<SeededAuthUser>(
+      `SELECT "id", "defaultOrganizationId", "activeProjectId" FROM "user" WHERE "email" = $1`,
+      [email]
+    );
+
+    if (userRow.rows.length > 0) {
+      return userRow.rows[0];
+    }
+
+    await sleep(250);
+  }
+
+  return null;
+}
+
 async function ensureProjectTable(pool: pg.Pool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS project (
@@ -78,46 +113,64 @@ export async function ensurePasswordUserExists(
     markEmailVerified = true,
   } = options;
 
-  let userRow = await pool.query<SeededAuthUser>(
-    `SELECT "id", "defaultOrganizationId", "activeProjectId" FROM "user" WHERE "email" = $1`,
-    [email]
-  );
+  const startedAt = Date.now();
+  let lastError: unknown;
+  let user = await waitForUserRow(pool, email, 1_000);
 
-  if (userRow.rows.length === 0) {
-    const signupRes = await fetch(`${baseURL}/api/auth/sign-up/email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: baseURL },
-      body: JSON.stringify({ name, email, password }),
-    });
+  while (!user && Date.now() - startedAt < waitForMs) {
+    try {
+      const signupRes = await fetch(`${baseURL}/api/auth/sign-up/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: baseURL },
+        body: JSON.stringify({ name, email, password }),
+      });
 
-    if (!signupRes.ok) {
-      throw new Error(
-        `Failed to create local auth user ${email}: ${signupRes.status} ${await signupRes.text()}`
-      );
+      const signupBody = await signupRes.text();
+
+      if (
+        !signupRes.ok &&
+        !isUserAlreadyExistsResponse(signupRes.status, signupBody)
+      ) {
+        if (signupRes.status >= 500 || signupRes.status === 404) {
+          lastError = new Error(
+            `Sign-up endpoint not ready: ${signupRes.status} ${signupBody}`
+          );
+          await sleep(500);
+          user = await waitForUserRow(pool, email, 250);
+          continue;
+        }
+
+        throw new Error(
+          `Failed to create local auth user ${email}: ${signupRes.status} ${signupBody}`
+        );
+      }
+
+      user = await waitForUserRow(pool, email, 1_000);
+      if (!user) {
+        await sleep(250);
+        user = await waitForUserRow(pool, email, 250);
+      }
+    } catch (error) {
+      lastError = error;
+      await sleep(500);
+      user = await waitForUserRow(pool, email, 250);
     }
-
-    await sleep(waitForMs);
-
-    userRow = await pool.query<SeededAuthUser>(
-      `SELECT "id", "defaultOrganizationId", "activeProjectId" FROM "user" WHERE "email" = $1`,
-      [email]
-    );
   }
 
-  if (userRow.rows.length === 0) {
+  if (!user) {
     throw new Error(
-      `Failed to find local auth user ${email} after sign-up completed`
+      `Failed to find local auth user ${email} after sign-up completed: ${String(lastError)}`
     );
   }
 
   if (markEmailVerified) {
     await pool.query(
       `UPDATE "user" SET "emailVerified" = true WHERE "id" = $1`,
-      [userRow.rows[0].id]
+      [user.id]
     );
   }
 
-  return userRow.rows[0];
+  return user;
 }
 
 export async function ensureOrganizationExists(

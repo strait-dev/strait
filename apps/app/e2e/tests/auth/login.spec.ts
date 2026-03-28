@@ -1,47 +1,58 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+const DEFAULT_E2E_USER_EMAIL = "e2e@local.strait";
+const DEFAULT_E2E_USER_PASSWORD = "e2epassword123";
+
+async function waitForHydratedLogin(page: Page) {
+  await page.goto("/login");
+  await expect(page.locator("body")).toHaveAttribute("data-hydrated", "true");
+  await expect(
+    page.getByRole("button", { name: "Sign in", exact: true })
+  ).toBeEnabled();
+}
+
+function passwordInput(page: Page) {
+  return page.locator("input#password");
+}
 
 test.describe("Login", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  // biome-ignore lint/suspicious/useAwait: Playwright test callback requires async signature
-  test("successful login redirects to /app", async () => {
-    test.skip();
+  test("successful login redirects to /app", async ({ page }) => {
+    const email = process.env.E2E_USER_EMAIL ?? DEFAULT_E2E_USER_EMAIL;
+    const password =
+      process.env.E2E_USER_PASSWORD ?? DEFAULT_E2E_USER_PASSWORD;
+
+    await waitForHydratedLogin(page);
+    await page.getByLabel("Email").fill(email);
+    await passwordInput(page).fill(password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+
+    await page.waitForURL("**/app", { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/app$/);
   });
 
   test("invalid credentials shows error message", async ({ page }) => {
-    await page.goto("/login");
-    // Fill via evaluate to trigger React controlled inputs
-    await page.locator("#email").evaluate((el, val) => {
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value"
-      )?.set;
-      nativeInputValueSetter?.call(el, val);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }, "invalid@example.com");
-    await page.locator("#password").evaluate((el, val) => {
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value"
-      )?.set;
-      nativeInputValueSetter?.call(el, val);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }, "wrongpassword123");
+    await waitForHydratedLogin(page);
+    await page.getByLabel("Email").fill("invalid@example.com");
+    await passwordInput(page).fill("wrongpassword123");
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
 
-    // Should show error or stay on login page
     await expect(page).toHaveURL(/login/);
+    await expect(
+      page.getByText(/invalid email or password/i).first()
+    ).toBeVisible();
   });
 
   test("empty form stays on login page", async ({ page }) => {
-    await page.goto("/login");
+    await waitForHydratedLogin(page);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await page.waitForTimeout(500);
     await expect(page).toHaveURL(/login/);
+    await expect(page.getByText(/invalid email address/i)).toBeVisible();
   });
 
   test("forgot password link navigates correctly", async ({ page }) => {
-    await page.goto("/login");
+    await waitForHydratedLogin(page);
     await page.getByRole("link", { name: /forgot/i }).click();
     await expect(page).toHaveURL(/forgot-password/);
   });

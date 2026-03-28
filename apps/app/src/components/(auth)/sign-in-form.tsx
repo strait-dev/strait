@@ -6,7 +6,7 @@ import { PasswordInput } from "@strait/ui/components/password-input";
 import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
@@ -25,14 +25,31 @@ type SignInFormProps = {
   onTwoFactorRequired?: () => void;
 };
 
+async function waitForClientSession(): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const sessionResult = await authClient.getSession();
+    if (sessionResult.data?.session?.token) {
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+
+  throw new Error("Timed out waiting for browser session after sign-in");
+}
+
 const SignInForm = ({
   redirectTo,
   disabled,
   onTwoFactorRequired,
 }: SignInFormProps) => {
+  const [isHydrated, setIsHydrated] = useState(false);
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const [isResending, setIsResending] = useState(false);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   const form = useForm({
     defaultValues: { email: "", password: "" },
@@ -49,7 +66,8 @@ const SignInForm = ({
 
       if (!result.error) {
         getPostHog()?.capture("auth_signed_in", { method: "email" });
-        window.location.href = redirectTo ?? "/app";
+        await waitForClientSession();
+        window.location.assign(redirectTo ?? "/app");
         return;
       }
 
@@ -168,7 +186,7 @@ const SignInForm = ({
               <FieldLabel htmlFor={field.name}>Email</FieldLabel>
               <Input
                 autoComplete="email"
-                disabled={disabled}
+                disabled={disabled || !isHydrated}
                 id={field.name}
                 onBlur={field.handleBlur}
                 onChange={(e) => field.handleChange(e.target.value)}
@@ -199,7 +217,7 @@ const SignInForm = ({
               </div>
               <PasswordInput
                 autoComplete="current-password"
-                disabled={disabled}
+                disabled={disabled || !isHydrated}
                 id={field.name}
                 onBlur={field.handleBlur}
                 onChange={(e) => field.handleChange(e.target.value)}
@@ -217,7 +235,7 @@ const SignInForm = ({
 
         <Button
           className="w-full"
-          disabled={disabled || form.state.isSubmitting}
+          disabled={disabled || form.state.isSubmitting || !isHydrated}
           type="submit"
         >
           {form.state.isSubmitting ? (

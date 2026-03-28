@@ -80,14 +80,6 @@ function RouteComponent() {
   return (
     <Shell>
       <OverviewMetrics />
-
-      <div className="flex justify-center">
-        <Button render={<Link to="/app/dashboard" />} variant="outline">
-          View dashboard
-          <HugeiconsIcon icon={ArrowRightIcon} size={16} />
-        </Button>
-      </div>
-
       <SubscriptionSuccessDialog
         checkoutId={search.checkout_id}
         isNewSubscription={!!search.checkout_success}
@@ -95,6 +87,13 @@ function RouteComponent() {
         onUrlCleanup={handleUrlCleanup}
         timestamp={search.t}
       />
+
+      <div className="flex justify-center">
+        <Button render={<Link to="/app/dashboard" />} variant="outline">
+          View dashboard
+          <HugeiconsIcon icon={ArrowRightIcon} size={16} />
+        </Button>
+      </div>
     </Shell>
   );
 }
