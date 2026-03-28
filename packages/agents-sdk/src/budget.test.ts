@@ -74,7 +74,9 @@ describe("BudgetLedger", () => {
 
     ledger.recordToolCall();
 
-    expect(() => ledger.recordToolCall()).toThrow(toolCallBudgetExceededMessage);
+    expect(() => ledger.recordToolCall()).toThrow(
+      toolCallBudgetExceededMessage
+    );
     expect(ledger.snapshot().toolCalls).toBe(1);
   });
 });

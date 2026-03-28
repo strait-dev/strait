@@ -48,8 +48,15 @@ export class BudgetExceededError extends StraitSDKError {
   readonly current: number;
   readonly requested: number;
 
-  constructor(kind: BudgetLimitKind, limit: number, current: number, requested: number) {
-    super(`${kind} budget exceeded: current=${current} requested=${requested} limit=${limit}`);
+  constructor(
+    kind: BudgetLimitKind,
+    limit: number,
+    current: number,
+    requested: number
+  ) {
+    super(
+      `${kind} budget exceeded: current=${current} requested=${requested} limit=${limit}`
+    );
     this.kind = kind;
     this.limit = limit;
     this.current = current;

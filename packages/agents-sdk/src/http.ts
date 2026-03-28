@@ -15,10 +15,14 @@ function resolveRetryPolicy(
   const maxDelayMs = overrides?.maxDelayMs ?? defaultRetryPolicy.maxDelayMs;
 
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
-    throw new StraitSDKError("retry.maxAttempts must be an integer greater than 0");
+    throw new StraitSDKError(
+      "retry.maxAttempts must be an integer greater than 0"
+    );
   }
   if (!Number.isInteger(baseDelayMs) || baseDelayMs < 0) {
-    throw new StraitSDKError("retry.baseDelayMs must be a non-negative integer");
+    throw new StraitSDKError(
+      "retry.baseDelayMs must be a non-negative integer"
+    );
   }
   if (!Number.isInteger(maxDelayMs) || maxDelayMs < baseDelayMs) {
     throw new StraitSDKError(
@@ -73,18 +77,24 @@ function makeAPIError(response: Response, body: unknown): StraitAPIError {
   if (body && typeof body === "object") {
     const record = body as Record<string, unknown>;
     const title = typeof record.title === "string" ? record.title : undefined;
-    const detail = typeof record.detail === "string" ? record.detail : undefined;
+    const detail =
+      typeof record.detail === "string" ? record.detail : undefined;
     const code = typeof record.code === "string" ? record.code : undefined;
     const details = Array.isArray(record.details)
-      ? record.details.filter((item): item is string => typeof item === "string")
+      ? record.details.filter(
+          (item): item is string => typeof item === "string"
+        )
       : undefined;
 
-    return new StraitAPIError(detail ?? title ?? `request failed with status ${response.status}`, {
-      status: response.status,
-      code,
-      details,
-      responseBody: body,
-    });
+    return new StraitAPIError(
+      detail ?? title ?? `request failed with status ${response.status}`,
+      {
+        status: response.status,
+        code,
+        details,
+        responseBody: body,
+      }
+    );
   }
 
   return new StraitAPIError(`request failed with status ${response.status}`, {
@@ -101,7 +111,12 @@ export class StraitHTTPClient {
   readonly #sdkVersion: string;
   readonly #retryPolicy: RetryPolicy;
 
-  constructor(options: Pick<StraitContextOptions, "baseUrl" | "runId" | "runToken" | "fetch" | "sdkVersion" | "retry">) {
+  constructor(
+    options: Pick<
+      StraitContextOptions,
+      "baseUrl" | "runId" | "runToken" | "fetch" | "sdkVersion" | "retry"
+    >
+  ) {
     this.#baseUrl = options.baseUrl.trim();
     this.#runId = options.runId.trim();
     this.#runToken = options.runToken.trim();
@@ -188,13 +203,23 @@ export class StraitHTTPClient {
 
         const error = makeAPIError(response, parsedBody);
         if (attempt < attempts && isRetryableStatus(response.status)) {
-          await sleep(Math.min(this.#retryPolicy.baseDelayMs * attempt, this.#retryPolicy.maxDelayMs));
+          await sleep(
+            Math.min(
+              this.#retryPolicy.baseDelayMs * attempt,
+              this.#retryPolicy.maxDelayMs
+            )
+          );
           continue;
         }
         throw error;
       } catch (error) {
         if (attempt < attempts && error instanceof StraitAPIError === false) {
-          await sleep(Math.min(this.#retryPolicy.baseDelayMs * attempt, this.#retryPolicy.maxDelayMs));
+          await sleep(
+            Math.min(
+              this.#retryPolicy.baseDelayMs * attempt,
+              this.#retryPolicy.maxDelayMs
+            )
+          );
           continue;
         }
         throw error;

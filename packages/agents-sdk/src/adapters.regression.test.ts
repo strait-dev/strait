@@ -13,7 +13,10 @@ import { createOpenAIAdapter } from "./openai";
 import { createVercelAIAdapter } from "./vercel-ai";
 
 class FakeOpenAIStream {
-  readonly listeners = new Map<string, Array<(...args: unknown[]) => unknown>>();
+  readonly listeners = new Map<
+    string,
+    Array<(...args: unknown[]) => unknown>
+  >();
 
   on(event: string, listener: (...args: unknown[]) => unknown): this {
     const existing = this.listeners.get(event) ?? [];
@@ -30,7 +33,10 @@ class FakeOpenAIStream {
 }
 
 class FakeAnthropicStream {
-  readonly listeners = new Map<string, Array<(...args: unknown[]) => unknown>>();
+  readonly listeners = new Map<
+    string,
+    Array<(...args: unknown[]) => unknown>
+  >();
 
   on(event: string, listener: (...args: unknown[]) => unknown): this {
     const existing = this.listeners.get(event) ?? [];
@@ -114,9 +120,7 @@ type StreamSnapshot = {
   streamId: string | undefined;
 };
 
-function createUsageReporter(
-  reports: UsageSnapshot[]
-): UsageReporter {
+function createUsageReporter(reports: UsageSnapshot[]): UsageReporter {
   return (report) => {
     reports.push({
       completionTokens: report.completionTokens,
@@ -128,9 +132,7 @@ function createUsageReporter(
   };
 }
 
-function createStreamReporter(
-  chunks: StreamSnapshot[]
-): StreamReporter {
+function createStreamReporter(chunks: StreamSnapshot[]): StreamReporter {
   return (chunk) => {
     chunks.push({
       chunk: chunk.chunk,
@@ -159,13 +161,17 @@ describe("adapter regression coverage", () => {
     const openAIReports: UsageSnapshot[] = [];
     const anthropicReports: UsageSnapshot[] = [];
 
-    generateTextMock.mockImplementationOnce(async (options: Record<string, unknown>) => {
-      const stepEvent = createStepEvent(12, 8);
-      await (options.onStepFinish as (event: unknown) => Promise<void>)?.(stepEvent);
-      return {
-        text: "done",
-      };
-    });
+    generateTextMock.mockImplementationOnce(
+      async (options: Record<string, unknown>) => {
+        const stepEvent = createStepEvent(12, 8);
+        await (options.onStepFinish as (event: unknown) => Promise<void>)?.(
+          stepEvent
+        );
+        return {
+          text: "done",
+        };
+      }
+    );
 
     const vercelAdapter = createVercelAIAdapter({
       checkpoint: vi.fn(),
@@ -242,7 +248,11 @@ describe("adapter regression coverage", () => {
     const openAIReport = openAIReports.at(0);
     const anthropicReport = anthropicReports.at(0);
 
-    if (vercelReport == null || openAIReport == null || anthropicReport == null) {
+    if (
+      vercelReport == null ||
+      openAIReport == null ||
+      anthropicReport == null
+    ) {
       throw new Error("expected usage telemetry from every adapter");
     }
 
@@ -272,29 +282,31 @@ describe("adapter regression coverage", () => {
     const openAIChunks: StreamSnapshot[] = [];
     const anthropicChunks: StreamSnapshot[] = [];
 
-    streamTextMock.mockImplementationOnce((options: Record<string, unknown>) => {
-      Promise.resolve().then(async () => {
-        await (options.onChunk as (event: unknown) => Promise<void>)?.({
-          chunk: {
-            type: "text-delta",
-            id: "stream-1",
-            text: "hel",
-          },
+    streamTextMock.mockImplementationOnce(
+      (options: Record<string, unknown>) => {
+        Promise.resolve().then(async () => {
+          await (options.onChunk as (event: unknown) => Promise<void>)?.({
+            chunk: {
+              type: "text-delta",
+              id: "stream-1",
+              text: "hel",
+            },
+          });
+          await (options.onChunk as (event: unknown) => Promise<void>)?.({
+            chunk: {
+              type: "text-delta",
+              id: "stream-1",
+              text: "lo",
+            },
+          });
+          await (options.onFinish as (event: unknown) => Promise<void>)?.({});
         });
-        await (options.onChunk as (event: unknown) => Promise<void>)?.({
-          chunk: {
-            type: "text-delta",
-            id: "stream-1",
-            text: "lo",
-          },
-        });
-        await (options.onFinish as (event: unknown) => Promise<void>)?.({});
-      });
 
-      return {
-        textStream: [],
-      };
-    });
+        return {
+          textStream: [],
+        };
+      }
+    );
 
     const openAIRunner = new FakeOpenAIStream();
     const anthropicRunner = new FakeAnthropicStream();

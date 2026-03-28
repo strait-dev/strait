@@ -72,40 +72,48 @@ describe("createVercelAIAdapter", () => {
     const onToolCallFinish = vi.fn();
     const stepEvent = createStepEvent();
 
-    generateTextMock.mockImplementationOnce(async (options: Record<string, unknown>) => {
-      await (options.experimental_onToolCallFinish as (event: unknown) => Promise<void>)?.({
-        stepNumber: 0,
-        model: {
-          provider: "openai",
-          modelId: "gpt-4.1",
-        },
-        toolCall: {
-          toolName: "search",
-          input: {
-            query: "weather",
+    generateTextMock.mockImplementationOnce(
+      async (options: Record<string, unknown>) => {
+        await (
+          options.experimental_onToolCallFinish as (
+            event: unknown
+          ) => Promise<void>
+        )?.({
+          stepNumber: 0,
+          model: {
+            provider: "openai",
+            modelId: "gpt-4.1",
           },
-        },
-        messages: [],
-        abortSignal: undefined,
-        durationMs: 24.4,
-        functionId: undefined,
-        metadata: undefined,
-        experimental_context: undefined,
-        success: true,
-        output: {
-          city: "Madrid",
-        },
-      });
-      await (options.onStepFinish as (event: unknown) => Promise<void>)?.(stepEvent);
-      await (options.onFinish as (event: unknown) => Promise<void>)?.({
-        ...stepEvent,
-        steps: [stepEvent],
-        totalUsage: stepEvent.usage,
-      });
-      return {
-        text: "done",
-      };
-    });
+          toolCall: {
+            toolName: "search",
+            input: {
+              query: "weather",
+            },
+          },
+          messages: [],
+          abortSignal: undefined,
+          durationMs: 24.4,
+          functionId: undefined,
+          metadata: undefined,
+          experimental_context: undefined,
+          success: true,
+          output: {
+            city: "Madrid",
+          },
+        });
+        await (options.onStepFinish as (event: unknown) => Promise<void>)?.(
+          stepEvent
+        );
+        await (options.onFinish as (event: unknown) => Promise<void>)?.({
+          ...stepEvent,
+          steps: [stepEvent],
+          totalUsage: stepEvent.usage,
+        });
+        return {
+          text: "done",
+        };
+      }
+    );
 
     const adapter = createVercelAIAdapter(
       {
@@ -174,34 +182,38 @@ describe("createVercelAIAdapter", () => {
     const onFinish = vi.fn();
     const stepEvent = createStepEvent();
 
-    streamTextMock.mockImplementationOnce((options: Record<string, unknown>) => {
-      Promise.resolve().then(async () => {
-        await (options.onChunk as (event: unknown) => Promise<void>)?.({
-          chunk: {
-            type: "text-delta",
-            id: "stream-1",
-            text: "hel",
-          },
+    streamTextMock.mockImplementationOnce(
+      (options: Record<string, unknown>) => {
+        Promise.resolve().then(async () => {
+          await (options.onChunk as (event: unknown) => Promise<void>)?.({
+            chunk: {
+              type: "text-delta",
+              id: "stream-1",
+              text: "hel",
+            },
+          });
+          await (options.onChunk as (event: unknown) => Promise<void>)?.({
+            chunk: {
+              type: "text-delta",
+              id: "stream-1",
+              text: "lo",
+            },
+          });
+          await (options.onStepFinish as (event: unknown) => Promise<void>)?.(
+            stepEvent
+          );
+          await (options.onFinish as (event: unknown) => Promise<void>)?.({
+            ...stepEvent,
+            steps: [stepEvent],
+            totalUsage: stepEvent.usage,
+          });
         });
-        await (options.onChunk as (event: unknown) => Promise<void>)?.({
-          chunk: {
-            type: "text-delta",
-            id: "stream-1",
-            text: "lo",
-          },
-        });
-        await (options.onStepFinish as (event: unknown) => Promise<void>)?.(stepEvent);
-        await (options.onFinish as (event: unknown) => Promise<void>)?.({
-          ...stepEvent,
-          steps: [stepEvent],
-          totalUsage: stepEvent.usage,
-        });
-      });
 
-      return {
-        textStream: [],
-      };
-    });
+        return {
+          textStream: [],
+        };
+      }
+    );
 
     const adapter = createVercelAIAdapter(
       {

@@ -14,41 +14,41 @@ export interface AgentBudget {
 }
 
 export interface RetryPolicy {
-  maxAttempts: number;
   baseDelayMs: number;
+  maxAttempts: number;
   maxDelayMs: number;
 }
 
 export interface ModelPricing {
-  provider: string;
-  model: string;
-  inputCostMicrousd: number;
-  outputCostMicrousd: number;
   aliases?: readonly string[];
+  inputCostMicrousd: number;
+  model: string;
+  outputCostMicrousd: number;
+  provider: string;
 }
 
 export type PricingCatalog = readonly ModelPricing[];
 
 export interface UsageReport {
-  provider: string;
+  completionTokens: number;
+  costMicrousd?: number;
   model: string;
   promptTokens: number;
-  completionTokens: number;
+  provider: string;
   totalTokens?: number;
-  costMicrousd?: number;
 }
 
 export interface NormalizedUsageReport extends UsageReport {
-  totalTokens: number;
   costMicrousd: number;
+  totalTokens: number;
 }
 
 export interface ToolCallReport {
-  toolName: string;
+  durationMs?: number;
   input?: JsonValue;
   output?: JsonValue;
-  durationMs?: number;
   status?: string;
+  toolName: string;
 }
 
 export interface CheckpointOptions {
@@ -56,43 +56,43 @@ export interface CheckpointOptions {
 }
 
 export interface ProgressReport {
-  percent: number;
-  message: string;
-  step?: string;
   etaSeconds?: number;
+  message: string;
+  percent: number;
+  step?: string;
 }
 
 export interface LogReport {
+  data?: JsonValue;
+  level?: string;
   message: string;
   type?: string;
-  level?: string;
-  data?: JsonValue;
 }
 
 export interface StreamChunkReport {
   chunk: string;
-  streamId?: string;
   done?: boolean;
+  streamId?: string;
 }
 
 export interface BudgetSnapshot {
-  promptTokens: number;
   completionTokens: number;
-  totalTokens: number;
   costMicrousd: number;
-  toolCalls: number;
   limits: AgentBudget;
+  promptTokens: number;
+  toolCalls: number;
+  totalTokens: number;
 }
 
 export interface StraitContextOptions {
   baseUrl: string;
+  budget?: AgentBudget;
+  fetch?: typeof fetch;
+  pricingCatalog?: PricingCatalog;
+  retry?: Partial<RetryPolicy>;
   runId: string;
   runToken: string;
-  fetch?: typeof fetch;
   sdkVersion?: string;
-  retry?: Partial<RetryPolicy>;
-  pricingCatalog?: PricingCatalog;
-  budget?: AgentBudget;
 }
 
 export interface StraitContextEnv {

@@ -29,11 +29,16 @@ function buildAgentRunSummaries(
       latestRun: sortedRuns[0],
       totalRuns: agentRuns.length,
       failedRuns: agentRuns.filter((run) =>
-        ["crashed", "dead_letter", "failed", "system_failed", "timed_out"].includes(
-          run.status
-        )
+        [
+          "crashed",
+          "dead_letter",
+          "failed",
+          "system_failed",
+          "timed_out",
+        ].includes(run.status)
       ).length,
-      successfulRuns: agentRuns.filter((run) => run.status === "completed").length,
+      successfulRuns: agentRuns.filter((run) => run.status === "completed")
+        .length,
     };
   });
 }

@@ -40,7 +40,9 @@ export const fetchAgent = createServerFn({ method: "GET" })
   });
 
 export const fetchAgentRuns = createServerFn({ method: "GET" })
-  .inputValidator((data: { agentId: string; limit?: number; offset?: number }) => data)
+  .inputValidator(
+    (data: { agentId: string; limit?: number; offset?: number }) => data
+  )
   .middleware([authMiddleware])
   // @ts-expect-error tsgo cannot resolve createServerFn handler generics
   .handler(async ({ data }): Promise<JobRun[]> => {

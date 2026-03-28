@@ -113,7 +113,9 @@ function requireNonEmpty(value: string, field: string): string {
   return normalized;
 }
 
-function normalizeDependsOn(dependsOn: string[] | undefined): string[] | undefined {
+function normalizeDependsOn(
+  dependsOn: string[] | undefined
+): string[] | undefined {
   if (dependsOn == null || dependsOn.length === 0) {
     return undefined;
   }
@@ -200,10 +202,14 @@ export function pipelinePattern(
       });
     }
 
-    return agentStep(step.stepRef, requireNonEmpty(step.agentId ?? "", "agentId"), {
-      dependsOn,
-      payload: step.payload,
-    });
+    return agentStep(
+      step.stepRef,
+      requireNonEmpty(step.agentId ?? "", "agentId"),
+      {
+        dependsOn,
+        payload: step.payload,
+      }
+    );
   });
 
   return agentWorkflow({
@@ -242,9 +248,13 @@ export function debatePattern(
 export function orchestratorPattern(
   definition: OrchestratorPatternDefinition
 ): AgentWorkflowDefinition {
-  const planner = agentStep(definition.planner.stepRef, definition.planner.agentId, {
-    payload: definition.planner.payload,
-  });
+  const planner = agentStep(
+    definition.planner.stepRef,
+    definition.planner.agentId,
+    {
+      payload: definition.planner.payload,
+    }
+  );
   const workers = definition.workers.map((worker) =>
     agentStep(worker.stepRef, worker.agentId, {
       dependsOn: [planner.step_ref],
@@ -261,10 +271,14 @@ export function orchestratorPattern(
     steps: [
       planner,
       ...workers,
-      agentStep(definition.synthesizer.stepRef, definition.synthesizer.agentId, {
-        dependsOn: workers.map((worker) => worker.step_ref),
-        payload: definition.synthesizer.payload,
-      }),
+      agentStep(
+        definition.synthesizer.stepRef,
+        definition.synthesizer.agentId,
+        {
+          dependsOn: workers.map((worker) => worker.step_ref),
+          payload: definition.synthesizer.payload,
+        }
+      ),
     ],
   });
 }

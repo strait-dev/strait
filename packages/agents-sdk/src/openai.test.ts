@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createOpenAIAdapter } from "./openai";
 
 class FakeEventStream {
-  readonly listeners = new Map<string, Array<(...args: unknown[]) => unknown>>();
+  readonly listeners = new Map<
+    string,
+    Array<(...args: unknown[]) => unknown>
+  >();
 
   on(event: string, listener: (...args: unknown[]) => unknown): this {
     const existing = this.listeners.get(event) ?? [];
@@ -171,7 +174,9 @@ describe("createOpenAIAdapter", () => {
 
   it("wraps runTools and records tool execution plus usage", async () => {
     const runner = new FakeEventStream();
-    const runTools = vi.fn<FakeCompletions["runTools"]>().mockReturnValue(runner);
+    const runTools = vi
+      .fn<FakeCompletions["runTools"]>()
+      .mockReturnValue(runner);
     const client: FakeClient = {
       chat: {
         completions: {
@@ -206,9 +211,9 @@ describe("createOpenAIAdapter", () => {
     runner.emit("content", "thinking");
     runner.emit("functionToolCall", {
       name: "search",
-      arguments: "{\"query\":\"weather\"}",
+      arguments: '{"query":"weather"}',
     });
-    runner.emit("functionToolCallResult", "{\"city\":\"Madrid\"}");
+    runner.emit("functionToolCallResult", '{"city":"Madrid"}');
     runner.emit("finalChatCompletion", {
       model: "gpt-4.1",
       usage: {

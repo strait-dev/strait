@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { BudgetExceededError, StraitSDKError } from "./errors";
 import { StraitContext } from "./context";
+import { BudgetExceededError, StraitSDKError } from "./errors";
 
 const missingAPIURLMessage = "STRAIT_API_URL is required";
 
@@ -32,16 +31,14 @@ describe("StraitContext adversarial cases", () => {
   });
 
   it("enforces tool call budgets locally before posting", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ id: "tool-1" }), {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-          },
-        })
-      );
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ id: "tool-1" }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+      })
+    );
 
     const context = new StraitContext({
       baseUrl: "https://api.strait.test",

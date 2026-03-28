@@ -48,10 +48,7 @@ describe("agent workflow helpers", () => {
         name: "Duplicate refs",
         project_id: "proj-1",
         slug: "duplicate-refs",
-        steps: [
-          agentStep("same", "agent-a"),
-          agentStep("same", "agent-b"),
-        ],
+        steps: [agentStep("same", "agent-a"), agentStep("same", "agent-b")],
       })
     ).toThrowError(StraitSDKError);
   });
@@ -63,7 +60,12 @@ describe("agent workflow helpers", () => {
       slug: "content-pipeline",
       steps: [
         { agentId: "writer", stepRef: "draft" },
-        { approvers: ["editor"], stepRef: "review", timeoutSecs: 1800, type: "approval" },
+        {
+          approvers: ["editor"],
+          stepRef: "review",
+          timeoutSecs: 1800,
+          type: "approval",
+        },
         { agentId: "publisher", stepRef: "publish" },
       ],
     });

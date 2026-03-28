@@ -95,7 +95,10 @@ export function getPricingOrThrow(
 }
 
 export function estimateUsageCostMicrousd(
-  usage: Pick<UsageReport, "provider" | "model" | "promptTokens" | "completionTokens">,
+  usage: Pick<
+    UsageReport,
+    "provider" | "model" | "promptTokens" | "completionTokens"
+  >,
   catalog: PricingCatalog = defaultPricingCatalog
 ): number | null {
   assertNonNegativeInt(usage.promptTokens, "promptTokens");
@@ -122,7 +125,8 @@ export function normalizeUsageReport(
   assertNonNegativeInt(usage.promptTokens, "promptTokens");
   assertNonNegativeInt(usage.completionTokens, "completionTokens");
 
-  const totalTokens = usage.totalTokens ?? usage.promptTokens + usage.completionTokens;
+  const totalTokens =
+    usage.totalTokens ?? usage.promptTokens + usage.completionTokens;
   assertNonNegativeInt(totalTokens, "totalTokens");
 
   const estimatedCost = estimateUsageCostMicrousd(

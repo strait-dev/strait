@@ -29,8 +29,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260326.1",
-    "vitest": "^4.1.1"
+    "@typescript/native-preview": "^7.0.0-dev.20260327.2",
+    "vitest": "^4.1.2"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

@@ -47,9 +47,8 @@ describe("agent-list-utils", () => {
       updated_at: "2026-03-23T09:00:00Z",
     };
 
-    expect(sortAgentsByUpdatedAt([older, newer]).map((agent) => agent.id)).toEqual([
-      "agent-newer",
-      "agent-older",
-    ]);
+    expect(
+      sortAgentsByUpdatedAt([older, newer]).map((agent) => agent.id)
+    ).toEqual(["agent-newer", "agent-older"]);
   });
 });

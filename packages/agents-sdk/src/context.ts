@@ -1,10 +1,7 @@
 import { BudgetLedger } from "./budget";
 import { StraitSDKError } from "./errors";
 import { StraitHTTPClient } from "./http";
-import {
-  defaultPricingCatalog,
-  normalizeUsageReport,
-} from "./pricing";
+import { defaultPricingCatalog, normalizeUsageReport } from "./pricing";
 import type {
   BudgetSnapshot,
   CheckpointOptions,
@@ -57,7 +54,11 @@ type JobRunResponse = {
 };
 
 type StateScopeClient = {
-  set: (key: string, value: JsonValue, signal?: AbortSignal) => Promise<RunStateResponse>;
+  set: (
+    key: string,
+    value: JsonValue,
+    signal?: AbortSignal
+  ) => Promise<RunStateResponse>;
   get: (key: string, signal?: AbortSignal) => Promise<RunStateResponse>;
   list: (signal?: AbortSignal) => Promise<RunStateResponse[]>;
   delete: (key: string, signal?: AbortSignal) => Promise<void>;
@@ -71,7 +72,10 @@ function assertNonEmptyString(value: string, field: string): string {
   return normalized;
 }
 
-function assertNonNegativeInt(value: number | undefined, field: string): number | undefined {
+function assertNonNegativeInt(
+  value: number | undefined,
+  field: string
+): number | undefined {
   if (value == null) {
     return undefined;
   }
@@ -133,7 +137,11 @@ export class StraitContext {
     return {
       set: (key, value, signal) => this.#setState(basePath, key, value, signal),
       get: (key, signal) => this.#getState(basePath, key, signal),
-      list: (signal) => this.#client.get<RunStateResponse[]>(basePath, { retryable: true, signal }),
+      list: (signal) =>
+        this.#client.get<RunStateResponse[]>(basePath, {
+          retryable: true,
+          signal,
+        }),
       delete: async (key, signal) => {
         await this.#deleteState(basePath, key, signal);
       },
@@ -203,7 +211,10 @@ export class StraitContext {
     );
   }
 
-  progress(report: ProgressReport, signal?: AbortSignal): Promise<{ id: string }> {
+  progress(
+    report: ProgressReport,
+    signal?: AbortSignal
+  ): Promise<{ id: string }> {
     if (report.percent < 0 || report.percent > 100) {
       throw new StraitSDKError("percent must be between 0 and 100");
     }
@@ -279,7 +290,9 @@ export class StraitContext {
     signal?: AbortSignal
   ): Promise<{ status: string }> {
     if (report.chunk.length === 0 && report.done !== true) {
-      throw new StraitSDKError("stream chunk requires a non-empty chunk unless done=true");
+      throw new StraitSDKError(
+        "stream chunk requires a non-empty chunk unless done=true"
+      );
     }
     return this.#client.post<{ status: string }>(
       "/stream",
@@ -313,6 +326,8 @@ export class StraitContext {
   }
 }
 
-export function createStraitContext(options: StraitContextOptions): StraitContext {
+export function createStraitContext(
+  options: StraitContextOptions
+): StraitContext {
   return new StraitContext(options);
 }

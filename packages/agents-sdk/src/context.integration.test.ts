@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer } from "node:http";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { StraitContext } from "./context";
 

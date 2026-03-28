@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { StraitContext } from "./context";
 import { StraitAPIError } from "./errors";
 import { createPricingCatalog } from "./pricing";
-import { StraitContext } from "./context";
 
 const baseUrl = "https://api.strait.test";
 const runId = "run-123";
@@ -180,7 +179,9 @@ describe("StraitContext", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [url, init] = fetchMock.mock.calls[0] ?? [];
-    expect(url).toBe("https://api.strait.test/sdk/v1/runs/run-123/workflow-state");
+    expect(url).toBe(
+      "https://api.strait.test/sdk/v1/runs/run-123/workflow-state"
+    );
     expect(init?.method).toBe("POST");
     expect(JSON.parse(String(init?.body))).toEqual({
       key: "shared-plan",

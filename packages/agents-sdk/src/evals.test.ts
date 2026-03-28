@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-
+import { StraitSDKError } from "./errors";
 import {
   defineEvalSuite,
   expectArrayMinLength,
@@ -7,7 +7,6 @@ import {
   expectTextContains,
   runEvalSuite,
 } from "./evals";
-import { StraitSDKError } from "./errors";
 
 describe("defineEvalSuite", () => {
   it("normalizes tags and rejects duplicate case names", () => {
@@ -53,10 +52,16 @@ describe("runEvalSuite", () => {
               topic: "billing regression",
             },
             assertions: [
-              expectTextContains("summary mentions billing", (output) => output.summary, [
-                "billing",
-              ]),
-              expectArrayMinLength("actions included", (output) => output.actions, 2),
+              expectTextContains(
+                "summary mentions billing",
+                (output) => output.summary,
+                ["billing"]
+              ),
+              expectArrayMinLength(
+                "actions included",
+                (output) => output.actions,
+                2
+              ),
             ],
             judge: {
               name: "manual-judge",
@@ -141,6 +146,8 @@ describe("expectation helpers", () => {
   it("rejects negative array minimum lengths", () => {
     expect(() =>
       expectArrayMinLength("invalid", (value: string[]) => value, -1)
-    ).toThrowError(new StraitSDKError("minLength must be a non-negative integer"));
+    ).toThrowError(
+      new StraitSDKError("minLength must be a non-negative integer")
+    );
   });
 });

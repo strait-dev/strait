@@ -15,7 +15,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
@@ -23,6 +23,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import { useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -34,15 +35,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useMemo, useState } from "react";
 import type { AgentCostSummary } from "@/components/agents/agent-cost-utils";
-import ChartTooltip from "@/components/dashboard/chart-tooltip";
+import { summarizeAgentRuns } from "@/components/agents/agent-detail-utils";
 import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
-import { summarizeAgentRuns } from "@/components/agents/agent-detail-utils";
+import ChartTooltip from "@/components/dashboard/chart-tooltip";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import StatusBadge from "@/components/dashboard/status-badge";
 import { createRunColumns } from "@/components/tables/runs-columns";
@@ -74,7 +74,9 @@ export const Route = createFileRoute("/app/agents/$id")({
       context.queryClient.ensureQueryData(
         agentRunsQueryOptions(params.id, { limit: 50 })
       ),
-      context.queryClient.ensureQueryData(agentCostSummaryQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(
+        agentCostSummaryQueryOptions(params.id)
+      ),
     ]);
   },
   pendingComponent: DetailPageSkeleton,
@@ -100,7 +102,13 @@ const TOKEN_LABEL_MAP = {
   },
 };
 
-const StatCard = ({ label, value }: { label: string; value: string | number }) => {
+const StatCard = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) => {
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -268,7 +276,9 @@ function AgentDetailPage() {
                       <ConfigRow
                         icon={ClockIcon}
                         label="Started"
-                        value={formatDateTime(latestRun.started_at ?? undefined)}
+                        value={formatDateTime(
+                          latestRun.started_at ?? undefined
+                        )}
                       />
                       <ConfigRow
                         icon={ClockIcon}
@@ -288,7 +298,10 @@ function AgentDetailPage() {
                     </div>
                     <Button
                       render={
-                        <Link params={{ id: latestRun.id }} to="/app/runs/$id" />
+                        <Link
+                          params={{ id: latestRun.id }}
+                          to="/app/runs/$id"
+                        />
                       }
                       size="sm"
                       variant="outline"
@@ -318,7 +331,11 @@ function AgentDetailPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <ConfigRow icon={TagIcon} label="Slug" value={agent.slug} />
-                <ConfigRow icon={SparklesIcon} label="Model" value={agent.model} />
+                <ConfigRow
+                  icon={SparklesIcon}
+                  label="Model"
+                  value={agent.model}
+                />
                 <ConfigRow
                   icon={BriefcaseIcon}
                   label="Backing job"
@@ -420,7 +437,9 @@ function AgentDetailPage() {
                           tickLine={false}
                           width={90}
                         />
-                        <Tooltip content={<ChartTooltip labelMap={COST_LABEL_MAP} />} />
+                        <Tooltip
+                          content={<ChartTooltip labelMap={COST_LABEL_MAP} />}
+                        />
                         <Area
                           dataKey="cost_microusd"
                           fill={CHART_COLORS.active}
@@ -532,7 +551,9 @@ function AgentDetailPage() {
                       />
                       <XAxis dataKey="date" tickLine={false} />
                       <YAxis tickLine={false} width={90} />
-                      <Tooltip content={<ChartTooltip labelMap={TOKEN_LABEL_MAP} />} />
+                      <Tooltip
+                        content={<ChartTooltip labelMap={TOKEN_LABEL_MAP} />}
+                      />
                       <Bar
                         dataKey="total_tokens"
                         fill={CHART_COLORS.warning}

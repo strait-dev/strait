@@ -13,38 +13,42 @@ type StreamTextOptions = Parameters<typeof streamText>[0];
 type GenerateTextResult = Awaited<ReturnType<typeof generateText>>;
 type StreamTextResult = ReturnType<typeof streamText>;
 
-type OnStepFinishEvent = NonNullable<GenerateTextOptions["onStepFinish"]> extends (
-  event: infer Event
-) => unknown
-  ? Event
-  : never;
+type OnStepFinishEvent =
+  NonNullable<GenerateTextOptions["onStepFinish"]> extends (
+    event: infer Event
+  ) => unknown
+    ? Event
+    : never;
 
-type OnToolCallFinishEvent = NonNullable<
-  GenerateTextOptions["experimental_onToolCallFinish"]
-> extends (event: infer Event) => unknown
-  ? Event
-  : never;
+type OnToolCallFinishEvent =
+  NonNullable<GenerateTextOptions["experimental_onToolCallFinish"]> extends (
+    event: infer Event
+  ) => unknown
+    ? Event
+    : never;
 
-type OnFinishEvent = NonNullable<GenerateTextOptions["onFinish"]> extends (
-  event: infer Event
-) => unknown
-  ? Event
-  : never;
+type OnFinishEvent =
+  NonNullable<GenerateTextOptions["onFinish"]> extends (
+    event: infer Event
+  ) => unknown
+    ? Event
+    : never;
 
-type StreamChunkEvent = NonNullable<StreamTextOptions["onChunk"]> extends (
-  event: infer Event
-) => unknown
-  ? Event
-  : never;
+type StreamChunkEvent =
+  NonNullable<StreamTextOptions["onChunk"]> extends (
+    event: infer Event
+  ) => unknown
+    ? Event
+    : never;
 
 export interface VercelAIAdapterOptions {
-  streamId?: string;
   checkpoint?: {
     source?: string;
     onStepFinish?: (
       event: OnStepFinishEvent
     ) => JsonValue | undefined | PromiseLike<JsonValue | undefined>;
   };
+  streamId?: string;
 }
 
 function toJSONValue(value: unknown): JsonValue {
@@ -97,7 +101,8 @@ async function reportCheckpointForStep(
   adapterOptions: VercelAIAdapterOptions | undefined,
   event: OnStepFinishEvent
 ): Promise<void> {
-  const checkpointState = await adapterOptions?.checkpoint?.onStepFinish?.(event);
+  const checkpointState =
+    await adapterOptions?.checkpoint?.onStepFinish?.(event);
   if (checkpointState === undefined) {
     return;
   }
@@ -114,7 +119,9 @@ async function reportToolCall(
   await context.reportToolCall({
     toolName: event.toolCall.toolName,
     input: toJSONValue(event.toolCall.input),
-    output: event.success ? toJSONValue(event.output) : toJSONValue(event.error),
+    output: event.success
+      ? toJSONValue(event.output)
+      : toJSONValue(event.error),
     durationMs: Math.round(event.durationMs),
     status: event.success ? "completed" : "failed",
   });

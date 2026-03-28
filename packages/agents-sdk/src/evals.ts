@@ -84,7 +84,10 @@ export function defineEvalSuite<TInput, TResult>(
     ...testCase,
     assertions: testCase.assertions?.map((assertion, assertionIndex) => ({
       ...assertion,
-      name: requireName(assertion.name, `cases[${caseIndex}].assertions[${assertionIndex}].name`),
+      name: requireName(
+        assertion.name,
+        `cases[${caseIndex}].assertions[${assertionIndex}].name`
+      ),
     })),
     name: requireName(testCase.name, `cases[${caseIndex}].name`),
     tags: normalizeTags(testCase.tags),
@@ -111,7 +114,10 @@ export function defineEvalSuite<TInput, TResult>(
 
 export async function runEvalSuite<TInput, TResult>(
   suite: EvalSuite<TInput, TResult>,
-  execute: (input: TInput, testCase: EvalCase<TInput, TResult>) => Promise<TResult>
+  execute: (
+    input: TInput,
+    testCase: EvalCase<TInput, TResult>
+  ) => Promise<TResult>
 ): Promise<EvalSuiteResult<TResult>> {
   const normalizedSuite = defineEvalSuite(suite);
   const startedAt = Date.now();
@@ -195,7 +201,9 @@ export function expectPathEquals<TResult>(
     name,
     message: `expected ${path} to equal ${JSON.stringify(expected)}`,
     assert: (result) => {
-      return JSON.stringify(getPathValue(result, path)) === JSON.stringify(expected);
+      return (
+        JSON.stringify(getPathValue(result, path)) === JSON.stringify(expected)
+      );
     },
   };
 }

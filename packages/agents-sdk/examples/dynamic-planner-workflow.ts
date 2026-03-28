@@ -1,9 +1,5 @@
-import {
-  agentStep,
-  agentWorkflow,
-  strait,
-} from "../src/index";
 import type { StraitContext } from "../src/index";
+import { agentStep, agentWorkflow, strait } from "../src/index";
 
 type PlannerInput = {
   topic: string;
@@ -30,7 +26,8 @@ export const plannerAgent = strait.agent<
 >({
   name: "Dynamic Research Planner",
   slug: "dynamic-research-planner",
-  description: "Plans follow-up research steps and expands the workflow DAG at runtime.",
+  description:
+    "Plans follow-up research steps and expands the workflow DAG at runtime.",
   model: "gpt-5.4-mini",
   async run(
     ctx: StraitContext,
@@ -66,12 +63,19 @@ export const plannerAgent = strait.agent<
   },
 });
 
-export const researchWorkerAgent = strait.agent<ResearchInput, { finding: string }>({
+export const researchWorkerAgent = strait.agent<
+  ResearchInput,
+  { finding: string }
+>({
   name: "Research Worker",
   slug: "research-worker",
-  description: "Investigates one lens of a topic and returns a focused finding.",
+  description:
+    "Investigates one lens of a topic and returns a focused finding.",
   model: "gpt-5.4-mini",
-  async run(ctx: StraitContext, input: ResearchInput): Promise<{ finding: string }> {
+  async run(
+    ctx: StraitContext,
+    input: ResearchInput
+  ): Promise<{ finding: string }> {
     await ctx.log({
       level: "info",
       message: `researching ${input.topic}`,

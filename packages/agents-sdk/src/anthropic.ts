@@ -1,7 +1,10 @@
 import type { StraitContext } from "./context";
 import type { JsonValue } from "./types";
 
-type AdapterContext = Pick<StraitContext, "reportToolCall" | "reportUsage" | "stream">;
+type AdapterContext = Pick<
+  StraitContext,
+  "reportToolCall" | "reportUsage" | "stream"
+>;
 
 type AnthropicUsage = {
   input_tokens: number;

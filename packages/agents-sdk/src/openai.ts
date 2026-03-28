@@ -1,7 +1,10 @@
 import type { StraitContext } from "./context";
 import type { JsonValue } from "./types";
 
-type AdapterContext = Pick<StraitContext, "reportToolCall" | "reportUsage" | "stream">;
+type AdapterContext = Pick<
+  StraitContext,
+  "reportToolCall" | "reportUsage" | "stream"
+>;
 
 type OpenAIUsage = {
   prompt_tokens: number;
@@ -175,7 +178,9 @@ export function createOpenAIAdapter<TClient extends OpenAIClientLike>(
 ): TClient {
   const create = client.chat.completions.create.bind(client.chat.completions);
   const stream = client.chat.completions.stream.bind(client.chat.completions);
-  const runTools = client.chat.completions.runTools.bind(client.chat.completions);
+  const runTools = client.chat.completions.runTools.bind(
+    client.chat.completions
+  );
 
   const wrappedCompletions = {
     ...client.chat.completions,

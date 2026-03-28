@@ -56,7 +56,14 @@ describe("buildAgentCostSummary", () => {
       makeRun("run_2", "2026-03-28T10:00:00Z"),
     ];
     const usage = [
-      makeUsage("usage_1", "run_1", "openai", 1200, 900, "2026-03-27T10:01:00Z"),
+      makeUsage(
+        "usage_1",
+        "run_1",
+        "openai",
+        1200,
+        900,
+        "2026-03-27T10:01:00Z"
+      ),
       makeUsage("usage_2", "run_2", "openai", 800, 600, "2026-03-28T10:01:00Z"),
       makeUsage(
         "usage_3",
@@ -84,8 +91,22 @@ describe("buildAgentCostSummary", () => {
     const summary = buildAgentCostSummary(
       [makeRun("run_1", "2026-03-28T10:00:00Z")],
       [
-        makeUsage("usage_2", "run_1", "openai", 500, 400, "2026-03-29T10:01:00Z"),
-        makeUsage("usage_1", "run_1", "openai", 250, 200, "2026-03-28T10:01:00Z"),
+        makeUsage(
+          "usage_2",
+          "run_1",
+          "openai",
+          500,
+          400,
+          "2026-03-29T10:01:00Z"
+        ),
+        makeUsage(
+          "usage_1",
+          "run_1",
+          "openai",
+          250,
+          200,
+          "2026-03-28T10:01:00Z"
+        ),
       ]
     );
 

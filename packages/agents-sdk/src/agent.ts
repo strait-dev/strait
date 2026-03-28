@@ -1,21 +1,24 @@
 import type { StraitContext } from "./context";
 import type { AgentBudget, JsonValue } from "./types";
 import {
-  agentWorkflow,
   agentStep,
+  agentWorkflow,
   approvalStep,
   debatePattern,
   orchestratorPattern,
   pipelinePattern,
 } from "./workflow";
 
-export interface StraitAgentDefinition<TInput = JsonValue, TResult = JsonValue> {
-  name: string;
-  slug?: string;
+export interface StraitAgentDefinition<
+  TInput = JsonValue,
+  TResult = JsonValue,
+> {
+  budget?: AgentBudget;
   description?: string;
   model: string;
-  budget?: AgentBudget;
+  name: string;
   run: (context: StraitContext, input: TInput) => Promise<TResult>;
+  slug?: string;
 }
 
 export function agent<TInput = JsonValue, TResult = JsonValue>(

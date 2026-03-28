@@ -2,11 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { JobRun, RunStatus } from "@/hooks/api/types";
 import { summarizeAgentRuns } from "./agent-detail-utils";
 
-function makeRun(
-  id: string,
-  status: RunStatus,
-  createdAt: string
-): JobRun {
+function makeRun(id: string, status: RunStatus, createdAt: string): JobRun {
   return {
     attempt: 1,
     created_at: createdAt,

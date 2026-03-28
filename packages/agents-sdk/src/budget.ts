@@ -1,9 +1,16 @@
 import { BudgetExceededError } from "./errors";
-import type { AgentBudget, BudgetSnapshot, NormalizedUsageReport } from "./types";
+import type {
+  AgentBudget,
+  BudgetSnapshot,
+  NormalizedUsageReport,
+} from "./types";
 
 type UsageTotals = Omit<BudgetSnapshot, "limits" | "toolCalls">;
 
-function projectTotals(current: UsageTotals, usage: NormalizedUsageReport): UsageTotals {
+function projectTotals(
+  current: UsageTotals,
+  usage: NormalizedUsageReport
+): UsageTotals {
   return {
     promptTokens: current.promptTokens + usage.promptTokens,
     completionTokens: current.completionTokens + usage.completionTokens,

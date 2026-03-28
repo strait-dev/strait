@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createAnthropicAdapter } from "./anthropic";
 
 class FakeMessageStream {
-  readonly listeners = new Map<string, Array<(...args: unknown[]) => unknown>>();
+  readonly listeners = new Map<
+    string,
+    Array<(...args: unknown[]) => unknown>
+  >();
 
   on(event: string, listener: (...args: unknown[]) => unknown): this {
     const existing = this.listeners.get(event) ?? [];
