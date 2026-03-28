@@ -165,3 +165,73 @@ func TestAgentDeploymentCRUD(t *testing.T) {
 		t.Fatalf("ListAgentDeployments() len = %d, want 1", len(items))
 	}
 }
+
+func TestAgentNullableActors(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-agents", Name: "Agents Project"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	job := mustCreateJob(t, ctx, q, project.ID)
+	agent := &domain.Agent{
+		ID:          newID(),
+		ProjectID:   project.ID,
+		JobID:       job.ID,
+		Name:        "Nullable Actor Agent",
+		Slug:        "nullable-actor-agent",
+		Description: "",
+		Model:       "gpt-5.4",
+		Config:      json.RawMessage(`{"temperature":0.1}`),
+	}
+	if err := q.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	got, err := q.GetAgent(ctx, agent.ID)
+	if err != nil {
+		t.Fatalf("GetAgent() error = %v", err)
+	}
+	if got.CreatedBy != "" || got.UpdatedBy != "" {
+		t.Fatalf("GetAgent() actor fields = %q/%q, want empty strings", got.CreatedBy, got.UpdatedBy)
+	}
+
+	items, err := q.ListAgents(ctx, project.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("ListAgents() len = %d, want 1", len(items))
+	}
+
+	deployment := &domain.AgentDeployment{
+		ID:             newID(),
+		AgentID:        agent.ID,
+		Version:        1,
+		Status:         domain.AgentDeploymentStatusPending,
+		Provider:       "local_stub",
+		ConfigSnapshot: json.RawMessage(`{"temperature":0.1}`),
+	}
+	if err := q.CreateAgentDeployment(ctx, deployment); err != nil {
+		t.Fatalf("CreateAgentDeployment() error = %v", err)
+	}
+
+	latestDeployment, err := q.GetLatestAgentDeployment(ctx, agent.ID)
+	if err != nil {
+		t.Fatalf("GetLatestAgentDeployment() error = %v", err)
+	}
+	if latestDeployment.CreatedBy != "" {
+		t.Fatalf("GetLatestAgentDeployment().CreatedBy = %q, want empty string", latestDeployment.CreatedBy)
+	}
+
+	deployments, err := q.ListAgentDeployments(ctx, agent.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListAgentDeployments() error = %v", err)
+	}
+	if len(deployments) != 1 {
+		t.Fatalf("ListAgentDeployments() len = %d, want 1", len(deployments))
+	}
+}

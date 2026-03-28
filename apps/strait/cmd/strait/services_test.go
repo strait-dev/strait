@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"strait/internal/billing"
 )
 
 func TestWorkerShutdownTelemetryLogsContainExpectedFields(t *testing.T) {
@@ -65,5 +67,19 @@ func TestNotificationWorkerEnabled(t *testing.T) {
 		if got := notificationWorkerEnabled(tt.mode); got != tt.want {
 			t.Fatalf("notificationWorkerEnabled(%q) = %v, want %v", tt.mode, got, tt.want)
 		}
+	}
+}
+
+func TestWrapUsageService(t *testing.T) {
+	t.Helper()
+
+	var nilSvc *billing.UsageService
+	if got := wrapUsageService(nilSvc); got != nil {
+		t.Fatalf("wrapUsageService(nil) = %v, want nil", got)
+	}
+
+	wrapped := wrapUsageService(&billing.UsageService{})
+	if wrapped == nil {
+		t.Fatal("wrapUsageService(non-nil) = nil, want non-nil")
 	}
 }

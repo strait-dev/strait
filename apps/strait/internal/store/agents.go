@@ -25,6 +25,8 @@ func scanAgent(scanner interface {
 	Scan(dest ...any) error
 }) (*domain.Agent, error) {
 	var agent domain.Agent
+	var createdBy *string
+	var updatedBy *string
 	if err := scanner.Scan(
 		&agent.ID,
 		&agent.ProjectID,
@@ -34,12 +36,18 @@ func scanAgent(scanner interface {
 		&agent.Description,
 		&agent.Model,
 		&agent.Config,
-		&agent.CreatedBy,
-		&agent.UpdatedBy,
+		&createdBy,
+		&updatedBy,
 		&agent.CreatedAt,
 		&agent.UpdatedAt,
 	); err != nil {
 		return nil, err
+	}
+	if createdBy != nil {
+		agent.CreatedBy = *createdBy
+	}
+	if updatedBy != nil {
+		agent.UpdatedBy = *updatedBy
 	}
 	return &agent, nil
 }
@@ -49,6 +57,7 @@ func scanAgentDeployment(scanner interface {
 }) (*domain.AgentDeployment, error) {
 	var deployment domain.AgentDeployment
 	var status string
+	var createdBy *string
 	if err := scanner.Scan(
 		&deployment.ID,
 		&deployment.AgentID,
@@ -57,7 +66,7 @@ func scanAgentDeployment(scanner interface {
 		&deployment.Provider,
 		&deployment.ConfigSnapshot,
 		&deployment.ProviderMetadata,
-		&deployment.CreatedBy,
+		&createdBy,
 		&deployment.CreatedAt,
 		&deployment.UpdatedAt,
 		&deployment.DeployedAt,
@@ -65,6 +74,9 @@ func scanAgentDeployment(scanner interface {
 		return nil, err
 	}
 	deployment.Status = domain.AgentDeploymentStatus(status)
+	if createdBy != nil {
+		deployment.CreatedBy = *createdBy
+	}
 	return &deployment, nil
 }
 

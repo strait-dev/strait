@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -208,5 +209,69 @@ func TestProjectRateLimit_InternalSecretAuth_Bypasses(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200 for internal secret auth, got %d", rr.Code)
+	}
+}
+
+func TestIPRateLimit_SDKRoutesBypassGlobalLimiter(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{
+		config: &config.Config{
+			RateLimitRequests: 1,
+			RateLimitWindow:   time.Minute,
+		},
+	}
+
+	handler := srv.ipRateLimit(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	first := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/stream", nil)
+	first.RemoteAddr = "127.0.0.1:1234"
+	second := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/stream", nil)
+	second.RemoteAddr = "127.0.0.1:1234"
+
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, first)
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first sdk request = %d, want 200", rr1.Code)
+	}
+
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, second)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("second sdk request = %d, want 200", rr2.Code)
+	}
+}
+
+func TestIPRateLimit_PublicRoutesStillLimited(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{
+		config: &config.Config{
+			RateLimitRequests: 1,
+			RateLimitWindow:   time.Minute,
+		},
+	}
+
+	handler := srv.ipRateLimit(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	first := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	first.RemoteAddr = "127.0.0.1:1234"
+	second := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	second.RemoteAddr = "127.0.0.1:1234"
+
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, first)
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first public request = %d, want 200", rr1.Code)
+	}
+
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, second)
+	if rr2.Code != http.StatusTooManyRequests {
+		t.Fatalf("second public request = %d, want 429", rr2.Code)
 	}
 }

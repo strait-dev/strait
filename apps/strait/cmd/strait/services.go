@@ -95,6 +95,13 @@ func logWorkerShutdownComplete(logger *slog.Logger, metrics *telemetry.Metrics, 
 	}
 }
 
+func wrapUsageService(svc *billing.UsageService) api.UsageService {
+	if svc == nil {
+		return nil
+	}
+	return svc
+}
+
 // connectDatabase creates and verifies a Postgres connection pool.
 // It retries with exponential backoff up to 5 times on transient failures.
 func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
@@ -407,9 +414,9 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		slog.Info("polar webhook handler enabled")
 	}
 
-	var usageSvc *billing.UsageService
+	var usageSvc api.UsageService
 	if billingEnforcer != nil {
-		usageSvc = billing.NewUsageService(billingStore, billingEnforcer)
+		usageSvc = wrapUsageService(billing.NewUsageService(billingStore, billingEnforcer))
 	}
 
 	referralSvc := billing.NewReferralService(billingStore)
