@@ -19,7 +19,7 @@ import {
 export async function getStaticPaths() {
 	let allPosts: any[] = [];
 	try {
-		const data = await basehub({ token: import.meta.env.BASEHUB_TOKEN, cache: "no-store" }).query({
+		const data = await basehub({ token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN, cache: "no-store" }).query({
 			website: {
 				blog: {
 					posts: {

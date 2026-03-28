@@ -51,7 +51,7 @@ export const GET: APIRoute = async () => {
   let authorPages: SitemapEntry[] = [];
 
   try {
-    const data = await basehub({ token: import.meta.env.BASEHUB_TOKEN }).query({
+    const data = await basehub({ token: process.env.BASEHUB_TOKEN || import.meta.env.BASEHUB_TOKEN }).query({
       website: {
         blog: {
           posts: {
