@@ -131,6 +131,37 @@ func (q *Queries) GetAgentBySlug(ctx context.Context, projectID, slug string) (*
 	return agent, nil
 }
 
+func (q *Queries) ListAgentsByJobIDs(ctx context.Context, projectID string, jobIDs []string) ([]domain.Agent, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAgentsByJobIDs")
+	defer span.End()
+
+	if len(jobIDs) == 0 {
+		return []domain.Agent{}, nil
+	}
+
+	rows, err := q.db.Query(ctx, `
+		SELECT `+agentColumns+`
+		FROM agents
+		WHERE project_id = $1 AND job_id = ANY($2::text[])
+		ORDER BY created_at DESC
+	`, projectID, jobIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list agents by job ids: %w", err)
+	}
+	defer rows.Close()
+
+	agents := make([]domain.Agent, 0, len(jobIDs))
+	for rows.Next() {
+		agent, scanErr := scanAgent(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list agents by job ids scan: %w", scanErr)
+		}
+		agents = append(agents, *agent)
+	}
+
+	return agents, rows.Err()
+}
+
 func (q *Queries) ListAgents(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Agent, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAgents")
 	defer span.End()

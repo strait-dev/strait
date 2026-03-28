@@ -304,6 +304,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetActiveCanaryDeploymentFunc: func(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error) {
 //				panic("mock out the GetActiveCanaryDeployment method")
 //			},
+//			GetAgentFunc: func(ctx context.Context, id string) (*domain.Agent, error) {
+//				panic("mock out the GetAgent method")
+//			},
 //			GetApprovalStatsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ApprovalStats, error) {
 //				panic("mock out the GetApprovalStats method")
 //			},
@@ -462,6 +465,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			ListActiveWorkflowVersionsFunc: func(ctx context.Context, workflowID string) ([]store.ActiveVersion, error) {
 //				panic("mock out the ListActiveWorkflowVersions method")
+//			},
+//			ListAgentsByJobIDsFunc: func(ctx context.Context, projectID string, jobIDs []string) ([]domain.Agent, error) {
+//				panic("mock out the ListAgentsByJobIDs method")
 //			},
 //			ListAuditEventsFunc: func(ctx context.Context, projectID string, actorID string, resourceType string, resourceID string, limit int, cursor *time.Time, from *time.Time, to *time.Time, ascending bool) ([]domain.AuditEvent, error) {
 //				panic("mock out the ListAuditEvents method")
@@ -1088,6 +1094,9 @@ type APIStoreMock struct {
 	// GetActiveCanaryDeploymentFunc mocks the GetActiveCanaryDeployment method.
 	GetActiveCanaryDeploymentFunc func(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
 
+	// GetAgentFunc mocks the GetAgent method.
+	GetAgentFunc func(ctx context.Context, id string) (*domain.Agent, error)
+
 	// GetApprovalStatsFunc mocks the GetApprovalStats method.
 	GetApprovalStatsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ApprovalStats, error)
 
@@ -1246,6 +1255,9 @@ type APIStoreMock struct {
 
 	// ListActiveWorkflowVersionsFunc mocks the ListActiveWorkflowVersions method.
 	ListActiveWorkflowVersionsFunc func(ctx context.Context, workflowID string) ([]store.ActiveVersion, error)
+
+	// ListAgentsByJobIDsFunc mocks the ListAgentsByJobIDs method.
+	ListAgentsByJobIDsFunc func(ctx context.Context, projectID string, jobIDs []string) ([]domain.Agent, error)
 
 	// ListAuditEventsFunc mocks the ListAuditEvents method.
 	ListAuditEventsFunc func(ctx context.Context, projectID string, actorID string, resourceType string, resourceID string, limit int, cursor *time.Time, from *time.Time, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
@@ -2337,6 +2349,13 @@ type APIStoreMock struct {
 			// WorkflowID is the workflowID argument value.
 			WorkflowID string
 		}
+		// GetAgent holds details about calls to the GetAgent method.
+		GetAgent []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
 		// GetApprovalStats holds details about calls to the GetApprovalStats method.
 		GetApprovalStats []struct {
 			// Ctx is the ctx argument value.
@@ -2789,6 +2808,15 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// WorkflowID is the workflowID argument value.
 			WorkflowID string
+		}
+		// ListAgentsByJobIDs holds details about calls to the ListAgentsByJobIDs method.
+		ListAgentsByJobIDs []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// JobIDs is the jobIDs argument value.
+			JobIDs []string
 		}
 		// ListAuditEvents holds details about calls to the ListAuditEvents method.
 		ListAuditEvents []struct {
@@ -4023,6 +4051,7 @@ type APIStoreMock struct {
 	lockGetAPIKeyByHash                    sync.RWMutex
 	lockGetAPIKeyByID                      sync.RWMutex
 	lockGetActiveCanaryDeployment          sync.RWMutex
+	lockGetAgent                           sync.RWMutex
 	lockGetApprovalStats                   sync.RWMutex
 	lockGetBatchOperation                  sync.RWMutex
 	lockGetComputeCostAnalytics            sync.RWMutex
@@ -4076,6 +4105,7 @@ type APIStoreMock struct {
 	lockListAPIKeysByProject               sync.RWMutex
 	lockListAPIKeysExpiringSoon            sync.RWMutex
 	lockListActiveWorkflowVersions         sync.RWMutex
+	lockListAgentsByJobIDs                 sync.RWMutex
 	lockListAuditEvents                    sync.RWMutex
 	lockListBatchOperations                sync.RWMutex
 	lockListChildRuns                      sync.RWMutex
@@ -8085,6 +8115,46 @@ func (mock *APIStoreMock) GetActiveCanaryDeploymentCalls() []struct {
 	return calls
 }
 
+// GetAgent calls GetAgentFunc.
+func (mock *APIStoreMock) GetAgent(ctx context.Context, id string) (*domain.Agent, error) {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockGetAgent.Lock()
+	mock.calls.GetAgent = append(mock.calls.GetAgent, callInfo)
+	mock.lockGetAgent.Unlock()
+	if mock.GetAgentFunc == nil {
+		var (
+			agentOut *domain.Agent
+			errOut   error
+		)
+		return agentOut, errOut
+	}
+	return mock.GetAgentFunc(ctx, id)
+}
+
+// GetAgentCalls gets all the calls that were made to GetAgent.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetAgentCalls())
+func (mock *APIStoreMock) GetAgentCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockGetAgent.RLock()
+	calls = mock.calls.GetAgent
+	mock.lockGetAgent.RUnlock()
+	return calls
+}
+
 // GetApprovalStats calls GetApprovalStatsFunc.
 func (mock *APIStoreMock) GetApprovalStats(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ApprovalStats, error) {
 	callInfo := struct {
@@ -10366,6 +10436,50 @@ func (mock *APIStoreMock) ListActiveWorkflowVersionsCalls() []struct {
 	mock.lockListActiveWorkflowVersions.RLock()
 	calls = mock.calls.ListActiveWorkflowVersions
 	mock.lockListActiveWorkflowVersions.RUnlock()
+	return calls
+}
+
+// ListAgentsByJobIDs calls ListAgentsByJobIDsFunc.
+func (mock *APIStoreMock) ListAgentsByJobIDs(ctx context.Context, projectID string, jobIDs []string) ([]domain.Agent, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		JobIDs    []string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		JobIDs:    jobIDs,
+	}
+	mock.lockListAgentsByJobIDs.Lock()
+	mock.calls.ListAgentsByJobIDs = append(mock.calls.ListAgentsByJobIDs, callInfo)
+	mock.lockListAgentsByJobIDs.Unlock()
+	if mock.ListAgentsByJobIDsFunc == nil {
+		var (
+			agentsOut []domain.Agent
+			errOut    error
+		)
+		return agentsOut, errOut
+	}
+	return mock.ListAgentsByJobIDsFunc(ctx, projectID, jobIDs)
+}
+
+// ListAgentsByJobIDsCalls gets all the calls that were made to ListAgentsByJobIDs.
+// Check the length with:
+//
+//	len(mockedAPIStore.ListAgentsByJobIDsCalls())
+func (mock *APIStoreMock) ListAgentsByJobIDsCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	JobIDs    []string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		JobIDs    []string
+	}
+	mock.lockListAgentsByJobIDs.RLock()
+	calls = mock.calls.ListAgentsByJobIDs
+	mock.lockListAgentsByJobIDs.RUnlock()
 	return calls
 }
 

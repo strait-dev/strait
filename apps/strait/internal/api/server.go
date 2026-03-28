@@ -60,6 +60,7 @@ type APIStore interface {
 	JobStore
 	RunStore
 	WorkflowStore
+	AgentLookupStore
 	DeploymentStore
 	EventTriggerStore
 	AuthStore
@@ -76,6 +77,11 @@ type ProjectStore interface {
 	GetProject(ctx context.Context, id string) (*domain.Project, error)
 	ListProjectsByOrg(ctx context.Context, orgID string) ([]domain.Project, error)
 	DeleteProject(ctx context.Context, id string) error
+}
+
+type AgentLookupStore interface {
+	GetAgent(ctx context.Context, id string) (*domain.Agent, error)
+	ListAgentsByJobIDs(ctx context.Context, projectID string, jobIDs []string) ([]domain.Agent, error)
 }
 
 // JobStore handles job CRUD, groups, environments, secrets, and dependencies.

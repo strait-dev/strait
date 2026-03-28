@@ -55,6 +55,17 @@ func TestAgentCRUD(t *testing.T) {
 		t.Fatalf("GetAgentBySlug().ID = %q, want %q", gotBySlug.ID, agent.ID)
 	}
 
+	byJobIDs, err := q.ListAgentsByJobIDs(ctx, project.ID, []string{job.ID, "missing"})
+	if err != nil {
+		t.Fatalf("ListAgentsByJobIDs() error = %v", err)
+	}
+	if len(byJobIDs) != 1 {
+		t.Fatalf("ListAgentsByJobIDs() len = %d, want 1", len(byJobIDs))
+	}
+	if byJobIDs[0].ID != agent.ID {
+		t.Fatalf("ListAgentsByJobIDs()[0].ID = %q, want %q", byJobIDs[0].ID, agent.ID)
+	}
+
 	items, err := q.ListAgents(ctx, project.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListAgents() error = %v", err)

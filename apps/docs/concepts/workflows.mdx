@@ -215,6 +215,20 @@ Steps can auto-emit events on completion using `event_emit_key`:
 
 When this step completes, it auto-resolves any waiting trigger with key `done:{batch_id}`, enabling cross-workflow coordination.
 
+## Agent-Backed Job Steps
+
+Job steps can target either a raw `job_id` or an `agent_id`. When you provide `agent_id`, Strait resolves it to the agent's hidden backing job before persisting or executing the workflow, and workflow reads include both identifiers so the API keeps the agent abstraction visible.
+
+```json
+{
+  "step_ref": "triage",
+  "agent_id": "agent_support_triage",
+  "depends_on": ["extract"]
+}
+```
+
+This keeps the workflow engine job-native while letting authored workflows stay agent-centric.
+
 ## Step-Level Retries
 
 Each step can have its own retry configuration (`retry_max_attempts`, `retry_backoff`), allowing transient failures in one part of the DAG to be resolved without restarting the entire workflow.
