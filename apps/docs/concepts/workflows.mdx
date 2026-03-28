@@ -219,6 +219,33 @@ When this step completes, it auto-resolves any waiting trigger with key `done:{b
 
 Job steps can target either a raw `job_id` or an `agent_id`. When you provide `agent_id`, Strait resolves it to the agent's hidden backing job before persisting or executing the workflow, and workflow reads include both identifiers so the API keeps the agent abstraction visible.
 
+The TypeScript agents SDK also exposes workflow helpers that compile directly to workflow authoring payloads:
+
+- `strait.agentStep(stepRef, agentId, options)`
+- `strait.approvalStep(stepRef, options)`
+- `strait.agentWorkflow({...})`
+- `strait.pipelinePattern(...)`
+- `strait.debatePattern(...)`
+- `strait.orchestratorPattern(...)`
+
+These helpers stay job-native under the hood by emitting workflow steps with `agent_id`.
+
+## Shared Workflow State For Agent Steps
+
+Workflow-backed agent runs can share state through the SDK without introducing a second persistence system. Strait reuses the existing run state store and scopes it to the parent workflow run:
+
+- `ctx.run.state.*` stays local to the current job run
+- `ctx.workflow.state.*` reads and writes shared state for the parent workflow run
+
+SDK endpoints:
+
+- `POST /sdk/v1/runs/{runID}/workflow-state`
+- `GET /sdk/v1/runs/{runID}/workflow-state`
+- `GET /sdk/v1/runs/{runID}/workflow-state/{key}`
+- `DELETE /sdk/v1/runs/{runID}/workflow-state/{key}`
+
+These endpoints are only available when the current run belongs to a workflow step. Non-workflow runs continue using per-run state only.
+
 ```json
 {
   "step_ref": "triage",
