@@ -1,85 +1,40 @@
-import crypto from "node:crypto";
-import pg from "pg";
+import type pg from "pg";
+import {
+  cleanupAuthUser,
+  ensureOrganizationExists,
+  ensurePasswordUserExists,
+  ensureProjectExists as ensureProjectForUser,
+} from "../../scripts/lib/local-auth-user";
 
 const E2E_USER_NAME = "E2E Test User";
 
-export async function ensureUserExists(
+export function ensureUserExists(
   pool: pg.Pool,
   email: string,
   password: string,
   baseURL: string
 ) {
-  let userRow = await pool.query(
-    `SELECT "id", "defaultOrganizationId", "activeProjectId" FROM "user" WHERE "email" = $1`,
-    [email]
-  );
-
-  if (userRow.rows.length === 0) {
-    const signupRes = await fetch(`${baseURL}/api/auth/sign-up/email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: baseURL },
-      body: JSON.stringify({ name: E2E_USER_NAME, email, password }),
-    });
-    if (!signupRes.ok) {
-      console.warn(
-        `Signup returned ${signupRes.status}: ${await signupRes.text()}`
-      );
-    }
-
-    await new Promise((r) => setTimeout(r, 2000));
-
-    userRow = await pool.query(
-      `SELECT "id", "defaultOrganizationId", "activeProjectId" FROM "user" WHERE "email" = $1`,
-      [email]
-    );
-  }
-
-  if (userRow.rows.length === 0) {
-    throw new Error(
-      `Failed to create test user ${email}. Check that the app is running at ${baseURL}`
-    );
-  }
-
-  await pool.query(`UPDATE "user" SET "emailVerified" = true WHERE "id" = $1`, [
-    userRow.rows[0].id,
-  ]);
-
-  return userRow.rows[0];
+  return ensurePasswordUserExists(pool, {
+    email,
+    password,
+    baseURL,
+    name: E2E_USER_NAME,
+  });
 }
 
-export async function ensureOrgExists(
+export function ensureOrgExists(
   pool: pg.Pool,
   userId: string,
   existingOrgId: string | null
 ) {
-  if (existingOrgId) {
-    return existingOrgId;
-  }
-
-  const orgId = crypto.randomUUID();
-  const orgSlug = `ws-${crypto.randomUUID().slice(0, 12)}`;
-
-  await pool.query(
-    `INSERT INTO "organization" ("id", "name", "slug", "createdAt")
-     VALUES ($1, $2, $3, NOW()) ON CONFLICT DO NOTHING`,
-    [orgId, `${E2E_USER_NAME}'s Workspace`, orgSlug]
-  );
-
-  await pool.query(
-    `INSERT INTO "member" ("id", "organizationId", "userId", "role", "createdAt")
-     VALUES ($1, $2, $3, 'owner', NOW()) ON CONFLICT DO NOTHING`,
-    [crypto.randomUUID(), orgId, userId]
-  );
-
-  await pool.query(
-    `UPDATE "user" SET "defaultOrganizationId" = $1 WHERE "id" = $2`,
-    [orgId, userId]
-  );
-
-  return orgId;
+  return ensureOrganizationExists(pool, {
+    userId,
+    existingOrgId,
+    workspaceName: `${E2E_USER_NAME}'s Workspace`,
+  });
 }
 
-export async function ensureProjectExists(
+export function ensureProjectExists(
   pool: pg.Pool,
   userId: string,
   orgId: string,
@@ -87,132 +42,16 @@ export async function ensureProjectExists(
   apiURL: string,
   internalSecret: string
 ) {
-  let projectId = existingProjectId;
-
-  if (!projectId) {
-    projectId = crypto.randomUUID();
-    const projectSlug = `project-${projectId.slice(0, 8)}`;
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS project (
-        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-        organization_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        description TEXT DEFAULT '',
-        created_by TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE(organization_id, slug)
-      )
-    `);
-
-    await pool.query(
-      `INSERT INTO project (id, organization_id, name, slug, created_by)
-       VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-      [projectId, orgId, "Default Project", projectSlug, userId]
-    );
-
-    await pool.query(
-      `UPDATE "user" SET "activeProjectId" = $1 WHERE "id" = $2`,
-      [projectId, userId]
-    );
-  }
-
-  const synced = await syncProjectToApi(
-    projectId,
+  return ensureProjectForUser(pool, {
+    userId,
     orgId,
+    existingProjectId,
     apiURL,
-    internalSecret
-  );
-  if (!synced) {
-    console.warn(
-      `Project not synced to Go API. Data-seeded tests will fail. Ensure backend is running at ${apiURL}`
-    );
-  }
-
-  return projectId;
-}
-
-async function syncProjectToApi(
-  projectId: string,
-  orgId: string,
-  apiURL: string,
-  internalSecret: string
-) {
-  if (!internalSecret) {
-    return false;
-  }
-
-  try {
-    const res = await fetch(`${apiURL}/v1/projects`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Internal-Secret": internalSecret,
-      },
-      body: JSON.stringify({
-        id: projectId,
-        org_id: orgId,
-        name: "Default Project",
-      }),
-    });
-    return res.ok || res.status === 409;
-  } catch {
-    return false;
-  }
+    internalSecret,
+    projectName: "Default Project",
+  });
 }
 
 export async function cleanupTestUser(authDbUrl: string, email: string) {
-  const pool = new pg.Pool({ connectionString: authDbUrl });
-
-  try {
-    const userResult = await pool.query(
-      `SELECT "id" FROM "user" WHERE "email" = $1`,
-      [email]
-    );
-
-    if (userResult.rows.length === 0) {
-      return;
-    }
-
-    const userId = userResult.rows[0].id;
-
-    // Delete projects
-    try {
-      await pool.query("DELETE FROM project WHERE created_by = $1", [userId]);
-    } catch {
-      // project table may not exist
-    }
-
-    // Delete in dependency order
-    await pool.query(`DELETE FROM "session" WHERE "userId" = $1`, [userId]);
-    await pool.query(`DELETE FROM "account" WHERE "userId" = $1`, [userId]);
-
-    const orgs = await pool.query(
-      `SELECT "organizationId" FROM "member" WHERE "userId" = $1`,
-      [userId]
-    );
-    await pool.query(`DELETE FROM "member" WHERE "userId" = $1`, [userId]);
-
-    for (const row of orgs.rows) {
-      const memberCount = await pool.query(
-        `SELECT COUNT(*) FROM "member" WHERE "organizationId" = $1`,
-        [row.organizationId]
-      );
-      if (Number.parseInt(memberCount.rows[0].count, 10) === 0) {
-        await pool.query(
-          `DELETE FROM "invitation" WHERE "organizationId" = $1`,
-          [row.organizationId]
-        );
-        await pool.query(`DELETE FROM "organization" WHERE "id" = $1`, [
-          row.organizationId,
-        ]);
-      }
-    }
-
-    await pool.query(`DELETE FROM "user" WHERE "id" = $1`, [userId]);
-  } finally {
-    await pool.end();
-  }
+  await cleanupAuthUser(authDbUrl, email);
 }

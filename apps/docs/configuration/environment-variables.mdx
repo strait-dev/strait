@@ -10,9 +10,9 @@ This page documents all environment variables available for configuring Strait.
   Required fields: `DATABASE_URL`, `INTERNAL_SECRET`, `JWT_SIGNING_KEY`, `ENCRYPTION_KEY`, and `SECRET_ENCRYPTION_KEY`.
 </Note>
 
-<Tip>
-  All environment variables are managed via [Doppler](https://doppler.com) (project: `strait`, configs: `dev` / `stg` / `prd`). Use `doppler run -- <cmd>` to inject secrets locally, or see the [Deployment Guide](/guides/deployment) for production setup.
-</Tip>
+<Callout type="info">
+  Production and staging secrets are managed via [Doppler](https://doppler.com) (project: `strait`, configs: `dev` / `stg` / `prd`). For local development, prefer the built-in local defaults described in the [Deployment Guide](/docs/guides/deployment); Doppler is optional and intended for Strait-managed environments.
+</Callout>
 
 ## Core Configuration
 
@@ -213,7 +213,6 @@ This page documents all environment variables available for configuring Strait.
 | :--- | :--- | :--- | :--- |
 | `ADAPTIVE_CONCURRENCY_MIN` | Integer | `5` | Minimum concurrency level for adaptive scaling. |
 | `ADAPTIVE_CONCURRENCY_MAX` | Integer | `100` | Maximum concurrency level for adaptive scaling. |
-
 ## ClickHouse (Optional Analytics)
 
 | Variable | Type | Default | Description |
@@ -224,4 +223,3 @@ This page documents all environment variables available for configuring Strait.
 | `CLICKHOUSE_BATCH_SIZE` | Integer | `1000` | Maximum records per batch insert. |
 | `CLICKHOUSE_FLUSH_INTERVAL` | Duration | `5s` | Maximum time between exporter flushes. |
 | `CLICKHOUSE_EXPORT_ENABLED` | Boolean | `false` | Enable the async exporter that sends run analytics to ClickHouse on run completion. |
-

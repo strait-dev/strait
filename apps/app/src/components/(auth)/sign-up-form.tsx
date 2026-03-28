@@ -25,6 +25,9 @@ type SignUpFormProps = {
   disabled?: boolean;
 };
 
+const disableEmailVerification =
+  process.env.DISABLE_EMAIL_VERIFICATION === "true";
+
 const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
   const [emailSent, setEmailSent] = useState(false);
 
@@ -61,6 +64,12 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
         method: "email",
         $set_once: setOnce,
       });
+
+      if (disableEmailVerification) {
+        window.location.href = redirectTo ?? "/app";
+        return;
+      }
+
       setEmailSent(true);
     },
   });

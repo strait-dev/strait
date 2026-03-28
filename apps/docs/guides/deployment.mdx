@@ -37,16 +37,26 @@ All environment variables are managed via [Doppler](https://doppler.com) under t
 ### Local Development
 
 ```bash
-# Configure Doppler for this directory (one-time)
-doppler setup  # select project: strait, config: dev
+# Start local infra
+docker compose -f apps/strait/docker-compose.yml up -d
 
-# Run any command with secrets injected
-doppler run -- go run ./cmd/strait
-doppler run -- bun run dev
+# Run the Go API against local Docker services
+cd apps/strait
+DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable \
+REDIS_URL=redis://localhost:6379 \
+INTERNAL_SECRET=strait-local-internal-secret-32chars \
+JWT_SIGNING_KEY=strait-local-jwt-signing-key-32chars \
+go run ./cmd/strait --mode all
 
-# Or generate a local .env file
-doppler secrets download --no-file --format env > .env
+# In another terminal, run the dashboard locally
+cd apps/app
+bun run dev
 ```
+
+`bun run dev` is the standard local path for contributors and self-host users.
+It defaults the app to the local Docker PostgreSQL auth database and disables
+email verification and Polar billing in development. Doppler is optional and
+intended only for internal Strait-managed environments.
 
 ### Fly.io Integration
 
@@ -195,7 +205,6 @@ fly logs -a strait-sequin
 doppler secrets -p strait -c prd   # list production secrets
 doppler secrets set KEY=value -p strait -c prd
 
-# Local dev with Doppler
-doppler run -- go run ./cmd/strait
-doppler run -- bun run dev
+# Internal-only Doppler dev path
+cd apps/app && bun run dev:doppler
 ```

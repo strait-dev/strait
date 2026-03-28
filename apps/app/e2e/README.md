@@ -6,12 +6,11 @@ Playwright end-to-end tests for the Strait dashboard app.
 
 - Docker Compose running (`cd apps/strait && docker compose up -d`)
 - Go backend running (`cd apps/strait && go run ./cmd/strait --mode all`)
-- Doppler configured (`doppler setup` in the repo root)
 
 ## Running locally
 
 ```bash
-# Run all tests (starts dev server automatically via Doppler)
+# Run all tests (starts local-first dev server automatically)
 bun run e2e
 
 # Run with browser visible
@@ -33,13 +32,13 @@ bun run e2e -- --grep "dashboard"
 |----------|----------|-------------|
 | `E2E_USER_EMAIL` | Yes | Email for the test user |
 | `E2E_USER_PASSWORD` | Yes | Password for the test user |
-| `AUTH_DATABASE_URL` | Yes | PostgreSQL connection for auth DB |
-| `INTERNAL_SECRET` | Yes | Go API internal secret |
+| `AUTH_DATABASE_URL` | No | Defaults to local Docker PostgreSQL auth DB |
+| `INTERNAL_SECRET` | No | Defaults to `strait-local-internal-secret-32chars` |
 | `STRAIT_API_URL` | No | Go API URL (default: `http://localhost:8080`) |
-| `BETTER_AUTH_SECRET` | Yes | Better Auth secret |
-| `BETTER_AUTH_URL` | Yes | Better Auth URL |
+| `BETTER_AUTH_SECRET` | No | Defaults to local dev Better Auth secret |
+| `BETTER_AUTH_URL` | No | Defaults to `http://localhost:5173` |
 
-These are injected automatically by Doppler in local development.
+These default automatically in local development through `bun run dev`.
 
 ## Adding new tests
 

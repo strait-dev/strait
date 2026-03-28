@@ -37,8 +37,7 @@ export default defineConfig({
   webServer: isCI
     ? undefined
     : {
-        command:
-          "DISABLE_NGROK=1 doppler run --project strait --config dev -- bun run dev",
+        command: "DISABLE_NGROK=1 bun run dev",
         url: "http://localhost:5173",
         reuseExistingServer: true,
         timeout: 120_000,

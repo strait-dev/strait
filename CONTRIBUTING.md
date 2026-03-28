@@ -42,9 +42,18 @@ go run ./cmd/strait
 **Dashboard (TanStack Start):**
 ```bash
 cd apps/app
-bun dev
+bun run dev
 # Dashboard at http://localhost:5173
 ```
+
+`bun run dev` is local-first and does not require Doppler. It defaults to the
+Docker PostgreSQL instance started from `apps/strait/docker-compose.yml` and
+enables local auth/billing bypass flags so contributors can sign up and log in
+without external email or Polar setup. It also bootstraps the Better Auth
+schema and seeds a default local user:
+
+- `dev@local.strait`
+- `devpassword123`
 
 **Docs site:**
 ```bash

@@ -120,6 +120,8 @@ services:
       STRAIT_API_URL: http://strait:8080
       AUTH_DATABASE_URL: postgres://strait:strait@postgres:5432/strait?sslmode=disable
       BETTER_AUTH_URL: http://localhost:3000
+      DISABLE_EMAIL_VERIFICATION: "true"
+      DISABLE_POLAR_BILLING: "true"
       RESEND_API_KEY: "re_selfhost_placeholder"
       PORT: "3000"
     depends_on:

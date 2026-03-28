@@ -49,6 +49,8 @@ const SignInForm = ({
 
       if (!result.error) {
         getPostHog()?.capture("auth_signed_in", { method: "email" });
+        window.location.href = redirectTo ?? "/app";
+        return;
       }
 
       if (result.error) {

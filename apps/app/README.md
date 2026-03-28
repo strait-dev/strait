@@ -8,9 +8,13 @@ Job orchestration management UI built with TanStack Start.
 # Install dependencies (from repo root)
 bun install
 
+# Start local infrastructure and API first
+docker compose -f ../strait/docker-compose.yml up -d
+cd ../strait && INTERNAL_SECRET=strait-local-internal-secret-32chars JWT_SIGNING_KEY=strait-local-jwt-signing-key-32chars DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable REDIS_URL=redis://localhost:6379 go run ./cmd/strait --mode all
+
 # Start development server
 cd apps/app
-bun dev
+bun run dev
 ```
 
 The app runs at `http://localhost:5173`.
@@ -82,8 +86,9 @@ src/
 
 | Command | Description |
 |---|---|
-| `bun dev` | Start dev server on port 5173 |
-| `bun build` | Production build (Cloudflare Workers) |
+| `bun run dev` | Bootstrap Better Auth locally, seed a local dev user, and start the app on port 5173 |
+| `bun run dev:doppler` | Start the dev server with Doppler-injected envs (internal use) |
+| `bun build` | Production build (Vercel preset) |
 | `bun start` | Start production server |
 | `bun test` | Run Vitest tests |
 | `bun run test:watch` | Run tests in watch mode |
@@ -94,15 +99,38 @@ src/
 
 ## Environment Variables
 
-Secrets are managed via Doppler (project: `strait`, configs: `dev`/`stg`/`prd`).
+`bun run dev` is local-first and does not require Doppler. It defaults to:
 
-For local development: `doppler run -- bun dev`
+- `AUTH_DATABASE_URL=postgresql://strait:strait@localhost:5432/strait`
+- `BETTER_AUTH_URL=http://localhost:5173`
+- `BETTER_AUTH_SECRET=strait-local-better-auth-secret-32chars`
+- `DISABLE_EMAIL_VERIFICATION=true`
+- `DISABLE_POLAR_BILLING=true`
+- `INTERNAL_SECRET=strait-local-internal-secret-32chars`
+- `STRAIT_API_URL=http://127.0.0.1:8080`
+- `LOCAL_DEV_USER_EMAIL=dev@local.strait`
+- `LOCAL_DEV_USER_PASSWORD=devpassword123`
+- `LOCAL_DEV_USER_NAME=Local Dev User`
+
+Before Vite starts, `bun run dev` now:
+
+- waits for local PostgreSQL
+- runs Better Auth schema bootstrap/migrations
+- seeds a deterministic local user, workspace, and default project
+- syncs the default project to the Go API when `STRAIT_API_URL` is reachable
+
+Set env vars explicitly if you need to override those defaults. `bun run dev:doppler` remains available for internal Doppler-backed development.
 
 | Variable | Purpose |
 |---|---|
 | `AUTH_DATABASE_URL` | PostgreSQL connection string for the auth database |
 | `BETTER_AUTH_URL` | Better Auth base URL |
 | `BETTER_AUTH_SECRET` | Better Auth signing secret |
+| `DISABLE_EMAIL_VERIFICATION` | Set to `true` in local/self-hosted development to allow email/password sign-up without verification emails |
+| `DISABLE_POLAR_BILLING` | Set to `true` in local/self-hosted development to disable Polar billing bootstrap and billing portal calls |
+| `LOCAL_DEV_USER_EMAIL` | Default local seeded user email for `bun run dev` |
+| `LOCAL_DEV_USER_PASSWORD` | Default local seeded user password for `bun run dev` |
+| `LOCAL_DEV_USER_NAME` | Default local seeded user display name for `bun run dev` |
 | `STRAIT_API_URL` | Go API backend URL (default: `http://localhost:8080`) |
 | `INTERNAL_SECRET` | Shared secret for app-to-backend requests |
 | `VITE_BASE_URL` | Frontend base URL |
@@ -123,7 +151,7 @@ For local development: `doppler run -- bun dev`
 
 The app connects to two separate PostgreSQL databases:
 
-- **Auth DB** (`AUTH_DATABASE_URL`) — managed by Better Auth, stores users, sessions, organizations, members, projects
+- **Auth DB** (`AUTH_DATABASE_URL`) — for local development this should point to the Docker PostgreSQL instance at `localhost:5432`; Better Auth stores users, sessions, organizations, members, projects there
 - **Go Service DB** — managed by the Go backend (`apps/strait/`), stores jobs, runs, events, workflows
 
 The app never writes to the Go service DB directly. All mutations go through server functions that call the Go API via `STRAIT_API_URL`.
@@ -178,3 +206,4 @@ Five plan tiers: `free < starter < pro < scale < enterprise`. Billing is managed
 |---|---|---|
 | `@strait/ui` | `packages/ui` | Shared component library (Tailwind v4, Radix) |
 | `@strait/transactional` | `packages/transactional` | Email templates (React Email) |
+| `@strait/utils` | `packages/utils` | Shared utilities |

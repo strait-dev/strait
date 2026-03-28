@@ -4,7 +4,9 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "dev": "vite dev",
+    "dev": "bun run ./scripts/dev.ts",
+    "dev:raw": "vite dev",
+    "dev:doppler": "doppler run --project strait --config dev -- bun run dev:raw",
     "build": "vite build",
     "start": "wrangler dev",
     "preview": "vite preview",

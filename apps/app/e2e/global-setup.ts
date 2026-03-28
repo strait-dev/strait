@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import pg from "pg";
+import { migrateAuthDatabase } from "../scripts/lib/local-bootstrap";
 import { signInAndSaveState } from "./setup/auth";
 import {
   ensureOrgExists,
@@ -21,13 +22,11 @@ export default async function globalSetup() {
     );
   }
 
-  // Trigger Better Auth schema initialization
-  await fetch(`${baseURL}/api/auth/session`, {
-    headers: { Origin: baseURL },
-  }).catch(() => {
-    // Expected -- triggers table creation
-  });
-  await new Promise((r) => setTimeout(r, 2000));
+  if (authDbUrl) {
+    process.env.AUTH_DATABASE_URL = authDbUrl;
+  }
+  process.env.BETTER_AUTH_URL ||= baseURL;
+  await migrateAuthDatabase();
 
   if (authDbUrl) {
     const pool = new pg.Pool({ connectionString: authDbUrl });
