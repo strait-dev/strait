@@ -24,8 +24,7 @@ export default async function globalSetup() {
   });
 
   const email = process.env.E2E_USER_EMAIL ?? DEFAULT_E2E_USER_EMAIL;
-  const password =
-    process.env.E2E_USER_PASSWORD ?? DEFAULT_E2E_USER_PASSWORD;
+  const password = process.env.E2E_USER_PASSWORD ?? DEFAULT_E2E_USER_PASSWORD;
   const authDbUrl = process.env.AUTH_DATABASE_URL;
   const apiURL = process.env.STRAIT_API_URL || "http://localhost:8080";
   const internalSecret = process.env.INTERNAL_SECRET || "";

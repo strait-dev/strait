@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Button } from "@strait/ui/components/button";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
@@ -13,8 +14,8 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-
 import { filterAgents } from "@/components/agents/agent-list-utils";
+import CreateAgentDialog from "@/components/agents/create-agent-dialog";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
@@ -60,6 +61,7 @@ function AgentsPage() {
     [agents, hasProject, search.query]
   );
 
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
 
   const table = useReactTable({
@@ -94,7 +96,7 @@ function AgentsPage() {
 
   return (
     <Shell>
-      <div className="flex items-center gap-3 pb-2.5">
+      <div className="flex flex-col gap-3 pb-2.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
             className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
@@ -116,9 +118,23 @@ function AgentsPage() {
             value={search.query ?? ""}
           />
         </div>
+        {hasProject && session.user.activeProjectId ? (
+          <Button onClick={() => setCreateDialogOpen(true)} type="button">
+            <HugeiconsIcon className="size-4" icon={SparklesIcon} />
+            Create agent
+          </Button>
+        ) : null}
       </div>
 
       <DataTable<Agent> emptyState={emptyState} table={table} />
+
+      {hasProject && session.user.activeProjectId ? (
+        <CreateAgentDialog
+          onOpenChange={setCreateDialogOpen}
+          open={createDialogOpen}
+          projectId={session.user.activeProjectId}
+        />
+      ) : null}
     </Shell>
   );
 }

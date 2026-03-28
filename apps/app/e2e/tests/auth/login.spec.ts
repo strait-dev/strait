@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 const DEFAULT_E2E_USER_EMAIL = "e2e@local.strait";
 const DEFAULT_E2E_USER_PASSWORD = "e2epassword123";
@@ -20,8 +20,7 @@ test.describe("Login", () => {
 
   test("successful login redirects to /app", async ({ page }) => {
     const email = process.env.E2E_USER_EMAIL ?? DEFAULT_E2E_USER_EMAIL;
-    const password =
-      process.env.E2E_USER_PASSWORD ?? DEFAULT_E2E_USER_PASSWORD;
+    const password = process.env.E2E_USER_PASSWORD ?? DEFAULT_E2E_USER_PASSWORD;
 
     await waitForHydratedLogin(page);
     await page.getByLabel("Email").fill(email);

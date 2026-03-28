@@ -16,6 +16,15 @@ import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
+type CreateAgentInput = {
+  projectId: string;
+  name: string;
+  slug: string;
+  description?: string;
+  model: string;
+  config?: unknown;
+};
+
 export const fetchAgents = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
@@ -26,6 +35,26 @@ export const fetchAgents = createServerFn({ method: "GET" })
         params: {
           limit: data.limit,
           cursor: data.cursor,
+        },
+      })
+    );
+  });
+
+export const createAgentFn = createServerFn({ method: "POST" })
+  .inputValidator((data: CreateAgentInput) => data)
+  .middleware([authMiddleware])
+  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+  .handler(async ({ data }): Promise<Agent> => {
+    return await runWithSentryReport(
+      apiEffect<Agent>("/v1/agents", {
+        method: "POST",
+        body: {
+          project_id: data.projectId,
+          name: data.name,
+          slug: data.slug,
+          description: data.description ?? "",
+          model: data.model,
+          config: data.config ?? {},
         },
       })
     );
@@ -131,6 +160,23 @@ export const useDeployAgent = () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.agents.detail(variables.agentId).queryKey,
       });
+    },
+  });
+};
+
+export const useCreateAgent = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: ["agents", "create"],
+    mutationFn: (data: CreateAgentInput) =>
+      createAgentFn({ data }) as Promise<Agent>,
+    onSuccess: (agent: Agent) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents._def });
+      queryClient.setQueryData(
+        queryKeys.agents.detail(agent.id).queryKey,
+        agent
+      );
     },
   });
 };

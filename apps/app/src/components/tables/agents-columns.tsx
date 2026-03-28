@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { formatDistanceToNow } from "date-fns";
+import RelativeTime from "@/components/common/relative-time";
 import type { Agent } from "@/hooks/api/types";
 import { EyeIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
@@ -40,10 +40,7 @@ export const agentColumns: ColumnDef<Agent>[] = [
   {
     accessorKey: "updated_at",
     header: "Last Updated",
-    cell: ({ row }) =>
-      formatDistanceToNow(new Date(row.original.updated_at), {
-        addSuffix: true,
-      }),
+    cell: ({ row }) => <RelativeTime value={row.original.updated_at} />,
   },
   createActionsColumn<Agent>([
     { label: "View", icon: EyeIcon, onClick: () => undefined },

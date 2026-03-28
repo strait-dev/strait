@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 const DEFAULT_E2E_USER_EMAIL = "e2e@local.strait";
 
@@ -40,7 +40,9 @@ test.describe("Signup", () => {
 
     await expect(page).toHaveURL(/signup/);
     await expect(
-      page.getByText(/failed to create account|already exists|already been used/i)
+      page.getByText(
+        /failed to create account|already exists|already been used/i
+      )
     ).toBeVisible();
   });
 
