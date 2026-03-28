@@ -21,11 +21,17 @@
     "./context": "./src/context.ts",
     "./errors": "./src/errors.ts",
     "./pricing": "./src/pricing.ts",
-    "./types": "./src/types.ts"
+    "./types": "./src/types.ts",
+    "./vercel-ai": "./src/vercel-ai.ts"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "@typescript/native-preview": "^7.0.0-dev.20260326.1",
     "vitest": "^4.1.1"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "ai": "^6.0.141",
+    "openai": "^6.33.0"
   }
 }

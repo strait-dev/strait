@@ -15,6 +15,7 @@ export {
   lookupPricing,
   normalizeUsageReport,
 } from "./pricing";
+export { createVercelAIAdapter } from "./vercel-ai";
 export type {
   AgentBudget,
   BudgetSnapshot,
