@@ -120,8 +120,12 @@ export interface UsageTotals {
 }
 
 export interface SandboxExecutionTarget {
+  executionMode: "sandboxed";
   image?: string;
-  mode: "dynamic-worker";
+  mode: "dynamic-worker" | "outbound-worker";
+  networkClass?: string;
+  outboundPolicyTag?: string;
+  runtime?: string;
   timeoutMs?: number;
 }
 

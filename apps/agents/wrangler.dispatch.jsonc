@@ -3,6 +3,22 @@
   "name": "strait-agents-dispatch",
   "main": "./src/dispatch.ts",
   "compatibility_date": "2026-03-29",
+  "dispatch_namespaces": [
+    {
+      "binding": "DISPATCHER",
+      "namespace": "strait-agents",
+      "outbound": {
+        "service": "strait-agents-outbound",
+        "parameters": [
+          "agent_id",
+          "deployment_id",
+          "run_id",
+          "sandbox_policy",
+          "script_name"
+        ]
+      }
+    }
+  ],
   "observability": {
     "enabled": true
   },

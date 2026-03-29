@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildNDJSONResponseBody,
@@ -86,7 +86,19 @@ describe("worker runtime entrypoint", () => {
         },
         body: `{"version":"v1"}`,
       }),
-      { AGENT_RUNTIME_AUTH_TOKEN: "secret-1" }
+      { AGENT_RUNTIME_AUTH_TOKEN: "secret-1" },
+      {
+        fetch: vi.fn(
+          async () =>
+            new Response('{"error":"blocked"}', {
+              headers: {
+                "x-strait-outbound-reason": "host_not_allowlisted",
+                "x-strait-outbound-status": "blocked",
+              },
+              status: 403,
+            })
+        ) as typeof fetch,
+      }
     );
 
     expect(response.status).toBe(400);
@@ -124,5 +136,34 @@ describe("worker runtime entrypoint", () => {
     const output = await Effect.runPromise(buildRuntimeOutput(parsed));
 
     expect(buildNDJSONResponseBody(output)).toContain(`"type":"complete"`);
+  });
+
+  it("preserves outbound sandbox tool-call telemetry", async () => {
+    const response = await handleWorkerFetch(
+      new Request("https://worker.local/dispatch", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer secret-1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          ...baseEnvelope,
+          deployment: {
+            ...baseEnvelope.deployment,
+            sandbox_policy: {
+              default_action: "deny",
+              mode: "outbound_worker",
+            },
+          },
+          payload: {
+            _network_url: "https://blocked.example.com",
+          },
+        } satisfies DispatchEnvelope),
+      }),
+      { AGENT_RUNTIME_AUTH_TOKEN: "secret-1" }
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain(`"tool_name":"sandbox.fetch"`);
   });
 });

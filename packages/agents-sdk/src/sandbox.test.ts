@@ -17,6 +17,7 @@ describe("createSandboxTool", () => {
 
     expect(tool.name).toBe("web-search");
     expect(tool.sandbox).toEqual({
+      executionMode: "sandboxed",
       mode: "dynamic-worker",
       image: "ghcr.io/strait/tools/search:latest",
       timeoutMs: 30_000,
@@ -27,5 +28,26 @@ describe("createSandboxTool", () => {
         query: "durable execution",
       }
     );
+  });
+
+  it("supports outbound-worker metadata for network-constrained tools", () => {
+    const tool = createSandboxTool({
+      name: "external-llm",
+      mode: "outbound-worker",
+      networkClass: "restricted",
+      outboundPolicyTag: "llm-egress",
+      runtime: "cloudflare-workers",
+      execute: () => ({ ok: true }),
+    });
+
+    expect(tool.sandbox).toEqual({
+      executionMode: "sandboxed",
+      mode: "outbound-worker",
+      image: undefined,
+      networkClass: "restricted",
+      outboundPolicyTag: "llm-egress",
+      runtime: "cloudflare-workers",
+      timeoutMs: undefined,
+    });
   });
 });

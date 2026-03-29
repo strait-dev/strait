@@ -27,6 +27,7 @@ export type DispatchEnvelope = {
     version: number;
     provider: string;
     config_snapshot?: JsonValue;
+    sandbox_policy?: JsonValue;
   };
   payload?: JsonValue;
   callback: {
@@ -39,6 +40,15 @@ export type DispatchEnvelope = {
     checkpoint_at?: string;
     previous_error?: string;
   };
+};
+
+export type CloudflareSandboxPolicy = {
+  mode?: "disabled" | "outbound_worker";
+  outbound_worker_name?: string;
+  default_action?: "allow" | "deny";
+  allow_hosts?: string[];
+  network_class?: string;
+  policy_tag?: string;
 };
 
 export type RuntimeEvent =

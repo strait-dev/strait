@@ -24,6 +24,13 @@ const (
 	CloudflareSandboxModeOutboundWorker CloudflareSandboxMode = "outbound_worker"
 )
 
+type CloudflareSandboxDefaultAction string
+
+const (
+	CloudflareSandboxDefaultActionAllow CloudflareSandboxDefaultAction = "allow"
+	CloudflareSandboxDefaultActionDeny  CloudflareSandboxDefaultAction = "deny"
+)
+
 var (
 	ErrCloudflareProviderUnimplemented = errors.New("cloudflare provider behavior is not implemented yet")
 )
@@ -145,9 +152,12 @@ func (c CloudflareConfig) Validate() error {
 }
 
 type CloudflareSandboxPolicy struct {
-	Mode               CloudflareSandboxMode `json:"mode"`
-	OutboundWorkerName string                `json:"outbound_worker_name,omitempty"`
-	NetworkClass       string                `json:"network_class,omitempty"`
+	Mode               CloudflareSandboxMode          `json:"mode"`
+	OutboundWorkerName string                         `json:"outbound_worker_name,omitempty"`
+	DefaultAction      CloudflareSandboxDefaultAction `json:"default_action,omitempty"`
+	AllowHosts         []string                       `json:"allow_hosts,omitempty"`
+	NetworkClass       string                         `json:"network_class,omitempty"`
+	PolicyTag          string                         `json:"policy_tag,omitempty"`
 }
 
 type CloudflareDeploymentMetadata struct {
@@ -164,12 +174,13 @@ type CloudflareDeploymentMetadata struct {
 }
 
 type CloudflareDispatchRequest struct {
-	DeploymentID string                  `json:"deployment_id"`
-	Provider     string                  `json:"provider"`
-	Namespace    string                  `json:"namespace"`
-	ScriptName   string                  `json:"script_name"`
-	RunID        string                  `json:"run_id"`
-	Envelope     RuntimeDispatchEnvelope `json:"envelope"`
+	DeploymentID  string                  `json:"deployment_id"`
+	Provider      string                  `json:"provider"`
+	Namespace     string                  `json:"namespace"`
+	ScriptName    string                  `json:"script_name"`
+	RunID         string                  `json:"run_id"`
+	SandboxPolicy CloudflareSandboxPolicy `json:"sandbox_policy"`
+	Envelope      RuntimeDispatchEnvelope `json:"envelope"`
 }
 
 func MarshalCloudflareDeploymentMetadata(metadata CloudflareDeploymentMetadata) json.RawMessage {
@@ -201,7 +212,121 @@ func ParseCloudflareDeploymentMetadata(raw json.RawMessage) (*CloudflareDeployme
 	if strings.TrimSpace(metadata.CompatibilityDate) == "" {
 		return nil, errors.New("cloudflare deployment metadata compatibility_date is required")
 	}
+	if err := validateCloudflareSandboxPolicy(metadata.SandboxPolicy); err != nil {
+		return nil, fmt.Errorf("cloudflare deployment metadata sandbox_policy: %w", err)
+	}
 	return &metadata, nil
+}
+
+func validateCloudflareSandboxPolicy(policy CloudflareSandboxPolicy) error {
+	switch policy.Mode {
+	case "", CloudflareSandboxModeDisabled, CloudflareSandboxModeOutboundWorker:
+	default:
+		return fmt.Errorf("mode %q is invalid", policy.Mode)
+	}
+
+	switch policy.DefaultAction {
+	case "", CloudflareSandboxDefaultActionAllow, CloudflareSandboxDefaultActionDeny:
+	default:
+		return fmt.Errorf("default_action %q is invalid", policy.DefaultAction)
+	}
+
+	for _, host := range policy.AllowHosts {
+		if strings.TrimSpace(host) == "" {
+			return errors.New("allow_hosts cannot contain empty values")
+		}
+	}
+	return nil
+}
+
+type cloudflareSandboxPolicyOverride struct {
+	AllowHosts    []string `json:"allow_hosts,omitempty"`
+	DefaultAction string   `json:"default_action,omitempty"`
+	NetworkClass  string   `json:"network_class,omitempty"`
+	PolicyTag     string   `json:"policy_tag,omitempty"`
+}
+
+func resolveCloudflareSandboxPolicy(cfg CloudflareConfig, snapshot json.RawMessage) CloudflareSandboxPolicy {
+	policy := CloudflareSandboxPolicy{
+		Mode:               cfg.SandboxMode,
+		OutboundWorkerName: cfg.OutboundWorkerName,
+	}
+	if cfg.SandboxMode == CloudflareSandboxModeOutboundWorker {
+		policy.DefaultAction = CloudflareSandboxDefaultActionDeny
+		policy.NetworkClass = "restricted"
+		policy.PolicyTag = "default"
+	}
+
+	override, ok := parseCloudflareSandboxPolicyOverride(snapshot)
+	if !ok {
+		return policy
+	}
+	if action := CloudflareSandboxDefaultAction(strings.TrimSpace(override.DefaultAction)); action != "" {
+		policy.DefaultAction = action
+	}
+	if hosts := normalizeHostAllowlist(override.AllowHosts); len(hosts) > 0 {
+		policy.AllowHosts = hosts
+	}
+	if networkClass := strings.TrimSpace(override.NetworkClass); networkClass != "" {
+		policy.NetworkClass = networkClass
+	}
+	if policyTag := strings.TrimSpace(override.PolicyTag); policyTag != "" {
+		policy.PolicyTag = policyTag
+	}
+	return policy
+}
+
+func parseCloudflareSandboxPolicyOverride(raw json.RawMessage) (cloudflareSandboxPolicyOverride, bool) {
+	if len(raw) == 0 {
+		return cloudflareSandboxPolicyOverride{}, false
+	}
+
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return cloudflareSandboxPolicyOverride{}, false
+	}
+
+	sandboxRaw, ok := envelope["sandbox"]
+	if !ok || len(sandboxRaw) == 0 {
+		return cloudflareSandboxPolicyOverride{}, false
+	}
+
+	var sandboxEnvelope map[string]json.RawMessage
+	if err := json.Unmarshal(sandboxRaw, &sandboxEnvelope); err != nil {
+		return cloudflareSandboxPolicyOverride{}, false
+	}
+
+	policyRaw, ok := sandboxEnvelope["policy"]
+	if !ok || len(policyRaw) == 0 {
+		return cloudflareSandboxPolicyOverride{}, false
+	}
+
+	var override cloudflareSandboxPolicyOverride
+	if err := json.Unmarshal(policyRaw, &override); err != nil {
+		return cloudflareSandboxPolicyOverride{}, false
+	}
+
+	return override, true
+}
+
+func normalizeHostAllowlist(hosts []string) []string {
+	if len(hosts) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(hosts))
+	normalized := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host == "" {
+			continue
+		}
+		if _, exists := seen[host]; exists {
+			continue
+		}
+		seen[host] = struct{}{}
+		normalized = append(normalized, host)
+	}
+	return normalized
 }
 
 type CloudflareProvider struct {
@@ -241,10 +366,7 @@ func (p *CloudflareProvider) Deploy(ctx context.Context, agent *domain.Agent, de
 
 	scriptName := buildCloudflareScriptName(agent.ID, deployment.Version)
 	namespace := p.config.DispatchNamespace
-	sandboxPolicy := CloudflareSandboxPolicy{
-		Mode:               p.config.SandboxMode,
-		OutboundWorkerName: p.config.OutboundWorkerName,
-	}
+	sandboxPolicy := resolveCloudflareSandboxPolicy(p.config, deployment.ConfigSnapshot)
 
 	result, err := p.client.UpsertScript(ctx, CloudflareScriptUploadRequest{
 		Namespace:         namespace,

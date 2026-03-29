@@ -38,6 +38,7 @@ type RuntimeDispatchDeployment struct {
 	Version        int             `json:"version"`
 	Provider       string          `json:"provider"`
 	ConfigSnapshot json.RawMessage `json:"config_snapshot,omitempty"`
+	SandboxPolicy  json.RawMessage `json:"sandbox_policy,omitempty"`
 }
 
 type RuntimeDispatchCallback struct {

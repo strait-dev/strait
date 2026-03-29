@@ -11,7 +11,11 @@ export interface CreateSandboxToolOptions<
   description?: string;
   execute: (input: TInput) => Promise<TResult> | TResult;
   image?: string;
+  mode?: "dynamic-worker" | "outbound-worker";
   name: string;
+  networkClass?: string;
+  outboundPolicyTag?: string;
+  runtime?: string;
   timeoutMs?: number;
 }
 
@@ -30,8 +34,12 @@ export function createSandboxTool<TInput = JsonValue, TResult = JsonValue>(
     name: requireName(options.name, "name"),
     description: options.description?.trim() || undefined,
     sandbox: {
-      mode: "dynamic-worker" as const,
+      executionMode: "sandboxed" as const,
+      mode: options.mode ?? ("dynamic-worker" as const),
       image: options.image?.trim() || undefined,
+      networkClass: options.networkClass?.trim() || undefined,
+      outboundPolicyTag: options.outboundPolicyTag?.trim() || undefined,
+      runtime: options.runtime?.trim() || undefined,
       timeoutMs: options.timeoutMs,
     },
     execute: (input: TInput) =>

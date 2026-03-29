@@ -114,6 +114,60 @@ describe("agents runtime", () => {
     ).toHaveLength(2);
   });
 
+  it("captures blocked outbound requests as sandbox tool calls", async () => {
+    const outputs = await Effect.runPromise(
+      buildRuntimeOutput(
+        {
+          ...baseEnvelope,
+          deployment: {
+            ...baseEnvelope.deployment,
+            sandbox_policy: {
+              allow_hosts: ["api.openai.com"],
+              default_action: "deny",
+              mode: "outbound_worker",
+              network_class: "restricted",
+              policy_tag: "llm-egress",
+            },
+          },
+          payload: {
+            _network_url: "https://blocked.example.com",
+          },
+        },
+        {
+          fetch: async () =>
+            new Response('{"error":"blocked"}', {
+              headers: {
+                "x-strait-outbound-reason": "host_not_allowlisted",
+                "x-strait-outbound-status": "blocked",
+              },
+              status: 403,
+            }),
+        }
+      )
+    );
+
+    expect(outputs).toContainEqual({
+      kind: "event",
+      event: {
+        duration_ms: 5,
+        input: {
+          network_class: "restricted",
+          policy_tag: "llm-egress",
+          url: "https://blocked.example.com",
+        },
+        output: {
+          body_preview: '{"error":"blocked"}',
+          outbound_reason: "host_not_allowlisted",
+          status_code: 403,
+          url: "https://blocked.example.com",
+        },
+        status: "blocked",
+        tool_name: "sandbox.fetch",
+        type: "tool_call",
+      },
+    });
+  });
+
   it("terminates with a fail event for explicit runtime failures", async () => {
     const outputs = await Effect.runPromise(
       buildRuntimeOutput({

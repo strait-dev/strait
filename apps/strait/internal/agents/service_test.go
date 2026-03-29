@@ -258,8 +258,10 @@ func TestCloudflareDeploymentMetadataRoundTrip(t *testing.T) {
 		Etag:              "etag-1",
 		SandboxPolicy: CloudflareSandboxPolicy{
 			Mode:               CloudflareSandboxModeOutboundWorker,
+			DefaultAction:      CloudflareSandboxDefaultActionDeny,
 			OutboundWorkerName: "agents-outbound",
 			NetworkClass:       "restricted",
+			PolicyTag:          "default",
 		},
 	})
 
@@ -272,6 +274,37 @@ func TestCloudflareDeploymentMetadataRoundTrip(t *testing.T) {
 	}
 	if metadata.ScriptName != "agent-agent-1-v2" {
 		t.Fatalf("metadata.ScriptName = %q, want agent-agent-1-v2", metadata.ScriptName)
+	}
+}
+
+func TestResolveCloudflareSandboxPolicyFromConfigSnapshot(t *testing.T) {
+	t.Parallel()
+
+	policy := resolveCloudflareSandboxPolicy(CloudflareConfig{
+		SandboxMode:        CloudflareSandboxModeOutboundWorker,
+		OutboundWorkerName: "agents-outbound",
+	}, json.RawMessage(`{
+		"sandbox": {
+			"policy": {
+				"allow_hosts": ["api.openai.com", "api.openai.com", " example.com "],
+				"default_action": "allow",
+				"network_class": "public",
+				"policy_tag": "external-llm"
+			}
+		}
+	}`))
+
+	if policy.DefaultAction != CloudflareSandboxDefaultActionAllow {
+		t.Fatalf("policy.DefaultAction = %q, want %q", policy.DefaultAction, CloudflareSandboxDefaultActionAllow)
+	}
+	if policy.NetworkClass != "public" {
+		t.Fatalf("policy.NetworkClass = %q, want public", policy.NetworkClass)
+	}
+	if policy.PolicyTag != "external-llm" {
+		t.Fatalf("policy.PolicyTag = %q, want external-llm", policy.PolicyTag)
+	}
+	if strings.Join(policy.AllowHosts, ",") != "api.openai.com,example.com" {
+		t.Fatalf("policy.AllowHosts = %v", policy.AllowHosts)
 	}
 }
 

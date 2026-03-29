@@ -115,13 +115,25 @@ describe("dispatch worker", () => {
         namespace: "ns-prod",
         provider: "cloudflare",
         run_id: "run-1",
+        sandbox_policy: {
+          allow_hosts: ["api.openai.com"],
+          default_action: "deny",
+          mode: "outbound_worker",
+        },
         script_name: "agent-script",
       }),
       {
         AGENT_RUNTIME_AUTH_TOKEN: "runtime-secret",
         DISPATCHER: {
-          get: (scriptName) =>
-            scriptName === "agent-script" ? { fetch: runtimeFetch } : null,
+          get: (scriptName, _, advanced) => {
+            expect(advanced?.outbound?.run_id).toBe("run-1");
+            expect(advanced?.outbound?.sandbox_policy?.mode).toBe(
+              "outbound_worker"
+            );
+            return scriptName === "agent-script"
+              ? { fetch: runtimeFetch }
+              : null;
+          },
         },
         INTERNAL_SECRET: "internal-secret",
       },

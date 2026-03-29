@@ -1,4 +1,9 @@
-import type { DispatchEnvelope, JsonValue, RuntimeEvent } from "./types";
+import type {
+  CloudflareSandboxPolicy,
+  DispatchEnvelope,
+  JsonValue,
+  RuntimeEvent,
+} from "./types";
 
 export type CloudflareDispatchRequest = {
   deployment_id: string;
@@ -6,6 +11,7 @@ export type CloudflareDispatchRequest = {
   namespace: string;
   script_name: string;
   run_id: string;
+  sandbox_policy?: CloudflareSandboxPolicy;
   envelope: DispatchEnvelope;
 };
 
@@ -14,7 +20,17 @@ export type DispatchWorkerEnv = {
   INTERNAL_SECRET?: string;
   DISPATCHER: {
     get(
-      scriptName: string
+      scriptName: string,
+      options?: Record<string, never>,
+      advanced?: {
+        outbound?: {
+          agent_id?: string;
+          deployment_id?: string;
+          run_id?: string;
+          sandbox_policy?: CloudflareSandboxPolicy;
+          script_name?: string;
+        };
+      }
     ): { fetch(request: Request): Promise<Response> } | null;
   };
 };
@@ -227,8 +243,22 @@ export async function handleDispatchFetch(
     });
   }
 
-  const runtimeWorker = env.DISPATCHER.get(dispatchRequest.script_name);
-  if (!runtimeWorker) {
+  const outbound =
+    dispatchRequest.sandbox_policy?.mode === "outbound_worker"
+      ? {
+          agent_id: dispatchRequest.envelope.agent.id,
+          deployment_id: dispatchRequest.deployment_id,
+          run_id: dispatchRequest.run_id,
+          sandbox_policy: dispatchRequest.sandbox_policy,
+          script_name: dispatchRequest.script_name,
+        }
+      : undefined;
+  const resolvedRuntimeWorker = env.DISPATCHER.get(
+    dispatchRequest.script_name,
+    {},
+    outbound ? { outbound } : undefined
+  );
+  if (!resolvedRuntimeWorker) {
     return jsonResponse(404, {
       error: "runtime_worker_not_found",
       message: `no worker is deployed for ${dispatchRequest.script_name}`,
@@ -237,7 +267,7 @@ export async function handleDispatchFetch(
 
   const runtimeAuthToken =
     env.AGENT_RUNTIME_AUTH_TOKEN?.trim() ?? env.INTERNAL_SECRET?.trim() ?? "";
-  const runtimeResponse = await runtimeWorker.fetch(
+  const runtimeResponse = await resolvedRuntimeWorker.fetch(
     new Request(`https://${dispatchRequest.script_name}.dispatch/run`, {
       method: "POST",
       headers: {

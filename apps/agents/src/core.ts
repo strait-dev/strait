@@ -2,6 +2,7 @@ import { Duration, Effect } from "effect";
 
 import {
   asRecord,
+  type CloudflareSandboxPolicy,
   type DispatchEnvelope,
   type JsonValue,
   type RuntimeOutputLine,
@@ -17,6 +18,13 @@ type PlannerTask = {
 };
 
 type JsonObject = { [key: string]: JsonValue };
+type RuntimeDependencies = {
+  fetch: typeof fetch;
+};
+
+const defaultDependencies: RuntimeDependencies = {
+  fetch: globalThis.fetch.bind(globalThis),
+};
 
 function resolveParentStepRef(
   payload: Record<string, JsonValue>,
@@ -268,7 +276,8 @@ export function serializeOutputLine(output: RuntimeOutputLine): string {
 }
 
 export function buildRuntimeOutput(
-  envelope: DispatchEnvelope
+  envelope: DispatchEnvelope,
+  deps: RuntimeDependencies = defaultDependencies
 ): Effect.Effect<readonly RuntimeOutputLine[], Error> {
   const payload = asRecord(envelope.payload);
   const config = asRecord(envelope.agent.config);
@@ -311,6 +320,15 @@ export function buildRuntimeOutput(
         },
       },
     ];
+
+    const networkToolCall = yield* buildNetworkToolCall(
+      envelope,
+      mergedPayload,
+      deps
+    );
+    if (networkToolCall) {
+      outputs.push(networkToolCall);
+    }
 
     if (scenario === "duplicate_checkpoint") {
       outputs.push({
@@ -393,6 +411,80 @@ export function buildRuntimeOutput(
 
     return outputs;
   }).pipe(Effect.mapError(toError));
+}
+
+function parseSandboxPolicy(
+  envelope: DispatchEnvelope
+): CloudflareSandboxPolicy | null {
+  const raw = envelope.deployment.sandbox_policy;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  return raw as CloudflareSandboxPolicy;
+}
+
+function buildNetworkToolCall(
+  envelope: DispatchEnvelope,
+  payload: Record<string, JsonValue>,
+  deps: RuntimeDependencies
+): Effect.Effect<RuntimeOutputLine | null, Error> {
+  const targetURL = payload._network_url;
+  if (typeof targetURL !== "string" || targetURL.trim().length === 0) {
+    return Effect.succeed(null);
+  }
+
+  return Effect.tryPromise({
+    try: async () => {
+      const response = await deps.fetch(targetURL, { method: "GET" });
+      const bodyPreview = (await response.text()).slice(0, 256);
+      const outboundStatus =
+        response.headers.get("x-strait-outbound-status") ?? "allowed";
+      const blocked = outboundStatus === "blocked";
+      const policy = parseSandboxPolicy(envelope);
+
+      return {
+        kind: "event" as const,
+        event: {
+          type: "tool_call" as const,
+          tool_name: "sandbox.fetch",
+          input: {
+            network_class: policy?.network_class ?? null,
+            policy_tag: policy?.policy_tag ?? null,
+            url: targetURL,
+          },
+          output: {
+            body_preview: bodyPreview,
+            outbound_reason:
+              response.headers.get("x-strait-outbound-reason") ?? null,
+            status_code: response.status,
+            url: targetURL,
+          },
+          duration_ms: 5,
+          status: blocked ? "blocked" : "completed",
+        },
+      };
+    },
+    catch: toError,
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.succeed({
+        kind: "event" as const,
+        event: {
+          type: "tool_call" as const,
+          tool_name: "sandbox.fetch",
+          input: {
+            url: targetURL,
+          },
+          output: {
+            error: error.message,
+            url: targetURL,
+          },
+          duration_ms: 5,
+          status: "failed",
+        },
+      })
+    )
+  );
 }
 
 export function buildNDJSONResponseBody(

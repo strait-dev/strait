@@ -11,6 +11,14 @@ export type RuntimeWorkerEnv = {
   STRAIT_ENV?: string;
 };
 
+type RuntimeWorkerDeps = {
+  fetch: typeof fetch;
+};
+
+const defaultDeps: RuntimeWorkerDeps = {
+  fetch: globalThis.fetch.bind(globalThis),
+};
+
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -68,7 +76,8 @@ function toError(error: unknown): Error {
 
 export async function handleWorkerFetch(
   request: Request,
-  env: RuntimeWorkerEnv
+  env: RuntimeWorkerEnv,
+  deps: RuntimeWorkerDeps = defaultDeps
 ): Promise<Response> {
   if (request.method !== "POST") {
     return jsonResponse(405, {
@@ -86,7 +95,7 @@ export async function handleWorkerFetch(
       })
     ),
     Effect.flatMap(parseEnvelope),
-    Effect.flatMap(buildRuntimeOutput),
+    Effect.flatMap((envelope) => buildRuntimeOutput(envelope, deps)),
     Effect.map((outputs) => buildNDJSONResponseBody(outputs))
   );
 

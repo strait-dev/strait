@@ -200,9 +200,22 @@ func buildCloudflareMultipartUpload(req CloudflareScriptUploadRequest) ([]byte, 
 		"tags":               req.Tags,
 	}
 	if req.SandboxPolicy.Mode != "" {
-		metadata["annotations"] = map[string]string{
+		annotations := map[string]string{
 			"strait_sandbox_mode": string(req.SandboxPolicy.Mode),
 		}
+		if req.SandboxPolicy.DefaultAction != "" {
+			annotations["strait_sandbox_default_action"] = string(req.SandboxPolicy.DefaultAction)
+		}
+		if req.SandboxPolicy.NetworkClass != "" {
+			annotations["strait_sandbox_network_class"] = req.SandboxPolicy.NetworkClass
+		}
+		if req.SandboxPolicy.PolicyTag != "" {
+			annotations["strait_sandbox_policy_tag"] = req.SandboxPolicy.PolicyTag
+		}
+		if len(req.SandboxPolicy.AllowHosts) > 0 {
+			annotations["strait_sandbox_allow_hosts"] = strings.Join(req.SandboxPolicy.AllowHosts, ",")
+		}
+		metadata["annotations"] = annotations
 	}
 
 	metadataPart, err := writer.CreateFormField("metadata")

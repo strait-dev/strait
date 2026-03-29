@@ -629,6 +629,15 @@ func (s *localService) buildRuntimeEnvelope(ctx context.Context, agent *domain.A
 		return RuntimeDispatchEnvelope{}, "", err
 	}
 
+	var sandboxPolicy json.RawMessage
+	if deployment.Provider == ProviderNameCloudflare {
+		metadata, parseErr := ParseCloudflareDeploymentMetadata(deployment.ProviderMetadata)
+		if parseErr != nil {
+			return RuntimeDispatchEnvelope{}, "", fmt.Errorf("parse cloudflare deployment metadata: %w", parseErr)
+		}
+		sandboxPolicy = mustJSON(metadata.SandboxPolicy)
+	}
+
 	envelope := RuntimeDispatchEnvelope{
 		Version: runtimeContractVersion,
 		Run: RuntimeDispatchRun{
@@ -648,6 +657,7 @@ func (s *localService) buildRuntimeEnvelope(ctx context.Context, agent *domain.A
 			Version:        deployment.Version,
 			Provider:       deployment.Provider,
 			ConfigSnapshot: deployment.ConfigSnapshot,
+			SandboxPolicy:  sandboxPolicy,
 		},
 		Payload: run.Payload,
 		Callback: RuntimeDispatchCallback{

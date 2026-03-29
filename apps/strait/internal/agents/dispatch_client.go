@@ -26,12 +26,13 @@ func (s *localService) dispatchCloudflareRun(ctx context.Context, deployment *do
 	}
 
 	payload, err := json.Marshal(CloudflareDispatchRequest{
-		DeploymentID: deployment.ID,
-		Provider:     deployment.Provider,
-		Namespace:    metadata.Namespace,
-		ScriptName:   metadata.ScriptName,
-		RunID:        envelope.Run.ID,
-		Envelope:     envelope,
+		DeploymentID:  deployment.ID,
+		Provider:      deployment.Provider,
+		Namespace:     metadata.Namespace,
+		ScriptName:    metadata.ScriptName,
+		RunID:         envelope.Run.ID,
+		SandboxPolicy: metadata.SandboxPolicy,
+		Envelope:      envelope,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal cloudflare dispatch request: %w", err)
