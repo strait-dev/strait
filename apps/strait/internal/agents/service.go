@@ -555,6 +555,20 @@ func (s *localService) ListAgentRuns(ctx context.Context, projectID, agentID str
 }
 
 func buildBackingJob(req CreateAgentRequest) *domain.Job {
+	maxAttempts := 1
+	timeoutSecs := 300
+	if len(req.Config) > 0 {
+		var cfg map[string]any
+		if err := json.Unmarshal(req.Config, &cfg); err == nil {
+			if v, ok := cfg["max_attempts"].(float64); ok && v >= 1 && v <= 10 {
+				maxAttempts = int(v)
+			}
+			if v, ok := cfg["timeout_secs"].(float64); ok && v >= 1 && v <= 3600 {
+				timeoutSecs = int(v)
+			}
+		}
+	}
+
 	return &domain.Job{
 		ID:          uuid.Must(uuid.NewV7()).String(),
 		ProjectID:   req.ProjectID,
@@ -570,8 +584,8 @@ func buildBackingJob(req CreateAgentRequest) *domain.Job {
 			"agent_slug":      req.Slug,
 		},
 		EndpointURL:   backingJobEndpoint,
-		MaxAttempts:   1,
-		TimeoutSecs:   300,
+		MaxAttempts:   maxAttempts,
+		TimeoutSecs:   timeoutSecs,
 		Enabled:       false,
 		ExecutionMode: domain.ExecutionModeHTTP,
 		CreatedBy:     req.Actor,
@@ -777,4 +791,70 @@ func (s *localService) markRuntimeSystemFailed(ctx context.Context, runID, errMs
 		Message: "agent runtime failed",
 		Data:    mustJSON(map[string]any{"error": errMsg}),
 	})
+
+	// Retry if the backing job allows more attempts. The next dispatch
+	// will include the last checkpoint via buildRuntimeEnvelope.
+	job, jobErr := s.store.GetJob(ctx, run.JobID)
+	if jobErr != nil || job == nil {
+		return
+	}
+	if run.Attempt >= job.MaxAttempts {
+		return
+	}
+	s.scheduleAgentRetry(ctx, run, job)
+}
+
+func (s *localService) scheduleAgentRetry(ctx context.Context, failedRun *domain.JobRun, job *domain.Job) {
+	retryRun := &domain.JobRun{
+		ID:            uuid.Must(uuid.NewV7()).String(),
+		JobID:         failedRun.JobID,
+		ProjectID:     failedRun.ProjectID,
+		Status:        domain.StatusQueued,
+		Attempt:       failedRun.Attempt + 1,
+		Payload:       failedRun.Payload,
+		TriggeredBy:   domain.TriggerRetry,
+		JobVersion:    failedRun.JobVersion,
+		JobVersionID:  failedRun.JobVersionID,
+		ExecutionMode: failedRun.ExecutionMode,
+		Error:         failedRun.Error,
+	}
+	if err := s.store.CreateRun(ctx, retryRun); err != nil {
+		return
+	}
+
+	_ = s.store.InsertEvent(ctx, &domain.RunEvent{
+		RunID:   retryRun.ID,
+		Type:    domain.EventStateChange,
+		Level:   "info",
+		Message: fmt.Sprintf("agent retry scheduled (attempt %d of %d)", retryRun.Attempt, job.MaxAttempts),
+		Data: mustJSON(map[string]any{
+			"previous_run_id": failedRun.ID,
+			"attempt":         retryRun.Attempt,
+			"max_attempts":    job.MaxAttempts,
+		}),
+	})
+
+	// Look up the agent and deployment to dispatch the retry.
+	agents, listErr := s.store.ListAgents(ctx, failedRun.ProjectID, 100, nil)
+	if listErr != nil {
+		return
+	}
+	for _, agent := range agents {
+		if agent.JobID != failedRun.JobID {
+			continue
+		}
+		deployment, depErr := s.store.GetLatestAgentDeployment(ctx, agent.ID)
+		if depErr != nil || deployment == nil || deployment.Status != domain.AgentDeploymentStatusDeployed {
+			return
+		}
+		agentCopy := agent
+		jobCopy := *job
+		deploymentCopy := *deployment
+		if s.dispatchPool != nil {
+			s.dispatchPool.Submit(func() {
+				s.dispatchRun(context.Background(), &agentCopy, &jobCopy, &deploymentCopy, retryRun.ID)
+			})
+		}
+		return
+	}
 }
