@@ -114,10 +114,7 @@ const AppSidebar = ({ session }: Props) => {
   const pathname = useRouterState({
     select: (s) => s.location.pathname,
   });
-  const mainNavItems = [
-    ...mainNav,
-    { title: "Copilot", url: "/app/copilot", icon: SparklesIcon },
-  ];
+  const mainNavItems = mainNav;
 
   /** Check whether a nav item is active based on the current pathname. */
   const isActive = (item: NavItem) => {

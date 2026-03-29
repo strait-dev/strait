@@ -129,15 +129,7 @@ const CommandMenu = ({ organizationId }: CommandMenuProps) => {
   const orgSettingsRoute = organizationId
     ? `/app/org/${organizationId}`
     : "/app/settings";
-  const routes = [
-    ...navigationRoutes,
-    {
-      title: "Copilot",
-      icon: SparklesIcon,
-      to: "/app/copilot",
-      keywords: "assistant copilot ai agents",
-    },
-  ];
+  const routes = navigationRoutes;
 
   return (
     <>
