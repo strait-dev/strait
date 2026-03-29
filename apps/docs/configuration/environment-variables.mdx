@@ -194,6 +194,21 @@ This page documents all environment variables available for configuring Strait.
 | `WARM_POOL_MAX_PER_JOB` | Integer | `3` | Maximum warm machines per job/region combination. |
 | `WARM_POOL_TTL` | Duration | `5m` | TTL for idle warm machines before they are destroyed. |
 
+## Cloudflare Agents Runtime
+
+These variables enable the Cloudflare-backed agent runtime and deploy path. When none of them are set, Strait continues to use the local agent stub/runtime path.
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `CF_ACCOUNT_ID` | String | - | Cloudflare account identifier used for Workers for Platforms API calls. Required when Cloudflare agents are enabled. |
+| `CF_API_TOKEN` | String | - | API token used to deploy and manage user Workers in the dispatch namespace. Required when Cloudflare agents are enabled. |
+| `CF_DISPATCH_NAMESPACE` | String | - | Primary dispatch namespace for agent Workers in the current environment. Required when Cloudflare agents are enabled. |
+| `CF_DISPATCH_NAMESPACE_STAGING` | String | - | Optional secondary namespace for staging or shadow deploys. |
+| `CF_DISPATCH_WORKER_URL` | String | - | Public URL of the dynamic dispatch Worker that Strait calls to start remote agent runs. Must be a valid HTTP(S) URL. |
+| `CF_OUTBOUND_WORKER_NAME` | String | - | Name of the Outbound Worker used for egress control when `CF_SANDBOX_MODE=outbound_worker`. |
+| `CF_COMPATIBILITY_DATE` | String | - | Compatibility date applied to Cloudflare agent Workers and dispatch entrypoints. Required when Cloudflare agents are enabled. |
+| `CF_SANDBOX_MODE` | String | `disabled` | Agent sandbox mode: `disabled` or `outbound_worker`. `outbound_worker` requires `CF_OUTBOUND_WORKER_NAME`. |
+
 ## Shutdown
 
 | Variable | Type | Default | Description |

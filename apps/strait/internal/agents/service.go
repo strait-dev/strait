@@ -21,7 +21,6 @@ import (
 const (
 	backingJobSlugPrefix = "__agent__"
 	backingJobEndpoint   = "https://agents.local.invalid/dispatch"
-	localProviderName    = "local_stub"
 )
 
 var (
@@ -63,15 +62,20 @@ type agentStore interface {
 }
 
 type Provider interface {
+	Name() string
 	Deploy(ctx context.Context, agent *domain.Agent, deployment *domain.AgentDeployment) (json.RawMessage, error)
 	Run(ctx context.Context, agent *domain.Agent, deployment *domain.AgentDeployment, run *domain.JobRun) (json.RawMessage, error)
 }
 
 type LocalStubProvider struct{}
 
+func (LocalStubProvider) Name() string {
+	return ProviderNameLocalStub
+}
+
 func (LocalStubProvider) Deploy(_ context.Context, agent *domain.Agent, deployment *domain.AgentDeployment) (json.RawMessage, error) {
 	return mustJSON(map[string]any{
-		"provider":       localProviderName,
+		"provider":       ProviderNameLocalStub,
 		"agent_id":       agent.ID,
 		"deployment_id":  deployment.ID,
 		"deployment_ver": deployment.Version,
@@ -97,7 +101,7 @@ func (LocalStubProvider) Run(_ context.Context, agent *domain.Agent, deployment 
 		"agent_slug":         agent.Slug,
 		"deployment_id":      deployment.ID,
 		"deployment_version": deployment.Version,
-		"provider":           localProviderName,
+		"provider":           ProviderNameLocalStub,
 		"received_payload":   payload,
 	}), nil
 }
@@ -363,7 +367,7 @@ func (s *localService) DeployAgent(ctx context.Context, projectID, agentID, acto
 			AgentID:        agent.ID,
 			Version:        version,
 			Status:         domain.AgentDeploymentStatusPending,
-			Provider:       localProviderName,
+			Provider:       s.p.Name(),
 			ConfigSnapshot: agent.Config,
 			CreatedBy:      actor,
 		}

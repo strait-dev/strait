@@ -420,9 +420,11 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	}
 
 	referralSvc := billing.NewReferralService(billingStore)
+	agentProvider := agents.SelectProvider(agentCloudflareConfig(cfg))
 	agentSvc := agents.NewService(
 		queries,
 		txPool,
+		agents.WithProvider(agentProvider),
 		agents.WithAPIBaseURL(agentRuntimeAPIBaseURL(cfg)),
 		agents.WithJWTSigningKey(cfg.JWTSigningKey),
 	)
@@ -488,6 +490,22 @@ func agentRuntimeAPIBaseURL(cfg *config.Config) string {
 		return cfg.ExternalAPIURL
 	}
 	return fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
+}
+
+func agentCloudflareConfig(cfg *config.Config) agents.CloudflareConfig {
+	if cfg == nil {
+		return agents.CloudflareConfig{}
+	}
+	return agents.CloudflareConfig{
+		AccountID:                cfg.CFAccountID,
+		APIToken:                 cfg.CFAPIToken,
+		DispatchNamespace:        cfg.CFDispatchNamespace,
+		DispatchNamespaceStaging: cfg.CFDispatchNamespaceStaging,
+		DispatchWorkerURL:        cfg.CFDispatchWorkerURL,
+		OutboundWorkerName:       cfg.CFOutboundWorkerName,
+		CompatibilityDate:        cfg.CFCompatibilityDate,
+		SandboxMode:              agents.CloudflareSandboxMode(cfg.CFSandboxMode),
+	}
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.

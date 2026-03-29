@@ -84,6 +84,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"BatchFlushInterval", cfg.BatchFlushInterval, time.Second},
 		{"DequeueStrategy", cfg.DequeueStrategy, "priority"},
 		{"ComputeRuntime", cfg.ComputeRuntime, "none"},
+		{"CFSandboxMode", cfg.CFSandboxMode, "disabled"},
 		{"FlyRegion", cfg.FlyRegion, "iad"},
 		{"MaxConcurrentMachines", cfg.MaxConcurrentMachines, 10},
 		{"ClickHouseDatabase", cfg.ClickHouseDatabase, "strait"},
@@ -786,6 +787,130 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 		}
 		if cfg.ComputeRuntime != "none" {
 			t.Fatalf("ComputeRuntime = %q, want none (community edition override)", cfg.ComputeRuntime)
+		}
+	})
+}
+
+func TestLoad_CloudflareAgentsValidation(t *testing.T) {
+	t.Run("disabled by default", func(t *testing.T) {
+		setRequiredEnv(t)
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.CFAccountID != "" {
+			t.Fatalf("CFAccountID = %q, want empty", cfg.CFAccountID)
+		}
+		if cfg.CFSandboxMode != "disabled" {
+			t.Fatalf("CFSandboxMode = %q, want disabled", cfg.CFSandboxMode)
+		}
+	})
+
+	t.Run("enabled with valid config", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CF_ACCOUNT_ID", "acct-1")
+		t.Setenv("CF_API_TOKEN", "token-1")
+		t.Setenv("CF_DISPATCH_NAMESPACE", "ns-prod")
+		t.Setenv("CF_DISPATCH_NAMESPACE_STAGING", "ns-staging")
+		t.Setenv("CF_DISPATCH_WORKER_URL", "https://dispatch.example.com")
+		t.Setenv("CF_OUTBOUND_WORKER_NAME", "agents-outbound")
+		t.Setenv("CF_COMPATIBILITY_DATE", "2026-03-29")
+		t.Setenv("CF_SANDBOX_MODE", "outbound_worker")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.CFDispatchNamespace != "ns-prod" {
+			t.Fatalf("CFDispatchNamespace = %q, want ns-prod", cfg.CFDispatchNamespace)
+		}
+		if cfg.CFDispatchNamespaceStaging != "ns-staging" {
+			t.Fatalf("CFDispatchNamespaceStaging = %q, want ns-staging", cfg.CFDispatchNamespaceStaging)
+		}
+	})
+
+	t.Run("missing required fields when enabled", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CF_ACCOUNT_ID", "acct-1")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for incomplete Cloudflare config, got nil")
+		}
+		if !strings.Contains(err.Error(), "CF_API_TOKEN") {
+			t.Fatalf("error = %q, want substring CF_API_TOKEN", err.Error())
+		}
+	})
+
+	t.Run("invalid dispatch worker url", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CF_ACCOUNT_ID", "acct-1")
+		t.Setenv("CF_API_TOKEN", "token-1")
+		t.Setenv("CF_DISPATCH_NAMESPACE", "ns-prod")
+		t.Setenv("CF_DISPATCH_WORKER_URL", "://bad-url")
+		t.Setenv("CF_COMPATIBILITY_DATE", "2026-03-29")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid CF_DISPATCH_WORKER_URL, got nil")
+		}
+		if !strings.Contains(err.Error(), "CF_DISPATCH_WORKER_URL") {
+			t.Fatalf("error = %q, want substring CF_DISPATCH_WORKER_URL", err.Error())
+		}
+	})
+
+	t.Run("outbound worker mode requires worker name", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CF_ACCOUNT_ID", "acct-1")
+		t.Setenv("CF_API_TOKEN", "token-1")
+		t.Setenv("CF_DISPATCH_NAMESPACE", "ns-prod")
+		t.Setenv("CF_DISPATCH_WORKER_URL", "https://dispatch.example.com")
+		t.Setenv("CF_COMPATIBILITY_DATE", "2026-03-29")
+		t.Setenv("CF_SANDBOX_MODE", "outbound_worker")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for missing CF_OUTBOUND_WORKER_NAME, got nil")
+		}
+		if !strings.Contains(err.Error(), "CF_OUTBOUND_WORKER_NAME") {
+			t.Fatalf("error = %q, want substring CF_OUTBOUND_WORKER_NAME", err.Error())
+		}
+	})
+
+	t.Run("disabled sandbox mode skips outbound worker requirement", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CF_ACCOUNT_ID", "acct-1")
+		t.Setenv("CF_API_TOKEN", "token-1")
+		t.Setenv("CF_DISPATCH_NAMESPACE", "ns-prod")
+		t.Setenv("CF_DISPATCH_WORKER_URL", "https://dispatch.example.com")
+		t.Setenv("CF_COMPATIBILITY_DATE", "2026-03-29")
+		t.Setenv("CF_SANDBOX_MODE", "disabled")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.CFSandboxMode != "disabled" {
+			t.Fatalf("CFSandboxMode = %q, want disabled", cfg.CFSandboxMode)
+		}
+	})
+
+	t.Run("invalid sandbox mode", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CF_ACCOUNT_ID", "acct-1")
+		t.Setenv("CF_API_TOKEN", "token-1")
+		t.Setenv("CF_DISPATCH_NAMESPACE", "ns-prod")
+		t.Setenv("CF_DISPATCH_WORKER_URL", "https://dispatch.example.com")
+		t.Setenv("CF_COMPATIBILITY_DATE", "2026-03-29")
+		t.Setenv("CF_SANDBOX_MODE", "loader")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid CF_SANDBOX_MODE, got nil")
+		}
+		if !strings.Contains(err.Error(), "CF_SANDBOX_MODE") {
+			t.Fatalf("error = %q, want substring CF_SANDBOX_MODE", err.Error())
 		}
 	})
 }

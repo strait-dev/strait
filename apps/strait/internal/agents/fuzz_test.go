@@ -109,3 +109,16 @@ func FuzzRuntimeEventDecode(f *testing.F) {
 		_ = state.Validate(&event)
 	})
 }
+
+func FuzzParseCloudflareDeploymentMetadata(f *testing.F) {
+	f.Add([]byte(`{"provider":"cloudflare","namespace":"ns-prod","script_name":"agent-agent-1-v1","dispatch_worker_url":"https://dispatch.example.com","compatibility_date":"2026-03-29"}`))
+	f.Add([]byte(`{"provider":"local_stub"}`))
+	f.Add([]byte(`not-json`))
+
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		if len(raw) > maxAgentConfigSize {
+			t.Skip()
+		}
+		_, _ = ParseCloudflareDeploymentMetadata(json.RawMessage(raw))
+	})
+}

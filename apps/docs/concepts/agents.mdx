@@ -35,6 +35,16 @@ The initial implementation is local-first:
 
 This lets the control plane, callback contract, and telemetry paths stabilize before a remote runtime is introduced.
 
+The production Cloudflare path uses the same control-plane contract with provider-specific deployment metadata. Cloudflare deployments record:
+
+- dispatch namespace
+- user Worker script name
+- dispatch Worker URL
+- compatibility date
+- outbound-worker sandbox policy metadata
+
+Local and Cloudflare deployments share the same `agent_deployments` table, while `provider_metadata` stores the provider-specific contract required to redeploy, dispatch runs, and enforce sandbox policy.
+
 ## Runtime Contract
 
 The local agent runtime receives a dispatch envelope and reports lifecycle state back through the SDK callback endpoints. The contract includes:

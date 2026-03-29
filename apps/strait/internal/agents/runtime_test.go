@@ -76,7 +76,7 @@ func TestRuntimeDispatchEnvelopeJSONRoundTrip(t *testing.T) {
 		Deployment: RuntimeDispatchDeployment{
 			ID:             "dep-1",
 			Version:        2,
-			Provider:       localProviderName,
+			Provider:       ProviderNameLocalStub,
 			ConfigSnapshot: json.RawMessage(`{"temperature":0.2}`),
 		},
 		Payload: json.RawMessage(`{"prompt":"hello"}`),

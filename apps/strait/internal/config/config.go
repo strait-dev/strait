@@ -155,6 +155,16 @@ type Config struct {
 	WarmPoolTTL             time.Duration `env:"WARM_POOL_TTL"`
 	DisableMachinePoolReuse bool          `env:"DISABLE_MACHINE_POOL_REUSE" default:"true"`
 
+	// Cloudflare-managed agent execution
+	CFAccountID                string `env:"CF_ACCOUNT_ID"`
+	CFAPIToken                 string `env:"CF_API_TOKEN"`
+	CFDispatchNamespace        string `env:"CF_DISPATCH_NAMESPACE"`
+	CFDispatchNamespaceStaging string `env:"CF_DISPATCH_NAMESPACE_STAGING"`
+	CFDispatchWorkerURL        string `env:"CF_DISPATCH_WORKER_URL"`
+	CFOutboundWorkerName       string `env:"CF_OUTBOUND_WORKER_NAME"`
+	CFCompatibilityDate        string `env:"CF_COMPATIBILITY_DATE"`
+	CFSandboxMode              string `env:"CF_SANDBOX_MODE" default:"disabled"`
+
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
 
@@ -322,6 +332,20 @@ func Load() (*Config, error) {
 		cfg.ComputeRuntime = "none"
 	}
 
+	cloudflareConfig := CloudflareAgentsConfig{
+		AccountID:                cfg.CFAccountID,
+		APIToken:                 cfg.CFAPIToken,
+		DispatchNamespace:        cfg.CFDispatchNamespace,
+		DispatchNamespaceStaging: cfg.CFDispatchNamespaceStaging,
+		DispatchWorkerURL:        cfg.CFDispatchWorkerURL,
+		OutboundWorkerName:       cfg.CFOutboundWorkerName,
+		CompatibilityDate:        cfg.CFCompatibilityDate,
+		SandboxMode:              cfg.CFSandboxMode,
+	}
+	if err := cloudflareConfig.Validate(); err != nil {
+		return nil, err
+	}
+
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return nil, &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
 	}
@@ -420,4 +444,64 @@ func parseCSVEnv(key string) []string {
 	}
 
 	return values
+}
+
+type CloudflareAgentsConfig struct {
+	AccountID                string
+	APIToken                 string
+	DispatchNamespace        string
+	DispatchNamespaceStaging string
+	DispatchWorkerURL        string
+	OutboundWorkerName       string
+	CompatibilityDate        string
+	SandboxMode              string
+}
+
+func (c CloudflareAgentsConfig) Enabled() bool {
+	return strings.TrimSpace(c.AccountID) != "" ||
+		strings.TrimSpace(c.APIToken) != "" ||
+		strings.TrimSpace(c.DispatchNamespace) != "" ||
+		strings.TrimSpace(c.DispatchNamespaceStaging) != "" ||
+		strings.TrimSpace(c.DispatchWorkerURL) != "" ||
+		strings.TrimSpace(c.OutboundWorkerName) != "" ||
+		strings.TrimSpace(c.CompatibilityDate) != ""
+}
+
+func (c CloudflareAgentsConfig) Validate() error {
+	if !c.Enabled() {
+		return nil
+	}
+
+	required := []struct {
+		field string
+		value string
+	}{
+		{field: "CF_ACCOUNT_ID", value: c.AccountID},
+		{field: "CF_API_TOKEN", value: c.APIToken},
+		{field: "CF_DISPATCH_NAMESPACE", value: c.DispatchNamespace},
+		{field: "CF_DISPATCH_WORKER_URL", value: c.DispatchWorkerURL},
+		{field: "CF_COMPATIBILITY_DATE", value: c.CompatibilityDate},
+	}
+	for _, item := range required {
+		if strings.TrimSpace(item.value) == "" {
+			return &domain.ConfigError{Field: item.field, Message: "is required when Cloudflare agents are enabled"}
+		}
+	}
+
+	switch strings.TrimSpace(c.SandboxMode) {
+	case "", "disabled", "outbound_worker":
+	default:
+		return &domain.ConfigError{Field: "CF_SANDBOX_MODE", Message: "must be disabled or outbound_worker"}
+	}
+
+	if strings.TrimSpace(c.SandboxMode) == "outbound_worker" && strings.TrimSpace(c.OutboundWorkerName) == "" {
+		return &domain.ConfigError{Field: "CF_OUTBOUND_WORKER_NAME", Message: "is required when CF_SANDBOX_MODE=outbound_worker"}
+	}
+
+	u, err := url.Parse(c.DispatchWorkerURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return &domain.ConfigError{Field: "CF_DISPATCH_WORKER_URL", Message: "must be a valid HTTP(S) URL"}
+	}
+
+	return nil
 }
