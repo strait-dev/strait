@@ -361,14 +361,36 @@ func (s *localService) DeleteAgent(ctx context.Context, projectID, agentID strin
 		return err
 	}
 
+	// Cancel any active runs before deleting the agent.
+	runs, err := s.store.ListRunsByJob(ctx, agent.JobID, 500, 0)
+	if err != nil {
+		return fmt.Errorf("list agent runs for deletion: %w", err)
+	}
+	now := s.now().UTC()
+	for _, run := range runs {
+		if run.Status.IsTerminal() {
+			continue
+		}
+		_ = s.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusCanceled, map[string]any{
+			"finished_at": now,
+		})
+	}
+
+	// Best-effort undeploy of all deployments. Log failures but continue
+	// so that a single provider error does not block agent deletion.
 	deployments, err := s.store.ListAgentDeployments(ctx, agent.ID, 100, nil)
 	if err != nil {
 		return err
 	}
 	for _, deployment := range deployments {
 		deploymentCopy := deployment
-		if err := s.p.Undeploy(ctx, agent, &deploymentCopy); err != nil {
-			return err
+		if undeployErr := s.p.Undeploy(ctx, agent, &deploymentCopy); undeployErr != nil {
+			_ = s.store.InsertEvent(ctx, &domain.RunEvent{
+				RunID:   agent.ID,
+				Type:    domain.EventError,
+				Level:   "warn",
+				Message: fmt.Sprintf("best-effort undeploy failed for deployment %s: %v", deploymentCopy.ID, undeployErr),
+			})
 		}
 	}
 
