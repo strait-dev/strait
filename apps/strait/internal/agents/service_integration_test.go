@@ -3,6 +3,7 @@
 package agents_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -505,6 +506,196 @@ func TestServiceCloudflareDeployAndDeleteCleanup(t *testing.T) {
 	}
 	if _, err := q.GetAgent(ctx, agent.ID); !errors.Is(err, store.ErrAgentNotFound) {
 		t.Fatalf("GetAgent(after delete) error = %v, want ErrAgentNotFound", err)
+	}
+}
+
+func TestServiceCloudflareRunDispatchCompletesViaCallbacks(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+
+	srv := api.NewServer(api.ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-internal-secret",
+			JWTSigningKey:      runtimeTestJWTKey,
+			MaxRequestBodySize: 1 << 20,
+			MaxResultSize:      1 << 20,
+		},
+		Store: q,
+	})
+	httpServer := httptest.NewServer(srv)
+	defer httpServer.Close()
+	defer srv.Close()
+
+	dispatchServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"success":true,"result":{"id":"agent-script","etag":"etag-123","compatibility_date":"2026-03-29"}}`)
+			return
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+			return
+		case http.MethodPost:
+			if got := r.Header.Get("Authorization"); got != "Bearer test-internal-secret" {
+				t.Fatalf("dispatch auth = %q", got)
+			}
+
+			var payload agents.CloudflareDispatchRequest
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode dispatch payload: %v", err)
+			}
+			callbacks := []struct {
+				path string
+				body string
+			}{
+				{path: "checkpoint", body: `{"source":"dispatch-test","state":{"phase":"planning"}}`},
+				{path: "usage", body: `{"provider":"cloudflare","model":"gpt-5.4","prompt_tokens":10,"completion_tokens":4,"total_tokens":14,"cost_microusd":140}`},
+				{path: "tool-call", body: `{"tool_name":"local.echo","input":{"prompt":"hello"},"output":{"echoed":"hello"},"duration_ms":4,"status":"completed"}`},
+				{path: "stream", body: `{"chunk":"done","stream_id":"default","done":true}`},
+				{path: "complete", body: `{"result":{"ok":true,"provider":"cloudflare"}}`},
+			}
+			client := &http.Client{}
+			for _, callback := range callbacks {
+				req, err := http.NewRequestWithContext(ctx, http.MethodPost, httpServer.URL+"/sdk/v1/runs/"+payload.RunID+"/"+callback.path, bytes.NewBufferString(callback.body))
+				if err != nil {
+					t.Fatalf("build callback request: %v", err)
+				}
+				req.Header.Set("Authorization", "Bearer "+payload.Envelope.Callback.RunToken)
+				req.Header.Set("Content-Type", "application/json")
+				resp, err := client.Do(req)
+				if err != nil {
+					t.Fatalf("dispatch callback request failed: %v", err)
+				}
+				_ = resp.Body.Close()
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					t.Fatalf("dispatch callback status = %d", resp.StatusCode)
+				}
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"ok":true,"status":"accepted"}`)
+			return
+		default:
+			t.Fatalf("unexpected dispatch method %s", r.Method)
+		}
+	}))
+	defer dispatchServer.Close()
+
+	svc := agents.NewService(
+		q,
+		testDB.Pool,
+		agents.WithProvider(agents.NewCloudflareProvider(agents.CloudflareConfig{
+			AccountID:         "acct-1",
+			APIToken:          "token-1",
+			DispatchNamespace: "ns-prod",
+			DispatchWorkerURL: dispatchServer.URL,
+			CompatibilityDate: "2026-03-29",
+			SandboxMode:       agents.CloudflareSandboxModeDisabled,
+		}, agents.WithCloudflareAPIBaseURL(dispatchServer.URL))),
+		agents.WithAPIBaseURL(httpServer.URL),
+		agents.WithInternalSecret("test-internal-secret"),
+		agents.WithJWTSigningKey(runtimeTestJWTKey),
+	)
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Cloudflare Runtime Agent",
+		Slug:      "cloudflare-runtime-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	if _, err := svc.DeployAgent(ctx, projectID, agent.ID, "user-1"); err != nil {
+		t.Fatalf("DeployAgent() error = %v", err)
+	}
+
+	run, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID: projectID,
+		AgentID:   agent.ID,
+		Payload:   json.RawMessage(`{"prompt":"hello"}`),
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent() error = %v", err)
+	}
+
+	storedRun := mustWaitForRunStatus(t, ctx, q, run.ID, domain.StatusCompleted)
+	var result map[string]any
+	if err := json.Unmarshal(storedRun.Result, &result); err != nil {
+		t.Fatalf("Unmarshal(result) error = %v", err)
+	}
+	if result["provider"] != "cloudflare" {
+		t.Fatalf("result.provider = %v, want cloudflare", result["provider"])
+	}
+}
+
+func TestServiceCloudflareRunDispatchFailureMapsToSystemFailed(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+
+	dispatchServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"success":true,"result":{"id":"agent-script","etag":"etag-123","compatibility_date":"2026-03-29"}}`)
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, `{"error":"missing worker"}`, http.StatusNotFound)
+		}
+	}))
+	defer dispatchServer.Close()
+
+	svc := agents.NewService(
+		q,
+		testDB.Pool,
+		agents.WithProvider(agents.NewCloudflareProvider(agents.CloudflareConfig{
+			AccountID:         "acct-1",
+			APIToken:          "token-1",
+			DispatchNamespace: "ns-prod",
+			DispatchWorkerURL: dispatchServer.URL,
+			CompatibilityDate: "2026-03-29",
+			SandboxMode:       agents.CloudflareSandboxModeDisabled,
+		}, agents.WithCloudflareAPIBaseURL(dispatchServer.URL))),
+		agents.WithAPIBaseURL("http://127.0.0.1:65535"),
+		agents.WithInternalSecret("test-internal-secret"),
+		agents.WithJWTSigningKey(runtimeTestJWTKey),
+	)
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Cloudflare Failure Agent",
+		Slug:      "cloudflare-failure-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	if _, err := svc.DeployAgent(ctx, projectID, agent.ID, "user-1"); err != nil {
+		t.Fatalf("DeployAgent() error = %v", err)
+	}
+
+	run, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID: projectID,
+		AgentID:   agent.ID,
+		Payload:   json.RawMessage(`{"prompt":"hello"}`),
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent() error = %v", err)
+	}
+
+	storedRun := mustWaitForRunStatus(t, ctx, q, run.ID, domain.StatusSystemFailed)
+	if !strings.Contains(storedRun.Error, "cloudflare dispatch worker returned 404") {
+		t.Fatalf("run.Error = %q", storedRun.Error)
 	}
 }
 

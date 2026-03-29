@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "bun run ./src/index.ts",
-    "build": "wrangler deploy --dry-run --outdir dist",
+    "build": "bun run build:runtime && bun run build:dispatch",
+    "build:dispatch": "wrangler deploy --dry-run --config wrangler.dispatch.jsonc --outdir dist/dispatch",
+    "build:runtime": "wrangler deploy --dry-run --config wrangler.jsonc --outdir dist/runtime",
     "dev:worker": "wrangler dev --config wrangler.jsonc",
     "test": "vitest run",
     "test:watch": "vitest watch",

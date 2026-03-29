@@ -113,15 +113,17 @@ func (LocalStubProvider) Run(_ context.Context, agent *domain.Agent, deployment 
 }
 
 type localService struct {
-	store         agentStore
-	txb           store.TxBeginner
-	p             Provider
-	runtime       RuntimeRunner
-	callbacks     RuntimeCallbackClient
-	now           func() time.Time
-	apiBaseURL    string
-	jwtSigningKey string
-	dispatchPool  pond.Pool
+	store          agentStore
+	txb            store.TxBeginner
+	p              Provider
+	runtime        RuntimeRunner
+	callbacks      RuntimeCallbackClient
+	dispatchHTTP   *http.Client
+	internalSecret string
+	now            func() time.Time
+	apiBaseURL     string
+	jwtSigningKey  string
+	dispatchPool   pond.Pool
 }
 
 type Option func(*localService)
@@ -162,6 +164,7 @@ func NewService(q *store.Queries, txb store.TxBeginner, opts ...Option) Service 
 		now:          time.Now,
 		dispatchPool: pond.NewPool(4),
 		apiBaseURL:   "http://127.0.0.1:8080",
+		dispatchHTTP: &http.Client{Timeout: 30 * time.Second},
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -227,6 +230,20 @@ func WithDispatchPool(pool pond.Pool) Option {
 	return func(s *localService) {
 		if pool != nil {
 			s.dispatchPool = pool
+		}
+	}
+}
+
+func WithInternalSecret(secret string) Option {
+	return func(s *localService) {
+		s.internalSecret = secret
+	}
+}
+
+func WithDispatchHTTPClient(client *http.Client) Option {
+	return func(s *localService) {
+		if client != nil {
+			s.dispatchHTTP = client
 		}
 	}
 }
@@ -544,6 +561,25 @@ func (s *localService) dispatchRun(ctx context.Context, agent *domain.Agent, job
 	envelope, token, err := s.buildRuntimeEnvelope(ctx, agent, job, deployment, run)
 	if err != nil {
 		s.markRuntimeSystemFailed(ctx, runID, fmt.Sprintf("build runtime envelope: %v", err))
+		return
+	}
+
+	if deployment.Provider == ProviderNameCloudflare {
+		if err := s.dispatchCloudflareRun(ctx, deployment, envelope); err != nil {
+			s.markRuntimeSystemFailed(ctx, runID, err.Error())
+			return
+		}
+		_ = s.store.InsertEvent(ctx, &domain.RunEvent{
+			RunID:   runID,
+			Type:    domain.EventStateChange,
+			Level:   "info",
+			Message: "agent run dispatched to cloudflare runtime",
+			Data: mustJSON(map[string]any{
+				"deployment_id": deployment.ID,
+				"provider":      deployment.Provider,
+				"token_len":     len(token),
+			}),
+		})
 		return
 	}
 

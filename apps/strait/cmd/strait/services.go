@@ -426,6 +426,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		txPool,
 		agents.WithProvider(agentProvider),
 		agents.WithAPIBaseURL(agentRuntimeAPIBaseURL(cfg)),
+		agents.WithInternalSecret(cfg.InternalSecret),
 		agents.WithJWTSigningKey(cfg.JWTSigningKey),
 	)
 
