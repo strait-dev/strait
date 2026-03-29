@@ -326,3 +326,15 @@ func (m *mockBillingStore) RecordSentUsageReport(_ context.Context, _ string, _ 
 func (m *mockBillingStore) UpdateMonthlyUsageEmail(_ context.Context, _ string, _ bool) error {
 	return nil
 }
+
+func (m *mockBillingStore) ListActiveAddons(_ context.Context, _ string) ([]Addon, error) {
+	return nil, nil
+}
+
+func (m *mockBillingStore) CreateAddon(_ context.Context, _ *Addon) error {
+	return nil
+}
+
+func (m *mockBillingStore) DeactivateAddon(_ context.Context, _ string) error {
+	return nil
+}

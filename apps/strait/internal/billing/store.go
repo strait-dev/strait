@@ -110,4 +110,9 @@ type Store interface {
 
 	// Email preference
 	UpdateMonthlyUsageEmail(ctx context.Context, orgID string, enabled bool) error
+
+	// Organization add-ons
+	ListActiveAddons(ctx context.Context, orgID string) ([]Addon, error)
+	CreateAddon(ctx context.Context, addon *Addon) error
+	DeactivateAddon(ctx context.Context, addonID string) error
 }

@@ -145,6 +145,18 @@ func (m *mockReportStore) UpdateMonthlyUsageEmail(context.Context, string, bool)
 	return nil
 }
 
+func (m *mockReportStore) ListActiveAddons(context.Context, string) ([]billing.Addon, error) {
+	return nil, nil
+}
+
+func (m *mockReportStore) CreateAddon(context.Context, *billing.Addon) error {
+	return nil
+}
+
+func (m *mockReportStore) DeactivateAddon(context.Context, string) error {
+	return nil
+}
+
 type mockResendAPI struct {
 	sent []*resend.SendEmailRequest
 }

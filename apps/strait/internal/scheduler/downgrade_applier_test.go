@@ -168,6 +168,18 @@ func (m *mockEnforcerStore) UpdateMonthlyUsageEmail(_ context.Context, _ string,
 	return nil
 }
 
+func (m *mockEnforcerStore) ListActiveAddons(_ context.Context, _ string) ([]billing.Addon, error) {
+	return nil, nil
+}
+
+func (m *mockEnforcerStore) CreateAddon(_ context.Context, _ *billing.Addon) error {
+	return nil
+}
+
+func (m *mockEnforcerStore) DeactivateAddon(_ context.Context, _ string) error {
+	return nil
+}
+
 func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 	t.Parallel()
 

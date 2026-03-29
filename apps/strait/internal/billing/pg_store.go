@@ -1168,3 +1168,50 @@ func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, ena
 	}
 	return nil
 }
+
+// ListActiveAddons returns all active add-ons for an organization.
+func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, org_id, addon_type, quantity, polar_subscription_id, active, created_at, updated_at
+		FROM organization_addons
+		WHERE org_id = $1 AND active = true
+		ORDER BY created_at
+	`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing active addons: %w", err)
+	}
+	defer rows.Close()
+
+	var addons []Addon
+	for rows.Next() {
+		var a Addon
+		if err := rows.Scan(&a.ID, &a.OrgID, &a.AddonType, &a.Quantity, &a.PolarSubscriptionID, &a.Active, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scanning addon row: %w", err)
+		}
+		addons = append(addons, a)
+	}
+	return addons, rows.Err()
+}
+
+// CreateAddon inserts a new add-on record.
+func (s *PgStore) CreateAddon(ctx context.Context, addon *Addon) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO organization_addons (id, org_id, addon_type, quantity, polar_subscription_id, active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+	`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.PolarSubscriptionID, addon.Active)
+	if err != nil {
+		return fmt.Errorf("creating addon: %w", err)
+	}
+	return nil
+}
+
+// DeactivateAddon sets an add-on to inactive.
+func (s *PgStore) DeactivateAddon(ctx context.Context, addonID string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE organization_addons SET active = false, updated_at = NOW() WHERE id = $1
+	`, addonID)
+	if err != nil {
+		return fmt.Errorf("deactivating addon: %w", err)
+	}
+	return nil
+}

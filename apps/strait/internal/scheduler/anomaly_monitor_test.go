@@ -189,6 +189,18 @@ func (m *mockAnomalyMonitorStore) UpdateMonthlyUsageEmail(context.Context, strin
 	return nil
 }
 
+func (m *mockAnomalyMonitorStore) ListActiveAddons(context.Context, string) ([]billing.Addon, error) {
+	return nil, nil
+}
+
+func (m *mockAnomalyMonitorStore) CreateAddon(context.Context, *billing.Addon) error {
+	return nil
+}
+
+func (m *mockAnomalyMonitorStore) DeactivateAddon(context.Context, string) error {
+	return nil
+}
+
 // mockCooldown implements AnomalyCooldown for testing.
 type mockCooldown struct {
 	cooled map[string]bool
