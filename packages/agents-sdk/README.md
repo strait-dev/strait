@@ -1,10 +1,19 @@
-# `@strait/agents`
+# @strait/agents
 
-`packages/agents-sdk` is the public runtime-facing TypeScript SDK used by managed Strait agents while they are executing.
+[![npm](https://img.shields.io/npm/v/@strait/agents)](https://www.npmjs.com/package/@strait/agents)
+[![License](https://img.shields.io/npm/l/@strait/agents)](https://github.com/strait-dev/strait/blob/master/LICENSE)
 
-This package is not the public management SDK. It is the in-run callback layer that talks to `/sdk/v1/runs/{runID}/...`.
+TypeScript-first runtime SDK for managed Strait agents. Wrap any LLM provider with automatic usage tracking, budget enforcement, checkpointing, and workflow orchestration -- without changing your existing code.
 
-It exists to make agent runtimes easy to implement consistently across:
+### Why @strait/agents
+
+- **Provider-agnostic**: wrap OpenAI, Anthropic, or Vercel AI SDK clients with one function call
+- **Automatic telemetry**: usage, tool calls, stream chunks, and checkpoints are reported to Strait without manual instrumentation
+- **Budget enforcement**: set spend limits in microusd or friendly strings like `"$5.00"`, auto-switch to cheaper models at thresholds
+- **Workflow orchestration**: pipeline, fan-out, debate, and orchestrator patterns built in
+- **Zero lock-in**: the SDK wraps your existing clients transparently, so you can remove it without changing your application logic
+
+The SDK is the runtime callback layer that talks to `/sdk/v1/runs/{runID}/...`. It works consistently across:
 
 - local execution
 - Cloudflare Workers
@@ -219,6 +228,30 @@ const fetchTool = createSandboxTool({
 
 Dynamic Workers are the default Cloudflare sandbox path. Outbound-worker mode remains available as a compatibility fallback when an environment chooses shared egress routing instead of isolated tool execution.
 
+## Adapter Quick Start
+
+**OpenAI**:
+```ts
+import { withOpenAI } from "@strait/agents";
+const client = withOpenAI(new OpenAI(), { context: ctx });
+const response = await client.chat.completions.create({ model: "gpt-5.4", messages });
+```
+
+**Anthropic**:
+```ts
+import { withAnthropic } from "@strait/agents";
+const client = withAnthropic(new Anthropic(), { context: ctx });
+const response = await client.messages.create({ model: "claude-sonnet-4-6", messages });
+```
+
+**Vercel AI SDK**:
+```ts
+import { withStrait } from "@strait/agents/ai-sdk";
+const result = await generateText({ model: withStrait(model, { context: ctx }), prompt });
+```
+
+All three wrappers automatically report usage, tool calls, and stream chunks back to Strait.
+
 ## Management and CLI Surface
 
 `@strait/agents` is intentionally runtime-side only. It does not create, deploy, or list agents by itself.
@@ -252,8 +285,11 @@ bun run typecheck
 bun run biome:lint
 ```
 
-## Related References
+## Documentation
 
-- `apps/docs/sdks/agents.mdx`
-- `apps/docs/concepts/agents.mdx`
-- `apps/docs/guides/local-agent-development.mdx`
+Full documentation is available at [docs.strait.dev](https://docs.strait.dev):
+
+- [Agents SDK Reference](https://docs.strait.dev/sdks/agents)
+- [Agents Concepts](https://docs.strait.dev/concepts/agents)
+- [Local Development Guide](https://docs.strait.dev/guides/local-agent-development)
+- [Jobs vs Agents](https://docs.strait.dev/guides/jobs-vs-agents)
