@@ -1,7 +1,7 @@
+import { cloudflare } from "@cloudflare/vite-plugin";
 import { sentryTanstackStart } from "@sentry/tanstackstart-react/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
-import { nitroV2Plugin } from "@tanstack/nitro-v2-vite-plugin";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import type { Plugin } from "vite";
@@ -63,6 +63,7 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   plugins: [
+    cloudflare({ viteEnvironment: { name: "ssr" } }),
     wellKnownOAuthPlugin(),
     devtools(),
     tailwindcss(),
@@ -71,10 +72,6 @@ export default defineConfig({
         routeToken: "layout",
       },
       srcDirectory: "src",
-    }),
-    nitroV2Plugin({
-      preset: (process.env.NITRO_PRESET as string) || "vercel",
-      compatibilityDate: "2025-10-27",
     }),
     viteReact(),
     sentryTanstackStart({
@@ -97,12 +94,8 @@ export default defineConfig({
         "@electric-sql/pglite",
         "drizzle-orm/pglite",
         "drizzle-orm/pglite/migrator",
-        "postgres",
       ],
     },
-  },
-  ssr: {
-    external: ["better-auth", "postgres", "drizzle-orm"],
   },
   server: {
     port: 5173,
