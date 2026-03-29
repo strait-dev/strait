@@ -1,0 +1,167 @@
+---
+title: "Migrating Jobs to Agents"
+description: "Step-by-step guide for moving LLM-centric jobs to the Strait Agents execution model."
+---
+
+Not every job should become an agent. This guide helps you identify which jobs are good candidates and walks through the migration process.
+
+## When to Migrate
+
+Migrate a job to an agent when:
+
+- The job's core loop is LLM inference (prompt in, structured output out)
+- You need real-time token streaming to the UI
+- You want built-in usage tracking, budgets, and tool-call telemetry
+- The job is mostly I/O-bound (network calls, API requests) rather than CPU-bound
+- You want sub-second cold starts instead of container boot times
+
+## When to Keep Jobs
+
+Keep a job as a job when:
+
+- It needs Docker, system packages, or GPU access
+- It runs for minutes or hours
+- It does heavy compute (video processing, ML training, ETL)
+- It does not involve LLM calls
+
+See [Jobs vs Agents](/guides/jobs-vs-agents) for the full decision framework.
+
+## Migration Steps
+
+### 1. Identify the Candidate
+
+Look for jobs that match this pattern:
+
+```
+HTTP endpoint receives payload -> call LLM -> parse response -> return result
+```
+
+These are the strongest candidates. Jobs that mix LLM calls with heavy compute should use the [agent-triggers-job pattern](/guides/jobs-vs-agents#use-agents-to-trigger-jobs) instead.
+
+### 2. Install the SDK
+
+```bash
+npm install @strait/agents
+```
+
+### 3. Create the Agent Definition
+
+Convert your job handler into an agent definition:
+
+```ts
+import { StraitContext, strait } from "@strait/agents";
+import { withOpenAI } from "@strait/agents/openai";
+import OpenAI from "openai";
+
+export const classifierAgent = strait.agent({
+  name: "Ticket Classifier",
+  slug: "ticket-classifier",
+  model: "gpt-4.1-mini",
+  budget: "$2.00",
+  async run(ctx: StraitContext, input: { ticket: string }) {
+    const client = withOpenAI(new OpenAI(), { context: ctx });
+
+    await ctx.progress({ percent: 10, message: "classifying ticket" });
+
+    const response = await client.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
+        { role: "system", content: "Classify support tickets." },
+        { role: "user", content: input.ticket },
+      ],
+    });
+
+    const classification = response.choices[0]?.message?.content ?? "unknown";
+    await ctx.complete({ classification });
+    return { classification };
+  },
+});
+```
+
+The `withOpenAI` wrapper automatically reports usage, tool calls, and stream chunks. Your existing OpenAI code works unchanged.
+
+### 4. Register and Deploy
+
+Use the management API to create the agent:
+
+```bash
+curl -X POST https://api.strait.dev/v1/agents \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -d '{
+    "name": "Ticket Classifier",
+    "slug": "ticket-classifier",
+    "model": "gpt-4.1-mini",
+    "config": {"temperature": 0.2}
+  }'
+```
+
+Then deploy it:
+
+```bash
+curl -X POST https://api.strait.dev/v1/agents/$AGENT_ID/deploy \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+### 5. Test Locally
+
+Run the agent through the local development loop:
+
+```bash
+curl -X POST https://api.strait.dev/v1/agents/$AGENT_ID/run \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -d '{"ticket": "My order is missing"}'
+```
+
+Verify in the dashboard that usage, checkpoints, and tool calls appear correctly.
+
+### 6. Cut Over
+
+Once the agent produces correct results:
+
+1. Update callers to use the agent run endpoint instead of the job trigger endpoint
+2. Disable the old job (do not delete it yet)
+3. Monitor for a few days
+4. Delete the old job once confident
+
+## Rollback Strategy
+
+If something goes wrong after migration:
+
+1. Re-enable the original job
+2. Point callers back to the job trigger endpoint
+3. The agent remains deployed but idle until you fix the issue
+
+Both the job and agent can coexist safely since they use separate execution paths. There is no resource conflict.
+
+## Common Patterns
+
+### Wrapping an Existing HTTP Handler
+
+If your job endpoint is a standalone HTTP server, you can wrap it as an agent tool:
+
+```ts
+import { createSandboxTool } from "@strait/agents";
+
+const legacyTool = createSandboxTool({
+  name: "legacy-classifier",
+  mode: "dynamic-worker",
+  execute: async (input: { ticket: string }) => {
+    const response = await fetch("https://my-classifier.internal/classify", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    return response.json();
+  },
+});
+```
+
+This lets the agent orchestrate the existing endpoint while adding telemetry and budget controls.
+
+### Gradual Migration with Job Chaining
+
+Use Strait's job chaining to run the agent and the old job in parallel during migration:
+
+1. Create the agent
+2. Use `on_complete_trigger_job` to chain the agent's output to a comparison job
+3. The comparison job validates that the agent produces the same results as the old job
+4. Once validation passes consistently, remove the chain and the old job

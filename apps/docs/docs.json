@@ -97,6 +97,7 @@
               "guides/debug-bundles",
               "guides/job-groups",
               "guides/idempotency",
+              "guides/migrating-jobs-to-agents",
               "guides/local-agent-development",
               "guides/cloudflare-agents-productionization",
               "guides/workflow-approvals",

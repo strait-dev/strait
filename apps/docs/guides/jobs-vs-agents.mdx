@@ -94,6 +94,10 @@ The current implementation keeps the boundary explicit:
 - Agents can orchestrate workflows without inventing a second workflow engine
 - Agents should escalate to Jobs when they leave the low-latency, I/O-heavy path
 
+## Migration Path
+
+If you have existing jobs that are primarily LLM-centric (prompt in, structured output out), they may be better served as agents. See [Migrating Jobs to Agents](/guides/migrating-jobs-to-agents) for a step-by-step guide covering identification, SDK setup, deployment, testing, cutover, and rollback.
+
 ## Recommended Starting Points
 
 - [Jobs](/docs/concepts/jobs)
