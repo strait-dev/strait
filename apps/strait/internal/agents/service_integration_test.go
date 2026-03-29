@@ -699,6 +699,80 @@ func TestServiceCloudflareRunDispatchFailureMapsToSystemFailed(t *testing.T) {
 	}
 }
 
+func TestServiceDeleteAgentCancelsActiveRuns(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+
+	srv := api.NewServer(api.ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-internal-secret",
+			JWTSigningKey:      runtimeTestJWTKey,
+			MaxRequestBodySize: 1 << 20,
+			MaxResultSize:      1 << 20,
+		},
+		Store: q,
+	})
+	httpServer := httptest.NewServer(srv)
+	defer httpServer.Close()
+	defer srv.Close()
+
+	// Use a slow runtime runner so the run stays executing while we delete.
+	svc := agents.NewService(
+		q,
+		testDB.Pool,
+		agents.WithAPIBaseURL(httpServer.URL),
+		agents.WithJWTSigningKey(runtimeTestJWTKey),
+		agents.WithRuntimeRunner(agents.RuntimeRunnerFunc(func(_ context.Context, _ agents.RuntimeDispatchEnvelope, _ agents.RuntimeEventHandler) error {
+			// Block long enough for the test to delete the agent.
+			time.Sleep(10 * time.Second)
+			return nil
+		})),
+	)
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Slow Agent",
+		Slug:      "slow-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	if _, err := svc.DeployAgent(ctx, projectID, agent.ID, "user-1"); err != nil {
+		t.Fatalf("DeployAgent() error = %v", err)
+	}
+
+	run, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID: projectID,
+		AgentID:   agent.ID,
+		Payload:   json.RawMessage(`{"prompt":"hello"}`),
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent() error = %v", err)
+	}
+
+	// Wait a moment for the run to transition past queued.
+	time.Sleep(500 * time.Millisecond)
+
+	// Delete should cancel the active run and succeed.
+	if err := svc.DeleteAgent(ctx, projectID, agent.ID); err != nil {
+		t.Fatalf("DeleteAgent() error = %v", err)
+	}
+
+	storedRun, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if !storedRun.Status.IsTerminal() {
+		t.Fatalf("run.Status = %s, want terminal status after delete", storedRun.Status)
+	}
+}
+
 func mustWaitForRunStatus(t *testing.T, ctx context.Context, q *store.Queries, runID string, want domain.RunStatus) *domain.JobRun {
 	t.Helper()
 

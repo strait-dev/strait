@@ -18,6 +18,13 @@ type RuntimeRunner interface {
 	Run(ctx context.Context, envelope RuntimeDispatchEnvelope, handler RuntimeEventHandler) error
 }
 
+// RuntimeRunnerFunc adapts a plain function to the RuntimeRunner interface.
+type RuntimeRunnerFunc func(ctx context.Context, envelope RuntimeDispatchEnvelope, handler RuntimeEventHandler) error
+
+func (f RuntimeRunnerFunc) Run(ctx context.Context, envelope RuntimeDispatchEnvelope, handler RuntimeEventHandler) error {
+	return f(ctx, envelope, handler)
+}
+
 type CommandRuntimeOptions struct {
 	Command []string
 	Workdir string
