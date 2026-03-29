@@ -43,6 +43,14 @@ The production Cloudflare path uses the same control-plane contract with provide
 - compatibility date
 - outbound-worker sandbox policy metadata
 
+The runtime package in `apps/agents` now has three production entrypoints:
+
+- runtime Worker (`wrangler.jsonc`)
+- dynamic dispatch Worker (`wrangler.dispatch.jsonc`)
+- outbound Worker (`wrangler.outbound.jsonc`)
+
+The Go deploy provider uploads the built runtime bundle from `apps/agents/dist/runtime/worker.js` when it exists and falls back to an embedded snapshot bundled into the Go binary. That keeps Cloudflare deploys functional in CI and local development before the full platform account is available.
+
 Local and Cloudflare deployments share the same `agent_deployments` table, while `provider_metadata` stores the provider-specific contract required to redeploy, dispatch runs, and enforce sandbox policy.
 
 ## Runtime Contract
@@ -71,6 +79,19 @@ The SDK provides:
 - adapter wrappers for Vercel AI SDK, OpenAI, and Anthropic
 
 See [Agents SDK](/docs/sdks/agents) for the runtime-side API.
+
+## Cloudflare Production Path
+
+The Cloudflare production path now covers the local-first acceptance scope for:
+
+- `STR-289`: Go control plane integration for deploy/delete/update and remote run dispatch
+- `STR-297`: Worker runtime and dynamic dispatch Worker entrypoints in `apps/agents`
+- `STR-294`: outbound-worker sandbox policy enforcement for runtime egress
+
+What remains outside this scope:
+
+- live staging smoke against a purchased Workers for Platforms account
+- future dynamic isolate / `worker_loaders` sandboxing
 
 ## Workflow Orchestration
 

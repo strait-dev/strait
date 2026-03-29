@@ -209,6 +209,14 @@ These variables enable the Cloudflare-backed agent runtime and deploy path. When
 | `CF_COMPATIBILITY_DATE` | String | - | Compatibility date applied to Cloudflare agent Workers and dispatch entrypoints. Required when Cloudflare agents are enabled. |
 | `CF_SANDBOX_MODE` | String | `disabled` | Agent sandbox mode: `disabled` or `outbound_worker`. `outbound_worker` requires `CF_OUTBOUND_WORKER_NAME`. |
 
+When running the Cloudflare deploy path, build the workers first:
+
+```bash
+cd apps/agents && bun run build
+```
+
+The Go server will deploy the built runtime bundle from `apps/agents/dist/runtime/worker.js` when present, and it will fall back to the embedded runtime snapshot checked into `apps/strait/internal/agents/runtime_worker_bundle.js` if the built artifact is absent.
+
 ## Shutdown
 
 | Variable | Type | Default | Description |

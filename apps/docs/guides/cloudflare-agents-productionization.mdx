@@ -1,0 +1,160 @@
+---
+title: "Cloudflare Agents Productionization"
+description: "Deploy, route, sandbox, and smoke-test Strait agents on Cloudflare Workers for Platforms."
+---
+
+This guide covers the production Cloudflare path for Strait agents.
+
+It maps directly to the current acceptance scope for:
+
+- `STR-289` Go control plane integration
+- `STR-297` runtime Worker and dispatch Worker entrypoints
+- `STR-294` outbound-worker sandboxing
+
+## Architecture
+
+The production path has three Cloudflare Worker entrypoints in `apps/agents`:
+
+1. runtime Worker
+2. dispatch Worker
+3. outbound Worker
+
+The control plane remains in Go:
+
+1. Strait deploys a versioned user Worker into a dispatch namespace.
+2. Strait triggers the dispatch Worker with a signed internal request.
+3. The dispatch Worker resolves the deployed runtime Worker by script name.
+4. The runtime Worker emits checkpoints, usage, stream chunks, tool calls, and terminal state.
+5. The dispatch Worker forwards those callbacks back to Strait.
+6. Outbound egress from the runtime Worker is evaluated by the outbound Worker.
+
+## Required Preparation
+
+1. Set the Cloudflare env vars in Strait:
+   - `CF_ACCOUNT_ID`
+   - `CF_API_TOKEN`
+   - `CF_DISPATCH_NAMESPACE`
+   - `CF_DISPATCH_WORKER_URL`
+   - `CF_COMPATIBILITY_DATE`
+   - `CF_SANDBOX_MODE=outbound_worker`
+   - `CF_OUTBOUND_WORKER_NAME`
+2. Build the worker bundles:
+
+```bash
+cd apps/agents
+bun run build
+```
+
+3. Deploy the shared Workers:
+
+```bash
+cd apps/agents
+bun run deploy:outbound
+bun run deploy:dispatch
+```
+
+The runtime Worker is uploaded by the Go control plane during agent deployment. Strait prefers the built bundle at `apps/agents/dist/runtime/worker.js` and falls back to the embedded runtime snapshot in [runtime_worker_bundle.js](/Users/leonardomaldonado/.codex/worktrees/0556/strait/apps/strait/internal/agents/runtime_worker_bundle.js).
+
+## Deploy and Run Smoke Commands
+
+Assume:
+
+- `STRAIT_API_URL` points to the Go API
+- `STRAIT_API_KEY` is a bearer token with access to the target project
+- `PROJECT_ID` is the project that owns the smoke agent
+
+Create an agent:
+
+```bash
+curl -sS "$STRAIT_API_URL/v1/agents" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id":"'"$PROJECT_ID"'",
+    "name":"Cloudflare Smoke Agent",
+    "slug":"cloudflare-smoke-agent",
+    "model":"gpt-5.4",
+    "config":{
+      "sandbox":{
+        "policy":{
+          "allow_hosts":["api.openai.com"],
+          "default_action":"deny",
+          "network_class":"restricted",
+          "policy_tag":"smoke"
+        }
+      }
+    }
+  }'
+```
+
+Deploy the agent:
+
+```bash
+curl -sS -X POST "$STRAIT_API_URL/v1/agents/$AGENT_ID/deploy" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+Trigger a happy-path run:
+
+```bash
+curl -sS -X POST "$STRAIT_API_URL/v1/agents/$AGENT_ID/run" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"payload":{"prompt":"hello from cloudflare"}}'
+```
+
+Trigger a blocked-egress run:
+
+```bash
+curl -sS -X POST "$STRAIT_API_URL/v1/agents/$AGENT_ID/run" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"payload":{"_network_url":"https://blocked.example.com"}}'
+```
+
+## Staging Dogfood Checklist
+
+- Build all worker bundles successfully with `bun run build`.
+- Deploy the outbound Worker and dispatch Worker.
+- Create a fresh agent with an outbound policy allowlist.
+- Deploy the agent and confirm `agent_deployments.provider_metadata` contains:
+  - namespace
+  - script name
+  - dispatch worker URL
+  - compatibility date
+  - sandbox policy
+- Trigger a normal run and confirm:
+  - run reaches `completed`
+  - `run_usage` row exists
+  - `run_checkpoints` row exists
+  - `run_tool_calls` row exists
+- Trigger a blocked-egress run and confirm:
+  - run telemetry contains `tool_name=sandbox.fetch`
+  - tool call status is `blocked`
+  - blocked host and reason are visible
+- Delete or redeploy the agent and confirm the versioned script is removed or replaced in the dispatch namespace.
+
+## Troubleshooting
+
+If deploys fail before the remote run starts:
+
+- verify `CF_DISPATCH_NAMESPACE`
+- verify `CF_API_TOKEN`
+- verify the built runtime bundle exists
+- verify the dispatch Worker URL points to the deployed dispatch Worker
+
+If runs dispatch but callbacks fail:
+
+- verify `INTERNAL_SECRET` is shared between Strait and the dispatch Worker
+- verify the run token callback endpoints are reachable from the dispatch Worker
+- check for `runtime_callback_failed` responses from the dispatch Worker
+
+If egress is unexpectedly blocked:
+
+- inspect the agent config `sandbox.policy`
+- inspect `sandbox_policy` inside `agent_deployments.provider_metadata`
+- verify the target host is present in `allow_hosts`
+- check the outbound Worker response headers:
+  - `x-strait-outbound-status`
+  - `x-strait-outbound-reason`
+  - `x-strait-outbound-policy-tag`

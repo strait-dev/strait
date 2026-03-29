@@ -427,21 +427,6 @@ func SelectProvider(cf CloudflareConfig) Provider {
 	return LocalStubProvider{}
 }
 
-func buildCloudflareWorkerSource(agent *domain.Agent, deployment *domain.AgentDeployment) string {
-	return fmt.Sprintf(`export default {
-  async fetch() {
-    return new Response(JSON.stringify({
-      error: "cloudflare runtime is not connected yet",
-      agent_id: %q,
-      deployment_id: %q,
-      deployment_version: %d
-    }), {
-      status: 501,
-      headers: {
-        "content-type": "application/json"
-      }
-    });
-  }
-};
-`, agent.ID, deployment.ID, deployment.Version)
+func buildCloudflareWorkerSource(_ *domain.Agent, _ *domain.AgentDeployment) string {
+	return cloudflareRuntimeSource()
 }
