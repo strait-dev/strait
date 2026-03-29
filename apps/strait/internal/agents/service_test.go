@@ -176,6 +176,17 @@ func TestCloudflareConfigValidate(t *testing.T) {
 			cfg:  CloudflareConfig{},
 		},
 		{
+			name: "valid dynamic worker",
+			cfg: CloudflareConfig{
+				AccountID:         "acct-1",
+				APIToken:          "token-1",
+				DispatchNamespace: "ns-prod",
+				DispatchWorkerURL: "https://dispatch.example.com",
+				CompatibilityDate: "2026-03-29",
+				SandboxMode:       CloudflareSandboxModeDynamicWorker,
+			},
+		},
+		{
 			name: "valid outbound worker",
 			cfg: CloudflareConfig{
 				AccountID:          "acct-1",
@@ -202,7 +213,7 @@ func TestCloudflareConfigValidate(t *testing.T) {
 				DispatchNamespace: "ns-prod",
 				DispatchWorkerURL: "https://dispatch.example.com",
 				CompatibilityDate: "2026-03-29",
-				SandboxMode:       "loader",
+				SandboxMode:       "broken_mode",
 			},
 			wantErr: true,
 		},
@@ -257,11 +268,10 @@ func TestCloudflareDeploymentMetadataRoundTrip(t *testing.T) {
 		ContentSHA256:     "hash",
 		Etag:              "etag-1",
 		SandboxPolicy: CloudflareSandboxPolicy{
-			Mode:               CloudflareSandboxModeOutboundWorker,
-			DefaultAction:      CloudflareSandboxDefaultActionDeny,
-			OutboundWorkerName: "agents-outbound",
-			NetworkClass:       "restricted",
-			PolicyTag:          "default",
+			Mode:          CloudflareSandboxModeDynamicWorker,
+			DefaultAction: CloudflareSandboxDefaultActionDeny,
+			NetworkClass:  "sandbox",
+			PolicyTag:     "default",
 		},
 	})
 
@@ -281,8 +291,7 @@ func TestResolveCloudflareSandboxPolicyFromConfigSnapshot(t *testing.T) {
 	t.Parallel()
 
 	policy := resolveCloudflareSandboxPolicy(CloudflareConfig{
-		SandboxMode:        CloudflareSandboxModeOutboundWorker,
-		OutboundWorkerName: "agents-outbound",
+		SandboxMode: CloudflareSandboxModeDynamicWorker,
 	}, json.RawMessage(`{
 		"sandbox": {
 			"policy": {

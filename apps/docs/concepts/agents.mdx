@@ -70,7 +70,7 @@ The production Cloudflare path uses the same control-plane contract with provide
 - user Worker script name
 - dispatch Worker URL
 - compatibility date
-- outbound-worker sandbox policy metadata
+- sandbox policy metadata for Dynamic Workers by default, with outbound-worker compatibility when selected
 
 The runtime package in `apps/agents` now has three production entrypoints:
 
@@ -157,25 +157,23 @@ The Cloudflare production path now covers the local-first acceptance scope for:
 
 - `STR-289`: Go control plane integration for deploy/delete/update and remote run dispatch
 - `STR-297`: Worker runtime and dynamic dispatch Worker entrypoints in `apps/agents`
-- `STR-294`: outbound-worker sandbox policy enforcement for runtime egress
+- `STR-294`: Dynamic Workers sandbox execution with outbound-worker compatibility for runtime egress control
 
 What remains outside this scope:
 
 - live staging smoke against a purchased Workers for Platforms account
-- future dynamic isolate / `worker_loaders` sandboxing
 
-## Outbound Sandbox
+## Sandbox Strategy
 
-The first production sandbox implementation uses an outbound Worker instead of dynamic isolates.
+Dynamic Workers are now the default sandbox execution target for Cloudflare-backed agents.
 
-That outbound layer is responsible for:
+That default path is responsible for:
 
-- blocking private-network destinations
-- enforcing explicit allowlists
-- annotating allowed and blocked requests
-- making policy decisions visible in telemetry instead of hiding them in runtime failures
+- running sandboxed tool logic in isolated Worker instances
+- applying per-tool network and policy metadata
+- surfacing blocked and allowed requests in run telemetry
 
-This is intentionally narrower than full code sandboxing, but it is deployable today and matches the current productionization scope.
+Outbound-worker mode remains available as a compatibility path for environments that want explicit egress routing through a shared Worker service.
 
 ## Workflow Orchestration
 

@@ -5,10 +5,13 @@ import {
   buildRuntimeOutput,
   parseEnvelope,
 } from "./core";
+import type { DynamicWorkerLoader } from "./sandbox";
 
 export type RuntimeWorkerEnv = {
   AGENT_RUNTIME_AUTH_TOKEN?: string;
+  SANDBOX_LOADER?: DynamicWorkerLoader;
   STRAIT_ENV?: string;
+  STRAIT_SANDBOX_COMPATIBILITY_DATE?: string;
 };
 
 type RuntimeWorkerDeps = {
@@ -95,7 +98,13 @@ export async function handleWorkerFetch(
       })
     ),
     Effect.flatMap(parseEnvelope),
-    Effect.flatMap((envelope) => buildRuntimeOutput(envelope, deps)),
+    Effect.flatMap((envelope) =>
+      buildRuntimeOutput(envelope, {
+        ...deps,
+        dynamicWorkerCompatibilityDate: env.STRAIT_SANDBOX_COMPATIBILITY_DATE,
+        dynamicWorkerLoader: env.SANDBOX_LOADER,
+      })
+    ),
     Effect.map((outputs) => buildNDJSONResponseBody(outputs))
   );
 

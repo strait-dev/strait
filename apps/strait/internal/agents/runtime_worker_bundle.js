@@ -16065,6 +16065,348 @@ var ensureSuccessType = /* @__PURE__ */ __name(() => (effect) => effect, "ensure
 var ensureErrorType = /* @__PURE__ */ __name(() => (effect) => effect, "ensureErrorType");
 var ensureRequirementsType = /* @__PURE__ */ __name(() => (effect) => effect, "ensureRequirementsType");
 
+// src/sandbox.ts
+var defaultDynamicWorkerCompatibilityDate = "2026-03-29";
+var ipv4HostPattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+var sandboxHeaders = Object.freeze({
+  host: "x-strait-outbound-host",
+  policyTag: "x-strait-outbound-policy-tag",
+  reason: "x-strait-outbound-reason",
+  status: "x-strait-outbound-status"
+});
+function buildPolicyTag(policy) {
+  return policy.policy_tag?.trim() || "default";
+}
+__name(buildPolicyTag, "buildPolicyTag");
+function parseSandboxPolicy(value) {
+  if (!value) {
+    return {};
+  }
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value;
+}
+__name(parseSandboxPolicy, "parseSandboxPolicy");
+function isPrivateIPAddress(hostname) {
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    return true;
+  }
+  const ipv4 = hostname.match(ipv4HostPattern);
+  if (ipv4) {
+    const octets = ipv4.slice(1).map((part) => Number(part));
+    const a = octets[0] ?? 0;
+    const b = octets[1] ?? 0;
+    return a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168;
+  }
+  const normalized = hostname.toLowerCase();
+  return normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80:");
+}
+__name(isPrivateIPAddress, "isPrivateIPAddress");
+function normalizeAllowHosts(policy) {
+  return new Set(
+    (policy.allow_hosts ?? []).map((host) => host.trim().toLowerCase()).filter((host) => host.length > 0)
+  );
+}
+__name(normalizeAllowHosts, "normalizeAllowHosts");
+function evaluateSandboxRequest(request2, policy) {
+  let parsedURL;
+  try {
+    parsedURL = new URL(request2.url);
+  } catch {
+    return {
+      allow: false,
+      host: "invalid",
+      policyTag: buildPolicyTag(policy),
+      reason: "invalid_url"
+    };
+  }
+  if (parsedURL.protocol !== "http:" && parsedURL.protocol !== "https:") {
+    return {
+      allow: false,
+      host: parsedURL.hostname,
+      policyTag: buildPolicyTag(policy),
+      reason: "protocol_not_allowed"
+    };
+  }
+  if (isPrivateIPAddress(parsedURL.hostname)) {
+    return {
+      allow: false,
+      host: parsedURL.hostname,
+      policyTag: buildPolicyTag(policy),
+      reason: "private_network_blocked"
+    };
+  }
+  const host = parsedURL.hostname.toLowerCase();
+  const allowHosts = normalizeAllowHosts(policy);
+  if (allowHosts.has(host)) {
+    return { allow: true, host, policyTag: buildPolicyTag(policy) };
+  }
+  if ((policy.default_action ?? "deny") === "deny") {
+    return {
+      allow: false,
+      host,
+      policyTag: buildPolicyTag(policy),
+      reason: "host_not_allowlisted"
+    };
+  }
+  return { allow: true, host, policyTag: buildPolicyTag(policy) };
+}
+__name(evaluateSandboxRequest, "evaluateSandboxRequest");
+function buildBlockedOutcome(decision, url, executor) {
+  return {
+    bodyPreview: '{"error":"sandbox_request_blocked"}',
+    executor,
+    host: decision.host,
+    outboundReason: decision.reason,
+    policyTag: decision.policyTag,
+    status: "blocked",
+    statusCode: 403,
+    url
+  };
+}
+__name(buildBlockedOutcome, "buildBlockedOutcome");
+function buildAllowedOutcome(url, response, decision, executor, bodyPreview) {
+  return {
+    bodyPreview,
+    executor,
+    host: decision.host,
+    outboundReason: response.headers.get(sandboxHeaders.reason),
+    policyTag: response.headers.get(sandboxHeaders.policyTag) ?? decision.policyTag,
+    status: (response.headers.get(sandboxHeaders.status) ?? "allowed") === "blocked" ? "blocked" : "completed",
+    statusCode: response.status,
+    url
+  };
+}
+__name(buildAllowedOutcome, "buildAllowedOutcome");
+async function executeInlineSandboxFetch(url, policy, fetchFn) {
+  const request2 = new Request(url, { method: "GET" });
+  const decision = evaluateSandboxRequest(request2, policy);
+  if (!decision.allow) {
+    return buildBlockedOutcome(decision, url, "dynamic_worker_fallback");
+  }
+  const response = await fetchFn(request2);
+  const bodyPreview = (await response.text()).slice(0, 256);
+  return buildAllowedOutcome(
+    url,
+    response,
+    decision,
+    "dynamic_worker_fallback",
+    bodyPreview
+  );
+}
+__name(executeInlineSandboxFetch, "executeInlineSandboxFetch");
+function buildDynamicWorkerID(url, policy) {
+  const base = [policy.policy_tag ?? "default", policy.network_class ?? "none"];
+  const allowHosts = [...normalizeAllowHosts(policy)].sort().join("-");
+  const mode = policy.mode ?? "dynamic_worker";
+  const host = (() => {
+    try {
+      return new URL(url).hostname.toLowerCase();
+    } catch {
+      return "invalid";
+    }
+  })();
+  return [mode, host, base.join("-"), allowHosts || "none"].join(":");
+}
+__name(buildDynamicWorkerID, "buildDynamicWorkerID");
+function buildDynamicWorkerDefinition(policy, compatibilityDate = defaultDynamicWorkerCompatibilityDate) {
+  return {
+    compatibilityDate,
+    env: {
+      STRAIT_SANDBOX_POLICY: JSON.stringify(policy)
+    },
+    mainModule: `function parsePolicy(raw) {
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
+function isPrivateIPAddress(hostname) {
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
+  const ipv4 = hostname.match(/^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/);
+  if (ipv4) {
+    const octets = ipv4.slice(1).map((part) => Number(part));
+    const a = octets[0] ?? 0;
+    const b = octets[1] ?? 0;
+    return a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+  const normalized = hostname.toLowerCase();
+  return normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80:");
+}
+
+function normalizeAllowHosts(policy) {
+  return new Set((policy.allow_hosts ?? []).map((host) => host.trim().toLowerCase()).filter((host) => host.length > 0));
+}
+
+function policyTag(policy) {
+  return policy.policy_tag?.trim() || "default";
+}
+
+function evaluate(request, policy) {
+  let parsedURL;
+  try {
+    parsedURL = new URL(request.url);
+  } catch {
+    return { allow: false, host: "invalid", policyTag: policyTag(policy), reason: "invalid_url" };
+  }
+  if (parsedURL.protocol !== "http:" && parsedURL.protocol !== "https:") {
+    return { allow: false, host: parsedURL.hostname, policyTag: policyTag(policy), reason: "protocol_not_allowed" };
+  }
+  if (isPrivateIPAddress(parsedURL.hostname)) {
+    return { allow: false, host: parsedURL.hostname, policyTag: policyTag(policy), reason: "private_network_blocked" };
+  }
+  const host = parsedURL.hostname.toLowerCase();
+  const allowHosts = normalizeAllowHosts(policy);
+  if (allowHosts.has(host)) {
+    return { allow: true, host, policyTag: policyTag(policy) };
+  }
+  if ((policy.default_action ?? "deny") === "deny") {
+    return { allow: false, host, policyTag: policyTag(policy), reason: "host_not_allowlisted" };
+  }
+  return { allow: true, host, policyTag: policyTag(policy) };
+}
+
+export default {
+  async fetch(request, env) {
+    const policy = parsePolicy(env.STRAIT_SANDBOX_POLICY);
+    const decision = evaluate(request, policy);
+    if (!decision.allow) {
+      return new Response(
+        JSON.stringify({
+          body_preview: '{"error":"sandbox_request_blocked"}',
+          outbound_reason: decision.reason,
+          policy_tag: decision.policyTag,
+          status_code: 403,
+          url: request.url
+        }),
+        {
+          status: 403,
+          headers: { "content-type": "application/json; charset=utf-8" }
+        }
+      );
+    }
+    const upstream = await fetch(request);
+    const bodyPreview = (await upstream.text()).slice(0, 256);
+    return new Response(
+      JSON.stringify({
+        body_preview: bodyPreview,
+        outbound_reason: null,
+        policy_tag: decision.policyTag,
+        status_code: upstream.status,
+        url: request.url
+      }),
+      {
+        status: upstream.status,
+        headers: { "content-type": "application/json; charset=utf-8" }
+      }
+    );
+  }
+};`
+  };
+}
+__name(buildDynamicWorkerDefinition, "buildDynamicWorkerDefinition");
+async function executeDynamicWorkerFetch(url, policy, loader, compatibilityDate) {
+  const workerID = buildDynamicWorkerID(url, policy);
+  const worker2 = loader.get(
+    workerID,
+    () => buildDynamicWorkerDefinition(
+      policy,
+      compatibilityDate ?? defaultDynamicWorkerCompatibilityDate
+    )
+  );
+  if (!worker2) {
+    throw new Error("dynamic worker loader returned no worker");
+  }
+  const response = await worker2.fetch(new Request(url, { method: "GET" }));
+  const payload = await response.json();
+  const parsedURL = new URL(url);
+  return {
+    bodyPreview: payload.body_preview ?? "",
+    executor: "dynamic_worker",
+    host: parsedURL.hostname.toLowerCase(),
+    outboundReason: payload.outbound_reason ?? null,
+    policyTag: payload.policy_tag ?? buildPolicyTag(policy),
+    status: response.status === 403 ? "blocked" : "completed",
+    statusCode: payload.status_code ?? response.status,
+    url: payload.url ?? url
+  };
+}
+__name(executeDynamicWorkerFetch, "executeDynamicWorkerFetch");
+async function executeOutboundWorkerFetch(url, policy, fetchFn) {
+  const response = await fetchFn(url, { method: "GET" });
+  const bodyPreview = (await response.text()).slice(0, 256);
+  const host = (() => {
+    try {
+      return new URL(url).hostname.toLowerCase();
+    } catch {
+      return "invalid";
+    }
+  })();
+  return {
+    bodyPreview,
+    executor: "outbound_worker",
+    host,
+    outboundReason: response.headers.get(sandboxHeaders.reason),
+    policyTag: response.headers.get(sandboxHeaders.policyTag) ?? buildPolicyTag(policy),
+    status: (response.headers.get(sandboxHeaders.status) ?? "allowed") === "blocked" ? "blocked" : "completed",
+    statusCode: response.status,
+    url
+  };
+}
+__name(executeOutboundWorkerFetch, "executeOutboundWorkerFetch");
+async function executeInlineFetch(url, fetchFn) {
+  const response = await fetchFn(url, { method: "GET" });
+  const bodyPreview = (await response.text()).slice(0, 256);
+  const host = (() => {
+    try {
+      return new URL(url).hostname.toLowerCase();
+    } catch {
+      return "invalid";
+    }
+  })();
+  return {
+    bodyPreview,
+    executor: "inline",
+    host,
+    outboundReason: null,
+    policyTag: buildPolicyTag({}),
+    status: "completed",
+    statusCode: response.status,
+    url
+  };
+}
+__name(executeInlineFetch, "executeInlineFetch");
+function executeSandboxFetch(options) {
+  const policy = parseSandboxPolicy(options.policy);
+  switch (policy.mode) {
+    case "dynamic_worker":
+      if (options.loader) {
+        return executeDynamicWorkerFetch(
+          options.url,
+          policy,
+          options.loader,
+          options.compatibilityDate
+        );
+      }
+      return executeInlineSandboxFetch(options.url, policy, options.fetch);
+    case "outbound_worker":
+      return executeOutboundWorkerFetch(options.url, policy, options.fetch);
+    case "disabled":
+    case void 0:
+      return executeInlineFetch(options.url, options.fetch);
+    default:
+      return executeInlineFetch(options.url, options.fetch);
+  }
+}
+__name(executeSandboxFetch, "executeSandboxFetch");
+
 // src/types.ts
 var runtimeContractVersion = "v1";
 function asRecord(value) {
@@ -16387,14 +16729,6 @@ function buildRuntimeOutput(envelope, deps = defaultDependencies) {
   }).pipe(Effect_exports.mapError(toError));
 }
 __name(buildRuntimeOutput, "buildRuntimeOutput");
-function parseSandboxPolicy(envelope) {
-  const raw = envelope.deployment.sandbox_policy;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-  return raw;
-}
-__name(parseSandboxPolicy, "parseSandboxPolicy");
 function buildNetworkToolCall(envelope, payload, deps) {
   const targetURL = payload._network_url;
   if (typeof targetURL !== "string" || targetURL.trim().length === 0) {
@@ -16402,29 +16736,34 @@ function buildNetworkToolCall(envelope, payload, deps) {
   }
   return Effect_exports.tryPromise({
     try: /* @__PURE__ */ __name(async () => {
-      const response = await deps.fetch(targetURL, { method: "GET" });
-      const bodyPreview = (await response.text()).slice(0, 256);
-      const outboundStatus = response.headers.get("x-strait-outbound-status") ?? "allowed";
-      const blocked3 = outboundStatus === "blocked";
-      const policy = parseSandboxPolicy(envelope);
+      const policy = parseSandboxPolicy(envelope.deployment.sandbox_policy);
+      const outcome = await executeSandboxFetch({
+        compatibilityDate: deps.dynamicWorkerCompatibilityDate,
+        fetch: deps.fetch,
+        loader: deps.dynamicWorkerLoader,
+        policy,
+        url: targetURL
+      });
       return {
         kind: "event",
         event: {
           type: "tool_call",
           tool_name: "sandbox.fetch",
           input: {
-            network_class: policy?.network_class ?? null,
-            policy_tag: policy?.policy_tag ?? null,
+            network_class: policy.network_class ?? null,
+            policy_tag: policy.policy_tag ?? null,
+            sandbox_mode: policy.mode ?? "disabled",
             url: targetURL
           },
           output: {
-            body_preview: bodyPreview,
-            outbound_reason: response.headers.get("x-strait-outbound-reason") ?? null,
-            status_code: response.status,
+            body_preview: outcome.bodyPreview,
+            outbound_reason: outcome.outboundReason,
+            sandbox_executor: outcome.executor,
+            status_code: outcome.statusCode,
             url: targetURL
           },
           duration_ms: 5,
-          status: blocked3 ? "blocked" : "completed"
+          status: outcome.status
         }
       };
     }, "try"),
@@ -16530,7 +16869,13 @@ async function handleWorkerFetch(request2, env, deps = defaultDeps) {
       })
     ),
     Effect_exports.flatMap(parseEnvelope),
-    Effect_exports.flatMap((envelope) => buildRuntimeOutput(envelope, deps)),
+    Effect_exports.flatMap(
+      (envelope) => buildRuntimeOutput(envelope, {
+        ...deps,
+        dynamicWorkerCompatibilityDate: env.STRAIT_SANDBOX_COMPATIBILITY_DATE,
+        dynamicWorkerLoader: env.SANDBOX_LOADER
+      })
+    ),
     Effect_exports.map((outputs) => buildNDJSONResponseBody(outputs))
   );
   const exit4 = await Effect_exports.runPromiseExit(program);

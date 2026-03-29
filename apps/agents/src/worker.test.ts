@@ -6,6 +6,7 @@ import {
   buildRuntimeOutput,
   parseEnvelope,
 } from "./core";
+import type { DynamicWorkerLoader } from "./sandbox";
 import type { DispatchEnvelope } from "./types";
 import { handleWorkerFetch, verifyRuntimeWorkerAuth } from "./worker";
 
@@ -138,7 +139,28 @@ describe("worker runtime entrypoint", () => {
     expect(buildNDJSONResponseBody(output)).toContain(`"type":"complete"`);
   });
 
-  it("preserves outbound sandbox tool-call telemetry", async () => {
+  it("preserves dynamic worker sandbox tool-call telemetry", async () => {
+    const loader: DynamicWorkerLoader = {
+      get: () => ({
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              body_preview: '{"error":"sandbox_request_blocked"}',
+              outbound_reason: "host_not_allowlisted",
+              policy_tag: "default",
+              status_code: 403,
+              url: "https://blocked.example.com",
+            }),
+            {
+              headers: {
+                "content-type": "application/json; charset=utf-8",
+              },
+              status: 403,
+            }
+          ),
+      }),
+    };
+
     const response = await handleWorkerFetch(
       new Request("https://worker.local/dispatch", {
         method: "POST",
@@ -152,7 +174,7 @@ describe("worker runtime entrypoint", () => {
             ...baseEnvelope.deployment,
             sandbox_policy: {
               default_action: "deny",
-              mode: "outbound_worker",
+              mode: "dynamic_worker",
             },
           },
           payload: {
@@ -160,10 +182,15 @@ describe("worker runtime entrypoint", () => {
           },
         } satisfies DispatchEnvelope),
       }),
-      { AGENT_RUNTIME_AUTH_TOKEN: "secret-1" }
+      {
+        AGENT_RUNTIME_AUTH_TOKEN: "secret-1",
+        SANDBOX_LOADER: loader,
+      }
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain(`"tool_name":"sandbox.fetch"`);
+    const body = await response.text();
+    expect(body).toContain(`"tool_name":"sandbox.fetch"`);
+    expect(body).toContain(`"sandbox_executor":"dynamic_worker"`);
   });
 });

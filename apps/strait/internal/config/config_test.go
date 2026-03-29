@@ -84,7 +84,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"BatchFlushInterval", cfg.BatchFlushInterval, time.Second},
 		{"DequeueStrategy", cfg.DequeueStrategy, "priority"},
 		{"ComputeRuntime", cfg.ComputeRuntime, "none"},
-		{"CFSandboxMode", cfg.CFSandboxMode, "disabled"},
+		{"CFSandboxMode", cfg.CFSandboxMode, "dynamic_worker"},
 		{"FlyRegion", cfg.FlyRegion, "iad"},
 		{"MaxConcurrentMachines", cfg.MaxConcurrentMachines, 10},
 		{"ClickHouseDatabase", cfg.ClickHouseDatabase, "strait"},
@@ -802,8 +802,8 @@ func TestLoad_CloudflareAgentsValidation(t *testing.T) {
 		if cfg.CFAccountID != "" {
 			t.Fatalf("CFAccountID = %q, want empty", cfg.CFAccountID)
 		}
-		if cfg.CFSandboxMode != "disabled" {
-			t.Fatalf("CFSandboxMode = %q, want disabled", cfg.CFSandboxMode)
+		if cfg.CFSandboxMode != "dynamic_worker" {
+			t.Fatalf("CFSandboxMode = %q, want dynamic_worker", cfg.CFSandboxMode)
 		}
 	})
 
@@ -814,9 +814,8 @@ func TestLoad_CloudflareAgentsValidation(t *testing.T) {
 		t.Setenv("CF_DISPATCH_NAMESPACE", "ns-prod")
 		t.Setenv("CF_DISPATCH_NAMESPACE_STAGING", "ns-staging")
 		t.Setenv("CF_DISPATCH_WORKER_URL", "https://dispatch.example.com")
-		t.Setenv("CF_OUTBOUND_WORKER_NAME", "agents-outbound")
 		t.Setenv("CF_COMPATIBILITY_DATE", "2026-03-29")
-		t.Setenv("CF_SANDBOX_MODE", "outbound_worker")
+		t.Setenv("CF_SANDBOX_MODE", "dynamic_worker")
 
 		cfg, err := Load()
 		if err != nil {
@@ -893,6 +892,24 @@ func TestLoad_CloudflareAgentsValidation(t *testing.T) {
 		}
 		if cfg.CFSandboxMode != "disabled" {
 			t.Fatalf("CFSandboxMode = %q, want disabled", cfg.CFSandboxMode)
+		}
+	})
+
+	t.Run("dynamic worker mode does not require outbound worker name", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("CF_ACCOUNT_ID", "acct-1")
+		t.Setenv("CF_API_TOKEN", "token-1")
+		t.Setenv("CF_DISPATCH_NAMESPACE", "ns-prod")
+		t.Setenv("CF_DISPATCH_WORKER_URL", "https://dispatch.example.com")
+		t.Setenv("CF_COMPATIBILITY_DATE", "2026-03-29")
+		t.Setenv("CF_SANDBOX_MODE", "dynamic_worker")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.CFSandboxMode != "dynamic_worker" {
+			t.Fatalf("CFSandboxMode = %q, want dynamic_worker", cfg.CFSandboxMode)
 		}
 	})
 

@@ -7,6 +7,7 @@ import {
   parseEnvelope,
   serializeOutputLine,
 } from "./runtime";
+import type { DynamicWorkerLoader } from "./sandbox";
 import type { DispatchEnvelope, RuntimeOutputLine } from "./types";
 
 const baseEnvelope: DispatchEnvelope = {
@@ -114,7 +115,78 @@ describe("agents runtime", () => {
     ).toHaveLength(2);
   });
 
-  it("captures blocked outbound requests as sandbox tool calls", async () => {
+  it("captures blocked dynamic worker requests as sandbox tool calls", async () => {
+    const loader: DynamicWorkerLoader = {
+      get: () => ({
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              body_preview: '{"error":"sandbox_request_blocked"}',
+              outbound_reason: "host_not_allowlisted",
+              policy_tag: "llm-egress",
+              status_code: 403,
+              url: "https://blocked.example.com",
+            }),
+            {
+              headers: {
+                "content-type": "application/json; charset=utf-8",
+              },
+              status: 403,
+            }
+          ),
+      }),
+    };
+
+    const outputs = await Effect.runPromise(
+      buildRuntimeOutput(
+        {
+          ...baseEnvelope,
+          deployment: {
+            ...baseEnvelope.deployment,
+            sandbox_policy: {
+              allow_hosts: ["api.openai.com"],
+              default_action: "deny",
+              mode: "dynamic_worker",
+              network_class: "sandbox",
+              policy_tag: "llm-egress",
+            },
+          },
+          payload: {
+            _network_url: "https://blocked.example.com",
+          },
+        },
+        {
+          dynamicWorkerLoader: loader,
+          fetch: async () => new Response("unexpected", { status: 500 }),
+        }
+      )
+    );
+
+    expect(outputs).toContainEqual({
+      kind: "event",
+      event: {
+        duration_ms: 5,
+        input: {
+          network_class: "sandbox",
+          policy_tag: "llm-egress",
+          sandbox_mode: "dynamic_worker",
+          url: "https://blocked.example.com",
+        },
+        output: {
+          body_preview: '{"error":"sandbox_request_blocked"}',
+          outbound_reason: "host_not_allowlisted",
+          sandbox_executor: "dynamic_worker",
+          status_code: 403,
+          url: "https://blocked.example.com",
+        },
+        status: "blocked",
+        tool_name: "sandbox.fetch",
+        type: "tool_call",
+      },
+    });
+  });
+
+  it("keeps outbound worker mode as a compatibility path", async () => {
     const outputs = await Effect.runPromise(
       buildRuntimeOutput(
         {
@@ -153,11 +225,13 @@ describe("agents runtime", () => {
         input: {
           network_class: "restricted",
           policy_tag: "llm-egress",
+          sandbox_mode: "outbound_worker",
           url: "https://blocked.example.com",
         },
         output: {
           body_preview: '{"error":"blocked"}',
           outbound_reason: "host_not_allowlisted",
+          sandbox_executor: "outbound_worker",
           status_code: 403,
           url: "https://blocked.example.com",
         },

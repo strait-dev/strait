@@ -145,6 +145,54 @@ describe("dispatch worker", () => {
     expect(callbackFetch).toHaveBeenCalledTimes(5);
   });
 
+  it("does not attach outbound routing hints for dynamic worker mode", async () => {
+    const runtimeFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ type: "complete", result: { ok: true } }),
+          {
+            headers: {
+              "content-type": "application/x-ndjson",
+            },
+            status: 200,
+          }
+        )
+    );
+    const callbackFetch = vi.fn(
+      async () => new Response(null, { status: 201 })
+    );
+
+    const response = await handleDispatchFetch(
+      buildRequest({
+        deployment_id: "dep-1",
+        envelope: baseEnvelope,
+        namespace: "ns-prod",
+        provider: "cloudflare",
+        run_id: "run-1",
+        sandbox_policy: {
+          default_action: "deny",
+          mode: "dynamic_worker",
+        },
+        script_name: "agent-script",
+      }),
+      {
+        DISPATCHER: {
+          get: (scriptName, _, advanced) => {
+            expect(scriptName).toBe("agent-script");
+            expect(advanced).toBeUndefined();
+            return { fetch: runtimeFetch };
+          },
+        },
+        INTERNAL_SECRET: "internal-secret",
+      },
+      { fetch: callbackFetch as typeof fetch }
+    );
+
+    expect(response.status).toBe(202);
+    expect(runtimeFetch).toHaveBeenCalledTimes(1);
+    expect(callbackFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("returns 404 for missing scripts", async () => {
     const response = await handleDispatchFetch(
       buildRequest({

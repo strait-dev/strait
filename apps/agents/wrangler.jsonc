@@ -6,6 +6,11 @@
   "observability": {
     "enabled": true
   },
+  "worker_loaders": [
+    {
+      "binding": "SANDBOX_LOADER"
+    }
+  ],
   "vars": {
     "STRAIT_ENV": "local"
   }

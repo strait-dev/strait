@@ -27,13 +27,13 @@ create_response="$(
       "model":"gpt-5.4",
       "config":{
         "sandbox":{
-          "policy":{
-            "allow_hosts":["api.openai.com"],
-            "default_action":"deny",
-            "network_class":"restricted",
-            "policy_tag":"smoke"
-          }
+        "policy":{
+          "allow_hosts":["api.openai.com"],
+          "default_action":"deny",
+          "network_class":"sandbox",
+          "policy_tag":"smoke"
         }
+      }
       }
     }'
 )"

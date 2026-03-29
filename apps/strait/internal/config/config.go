@@ -163,7 +163,7 @@ type Config struct {
 	CFDispatchWorkerURL        string `env:"CF_DISPATCH_WORKER_URL"`
 	CFOutboundWorkerName       string `env:"CF_OUTBOUND_WORKER_NAME"`
 	CFCompatibilityDate        string `env:"CF_COMPATIBILITY_DATE"`
-	CFSandboxMode              string `env:"CF_SANDBOX_MODE" default:"disabled"`
+	CFSandboxMode              string `env:"CF_SANDBOX_MODE" default:"dynamic_worker"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
@@ -489,9 +489,9 @@ func (c CloudflareAgentsConfig) Validate() error {
 	}
 
 	switch strings.TrimSpace(c.SandboxMode) {
-	case "", "disabled", "outbound_worker":
+	case "", "disabled", "dynamic_worker", "outbound_worker":
 	default:
-		return &domain.ConfigError{Field: "CF_SANDBOX_MODE", Message: "must be disabled or outbound_worker"}
+		return &domain.ConfigError{Field: "CF_SANDBOX_MODE", Message: "must be disabled, dynamic_worker, or outbound_worker"}
 	}
 
 	if strings.TrimSpace(c.SandboxMode) == "outbound_worker" && strings.TrimSpace(c.OutboundWorkerName) == "" {

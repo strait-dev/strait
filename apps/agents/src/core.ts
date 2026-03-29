@@ -1,8 +1,11 @@
 import { Duration, Effect } from "effect";
-
+import {
+  type DynamicWorkerLoader,
+  executeSandboxFetch,
+  parseSandboxPolicy,
+} from "./sandbox";
 import {
   asRecord,
-  type CloudflareSandboxPolicy,
   type DispatchEnvelope,
   type JsonValue,
   type RuntimeOutputLine,
@@ -19,6 +22,8 @@ type PlannerTask = {
 
 type JsonObject = { [key: string]: JsonValue };
 type RuntimeDependencies = {
+  dynamicWorkerCompatibilityDate?: string;
+  dynamicWorkerLoader?: DynamicWorkerLoader;
   fetch: typeof fetch;
 };
 
@@ -413,16 +418,6 @@ export function buildRuntimeOutput(
   }).pipe(Effect.mapError(toError));
 }
 
-function parseSandboxPolicy(
-  envelope: DispatchEnvelope
-): CloudflareSandboxPolicy | null {
-  const raw = envelope.deployment.sandbox_policy;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-  return raw as CloudflareSandboxPolicy;
-}
-
 function buildNetworkToolCall(
   envelope: DispatchEnvelope,
   payload: Record<string, JsonValue>,
@@ -435,12 +430,14 @@ function buildNetworkToolCall(
 
   return Effect.tryPromise({
     try: async () => {
-      const response = await deps.fetch(targetURL, { method: "GET" });
-      const bodyPreview = (await response.text()).slice(0, 256);
-      const outboundStatus =
-        response.headers.get("x-strait-outbound-status") ?? "allowed";
-      const blocked = outboundStatus === "blocked";
-      const policy = parseSandboxPolicy(envelope);
+      const policy = parseSandboxPolicy(envelope.deployment.sandbox_policy);
+      const outcome = await executeSandboxFetch({
+        compatibilityDate: deps.dynamicWorkerCompatibilityDate,
+        fetch: deps.fetch,
+        loader: deps.dynamicWorkerLoader,
+        policy,
+        url: targetURL,
+      });
 
       return {
         kind: "event" as const,
@@ -448,19 +445,20 @@ function buildNetworkToolCall(
           type: "tool_call" as const,
           tool_name: "sandbox.fetch",
           input: {
-            network_class: policy?.network_class ?? null,
-            policy_tag: policy?.policy_tag ?? null,
+            network_class: policy.network_class ?? null,
+            policy_tag: policy.policy_tag ?? null,
+            sandbox_mode: policy.mode ?? "disabled",
             url: targetURL,
           },
           output: {
-            body_preview: bodyPreview,
-            outbound_reason:
-              response.headers.get("x-strait-outbound-reason") ?? null,
-            status_code: response.status,
+            body_preview: outcome.bodyPreview,
+            outbound_reason: outcome.outboundReason,
+            sandbox_executor: outcome.executor,
+            status_code: outcome.statusCode,
             url: targetURL,
           },
           duration_ms: 5,
-          status: blocked ? "blocked" : "completed",
+          status: outcome.status,
         },
       };
     },

@@ -88,7 +88,7 @@ These helpers support local regression checks for agents and orchestration logic
 
 - `createSandboxTool()`
 
-Sandbox tools carry policy metadata used by the local runtime and the Cloudflare outbound-worker path.
+Sandbox tools carry policy metadata used by the local runtime and the Cloudflare Dynamic Workers path, with outbound-worker mode kept as a compatibility fallback.
 
 ## Architecture
 

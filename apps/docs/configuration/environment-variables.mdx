@@ -205,9 +205,9 @@ These variables enable the Cloudflare-backed agent runtime and deploy path. When
 | `CF_DISPATCH_NAMESPACE` | String | - | Primary dispatch namespace for agent Workers in the current environment. Required when Cloudflare agents are enabled. |
 | `CF_DISPATCH_NAMESPACE_STAGING` | String | - | Optional secondary namespace for staging or shadow deploys. |
 | `CF_DISPATCH_WORKER_URL` | String | - | Public URL of the dynamic dispatch Worker that Strait calls to start remote agent runs. Must be a valid HTTP(S) URL. |
-| `CF_OUTBOUND_WORKER_NAME` | String | - | Name of the Outbound Worker used for egress control when `CF_SANDBOX_MODE=outbound_worker`. |
+| `CF_OUTBOUND_WORKER_NAME` | String | - | Name of the Outbound Worker used for compatibility/fallback egress control when `CF_SANDBOX_MODE=outbound_worker`. |
 | `CF_COMPATIBILITY_DATE` | String | - | Compatibility date applied to Cloudflare agent Workers and dispatch entrypoints. Required when Cloudflare agents are enabled. |
-| `CF_SANDBOX_MODE` | String | `disabled` | Agent sandbox mode: `disabled` or `outbound_worker`. `outbound_worker` requires `CF_OUTBOUND_WORKER_NAME`. |
+| `CF_SANDBOX_MODE` | String | `dynamic_worker` | Agent sandbox mode: `dynamic_worker`, `disabled`, or `outbound_worker`. `dynamic_worker` is the default. `outbound_worker` requires `CF_OUTBOUND_WORKER_NAME`. |
 
 When running the Cloudflare deploy path, build the workers first:
 

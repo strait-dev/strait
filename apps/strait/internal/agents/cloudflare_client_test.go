@@ -80,10 +80,10 @@ func TestCloudflareAPIClientUpsertScriptBuildsMultipartRequest(t *testing.T) {
 		ScriptName:        "agent-script",
 		CompatibilityDate: "2026-03-29",
 		SandboxPolicy: CloudflareSandboxPolicy{
-			Mode:          CloudflareSandboxModeOutboundWorker,
+			Mode:          CloudflareSandboxModeDynamicWorker,
 			DefaultAction: CloudflareSandboxDefaultActionDeny,
 			AllowHosts:    []string{"api.openai.com"},
-			NetworkClass:  "restricted",
+			NetworkClass:  "sandbox",
 			PolicyTag:     "llm",
 		},
 		Tags:   []string{"strait-agent"},
@@ -136,13 +136,12 @@ func TestCloudflareProviderDeployReturnsMetadata(t *testing.T) {
 	defer server.Close()
 
 	provider := NewCloudflareProvider(CloudflareConfig{
-		AccountID:          "acct-1",
-		APIToken:           "token-1",
-		DispatchNamespace:  "ns-prod",
-		DispatchWorkerURL:  "https://dispatch.example.com",
-		CompatibilityDate:  "2026-03-29",
-		SandboxMode:        CloudflareSandboxModeOutboundWorker,
-		OutboundWorkerName: "agents-outbound",
+		AccountID:         "acct-1",
+		APIToken:          "token-1",
+		DispatchNamespace: "ns-prod",
+		DispatchWorkerURL: "https://dispatch.example.com",
+		CompatibilityDate: "2026-03-29",
+		SandboxMode:       CloudflareSandboxModeDynamicWorker,
 	}, WithCloudflareAPIBaseURL(server.URL))
 
 	raw, err := provider.Deploy(context.Background(), &domain.Agent{ID: "agent-1"}, &domain.AgentDeployment{
@@ -165,14 +164,14 @@ func TestCloudflareProviderDeployReturnsMetadata(t *testing.T) {
 	if metadata.Etag != "etag-123" {
 		t.Fatalf("metadata.Etag = %q, want etag-123", metadata.Etag)
 	}
-	if metadata.SandboxPolicy.Mode != CloudflareSandboxModeOutboundWorker {
+	if metadata.SandboxPolicy.Mode != CloudflareSandboxModeDynamicWorker {
 		t.Fatalf("metadata.SandboxPolicy.Mode = %q", metadata.SandboxPolicy.Mode)
 	}
 	if metadata.SandboxPolicy.DefaultAction != CloudflareSandboxDefaultActionDeny {
 		t.Fatalf("metadata.SandboxPolicy.DefaultAction = %q, want deny", metadata.SandboxPolicy.DefaultAction)
 	}
-	if metadata.SandboxPolicy.NetworkClass != "restricted" {
-		t.Fatalf("metadata.SandboxPolicy.NetworkClass = %q, want restricted", metadata.SandboxPolicy.NetworkClass)
+	if metadata.SandboxPolicy.NetworkClass != "sandbox" {
+		t.Fatalf("metadata.SandboxPolicy.NetworkClass = %q, want sandbox", metadata.SandboxPolicy.NetworkClass)
 	}
 	if metadata.SandboxPolicy.PolicyTag != "default" {
 		t.Fatalf("metadata.SandboxPolicy.PolicyTag = %q, want default", metadata.SandboxPolicy.PolicyTag)
@@ -228,7 +227,7 @@ func TestBuildCloudflareMultipartUploadIncludesMetadataAndSource(t *testing.T) {
 		Tags:              []string{"strait-agent"},
 		Bindings:          []map[string]any{{"name": "ENVIRONMENT", "type": "plain_text", "text": "prod"}},
 		SandboxPolicy: CloudflareSandboxPolicy{
-			Mode:          CloudflareSandboxModeOutboundWorker,
+			Mode:          CloudflareSandboxModeDynamicWorker,
 			DefaultAction: CloudflareSandboxDefaultActionDeny,
 		},
 		Source: `export default { async fetch() { return new Response("ok"); } };`,
@@ -265,7 +264,7 @@ func TestBuildCloudflareMultipartUploadIncludesMetadataAndSource(t *testing.T) {
 	if !strings.Contains(parts["metadata"], `"compatibility_date":"2026-03-29"`) {
 		t.Fatalf("metadata part = %q", parts["metadata"])
 	}
-	if !strings.Contains(parts["metadata"], `"strait_sandbox_mode":"outbound_worker"`) {
+	if !strings.Contains(parts["metadata"], `"strait_sandbox_mode":"dynamic_worker"`) {
 		t.Fatalf("metadata part = %q", parts["metadata"])
 	}
 	if !strings.Contains(parts["worker.mjs"], `return new Response("ok")`) {

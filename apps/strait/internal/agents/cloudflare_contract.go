@@ -21,6 +21,7 @@ type CloudflareSandboxMode string
 
 const (
 	CloudflareSandboxModeDisabled       CloudflareSandboxMode = "disabled"
+	CloudflareSandboxModeDynamicWorker  CloudflareSandboxMode = "dynamic_worker"
 	CloudflareSandboxModeOutboundWorker CloudflareSandboxMode = "outbound_worker"
 )
 
@@ -134,9 +135,9 @@ func (c CloudflareConfig) Validate() error {
 	}
 
 	switch c.SandboxMode {
-	case "", CloudflareSandboxModeDisabled, CloudflareSandboxModeOutboundWorker:
+	case "", CloudflareSandboxModeDisabled, CloudflareSandboxModeDynamicWorker, CloudflareSandboxModeOutboundWorker:
 	default:
-		return &domain.ConfigError{Field: "CF_SANDBOX_MODE", Message: "must be disabled or outbound_worker"}
+		return &domain.ConfigError{Field: "CF_SANDBOX_MODE", Message: "must be disabled, dynamic_worker, or outbound_worker"}
 	}
 
 	if c.SandboxMode == CloudflareSandboxModeOutboundWorker && strings.TrimSpace(c.OutboundWorkerName) == "" {
@@ -220,7 +221,7 @@ func ParseCloudflareDeploymentMetadata(raw json.RawMessage) (*CloudflareDeployme
 
 func validateCloudflareSandboxPolicy(policy CloudflareSandboxPolicy) error {
 	switch policy.Mode {
-	case "", CloudflareSandboxModeDisabled, CloudflareSandboxModeOutboundWorker:
+	case "", CloudflareSandboxModeDisabled, CloudflareSandboxModeDynamicWorker, CloudflareSandboxModeOutboundWorker:
 	default:
 		return fmt.Errorf("mode %q is invalid", policy.Mode)
 	}
@@ -251,9 +252,9 @@ func resolveCloudflareSandboxPolicy(cfg CloudflareConfig, snapshot json.RawMessa
 		Mode:               cfg.SandboxMode,
 		OutboundWorkerName: cfg.OutboundWorkerName,
 	}
-	if cfg.SandboxMode == CloudflareSandboxModeOutboundWorker {
+	if cfg.SandboxMode == CloudflareSandboxModeDynamicWorker || cfg.SandboxMode == CloudflareSandboxModeOutboundWorker {
 		policy.DefaultAction = CloudflareSandboxDefaultActionDeny
-		policy.NetworkClass = "restricted"
+		policy.NetworkClass = "sandbox"
 		policy.PolicyTag = "default"
 	}
 

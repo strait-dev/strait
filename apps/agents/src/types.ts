@@ -43,7 +43,7 @@ export type DispatchEnvelope = {
 };
 
 export type CloudflareSandboxPolicy = {
-  mode?: "disabled" | "outbound_worker";
+  mode?: "disabled" | "dynamic_worker" | "outbound_worker";
   outbound_worker_name?: string;
   default_action?: "allow" | "deny";
   allow_hosts?: string[];

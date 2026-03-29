@@ -9,7 +9,7 @@ It maps directly to the current acceptance scope for:
 
 - `STR-289` Go control plane integration
 - `STR-297` runtime Worker and dispatch Worker entrypoints
-- `STR-294` outbound-worker sandboxing
+- `STR-294` Dynamic Workers sandboxing with outbound-worker compatibility
 
 ## System Diagram
 
@@ -17,9 +17,10 @@ It maps directly to the current acceptance scope for:
 flowchart LR
   A["Strait Go Control Plane"] --> B["Dispatch Worker"]
   B --> C["Runtime Worker"]
-  C --> D["Outbound Worker"]
-  C --> E["Run Token Callbacks"]
-  E --> A
+  C --> D["Dynamic Worker Sandbox"]
+  C -. compatibility .-> E["Outbound Worker"]
+  C --> F["Run Token Callbacks"]
+  F --> A
 ```
 
 ## Architecture
@@ -30,6 +31,10 @@ The production path has three Cloudflare Worker entrypoints in `apps/agents`:
 2. dispatch Worker
 3. outbound Worker
 
+And one default sandbox execution mode:
+
+4. Dynamic Workers via the runtime worker loader binding
+
 The control plane remains in Go:
 
 1. Strait deploys a versioned user Worker into a dispatch namespace.
@@ -37,7 +42,8 @@ The control plane remains in Go:
 3. The dispatch Worker resolves the deployed runtime Worker by script name.
 4. The runtime Worker emits checkpoints, usage, stream chunks, tool calls, and terminal state.
 5. The dispatch Worker forwards those callbacks back to Strait.
-6. Outbound egress from the runtime Worker is evaluated by the outbound Worker.
+6. Sandboxed tool execution runs in Dynamic Workers by default.
+7. Outbound-worker routing stays available when an environment explicitly selects compatibility mode.
 
 ## Shared vs Versioned Components
 
@@ -61,8 +67,8 @@ Versioned per deployment:
    - `CF_DISPATCH_NAMESPACE`
    - `CF_DISPATCH_WORKER_URL`
    - `CF_COMPATIBILITY_DATE`
-   - `CF_SANDBOX_MODE=outbound_worker`
-   - `CF_OUTBOUND_WORKER_NAME`
+   - `CF_SANDBOX_MODE=dynamic_worker`
+   - `CF_OUTBOUND_WORKER_NAME` only if you intentionally want outbound-worker compatibility mode
 2. Build the worker bundles:
 
 ```bash
@@ -81,8 +87,8 @@ bun run deploy:dispatch
 Recommended order:
 
 1. build all bundles
-2. deploy outbound Worker
-3. deploy dispatch Worker
+2. deploy dispatch Worker
+3. deploy outbound Worker if you use fallback/compatibility mode
 4. deploy an agent from Strait
 5. trigger a smoke run
 
@@ -125,7 +131,7 @@ curl -sS "$STRAIT_API_URL/v1/agents" \
         "policy":{
           "allow_hosts":["api.openai.com"],
           "default_action":"deny",
-          "network_class":"restricted",
+          "network_class":"sandbox",
           "policy_tag":"smoke"
         }
       }
@@ -177,8 +183,8 @@ Runtime-level failures after startup should map according to the emitted runtime
 ## Staging Dogfood Checklist
 
 - Build all worker bundles successfully with `bun run build`.
-- Deploy the outbound Worker and dispatch Worker.
-- Create a fresh agent with an outbound policy allowlist.
+- Deploy the dispatch Worker, and deploy the outbound Worker only if you want compatibility mode.
+- Create a fresh agent with a Dynamic Workers policy allowlist.
 - Deploy the agent and confirm `agent_deployments.provider_metadata` contains:
   - namespace
   - script name
@@ -216,7 +222,7 @@ If egress is unexpectedly blocked:
 - inspect the agent config `sandbox.policy`
 - inspect `sandbox_policy` inside `agent_deployments.provider_metadata`
 - verify the target host is present in `allow_hosts`
-- check the outbound Worker response headers:
+- check the sandbox telemetry and, in outbound-worker compatibility mode, the outbound Worker response headers:
   - `x-strait-outbound-status`
   - `x-strait-outbound-reason`
   - `x-strait-outbound-policy-tag`

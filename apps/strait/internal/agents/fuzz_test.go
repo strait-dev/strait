@@ -112,7 +112,7 @@ func FuzzRuntimeEventDecode(f *testing.F) {
 
 func FuzzParseCloudflareDeploymentMetadata(f *testing.F) {
 	f.Add([]byte(`{"provider":"cloudflare","namespace":"ns-prod","script_name":"agent-agent-1-v1","dispatch_worker_url":"https://dispatch.example.com","compatibility_date":"2026-03-29"}`))
-	f.Add([]byte(`{"provider":"cloudflare","namespace":"ns-prod","script_name":"agent-agent-1-v1","dispatch_worker_url":"https://dispatch.example.com","compatibility_date":"2026-03-29","sandbox_policy":{"mode":"outbound_worker","default_action":"deny","allow_hosts":["api.openai.com"],"network_class":"restricted","policy_tag":"default"}}`))
+	f.Add([]byte(`{"provider":"cloudflare","namespace":"ns-prod","script_name":"agent-agent-1-v1","dispatch_worker_url":"https://dispatch.example.com","compatibility_date":"2026-03-29","sandbox_policy":{"mode":"dynamic_worker","default_action":"deny","allow_hosts":["api.openai.com"],"network_class":"sandbox","policy_tag":"default"}}`))
 	f.Add([]byte(`{"provider":"local_stub"}`))
 	f.Add([]byte(`not-json`))
 
@@ -138,10 +138,10 @@ func FuzzBuildCloudflareMultipartUpload(f *testing.F) {
 			ScriptName:        scriptName,
 			CompatibilityDate: compatibilityDate,
 			SandboxPolicy: CloudflareSandboxPolicy{
-				Mode:          CloudflareSandboxModeOutboundWorker,
+				Mode:          CloudflareSandboxModeDynamicWorker,
 				DefaultAction: CloudflareSandboxDefaultActionDeny,
 				AllowHosts:    []string{"api.openai.com"},
-				NetworkClass:  "restricted",
+				NetworkClass:  "sandbox",
 				PolicyTag:     "default",
 			},
 			Source: source,

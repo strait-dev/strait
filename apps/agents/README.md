@@ -7,7 +7,7 @@ It is not the public SDK surface. User code should depend on `@strait/agents` fr
 It serves two roles:
 
 1. the local execution target used during local-first development
-2. the Cloudflare Workers package used for production runtime, dispatch, and outbound sandboxing
+2. the Cloudflare Workers package used for production runtime, dispatch, Dynamic Workers sandboxing, and outbound fallback compatibility
 
 This package is intentionally small at the workspace root. The runtime behavior lives in `src/`, while deployment shape is defined by the Wrangler configs.
 
@@ -57,7 +57,7 @@ The production Cloudflare path uses the same runtime core with different entrypo
 3. The dispatch Worker resolves the target runtime Worker from the dispatch namespace.
 4. The runtime Worker executes the same contract used locally.
 5. Runtime events are forwarded back to Strait callback endpoints.
-6. Any network egress can be evaluated by the outbound Worker according to sandbox policy.
+6. Sandboxed tool execution runs in Dynamic Workers by default, with outbound-worker routing kept as a compatibility mode for egress enforcement.
 
 ## Runtime Contract
 
@@ -154,9 +154,17 @@ bun run deploy:outbound
 
 The runtime Worker is not deployed manually for each agent. Strait uploads a versioned runtime Worker as part of agent deployment.
 
-## Sandbox / Outbound Worker
+## Sandbox Architecture
 
-The first production sandbox implementation is outbound-worker based.
+Dynamic Workers are the default sandbox execution target.
+
+That means:
+
+- sandboxed tools can execute in their own isolated Worker instance
+- the runtime can attach per-tool policy metadata
+- the same tool contract works locally and in Cloudflare mode
+
+The outbound Worker remains available as a compatibility and fallback mode when an operator explicitly selects `CF_SANDBOX_MODE=outbound_worker`.
 
 The outbound Worker:
 
