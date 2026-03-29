@@ -2,7 +2,10 @@ import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import {
   type AgentCostSummary,
+  type AnalyticsCostResponse,
+  type AnalyticsModelRow,
   buildAgentCostSummary,
+  fromAnalyticsResponse,
 } from "@/components/agents/agent-cost-utils";
 import type {
   Agent,
@@ -66,15 +69,48 @@ export const fetchAgentCostSummary = createServerFn({ method: "GET" })
     return buildAgentCostSummary(runs, usageRecords, toolCalls, agent.config);
   });
 
+export const fetchAgentCostFromAnalytics = createServerFn({ method: "GET" })
+  .inputValidator(
+    (data: { agentId: string; from?: string; to?: string }) => data
+  )
+  .middleware([authMiddleware])
+  .handler(async ({ data }): Promise<AgentCostSummary | null> => {
+    const now = new Date();
+    const from =
+      data.from ?? new Date(now.getTime() - 30 * 86400000).toISOString();
+    const to = data.to ?? now.toISOString();
+
+    try {
+      const [costData, modelData] = await Promise.all([
+        runWithSentryReport(
+          apiEffect<AnalyticsCostResponse>(
+            `/v1/analytics/agents/costs?agent_id=${data.agentId}&from=${from}&to=${to}`
+          )
+        ),
+        runWithSentryReport(
+          apiEffect<AnalyticsModelRow[]>(
+            `/v1/analytics/agents/model-breakdown?agent_id=${data.agentId}&from=${from}&to=${to}`
+          )
+        ),
+      ]);
+      return fromAnalyticsResponse(costData, modelData);
+    } catch {
+      return null;
+    }
+  });
+
 export const agentCostSummaryQueryOptions = (agentId: string) =>
   queryOptions({
     queryKey: queryKeys.agents.costs(agentId).queryKey,
-    queryFn: () =>
-      fetchAgentCostSummary({
-        data: {
-          agentId,
-        },
-      }),
+    queryFn: async () => {
+      const analytics = await fetchAgentCostFromAnalytics({
+        data: { agentId },
+      });
+      if (analytics) {
+        return analytics;
+      }
+      return fetchAgentCostSummary({ data: { agentId } });
+    },
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });

@@ -294,3 +294,63 @@ export function buildAgentCostSummary(
     usage_records: usageRecords.length,
   };
 }
+
+export type AnalyticsCostResponse = {
+  total_runs: number;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_cost_microusd: number;
+  avg_cost_microusd: number;
+  tool_call_count: number;
+  checkpoint_count: number;
+};
+
+export type AnalyticsModelRow = {
+  model: string;
+  provider: string;
+  runs: number;
+  total_tokens: number;
+  cost_microusd: number;
+};
+
+export function fromAnalyticsResponse(
+  costData: AnalyticsCostResponse,
+  modelData: AnalyticsModelRow[]
+): AgentCostSummary {
+  return {
+    average_cost_microusd: costData.avg_cost_microusd,
+    average_duration_ms: 0,
+    average_tokens_per_run:
+      costData.total_runs > 0
+        ? Math.round(costData.total_tokens / costData.total_runs)
+        : 0,
+    daily: [],
+    forecast: {
+      projected_daily_cost_microusd: 0,
+      projected_monthly_cost_microusd: 0,
+    },
+    latest_run_cost_microusd: 0,
+    models: modelData.map((m) => ({
+      label: m.model,
+      cost_microusd: m.cost_microusd,
+      total_tokens: m.total_tokens,
+    })),
+    providers: Object.values(
+      modelData.reduce<Record<string, AgentCostBreakdown>>((acc, m) => {
+        const key = m.provider || "unknown";
+        if (!acc[key]) {
+          acc[key] = { label: key, cost_microusd: 0, total_tokens: 0 };
+        }
+        acc[key].cost_microusd += m.cost_microusd;
+        acc[key].total_tokens += m.total_tokens;
+        return acc;
+      }, {})
+    ),
+    run_breakdown: [],
+    tools: [],
+    total_cost_microusd: costData.total_cost_microusd,
+    total_tokens: costData.total_tokens,
+    usage_records: costData.total_runs,
+  };
+}
