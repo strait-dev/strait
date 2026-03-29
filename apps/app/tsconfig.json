@@ -20,6 +20,7 @@
       "@strait/ui/*": ["../../packages/ui/src/*"],
       "@strait/db/*": ["../../packages/db/src/*"],
       "@strait/utils": ["../../packages/utils/src/index"],
+      "@strait/utils/*": ["../../packages/utils/src/*"],
       "@strait/transactional": ["../../packages/transactional/src/index.ts"]
     },
     "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo.json",
