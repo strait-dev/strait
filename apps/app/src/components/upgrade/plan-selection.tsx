@@ -22,7 +22,7 @@ const CENTS_TO_DOLLARS = 100;
 
 import type { ComparisonFeature, PricingPlan } from "@/hooks/billing/use-plans";
 
-type PlanType = "free" | "starter" | "pro" | "enterprise";
+type PlanType = "free" | "starter" | "pro" | "scale" | "enterprise";
 
 type PricingFeature = {
   name: string;
@@ -31,7 +31,7 @@ type PricingFeature = {
 };
 
 type UpgradeMode = "new_user" | "upgrade" | "checkout_recovery";
-type PlanSlug = "free" | "starter" | "pro" | "enterprise";
+type PlanSlug = "free" | "starter" | "pro" | "scale" | "enterprise";
 
 type BillingInterval = "monthly" | "yearly";
 

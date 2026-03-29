@@ -21,6 +21,7 @@ describe("normalizePlanSlug", () => {
     expect(normalizePlanSlug("free")).toBe("free");
     expect(normalizePlanSlug("starter")).toBe("starter");
     expect(normalizePlanSlug("pro")).toBe("pro");
+    expect(normalizePlanSlug("scale")).toBe("scale");
     expect(normalizePlanSlug("enterprise")).toBe("enterprise");
   });
 
@@ -53,7 +54,7 @@ describe("deriveSubscriptionState", () => {
 
     expect(state.planSlug).toBe("pro");
     expect(state.plan).toBe("pro");
-    expect(state.nextPlan).toEqual({ plan: "enterprise", name: "Enterprise" });
+    expect(state.nextPlan).toEqual({ plan: "scale", name: "Scale" });
   });
 
   it("defaults to free when both Polar and backend plans are missing", () => {

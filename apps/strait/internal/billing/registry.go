@@ -1,0 +1,155 @@
+package billing
+
+import "strait/internal/domain"
+
+// Feature represents a plan-gated feature that can be checked via the registry.
+type Feature string
+
+const (
+	FeatureHTTPMode          Feature = "http_mode"
+	FeatureApprovalGates     Feature = "approval_gates"
+	FeatureSubWorkflows      Feature = "sub_workflows"
+	FeatureJobChaining       Feature = "job_chaining"
+	FeatureCompensatingTxns  Feature = "compensating_txns"
+	FeatureCanaryDeployments Feature = "canary_deployments"
+	FeatureAuditLogs         Feature = "audit_logs"
+	FeatureSSO               Feature = "sso"
+	FeatureSLA               Feature = "sla"
+	FeatureRBAC              Feature = "rbac"
+	FeatureAllCronOverlap    Feature = "all_cron_overlap_policies"
+	FeatureAIAssistantBYOK   Feature = "ai_assistant_byok"
+)
+
+// LimitKey represents a numeric plan limit that can be queried via the registry.
+type LimitKey string
+
+const (
+	LimitMaxProjectsPerOrg   LimitKey = "max_projects_per_org"
+	LimitMaxMembersPerOrg    LimitKey = "max_members_per_org"
+	LimitMaxConcurrentRuns   LimitKey = "max_concurrent_runs"
+	LimitMaxRunsPerDay       LimitKey = "max_runs_per_day"
+	LimitMaxOrgsPerUser      LimitKey = "max_orgs_per_user"
+	LimitRetentionDays       LimitKey = "retention_days"
+	LimitMaxWorkflowDAGSteps LimitKey = "max_workflow_dag_steps"
+	LimitMaxJobChainDepth    LimitKey = "max_job_chain_depth"
+	LimitMaxScheduledJobs    LimitKey = "max_scheduled_jobs"
+	LimitMaxEnvironments     LimitKey = "max_environments"
+	LimitMaxWebhookEndpoints LimitKey = "max_webhook_endpoints"
+	LimitMaxAlertRules       LimitKey = "max_alert_rules_per_proj"
+	LimitMaxWebhookSubs      LimitKey = "max_webhook_subs_per_proj"
+	LimitMaxLogDrains        LimitKey = "max_log_drains_per_org"
+	LimitMaxAIModelCalls     LimitKey = "max_ai_model_calls_per_day"
+	LimitAPIRateLimit        LimitKey = "api_rate_limit"
+)
+
+// PlanRegistry provides plan definitions and feature checks.
+// Backed by the static Plans map today; can be swapped for DB-backed
+// or remote-config-backed implementations later.
+type PlanRegistry interface {
+	// Get returns the full plan limits for a tier. Unknown tiers return Free.
+	Get(tier domain.PlanTier) OrgPlanLimits
+
+	// All returns all plan definitions in tier order (free -> enterprise).
+	All() []OrgPlanLimits
+
+	// AllowsFeature returns true if the given tier has the specified feature.
+	AllowsFeature(tier domain.PlanTier, feature Feature) bool
+
+	// MaxForLimit returns the numeric limit value for a tier and limit key.
+	// Returns 0 for unknown limit keys, -1 for unlimited.
+	MaxForLimit(tier domain.PlanTier, limit LimitKey) int
+}
+
+// StaticRegistry implements PlanRegistry backed by the in-memory Plans map.
+type StaticRegistry struct{}
+
+// NewStaticRegistry returns a new static plan registry.
+func NewStaticRegistry() *StaticRegistry {
+	return &StaticRegistry{}
+}
+
+func (r *StaticRegistry) Get(tier domain.PlanTier) OrgPlanLimits {
+	return GetPlanLimits(tier)
+}
+
+func (r *StaticRegistry) All() []OrgPlanLimits {
+	result := make([]OrgPlanLimits, 0, len(Plans))
+	for _, tier := range domain.AllPlanTiers() {
+		if limits, ok := Plans[tier]; ok {
+			result = append(result, limits)
+		}
+	}
+	return result
+}
+
+func (r *StaticRegistry) AllowsFeature(tier domain.PlanTier, feature Feature) bool {
+	limits := GetPlanLimits(tier)
+	switch feature {
+	case FeatureHTTPMode:
+		return limits.AllowsHTTPMode
+	case FeatureApprovalGates:
+		return limits.HasApprovalGates
+	case FeatureSubWorkflows:
+		return limits.HasSubWorkflows
+	case FeatureJobChaining:
+		return limits.HasJobChaining
+	case FeatureCompensatingTxns:
+		return limits.HasCompensatingTxns
+	case FeatureCanaryDeployments:
+		return limits.HasCanaryDeployments
+	case FeatureAuditLogs:
+		return limits.HasAuditLogs
+	case FeatureSSO:
+		return limits.HasSSO
+	case FeatureSLA:
+		return limits.HasSLA
+	case FeatureRBAC:
+		return limits.HasRBAC
+	case FeatureAllCronOverlap:
+		return limits.AllCronOverlapPolicies
+	case FeatureAIAssistantBYOK:
+		return limits.AIAssistantBYOK
+	default:
+		return false
+	}
+}
+
+func (r *StaticRegistry) MaxForLimit(tier domain.PlanTier, limit LimitKey) int {
+	limits := GetPlanLimits(tier)
+	switch limit {
+	case LimitMaxProjectsPerOrg:
+		return limits.MaxProjectsPerOrg
+	case LimitMaxMembersPerOrg:
+		return limits.MaxMembersPerOrg
+	case LimitMaxConcurrentRuns:
+		return limits.MaxConcurrentRuns
+	case LimitMaxRunsPerDay:
+		return int(limits.MaxRunsPerDay)
+	case LimitMaxOrgsPerUser:
+		return limits.MaxOrgsPerUser
+	case LimitRetentionDays:
+		return limits.RetentionDays
+	case LimitMaxWorkflowDAGSteps:
+		return limits.MaxWorkflowDAGSteps
+	case LimitMaxJobChainDepth:
+		return limits.MaxJobChainDepth
+	case LimitMaxScheduledJobs:
+		return limits.MaxScheduledJobs
+	case LimitMaxEnvironments:
+		return limits.MaxEnvironments
+	case LimitMaxWebhookEndpoints:
+		return limits.MaxWebhookEndpoints
+	case LimitMaxAlertRules:
+		return limits.MaxAlertRulesPerProj
+	case LimitMaxWebhookSubs:
+		return limits.MaxWebhookSubsPerProj
+	case LimitMaxLogDrains:
+		return limits.MaxLogDrainsPerOrg
+	case LimitMaxAIModelCalls:
+		return limits.MaxAIModelCallsPerDay
+	case LimitAPIRateLimit:
+		return limits.APIRateLimit
+	default:
+		return 0
+	}
+}

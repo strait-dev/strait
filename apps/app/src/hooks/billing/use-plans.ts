@@ -95,7 +95,7 @@ export type PricingFeature = {
 
 export type PricingPlan = {
   name: string;
-  slug: "free" | "starter" | "pro" | "enterprise";
+  slug: "free" | "starter" | "pro" | "scale" | "enterprise";
   description: string;
   prices: {
     monthly: number;
@@ -113,14 +113,16 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
   free: "For side projects and evaluation. All features included.",
   starter: "For growing teams with production workloads.",
   pro: "For production workloads at scale.",
+  scale: "For high-volume teams that need audit logs and canary deploys.",
   enterprise: "Custom everything for large organizations.",
 };
 
 const SUPPORT_LABELS: Record<string, string> = {
   community: "Community support",
-  email_48h: "Email support (48h)",
+  email_72h: "Email support (72h)",
   priority_24h: "Priority support (24h)",
-  dedicated: "Dedicated support + Slack",
+  priority_slack_8h: "Priority support + Slack (8h)",
+  dedicated: "Dedicated support + CSM",
 };
 
 function formatSupportLevel(level: string): string {
@@ -239,6 +241,7 @@ export type ComparisonFeature = {
   free: string;
   starter: string;
   pro: string;
+  scale: string;
   enterprise: string;
 };
 
@@ -263,6 +266,7 @@ export function apiPlansToComparisonFeatures(
     free: val("free", fn),
     starter: val("starter", fn),
     pro: val("pro", fn),
+    scale: val("scale", fn),
     enterprise: val("enterprise", fn),
   });
 

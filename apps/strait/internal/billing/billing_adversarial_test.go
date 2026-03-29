@@ -1730,12 +1730,14 @@ func TestRecommendPlan_AllTiers(t *testing.T) {
 		expected       string
 	}{
 		{"zero usage", 0, 0, string(domain.PlanFree)},
-		{"just under free limit", DailyRunsFree * 30, 0, string(domain.PlanFree)},
-		{"over free runs", DailyRunsFree*30 + 1, 0, string(domain.PlanStarter)},
-		{"starter range", DailyRunsStarter * 30, CreditStarterMicrousd, string(domain.PlanStarter)},
-		{"over starter", DailyRunsStarter*30 + 1, CreditStarterMicrousd, string(domain.PlanPro)},
-		{"pro range", DailyRunsPro * 30, CreditProMicrousd, string(domain.PlanPro)},
-		{"over pro", DailyRunsPro*30 + 1, CreditProMicrousd, string(domain.PlanEnterprise)},
+		{"within free credit", 100, CreditFreeMicrousd, string(domain.PlanFree)},
+		{"over free credit", 100, CreditFreeMicrousd + 1, string(domain.PlanStarter)},
+		{"within starter credit", 1000, CreditStarterMicrousd, string(domain.PlanStarter)},
+		{"over starter credit", 1000, CreditStarterMicrousd + 1, string(domain.PlanPro)},
+		{"within pro credit", 5000, CreditProMicrousd, string(domain.PlanPro)},
+		{"over pro credit", 5000, CreditProMicrousd + 1, string(domain.PlanScale)},
+		{"within scale credit", 10000, CreditScaleMicrousd, string(domain.PlanScale)},
+		{"over scale credit", 10000, CreditScaleMicrousd + 1, string(domain.PlanEnterprise)},
 	}
 
 	for _, tt := range tests {

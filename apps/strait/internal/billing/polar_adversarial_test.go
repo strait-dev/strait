@@ -13,8 +13,8 @@ func TestPolarMapping_EmptyProductIDs(t *testing.T) {
 
 	m := NewPolarMapping("", "", "", "")
 
-	if len(m.productToTier) != 0 {
-		t.Fatalf("expected empty mapping when all product IDs are empty, got %d entries", len(m.productToTier))
+	if m.ProductCount() != 0 {
+		t.Fatalf("expected empty mapping when all product IDs are empty, got %d entries", m.ProductCount())
 	}
 
 	tier, ok := m.TierForProduct("")

@@ -1,4 +1,4 @@
-export type PlanSlug = "free" | "starter" | "pro" | "enterprise";
+export type PlanSlug = "free" | "starter" | "pro" | "scale" | "enterprise";
 
 export type SubscriptionData = {
   id: string;
@@ -58,6 +58,7 @@ export const normalizePlanSlug = (
     case "free":
     case "starter":
     case "pro":
+    case "scale":
     case "enterprise":
       return value;
     default:
@@ -74,6 +75,8 @@ const nextPlanFor = (
     case "starter":
       return { plan: "pro", name: "Pro" };
     case "pro":
+      return { plan: "scale", name: "Scale" };
+    case "scale":
       return { plan: "enterprise", name: "Enterprise" };
     case "enterprise":
       return null;

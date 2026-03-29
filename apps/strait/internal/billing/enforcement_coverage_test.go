@@ -47,9 +47,9 @@ func TestCheckDailyRunLimit_RedisError_FailsOpen(t *testing.T) {
 	}
 }
 
-// TestCheckDailyRunLimit_ExactBoundary_FreeTier verifies that the Nth run
-// (exactly at the limit) succeeds but the (N+1)th is rejected.
-func TestCheckDailyRunLimit_ExactBoundary_FreeTier(t *testing.T) {
+// TestCheckDailyRunLimit_UnlimitedFreeTier verifies that the free tier has
+// unlimited daily runs and no boundary rejection occurs.
+func TestCheckDailyRunLimit_UnlimitedFreeTier(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -57,26 +57,13 @@ func TestCheckDailyRunLimit_ExactBoundary_FreeTier(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	ctx := context.Background()
-	limits := GetPlanLimits(domain.PlanFree)
 
-	// Run exactly up to the limit; last one at the boundary should succeed.
-	for i := range limits.MaxRunsPerDay {
+	// All plans now have unlimited daily runs (MaxRunsPerDay = -1).
+	// Verify many runs succeed without hitting any limit.
+	for i := range 10_000 {
 		if err := enforcer.CheckDailyRunLimit(ctx, "org-boundary"); err != nil {
-			t.Fatalf("unexpected error at run %d: %v", i+1, err)
+			t.Fatalf("unexpected error at run %d: daily runs should be unlimited: %v", i+1, err)
 		}
-	}
-
-	// The very next run should be rejected.
-	err := enforcer.CheckDailyRunLimit(ctx, "org-boundary")
-	if err == nil {
-		t.Fatal("expected rejection at limit+1")
-	}
-	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if le.CurrentUsage != limits.MaxRunsPerDay {
-		t.Errorf("CurrentUsage = %d, want %d", le.CurrentUsage, limits.MaxRunsPerDay)
 	}
 }
 
@@ -257,9 +244,9 @@ func TestDecrDailyRunCount_FloorsAtZero(t *testing.T) {
 	}
 }
 
-// TestDecrDailyRunCount_RollbackAllowsOneMore verifies the full decrement
-// round-trip: exhaust the limit, decrement, then verify one more run is allowed.
-func TestDecrDailyRunCount_RollbackAllowsOneMore(t *testing.T) {
+// TestDecrDailyRunCount_RollbackWithUnlimitedRuns verifies decrement works
+// correctly when daily runs are unlimited (no rejection expected).
+func TestDecrDailyRunCount_RollbackWithUnlimitedRuns(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -267,30 +254,20 @@ func TestDecrDailyRunCount_RollbackAllowsOneMore(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	ctx := context.Background()
-	limits := GetPlanLimits(domain.PlanFree)
 
-	for i := range limits.MaxRunsPerDay {
+	// Run some jobs.
+	for range 100 {
 		if err := enforcer.CheckDailyRunLimit(ctx, "org-rollback2"); err != nil {
-			t.Fatalf("unexpected error at run %d: %v", i+1, err)
+			t.Fatalf("unexpected error: %v", err)
 		}
 	}
 
-	// Verify we are at the limit.
-	if err := enforcer.CheckDailyRunLimit(ctx, "org-rollback2"); err == nil {
-		t.Fatal("expected limit error")
-	}
-
-	// Decrement once (simulating a failed run rollback).
+	// Decrement should not panic.
 	enforcer.DecrDailyRunCount(ctx, "org-rollback2")
 
-	// Now one more run should be allowed.
+	// Runs should still be allowed (unlimited).
 	if err := enforcer.CheckDailyRunLimit(ctx, "org-rollback2"); err != nil {
 		t.Fatalf("expected pass after decrement, got: %v", err)
-	}
-
-	// And the next one should be rejected again.
-	if err := enforcer.CheckDailyRunLimit(ctx, "org-rollback2"); err == nil {
-		t.Fatal("expected rejection after single rollback slot consumed")
 	}
 }
 

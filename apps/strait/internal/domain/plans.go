@@ -9,16 +9,41 @@ const (
 	PlanFree       PlanTier = "free"
 	PlanStarter    PlanTier = "starter"
 	PlanPro        PlanTier = "pro"
+	PlanScale      PlanTier = "scale"
 	PlanEnterprise PlanTier = "enterprise"
 )
+
+// AllPlanTiers returns all valid plan tiers in ascending order.
+func AllPlanTiers() []PlanTier {
+	return []PlanTier{PlanFree, PlanStarter, PlanPro, PlanScale, PlanEnterprise}
+}
 
 // IsValid returns true if the plan tier is a recognized value.
 func (p PlanTier) IsValid() bool {
 	switch p {
-	case PlanFree, PlanStarter, PlanPro, PlanEnterprise:
+	case PlanFree, PlanStarter, PlanPro, PlanScale, PlanEnterprise:
 		return true
 	}
 	return false
+}
+
+// Rank returns the numeric rank of a plan tier (0=free, 4=enterprise).
+// Unknown tiers return 0.
+func (p PlanTier) Rank() int {
+	switch p {
+	case PlanFree:
+		return 0
+	case PlanStarter:
+		return 1
+	case PlanPro:
+		return 2
+	case PlanScale:
+		return 3
+	case PlanEnterprise:
+		return 4
+	default:
+		return 0
+	}
 }
 
 // PlanConfig defines the capabilities of a plan tier.
@@ -41,12 +66,18 @@ func AllPlanConfigs() map[PlanTier]PlanConfig {
 		PlanStarter: {
 			Tier:           PlanStarter,
 			MaxRegions:     1,
-			AllowedRegions: []string{"iad", "lax", "lhr", "fra", "nrt", "syd"},
+			AllowedRegions: []string{"iad", "ord", "lax", "lhr", "fra", "sin"},
 			MultiRegion:    false,
 		},
 		PlanPro: {
 			Tier:           PlanPro,
 			MaxRegions:     3,
+			AllowedRegions: nil, // all regions
+			MultiRegion:    true,
+		},
+		PlanScale: {
+			Tier:           PlanScale,
+			MaxRegions:     5,
 			AllowedRegions: nil, // all regions
 			MultiRegion:    true,
 		},

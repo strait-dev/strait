@@ -596,15 +596,18 @@ func safePercent(used, limit int64) float64 {
 	return float64(used) / float64(limit) * 100
 }
 
-func recommendPlan(monthlyRuns int64, monthlyComputeMicro int64) string {
-	if monthlyRuns <= DailyRunsFree*30 && monthlyComputeMicro <= 0 {
+func recommendPlan(_ int64, monthlyComputeMicro int64) string {
+	if monthlyComputeMicro <= CreditFreeMicrousd {
 		return string(domain.PlanFree)
 	}
-	if monthlyRuns <= DailyRunsStarter*30 && monthlyComputeMicro <= CreditStarterMicrousd {
+	if monthlyComputeMicro <= CreditStarterMicrousd {
 		return string(domain.PlanStarter)
 	}
-	if monthlyRuns <= DailyRunsPro*30 && monthlyComputeMicro <= CreditProMicrousd {
+	if monthlyComputeMicro <= CreditProMicrousd {
 		return string(domain.PlanPro)
+	}
+	if monthlyComputeMicro <= CreditScaleMicrousd {
+		return string(domain.PlanScale)
 	}
 	return string(domain.PlanEnterprise)
 }

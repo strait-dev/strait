@@ -27,25 +27,12 @@ func TestEnforcer_CheckDailyRunLimit_Free(t *testing.T) {
 	t.Parallel()
 	enforcer, _, _ := setupEnforcer(t)
 
-	// Free plan: 5000 runs/day, no subscription = free
-	for range 5000 {
+	// Free plan: unlimited daily runs (MaxRunsPerDay = -1).
+	// Verify many runs succeed without any limit error.
+	for range 10_000 {
 		if err := enforcer.CheckDailyRunLimit(context.Background(), "org_free"); err != nil {
-			t.Fatalf("unexpected limit error at run: %v", err)
+			t.Fatalf("unexpected limit error: daily runs should be unlimited for free tier: %v", err)
 		}
-	}
-
-	// Run 5001 should fail
-	err := enforcer.CheckDailyRunLimit(context.Background(), "org_free")
-	if err == nil {
-		t.Fatal("expected limit error at 5001 runs")
-	}
-
-	var le *LimitError
-	if ok := isLimitError(err, &le); !ok {
-		t.Fatalf("expected LimitError, got %T", err)
-	}
-	if le.Code != "org_daily_run_limit_exceeded" {
-		t.Errorf("code = %q, want org_daily_run_limit_exceeded", le.Code)
 	}
 }
 
@@ -57,17 +44,11 @@ func TestEnforcer_CheckDailyRunLimit_Starter(t *testing.T) {
 		"org_starter": {OrgID: "org_starter", PlanTier: "starter", Status: "active"},
 	}
 
-	limits := GetPlanLimits(domain.PlanStarter)
-	for range limits.MaxRunsPerDay {
+	// Starter plan: unlimited daily runs.
+	for range 10_000 {
 		if err := enforcer.CheckDailyRunLimit(context.Background(), "org_starter"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("unexpected error: daily runs should be unlimited for starter tier: %v", err)
 		}
-	}
-
-	// Paid plans allow overage — no error expected past the daily limit.
-	err := enforcer.CheckDailyRunLimit(context.Background(), "org_starter")
-	if err != nil {
-		t.Fatalf("expected overage to be allowed for paid plan, got: %v", err)
 	}
 }
 
@@ -87,15 +68,12 @@ func TestEnforcer_CheckDailyRunLimit_Enterprise(t *testing.T) {
 	}
 }
 
-// TestEnforcer_Integration_FreeTierDailyRunLimit is the integration test for STR-145.
-// It exercises the full path through Redis (atomic Lua scripts) and the subscription
-// lookup (explicit free-tier subscription record), verifying that the 5001st run
-// returns a structured LimitError with upgrade context.
-func TestEnforcer_Integration_FreeTierDailyRunLimit(t *testing.T) {
+// TestEnforcer_Integration_FreeTierDailyRunUnlimited verifies that the free tier
+// has unlimited daily runs (MaxRunsPerDay = -1).
+func TestEnforcer_Integration_FreeTierDailyRunUnlimited(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
-	// Explicit free-tier subscription record (not just the default/missing path).
 	store.subscriptions = map[string]*OrgSubscription{
 		"org_free_explicit": {
 			OrgID:    "org_free_explicit",
@@ -105,46 +83,12 @@ func TestEnforcer_Integration_FreeTierDailyRunLimit(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	limits := GetPlanLimits(domain.PlanFree)
 
-	// Exhaust the daily limit (5,000 runs).
-	for i := range limits.MaxRunsPerDay {
+	// Daily runs are unlimited for all plans. Verify many runs succeed.
+	for i := range 10_000 {
 		if err := enforcer.CheckDailyRunLimit(ctx, "org_free_explicit"); err != nil {
-			t.Fatalf("unexpected error at run %d: %v", i+1, err)
+			t.Fatalf("unexpected error at run %d: daily runs should be unlimited: %v", i+1, err)
 		}
-	}
-
-	// Run 5001 must be rejected.
-	err := enforcer.CheckDailyRunLimit(ctx, "org_free_explicit")
-	if err == nil {
-		t.Fatal("expected rejection at run 5001, got nil")
-	}
-
-	// Verify structured LimitError fields.
-	var le *LimitError
-	if !isLimitError(err, &le) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "org_daily_run_limit_exceeded" {
-		t.Errorf("Code = %q, want org_daily_run_limit_exceeded", le.Code)
-	}
-	if le.Limit != limits.MaxRunsPerDay {
-		t.Errorf("Limit = %d, want %d", le.Limit, limits.MaxRunsPerDay)
-	}
-	if le.CurrentUsage != limits.MaxRunsPerDay {
-		t.Errorf("CurrentUsage = %d, want %d", le.CurrentUsage, limits.MaxRunsPerDay)
-	}
-	if le.Plan != string(domain.PlanFree) {
-		t.Errorf("Plan = %q, want %q", le.Plan, domain.PlanFree)
-	}
-	if le.UpgradeURL == "" {
-		t.Error("UpgradeURL should not be empty")
-	}
-
-	// Verify the rejection is persistent (run 5002 also rejected).
-	err = enforcer.CheckDailyRunLimit(ctx, "org_free_explicit")
-	if err == nil {
-		t.Fatal("expected rejection at run 5002")
 	}
 }
 
@@ -163,15 +107,15 @@ func TestEnforcer_DecrRollback(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Use up all runs
-	for range 5000 {
+	// With unlimited daily runs, decrement should not panic or error.
+	for range 100 {
 		_ = enforcer.CheckDailyRunLimit(ctx, "org_rollback")
 	}
 
-	// Decrement (simulating a failed run)
+	// Decrement (simulating a failed run) should work cleanly.
 	enforcer.DecrDailyRunCount(ctx, "org_rollback")
 
-	// Should now allow one more
+	// Should still allow runs (unlimited).
 	if err := enforcer.CheckDailyRunLimit(ctx, "org_rollback"); err != nil {
 		t.Fatalf("should allow after decrement: %v", err)
 	}
@@ -205,20 +149,22 @@ func TestEnforcer_CheckConcurrentRunLimit(t *testing.T) {
 func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
+	freeLimits := GetPlanLimits(domain.PlanFree)
 
+	// Free tier: 1 project max. Having 1 project means count >= limit = blocked.
 	store.projects = map[string][]string{
-		"org_full": {"p1", "p2"},
+		"org_full": {"p1"},
 	}
 
-	// Free: 2 projects max
 	err := enforcer.CheckProjectLimit(context.Background(), "org_full")
 	if err == nil {
-		t.Fatal("expected project limit error")
+		t.Fatalf("expected project limit error at %d projects on free plan", freeLimits.MaxProjectsPerOrg)
 	}
 
-	store.projects["org_one"] = []string{"p1"}
-	if err := enforcer.CheckProjectLimit(context.Background(), "org_one"); err != nil {
-		t.Fatalf("should pass with 1 project: %v", err)
+	// With 0 projects (under limit), should pass.
+	store.projects["org_empty"] = []string{}
+	if err := enforcer.CheckProjectLimit(context.Background(), "org_empty"); err != nil {
+		t.Fatalf("should pass with 0 projects: %v", err)
 	}
 }
 
@@ -595,24 +541,26 @@ func TestReconcileAll_NilRedis(t *testing.T) {
 
 // Member limit tests.
 
-func TestCheckMemberLimit_FreeAt3_Passes(t *testing.T) {
+func TestCheckMemberLimit_FreeUnderLimit_Passes(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
-	store.memberCounts = map[string]int{"org_free": 2}
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	store.memberCounts = map[string]int{"org_free": freeLimits.MaxMembersPerOrg - 1}
 
 	if err := enforcer.CheckMemberLimit(context.Background(), "org_free"); err != nil {
-		t.Fatalf("expected pass with 2 members on free (limit 3): %v", err)
+		t.Fatalf("expected pass under limit: %v", err)
 	}
 }
 
-func TestCheckMemberLimit_FreeAt3_Blocked(t *testing.T) {
+func TestCheckMemberLimit_FreeAtLimit_Blocked(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
-	store.memberCounts = map[string]int{"org_free": 3}
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	store.memberCounts = map[string]int{"org_free": freeLimits.MaxMembersPerOrg}
 
 	err := enforcer.CheckMemberLimit(context.Background(), "org_free")
 	if err == nil {
-		t.Fatal("expected member limit error at 3 members on free plan")
+		t.Fatalf("expected member limit error at %d members on free plan", freeLimits.MaxMembersPerOrg)
 	}
 	var le *LimitError
 	if !errors.As(err, &le) {
@@ -621,35 +569,37 @@ func TestCheckMemberLimit_FreeAt3_Blocked(t *testing.T) {
 	if le.Code != "member_limit_reached" {
 		t.Errorf("code = %q, want member_limit_reached", le.Code)
 	}
-	if le.Limit != 3 {
-		t.Errorf("limit = %d, want 3", le.Limit)
+	if le.Limit != int64(freeLimits.MaxMembersPerOrg) {
+		t.Errorf("limit = %d, want %d", le.Limit, freeLimits.MaxMembersPerOrg)
 	}
 }
 
-func TestCheckMemberLimit_StarterAt10_Passes(t *testing.T) {
+func TestCheckMemberLimit_StarterUnderLimit_Passes(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
+	starterLimits := GetPlanLimits(domain.PlanStarter)
 	store.subscriptions = map[string]*OrgSubscription{
 		"org_starter": {OrgID: "org_starter", PlanTier: "starter", Status: "active"},
 	}
-	store.memberCounts = map[string]int{"org_starter": 9}
+	store.memberCounts = map[string]int{"org_starter": starterLimits.MaxMembersPerOrg - 1}
 
 	if err := enforcer.CheckMemberLimit(context.Background(), "org_starter"); err != nil {
-		t.Fatalf("expected pass with 9 members on starter (limit 10): %v", err)
+		t.Fatalf("expected pass under limit: %v", err)
 	}
 }
 
-func TestCheckMemberLimit_StarterAt10_Blocked(t *testing.T) {
+func TestCheckMemberLimit_StarterAtLimit_Blocked(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
+	starterLimits := GetPlanLimits(domain.PlanStarter)
 	store.subscriptions = map[string]*OrgSubscription{
 		"org_starter": {OrgID: "org_starter", PlanTier: "starter", Status: "active"},
 	}
-	store.memberCounts = map[string]int{"org_starter": 10}
+	store.memberCounts = map[string]int{"org_starter": starterLimits.MaxMembersPerOrg}
 
 	err := enforcer.CheckMemberLimit(context.Background(), "org_starter")
 	if err == nil {
-		t.Fatal("expected member limit error at 10 members on starter plan")
+		t.Fatalf("expected member limit error at %d members on starter plan", starterLimits.MaxMembersPerOrg)
 	}
 	var le *LimitError
 	if !errors.As(err, &le) {
@@ -658,8 +608,8 @@ func TestCheckMemberLimit_StarterAt10_Blocked(t *testing.T) {
 	if le.Code != "member_limit_reached" {
 		t.Errorf("code = %q, want member_limit_reached", le.Code)
 	}
-	if le.Limit != 10 {
-		t.Errorf("limit = %d, want 10", le.Limit)
+	if le.Limit != int64(starterLimits.MaxMembersPerOrg) {
+		t.Errorf("limit = %d, want %d", le.Limit, starterLimits.MaxMembersPerOrg)
 	}
 }
 
@@ -731,58 +681,22 @@ func TestCheckOrgCreationLimit_ProUnlimited(t *testing.T) {
 
 // 80% daily run warning tests.
 
-func TestCheck80PercentWarning_Below80_False(t *testing.T) {
+func TestCheck80PercentWarning_UnlimitedAlwaysFalse(t *testing.T) {
 	t.Parallel()
 	enforcer, _, _ := setupEnforcer(t)
 
-	// Free plan: 5000 runs/day, 80% = 4000. Set count to 3999.
+	// All plans now have unlimited daily runs, so 80% warning should always be false.
 	ctx := context.Background()
-	for range 3999 {
-		_ = enforcer.CheckDailyRunLimit(ctx, "org_warn_below")
+	for range 1000 {
+		_ = enforcer.CheckDailyRunLimit(ctx, "org_warn_unlimited")
 	}
 
-	warned, err := enforcer.Check80PercentDailyRunWarning(ctx, "org_warn_below")
+	warned, err := enforcer.Check80PercentDailyRunWarning(ctx, "org_warn_unlimited")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if warned {
-		t.Error("expected false at 3999/5000 (79.98%)")
-	}
-}
-
-func TestCheck80PercentWarning_At80_True(t *testing.T) {
-	t.Parallel()
-	enforcer, _, _ := setupEnforcer(t)
-
-	ctx := context.Background()
-	for range 4000 {
-		_ = enforcer.CheckDailyRunLimit(ctx, "org_warn_at80")
-	}
-
-	warned, err := enforcer.Check80PercentDailyRunWarning(ctx, "org_warn_at80")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !warned {
-		t.Error("expected true at 4000/5000 (80%)")
-	}
-}
-
-func TestCheck80PercentWarning_Above80_True(t *testing.T) {
-	t.Parallel()
-	enforcer, _, _ := setupEnforcer(t)
-
-	ctx := context.Background()
-	for range 4500 {
-		_ = enforcer.CheckDailyRunLimit(ctx, "org_warn_above")
-	}
-
-	warned, err := enforcer.Check80PercentDailyRunWarning(ctx, "org_warn_above")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !warned {
-		t.Error("expected true at 4500/5000 (90%)")
+		t.Error("expected false for unlimited daily runs (free tier)")
 	}
 }
 

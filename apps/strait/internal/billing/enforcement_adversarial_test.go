@@ -793,7 +793,7 @@ func TestEnforcer_ProjectSuspended_CacheRace(t *testing.T) {
 	// Success = no panics or races under -race.
 }
 
-func TestEnforcer_DailyRunLimit_ConcurrentExhaustion(t *testing.T) {
+func TestEnforcer_DailyRunLimit_ConcurrentUnlimited(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -805,9 +805,10 @@ func TestEnforcer_DailyRunLimit_ConcurrentExhaustion(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 	ctx := context.Background()
 
-	freeLimits := GetPlanLimits(domain.PlanFree)
+	// Daily runs are unlimited for all plans. Verify concurrent access
+	// never produces a rejection.
 	const goroutines = 20
-	var allowed atomic.Int64
+	const runsPerGoroutine = 500
 	var rejected atomic.Int64
 
 	var wg sync.WaitGroup
@@ -815,26 +816,17 @@ func TestEnforcer_DailyRunLimit_ConcurrentExhaustion(t *testing.T) {
 	for range goroutines {
 		go func() {
 			defer wg.Done()
-			// Each goroutine tries limit/goroutines + 1 runs.
-			runs := int(freeLimits.MaxRunsPerDay)/goroutines + 1
-			for range runs {
-				err := enforcer.CheckDailyRunLimit(ctx, "org-exhaust-conc")
-				if err != nil {
+			for range runsPerGoroutine {
+				if err := enforcer.CheckDailyRunLimit(ctx, "org-exhaust-conc"); err != nil {
 					rejected.Add(1)
-				} else {
-					allowed.Add(1)
 				}
 			}
 		}()
 	}
 	wg.Wait()
 
-	// The atomic Lua script should enforce the limit exactly.
-	if allowed.Load() > freeLimits.MaxRunsPerDay {
-		t.Fatalf("allowed %d exceeds limit %d under concurrent access", allowed.Load(), freeLimits.MaxRunsPerDay)
-	}
-	if allowed.Load() != freeLimits.MaxRunsPerDay {
-		t.Logf("allowed = %d (limit = %d); may be less due to race timing", allowed.Load(), freeLimits.MaxRunsPerDay)
+	if rejected.Load() != 0 {
+		t.Fatalf("expected 0 rejections for unlimited daily runs, got %d", rejected.Load())
 	}
 }
 
