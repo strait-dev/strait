@@ -19,12 +19,14 @@ import (
 )
 
 const (
-	backingJobSlugPrefix = "__agent__"
-	backingJobEndpoint   = "https://agents.local.invalid/dispatch"
+	backingJobSlugPrefix     = "__agent__"
+	backingJobEndpoint       = "https://agents.local.invalid/dispatch"
+	defaultMaxConcurrentRuns = 10
 )
 
 var (
-	ErrNotDeployed = errors.New("agent is not deployed")
+	ErrNotDeployed         = errors.New("agent is not deployed")
+	ErrConcurrencyExceeded = errors.New("agent has too many concurrent runs")
 )
 
 type Service interface {
@@ -113,17 +115,18 @@ func (LocalStubProvider) Run(_ context.Context, agent *domain.Agent, deployment 
 }
 
 type localService struct {
-	store          agentStore
-	txb            store.TxBeginner
-	p              Provider
-	runtime        RuntimeRunner
-	callbacks      RuntimeCallbackClient
-	dispatchHTTP   *http.Client
-	internalSecret string
-	now            func() time.Time
-	apiBaseURL     string
-	jwtSigningKey  string
-	dispatchPool   pond.Pool
+	store             agentStore
+	txb               store.TxBeginner
+	p                 Provider
+	runtime           RuntimeRunner
+	callbacks         RuntimeCallbackClient
+	dispatchHTTP      *http.Client
+	internalSecret    string
+	now               func() time.Time
+	apiBaseURL        string
+	jwtSigningKey     string
+	dispatchPool      pond.Pool
+	maxConcurrentRuns int
 }
 
 type Option func(*localService)
@@ -176,6 +179,9 @@ func NewService(q *store.Queries, txb store.TxBeginner, opts ...Option) Service 
 	}
 	if svc.callbacks == nil {
 		svc.callbacks = NewHTTPCallbackClient(svc.apiBaseURL, &http.Client{Timeout: 15 * time.Second})
+	}
+	if svc.maxConcurrentRuns <= 0 {
+		svc.maxConcurrentRuns = defaultMaxConcurrentRuns
 	}
 	return svc
 }
@@ -244,6 +250,14 @@ func WithDispatchHTTPClient(client *http.Client) Option {
 	return func(s *localService) {
 		if client != nil {
 			s.dispatchHTTP = client
+		}
+	}
+}
+
+func WithMaxConcurrentRuns(n int) Option {
+	return func(s *localService) {
+		if n > 0 {
+			s.maxConcurrentRuns = n
 		}
 	}
 }
@@ -468,6 +482,22 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 	if err != nil {
 		return nil, err
 	}
+
+	// Enforce per-agent concurrency limit by counting non-terminal runs.
+	existingRuns, err := s.store.ListRunsByJob(ctx, agent.JobID, s.maxConcurrentRuns+1, 0)
+	if err != nil {
+		return nil, fmt.Errorf("check agent concurrency: %w", err)
+	}
+	activeCount := 0
+	for _, r := range existingRuns {
+		if !r.Status.IsTerminal() {
+			activeCount++
+		}
+	}
+	if activeCount >= s.maxConcurrentRuns {
+		return nil, ErrConcurrencyExceeded
+	}
+
 	deployment, err := s.store.GetLatestAgentDeployment(ctx, agent.ID)
 	if err != nil {
 		return nil, ErrNotDeployed
