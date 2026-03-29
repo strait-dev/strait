@@ -43,8 +43,7 @@ COPY --from=install /app/ ./
 COPY apps/app/ apps/app/
 COPY packages/ packages/
 
-# Build with node-server preset for Docker (vite.config.ts reads NITRO_PRESET).
-ENV NITRO_PRESET=node-server
+# Build for Cloudflare Workers (uses @cloudflare/vite-plugin).
 RUN cd apps/app && bun run build
 
 # -- Runtime stage --
