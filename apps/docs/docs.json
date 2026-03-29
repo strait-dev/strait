@@ -82,6 +82,7 @@
             "pages": [
               "guides/authentication",
               "guides/deployment",
+              "guides/agent-api",
               "guides/security",
               "guides/sdk-integration",
               "guides/oidc",

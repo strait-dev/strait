@@ -7,6 +7,29 @@ This guide covers the local-first development loop for managed agents in Strait.
 
 The current implementation is designed to prove the full control plane and runtime contract without requiring Cloudflare or any remote worker platform.
 
+## Recommended Contributor Flow
+
+For contributors and self-host users, the clean local loop is:
+
+```bash
+docker compose -f apps/strait/docker-compose.yml up -d
+
+cd apps/strait
+DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable \
+REDIS_URL=redis://localhost:6379 \
+INTERNAL_SECRET=strait-local-internal-secret-32chars \
+JWT_SIGNING_KEY=strait-local-jwt-signing-key-32chars \
+go run ./cmd/strait --mode all
+
+cd apps/app
+bun run dev
+```
+
+The app dev command bootstraps local auth automatically and seeds a deterministic local user:
+
+- email: `dev@local.strait`
+- password: `devpassword123`
+
 ## What Runs Locally
 
 - the API and worker in `apps/strait`
@@ -73,6 +96,15 @@ Reference implementations for this loop live in:
 4. Observe the resulting run, checkpoints, tool calls, and usage in the dashboard or API.
 5. Iterate on the agent entrypoint in `apps/agents`.
 
+If you prefer the dashboard path instead of raw API calls:
+
+1. sign in with the seeded local user
+2. open `/app/agents`
+3. create an agent
+4. deploy it
+5. run it
+6. inspect the run detail page and cost/debug surfaces
+
 Inside that loop, prefer adapter-wrapped clients so budget guards, checkpoint telemetry, and stream forwarding stay consistent with production behavior:
 
 ```ts
@@ -134,6 +166,51 @@ For local runtime dogfooding, `apps/agents` also supports structured local modes
 - `synthesizer` emits a synthesized summary payload
 
 This keeps the local runtime useful for orchestration testing instead of acting as a pure echo stub.
+
+## API Walkthrough
+
+Create an agent:
+
+```bash
+curl -sS "$STRAIT_API_URL/v1/agents" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id":"proj_123",
+    "name":"Local Incident Agent",
+    "slug":"local-incident-agent",
+    "model":"gpt-5.4-mini",
+    "config":{"sandbox":{"policy":{"default_action":"deny"}}}
+  }'
+```
+
+Deploy it:
+
+```bash
+curl -sS -X POST "$STRAIT_API_URL/v1/agents/$AGENT_ID/deploy" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "X-Project-ID: proj_123"
+```
+
+Run it:
+
+```bash
+curl -sS -X POST "$STRAIT_API_URL/v1/agents/$AGENT_ID/run" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "X-Project-ID: proj_123" \
+  -H "Content-Type: application/json" \
+  -d '{"payload":{"topic":"billing incident"}}'
+```
+
+List the resulting runs:
+
+```bash
+curl -sS "$STRAIT_API_URL/v1/agents/$AGENT_ID/runs?limit=20&offset=0" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "X-Project-ID: proj_123"
+```
+
+For the full management surface, see [Agent API Guide](/docs/guides/agent-api).
 
 ## Recommended Validation
 

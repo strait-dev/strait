@@ -11,6 +11,17 @@ It maps directly to the current acceptance scope for:
 - `STR-297` runtime Worker and dispatch Worker entrypoints
 - `STR-294` outbound-worker sandboxing
 
+## System Diagram
+
+```mermaid
+flowchart LR
+  A["Strait Go Control Plane"] --> B["Dispatch Worker"]
+  B --> C["Runtime Worker"]
+  C --> D["Outbound Worker"]
+  C --> E["Run Token Callbacks"]
+  E --> A
+```
+
 ## Architecture
 
 The production path has three Cloudflare Worker entrypoints in `apps/agents`:
@@ -27,6 +38,20 @@ The control plane remains in Go:
 4. The runtime Worker emits checkpoints, usage, stream chunks, tool calls, and terminal state.
 5. The dispatch Worker forwards those callbacks back to Strait.
 6. Outbound egress from the runtime Worker is evaluated by the outbound Worker.
+
+## Shared vs Versioned Components
+
+Shared infrastructure:
+
+- dispatch Worker
+- outbound Worker
+- dispatch namespace
+
+Versioned per deployment:
+
+- runtime Worker script
+- provider metadata stored on the deployment record
+- sandbox policy snapshot
 
 ## Required Preparation
 
@@ -53,7 +78,28 @@ bun run deploy:outbound
 bun run deploy:dispatch
 ```
 
+Recommended order:
+
+1. build all bundles
+2. deploy outbound Worker
+3. deploy dispatch Worker
+4. deploy an agent from Strait
+5. trigger a smoke run
+
 The runtime Worker is uploaded by the Go control plane during agent deployment. Strait prefers the built bundle at `apps/agents/dist/runtime/worker.js` and falls back to the embedded runtime snapshot in [runtime_worker_bundle.js](/Users/leonardomaldonado/.codex/worktrees/0556/strait/apps/strait/internal/agents/runtime_worker_bundle.js).
+
+## Required Runtime Metadata
+
+Cloudflare deployment metadata should include:
+
+- provider kind
+- namespace
+- script name
+- deployment version
+- dispatch worker URL
+- compatibility date
+- sandbox policy snapshot
+- runtime bundle hash or etag
 
 ## Deploy and Run Smoke Commands
 
@@ -112,6 +158,22 @@ curl -sS -X POST "$STRAIT_API_URL/v1/agents/$AGENT_ID/run" \
   -d '{"payload":{"_network_url":"https://blocked.example.com"}}'
 ```
 
+## Expected Run Semantics
+
+Successful dispatch and runtime execution should produce:
+
+- a normal run record
+- at least one checkpoint when the runtime emits one
+- usage telemetry in `run_usage`
+- tool telemetry in `run_tool_calls`
+
+Dispatch-level failures before runtime startup should map to `system_failed`.
+
+Runtime-level failures after startup should map according to the emitted runtime event:
+
+- explicit runtime failure event -> `failed`
+- malformed runtime contract or disconnect -> `system_failed`
+
 ## Staging Dogfood Checklist
 
 - Build all worker bundles successfully with `bun run build`.
@@ -158,3 +220,10 @@ If egress is unexpectedly blocked:
   - `x-strait-outbound-status`
   - `x-strait-outbound-reason`
   - `x-strait-outbound-policy-tag`
+
+## Related References
+
+- [Agents](/docs/concepts/agents)
+- [Agent API Guide](/docs/guides/agent-api)
+- [Agents SDK](/docs/sdks/agents)
+- [Local Agent Development](/docs/guides/local-agent-development)
