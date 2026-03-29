@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 import { Cause, Effect, Exit } from "effect";
 
 import {
+  buildNDJSONResponseBody,
   buildRuntimeOutput,
   parseEnvelope,
-  serializeOutputLine,
-} from "./runtime";
+} from "./core";
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -32,7 +32,9 @@ export function writeOutput(
 
 export const program = readEnvelopeFromStdin.pipe(
   Effect.flatMap(buildRuntimeOutput),
-  Effect.map((outputs) => outputs.map(serializeOutputLine)),
+  Effect.map((outputs) =>
+    buildNDJSONResponseBody(outputs).trimEnd().split("\n")
+  ),
   Effect.flatMap(writeOutput)
 );
 
