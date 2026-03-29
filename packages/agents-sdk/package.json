@@ -1,9 +1,37 @@
 {
   "name": "@strait/agents",
   "version": "1.0.0",
-  "private": true,
+  "description": "Runtime-side TypeScript SDK for managed Strait agents, provider adapters, budgets, workflow helpers, and run-token callbacks.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/strait-dev/strait/tree/master/packages/agents-sdk",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/strait-dev/strait.git",
+    "directory": "packages/agents-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/strait-dev/strait/issues"
+  },
+  "keywords": [
+    "agents",
+    "ai",
+    "anthropic",
+    "cloudflare-workers",
+    "llm",
+    "openai",
+    "strait",
+    "vercel-ai"
+  ],
+  "private": false,
   "type": "module",
   "sideEffects": false,
+  "files": [
+    "README.md",
+    "src"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "clean": "rm -rf .turbo coverage node_modules",
     "test": "vitest run",

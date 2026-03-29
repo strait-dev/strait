@@ -104,7 +104,7 @@ function AgentsPage() {
 
   return (
     <Shell>
-      <div className="grid gap-4 pb-2 md:grid-cols-3">
+      <div className="grid gap-4 pb-2 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Use Agents For</CardTitle>
@@ -142,6 +142,18 @@ function AgentsPage() {
             >
               Open Jobs
             </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Product Boundary</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-muted-foreground text-sm">
+            <p>
+              Agents and Jobs share the same project and account, but they are
+              separate execution products with different runtime and cost
+              envelopes.
+            </p>
           </CardContent>
         </Card>
       </div>

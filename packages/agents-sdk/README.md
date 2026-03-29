@@ -104,9 +104,27 @@ This keeps execution runtimes thin and ensures provider wrappers, tools, and wor
 
 ## Installation
 
+The SDK is the public runtime-side package surface. The internal runtime implementation lives in `apps/agents` and should not be installed directly in application code.
+
 ```bash
+npm install @strait/agents
+pnpm add @strait/agents
+yarn add @strait/agents
 bun add @strait/agents
 ```
+
+## Import Paths
+
+Use the narrowest import path that matches your runtime code:
+
+- `@strait/agents`
+  - `StraitContext`, `strait.agent()`, workflow helpers, budgets, evals
+- `@strait/agents/ai-sdk`
+  - Vercel AI SDK wrapper helpers
+- `@strait/agents/openai`
+  - OpenAI wrapper helpers
+- `@strait/agents/anthropic`
+  - Anthropic wrapper helpers
 
 ## Minimal Usage
 
@@ -191,15 +209,28 @@ import { createSandboxTool } from "@strait/agents";
 
 const fetchTool = createSandboxTool({
   name: "web-fetch",
+  mode: "dynamic-worker",
   timeoutMs: 30_000,
-  sandbox: {
-    executionMode: "sandboxed",
-    networkClass: "restricted",
-    outboundPolicyTag: "research",
-  },
+  networkClass: "sandbox",
+  outboundPolicyTag: "research",
   execute: async (input: { url: string }) => ({ url: input.url, ok: true }),
 });
 ```
+
+Dynamic Workers are the default Cloudflare sandbox path. Outbound-worker mode remains available as a compatibility fallback when an environment chooses shared egress routing instead of isolated tool execution.
+
+## Management and CLI Surface
+
+`@strait/agents` is intentionally runtime-side only. It does not create, deploy, or list agents by itself.
+
+Use these surfaces for management:
+
+- dashboard
+  - create agents, deploy them, trigger runs, inspect telemetry
+- management API
+  - `/v1/agents`, `/v1/agents/{id}/deploy`, `/v1/agents/{id}/run`
+- CLI
+  - lives in the dedicated [strait-dev/cli](https://github.com/strait-dev/cli) repository and is the long-term home for `strait agents ...` commands
 
 ## Examples
 

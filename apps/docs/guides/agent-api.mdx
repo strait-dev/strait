@@ -14,6 +14,19 @@ The agent API is the control-plane surface for:
 
 It is intentionally separate from the runtime callback API used by executing agents. Runtime code should use `@strait/agents`, not these endpoints.
 
+## Control Plane Surfaces
+
+Today, agent lifecycle management is split across:
+
+- dashboard
+  - create, deploy, run, and inspect agents visually
+- management API
+  - automate agent lifecycle from your own tooling
+- CLI
+  - lives in the dedicated [strait-dev/cli](https://github.com/strait-dev/cli) repository and is the long-term home for `strait agents ...` commands
+
+The runtime package `@strait/agents` is intentionally not part of this control-plane surface. It belongs inside an executing run.
+
 ## Mental Model
 
 An agent is a managed resource layered on top of the existing job/run substrate.

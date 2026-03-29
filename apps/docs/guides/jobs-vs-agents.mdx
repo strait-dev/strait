@@ -10,6 +10,15 @@ Strait now has two execution products on one platform:
 
 They share the same project model, authentication, telemetry pipeline, dashboard, and billing account. The important distinction is execution shape.
 
+They should be treated as two product surfaces on one platform:
+
+- one shared Strait account
+- shared projects, auth, and observability
+- separate execution models
+- separate usage envelopes and pricing stories
+
+In other words, Jobs and Agents belong together operationally, but users should still choose between them intentionally instead of treating agents as a replacement for Fly-backed execution.
+
 ## Use Jobs When
 
 Choose Jobs when the work is compute-heavy, long-running, or container-dependent:

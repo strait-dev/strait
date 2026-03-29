@@ -138,7 +138,19 @@ function TimelineRow({ item }: { item: RunTimelineItem }) {
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="font-medium text-sm">{item.tool_name}</p>
-            <p className="text-muted-foreground text-xs">{item.status}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-muted-foreground">{item.status}</span>
+              {item.sandbox_executor ? (
+                <span className="rounded-full border px-2 py-0.5 font-mono text-[11px]">
+                  {item.sandbox_executor}
+                </span>
+              ) : null}
+              {item.outbound_reason ? (
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-300">
+                  {item.outbound_reason}
+                </span>
+              ) : null}
+            </div>
           </div>
           <span className="font-mono text-muted-foreground text-xs">
             {item.duration_ms ? `${item.duration_ms}ms` : "-"}
@@ -166,18 +178,20 @@ function TimelineRow({ item }: { item: RunTimelineItem }) {
 }
 
 function RunSummaryCards({
+  blockedToolCallCount,
   checkpointCount,
   toolCallCount,
   totalCostMicrousd,
   totalTokens,
 }: {
+  blockedToolCallCount: number;
   checkpointCount: number;
   toolCallCount: number;
   totalCostMicrousd: number;
   totalTokens: number;
 }) {
   return (
-    <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="font-medium text-muted-foreground text-sm">
@@ -218,21 +232,43 @@ function RunSummaryCards({
           <p className="text-2xl">{toolCallCount.toLocaleString()}</p>
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="font-medium text-muted-foreground text-sm">
+            Blocked Calls
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-2xl">{blockedToolCallCount.toLocaleString()}</p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 function RunTelemetryTab({
+  blockedReasonBreakdown,
+  blockedToolCallCount,
   isActive,
   latestCheckpoint,
   modelBreakdown,
+  toolDetails,
   toolBreakdown,
+  toolExecutorBreakdown,
   usageSeries,
 }: {
+  blockedReasonBreakdown: ReturnType<
+    typeof summarizeRunDebugBundle
+  >["blocked_reason_breakdown"];
+  blockedToolCallCount: number;
   isActive: boolean;
   latestCheckpoint: unknown;
   modelBreakdown: ReturnType<typeof summarizeRunDebugBundle>["model_breakdown"];
+  toolDetails: ReturnType<typeof summarizeRunDebugBundle>["tool_details"];
   toolBreakdown: ReturnType<typeof summarizeRunDebugBundle>["tool_breakdown"];
+  toolExecutorBreakdown: ReturnType<
+    typeof summarizeRunDebugBundle
+  >["tool_executor_breakdown"];
   usageSeries: UsageSeriesEntry[];
 }) {
   return (
@@ -317,15 +353,30 @@ function RunTelemetryTab({
               toolBreakdown.map((tool) => (
                 <div className="rounded-md border p-3" key={tool.tool_name}>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-medium text-sm">
-                      {tool.tool_name}
-                    </span>
-                    <span className="font-mono text-muted-foreground text-xs">
-                      {tool.count} calls
-                    </span>
+                    <div>
+                      <span className="font-medium text-sm">
+                        {tool.tool_name}
+                      </span>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {tool.executors.map((executor) => (
+                          <span
+                            className="rounded-full border px-2 py-0.5 font-mono text-[11px]"
+                            key={`${tool.tool_name}-${executor}`}
+                          >
+                            {executor}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono text-muted-foreground text-xs">
+                        {tool.count} calls
+                      </span>
+                    </div>
                   </div>
                   <p className="mt-1 text-muted-foreground text-xs">
-                    {tool.failed_count} failed
+                    {tool.failed_count} non-completed, {tool.blocked_count}{" "}
+                    blocked
                   </p>
                 </div>
               ))
@@ -349,6 +400,113 @@ function RunTelemetryTab({
             ) : (
               <p className="text-muted-foreground text-sm">
                 No checkpoints were recorded.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Sandbox Execution</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-md border p-3">
+              <p className="font-medium text-sm">Blocked Tool Calls</p>
+              <p className="mt-1 text-2xl">{blockedToolCallCount}</p>
+            </div>
+
+            <div className="space-y-3">
+              <p className="font-medium text-sm">Executor Breakdown</p>
+              {toolExecutorBreakdown.length > 0 ? (
+                toolExecutorBreakdown.map((entry) => (
+                  <div
+                    className="flex items-center justify-between text-sm"
+                    key={entry.executor}
+                  >
+                    <span className="font-mono text-muted-foreground">
+                      {entry.executor}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {entry.count} calls, {entry.blocked_count} blocked
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No sandbox execution data recorded.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <p className="font-medium text-sm">Blocked Reasons</p>
+              {blockedReasonBreakdown.length > 0 ? (
+                blockedReasonBreakdown.map((entry) => (
+                  <div
+                    className="flex items-center justify-between text-sm"
+                    key={entry.reason}
+                  >
+                    <span className="font-mono text-muted-foreground">
+                      {entry.reason}
+                    </span>
+                    <span>{entry.count}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No blocked sandbox calls recorded.
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Tool Activity</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {toolDetails.length > 0 ? (
+              toolDetails.slice(0, 8).map((tool) => (
+                <div
+                  className="rounded-md border p-3"
+                  key={`${tool.created_at}-${tool.tool_name}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-sm">{tool.tool_name}</p>
+                      <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                        <span className="text-muted-foreground">
+                          {tool.status}
+                        </span>
+                        {tool.sandbox_executor ? (
+                          <span className="rounded-full border px-2 py-0.5 font-mono text-[11px]">
+                            {tool.sandbox_executor}
+                          </span>
+                        ) : null}
+                        {tool.outbound_reason ? (
+                          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-300">
+                            {tool.outbound_reason}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="text-right text-muted-foreground text-xs">
+                      <div>
+                        {tool.duration_ms ? `${tool.duration_ms}ms` : "-"}
+                      </div>
+                      <div>
+                        {new Date(tool.created_at).toLocaleTimeString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No recent tool activity recorded.
               </p>
             )}
           </CardContent>
@@ -452,6 +610,7 @@ function RunDetailPage() {
       )}
 
       <RunSummaryCards
+        blockedToolCallCount={summary.blocked_tool_call_count}
         checkpointCount={summary.checkpoint_count}
         toolCallCount={bundle.tool_calls?.length ?? 0}
         totalCostMicrousd={summary.total_cost_microusd}
@@ -551,10 +710,14 @@ function RunDetailPage() {
         </TabsContent>
 
         <RunTelemetryTab
+          blockedReasonBreakdown={summary.blocked_reason_breakdown}
+          blockedToolCallCount={summary.blocked_tool_call_count}
           isActive={isActive}
           latestCheckpoint={summary.latest_checkpoint}
           modelBreakdown={summary.model_breakdown}
           toolBreakdown={summary.tool_breakdown}
+          toolDetails={summary.tool_details}
+          toolExecutorBreakdown={summary.tool_executor_breakdown}
           usageSeries={usageSeries}
         />
 

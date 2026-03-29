@@ -49,10 +49,14 @@ const bundle: DebugBundle = {
       created_at: "2026-03-28T10:02:00Z",
       duration_ms: 120,
       id: "tool-1",
-      input: { query: "agents" },
-      output: { count: 2 },
+      input: { query: "agents", sandbox_mode: "dynamic_worker" },
+      output: {
+        count: 2,
+        outbound_reason: "host_not_allowlisted",
+        sandbox_executor: "dynamic_worker",
+      },
       run_id: "run-1",
-      status: "completed",
+      status: "blocked",
       tool_name: "search",
     },
   ],
@@ -94,7 +98,10 @@ describe("run-debug-utils", () => {
         duration_ms: 120,
         kind: "tool_call",
         label: "search",
-        status: "completed",
+        outbound_reason: "host_not_allowlisted",
+        sandbox_executor: "dynamic_worker",
+        sandbox_mode: "dynamic_worker",
+        status: "blocked",
         tool_name: "search",
       },
       {
@@ -111,6 +118,13 @@ describe("run-debug-utils", () => {
 
   it("summarizes costs, tools, and checkpoints", () => {
     expect(summarizeRunDebugBundle(bundle)).toEqual({
+      blocked_reason_breakdown: [
+        {
+          count: 1,
+          reason: "host_not_allowlisted",
+        },
+      ],
+      blocked_tool_call_count: 1,
       checkpoint_count: 1,
       latest_checkpoint: { phase: "planning" },
       model_breakdown: [
@@ -122,9 +136,29 @@ describe("run-debug-utils", () => {
       ],
       tool_breakdown: [
         {
+          blocked_count: 1,
           count: 1,
-          failed_count: 0,
+          executors: ["dynamic_worker"],
+          failed_count: 1,
           tool_name: "search",
+        },
+      ],
+      tool_details: [
+        {
+          created_at: "2026-03-28T10:02:00Z",
+          duration_ms: 120,
+          outbound_reason: "host_not_allowlisted",
+          sandbox_executor: "dynamic_worker",
+          sandbox_mode: "dynamic_worker",
+          status: "blocked",
+          tool_name: "search",
+        },
+      ],
+      tool_executor_breakdown: [
+        {
+          blocked_count: 1,
+          count: 1,
+          executor: "dynamic_worker",
         },
       ],
       total_cost_microusd: 250,

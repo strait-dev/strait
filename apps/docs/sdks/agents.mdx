@@ -38,6 +38,7 @@ Use this split as the boundary:
 
 - install `@strait/agents` in agent code
 - treat `apps/agents` as internal runtime infrastructure owned by Strait
+- use the dashboard, the management API, or the dedicated CLI repository for agent lifecycle operations
 
 For workspace-level implementation details, see:
 
@@ -54,8 +55,22 @@ Reference examples live in:
 ## Installation
 
 ```bash
+npm install @strait/agents
+pnpm add @strait/agents
+yarn add @strait/agents
 bun add @strait/agents
 ```
+
+Use the narrowest import path that matches your runtime integration:
+
+- `@strait/agents`
+  - runtime context, budgets, workflow helpers, eval helpers, and `strait.agent()`
+- `@strait/agents/ai-sdk`
+  - Vercel AI SDK wrapper helpers
+- `@strait/agents/openai`
+  - OpenAI wrapper helpers
+- `@strait/agents/anthropic`
+  - Anthropic wrapper helpers
 
 For local work inside this repository:
 
@@ -179,6 +194,8 @@ export const triageAgent = strait.agent({
 `strait.agent()` also accepts `handler` as an alias for `run`, and budget strings such as `"$5.00"` are normalized into microusd limits automatically.
 
 Agent definitions are a runtime authoring convenience. They do not create or deploy agents in the control plane by themselves. Management still happens through Strait’s API and dashboard.
+
+The `strait agents ...` CLI surface belongs in the dedicated [strait-dev/cli](https://github.com/strait-dev/cli) repository. This package is intentionally limited to runtime behavior inside an executing run.
 
 ## AI Step Primitives
 

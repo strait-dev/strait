@@ -22,6 +22,12 @@ Agents are not meant to replace Jobs.
 
 They are the fast orchestration layer for model-driven execution. When the work becomes compute-heavy, long-running, or container-specific, the best pattern is for an agent to trigger a Strait Job or Workflow and stay focused on the interactive orchestration layer.
 
+Jobs and Agents share one Strait account, but they are intentionally different product surfaces:
+
+- Jobs are the durable compute product
+- Agents are the low-latency orchestration product
+- usage and pricing should be explained separately even when both surfaces live in the same dashboard
+
 ## Key Capabilities
 
 <CardGroup cols={2}>
