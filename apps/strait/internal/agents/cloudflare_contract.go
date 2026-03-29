@@ -32,9 +32,7 @@ const (
 	CloudflareSandboxDefaultActionDeny  CloudflareSandboxDefaultAction = "deny"
 )
 
-var (
-	ErrCloudflareProviderUnimplemented = errors.New("cloudflare provider behavior is not implemented yet")
-)
+var ErrCloudflareProviderUnimplemented = errors.New("cloudflare provider client is not configured")
 
 type CloudflareProviderOption interface {
 	applyProvider(*CloudflareProvider)
@@ -417,8 +415,26 @@ func (p *CloudflareProvider) Undeploy(ctx context.Context, _ *domain.Agent, depl
 	return nil
 }
 
-func (p *CloudflareProvider) Run(context.Context, *domain.Agent, *domain.AgentDeployment, *domain.JobRun) (json.RawMessage, error) {
-	return nil, ErrCloudflareProviderUnimplemented
+func (p *CloudflareProvider) Run(_ context.Context, agent *domain.Agent, deployment *domain.AgentDeployment, run *domain.JobRun) (json.RawMessage, error) {
+	// The Cloudflare dispatch path is handled by the service layer via
+	// dispatchCloudflareRun, not through the Provider.Run interface.
+	// This method returns metadata describing where the run would be
+	// dispatched, so callers can inspect the target without triggering
+	// the actual dispatch.
+	metadata, err := ParseCloudflareDeploymentMetadata(deployment.ProviderMetadata)
+	if err != nil {
+		return nil, fmt.Errorf("parse cloudflare deployment metadata: %w", err)
+	}
+
+	return mustJSON(map[string]any{
+		"provider":            ProviderNameCloudflare,
+		"namespace":           metadata.Namespace,
+		"script_name":         metadata.ScriptName,
+		"dispatch_worker_url": metadata.DispatchWorkerURL,
+		"agent_id":            agent.ID,
+		"deployment_id":       deployment.ID,
+		"run_id":              run.ID,
+	}), nil
 }
 
 func SelectProvider(cf CloudflareConfig) Provider {
