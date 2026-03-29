@@ -3,7 +3,7 @@ title: "Agents SDK"
 description: "Local-first runtime SDK for managed agents, callbacks, workflow helpers, and provider adapters."
 ---
 
-The Agents SDK (`@strait/agents-sdk`) is the runtime-side package used by managed agents to communicate with Strait.
+The Agents SDK (`@strait/agents`) is the public runtime-side package used by managed agents to communicate with Strait.
 
 It is separate from the public API client SDKs. Instead of creating jobs and workflows through the management API, it is used inside an executing agent run to:
 
@@ -30,7 +30,14 @@ This is why the package belongs to the runtime path rather than the public manag
 
 ## Package Scope
 
-The package lives in this monorepo at `packages/agents-sdk` and is currently used by the local execution app in `apps/agents`.
+The public package lives in this monorepo at `packages/agents-sdk`.
+
+The Cloudflare and local execution infrastructure lives separately in the internal runtime workspace at `apps/agents`.
+
+Use this split as the boundary:
+
+- install `@strait/agents` in agent code
+- treat `apps/agents` as internal runtime infrastructure owned by Strait
 
 For workspace-level implementation details, see:
 
@@ -46,7 +53,7 @@ Reference examples live in:
 ## Installation
 
 ```bash
-bun add @strait/agents-sdk
+bun add @strait/agents
 ```
 
 For local work inside this repository:
@@ -63,7 +70,7 @@ bun run biome:lint
 Inside a managed run, create a `StraitContext` from the injected environment:
 
 ```ts
-import { StraitContext } from "@strait/agents-sdk";
+import { StraitContext } from "@strait/agents";
 
 const ctx = StraitContext.fromEnv();
 ```
@@ -77,7 +84,7 @@ Required environment variables:
 You can also construct the context manually:
 
 ```ts
-import { createStraitContext } from "@strait/agents-sdk";
+import { createStraitContext } from "@strait/agents";
 
 const ctx = createStraitContext({
   baseUrl: "http://127.0.0.1:8787",
@@ -150,7 +157,7 @@ const workflowState = await ctx.workflow.state.list();
 Use `strait.agent()` to define a managed agent:
 
 ```ts
-import { strait } from "@strait/agents-sdk";
+import { strait } from "@strait/agents";
 
 export const triageAgent = strait.agent({
   name: "Issue Triage Agent",
@@ -177,7 +184,7 @@ Agent definitions are a runtime authoring convenience. They do not create or dep
 For local orchestration wrappers that sit above the raw provider adapters, use `createAIStep()`:
 
 ```ts
-import { createAIStep, StraitContext } from "@strait/agents-sdk";
+import { createAIStep, StraitContext } from "@strait/agents";
 
 const ctx = StraitContext.fromEnv();
 const ai = createAIStep(ctx);
@@ -210,7 +217,7 @@ The SDK includes agent-oriented workflow helpers:
 - `subWorkflowStep()`
 
 ```ts
-import { orchestratorPattern } from "@strait/agents-sdk";
+import { orchestratorPattern } from "@strait/agents";
 
 const workflow = orchestratorPattern({
   name: "Incident Investigation",
@@ -262,7 +269,7 @@ import {
   expectArrayMinLength,
   expectTextContains,
   runEvalSuite,
-} from "@strait/agents-sdk";
+} from "@strait/agents";
 
 const suite = defineEvalSuite({
   name: "Incident Triage",
@@ -315,9 +322,9 @@ This separation is what keeps runtime code easy to test. You can unit test workf
 
 The package includes tree-shakeable adapter wrappers for:
 
-- `@strait/agents-sdk/ai-sdk`
-- `@strait/agents-sdk/openai`
-- `@strait/agents-sdk/anthropic`
+- `@strait/agents/ai-sdk`
+- `@strait/agents/openai`
+- `@strait/agents/anthropic`
 
 These adapters preserve the provider client surface while adding:
 
@@ -330,7 +337,7 @@ These adapters preserve the provider client surface while adding:
 ### Vercel AI SDK
 
 ```ts
-import { withStrait, budgetExceeded, straitTelemetry } from "@strait/agents-sdk/ai-sdk";
+import { withStrait, budgetExceeded, straitTelemetry } from "@strait/agents/ai-sdk";
 
 const wrappedModel = withStrait(model, { context: ctx, streamId: "assistant" });
 
@@ -348,8 +355,8 @@ The AI SDK adapter also ships:
 ### OpenAI and Anthropic
 
 ```ts
-import { withStrait as withOpenAI } from "@strait/agents-sdk/openai";
-import { withStrait as withAnthropic } from "@strait/agents-sdk/anthropic";
+import { withStrait as withOpenAI } from "@strait/agents/openai";
+import { withStrait as withAnthropic } from "@strait/agents/anthropic";
 
 const openai = withOpenAI(client, { context: ctx });
 const anthropic = withAnthropic(claude, { context: ctx });
@@ -362,7 +369,7 @@ Both proxy wrappers preserve the client shape while adding usage reporting, stre
 For tools that should run in the sandboxed execution path, use `createSandboxTool()`:
 
 ```ts
-import { createSandboxTool } from "@strait/agents-sdk";
+import { createSandboxTool } from "@strait/agents";
 
 const searchTool = createSandboxTool({
   name: "web-search",

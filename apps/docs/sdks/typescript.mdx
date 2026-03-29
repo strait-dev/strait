@@ -15,7 +15,7 @@ bun add @strait/ts
 ```
 
 <Info>
-Managed agent execution uses a separate package, [`@strait/agents-sdk`](/docs/sdks/agents). Use `@strait/ts` for control-plane and management API calls, and use `@strait/agents-sdk` inside running agents.
+Managed agent execution uses a separate package, [`@strait/agents`](/docs/sdks/agents). Use `@strait/ts` for control-plane and management API calls, and use `@strait/agents` inside running agents.
 </Info>
 
 ## Client Creation
@@ -229,7 +229,7 @@ try {
 If you are authoring managed agents in this monorepo, use the runtime-side package instead of the public client:
 
 ```ts
-import { StraitContext, strait } from "@strait/agents-sdk";
+import { StraitContext, strait } from "@strait/agents";
 
 export const summarize = strait.agent({
   name: "Summarize",

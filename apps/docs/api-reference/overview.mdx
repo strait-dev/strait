@@ -95,7 +95,7 @@ See [Agent API Guide](/docs/guides/agent-api) for the expected lifecycle and cur
 
 Executing agents do not call the `/v1/agents` control-plane routes directly.
 
-They use JWT run-token authenticated callback routes under `/sdk/v1/runs/{runID}/...`, typically through [`@strait/agents-sdk`](/docs/sdks/agents).
+They use JWT run-token authenticated callback routes under `/sdk/v1/runs/{runID}/...`, typically through [`@strait/agents`](/docs/sdks/agents).
 
 Important runtime callback endpoints include:
 

@@ -34,7 +34,7 @@ The app dev command bootstraps local auth automatically and seeds a deterministi
 
 - the API and worker in `apps/strait`
 - the local agent execution app in `apps/agents`
-- the runtime callback path powered by `@strait/agents-sdk`
+- the runtime callback path powered by `@strait/agents`
 
 ## Prerequisites
 
@@ -108,13 +108,13 @@ If you prefer the dashboard path instead of raw API calls:
 Inside that loop, prefer adapter-wrapped clients so budget guards, checkpoint telemetry, and stream forwarding stay consistent with production behavior:
 
 ```ts
-import { createAIStep, withStrait as withOpenAI } from "@strait/agents-sdk";
+import { createAIStep, withStrait as withOpenAI } from "@strait/agents";
 ```
 
 ## Minimal Agent Example
 
 ```ts
-import { StraitContext, strait } from "@strait/agents-sdk";
+import { StraitContext, strait } from "@strait/agents";
 
 export const summarizeIncident = strait.agent({
   name: "Summarize Incident",
@@ -229,7 +229,7 @@ cd apps/strait && golangci-lint run --timeout=5m ./...
 
 ## Regression Evals
 
-For local behavior checks, add eval suites next to your agent code with the helpers from `@strait/agents-sdk/evals`. These suites are useful for:
+For local behavior checks, add eval suites next to your agent code with the helpers from `@strait/agents/evals`. These suites are useful for:
 
 - happy-path regression checks
 - adversarial prompt cases

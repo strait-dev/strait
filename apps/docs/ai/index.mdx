@@ -37,7 +37,7 @@ without inventing a second execution model.
     Use agents inside workflows, share workflow state, and expand DAGs dynamically from planner-style steps.
   </Card>
   <Card title="Local-First Runtime" icon="terminal" href="/docs/guides/local-agent-development">
-    Develop agents locally through `apps/agents` and `@strait/agents-sdk` before deploying to Cloudflare.
+    Develop agents locally through `apps/agents` and `@strait/agents` before deploying to Cloudflare.
   </Card>
   <Card title="Cloudflare Runtime" icon="cloud-arrow-up" href="/docs/guides/cloudflare-agents-productionization">
     Deploy versioned runtime Workers, route runs through a dispatch Worker, and enforce outbound egress policies.
@@ -84,7 +84,7 @@ The control plane owns:
 
 ### Runtime SDK
 
-`@strait/agents-sdk` provides:
+`@strait/agents` provides:
 
 - `StraitContext`
 - provider adapters
@@ -114,7 +114,7 @@ The control plane owns:
 
 For the managed runtime path in this repository, the primary runtime integration is:
 
-- [`@strait/agents-sdk`](/docs/sdks/agents)
+- [`@strait/agents`](/docs/sdks/agents)
 
 It is built specifically for the `/sdk/v1/runs/{runID}/...` callback endpoints used by executing agent runs.
 

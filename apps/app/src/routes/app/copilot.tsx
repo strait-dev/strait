@@ -161,7 +161,7 @@ function CopilotPage() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div>
-                Start with `@strait/agents-sdk` evals, then run the target agent
+                Start with `@strait/agents` evals, then run the target agent
                 through `apps/agents`, and only then expand workflow
                 orchestration or tool access.
               </div>

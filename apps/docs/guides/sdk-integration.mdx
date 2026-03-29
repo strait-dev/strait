@@ -10,7 +10,7 @@ For detailed per-language documentation, see the [SDK Reference](/sdks/overview)
 </Info>
 
 <Info>
-Managed agents use a separate runtime package, [`@strait/agents-sdk`](/docs/sdks/agents), for run-token callbacks, workflow state, and provider adapters.
+Managed agents use a separate runtime package, [`@strait/agents`](/docs/sdks/agents), for run-token callbacks, workflow state, and provider adapters.
 </Info>
 
 ## Installing an SDK
@@ -230,12 +230,12 @@ Use the `heartbeat` endpoint regularly (every 30 seconds) in long-running jobs t
 
 ## Managed Agent Runtime Integration
 
-Managed agents in this repository do not use the public management client inside the executing runtime. They use `@strait/agents-sdk`, which is built specifically for `/sdk/v1/runs/{runID}/...` callbacks.
+Managed agents in this repository do not use the public management client inside the executing runtime. They use `@strait/agents`, which is built specifically for `/sdk/v1/runs/{runID}/...` callbacks.
 
 Typical usage inside a running agent:
 
 ```ts
-import { StraitContext } from "@strait/agents-sdk";
+import { StraitContext } from "@strait/agents";
 
 const ctx = StraitContext.fromEnv();
 

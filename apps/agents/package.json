@@ -1,5 +1,5 @@
 {
-  "name": "@strait/agents",
+  "name": "@strait/agents-runtime",
   "version": "0.0.0",
   "private": true,
   "type": "module",

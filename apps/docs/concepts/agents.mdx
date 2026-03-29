@@ -20,14 +20,14 @@ There are four layers in the current system:
 
 1. control plane in Go
 2. runtime package in `apps/agents`
-3. runtime-facing SDK in `packages/agents-sdk`
+3. public runtime-facing SDK in `packages/agents-sdk`
 4. dashboard and API surface in `apps/app` and `apps/strait/internal/api`
 
 In practice, that means:
 
 - the Go service owns agent records, deployments, run creation, and persistence
-- `apps/agents` executes the runtime contract locally or on Cloudflare
-- `@strait/agents-sdk` reports runtime events back to Strait
+- `apps/agents` executes the runtime contract locally or on Cloudflare as internal runtime infrastructure
+- `@strait/agents` is the public runtime SDK that reports runtime events back to Strait
 - the dashboard reads the same run and telemetry tables used elsewhere in the platform
 
 ## Resource Model
@@ -117,7 +117,7 @@ That shared contract is what makes the local-first development loop meaningful i
 
 ## SDK and Adapters
 
-The local runtime uses `@strait/agents-sdk` to report state back to Strait.
+The local runtime uses `@strait/agents` to report state back to Strait.
 
 The SDK provides:
 
@@ -138,7 +138,7 @@ Use these boundaries when you need to navigate the code:
 - `apps/agents`
   - runtime package and Cloudflare Worker entrypoints
 - `packages/agents-sdk`
-  - context, adapters, budgets, workflow helpers, and eval helpers
+  - public `@strait/agents` package: context, adapters, budgets, workflow helpers, and eval helpers
 - `apps/app`
   - dashboard UX for creating, deploying, running, and inspecting agents
 

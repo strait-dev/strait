@@ -1,6 +1,6 @@
 {
   "extends": "../config/base.json",
-  "display": "@strait/agents-sdk",
+  "display": "@strait/agents",
   "compilerOptions": {
     "types": ["node", "vitest/globals"]
   },

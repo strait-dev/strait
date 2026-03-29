@@ -122,7 +122,7 @@ function buildEvaluationAnswer(summaries: AgentRunSummary[]): CopilotAnswer {
         ? "No agents are loaded yet. Create an agent first, then add an eval suite in packages/agents-sdk."
         : `Start with ${target.agent.name} and add a local eval suite before expanding the prompt surface.`,
     bullets: [
-      "Create a local eval suite with defineEvalSuite() and runEvalSuite() in @strait/agents-sdk.",
+      "Create a local eval suite with defineEvalSuite() and runEvalSuite() in @strait/agents.",
       "Add one happy-path case, one adversarial case, and one shape assertion for the returned payload.",
       "Exercise the agent locally through apps/agents and compare the eval result with recent run telemetry.",
     ],

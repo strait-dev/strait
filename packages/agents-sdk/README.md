@@ -1,6 +1,6 @@
-# `@strait/agents-sdk`
+# `@strait/agents`
 
-`packages/agents-sdk` is the runtime-facing TypeScript SDK used by managed Strait agents while they are executing.
+`packages/agents-sdk` is the public runtime-facing TypeScript SDK used by managed Strait agents while they are executing.
 
 This package is not the public management SDK. It is the in-run callback layer that talks to `/sdk/v1/runs/{runID}/...`.
 
@@ -46,9 +46,9 @@ These helpers wrap local inference and tool loops with checkpointed, telemetry-a
 
 ### Provider Adapters
 
-- `@strait/agents-sdk/ai-sdk`
-- `@strait/agents-sdk/openai`
-- `@strait/agents-sdk/anthropic`
+- `@strait/agents/ai-sdk`
+- `@strait/agents/openai`
+- `@strait/agents/anthropic`
 
 These wrappers preserve the provider client surface while layering in:
 
@@ -105,13 +105,13 @@ This keeps execution runtimes thin and ensures provider wrappers, tools, and wor
 ## Installation
 
 ```bash
-bun add @strait/agents-sdk
+bun add @strait/agents
 ```
 
 ## Minimal Usage
 
 ```ts
-import { StraitContext, strait } from "@strait/agents-sdk";
+import { StraitContext, strait } from "@strait/agents";
 
 export const summarizeAgent = strait.agent({
   name: "Summarize",
@@ -135,7 +135,7 @@ export const summarizeAgent = strait.agent({
 From environment:
 
 ```ts
-import { StraitContext } from "@strait/agents-sdk";
+import { StraitContext } from "@strait/agents";
 
 const ctx = StraitContext.fromEnv();
 ```
@@ -143,7 +143,7 @@ const ctx = StraitContext.fromEnv();
 Manual construction:
 
 ```ts
-import { createStraitContext } from "@strait/agents-sdk";
+import { createStraitContext } from "@strait/agents";
 
 const ctx = createStraitContext({
   baseUrl: "http://127.0.0.1:8080",
@@ -168,7 +168,7 @@ Budgets can be declared in normalized microusd values or user-friendly strings l
 Planner-style steps can emit validated runtime DAG expansion requests:
 
 ```ts
-import { createDynamicSteps, fanOutSteps } from "@strait/agents-sdk";
+import { createDynamicSteps, fanOutSteps } from "@strait/agents";
 
 const steps = fanOutSteps({
   dependsOn: ["planner"],
@@ -187,7 +187,7 @@ This aligns with the workflow engine’s `dynamic_steps` contract and is validat
 Use `createSandboxTool()` when tool execution should carry sandbox metadata:
 
 ```ts
-import { createSandboxTool } from "@strait/agents-sdk";
+import { createSandboxTool } from "@strait/agents";
 
 const fetchTool = createSandboxTool({
   name: "web-fetch",

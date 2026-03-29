@@ -1,6 +1,8 @@
-# `@strait/agents`
+# `@strait/agents-runtime`
 
-`apps/agents` is the runtime package for managed Strait agents.
+`apps/agents` is the internal runtime package for managed Strait agents.
+
+It is not the public SDK surface. User code should depend on `@strait/agents` from `packages/agents-sdk`, while this workspace stays internal to Strait's runtime and deployment machinery.
 
 It serves two roles:
 
