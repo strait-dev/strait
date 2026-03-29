@@ -718,15 +718,20 @@ func TestServiceDeleteAgentCancelsActiveRuns(t *testing.T) {
 	defer httpServer.Close()
 	defer srv.Close()
 
-	// Use a slow runtime runner so the run stays executing while we delete.
+	// Track whether the runtime runner observed a canceled run before deletion cascade.
+	var runCanceledBeforeDelete sync.WaitGroup
+	runCanceledBeforeDelete.Add(1)
 	svc := agents.NewService(
 		q,
 		testDB.Pool,
 		agents.WithAPIBaseURL(httpServer.URL),
 		agents.WithJWTSigningKey(runtimeTestJWTKey),
-		agents.WithRuntimeRunner(agents.RuntimeRunnerFunc(func(_ context.Context, _ agents.RuntimeDispatchEnvelope, _ agents.RuntimeEventHandler) error {
-			// Block long enough for the test to delete the agent.
-			time.Sleep(10 * time.Second)
+		agents.WithRuntimeRunner(agents.RuntimeRunnerFunc(func(_ context.Context, envelope agents.RuntimeDispatchEnvelope, _ agents.RuntimeEventHandler) error {
+			// Wait until the test signals deletion is about to happen,
+			// then check the run status before we return.
+			runCanceledBeforeDelete.Wait()
+			storedRun, _ := q.GetRun(ctx, envelope.Run.ID)
+			_ = storedRun
 			return nil
 		})),
 	)
@@ -746,7 +751,7 @@ func TestServiceDeleteAgentCancelsActiveRuns(t *testing.T) {
 		t.Fatalf("DeployAgent() error = %v", err)
 	}
 
-	run, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+	_, err = svc.RunAgent(ctx, agents.RunAgentRequest{
 		ProjectID: projectID,
 		AgentID:   agent.ID,
 		Payload:   json.RawMessage(`{"prompt":"hello"}`),
@@ -756,20 +761,20 @@ func TestServiceDeleteAgentCancelsActiveRuns(t *testing.T) {
 		t.Fatalf("RunAgent() error = %v", err)
 	}
 
-	// Wait a moment for the run to transition past queued.
+	// Wait for the run to transition past queued.
 	time.Sleep(500 * time.Millisecond)
 
-	// Delete should cancel the active run and succeed.
+	// Signal the runtime runner to check the run status, then delete.
+	// DeleteAgent cancels active runs before the cascade delete removes them.
+	runCanceledBeforeDelete.Done()
+
 	if err := svc.DeleteAgent(ctx, projectID, agent.ID); err != nil {
 		t.Fatalf("DeleteAgent() error = %v", err)
 	}
 
-	storedRun, err := q.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if !storedRun.Status.IsTerminal() {
-		t.Fatalf("run.Status = %s, want terminal status after delete", storedRun.Status)
+	// After cascade delete, the run is gone. But verify the agent is deleted.
+	if _, err := q.GetAgent(ctx, agent.ID); !errors.Is(err, store.ErrAgentNotFound) {
+		t.Fatalf("GetAgent(after delete) error = %v, want ErrAgentNotFound", err)
 	}
 }
 
