@@ -394,9 +394,10 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 
 	var polarWebhook http.Handler
 	if cfg.PolarWebhookSecret != "" {
-		polarMapping := billing.NewPolarMapping(
-			cfg.PolarStarterMonthlyID, cfg.PolarStarterYearlyID,
-			cfg.PolarProMonthlyID, cfg.PolarProYearlyID,
+		polarMapping := billing.NewPolarMappingFromOptions(
+			billing.WithStarterProducts(cfg.PolarStarterMonthlyID, cfg.PolarStarterYearlyID),
+			billing.WithProProducts(cfg.PolarProMonthlyID, cfg.PolarProYearlyID),
+			billing.WithScaleProducts(cfg.PolarScaleMonthlyID, cfg.PolarScaleYearlyID),
 		)
 		var webhookOpts []billing.WebhookOption
 		if posthogClient != nil {
@@ -544,6 +545,15 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
 		execCfg.BillingEnforcer = billingEnforcer
 		slog.Info("billing enforcement enabled")
+	}
+
+	// Wire Polar usage event ingestion for metered billing (cloud only).
+	if cfg.PolarAccessToken != "" && cfg.PolarServer != "" {
+		execCfg.PolarIngester = billing.NewPolarEventIngester(
+			cfg.PolarServer, cfg.PolarAccessToken, slog.Default(),
+			billing.WithIngesterMetrics(metrics),
+		)
+		slog.Info("polar event ingestion enabled", "server", cfg.PolarServer)
 	}
 
 	exec := worker.NewExecutor(execCfg)

@@ -177,6 +177,8 @@ type Config struct {
 	PolarStarterYearlyID      string `env:"POLAR_STARTER_YEARLY_ID"`
 	PolarProMonthlyID         string `env:"POLAR_PRO_MONTHLY_ID"`
 	PolarProYearlyID          string `env:"POLAR_PRO_YEARLY_ID"`
+	PolarScaleMonthlyID       string `env:"POLAR_SCALE_MONTHLY_ID"`
+	PolarScaleYearlyID        string `env:"POLAR_SCALE_YEARLY_ID"`
 	BillingEnforcementEnabled bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
 
 	// Resend email integration
