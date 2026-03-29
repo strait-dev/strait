@@ -112,6 +112,8 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, dep
 			FinishedAt:    run.FinishedAt,
 		})
 
+		enqueueAgentAnalytics(exporter, event, run, durationMs)
+
 		// Enqueue individual run events in background so we don't block the subscriber.
 		// Semaphore bounds concurrent DB queries to prevent pool exhaustion under burst.
 		// Use a timeout instead of instant drop to tolerate short bursts.
@@ -244,4 +246,23 @@ func runEventsFromDomain(run *domain.JobRun, events []domain.RunEvent) []clickho
 		})
 	}
 	return records
+}
+
+// enqueueAgentAnalytics checks if the run belongs to an agent and enqueues
+// an agent-specific analytics record when it does.
+func enqueueAgentAnalytics(exporter *clickhouse.Exporter, event RunLifecycleEvent, run *domain.JobRun, durationMs uint64) {
+	if event.Job == nil || event.Job.Tags["strait_internal"] != "agent" {
+		return
+	}
+	agentSlug := event.Job.Tags["agent_slug"]
+	exporter.Enqueue(clickhouse.AgentRunAnalyticsRecord{
+		RunID:      run.ID,
+		AgentSlug:  agentSlug,
+		ProjectID:  run.ProjectID,
+		Status:     string(run.Status),
+		DurationMs: durationMs,
+		CreatedAt:  time.Now(),
+		StartedAt:  run.StartedAt,
+		FinishedAt: run.FinishedAt,
+	})
 }

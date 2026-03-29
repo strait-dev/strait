@@ -450,6 +450,13 @@ func (s *Server) routes() chi.Router {
 					r.Get("/latency", TypedHandler(s, http.StatusOK, s.handleEventLatency))
 				})
 
+				r.Route("/agents", func(r chi.Router) {
+					r.Get("/timeline", TypedHandler(s, http.StatusOK, s.handleAgentRunTimeline))
+					r.Get("/costs", TypedHandler(s, http.StatusOK, s.handleAgentCostSummary))
+					r.Get("/model-breakdown", TypedHandler(s, http.StatusOK, s.handleAgentModelBreakdown))
+					r.Get("/top", TypedHandler(s, http.StatusOK, s.handleAgentTopAgents))
+				})
+
 				r.Get("/costs/forecast", TypedHandler(s, http.StatusOK, s.handleCostForecast))
 				r.Get("/costs/by-trigger", TypedHandler(s, http.StatusOK, s.handleCostByTrigger))
 				r.Get("/costs/by-machine", TypedHandler(s, http.StatusOK, s.handleCostByMachine))
