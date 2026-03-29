@@ -67,6 +67,51 @@ Rate limits are applied per IP address:
 - `project_id`: Required for most list endpoints to scope results to a specific project.
 - `status`: Used on run and workflow-run listings to filter by current state.
 
+## Managed Agent Endpoints
+
+The agent control-plane endpoints live under `/v1/agents`.
+
+Use them to:
+
+- create and update agents
+- deploy versioned agent runtimes
+- trigger agent runs
+- list runs associated with an agent
+
+Core endpoints:
+
+- `POST /v1/agents`
+- `GET /v1/agents`
+- `GET /v1/agents/{agentID}`
+- `PATCH /v1/agents/{agentID}`
+- `DELETE /v1/agents/{agentID}`
+- `POST /v1/agents/{agentID}/deploy`
+- `POST /v1/agents/{agentID}/run`
+- `GET /v1/agents/{agentID}/runs`
+
+See [Agent API Guide](/docs/guides/agent-api) for the expected lifecycle and curl examples.
+
+## Runtime Callback Endpoints
+
+Executing agents do not call the `/v1/agents` control-plane routes directly.
+
+They use JWT run-token authenticated callback routes under `/sdk/v1/runs/{runID}/...`, typically through [`@strait/agents-sdk`](/docs/sdks/agents).
+
+Important runtime callback endpoints include:
+
+- `/sdk/v1/runs/{runID}/log`
+- `/sdk/v1/runs/{runID}/progress`
+- `/sdk/v1/runs/{runID}/checkpoint`
+- `/sdk/v1/runs/{runID}/usage`
+- `/sdk/v1/runs/{runID}/tool-call`
+- `/sdk/v1/runs/{runID}/complete`
+- `/sdk/v1/runs/{runID}/fail`
+
+This split is intentional:
+
+- `/v1/agents` is the management surface
+- `/sdk/v1/runs/...` is the executing runtime surface
+
 ## DAG and Dependency Runtime Endpoints
 
 ### Planning and Diagnostics
