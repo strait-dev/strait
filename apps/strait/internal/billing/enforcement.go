@@ -201,6 +201,14 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	tier := domain.PlanTier(sub.PlanTier)
 	limits = GetPlanLimits(tier)
 
+	// Apply add-on increments (fail open if add-ons can't be loaded).
+	addons, addonErr := e.store.ListActiveAddons(ctx, orgID)
+	if addonErr != nil {
+		e.logger.Warn("failed to load add-ons, using base plan limits", "org_id", orgID, "error", addonErr)
+	} else if len(addons) > 0 {
+		limits = EffectiveLimits(limits, addons)
+	}
+
 	// Apply per-org overrides from support.
 	if sub.OverrideDailyRunLimit != nil {
 		limits.MaxRunsPerDay = int64(*sub.OverrideDailyRunLimit)

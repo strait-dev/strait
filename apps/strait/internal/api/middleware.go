@@ -562,14 +562,27 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 			}
 		}
 
-		// 3. Fall back to global default rate limit per API key.
+		// 3. Fall back to plan-based rate limit.
+		if limit == 0 && projectID != "" && s.billingEnforcer != nil {
+			orgID, orgErr := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+			if orgErr == nil && orgID != "" {
+				planLimits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+				if limErr == nil && planLimits.APIRateLimit > 0 {
+					limit = planLimits.APIRateLimit
+					windowSecs = 60 // per-minute
+					key = "rl:plan:" + orgID
+				}
+			}
+		}
+
+		// 4. Fall back to global default rate limit per API key.
 		if limit == 0 && apiKeyID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
 			limit = s.config.DefaultAPIKeyRateLimit
 			windowSecs = s.config.DefaultAPIKeyRateWindowSecs
 			key = "rl:apikey:" + apiKeyID
 		}
 
-		// 4. Fall back to global default rate limit per project.
+		// 5. Fall back to global default rate limit per project.
 		if limit == 0 && projectID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
 			limit = s.config.DefaultAPIKeyRateLimit
 			windowSecs = s.config.DefaultAPIKeyRateWindowSecs

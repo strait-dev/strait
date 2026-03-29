@@ -480,6 +480,12 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.Description = *req.Description
 	}
 	if req.Cron != nil {
+		// If adding a cron expression to a previously non-cron job, check schedule limit.
+		if *req.Cron != "" && job.Cron == "" {
+			if err := s.checkScheduleLimit(ctx, job.ProjectID, *req.Cron); err != nil {
+				return nil, err
+			}
+		}
 		job.Cron = *req.Cron
 	}
 	if req.PayloadSchema != nil {
@@ -558,6 +564,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.ResultSchema = *req.ResultSchema
 	}
 	if req.CronOverlapPolicy != nil && *req.CronOverlapPolicy != "" {
+		if err := s.checkCronOverlapPolicy(ctx, job.ProjectID, *req.CronOverlapPolicy); err != nil {
+			return nil, err
+		}
 		job.CronOverlapPolicy = domain.CronOverlapPolicy(*req.CronOverlapPolicy)
 	}
 	if req.ExecutionMode != nil {
@@ -574,6 +583,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		preset := domain.MachinePreset(*req.MachinePreset)
 		if *req.MachinePreset != "" && !preset.IsValid() {
 			return nil, huma.Error400BadRequest("invalid machine_preset")
+		}
+		if err := s.checkPresetAllowed(ctx, job.ProjectID, *req.MachinePreset); err != nil {
+			return nil, err
 		}
 		job.MachinePreset = preset
 	}
@@ -596,18 +608,30 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.PoisonPillThreshold = req.PoisonPillThreshold
 	}
 	if req.OnCompleteTriggerWorkflow != nil {
+		if err := s.checkJobChainingAllowed(ctx, job.ProjectID, *req.OnCompleteTriggerWorkflow, ""); err != nil {
+			return nil, err
+		}
 		job.OnCompleteTriggerWorkflow = *req.OnCompleteTriggerWorkflow
 	}
 	if req.OnCompleteTriggerJob != nil {
+		if err := s.checkJobChainingAllowed(ctx, job.ProjectID, *req.OnCompleteTriggerJob, ""); err != nil {
+			return nil, err
+		}
 		job.OnCompleteTriggerJob = *req.OnCompleteTriggerJob
 	}
 	if req.OnCompletePayloadMapping != nil {
 		job.OnCompletePayloadMapping = *req.OnCompletePayloadMapping
 	}
 	if req.OnFailureTriggerJob != nil {
+		if err := s.checkJobChainingAllowed(ctx, job.ProjectID, *req.OnFailureTriggerJob, ""); err != nil {
+			return nil, err
+		}
 		job.OnFailureTriggerJob = *req.OnFailureTriggerJob
 	}
 	if req.OnFailureTriggerWorkflow != nil {
+		if err := s.checkJobChainingAllowed(ctx, job.ProjectID, "", *req.OnFailureTriggerWorkflow); err != nil {
+			return nil, err
+		}
 		job.OnFailureTriggerWorkflow = *req.OnFailureTriggerWorkflow
 	}
 	if req.OnFailurePayloadMapping != nil {
@@ -725,6 +749,23 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	}
 	if err := validateJobSlug(req.Slug); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
+	}
+
+	// Enforce plan gates on the cloned job's properties.
+	if err := s.checkHTTPModeAllowed(ctx, source.ExecutionMode, source.ProjectID); err != nil {
+		return nil, err
+	}
+	if err := s.checkPresetAllowed(ctx, source.ProjectID, string(source.MachinePreset)); err != nil {
+		return nil, err
+	}
+	if err := s.checkJobChainingAllowed(ctx, source.ProjectID, source.OnCompleteTriggerJob, source.OnCompleteTriggerWorkflow); err != nil {
+		return nil, err
+	}
+	if err := s.checkCronOverlapPolicy(ctx, source.ProjectID, string(source.CronOverlapPolicy)); err != nil {
+		return nil, err
+	}
+	if err := s.checkScheduleLimit(ctx, source.ProjectID, source.Cron); err != nil {
+		return nil, err
 	}
 
 	clone := &domain.Job{

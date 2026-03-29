@@ -209,6 +209,40 @@ func (s *Server) checkWebhookEndpointLimit(ctx context.Context, projectID string
 	return nil
 }
 
+// basicWebhookEvents is the set of events available on the "basic" webhook tier.
+var basicWebhookEvents = map[string]bool{
+	"run.completed": true,
+	"run.failed":    true,
+}
+
+// checkWebhookEventTypes verifies that the requested event types are allowed
+// on the project's plan WebhookEventLevel.
+func (s *Server) checkWebhookEventTypes(ctx context.Context, projectID string, eventTypes []string) error {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return nil // fail open
+	}
+
+	switch limits.WebhookEventLevel {
+	case "none":
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Webhooks are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
+		)
+	case "basic":
+		for _, et := range eventTypes {
+			if !basicWebhookEvents[et] {
+				return huma.Error400BadRequest(
+					fmt.Sprintf("Event type %q requires the Pro plan or higher. Your plan only supports basic events (run.completed, run.failed). Upgrade at /settings/billing", et),
+				)
+			}
+		}
+	case "all", "all_custom":
+		// all events allowed
+	}
+
+	return nil
+}
+
 // checkJobChainingAllowed verifies that job chaining (on_complete_trigger_job)
 // is allowed on the project's plan.
 func (s *Server) checkJobChainingAllowed(ctx context.Context, projectID string, triggerJob, triggerWorkflow string) error {
