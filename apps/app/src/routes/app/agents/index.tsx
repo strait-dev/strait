@@ -1,9 +1,15 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
@@ -98,6 +104,48 @@ function AgentsPage() {
 
   return (
     <Shell>
+      <div className="grid gap-4 pb-2 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Use Agents For</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-muted-foreground text-sm">
+            <p>
+              LLM-centric orchestration, token streaming, lightweight tools, and
+              fast interactive loops.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Use Jobs For</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-muted-foreground text-sm">
+            <p>
+              Heavy compute, long-running work, container-backed dependencies,
+              and durable Fly Machine execution.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Best Combined Pattern</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-muted-foreground text-sm">
+            <p>
+              Let agents plan and stream, then trigger a Job or Workflow when
+              the work leaves the low-latency path.
+            </p>
+            <Link
+              className="inline-flex text-primary text-sm underline underline-offset-4"
+              to="/app/jobs"
+            >
+              Open Jobs
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="flex flex-col gap-3 pb-2.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon

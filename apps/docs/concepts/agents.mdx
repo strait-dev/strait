@@ -14,6 +14,15 @@ They give you a higher-level control plane for long-running model-driven tasks w
 
 This gives agents a higher-level authoring and deployment model without forking the execution substrate used by jobs and workflows.
 
+Agents are the right fit when the work is:
+
+- LLM-centric
+- latency-sensitive
+- mostly network and provider I/O
+- dependent on streaming tokens or incremental tool execution
+
+When the work becomes compute-heavy, container-dependent, or long-running, the recommended pattern is for the agent to trigger a Strait Job or Workflow instead of trying to do that work inside the agent runtime.
+
 ## Mental Model
 
 There are four layers in the current system:
@@ -194,6 +203,16 @@ Dynamic expansion uses this output shape:
 ```
 
 Each dynamic step is validated against the current runtime DAG before it is materialized. Cycles, duplicate `step_ref` values, and invalid dependencies fail the parent step instead of mutating workflow state partially.
+
+## Recommended Cross-Product Pattern
+
+One of the strongest production patterns is:
+
+1. use an Agent to plan, route, stream, and make tool decisions quickly
+2. trigger a Job or Workflow when heavier execution is needed
+3. return the artifact, summary, or workflow result back to the user-facing agent flow
+
+This keeps Cloudflare-backed agent execution optimized for orchestration while Fly-backed Jobs continue to handle heavier compute and broader runtime requirements.
 
 ## Where To Start
 

@@ -11,6 +11,21 @@ Strait is an open-source platform that runs your background jobs, orchestrates m
 
 One Go binary. One PostgreSQL database. No Redis required. No RabbitMQ. No SQS. Just deploy and start running jobs.
 
+## Two execution products, one platform
+
+Strait serves two different workload shapes:
+
+- **Jobs** run durable background work and workflows on Fly Machines
+- **Agents** run LLM-centric orchestration and tool loops on Cloudflare Workers
+
+They share the same control plane, dashboard, authentication, telemetry, and billing account, but they are optimized for different execution models.
+
+Use Jobs for container-backed, long-running, or compute-heavy work.
+
+Use Agents for low-latency model orchestration, tool calling, streaming, and budgeted LLM execution.
+
+When an agent needs heavy compute, the recommended pattern is to trigger a Job or Workflow rather than forcing that work through the agent runtime.
+
 ## Why teams switch to Strait
 
 Most teams start with a simple queue and a retry loop. Then they need scheduling. Then workflow dependencies. Then approval gates. Then cost tracking for AI agents. Before long, they're maintaining five different systems that don't talk to each other.
@@ -168,6 +183,8 @@ Strait fits these patterns:
 
 **AI Agent Workflows**: Multi-step AI pipelines with human approval gates, conditional execution, and sub-workflow nesting. Cost tracking per run and per project.
 
+**Agent Orchestration + Heavy Work Handoff**: Let a Cloudflare-backed agent reason, stream, and select tools quickly, then escalate heavier work to Fly-backed Jobs or Workflows.
+
 **Batch Processing**: Bulk job triggering with configurable batch sizes, priority ordering, and idempotency deduplication.
 
 **Data Pipelines**: ETL workflows with fan-out parallel steps, transform stages, and aggregation.
@@ -232,6 +249,9 @@ Step-by-step guides for common tasks:
   </Card>
   <Card title="Deployment" icon="cloud" href="/guides/deployment">
     Docker deployment, Fly.io configuration, horizontal scaling strategies, and production readiness checklist.
+  </Card>
+  <Card title="Jobs vs Agents" icon="split" href="/guides/jobs-vs-agents">
+    Learn when to use Jobs, when to use Agents, and when an Agent should trigger a heavier Job or Workflow.
   </Card>
   <Card title="Security" icon="shield" href="/guides/security">
     SSRF protection, rate limiting, encryption at rest, and secure webhook delivery.

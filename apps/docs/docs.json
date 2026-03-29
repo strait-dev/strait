@@ -82,6 +82,7 @@
             "pages": [
               "guides/authentication",
               "guides/deployment",
+              "guides/jobs-vs-agents",
               "guides/agent-api",
               "guides/security",
               "guides/sdk-integration",

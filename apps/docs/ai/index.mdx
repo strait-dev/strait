@@ -18,6 +18,10 @@ That gives agents:
 
 without inventing a second execution model.
 
+Agents are not meant to replace Jobs.
+
+They are the fast orchestration layer for model-driven execution. When the work becomes compute-heavy, long-running, or container-specific, the best pattern is for an agent to trigger a Strait Job or Workflow and stay focused on the interactive orchestration layer.
+
 ## Key Capabilities
 
 <CardGroup cols={2}>
@@ -96,6 +100,9 @@ The control plane owns:
 ## Where To Start
 
 <CardGroup cols={2}>
+  <Card title="Jobs vs Agents" icon="split" href="/docs/guides/jobs-vs-agents">
+    Learn when to stay in the agent runtime and when to hand work off to Fly-backed Jobs or Workflows.
+  </Card>
   <Card title="Agents Concept" icon="layers" href="/docs/concepts/agents">
     Start here for the system model, deployment contract, runtime lifecycle, and workflow integration.
   </Card>

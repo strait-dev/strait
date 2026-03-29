@@ -6,6 +6,16 @@ icon: "briefcase"
 
 Jobs define the configuration for a specific task that can be executed. They act as templates for **Runs**.
 
+Jobs are the right execution model when the work needs durable container-backed execution on Fly Machines:
+
+- long-running processing
+- Docker or system-level dependencies
+- CPU-heavy or memory-heavy tasks
+- scheduled backend operations
+- workflow steps that are not fundamentally LLM-centric
+
+If the task is primarily model orchestration, token streaming, or lightweight tool calling, use [Agents](/docs/concepts/agents) instead and escalate to Jobs only when heavier execution is required.
+
 ## Job Model
 
 The `Job` struct (defined in `apps/strait/internal/domain/types.go`) contains the following fields:
@@ -120,4 +130,5 @@ Jobs can be linked to an `environment_id`. This allows Strait to apply environme
 
 - [Runs](/concepts/runs): The execution instances of a job.
 - [Workflows](/concepts/workflows): DAGs that coordinate multiple jobs.
+- [Jobs vs Agents](/docs/guides/jobs-vs-agents): How to choose between Fly-backed Jobs and Cloudflare-backed Agents.
 - **Job Groups**: Logical containers for related jobs within a project.
