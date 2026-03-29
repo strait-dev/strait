@@ -44,6 +44,9 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := s.checkWebhookEndpointLimit(ctx, req.ProjectID); err != nil {
+		return nil, err
+	}
 	for _, et := range req.EventTypes {
 		if !validWebhookEventTypes[et] {
 			return nil, huma.Error400BadRequest(fmt.Sprintf("invalid event type: %q", et))

@@ -249,6 +249,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	if err := s.checkCronOverlapPolicy(ctx, req.ProjectID, req.CronOverlapPolicy); err != nil {
 		return nil, err
 	}
+	if err := s.checkScheduleLimit(ctx, req.ProjectID, req.Cron); err != nil {
+		return nil, err
+	}
 
 	job := &domain.Job{
 		ProjectID:                 req.ProjectID,

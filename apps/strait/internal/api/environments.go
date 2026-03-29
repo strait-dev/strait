@@ -48,6 +48,10 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 		return nil, newValidationError(err)
 	}
 
+	if err := s.checkEnvironmentLimit(ctx, req.ProjectID); err != nil {
+		return nil, err
+	}
+
 	env := &domain.Environment{
 		ProjectID: req.ProjectID,
 		Name:      req.Name,

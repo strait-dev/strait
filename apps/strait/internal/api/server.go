@@ -312,6 +312,9 @@ type AuthStore interface {
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 	ListRunsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListJobsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error)
+	CountCronJobsByOrg(ctx context.Context, orgID string) (int, error)
+	CountEnvironmentsByProject(ctx context.Context, projectID string) (int, error)
+	CountWebhookSubscriptionsByProject(ctx context.Context, projectID string) (int, error)
 	CreateDeviceCode(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error
 	GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
 	ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error

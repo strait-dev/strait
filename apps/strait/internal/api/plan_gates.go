@@ -113,6 +113,102 @@ func (s *Server) checkCronOverlapPolicy(ctx context.Context, projectID, policy s
 	)
 }
 
+// checkEnvironmentLimit verifies that the project has not exceeded its
+// plan's MaxEnvironments. Counts environments via the store.
+func (s *Server) checkEnvironmentLimit(ctx context.Context, projectID string) error {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return nil // fail open
+	}
+
+	if limits.MaxEnvironments <= 0 {
+		return nil // unlimited or not enforced
+	}
+
+	count, err := s.store.CountEnvironmentsByProject(ctx, projectID)
+	if err != nil {
+		return nil //nolint:nilerr // fail open: billing unavailable should not block environment creation
+	}
+
+	if count >= limits.MaxEnvironments {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d environments (you have %d). Upgrade at /settings/billing",
+				limits.DisplayName, limits.MaxEnvironments, count),
+		)
+	}
+
+	return nil
+}
+
+// checkScheduleLimit verifies that the org has not exceeded its plan's
+// MaxScheduledJobs when adding a new cron job.
+func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronExpr string) error {
+	if cronExpr == "" {
+		return nil // not a scheduled job
+	}
+
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return nil // fail open
+	}
+
+	if limits.MaxScheduledJobs == -1 {
+		return nil // unlimited
+	}
+
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return nil //nolint:nilerr // fail open
+	}
+
+	count, err := s.store.CountCronJobsByOrg(ctx, orgID)
+	if err != nil {
+		return nil //nolint:nilerr // fail open: billing unavailable should not block schedule creation
+	}
+
+	if count >= limits.MaxScheduledJobs {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d scheduled jobs (you have %d). Upgrade at /settings/billing",
+				limits.DisplayName, limits.MaxScheduledJobs, count),
+		)
+	}
+
+	return nil
+}
+
+// checkWebhookEndpointLimit verifies that the project has not exceeded its
+// plan's MaxWebhookEndpoints.
+func (s *Server) checkWebhookEndpointLimit(ctx context.Context, projectID string) error {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return nil // fail open
+	}
+
+	if limits.MaxWebhookEndpoints == -1 {
+		return nil // unlimited
+	}
+
+	if limits.MaxWebhookEndpoints == 0 {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Webhooks are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
+		)
+	}
+
+	count, err := s.store.CountWebhookSubscriptionsByProject(ctx, projectID)
+	if err != nil {
+		return nil //nolint:nilerr // fail open: billing unavailable should not block webhook creation
+	}
+
+	if count >= limits.MaxWebhookEndpoints {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d webhook endpoints (you have %d). Upgrade at /settings/billing",
+				limits.DisplayName, limits.MaxWebhookEndpoints, count),
+		)
+	}
+
+	return nil
+}
+
 // checkJobChainingAllowed verifies that job chaining (on_complete_trigger_job)
 // is allowed on the project's plan.
 func (s *Server) checkJobChainingAllowed(ctx context.Context, projectID string, triggerJob, triggerWorkflow string) error {
