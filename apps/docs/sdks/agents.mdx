@@ -14,9 +14,28 @@ It is separate from the public API client SDKs. Instead of creating jobs and wor
 - stream partial output
 - access run-scoped and workflow-scoped state
 
+## How It Fits into the Platform
+
+The SDK is the glue between the runtime package and the Go control plane.
+
+The normal flow is:
+
+1. Strait creates a run and signs a run token
+2. the runtime creates a `StraitContext`
+3. runtime code, tool wrappers, and provider adapters report events through the SDK
+4. the SDK calls `/sdk/v1/runs/{runID}/...`
+5. the Go control plane persists those events into standard run telemetry tables
+
+This is why the package belongs to the runtime path rather than the public management client.
+
 ## Package Scope
 
 The package lives in this monorepo at `packages/agents-sdk` and is currently used by the local execution app in `apps/agents`.
+
+For workspace-level implementation details, see:
+
+- `packages/agents-sdk/README.md`
+- `apps/agents/README.md`
 
 Reference examples live in:
 
@@ -28,6 +47,15 @@ Reference examples live in:
 
 ```bash
 bun add @strait/agents-sdk
+```
+
+For local work inside this repository:
+
+```bash
+cd packages/agents-sdk
+bun run test
+bun run typecheck
+bun run biome:lint
 ```
 
 ## Creating a Context
@@ -89,6 +117,8 @@ await ctx.stream({ streamId: "assistant", chunk: "Drafting response..." });
 await ctx.stream({ streamId: "assistant", chunk: "", done: true });
 ```
 
+These helpers intentionally mirror the existing Go callback endpoints instead of inventing a second transport.
+
 ## Completing or Failing a Run
 
 ```ts
@@ -140,6 +170,8 @@ export const triageAgent = strait.agent({
 
 `strait.agent()` also accepts `handler` as an alias for `run`, and budget strings such as `"$5.00"` are normalized into microusd limits automatically.
 
+Agent definitions are a runtime authoring convenience. They do not create or deploy agents in the control plane by themselves. Management still happens through Strait’s API and dashboard.
+
 ## AI Step Primitives
 
 For local orchestration wrappers that sit above the raw provider adapters, use `createAIStep()`:
@@ -158,6 +190,8 @@ The helper exposes three local-first primitives:
 - `ai.wrap()` for checkpointed async work
 - `ai.infer()` for provider-agnostic OpenAI and Anthropic inference
 - `ai.agentLoop()` for checkpointed tool-loop execution through wrapped clients
+
+These primitives are intended for runtime code that wants higher-level orchestration without wiring callback reporting manually.
 
 ## Workflow Helpers
 
@@ -256,6 +290,27 @@ This framework is local-only and intentionally generic. You provide the executor
 - captured production traces replayed locally
 - adapter-wrapped provider calls with mocked transports
 
+## Architecture Notes
+
+The package is structured around a few stable modules:
+
+- `context.ts`
+  - run-token authenticated callback client and state helpers
+- `agent.ts`
+  - managed agent definitions and budget normalization
+- `ai-step.ts`
+  - local-first orchestration helpers
+- `pricing.ts` and `budget.ts`
+  - pricing catalogs, normalization, and budget accounting
+- `workflow.ts`
+  - workflow-oriented helpers and dynamic step construction
+- `sandbox.ts`
+  - sandbox tool metadata and execution hints
+- adapter entrypoints
+  - provider-specific wrappers that preserve the underlying provider API shape
+
+This separation is what keeps runtime code easy to test. You can unit test workflow helpers, budgets, adapters, and eval assertions independently from the executing runtime.
+
 ## Provider Adapters
 
 The package includes tree-shakeable adapter wrappers for:
@@ -333,9 +388,24 @@ const ctx = createStraitContext({
 });
 ```
 
+## Sandbox Metadata and Cloudflare
+
+Sandbox tool metadata is shared between the local runtime and the Cloudflare production path.
+
+The SDK can attach:
+
+- execution mode
+- timeout hint
+- runtime or image hint
+- outbound policy tag
+- network class
+
+The current production path uses this metadata with the outbound Worker to enforce egress rules and surface blocked requests back through telemetry.
+
 ## Next Steps
 
 - [Agents](/docs/concepts/agents)
 - [TypeScript SDK](/docs/sdks/typescript)
 - [SDK Integration](/docs/guides/sdk-integration)
 - [Local Agent Development](/docs/guides/local-agent-development)
+- [Cloudflare Agents Productionization](/docs/guides/cloudflare-agents-productionization)

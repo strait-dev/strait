@@ -12,6 +12,24 @@ They give you a higher-level control plane for long-running model-driven tasks w
 - `run_checkpoints`
 - `run_tool_calls`
 
+This gives agents a higher-level authoring and deployment model without forking the execution substrate used by jobs and workflows.
+
+## Mental Model
+
+There are four layers in the current system:
+
+1. control plane in Go
+2. runtime package in `apps/agents`
+3. runtime-facing SDK in `packages/agents-sdk`
+4. dashboard and API surface in `apps/app` and `apps/strait/internal/api`
+
+In practice, that means:
+
+- the Go service owns agent records, deployments, run creation, and persistence
+- `apps/agents` executes the runtime contract locally or on Cloudflare
+- `@strait/agents-sdk` reports runtime events back to Strait
+- the dashboard reads the same run and telemetry tables used elsewhere in the platform
+
 ## Resource Model
 
 An agent tracks:
@@ -22,6 +40,8 @@ An agent tracks:
 - a hidden backing `job_id`
 
 The hidden backing job is an implementation detail that preserves the existing run lifecycle, analytics, queueing, and workflow contracts.
+
+This is the key architectural decision behind the current platform. Agents are not a second run system. They are a higher-level control plane layered on top of the existing job system.
 
 ## Deployments
 
@@ -53,6 +73,27 @@ The Go deploy provider uploads the built runtime bundle from `apps/agents/dist/r
 
 Local and Cloudflare deployments share the same `agent_deployments` table, while `provider_metadata` stores the provider-specific contract required to redeploy, dispatch runs, and enforce sandbox policy.
 
+## Run Lifecycle
+
+An agent run follows this sequence:
+
+1. an API caller triggers `/v1/agents/{id}/run`
+2. the Go service creates a normal run against the hidden backing job
+3. the provider-specific runtime path receives a dispatch envelope
+4. the runtime emits checkpoints, usage, tool calls, stream chunks, and terminal state
+5. those callbacks are persisted into the standard run telemetry tables
+6. the dashboard and API expose the run like any other managed execution
+
+This keeps:
+
+- retries
+- run status transitions
+- telemetry collection
+- analytics
+- workflow dependencies
+
+aligned with the rest of Strait.
+
 ## Runtime Contract
 
 The local agent runtime receives a dispatch envelope and reports lifecycle state back through the SDK callback endpoints. The contract includes:
@@ -65,6 +106,14 @@ The local agent runtime receives a dispatch envelope and reports lifecycle state
 - terminal success or failure
 
 These callbacks are mapped directly onto the existing run FSM and persisted using the same run tables used by jobs.
+
+The runtime contract is shared across:
+
+- the local CLI runtime
+- the Cloudflare runtime Worker
+- the Cloudflare dispatch Worker callback-forwarding path
+
+That shared contract is what makes the local-first development loop meaningful instead of being a separate fake environment.
 
 ## SDK and Adapters
 
@@ -80,6 +129,19 @@ The SDK provides:
 
 See [Agents SDK](/docs/sdks/agents) for the runtime-side API.
 
+## Package Boundaries
+
+Use these boundaries when you need to navigate the code:
+
+- `apps/strait/internal/agents`
+  - control plane, provider implementations, deploy and dispatch logic
+- `apps/agents`
+  - runtime package and Cloudflare Worker entrypoints
+- `packages/agents-sdk`
+  - context, adapters, budgets, workflow helpers, and eval helpers
+- `apps/app`
+  - dashboard UX for creating, deploying, running, and inspecting agents
+
 ## Cloudflare Production Path
 
 The Cloudflare production path now covers the local-first acceptance scope for:
@@ -92,6 +154,19 @@ What remains outside this scope:
 
 - live staging smoke against a purchased Workers for Platforms account
 - future dynamic isolate / `worker_loaders` sandboxing
+
+## Outbound Sandbox
+
+The first production sandbox implementation uses an outbound Worker instead of dynamic isolates.
+
+That outbound layer is responsible for:
+
+- blocking private-network destinations
+- enforcing explicit allowlists
+- annotating allowed and blocked requests
+- making policy decisions visible in telemetry instead of hiding them in runtime failures
+
+This is intentionally narrower than full code sandboxing, but it is deployable today and matches the current productionization scope.
 
 ## Workflow Orchestration
 
@@ -119,6 +194,19 @@ Dynamic expansion uses this output shape:
 ```
 
 Each dynamic step is validated against the current runtime DAG before it is materialized. Cycles, duplicate `step_ref` values, and invalid dependencies fail the parent step instead of mutating workflow state partially.
+
+## Where To Start
+
+If you are trying to understand or change the platform, use this order:
+
+1. [Local Agent Development](/docs/guides/local-agent-development)
+2. [Agents SDK](/docs/sdks/agents)
+3. [Cloudflare Agents Productionization](/docs/guides/cloudflare-agents-productionization)
+
+If you want the workspace-level implementation details, also read:
+
+- `apps/agents/README.md`
+- `packages/agents-sdk/README.md`
 
 ## Local-First Milestone
 

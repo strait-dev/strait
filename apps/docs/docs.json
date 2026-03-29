@@ -97,7 +97,6 @@
               "guides/idempotency",
               "guides/local-agent-development",
               "guides/cloudflare-agents-productionization",
-              "guides/sdk-integration",
               "guides/workflow-approvals",
               "guides/dag-operations-playbook",
               "guides/event-triggers"
