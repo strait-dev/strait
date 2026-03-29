@@ -17,6 +17,7 @@ import type {
   UsageReport,
 } from "./types";
 import {
+  type AgentWorkflowDefinition,
   type AgentWorkflowStepDefinition,
   createDynamicSteps,
   type DynamicWorkflowStepEnvelope,
@@ -321,6 +322,19 @@ export class StraitContext {
       },
       { retryable: true, signal }
     );
+  }
+
+  submitWorkflow(
+    definition: AgentWorkflowDefinition,
+    signal?: AbortSignal
+  ): Promise<{ workflow_id: string }> {
+    if (!(definition?.name && definition.steps?.length)) {
+      throw new StraitSDKError("workflow definition requires name and steps");
+    }
+    return this.#client.post<{ workflow_id: string }>("/workflow", definition, {
+      retryable: false,
+      signal,
+    });
   }
 
   complete(result?: JsonValue, signal?: AbortSignal): Promise<JobRunResponse> {
