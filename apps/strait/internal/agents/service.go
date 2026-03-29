@@ -1,13 +1,16 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -666,7 +669,12 @@ func (s *localService) dispatchRun(ctx context.Context, agent *domain.Agent, job
 	}
 	if !state.terminalResult {
 		s.markRuntimeSystemFailed(ctx, runID, "runtime exited without terminal event")
+		return
 	}
+
+	// Fire webhook notification on successful terminal state (local path only;
+	// Cloudflare runs fire webhooks from the /complete and /fail callback handlers).
+	s.fireAgentWebhook(ctx, agent, runID)
 }
 
 func (s *localService) transitionRunToExecuting(ctx context.Context, runID string) error {
@@ -857,4 +865,57 @@ func (s *localService) scheduleAgentRetry(ctx context.Context, failedRun *domain
 		}
 		return
 	}
+}
+
+// fireAgentWebhook sends a webhook notification if the agent has a webhook URL configured.
+func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent, runID string) {
+	webhookURL := extractWebhookURL(agent.Config)
+	if webhookURL == "" {
+		return
+	}
+
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil || run == nil {
+		return
+	}
+
+	payload := mustJSON(map[string]any{
+		"event":      "agent.run.terminal",
+		"agent_id":   agent.ID,
+		"agent_slug": agent.Slug,
+		"run_id":     run.ID,
+		"status":     string(run.Status),
+		"attempt":    run.Attempt,
+		"result":     run.Result,
+		"error":      run.Error,
+		"timestamp":  s.now().UTC(),
+	})
+
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
+	if reqErr != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "strait-agents/1.0")
+
+	resp, doErr := s.dispatchHTTP.Do(req)
+	if doErr != nil {
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+}
+
+func extractWebhookURL(config json.RawMessage) string {
+	if len(config) == 0 {
+		return ""
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(config, &cfg); err != nil {
+		return ""
+	}
+	if url, ok := cfg["webhook_url"].(string); ok {
+		return strings.TrimSpace(url)
+	}
+	return ""
 }
