@@ -1,4 +1,4 @@
-export type PlanKey = "free" | "starter" | "pro" | "enterprise";
+export type PlanKey = "free" | "starter" | "pro" | "scale" | "enterprise";
 
 export type PlanSummary = {
   key: PlanKey;

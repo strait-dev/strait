@@ -1,4 +1,4 @@
-export type PlanKey = "free" | "starter" | "pro" | "enterprise";
+export type PlanKey = "free" | "starter" | "pro" | "scale" | "enterprise";
 
 export type Plan = {
   name: string;
@@ -31,7 +31,13 @@ export type Plan = {
   badge?: string;
 };
 
-export const PLAN_KEYS: PlanKey[] = ["free", "starter", "pro", "enterprise"];
+export const PLAN_KEYS: PlanKey[] = [
+  "free",
+  "starter",
+  "pro",
+  "scale",
+  "enterprise",
+];
 
 export const PLANS: Record<PlanKey, Plan> = {
   free: {
@@ -40,21 +46,20 @@ export const PLANS: Record<PlanKey, Plan> = {
     prices: { monthly: 0, yearly: 0 },
     trial: false,
     creditCardRequired: false,
-    computeCredit: "100 runs/mo (micro, 10s)",
+    computeCredit: "$1/mo",
     features: [
-      "1 organization",
-      "2 projects",
-      "3 members",
-      "5,000 runs/day",
+      "1 project",
+      "1 member",
       "5 concurrent runs",
+      "Unlimited daily runs",
       "1-day retention",
       "Community support",
     ],
     limits: {
       organizations: 1,
-      projectsPerOrg: 2,
-      membersPerOrg: 3,
-      runsPerDay: 5000,
+      projectsPerOrg: 1,
+      membersPerOrg: 1,
+      runsPerDay: null,
       concurrentRuns: 5,
       retentionDays: 1,
       regions: "1 (iad)",
@@ -79,19 +84,19 @@ export const PLANS: Record<PlanKey, Plan> = {
     creditCardRequired: true,
     computeCredit: "$19.99/mo",
     features: [
-      "2 organizations",
-      "5 projects per org",
-      "10 members per org",
-      "25,000 runs/day",
+      "3 projects per org",
+      "5 members per org",
       "25 concurrent runs",
+      "Unlimited daily runs",
       "7-day retention",
-      "Email support",
+      "6 regions",
+      "Email support (72h)",
     ],
     limits: {
       organizations: 2,
-      projectsPerOrg: 5,
-      membersPerOrg: 10,
-      runsPerDay: 25_000,
+      projectsPerOrg: 3,
+      membersPerOrg: 5,
+      runsPerDay: null,
       concurrentRuns: 25,
       retentionDays: 7,
       regions: "6",
@@ -111,25 +116,26 @@ export const PLANS: Record<PlanKey, Plan> = {
   },
   pro: {
     name: "Pro",
-    description: "For growing teams that need scale and governance.",
+    description: "For growing teams that need workflow orchestration.",
     prices: { monthly: 4999, yearly: 49_999 },
     trial: true,
     creditCardRequired: true,
     computeCredit: "$49.99/mo",
     features: [
-      "5 organizations",
-      "15 projects per org",
-      "25 members per org",
-      "100,000 runs/day",
+      "10 projects per org",
+      "10 members per org",
       "100 concurrent runs",
+      "Managed + HTTP execution",
       "30-day retention",
-      "Priority support",
+      "All regions + multi-region",
+      "Approval gates & sub-workflows",
+      "Priority support (24h)",
     ],
     limits: {
       organizations: 5,
-      projectsPerOrg: 15,
-      membersPerOrg: 25,
-      runsPerDay: 100_000,
+      projectsPerOrg: 10,
+      membersPerOrg: 10,
+      runsPerDay: null,
       concurrentRuns: 100,
       retentionDays: 30,
       regions: "All",
@@ -138,7 +144,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     },
     governance: {
       rbac: "full",
-      auditLogs: true,
+      auditLogs: false,
       ssoSaml: false,
       aiMessagesPerDay: 500,
       aiByok: true,
@@ -147,21 +153,62 @@ export const PLANS: Record<PlanKey, Plan> = {
     highlighted: true,
     badge: "Most popular",
   },
+  scale: {
+    name: "Scale",
+    description: "For high-volume teams with audit and canary deploy needs.",
+    prices: { monthly: 9900, yearly: 99_000 },
+    trial: false,
+    creditCardRequired: true,
+    computeCredit: "$99/mo",
+    features: [
+      "50 projects per org",
+      "50 members per org",
+      "500 concurrent runs",
+      "Managed + HTTP execution",
+      "60-day retention",
+      "Audit logs",
+      "Canary deployments",
+      "Priority support + Slack (8h)",
+    ],
+    limits: {
+      organizations: 10,
+      projectsPerOrg: 50,
+      membersPerOrg: 50,
+      runsPerDay: null,
+      concurrentRuns: 500,
+      retentionDays: 60,
+      regions: "All",
+      spendingLimits: "Configurable",
+      overagePerThousandRuns: 200,
+    },
+    governance: {
+      rbac: "full",
+      auditLogs: true,
+      ssoSaml: false,
+      aiMessagesPerDay: 1000,
+      aiByok: true,
+    },
+    cta: {
+      label: "Upgrade to Scale",
+      href: "/login?redirect=/app/upgrade",
+    },
+    highlighted: false,
+  },
   enterprise: {
     name: "Enterprise",
-    description: "For organizations with custom security and compliance needs.",
+    description:
+      "For organizations with custom security and compliance needs.",
     prices: { monthly: -1, yearly: -1 },
     trial: false,
     creditCardRequired: false,
     computeCredit: "Custom",
     features: [
-      "Unlimited organizations",
       "Unlimited projects & members",
-      "Unlimited runs",
       "Unlimited concurrent runs",
       "90-day retention",
-      "Dedicated support",
       "SSO/SAML",
+      "99.9% SLA",
+      "Dedicated CSM",
     ],
     limits: {
       organizations: null,
@@ -188,7 +235,7 @@ export const PLANS: Record<PlanKey, Plan> = {
 
 export function formatPlanPrice(
   plan: Plan,
-  interval: "monthly" | "yearly"
+  interval: "monthly" | "yearly",
 ): string {
   const price = plan.prices[interval];
   if (price === 0) {
