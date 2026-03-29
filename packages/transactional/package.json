@@ -1,7 +1,6 @@
 {
   "name": "@strait/transactional",
   "version": "1.0.0",
-  "main": "emails/index.ts",
   "private": true,
   "type": "module",
   "sideEffects": false,
@@ -14,6 +13,9 @@
     "biome:write": "biome check --write .",
     "biome:fix:unsafe": "biome check --fix --unsafe .",
     "typecheck": "tsgo --noEmit"
+  },
+  "exports": {
+    ".": "./src/index.ts"
   },
   "dependencies": {
     "@react-email/components": "1.0.11",

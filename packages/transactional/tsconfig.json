@@ -18,9 +18,10 @@
     "incremental": true,
     "noUncheckedIndexedAccess": true,
     "paths": {
-      "@/*": ["./emails/*"]
+      "@/*": ["./emails/*"],
+      "@strait/transactional": ["./src/index.ts"]
     }
   },
-  "include": ["./emails/**/*"],
+  "include": ["./emails/**/*", "./src/**/*"],
   "exclude": ["node_modules", "dist"]
 }
