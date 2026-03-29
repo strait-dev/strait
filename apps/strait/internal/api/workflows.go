@@ -126,6 +126,12 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 	if err := validateWorkflowSteps(req.Steps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	if err := s.checkWorkflowStepLimit(ctx, req.ProjectID, len(req.Steps)); err != nil {
+		return nil, err
+	}
+	if err := s.checkWorkflowStepFeatures(ctx, req.ProjectID, req.Steps); err != nil {
+		return nil, err
+	}
 	candidateSteps := workflowStepsFromRequests(req.Steps)
 	if err := s.validateWorkflowPolicy(ctx, req.ProjectID, candidateSteps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())

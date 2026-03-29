@@ -231,6 +231,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		if req.MachinePreset == "" {
 			req.MachinePreset = string(domain.PresetMicro)
 		}
+		if err := s.checkPresetAllowed(ctx, req.ProjectID, req.MachinePreset); err != nil {
+			return nil, err
+		}
 	case domain.ExecutionModeHTTP:
 		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
@@ -238,6 +241,13 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		if err := s.checkHTTPModeAllowed(ctx, execMode, req.ProjectID); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := s.checkJobChainingAllowed(ctx, req.ProjectID, req.OnCompleteTriggerJob, req.OnCompleteTriggerWorkflow); err != nil {
+		return nil, err
+	}
+	if err := s.checkCronOverlapPolicy(ctx, req.ProjectID, req.CronOverlapPolicy); err != nil {
+		return nil, err
 	}
 
 	job := &domain.Job{

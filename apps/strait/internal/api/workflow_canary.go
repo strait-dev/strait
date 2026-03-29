@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/workflow"
@@ -41,6 +42,10 @@ func (s *Server) handleCreateCanaryDeployment(ctx context.Context, input *Create
 	wf, err := s.store.GetWorkflow(ctx, req.WorkflowID)
 	if err != nil || wf == nil {
 		return nil, huma.Error404NotFound("workflow not found")
+	}
+
+	if err := s.checkFeatureAllowed(ctx, wf.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
+		return nil, err
 	}
 
 	canary := &domain.CanaryDeployment{

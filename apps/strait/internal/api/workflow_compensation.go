@@ -5,6 +5,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/workflow"
 )
@@ -21,6 +22,10 @@ func (s *Server) handleCompensateWorkflowRun(ctx context.Context, input *Compens
 	wfRun, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
 		return nil, huma.Error404NotFound("workflow run not found")
+	}
+
+	if err := s.checkFeatureAllowed(ctx, wfRun.ProjectID, billing.FeatureCompensatingTxns, "Compensating transactions"); err != nil {
+		return nil, err
 	}
 
 	if err := workflow.ValidateCompensationRequest(wfRun); err != nil {
