@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+//go:generate bash -c "cd ../../../../apps/agents && bun run build:runtime && cp dist/runtime/worker.js ../../apps/strait/internal/agents/runtime_worker_bundle.js"
+
 //go:embed runtime_worker_bundle.js
 var embeddedCloudflareRuntimeWorker string
 

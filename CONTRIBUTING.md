@@ -117,6 +117,21 @@ Do not add AI attribution or "Co-Authored-By" lines. Do not skip git hooks (`--n
 4. Open a PR with a clear title and description
 5. CI runs Test, Lint, and Security checks automatically
 
+## Agent Runtime Bundle
+
+The Go backend embeds a pre-built Cloudflare Worker bundle via `go:embed` in
+`apps/strait/internal/agents/cloudflare_bundle.go`. When you change agent
+runtime code in `apps/agents/`, regenerate the embedded bundle:
+
+```bash
+cd apps/strait
+go generate ./internal/agents/...
+```
+
+This builds the runtime worker from `apps/agents` and copies the output into
+`runtime_worker_bundle.js`. The bundle is checked in because `go build` requires
+embedded files to exist at compile time.
+
 ## Architecture
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the system overview.
