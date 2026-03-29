@@ -51,6 +51,7 @@ type agentStore interface {
 	NextAgentDeploymentVersion(ctx context.Context, agentID string) (int, error)
 	CreateAgentDeployment(ctx context.Context, deployment *domain.AgentDeployment) error
 	GetLatestAgentDeployment(ctx context.Context, agentID string) (*domain.AgentDeployment, error)
+	ListAgentDeployments(ctx context.Context, agentID string, limit int, cursor *time.Time) ([]domain.AgentDeployment, error)
 	UpdateAgentDeployment(ctx context.Context, id string, patch map[string]any) error
 	ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
@@ -64,6 +65,7 @@ type agentStore interface {
 type Provider interface {
 	Name() string
 	Deploy(ctx context.Context, agent *domain.Agent, deployment *domain.AgentDeployment) (json.RawMessage, error)
+	Undeploy(ctx context.Context, agent *domain.Agent, deployment *domain.AgentDeployment) error
 	Run(ctx context.Context, agent *domain.Agent, deployment *domain.AgentDeployment, run *domain.JobRun) (json.RawMessage, error)
 }
 
@@ -80,6 +82,10 @@ func (LocalStubProvider) Deploy(_ context.Context, agent *domain.Agent, deployme
 		"deployment_id":  deployment.ID,
 		"deployment_ver": deployment.Version,
 	}), nil
+}
+
+func (LocalStubProvider) Undeploy(context.Context, *domain.Agent, *domain.AgentDeployment) error {
+	return nil
 }
 
 func (LocalStubProvider) Run(_ context.Context, agent *domain.Agent, deployment *domain.AgentDeployment, run *domain.JobRun) (json.RawMessage, error) {
@@ -336,6 +342,17 @@ func (s *localService) DeleteAgent(ctx context.Context, projectID, agentID strin
 	agent, err := s.GetAgent(ctx, projectID, agentID)
 	if err != nil {
 		return err
+	}
+
+	deployments, err := s.store.ListAgentDeployments(ctx, agent.ID, 100, nil)
+	if err != nil {
+		return err
+	}
+	for _, deployment := range deployments {
+		deploymentCopy := deployment
+		if err := s.p.Undeploy(ctx, agent, &deploymentCopy); err != nil {
+			return err
+		}
 	}
 
 	return store.WithTx(ctx, s.txb, func(txQ *store.Queries) error {

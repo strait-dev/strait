@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -26,6 +27,62 @@ const (
 var (
 	ErrCloudflareProviderUnimplemented = errors.New("cloudflare provider behavior is not implemented yet")
 )
+
+type CloudflareProviderOption interface {
+	applyProvider(*CloudflareProvider)
+	applyClient(*CloudflareAPIClient)
+}
+
+type cloudflareProviderOptionFunc struct {
+	applyProviderFn func(*CloudflareProvider)
+	applyClientFn   func(*CloudflareAPIClient)
+}
+
+func (o cloudflareProviderOptionFunc) applyProvider(p *CloudflareProvider) {
+	if o.applyProviderFn != nil {
+		o.applyProviderFn(p)
+	}
+}
+
+func (o cloudflareProviderOptionFunc) applyClient(c *CloudflareAPIClient) {
+	if o.applyClientFn != nil {
+		o.applyClientFn(c)
+	}
+}
+
+func WithCloudflareHTTPClient(client *http.Client) CloudflareProviderOption {
+	return cloudflareProviderOptionFunc{
+		applyProviderFn: func(p *CloudflareProvider) {
+			if client != nil {
+				if cfClient, ok := p.client.(*CloudflareAPIClient); ok {
+					cfClient.httpClient = client
+				}
+			}
+		},
+		applyClientFn: func(c *CloudflareAPIClient) {
+			if client != nil {
+				c.httpClient = client
+			}
+		},
+	}
+}
+
+func WithCloudflareAPIBaseURL(baseURL string) CloudflareProviderOption {
+	return cloudflareProviderOptionFunc{
+		applyProviderFn: func(p *CloudflareProvider) {
+			if strings.TrimSpace(baseURL) != "" {
+				if cfClient, ok := p.client.(*CloudflareAPIClient); ok {
+					cfClient.baseURL = baseURL
+				}
+			}
+		},
+		applyClientFn: func(c *CloudflareAPIClient) {
+			if strings.TrimSpace(baseURL) != "" {
+				c.baseURL = baseURL
+			}
+		},
+	}
+}
 
 type CloudflareConfig struct {
 	AccountID                string
@@ -149,14 +206,24 @@ func ParseCloudflareDeploymentMetadata(raw json.RawMessage) (*CloudflareDeployme
 
 type CloudflareProvider struct {
 	config CloudflareConfig
+	client cloudflareScriptsClient
 }
 
-func NewCloudflareProvider(cfg CloudflareConfig) *CloudflareProvider {
+func NewCloudflareProvider(cfg CloudflareConfig, opts ...CloudflareProviderOption) *CloudflareProvider {
 	normalized := cfg
 	if normalized.SandboxMode == "" {
-		normalized.SandboxMode = CloudflareSandboxModeOutboundWorker
+		normalized.SandboxMode = CloudflareSandboxModeDisabled
 	}
-	return &CloudflareProvider{config: normalized}
+	provider := &CloudflareProvider{
+		config: normalized,
+		client: NewCloudflareAPIClient(normalized, opts...),
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt.applyProvider(provider)
+		}
+	}
+	return provider
 }
 
 func (p *CloudflareProvider) Name() string {
@@ -167,8 +234,64 @@ func (p *CloudflareProvider) Config() CloudflareConfig {
 	return p.config
 }
 
-func (p *CloudflareProvider) Deploy(context.Context, *domain.Agent, *domain.AgentDeployment) (json.RawMessage, error) {
-	return nil, ErrCloudflareProviderUnimplemented
+func (p *CloudflareProvider) Deploy(ctx context.Context, agent *domain.Agent, deployment *domain.AgentDeployment) (json.RawMessage, error) {
+	if p.client == nil {
+		return nil, ErrCloudflareProviderUnimplemented
+	}
+
+	scriptName := buildCloudflareScriptName(agent.ID, deployment.Version)
+	namespace := p.config.DispatchNamespace
+	sandboxPolicy := CloudflareSandboxPolicy{
+		Mode:               p.config.SandboxMode,
+		OutboundWorkerName: p.config.OutboundWorkerName,
+	}
+
+	result, err := p.client.UpsertScript(ctx, CloudflareScriptUploadRequest{
+		Namespace:         namespace,
+		ScriptName:        scriptName,
+		CompatibilityDate: p.config.CompatibilityDate,
+		OutboundWorker:    p.config.OutboundWorkerName,
+		SandboxPolicy:     sandboxPolicy,
+		Tags: []string{
+			"strait-agent",
+			"agent:" + agent.ID,
+			"deployment:" + deployment.ID,
+		},
+		Source: buildCloudflareWorkerSource(agent, deployment),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("deploy cloudflare worker: %w", err)
+	}
+
+	return MarshalCloudflareDeploymentMetadata(CloudflareDeploymentMetadata{
+		Provider:          ProviderNameCloudflare,
+		Namespace:         namespace,
+		ScriptName:        scriptName,
+		DeploymentVersion: deployment.Version,
+		DispatchWorkerURL: p.config.DispatchWorkerURL,
+		OutboundWorker:    p.config.OutboundWorkerName,
+		CompatibilityDate: result.CompatibilityDate,
+		ContentSHA256:     result.ContentSHA256,
+		Etag:              result.ETag,
+		SandboxPolicy:     sandboxPolicy,
+	}), nil
+}
+
+func (p *CloudflareProvider) Undeploy(ctx context.Context, _ *domain.Agent, deployment *domain.AgentDeployment) error {
+	if p.client == nil {
+		return ErrCloudflareProviderUnimplemented
+	}
+	if deployment == nil || len(deployment.ProviderMetadata) == 0 || deployment.Provider != ProviderNameCloudflare {
+		return nil
+	}
+	metadata, err := ParseCloudflareDeploymentMetadata(deployment.ProviderMetadata)
+	if err != nil {
+		return fmt.Errorf("parse deployment metadata for undeploy: %w", err)
+	}
+	if err := p.client.DeleteScript(ctx, metadata.Namespace, metadata.ScriptName); err != nil {
+		return fmt.Errorf("undeploy cloudflare worker: %w", err)
+	}
+	return nil
 }
 
 func (p *CloudflareProvider) Run(context.Context, *domain.Agent, *domain.AgentDeployment, *domain.JobRun) (json.RawMessage, error) {
@@ -180,4 +303,23 @@ func SelectProvider(cf CloudflareConfig) Provider {
 		return NewCloudflareProvider(cf)
 	}
 	return LocalStubProvider{}
+}
+
+func buildCloudflareWorkerSource(agent *domain.Agent, deployment *domain.AgentDeployment) string {
+	return fmt.Sprintf(`export default {
+  async fetch() {
+    return new Response(JSON.stringify({
+      error: "cloudflare runtime is not connected yet",
+      agent_id: %q,
+      deployment_id: %q,
+      deployment_version: %d
+    }), {
+      status: 501,
+      headers: {
+        "content-type": "application/json"
+      }
+    });
+  }
+};
+`, agent.ID, deployment.ID, deployment.Version)
 }

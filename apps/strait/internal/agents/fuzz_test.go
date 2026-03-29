@@ -122,3 +122,21 @@ func FuzzParseCloudflareDeploymentMetadata(f *testing.F) {
 		_, _ = ParseCloudflareDeploymentMetadata(json.RawMessage(raw))
 	})
 }
+
+func FuzzBuildCloudflareMultipartUpload(f *testing.F) {
+	f.Add("ns-prod", "agent-script", "2026-03-29", `export default { async fetch() { return new Response("ok"); } };`)
+	f.Add("", "agent-script", "2026-03-29", `export default {}`)
+	f.Add("ns-prod", "", "2026-03-29", `export default {}`)
+
+	f.Fuzz(func(t *testing.T, namespace, scriptName, compatibilityDate, source string) {
+		if len(source) > maxAgentConfigSize*4 {
+			t.Skip()
+		}
+		_, _, _, _ = buildCloudflareMultipartUpload(CloudflareScriptUploadRequest{
+			Namespace:         namespace,
+			ScriptName:        scriptName,
+			CompatibilityDate: compatibilityDate,
+			Source:            source,
+		})
+	})
+}

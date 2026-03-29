@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"slices"
@@ -424,6 +426,85 @@ func TestServiceDeployAgentConcurrentVersions(t *testing.T) {
 	slices.Sort(versions)
 	if !slices.Equal(versions, []int{1, 2}) {
 		t.Fatalf("versions = %v, want [1 2]", versions)
+	}
+}
+
+func TestServiceCloudflareDeployAndDeleteCleanup(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+
+	var uploadPaths []string
+	var deletePaths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			uploadPaths = append(uploadPaths, r.URL.Path)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"success":true,"result":{"id":"agent-script","etag":"etag-123","compatibility_date":"2026-03-29"}}`)
+		case http.MethodDelete:
+			deletePaths = append(deletePaths, r.URL.Path)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+	defer server.Close()
+
+	svc := agents.NewService(
+		q,
+		testDB.Pool,
+		agents.WithProvider(agents.NewCloudflareProvider(agents.CloudflareConfig{
+			AccountID:         "acct-1",
+			APIToken:          "token-1",
+			DispatchNamespace: "ns-prod",
+			DispatchWorkerURL: "https://dispatch.example.com",
+			CompatibilityDate: "2026-03-29",
+			SandboxMode:       agents.CloudflareSandboxModeDisabled,
+		}, agents.WithCloudflareAPIBaseURL(server.URL))),
+		agents.WithJWTSigningKey(runtimeTestJWTKey),
+	)
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Cloudflare Agent",
+		Slug:      "cloudflare-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	deployment, err := svc.DeployAgent(ctx, projectID, agent.ID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgent() error = %v", err)
+	}
+	if deployment.Provider != agents.ProviderNameCloudflare {
+		t.Fatalf("deployment.Provider = %q, want cloudflare", deployment.Provider)
+	}
+
+	parsed, err := agents.ParseCloudflareDeploymentMetadata(deployment.ProviderMetadata)
+	if err != nil {
+		t.Fatalf("ParseCloudflareDeploymentMetadata() error = %v", err)
+	}
+	if parsed.ScriptName == "" || parsed.Namespace != "ns-prod" {
+		t.Fatalf("parsed metadata = %+v", parsed)
+	}
+	if len(uploadPaths) != 1 {
+		t.Fatalf("upload path count = %d, want 1", len(uploadPaths))
+	}
+
+	if err := svc.DeleteAgent(ctx, projectID, agent.ID); err != nil {
+		t.Fatalf("DeleteAgent() error = %v", err)
+	}
+	if len(deletePaths) != 1 {
+		t.Fatalf("delete path count = %d, want 1", len(deletePaths))
+	}
+	if _, err := q.GetAgent(ctx, agent.ID); !errors.Is(err, store.ErrAgentNotFound) {
+		t.Fatalf("GetAgent(after delete) error = %v, want ErrAgentNotFound", err)
 	}
 }
 
