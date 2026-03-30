@@ -42,3 +42,15 @@ jobs:
       - name: Run govulncheck
         working-directory: apps/strait
         run: govulncheck ./...
+
+  gitleaks:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@ff98106e2ab4318bbfda40b9e74103f19f735da6 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -74,6 +74,27 @@ jobs:
         with:
           context: apps/strait
           file: apps/strait/Dockerfile
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ github.event.head_commit.timestamp }}
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@6c175e9c4083a92bbca2f9724c8a5e33bc2d97a6 # v0.30.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/strait-dev/strait:${{ steps.meta.outputs.version }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          timeout: 10m
+
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: apps/strait
+          file: apps/strait/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
