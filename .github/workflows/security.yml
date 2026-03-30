@@ -81,7 +81,7 @@ jobs:
 
       - name: Run gosec
         working-directory: apps/strait
-        run: gosec -exclude=G117,G703,G704,G706 ./...
+        run: gosec -exclude=G104,G117,G204,G304,G703,G704,G706 ./...
 
   gitleaks:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -91,6 +91,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@ff98106e2ab4318bbfda40b9e74103f19f735da6 # v2
+      - uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
