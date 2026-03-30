@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"strconv"
 	"time"
 
@@ -551,4 +552,110 @@ func (s *Server) handlePlaygroundRun(ctx context.Context, input *PlaygroundRunIn
 		RunID:   run.ID,
 		AgentID: agent.ID,
 	}}, nil
+}
+
+type GetRecommendationsInput struct {
+	AgentID string `path:"agentID"`
+}
+
+type GetRecommendationsOutput struct {
+	Body []agents.CostRecommendation
+}
+
+func (s *Server) handleGetRecommendations(ctx context.Context, input *GetRecommendationsInput) (*GetRecommendationsOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+
+	agent, agentErr := svc.GetAgent(ctx, projectID, input.AgentID)
+	if agentErr != nil {
+		return nil, mapAgentServiceError(agentErr)
+	}
+
+	recs, recErr := agents.GenerateRecommendations(ctx, s.store.(agents.CostOptimizerStore), agent)
+	if recErr != nil {
+		return nil, huma.Error500InternalServerError("failed to generate recommendations")
+	}
+	if recs == nil {
+		recs = []agents.CostRecommendation{}
+	}
+	return &GetRecommendationsOutput{Body: recs}, nil
+}
+
+type ApplyRecommendationRequest struct {
+	Patch json.RawMessage `json:"patch" validate:"required"`
+}
+
+type ApplyRecommendationInput struct {
+	AgentID string `path:"agentID"`
+	Body    ApplyRecommendationRequest
+}
+
+type ApplyRecommendationOutput struct {
+	Body *domain.Agent
+}
+
+func (s *Server) handleApplyRecommendation(ctx context.Context, input *ApplyRecommendationInput) (*ApplyRecommendationOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	actor := actorFromContext(ctx)
+
+	agent, agentErr := svc.GetAgent(ctx, projectID, input.AgentID)
+	if agentErr != nil {
+		return nil, mapAgentServiceError(agentErr)
+	}
+
+	// Merge the patch into the agent config.
+	var existingCfg map[string]any
+	if len(agent.Config) > 0 {
+		_ = json.Unmarshal(agent.Config, &existingCfg)
+	}
+	if existingCfg == nil {
+		existingCfg = make(map[string]any)
+	}
+
+	var patch map[string]any
+	if err := json.Unmarshal(input.Body.Patch, &patch); err != nil {
+		return nil, huma.Error400BadRequest("patch must be a valid JSON object")
+	}
+	maps.Copy(existingCfg, patch)
+
+	mergedConfig, _ := json.Marshal(existingCfg)
+
+	updated, updateErr := svc.UpdateAgent(ctx, agents.UpdateAgentRequest{
+		ProjectID:   projectID,
+		AgentID:     agent.ID,
+		Name:        agent.Name,
+		Slug:        agent.Slug,
+		Description: agent.Description,
+		Model:       agent.Model,
+		Config:      mergedConfig,
+		Actor:       actor,
+	})
+	if updateErr != nil {
+		return nil, mapAgentServiceError(updateErr)
+	}
+
+	// Trigger re-deploy.
+	_, _ = svc.DeployAgent(ctx, projectID, agent.ID, actor)
+
+	return &ApplyRecommendationOutput{Body: updated}, nil
+}
+
+type DismissRecommendationInput struct {
+	AgentID string `path:"agentID"`
+}
+
+func (s *Server) handleDismissRecommendation(ctx context.Context, _ *DismissRecommendationInput) (*struct{}, error) {
+	// Dismiss is a no-op for now. Could store dismissed recs in a JSONB field later.
+	_ = ctx
+	return nil, nil
 }
