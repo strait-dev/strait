@@ -193,6 +193,8 @@ func (s *Server) routes() chi.Router {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(requireJSONAccept)
+		r.Use(requireJSONContentType)
 		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)
 		r.Use(chimw.Timeout(requestTimeout))

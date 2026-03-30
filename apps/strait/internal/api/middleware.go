@@ -30,6 +30,48 @@ const ctxAuthKeyObjKey contextKey = "api_key_obj"
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
 
+// requireJSONAccept returns 406 Not Acceptable if the client explicitly
+// requests a content type the API cannot serve. Allows application/json,
+// application/*, */*, and empty (default).
+func requireJSONAccept(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		accept := r.Header.Get("Accept")
+		if accept != "" && accept != "*/*" {
+			ok := false
+			for part := range strings.SplitSeq(accept, ",") {
+				mt := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
+				if mt == "application/json" || mt == "application/*" || mt == "*/*" {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				respondError(w, r, http.StatusNotAcceptable, "this API only serves application/json")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireJSONContentType returns 415 Unsupported Media Type if a mutation
+// request (POST/PUT/PATCH) has a body but the Content-Type is not application/json.
+func requireJSONContentType(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
+			if r.ContentLength > 0 || r.Header.Get("Content-Type") != "" {
+				ct := r.Header.Get("Content-Type")
+				mt := strings.TrimSpace(strings.SplitN(ct, ";", 2)[0])
+				if mt != "application/json" {
+					respondError(w, r, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // realIP extracts the client IP from the request, preferring X-Forwarded-For
 // (first entry) over RemoteAddr. Returns only the IP, stripping port if present.
 func realIP(r *http.Request) string {
@@ -603,6 +645,14 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 			limit = s.config.DefaultAPIKeyRateLimit
 			windowSecs = s.config.DefaultAPIKeyRateWindowSecs
 			key = "rl:project:" + projectID
+		}
+
+		// 5. Fall back to per-IP rate limit when no key/project limits matched.
+		if limit == 0 && s.config.RateLimitRequests > 0 {
+			ip := realIP(r)
+			limit = s.config.RateLimitRequests
+			windowSecs = int(time.Minute.Seconds()) // default 1-minute window
+			key = "rl:ip:" + ip
 		}
 
 		if limit == 0 {

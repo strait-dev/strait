@@ -63,6 +63,26 @@ jobs:
         working-directory: apps/strait
         run: go-licenses check ./... --disallowed_types=restricted,reciprocal
 
+  gosec:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            apps/strait/go.sum
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec
+        working-directory: apps/strait
+        run: gosec -exclude=G117,G703,G704,G706 ./...
+
   gitleaks:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5

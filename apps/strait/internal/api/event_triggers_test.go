@@ -1615,6 +1615,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader("{"))
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("Content-Type", "application/json")
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusBadRequest {

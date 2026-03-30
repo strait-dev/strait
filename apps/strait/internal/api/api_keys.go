@@ -79,6 +79,10 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	if err := s.store.CreateAPIKey(ctx, key); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
+	if expiresAt == nil {
+		slog.Warn("api key created without expiration; consider setting expires_in_days for security",
+			"key_id", key.ID, "project_id", key.ProjectID, "actor", actorFromContext(ctx))
+	}
 	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt}}, nil
 }
 
