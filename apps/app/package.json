@@ -42,7 +42,6 @@
     "@sentry/tanstackstart-react": "^10.46.0",
     "@strait/transactional": "workspace:*",
     "@strait/ui": "workspace:*",
-    "@strait/utils": "workspace:*",
     "@tanstack/devtools-vite": "^0.6.0",
     "@tanstack/react-devtools": "^0.10.0",
     "@tanstack/react-form": "^1.28.5",

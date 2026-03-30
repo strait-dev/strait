@@ -177,4 +177,3 @@ Four plan tiers: `free < starter < pro < enterprise`. Billing is managed through
 |---|---|---|
 | `@strait/ui` | `packages/ui` | Shared component library (Tailwind v4, Radix) |
 | `@strait/transactional` | `packages/transactional` | Email templates (React Email) |
-| `@strait/utils` | `packages/utils` | Shared utilities |

@@ -5,7 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { formatCurrency } from "@strait/utils/money";
+import { formatCurrency } from "@/lib/format";
 import { useCallback, useState } from "react";
 
 type Provider = "trigger.dev" | "inngest" | "hatchet" | "temporal";
