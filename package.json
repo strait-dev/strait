@@ -34,8 +34,10 @@
     "run-all": "bun run manypkg:fix && bun run manypkg:check && bun run biome:format && bun run biome:write && bun run biome:fix:unsafe && bun run biome:lint && bun run typecheck && bun run go:lint",
     "update-all": "bunx npm-check-updates -ui -ws",
     "release": "changeset version && bash packages/scripts/sync-sdk-versions.sh",
-    "deploy": "cd apps/strait && make deploy",
-    "deploy:staging": "cd apps/strait && make deploy-staging",
+    "deploy:api": "cd apps/strait && make deploy",
+    "deploy:api:staging": "cd apps/strait && make deploy-staging",
+    "deploy:app": "cd apps/app && bun run deploy",
+    "deploy:website": "cd apps/website && bun run deploy",
     "deploy:sequin": "cd packages/deploy/sequin && fly deploy -a strait-sequin"
   },
   "overrides": {

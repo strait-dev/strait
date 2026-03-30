@@ -25,7 +25,7 @@
     "run-all": "bun run biome:fix:unsafe && bun run biome:format && bun run biome:write && bun run biome:lint && bun run typecheck",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:migrate:dry": "tsx scripts/migrate.ts --dry",
-    "clean": "git clean -xdf .next .turbo node_modules"
+    "clean": "git clean -xdf dist .turbo node_modules"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "^1.5.6",
