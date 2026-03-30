@@ -1,4 +1,15 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@strait/ui/components/alert-dialog";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -68,8 +79,11 @@ const deliveryColumns = [
     header: "Status",
     cell: ({ row }: { row: { original: WebhookDelivery } }) => {
       let mapped: "completed" | "failed" | "pending" = "pending";
-      if (row.original.status === "delivered") mapped = "completed";
-      else if (row.original.status === "failed") mapped = "failed";
+      if (row.original.status === "delivered") {
+        mapped = "completed";
+      } else if (row.original.status === "failed") {
+        mapped = "failed";
+      }
       return <StatusBadge status={mapped} />;
     },
   },
@@ -143,7 +157,7 @@ function WebhookDetailPage() {
           <HugeiconsIcon icon={ChevronLeftIcon} size={14} />
         </Button>
         <div className="flex-1">
-          <h1 className="flex items-center gap-2 font-semibold text-lg">
+          <h1 className="flex items-center gap-2 text-balance font-semibold text-lg">
             <HugeiconsIcon
               className="text-muted-foreground"
               icon={WebhookIcon}
@@ -164,14 +178,31 @@ function WebhookDetailPage() {
             <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
             Send test
           </Button>
-          <Button
-            onClick={() => deleteWebhook.mutate(webhook.id)}
-            size="sm"
-            variant="destructive"
-          >
-            <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />
-            Delete
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger
+              render={<Button size="sm" variant="destructive" />}
+            >
+              <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />
+              Delete
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete webhook?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete this webhook subscription.
+                  Deliveries in progress will not be affected.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => deleteWebhook.mutate(webhook.id)}
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 

@@ -231,11 +231,10 @@ const PricingCard = ({
   );
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: Using div for grid layout compatibility
-    <div
+    <button
       className={cn(
-        "group relative w-full",
-        "rounded-custom transition-all duration-300",
+        "group relative w-full text-left",
+        "rounded-custom",
         "bg-card",
         "border-2",
         isSelected
@@ -243,19 +242,9 @@ const PricingCard = ({
           : "border-border hover:border-foreground/30",
         !!plan.highlight && !isSelected && "border-foreground/20"
       )}
+      disabled={isLoading || isCurrentPlan}
       onClick={handleCardClick}
-      onKeyDown={(e) => {
-        if (
-          (e.key === "Enter" || e.key === " ") &&
-          !isLoading &&
-          !isCurrentPlan
-        ) {
-          e.preventDefault();
-          onSelect(plan.slug);
-        }
-      }}
-      role="button"
-      tabIndex={0}
+      type="button"
     >
       <PricingCardBadges
         billingInterval={billingInterval}
@@ -342,7 +331,7 @@ const PricingCard = ({
           {getCardButtonText()}
         </Button>
       </div>
-    </div>
+    </button>
   );
 };
 
@@ -382,7 +371,7 @@ export const PlanSelection = ({
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h1 className="font-normal text-secondary-foreground text-xl tracking-tight">
+        <h1 className="text-balance font-normal text-secondary-foreground text-xl tracking-tight">
           {messaging.title}
         </h1>
         <p className="whitespace-normal text-muted-foreground text-sm">
@@ -490,7 +479,7 @@ const FeatureComparisonMatrix = ({
 
   return (
     <div className="mt-12">
-      <h3 className="mb-6 text-center font-semibold text-lg">
+      <h3 className="mb-6 text-balance text-center font-semibold text-lg">
         Full feature comparison
       </h3>
       <div className="overflow-x-auto">
@@ -563,7 +552,7 @@ const FAQ_ITEMS = [
 const PricingFAQ = () => {
   return (
     <div className="mx-auto mt-12 max-w-2xl">
-      <h3 className="mb-6 text-center font-semibold text-lg">
+      <h3 className="mb-6 text-balance text-center font-semibold text-lg">
         Frequently asked questions
       </h3>
       <Accordion className="w-full">

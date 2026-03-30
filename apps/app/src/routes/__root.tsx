@@ -142,7 +142,7 @@ function RootComponent() {
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html
-      className="dark min-h-screen bg-background antialiased"
+      className="dark min-h-dvh bg-background antialiased"
       lang="en"
       suppressHydrationWarning
     >

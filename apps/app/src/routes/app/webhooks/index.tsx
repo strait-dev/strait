@@ -1,4 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@strait/ui/components/alert-dialog";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -95,12 +105,13 @@ function WebhooksPage() {
   }, [data?.data, selectedStatuses, hasProject]);
 
   const deleteWebhook = useDeleteWebhook();
+  const [deleteTarget, setDeleteTarget] = useState<string[] | null>(null);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const table = useReactTable({
     data: filteredData,
     columns: createWebhookColumns({
-      onDelete: (wh) => deleteWebhook.mutate(wh.id),
+      onDelete: (wh) => setDeleteTarget([wh.id]),
     }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -260,11 +271,7 @@ function WebhooksPage() {
                 {
                   label: "Delete",
                   icon: TrashIcon,
-                  onClick: () => {
-                    for (const id of selectedIds) {
-                      deleteWebhook.mutate(id);
-                    }
-                  },
+                  onClick: () => setDeleteTarget(selectedIds),
                   variant: "destructive" as const,
                 },
               ]}
@@ -275,6 +282,48 @@ function WebhooksPage() {
           table={table}
         />
       </div>
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+        open={!!deleteTarget}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete{" "}
+              {deleteTarget?.length === 1
+                ? "webhook"
+                : `${deleteTarget?.length} webhooks`}
+              ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the selected webhook
+              {deleteTarget && deleteTarget.length > 1 ? "s" : ""}. Deliveries
+              in progress will not be affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteTarget) {
+                  for (const id of deleteTarget) {
+                    deleteWebhook.mutate(id);
+                  }
+                }
+                setDeleteTarget(null);
+                setRowSelection({});
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Shell>
   );
 }
