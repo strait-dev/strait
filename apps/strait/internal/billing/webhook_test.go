@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -1510,4 +1512,129 @@ func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
 	if sub.PaymentStatus != "ok" {
 		t.Errorf("payment_status = %q, want ok (no grace for free orgs)", sub.PaymentStatus)
 	}
+}
+
+func TestWebhook_EmptySecretCloudMode_Rejects(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
+		WithEdition("cloud"))
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.created",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_1",
+			ProductID:  "starter-id",
+			CustomerID: "cust_1",
+			Status:     "active",
+			Metadata:   map[string]string{"org_id": "org-1"},
+		}),
+	}
+
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/polar", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 in cloud mode with empty secret, got %d", rec.Code)
+	}
+}
+
+func TestWebhook_EmptySecretCommunityMode_Allows(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
+		WithEdition("community"))
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.created",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_1",
+			ProductID:  "starter-id",
+			CustomerID: "cust_1",
+			Status:     "active",
+			Metadata:   map[string]string{"org_id": "org-1"},
+		}),
+	}
+
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/polar", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusServiceUnavailable {
+		t.Fatalf("community mode should not reject unsigned webhooks, got %d", rec.Code)
+	}
+}
+
+func TestWebhook_EmptySecretDefaultEdition_Allows(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+
+	// No WithEdition option -- defaults to empty string (non-cloud)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	payload := PolarWebhookPayload{
+		Type: "subscription.created",
+		Data: mustJSON(t, PolarSubscriptionData{
+			ID:         "sub_1",
+			ProductID:  "starter-id",
+			CustomerID: "cust_1",
+			Status:     "active",
+			Metadata:   map[string]string{"org_id": "org-1"},
+		}),
+	}
+
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/polar", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusServiceUnavailable {
+		t.Fatalf("default edition should not reject unsigned webhooks, got %d", rec.Code)
+	}
+}
+
+func FuzzWebhookSignatureHeader(f *testing.F) {
+	f.Add("v1,abc123")
+	f.Add("")
+	f.Add("v1,")
+	f.Add("v2,something")
+	f.Add("v1,dGVzdA== v1,aW52YWxpZA==")
+	f.Add(strings.Repeat("v1,x", 1000))
+
+	store := &mockBillingStore{}
+	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	secret := "whsec_" + base64.StdEncoding.EncodeToString([]byte("test-secret-key-32bytes-long!!!!"))
+	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil, nil)
+
+	f.Fuzz(func(t *testing.T, sigHeader string) {
+		payload := `{"type":"subscription.created","data":{"id":"sub_1","product_id":"starter-id","customer_id":"cust_1","status":"active","metadata":{"org_id":"org-1"}}}`
+		req := httptest.NewRequest(http.MethodPost, "/webhooks/polar", strings.NewReader(payload))
+		req.Header.Set("webhook-id", "msg_test")
+		req.Header.Set("webhook-timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+		req.Header.Set("webhook-signature", sigHeader)
+
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		// Must never panic, regardless of signature header content.
+		// Valid responses: 200 (if sig matches), 401 (if sig doesn't match),
+		// or other codes (e.g., 400 for bad payload). The key assertion is
+		// that no panic occurred -- reaching this point means the handler
+		// survived the fuzzed input.
+		_ = rec.Code
+	})
 }

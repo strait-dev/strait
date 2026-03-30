@@ -412,6 +412,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			resendClient := billing.NewResendWelcomeEmailFunc(cfg.ResendAPIKey, cfg.ResendFromEmail)
 			webhookOpts = append(webhookOpts, billing.WithWelcomeEmail(resendClient))
 		}
+		webhookOpts = append(webhookOpts, billing.WithEdition(cfg.Edition))
 		polarWebhook = billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
 		slog.Info("polar webhook handler enabled")
 	}

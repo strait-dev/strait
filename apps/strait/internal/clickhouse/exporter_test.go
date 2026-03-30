@@ -260,3 +260,81 @@ func TestExporter_NilExporter_NoPanic(t *testing.T) {
 		t.Errorf("expected PendingCount 0 on nil exporter, got %d", got)
 	}
 }
+
+func TestExporter_EnqueuesBillingEvent(t *testing.T) {
+	t.Parallel()
+
+	exporter := NewExporter(&Client{}, ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	exporter.Enqueue(BillingEventRecord{
+		Timestamp: time.Now(),
+		OrgID:     "org-1",
+		EventType: "plan_changed",
+		PlanTier:  "pro",
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
+	}
+}
+
+func TestExporter_BillingEventWithAllFields(t *testing.T) {
+	t.Parallel()
+
+	exporter := NewExporter(&Client{}, ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	exporter.Enqueue(BillingEventRecord{
+		Timestamp: time.Now(),
+		OrgID:     "org-1",
+		ProjectID: "proj-1",
+		EventType: "gate_rejected",
+		Feature:   "canary_deployments",
+		PlanTier:  "starter",
+		Details:   `{"reason":"plan_limit"}`,
+	})
+
+	if exporter.PendingCount() != 1 {
+		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
+	}
+}
+
+func TestExporter_BillingEventMixedWithOtherTypes(t *testing.T) {
+	t.Parallel()
+
+	exporter := NewExporter(&Client{}, ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	exporter.Enqueue(BillingEventRecord{
+		Timestamp: time.Now(),
+		OrgID:     "org-1",
+		EventType: "spending_limit_hit",
+		PlanTier:  "pro",
+	})
+	exporter.Enqueue(RunEventRecord{
+		EventID:   "evt-1",
+		RunID:     "run-1",
+		ProjectID: "proj-1",
+		CreatedAt: time.Now(),
+	})
+	exporter.Enqueue(BillingEventRecord{
+		Timestamp: time.Now(),
+		OrgID:     "org-2",
+		EventType: "plan_changed",
+		PlanTier:  "scale",
+	})
+
+	if exporter.PendingCount() != 3 {
+		t.Errorf("expected 3 pending records, got %d", exporter.PendingCount())
+	}
+}

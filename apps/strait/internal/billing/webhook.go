@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"strait/internal/clickhouse"
@@ -44,6 +45,8 @@ type WebhookHandler struct {
 	welcomeEmail WelcomeEmailFunc
 	posthog      *PostHogClient
 	chExporter   billingEventEnqueuer
+	edition      string
+	warnOnce     sync.Once
 }
 
 // WebhookOption configures optional WebhookHandler behavior.
@@ -62,6 +65,11 @@ func WithPostHog(client *PostHogClient) WebhookOption {
 // WithWebhookClickHouse attaches a ClickHouse exporter for billing events.
 func WithWebhookClickHouse(exporter billingEventEnqueuer) WebhookOption {
 	return func(h *WebhookHandler) { h.chExporter = exporter }
+}
+
+// WithEdition sets the application edition for security mode decisions.
+func WithEdition(edition string) WebhookOption {
+	return func(h *WebhookHandler) { h.edition = edition }
 }
 
 func (h *WebhookHandler) emitBillingEvent(orgID, eventType, planTier string) {
@@ -144,8 +152,14 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
 			return
 		}
+	} else if h.edition == "cloud" {
+		h.logger.Error("polar webhook secret not configured in cloud mode, rejecting request")
+		http.Error(w, "webhook verification unavailable", http.StatusServiceUnavailable)
+		return
 	} else {
-		h.logger.Warn("polar webhook secret not configured — signature verification skipped")
+		h.warnOnce.Do(func() {
+			h.logger.Warn("polar webhook secret not configured — signature verification skipped")
+		})
 	}
 
 	var payload PolarWebhookPayload
