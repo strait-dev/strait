@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/clickhouse"
@@ -51,15 +52,61 @@ func (e *LimitError) Error() string {
 
 // Enforcer checks org-level billing limits before allowing operations.
 type Enforcer struct {
-	store          Store
-	rdb            redis.Cmdable
-	logger         *slog.Logger
-	metrics        *telemetry.Metrics
-	orgCache       *cache.Cache[*cachedOrgLimits]
-	limitsGroup    singleflight.Group
-	cacheTTL       time.Duration
-	suspendedCache sync.Map // projectID -> *suspendedCacheEntry
-	chExporter     billingEventEnqueuer
+	store           Store
+	rdb             redis.Cmdable
+	logger          *slog.Logger
+	metrics         *telemetry.Metrics
+	orgCache        *cache.Cache[*cachedOrgLimits]
+	limitsGroup     singleflight.Group
+	cacheTTL        time.Duration
+	suspendedCache  sync.Map // projectID -> *suspendedCacheEntry
+	chExporter      billingEventEnqueuer
+	failOpenTracker sync.Map // "orgID:checkType" -> *failOpenEntry
+}
+
+const (
+	maxConsecutiveFailOpen = 5
+	failOpenWindow         = 30 * time.Second
+)
+
+type failOpenEntry struct {
+	count     atomic.Int64
+	firstSeen atomic.Int64 // unix nanos
+}
+
+// boundedFailOpen tracks consecutive fail-open events per org+check.
+// Returns nil if under the threshold (allow the request), or a LimitError
+// if the threshold is exceeded within the time window (fail-closed).
+func (e *Enforcer) boundedFailOpen(ctx context.Context, orgID, checkType, reason string) error {
+	e.recordFailOpen(ctx, checkType, reason)
+
+	key := orgID + ":" + checkType
+	entry, _ := e.failOpenTracker.LoadOrStore(key, &failOpenEntry{})
+	fe := entry.(*failOpenEntry)
+
+	now := time.Now().UnixNano()
+	first := fe.firstSeen.Load()
+	if first == 0 || time.Duration(now-first) > failOpenWindow {
+		fe.firstSeen.Store(now)
+		fe.count.Store(1)
+		return nil
+	}
+
+	count := fe.count.Add(1)
+	if count > maxConsecutiveFailOpen {
+		e.logger.Warn("fail-open threshold exceeded, failing closed",
+			"org_id", orgID, "check_type", checkType, "count", count)
+		return &LimitError{
+			Code:    "service_degraded",
+			Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
+		}
+	}
+	return nil
+}
+
+// resetFailOpen clears the fail-open tracker for a successful check.
+func (e *Enforcer) resetFailOpen(orgID, checkType string) {
+	e.failOpenTracker.Delete(orgID + ":" + checkType)
 }
 
 // billingEventEnqueuer is the subset of clickhouse.Exporter needed for billing analytics.
@@ -262,8 +309,10 @@ func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) (bool, 
 			return false, nil // free tier, no payment status
 		}
 		e.logger.Warn("failed to get org subscription for payment check", "org_id", orgID, "error", err)
-		e.recordFailOpen(ctx, "payment_status", "db_error")
-		return false, nil // fail open
+		if err := e.boundedFailOpen(ctx, orgID, "payment_status", "db_error"); err != nil {
+			return false, err
+		}
+		return false, nil
 	}
 
 	switch sub.PaymentStatus {
@@ -305,9 +354,9 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for run check", "org_id", orgID, "error", err)
-		e.recordFailOpen(ctx, "daily_run", "db_error")
-		return nil // fail open
+		return e.boundedFailOpen(ctx, orgID, "daily_run", "db_error")
 	}
+	e.resetFailOpen(orgID, "daily_run")
 
 	if e.checkEnforcementMode(orgID, "daily_run") {
 		return nil
@@ -322,15 +371,13 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 		limits.MaxRunsPerDay, int(48*time.Hour/time.Second)).Result()
 	if err != nil {
 		e.logger.Warn("failed to run atomic daily run check", "org_id", orgID, "error", err)
-		e.recordFailOpen(ctx, "daily_run", "redis_error")
-		return nil // fail open
+		return e.boundedFailOpen(ctx, orgID, "daily_run", "redis_error")
 	}
 
 	vals, ok := result.([]any)
 	if !ok || len(vals) < 2 {
 		e.logger.Warn("unexpected result from atomic daily run check", "org_id", orgID)
-		e.recordFailOpen(ctx, "daily_run", "redis_error")
-		return nil // fail open
+		return e.boundedFailOpen(ctx, orgID, "daily_run", "redis_error")
 	}
 
 	allowed, _ := vals[0].(int64)
@@ -411,15 +458,13 @@ func (e *Enforcer) CheckManagedRunLimit(ctx context.Context, orgID string) error
 		limits.FreeManagedRunsPerMonth, managedTTLSecs).Result()
 	if err != nil {
 		e.logger.Warn("failed to run atomic managed run check", "org_id", orgID, "error", err)
-		e.recordFailOpen(ctx, "managed_run", "redis_error")
-		return nil // fail open
+		return e.boundedFailOpen(ctx, orgID, "managed_run", "redis_error")
 	}
 
 	vals, ok := result.([]any)
 	if !ok || len(vals) < 2 {
 		e.logger.Warn("unexpected result from atomic managed run check", "org_id", orgID)
-		e.recordFailOpen(ctx, "managed_run", "redis_error")
-		return nil // fail open
+		return e.boundedFailOpen(ctx, orgID, "managed_run", "redis_error")
 	}
 
 	allowed, _ := vals[0].(int64)
@@ -497,8 +542,7 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 	).Int64()
 	if err != nil {
 		e.logger.Warn("failed to run concurrent check script", "org_id", orgID, "error", err)
-		e.recordFailOpen(ctx, "concurrent_run", "redis_error")
-		return nil // fail open
+		return e.boundedFailOpen(ctx, orgID, "concurrent_run", "redis_error")
 	}
 
 	if result == -1 {
@@ -604,8 +648,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		if errors.Is(err, ErrSubscriptionNotFound) {
 			return e.checkFreeTierIncludedCredit(ctx, orgID, nil)
 		}
-		e.recordFailOpen(ctx, "spending_limit", "db_error")
-		return nil // fail open
+		return e.boundedFailOpen(ctx, orgID, "spending_limit", "db_error")
 	}
 
 	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
@@ -678,8 +721,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	budget, action, err := e.store.GetProjectBudget(ctx, projectID)
 	if err != nil {
 		e.logger.Warn("failed to get project budget", "project_id", projectID, "error", err)
-		e.recordFailOpen(ctx, "project_budget", "db_error")
-		return nil // fail open
+		return e.boundedFailOpen(ctx, projectID, "project_budget", "db_error")
 	}
 
 	if budget < 0 {
@@ -690,8 +732,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	spend, err := e.store.GetProjectPeriodSpend(ctx, projectID, periodStart)
 	if err != nil {
 		e.logger.Warn("failed to get project period spend", "project_id", projectID, "error", err)
-		e.recordFailOpen(ctx, "project_budget", "db_spend_error")
-		return nil // fail open
+		return e.boundedFailOpen(ctx, projectID, "project_budget", "db_spend_error")
 	}
 
 	if budget == 0 || spend >= budget {
@@ -1062,8 +1103,7 @@ func (e *Enforcer) CheckProjectSuspended(ctx context.Context, projectID string) 
 	if err != nil {
 		e.logger.Warn("failed to check project suspended status",
 			"project_id", projectID, "error", err)
-		e.recordFailOpen(ctx, "project_suspended", "db_error")
-		return nil // fail open
+		return e.boundedFailOpen(ctx, projectID, "project_suspended", "db_error")
 	}
 
 	// Cache the result.
