@@ -67,7 +67,7 @@ func newAgentTestServer(t *testing.T, svc agentsvc.Service) *Server {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:      "test-secret",
+			InternalSecret:      "test-secret-value",
 			MaxBulkTriggerItems: 500,
 			JWTSigningKey:       "01234567890123456789012345678901",
 		},

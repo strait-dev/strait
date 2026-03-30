@@ -332,17 +332,7 @@ func Load() (*Config, error) {
 		cfg.ComputeRuntime = "none"
 	}
 
-	cloudflareConfig := CloudflareAgentsConfig{
-		AccountID:                cfg.CFAccountID,
-		APIToken:                 cfg.CFAPIToken,
-		DispatchNamespace:        cfg.CFDispatchNamespace,
-		DispatchNamespaceStaging: cfg.CFDispatchNamespaceStaging,
-		DispatchWorkerURL:        cfg.CFDispatchWorkerURL,
-		OutboundWorkerName:       cfg.CFOutboundWorkerName,
-		CompatibilityDate:        cfg.CFCompatibilityDate,
-		SandboxMode:              cfg.CFSandboxMode,
-	}
-	if err := cloudflareConfig.Validate(); err != nil {
+	if err := validateCloudflareConfig(&cfg); err != nil {
 		return nil, err
 	}
 
@@ -354,22 +344,8 @@ func Load() (*Config, error) {
 		slog.Warn("neither ENCRYPTION_KEY nor SECRET_ENCRYPTION_KEY is set; secret encryption will be unavailable")
 	}
 
-	for _, origin := range cfg.CORSAllowedOrigins {
-		if origin == "*" && cfg.CORSAllowCredentials {
-			return nil, &domain.ConfigError{
-				Field:   "CORS_ALLOWED_ORIGINS",
-				Message: "wildcard origin (*) is not allowed when CORS_ALLOW_CREDENTIALS is true",
-			}
-		}
-		if origin == "*" {
-			if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
-				return nil, &domain.ConfigError{
-					Field:   "CORS_ALLOWED_ORIGINS",
-					Message: "wildcard origin (*) is not allowed in non-development environments",
-				}
-			}
-			slog.Warn("CORS_ALLOWED_ORIGINS is set to wildcard (*); consider restricting to specific origins in production")
-		}
+	if err := validateCORSOrigins(&cfg); err != nil {
+		return nil, err
 	}
 
 	slog.Info("config loaded",
@@ -455,6 +431,41 @@ type CloudflareAgentsConfig struct {
 	OutboundWorkerName       string
 	CompatibilityDate        string
 	SandboxMode              string
+}
+
+func validateCORSOrigins(cfg *Config) error {
+	for _, origin := range cfg.CORSAllowedOrigins {
+		if origin == "*" && cfg.CORSAllowCredentials {
+			return &domain.ConfigError{
+				Field:   "CORS_ALLOWED_ORIGINS",
+				Message: "wildcard origin (*) is not allowed when CORS_ALLOW_CREDENTIALS is true",
+			}
+		}
+		if origin == "*" {
+			if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+				return &domain.ConfigError{
+					Field:   "CORS_ALLOWED_ORIGINS",
+					Message: "wildcard origin (*) is not allowed in non-development environments",
+				}
+			}
+			slog.Warn("CORS_ALLOWED_ORIGINS is set to wildcard (*); consider restricting to specific origins in production")
+		}
+	}
+	return nil
+}
+
+func validateCloudflareConfig(cfg *Config) error {
+	cf := CloudflareAgentsConfig{
+		AccountID:                cfg.CFAccountID,
+		APIToken:                 cfg.CFAPIToken,
+		DispatchNamespace:        cfg.CFDispatchNamespace,
+		DispatchNamespaceStaging: cfg.CFDispatchNamespaceStaging,
+		DispatchWorkerURL:        cfg.CFDispatchWorkerURL,
+		OutboundWorkerName:       cfg.CFOutboundWorkerName,
+		CompatibilityDate:        cfg.CFCompatibilityDate,
+		SandboxMode:              cfg.CFSandboxMode,
+	}
+	return cf.Validate()
 }
 
 func (c CloudflareAgentsConfig) Enabled() bool {
