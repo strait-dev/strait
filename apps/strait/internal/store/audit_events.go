@@ -62,7 +62,6 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	if len(details) == 0 {
 		details = json.RawMessage(`{}`)
 	}
-	ev.Details = details
 
 	// Use client-side timestamp so all fields are known for signature computation.
 	ev.CreatedAt = time.Now().UTC()
