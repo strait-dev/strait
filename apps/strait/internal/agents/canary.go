@@ -43,6 +43,9 @@ func (r *AgentCanaryRouter) Route(canary *AgentCanaryDeployment) string {
 	if canary == nil || canary.Status != AgentCanaryStatusActive {
 		return ""
 	}
+	if r.randFn == nil {
+		return canary.SourceDeploymentID
+	}
 	if canary.TrafficPct <= 0 {
 		return canary.SourceDeploymentID
 	}

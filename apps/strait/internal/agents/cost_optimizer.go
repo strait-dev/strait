@@ -35,6 +35,9 @@ type CostOptimizerStore interface {
 // GenerateRecommendations analyzes an agent's recent runs and returns
 // cost optimization recommendations.
 func GenerateRecommendations(ctx context.Context, store CostOptimizerStore, agent *domain.Agent) ([]CostRecommendation, error) {
+	if agent == nil {
+		return nil, fmt.Errorf("agent is required")
+	}
 	runs, err := store.ListRunsByJob(ctx, agent.JobID, 50, 0)
 	if err != nil {
 		return nil, fmt.Errorf("list agent runs for optimization: %w", err)
@@ -70,7 +73,7 @@ func GenerateRecommendations(ctx context.Context, store CostOptimizerStore, agen
 		cheaper := suggestCheaperModel(agent.Model)
 		if cheaper != "" {
 			recommendations = append(recommendations, CostRecommendation{
-				ID:                  "rec-model-" + agent.ID[:8],
+				ID:                  "rec-model-" + safeIDPrefix(agent.ID),
 				Type:                RecModelDowngrade,
 				Description:         fmt.Sprintf("Success rate is %.0f%%. Consider switching from %s to %s for lower cost.", successRate*100, agent.Model, cheaper),
 				EstimatedSavingsPct: 40,
@@ -92,7 +95,7 @@ func GenerateRecommendations(ctx context.Context, store CostOptimizerStore, agen
 	}
 	if budgetLimit == 0 {
 		recommendations = append(recommendations, CostRecommendation{
-			ID:                  "rec-budget-" + agent.ID[:8],
+			ID:                  "rec-budget-" + safeIDPrefix(agent.ID),
 			Type:                RecBudgetReduction,
 			Description:         "No budget limit configured. Adding a budget protects against runaway costs.",
 			EstimatedSavingsPct: 0,
@@ -104,7 +107,7 @@ func GenerateRecommendations(ctx context.Context, store CostOptimizerStore, agen
 	// Recommendation 3: Prompt caching.
 	if len(runs) > 20 {
 		recommendations = append(recommendations, CostRecommendation{
-			ID:                  "rec-cache-" + agent.ID[:8],
+			ID:                  "rec-cache-" + safeIDPrefix(agent.ID),
 			Type:                RecPromptCaching,
 			Description:         fmt.Sprintf("This agent has %d recent runs. Enabling prompt caching could reduce token costs for repeated prompts.", len(runs)),
 			EstimatedSavingsPct: 15,
@@ -114,6 +117,15 @@ func GenerateRecommendations(ctx context.Context, store CostOptimizerStore, agen
 	}
 
 	return recommendations, nil
+}
+
+// safeIDPrefix returns up to the first 8 characters of an ID for use in
+// recommendation IDs. Guards against panic on short or empty strings.
+func safeIDPrefix(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
 }
 
 func isExpensiveModel(model string) bool {

@@ -397,9 +397,16 @@ func (s *localService) DeleteAgent(ctx context.Context, projectID, agentID strin
 		if run.Status.IsTerminal() {
 			continue
 		}
-		_ = s.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusCanceled, map[string]any{
+		if cancelErr := s.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusCanceled, map[string]any{
 			"finished_at": now,
-		})
+		}); cancelErr != nil {
+			_ = s.store.InsertEvent(ctx, &domain.RunEvent{
+				RunID:   run.ID,
+				Type:    domain.EventError,
+				Level:   "warn",
+				Message: fmt.Sprintf("failed to cancel run during agent deletion: %v", cancelErr),
+			})
+		}
 	}
 
 	// Best-effort undeploy of all deployments. Log failures but continue
@@ -912,33 +919,44 @@ func (s *localService) scheduleAgentRetry(ctx context.Context, failedRun *domain
 		}),
 	})
 
-	// Look up the agent and deployment to dispatch the retry.
-	agents, listErr := s.store.ListAgents(ctx, failedRun.ProjectID, 100, nil)
-	if listErr != nil {
-		return
-	}
-	for _, agent := range agents {
-		if agent.JobID != failedRun.JobID {
-			continue
-		}
-		deployment, depErr := s.store.GetLatestAgentDeployment(ctx, agent.ID)
-		if depErr != nil || deployment == nil || deployment.Status != domain.AgentDeploymentStatusDeployed {
+	// Look up the agent by scanning project agents for the matching job ID.
+	// Paginate to avoid missing agents if the project has many.
+	var foundAgent *domain.Agent
+	var cursor *time.Time
+	for foundAgent == nil {
+		batch, listErr := s.store.ListAgents(ctx, failedRun.ProjectID, 100, cursor)
+		if listErr != nil || len(batch) == 0 {
 			return
 		}
-		agentCopy := agent
-		jobCopy := *job
-		deploymentCopy := *deployment
-		if s.dispatchPool != nil {
-			s.dispatchPool.Submit(func() {
-				s.dispatchRun(context.Background(), &agentCopy, &jobCopy, &deploymentCopy, retryRun.ID)
-			})
+		for _, a := range batch {
+			if a.JobID == failedRun.JobID {
+				agentCopy := a
+				foundAgent = &agentCopy
+				break
+			}
 		}
+		last := batch[len(batch)-1]
+		cursor = &last.CreatedAt
+	}
+
+	deployment, depErr := s.store.GetLatestAgentDeployment(ctx, foundAgent.ID)
+	if depErr != nil || deployment == nil || deployment.Status != domain.AgentDeploymentStatusDeployed {
 		return
+	}
+	jobCopy := *job
+	deploymentCopy := *deployment
+	if s.dispatchPool != nil {
+		s.dispatchPool.Submit(func() {
+			s.dispatchRun(context.Background(), foundAgent, &jobCopy, &deploymentCopy, retryRun.ID)
+		})
 	}
 }
 
 // fireAgentWebhook sends a webhook notification if the agent has a webhook URL configured.
 func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent, runID string) {
+	if s.dispatchHTTP == nil {
+		return
+	}
 	webhookURL := extractWebhookURL(agent.Config)
 	if webhookURL == "" {
 		return
@@ -984,8 +1002,8 @@ func extractWebhookURL(config json.RawMessage) string {
 	if err := json.Unmarshal(config, &cfg); err != nil {
 		return ""
 	}
-	if url, ok := cfg["webhook_url"].(string); ok {
-		return strings.TrimSpace(url)
+	if webhookVal, ok := cfg["webhook_url"].(string); ok {
+		return strings.TrimSpace(webhookVal)
 	}
 	return ""
 }

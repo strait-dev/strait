@@ -2,7 +2,6 @@ package agents
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -121,7 +120,7 @@ func (w *MessageWorker) deliver(ctx context.Context, msg *domain.AgentMessage) {
 	}
 
 	// Build payload with message metadata.
-	payload := mustMarshalJSON(map[string]any{
+	payload := mustJSON(map[string]any{
 		"_message_id":    msg.ID,
 		"_chain_id":      msg.ChainID,
 		"_chain_depth":   msg.ChainDepth,
@@ -155,9 +154,4 @@ func (w *MessageWorker) markFailed(ctx context.Context, msgID, errMsg string) {
 	}); updateErr != nil {
 		slog.Error("agent message worker: update failed", "msg_id", msgID, "error", updateErr)
 	}
-}
-
-func mustMarshalJSON(v any) json.RawMessage {
-	raw, _ := json.Marshal(v)
-	return raw
 }

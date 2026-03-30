@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"strait/internal/domain"
 
@@ -51,13 +52,28 @@ type SendRequest struct {
 
 // Send validates, checks for cycles, and persists a new agent message.
 func (s *AgentMessageService) Send(ctx context.Context, req SendRequest) (*domain.AgentMessage, error) {
+	if strings.TrimSpace(req.SourceAgentID) == "" {
+		return nil, fmt.Errorf("source_agent_id is required")
+	}
+	if strings.TrimSpace(req.TargetAgentID) == "" {
+		return nil, ErrTargetNotFound
+	}
+	if strings.TrimSpace(req.ProjectID) == "" {
+		return nil, fmt.Errorf("project_id is required")
+	}
 	if req.SourceAgentID == req.TargetAgentID {
 		return nil, ErrSelfMessage
 	}
 
 	// Verify target agent exists.
 	target, err := s.store.GetAgent(ctx, req.TargetAgentID)
-	if err != nil || target == nil {
+	if err != nil {
+		if errors.Is(err, ErrTargetNotFound) {
+			return nil, ErrTargetNotFound
+		}
+		return nil, fmt.Errorf("look up target agent: %w", err)
+	}
+	if target == nil {
 		return nil, ErrTargetNotFound
 	}
 	if target.ProjectID != req.ProjectID {
