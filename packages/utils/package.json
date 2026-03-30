@@ -18,7 +18,6 @@
   },
   "exports": {
     "./chart": "./src/chart.ts",
-    "./common": "./src/common.ts",
     "./date": "./src/date.ts",
     "./email": "./src/email.ts",
     "./money": "./src/money.ts"
