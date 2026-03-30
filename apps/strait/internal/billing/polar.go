@@ -2,9 +2,10 @@ package billing
 
 import "strait/internal/domain"
 
-// PolarMapping maps Polar product IDs to plan tiers.
+// PolarMapping maps Polar product IDs to plan tiers and addon types.
 type PolarMapping struct {
-	productToTier map[string]domain.PlanTier
+	productToTier  map[string]domain.PlanTier
+	productToAddon map[string]AddonType
 }
 
 // PolarMappingOption configures a PolarMapping with product ID to tier mappings.
@@ -46,11 +47,21 @@ func WithScaleProducts(monthlyID, yearlyID string) PolarMappingOption {
 	}
 }
 
-// NewPolarMapping creates a mapping from Polar product IDs to plan tiers
+// WithAddonProduct registers an addon product ID to addon type mapping.
+func WithAddonProduct(productID string, addonType AddonType) PolarMappingOption {
+	return func(m *PolarMapping) {
+		if productID != "" {
+			m.productToAddon[productID] = addonType
+		}
+	}
+}
+
+// NewPolarMappingFromOptions creates a mapping from Polar product IDs to plan tiers
 // using the provided options.
 func NewPolarMappingFromOptions(opts ...PolarMappingOption) *PolarMapping {
 	m := &PolarMapping{
-		productToTier: make(map[string]domain.PlanTier),
+		productToTier:  make(map[string]domain.PlanTier),
+		productToAddon: make(map[string]AddonType),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -79,6 +90,19 @@ func (m *PolarMapping) TierForProduct(productID string) (domain.PlanTier, bool) 
 		return domain.PlanFree, false
 	}
 	return tier, true
+}
+
+// AddonTypeForProduct returns the addon type for a Polar product ID.
+// Returns empty string and false if the product ID is not an addon.
+func (m *PolarMapping) AddonTypeForProduct(productID string) (AddonType, bool) {
+	at, ok := m.productToAddon[productID]
+	return at, ok
+}
+
+// IsAddonProduct returns true if the product ID maps to an addon.
+func (m *PolarMapping) IsAddonProduct(productID string) bool {
+	_, ok := m.productToAddon[productID]
+	return ok
 }
 
 // HasProducts returns true if any product IDs are mapped.

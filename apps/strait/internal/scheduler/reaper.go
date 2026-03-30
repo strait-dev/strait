@@ -52,6 +52,7 @@ type ReaperStore interface {
 	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
+	DeleteRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error)
 }
 
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
@@ -129,6 +130,12 @@ type ApprovalReminderStore interface {
 	ListApprovalsPastReminderPoint(ctx context.Context) ([]domain.WorkflowStepApproval, error)
 }
 
+// OrgRetentionResolver resolves the retention period for an organization based on its plan.
+type OrgRetentionResolver interface {
+	ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
+	GetOrgRetentionDays(ctx context.Context, orgID string) (int, error)
+}
+
 type Reaper struct {
 	store                 ReaperStore
 	interval              time.Duration
@@ -150,6 +157,7 @@ type Reaper struct {
 	dlqAlertCooldown      map[string]time.Time
 	queueAlertCooldown    map[string]time.Time
 	reminderSent          map[string]time.Time
+	orgRetention          OrgRetentionResolver
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -209,6 +217,14 @@ func (r *Reaper) WithWorkflowRetention(d time.Duration) *Reaper {
 	if d > 0 {
 		r.workflowRetention = d
 	}
+	return r
+}
+
+// WithOrgRetention enables per-org plan-based retention cleanup.
+// When set, the reaper periodically queries each org's plan retention and
+// prunes runs older than the plan allows.
+func (r *Reaper) WithOrgRetention(resolver OrgRetentionResolver) *Reaper {
+	r.orgRetention = resolver
 	return r
 }
 
@@ -331,6 +347,7 @@ func (r *Reaper) Run(ctx context.Context) {
 		r.reapOldEventTriggers(loopCtx)
 		if r.retentionEnabled {
 			r.reapTerminalRetention(loopCtx)
+			r.reapPerOrgRetention(loopCtx)
 		}
 	})
 	loop.Run(ctx)
@@ -991,6 +1008,43 @@ func (r *Reaper) reapTerminalRetention(ctx context.Context) {
 	r.recordDeleted(ctx, "terminal_runs", deleted)
 	if deleted > 0 {
 		slog.Info("deleted terminal runs past retention", "count", deleted)
+	}
+}
+
+func (r *Reaper) reapPerOrgRetention(ctx context.Context) {
+	if r.orgRetention == nil {
+		return
+	}
+
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapPerOrgRetention")
+	defer span.End()
+
+	orgIDs, err := r.orgRetention.ListAllSubscribedOrgIDs(ctx)
+	if err != nil {
+		r.logger.Warn("failed to list org IDs for retention sweep", "error", err)
+		return
+	}
+
+	var totalDeleted int64
+	for _, orgID := range orgIDs {
+		days, retErr := r.orgRetention.GetOrgRetentionDays(ctx, orgID)
+		if retErr != nil || days <= 0 {
+			continue
+		}
+
+		retention := time.Duration(days) * 24 * time.Hour
+		deleted, delErr := r.store.DeleteRunsByOrgOlderThan(ctx, orgID, retention)
+		if delErr != nil {
+			r.logger.Warn("failed to delete retained runs for org",
+				"org_id", orgID, "retention_days", days, "error", delErr)
+			continue
+		}
+		totalDeleted += deleted
+	}
+
+	if totalDeleted > 0 {
+		r.logger.Info("per-org retention sweep completed", "total_deleted", totalDeleted, "orgs_checked", len(orgIDs))
+		r.recordDeleted(ctx, "per_org_retention", totalDeleted)
 	}
 }
 

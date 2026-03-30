@@ -1169,6 +1169,43 @@ func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, ena
 	return nil
 }
 
+// DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
+func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {
+	result, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET cron = '', updated_at = NOW()
+		WHERE id IN (
+			SELECT j.id FROM jobs j
+			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND j.cron IS NOT NULL AND j.cron != ''
+			  AND j.deleted_at IS NULL
+			ORDER BY j.updated_at ASC
+			OFFSET $2
+		)
+	`, orgID, maxSchedules)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess cron jobs: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// DeactivateExcessWebhookSubscriptions deactivates webhook subscriptions beyond the limit.
+func (s *PgStore) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error) {
+	result, err := s.pool.Exec(ctx, `
+		UPDATE webhook_subscriptions SET active = false
+		WHERE id IN (
+			SELECT ws.id FROM webhook_subscriptions ws
+			WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND ws.active = true
+			ORDER BY ws.created_at ASC
+			OFFSET $2
+		)
+	`, orgID, maxEndpoints)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess webhook subscriptions: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
 // ListActiveAddons returns all active add-ons for an organization.
 func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, error) {
 	rows, err := s.pool.Query(ctx, `

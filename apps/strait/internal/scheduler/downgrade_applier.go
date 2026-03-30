@@ -14,6 +14,8 @@ type DowngradeApplierStore interface {
 	ListOrgsWithPendingDowngrade(ctx context.Context) ([]billing.OrgSubscription, error)
 	ApplyPendingDowngrade(ctx context.Context, orgID string) error
 	SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error)
+	DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error)
+	DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error)
 }
 
 // Advisory lock ID for the downgrade applier (arbitrary unique constant).
@@ -95,30 +97,43 @@ func (d *DowngradeApplier) apply(ctx context.Context) {
 			d.enforcer.InvalidateOrgCache(sub.OrgID)
 		}
 
-		// Suspend excess projects if the new plan has a lower project limit.
+		// Enforce resource limits for the new plan tier.
 		if sub.PendingPlanTier != nil {
-			newLimits := billing.GetPlanLimits(domain.PlanTier(*sub.PendingPlanTier))
-			if newLimits.MaxProjectsPerOrg != -1 {
-				suspended, suspendErr := d.store.SuspendExcessProjects(ctx, sub.OrgID, newLimits.MaxProjectsPerOrg)
-				if suspendErr != nil {
-					slog.Warn("failed to suspend excess projects after downgrade",
-						"org_id", sub.OrgID,
-						"max_projects", newLimits.MaxProjectsPerOrg,
-						"error", suspendErr,
-					)
-				} else if suspended > 0 {
-					slog.Info("suspended excess projects after plan downgrade",
-						"org_id", sub.OrgID,
-						"suspended_count", suspended,
-						"max_projects", newLimits.MaxProjectsPerOrg,
-					)
-				}
-			}
+			d.enforceDowngradeLimits(ctx, sub.OrgID, *sub.PendingPlanTier)
 		}
 
 		slog.Info("applied pending downgrade",
 			"org_id", sub.OrgID,
 			"pending_tier", sub.PendingPlanTier,
 		)
+	}
+}
+
+// enforceDowngradeLimits deactivates excess resources that exceed the new plan's limits.
+func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pendingTier string) {
+	newLimits := billing.GetPlanLimits(domain.PlanTier(pendingTier))
+
+	if newLimits.MaxProjectsPerOrg != -1 {
+		if n, err := d.store.SuspendExcessProjects(ctx, orgID, newLimits.MaxProjectsPerOrg); err != nil {
+			slog.Warn("failed to suspend excess projects", "org_id", orgID, "error", err)
+		} else if n > 0 {
+			slog.Info("suspended excess projects after downgrade", "org_id", orgID, "count", n)
+		}
+	}
+
+	if newLimits.MaxScheduledJobs != -1 {
+		if n, err := d.store.DeactivateExcessCronJobs(ctx, orgID, newLimits.MaxScheduledJobs); err != nil {
+			slog.Warn("failed to deactivate excess cron jobs", "org_id", orgID, "error", err)
+		} else if n > 0 {
+			slog.Info("deactivated excess cron jobs after downgrade", "org_id", orgID, "count", n)
+		}
+	}
+
+	if newLimits.MaxWebhookEndpoints != -1 {
+		if n, err := d.store.DeactivateExcessWebhookSubscriptions(ctx, orgID, newLimits.MaxWebhookEndpoints); err != nil {
+			slog.Warn("failed to deactivate excess webhooks", "org_id", orgID, "error", err)
+		} else if n > 0 {
+			slog.Info("deactivated excess webhooks after downgrade", "org_id", orgID, "count", n)
+		}
 	}
 }

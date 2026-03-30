@@ -1937,6 +1937,14 @@ func (m *advMockDowngradeStore) SuspendExcessProjects(ctx context.Context, orgID
 	return 0, nil
 }
 
+func (m *advMockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *advMockDowngradeStore) DeactivateExcessWebhookSubscriptions(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
 type advMockReferralStore struct {
 	expireFn func(ctx context.Context) (int64, error)
 }

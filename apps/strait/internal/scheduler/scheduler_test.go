@@ -104,6 +104,10 @@ func (m *mockSchedulerStore) DeleteTerminalRunsPastRetention(ctx context.Context
 	return m.reaper.DeleteTerminalRunsPastRetention(ctx, shortRetention, longRetention)
 }
 
+func (m *mockSchedulerStore) DeleteRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error) {
+	return m.reaper.DeleteRunsByOrgOlderThan(ctx, orgID, retention)
+}
+
 func (m *mockSchedulerStore) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error) {
 	return m.reaper.ListExpiredEventTriggers(ctx)
 }

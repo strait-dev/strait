@@ -225,6 +225,11 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		productID = sub.Product.ID
 	}
 
+	// Check if this is an addon product first.
+	if addonType, isAddon := h.polarMapping.AddonTypeForProduct(productID); isAddon {
+		return h.handleAddonSubscriptionCreated(ctx, sub, addonType)
+	}
+
 	tier, ok := h.polarMapping.TierForProduct(productID)
 	if !ok {
 		h.logger.Warn("unknown polar product ID", "product_id", productID)
@@ -482,6 +487,15 @@ func (h *WebhookHandler) handleSubscriptionCanceled(ctx context.Context, data js
 		return fmt.Errorf("parsing subscription data: %w", err)
 	}
 
+	// Handle addon subscription cancellation.
+	productID := sub.ProductID
+	if sub.Product != nil {
+		productID = sub.Product.ID
+	}
+	if h.polarMapping.IsAddonProduct(productID) {
+		return h.handleAddonSubscriptionCanceled(ctx, sub)
+	}
+
 	orgID := h.resolveOrgID(sub)
 	if orgID == "" {
 		return nil
@@ -543,6 +557,15 @@ func (h *WebhookHandler) handleSubscriptionRevoked(ctx context.Context, data jso
 	var sub PolarSubscriptionData
 	if err := json.Unmarshal(data, &sub); err != nil {
 		return fmt.Errorf("parsing subscription data: %w", err)
+	}
+
+	// Handle addon subscription revocation.
+	productID := sub.ProductID
+	if sub.Product != nil {
+		productID = sub.Product.ID
+	}
+	if h.polarMapping.IsAddonProduct(productID) {
+		return h.handleAddonSubscriptionCanceled(ctx, sub)
 	}
 
 	orgID := h.resolveOrgID(sub)
@@ -657,4 +680,61 @@ func (h *WebhookHandler) logAuditEvent(ctx context.Context, action, orgID string
 	if err := h.auditStore.CreateAuditEvent(ctx, ev); err != nil {
 		h.logger.Error("failed to create audit event", "action", action, "org_id", orgID, "error", err)
 	}
+}
+
+// handleAddonSubscriptionCreated creates an addon record when an addon subscription
+// is created in Polar.
+func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub PolarSubscriptionData, addonType AddonType) error {
+	orgID := h.resolveOrgID(sub)
+	if orgID == "" {
+		h.logger.Warn("cannot resolve org_id for addon subscription", "subscription_id", sub.ID)
+		return nil
+	}
+
+	addon := &Addon{
+		ID:                  sub.ID,
+		OrgID:               orgID,
+		AddonType:           addonType,
+		Quantity:            1,
+		PolarSubscriptionID: &sub.ID,
+		Active:              true,
+	}
+
+	if err := h.store.CreateAddon(ctx, addon); err != nil {
+		return fmt.Errorf("creating addon record: %w", err)
+	}
+
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(orgID)
+	}
+
+	h.logger.Info("addon subscription created",
+		"org_id", orgID,
+		"addon_type", addonType,
+		"subscription_id", sub.ID,
+	)
+	return nil
+}
+
+// handleAddonSubscriptionCanceled deactivates an addon record when a Polar
+// addon subscription is canceled or revoked.
+func (h *WebhookHandler) handleAddonSubscriptionCanceled(ctx context.Context, sub PolarSubscriptionData) error {
+	orgID := h.resolveOrgID(sub)
+	if orgID == "" {
+		return nil
+	}
+
+	if err := h.store.DeactivateAddon(ctx, sub.ID); err != nil {
+		return fmt.Errorf("deactivating addon: %w", err)
+	}
+
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(orgID)
+	}
+
+	h.logger.Info("addon subscription canceled",
+		"org_id", orgID,
+		"subscription_id", sub.ID,
+	)
+	return nil
 }
