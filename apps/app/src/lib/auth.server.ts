@@ -258,6 +258,30 @@ export const auth = betterAuth({
                     productId: process.env.POLAR_SCALE_YEARLY_ID ?? "",
                     slug: "scale-yearly",
                   },
+                  {
+                    productId:
+                      process.env.POLAR_ADDON_CONCURRENT_RUNS_ID ?? "",
+                    slug: "addon-concurrent-runs",
+                  },
+                  {
+                    productId: process.env.POLAR_ADDON_MEMBERS_ID ?? "",
+                    slug: "addon-members",
+                  },
+                  {
+                    productId:
+                      process.env.POLAR_ADDON_CRON_SCHEDULES_ID ?? "",
+                    slug: "addon-cron-schedules",
+                  },
+                  {
+                    productId:
+                      process.env.POLAR_ADDON_DATA_RETENTION_ID ?? "",
+                    slug: "addon-data-retention",
+                  },
+                  {
+                    productId:
+                      process.env.POLAR_ADDON_WEBHOOK_ENDPOINTS_ID ?? "",
+                    slug: "addon-webhook-endpoints",
+                  },
                 ],
                 successUrl: "/app?checkout_success=true",
                 authenticatedUsersOnly: true,
@@ -273,7 +297,11 @@ export const auth = betterAuth({
                     }),
                   ]
                 : []),
-            ] as unknown as [ReturnType<typeof checkout>, ReturnType<typeof portal>, ReturnType<typeof polarUsage>],
+            ] as unknown as [
+              ReturnType<typeof checkout>,
+              ReturnType<typeof portal>,
+              ReturnType<typeof polarUsage>,
+            ],
           }),
         ]
       : []),
