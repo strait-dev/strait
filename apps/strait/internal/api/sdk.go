@@ -122,7 +122,10 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
 			return []byte(s.config.JWTSigningKey), nil
-		})
+		},
+			jwt.WithIssuer("strait-agents"),
+			jwt.WithAudience("strait-sdk"),
+		)
 		if err != nil || !token.Valid {
 			respondError(w, r, http.StatusUnauthorized, "invalid run token")
 			return

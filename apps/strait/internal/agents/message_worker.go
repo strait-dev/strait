@@ -25,6 +25,7 @@ type MessageWorkerDeps struct {
 	AgentSvc     Service
 	PollInterval time.Duration
 	BatchSize    int
+	Clock        func() time.Time
 }
 
 // MessageWorker polls for pending agent messages and dispatches them as agent runs.
@@ -33,6 +34,7 @@ type MessageWorker struct {
 	agentSvc     Service
 	pollInterval time.Duration
 	batchSize    int
+	now          func() time.Time
 	stop         chan struct{}
 	done         chan struct{}
 	stopOnce     sync.Once
@@ -49,11 +51,16 @@ func NewMessageWorker(deps MessageWorkerDeps) *MessageWorker {
 	if batchSize <= 0 {
 		batchSize = 50
 	}
+	clock := deps.Clock
+	if clock == nil {
+		clock = time.Now
+	}
 	return &MessageWorker{
 		store:        deps.Store,
 		agentSvc:     deps.AgentSvc,
 		pollInterval: interval,
 		batchSize:    batchSize,
+		now:          clock,
 		stop:         make(chan struct{}),
 		done:         make(chan struct{}),
 	}
@@ -140,7 +147,7 @@ func (w *MessageWorker) deliver(ctx context.Context, msg *domain.AgentMessage) {
 		return
 	}
 
-	now := time.Now().UTC()
+	now := w.now().UTC()
 	if updateErr := w.store.UpdateAgentMessageStatus(ctx, msg.ID, domain.AgentMessageDelivered, map[string]any{
 		"delivered_at": now,
 	}); updateErr != nil {

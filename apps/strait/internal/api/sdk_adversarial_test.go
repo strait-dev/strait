@@ -162,6 +162,8 @@ func newAuthTestServer(t *testing.T) *Server {
 func signToken(t *testing.T, key, subject string, expiry time.Time) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:    "strait-agents",
+		Audience:  jwt.ClaimStrings{"strait-sdk"},
 		Subject:   subject,
 		ExpiresAt: jwt.NewNumericDate(expiry),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),

@@ -34,7 +34,9 @@ func newSDKWaitEventTestServer(t *testing.T, s APIStore) *Server {
 func makeSDKRunToken(t *testing.T, runID string) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &jwt.RegisteredClaims{
-		Subject: runID,
+		Issuer:   "strait-agents",
+		Audience: jwt.ClaimStrings{"strait-sdk"},
+		Subject:  runID,
 	})
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -902,6 +903,8 @@ func (s *localService) generateRunToken(runID, agentID string, timeoutSecs int, 
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, agentRunClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "strait-agents",
+			Audience:  jwt.ClaimStrings{"strait-sdk"},
 			Subject:   runID,
 			ExpiresAt: jwt.NewNumericDate(exp),
 			IssuedAt:  jwt.NewNumericDate(s.now()),
@@ -1047,6 +1050,7 @@ func (s *localService) scheduleAgentRetry(ctx context.Context, failedRun *domain
 }
 
 // fireAgentWebhook sends a webhook notification if the agent has a webhook URL configured.
+// Errors are logged with structured context for Sentry visibility.
 func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent, runID string) {
 	if s.dispatchHTTP == nil {
 		return
@@ -1058,6 +1062,11 @@ func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent
 
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil || run == nil {
+		slog.Error("agent webhook: failed to load run",
+			"agent_id", agent.ID,
+			"run_id", runID,
+			"error", err,
+		)
 		return
 	}
 
@@ -1075,6 +1084,11 @@ func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent
 
 	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
 	if reqErr != nil {
+		slog.Error("agent webhook: failed to build request",
+			"agent_id", agent.ID,
+			"run_id", runID,
+			"error", reqErr,
+		)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -1082,10 +1096,23 @@ func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent
 
 	resp, doErr := s.dispatchHTTP.Do(req)
 	if doErr != nil {
+		slog.Error("agent webhook: delivery failed",
+			"agent_id", agent.ID,
+			"run_id", runID,
+			"error", doErr,
+		)
 		return
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode >= 400 {
+		slog.Error("agent webhook: non-success response",
+			"agent_id", agent.ID,
+			"run_id", runID,
+			"status_code", resp.StatusCode,
+		)
+	}
 }
 
 func extractWebhookURL(config json.RawMessage) string {

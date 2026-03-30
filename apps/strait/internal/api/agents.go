@@ -2,9 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"maps"
 	"strconv"
@@ -523,7 +524,9 @@ func (s *Server) handlePlaygroundRun(ctx context.Context, input *PlaygroundRunIn
 	}
 
 	configJSON, _ := json.Marshal(config)
-	slug := "playground-" + time.Now().UTC().Format("20060102-150405") + "-" + fmt.Sprintf("%04d", time.Now().Nanosecond()/100000)
+	randSuffix := make([]byte, 4)
+	_, _ = rand.Read(randSuffix)
+	slug := "playground-" + time.Now().UTC().Format("20060102-150405") + "-" + hex.EncodeToString(randSuffix)
 
 	agent, createErr := svc.CreateAgent(ctx, agents.CreateAgentRequest{
 		ProjectID:   projectID,

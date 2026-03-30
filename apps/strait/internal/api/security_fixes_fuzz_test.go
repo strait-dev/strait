@@ -185,6 +185,8 @@ func FuzzSDKTokenRunIDMismatch(f *testing.F) {
 			return // empty IDs cause routing ambiguity, not a security issue
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+			Issuer:    "strait-agents",
+			Audience:  jwt.ClaimStrings{"strait-sdk"},
 			Subject:   tokenRunID,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

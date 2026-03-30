@@ -90,6 +90,8 @@ func GenerateTestSignatureSecret() string {
 // and signing key, matching the format used by the SDK auth system.
 func GenerateTestRunToken(runID, signingKey string) string {
 	claims := jwt.RegisteredClaims{
+		Issuer:    "strait-agents",
+		Audience:  jwt.ClaimStrings{"strait-sdk"},
 		Subject:   runID,
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
