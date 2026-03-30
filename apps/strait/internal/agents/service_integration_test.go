@@ -29,9 +29,12 @@ import (
 	"github.com/google/uuid"
 )
 
-const runtimeTestJWTKey = "01234567890123456789012345678901"
+var (
+	runtimeTestJWTKey      = testutil.GenerateTestJWTKey()
+	runtimeTestIntSecret   = testutil.GenerateTestInternalSecret()
 
-var testDB *testutil.TestDB
+	testDB *testutil.TestDB
+)
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -56,7 +59,7 @@ func TestServiceLifecycleReusesJobRuns(t *testing.T) {
 	recorder := &recordingPublisher{}
 	srv := api.NewServer(api.ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-internal-secret",
+			InternalSecret:     runtimeTestIntSecret,
 			JWTSigningKey:      runtimeTestJWTKey,
 			MaxRequestBodySize: 1 << 20,
 			MaxResultSize:      1 << 20,
@@ -202,7 +205,7 @@ func TestServiceRunAgentFailurePersistsFailedRun(t *testing.T) {
 
 	srv := api.NewServer(api.ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-internal-secret",
+			InternalSecret:     runtimeTestIntSecret,
 			JWTSigningKey:      runtimeTestJWTKey,
 			MaxRequestBodySize: 1 << 20,
 			MaxResultSize:      1 << 20,
@@ -259,7 +262,7 @@ func TestServiceRunAgentRuntimeDisconnectMapsToSystemFailure(t *testing.T) {
 
 	srv := api.NewServer(api.ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-internal-secret",
+			InternalSecret:     runtimeTestIntSecret,
 			JWTSigningKey:      runtimeTestJWTKey,
 			MaxRequestBodySize: 1 << 20,
 			MaxResultSize:      1 << 20,
@@ -316,7 +319,7 @@ func TestServiceRunAgentDuplicateCheckpointStillCompletes(t *testing.T) {
 
 	srv := api.NewServer(api.ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-internal-secret",
+			InternalSecret:     runtimeTestIntSecret,
 			JWTSigningKey:      runtimeTestJWTKey,
 			MaxRequestBodySize: 1 << 20,
 			MaxResultSize:      1 << 20,
@@ -517,7 +520,7 @@ func TestServiceCloudflareRunDispatchCompletesViaCallbacks(t *testing.T) {
 
 	srv := api.NewServer(api.ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-internal-secret",
+			InternalSecret:     runtimeTestIntSecret,
 			JWTSigningKey:      runtimeTestJWTKey,
 			MaxRequestBodySize: 1 << 20,
 			MaxResultSize:      1 << 20,
@@ -538,7 +541,7 @@ func TestServiceCloudflareRunDispatchCompletesViaCallbacks(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		case http.MethodPost:
-			if got := r.Header.Get("Authorization"); got != "Bearer test-internal-secret" {
+			if got := r.Header.Get("Authorization"); got != "Bearer "+runtimeTestIntSecret {
 				t.Fatalf("dispatch auth = %q", got)
 			}
 
@@ -594,7 +597,7 @@ func TestServiceCloudflareRunDispatchCompletesViaCallbacks(t *testing.T) {
 			SandboxMode:       agents.CloudflareSandboxModeDisabled,
 		}, agents.WithCloudflareAPIBaseURL(dispatchServer.URL))),
 		agents.WithAPIBaseURL(httpServer.URL),
-		agents.WithInternalSecret("test-internal-secret"),
+		agents.WithInternalSecret(runtimeTestIntSecret),
 		agents.WithJWTSigningKey(runtimeTestJWTKey),
 	)
 	defer closeService(svc)
@@ -664,7 +667,7 @@ func TestServiceCloudflareRunDispatchFailureMapsToSystemFailed(t *testing.T) {
 			SandboxMode:       agents.CloudflareSandboxModeDisabled,
 		}, agents.WithCloudflareAPIBaseURL(dispatchServer.URL))),
 		agents.WithAPIBaseURL("http://127.0.0.1:65535"),
-		agents.WithInternalSecret("test-internal-secret"),
+		agents.WithInternalSecret(runtimeTestIntSecret),
 		agents.WithJWTSigningKey(runtimeTestJWTKey),
 	)
 	defer closeService(svc)
@@ -707,7 +710,7 @@ func TestServiceDeleteAgentCancelsActiveRuns(t *testing.T) {
 
 	srv := api.NewServer(api.ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-internal-secret",
+			InternalSecret:     runtimeTestIntSecret,
 			JWTSigningKey:      runtimeTestJWTKey,
 			MaxRequestBodySize: 1 << 20,
 			MaxResultSize:      1 << 20,
