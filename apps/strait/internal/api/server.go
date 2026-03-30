@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -712,25 +713,32 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
-		"status":         "ok",
-		"edition":        string(s.edition),
-		"version":        s.version,
-		"uptime_seconds": int(time.Since(s.startedAt).Seconds()),
+		"status":  "ok",
+		"edition": string(s.edition),
+		"version": s.version,
 	}
+
+	// Detailed subsystem checks are only exposed to authenticated internal callers.
+	// The public endpoint returns a minimal status to prevent infrastructure fingerprinting.
+	secret := r.Header.Get("X-Internal-Secret")
+	isInternal := secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) == 1
 
 	if s.healthRegistry != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 		result := s.healthRegistry.CheckAll(ctx)
 
-		subsystems := make(map[string]string)
-		for _, c := range result.Components {
-			subsystems[c.Name] = string(c.Status)
-		}
-		resp["subsystems"] = subsystems
-
 		if result.Status != health.StatusUp {
 			resp["status"] = string(result.Status)
+		}
+
+		if isInternal {
+			resp["uptime_seconds"] = int(time.Since(s.startedAt).Seconds())
+			subsystems := make(map[string]string)
+			for _, c := range result.Components {
+				subsystems[c.Name] = string(c.Status)
+			}
+			resp["subsystems"] = subsystems
 		}
 	}
 

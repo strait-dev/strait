@@ -9,16 +9,18 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
 )
 
-func TestHandleHealth_BasicFields(t *testing.T) {
+func TestHandleHealth_PublicFields(t *testing.T) {
 	t.Parallel()
 	s := &Server{
 		edition:   domain.EditionCommunity,
 		version:   "v1.2.3",
 		startedAt: time.Now().Add(-10 * time.Second),
+		config:    &config.Config{InternalSecret: "test-secret"},
 	}
 
 	rr := httptest.NewRecorder()
@@ -41,9 +43,79 @@ func TestHandleHealth_BasicFields(t *testing.T) {
 	if resp["version"] != "v1.2.3" {
 		t.Errorf("expected version=v1.2.3, got %v", resp["version"])
 	}
+	if _, exists := resp["uptime_seconds"]; exists {
+		t.Error("public health should not expose uptime_seconds")
+	}
+	if _, exists := resp["subsystems"]; exists {
+		t.Error("public health should not expose subsystems")
+	}
+}
+
+func TestHandleHealth_InternalSecret_ShowsDetails(t *testing.T) {
+	t.Parallel()
+	reg := health.NewRegistry()
+	reg.Register(health.NewChecker("database", func(_ context.Context) error { return nil }))
+	reg.Register(health.NewChecker("redis", func(_ context.Context) error { return nil }))
+
+	s := &Server{
+		edition:        domain.EditionCommunity,
+		version:        "dev",
+		startedAt:      time.Now().Add(-10 * time.Second),
+		config:         &config.Config{InternalSecret: "test-secret"},
+		healthRegistry: reg,
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	s.handleHealth(rr, req)
+
+	var resp map[string]any
+	_ = json.NewDecoder(rr.Body).Decode(&resp)
+
 	uptime, ok := resp["uptime_seconds"].(float64)
 	if !ok || uptime < 10 {
-		t.Errorf("expected uptime_seconds >= 10, got %v", resp["uptime_seconds"])
+		t.Errorf("expected uptime_seconds >= 10 with internal secret, got %v", resp["uptime_seconds"])
+	}
+
+	subsystems, ok := resp["subsystems"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected subsystems map with internal secret, got %T", resp["subsystems"])
+	}
+	if subsystems["database"] != "up" {
+		t.Errorf("expected database=up, got %v", subsystems["database"])
+	}
+	if subsystems["redis"] != "up" {
+		t.Errorf("expected redis=up, got %v", subsystems["redis"])
+	}
+}
+
+func TestHandleHealth_WrongSecret_NoDetails(t *testing.T) {
+	t.Parallel()
+	reg := health.NewRegistry()
+	reg.Register(health.NewChecker("database", func(_ context.Context) error { return nil }))
+
+	s := &Server{
+		edition:        domain.EditionCommunity,
+		version:        "dev",
+		startedAt:      time.Now(),
+		config:         &config.Config{InternalSecret: "real-secret"},
+		healthRegistry: reg,
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("X-Internal-Secret", "wrong-secret")
+	rr := httptest.NewRecorder()
+	s.handleHealth(rr, req)
+
+	var resp map[string]any
+	_ = json.NewDecoder(rr.Body).Decode(&resp)
+
+	if _, exists := resp["subsystems"]; exists {
+		t.Error("wrong secret should not expose subsystems")
+	}
+	if _, exists := resp["uptime_seconds"]; exists {
+		t.Error("wrong secret should not expose uptime")
 	}
 }
 
@@ -53,6 +125,7 @@ func TestHandleHealth_NoRegistry_NoSubsystems(t *testing.T) {
 		edition:   domain.EditionCloud,
 		version:   "dev",
 		startedAt: time.Now(),
+		config:    &config.Config{InternalSecret: "test-secret"},
 	}
 
 	rr := httptest.NewRecorder()
@@ -66,40 +139,6 @@ func TestHandleHealth_NoRegistry_NoSubsystems(t *testing.T) {
 	}
 }
 
-func TestHandleHealth_WithRegistry_ReturnsSubsystems(t *testing.T) {
-	t.Parallel()
-	reg := health.NewRegistry()
-	reg.Register(health.NewChecker("database", func(_ context.Context) error { return nil }))
-	reg.Register(health.NewChecker("redis", func(_ context.Context) error { return nil }))
-
-	s := &Server{
-		edition:        domain.EditionCommunity,
-		version:        "dev",
-		startedAt:      time.Now(),
-		healthRegistry: reg,
-	}
-
-	rr := httptest.NewRecorder()
-	s.handleHealth(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
-
-	var resp map[string]any
-	_ = json.NewDecoder(rr.Body).Decode(&resp)
-
-	subsystems, ok := resp["subsystems"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected subsystems map, got %T", resp["subsystems"])
-	}
-	if subsystems["database"] != "up" {
-		t.Errorf("expected database=up, got %v", subsystems["database"])
-	}
-	if subsystems["redis"] != "up" {
-		t.Errorf("expected redis=up, got %v", subsystems["redis"])
-	}
-	if resp["status"] != "ok" {
-		t.Errorf("expected status=ok, got %v", resp["status"])
-	}
-}
-
 func TestHandleHealth_DegradedSubsystem(t *testing.T) {
 	t.Parallel()
 	reg := health.NewRegistry()
@@ -110,13 +149,13 @@ func TestHandleHealth_DegradedSubsystem(t *testing.T) {
 		edition:        domain.EditionCommunity,
 		version:        "dev",
 		startedAt:      time.Now(),
+		config:         &config.Config{InternalSecret: "test-secret"},
 		healthRegistry: reg,
 	}
 
 	rr := httptest.NewRecorder()
 	s.handleHealth(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
 
-	// Still 200 (for load balancer compatibility).
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200 even when degraded, got %d", rr.Code)
 	}
@@ -124,13 +163,7 @@ func TestHandleHealth_DegradedSubsystem(t *testing.T) {
 	var resp map[string]any
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
 
-	// Status should reflect degradation.
 	if resp["status"] == "ok" {
 		t.Error("expected non-ok status when a subsystem is down")
-	}
-
-	subsystems := resp["subsystems"].(map[string]any)
-	if subsystems["database"] != "up" {
-		t.Errorf("expected database=up, got %v", subsystems["database"])
 	}
 }
