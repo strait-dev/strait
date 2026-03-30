@@ -1,0 +1,29 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist for test fixtures, docs examples, and dev-only config"
+
+paths = [
+    '''_test\.go$''',
+    '''test/''',
+    '''testdata/''',
+    '''loadtest/''',
+    '''scripts/''',
+    '''docs/''',
+    '''\.env\.example$''',
+    '''docker-compose.*\.yml$''',
+    '''Makefile$''',
+]
+
+regexTarget = "match"
+regexes = [
+    '''test-secret-value''',
+    '''test-jwt-key''',
+    '''test-encryption-key''',
+    '''01234567890123456789012345678901''',
+    '''strait_[a-f0-9]{10,}''',
+    '''owasp-test-''',
+    '''loadtest-secret''',
+    '''dump-openapi''',
+]

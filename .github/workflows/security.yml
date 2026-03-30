@@ -96,4 +96,4 @@ jobs:
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz | tar xz -C /usr/local/bin gitleaks
 
       - name: Run gitleaks
-        run: gitleaks detect --source=. --no-banner --verbose --exit-code=1
+        run: gitleaks detect --source=. --config=apps/strait/.gitleaks.toml --no-banner --verbose --exit-code=1
