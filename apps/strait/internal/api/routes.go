@@ -528,16 +528,16 @@ func (s *Server) routes() chi.Router {
 		).Post("/events/dispatch", TypedHandler(s, http.StatusOK, s.handleDispatchEvent))
 
 		r.Route("/events", func(r chi.Router) {
-			r.Get("/", TypedHandler(s, http.StatusOK, s.handleListEventTriggers))
-			r.Get("/stats", TypedHandler(s, http.StatusOK, s.handleGetEventTriggerStats))
-			r.Post("/purge", TypedHandler(s, http.StatusOK, s.handlePurgeEventTriggers))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListEventTriggers))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/stats", TypedHandler(s, http.StatusOK, s.handleGetEventTriggerStats))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/purge", TypedHandler(s, http.StatusOK, s.handlePurgeEventTriggers))
 			r.Route("/prefix/{prefix}", func(r chi.Router) {
-				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEventByPrefix))
+				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEventByPrefix))
 			})
 			r.Route("/{eventKey}", func(r chi.Router) {
-				r.Get("/", TypedHandler(s, http.StatusOK, s.handleGetEventTrigger))
-				r.Delete("/", TypedHandler(s, http.StatusOK, s.handleCancelEventTrigger))
-				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEvent))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetEventTrigger))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusOK, s.handleCancelEventTrigger))
+				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEvent))
 			})
 		})
 

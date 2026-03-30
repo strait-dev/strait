@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -271,7 +272,8 @@ func writeTypedError(w http.ResponseWriter, r *http.Request, err error) {
 		respondError(w, r, http.StatusForbidden, le)
 		return
 	}
-	respondError(w, r, http.StatusInternalServerError, err.Error())
+	slog.Error("unhandled error in typed handler", "error", err, "path", r.URL.Path)
+	respondError(w, r, http.StatusInternalServerError, "internal server error")
 }
 
 // typedAPIError wraps an APIError with an HTTP status code for use in typed handlers.

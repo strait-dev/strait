@@ -270,7 +270,7 @@ type Job struct {
 	PausedAt                  *time.Time        `json:"paused_at,omitempty"`
 	PauseReason               string            `json:"pause_reason,omitempty"`
 	WebhookURL                string            `json:"webhook_url,omitempty"`
-	WebhookSecret             string            `json:"webhook_secret,omitempty"`
+	WebhookSecret             string            `json:"-"`
 	RunTTLSecs                int               `json:"run_ttl_secs,omitempty"`
 	RetryStrategy             string            `json:"retry_strategy,omitempty"`
 	RetryDelaysSecs           []int             `json:"retry_delays_secs,omitempty"`
@@ -691,7 +691,7 @@ type WebhookSubscription struct {
 	ProjectID  string    `json:"project_id"`
 	WebhookURL string    `json:"webhook_url"`
 	EventTypes []string  `json:"event_types"`
-	Secret     string    `json:"secret"`
+	Secret     string    `json:"-"`
 	Active     bool      `json:"active"`
 	CreatedAt  time.Time `json:"created_at"`
 }
