@@ -37,7 +37,6 @@ apps/website/
 | --- | --- |
 | `PUBLIC_WEBSITE_URL` | Canonical site URL for metadata/OG |
 | `PUBLIC_DASHBOARD_URL` | Base URL for dashboard auth/CTA links |
-| `PUBLIC_WEBSITE_ACCENT` | Optional accent override (`teal`, `blue`, `violet`, `emerald`) |
 | `PUBLIC_GTM_ID` | Google Tag Manager integration |
 | `BASEHUB_TOKEN` | Required only for blog CMS queries/build surfaces using Basehub |
 

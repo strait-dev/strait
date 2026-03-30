@@ -59,7 +59,7 @@ Strait is an engineered tool, not a decorated one. Every design decision should 
 ### Aesthetic Direction
 - **References**: Linear.app (minimal, fast, precise dark mode with restrained color), Vercel.com (clean typography, strong hierarchy, product-focused interactive demos)
 - **Anti-references**: Flashy SaaS (no gradient explosions, no 3D illustrations, no floating abstract shapes), enterprise boring (no stock photos, no blue corporate, no walls of text), over-animated showcases (motion serves understanding, not spectacle)
-- **Theme**: Dark mode primary. Teal accent (configurable via data-accent). Geist Sans typography.
+- **Theme**: Dark mode primary. Teal accent. Geist Sans typography.
 - **Color**: OKLch color space. One accent color per view. Tinted neutrals toward the brand hue. Never pure black or pure white.
 
 ### Design Principles
