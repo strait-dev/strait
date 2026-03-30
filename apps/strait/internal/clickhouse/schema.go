@@ -285,6 +285,21 @@ var schemaAlterations = []struct {
 	},
 }
 
+// BillingEventsTable is the DDL for the billing_events ClickHouse table.
+const BillingEventsTable = `
+CREATE TABLE IF NOT EXISTS billing_events (
+    timestamp  DateTime64(3, 'UTC'),
+    org_id     String,
+    project_id String DEFAULT '',
+    event_type LowCardinality(String),
+    feature    LowCardinality(String) DEFAULT '',
+    plan_tier  LowCardinality(String),
+    details    String DEFAULT '{}'
+) ENGINE = MergeTree()
+ORDER BY (org_id, event_type, timestamp)
+TTL toDateTime(timestamp) + INTERVAL 90 DAY
+`
+
 // CreateSchema creates all ClickHouse tables. Idempotent (IF NOT EXISTS).
 // It also applies schema alterations for columns added after initial table creation.
 func CreateSchema(ctx context.Context, c *Client) error {
@@ -308,6 +323,7 @@ func CreateSchema(ctx context.Context, c *Client) error {
 		{"event_trigger_events", EventTriggerEventsTable},
 		{"run_stats_daily", RunStatsDailyTable},
 		{"cost_daily", CostDailyTable},
+		{"billing_events", BillingEventsTable},
 	}
 
 	for _, t := range tables {

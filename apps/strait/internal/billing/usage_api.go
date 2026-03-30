@@ -83,6 +83,8 @@ type UsageForecastResponse struct {
 	ProjectedMonthlyAICostUsd  float64 `json:"projected_monthly_ai_cost_usd"`
 	RecommendedPlan            string  `json:"recommended_plan"`
 	DaysUntilLimit             int     `json:"days_until_limit"`
+	ProjectedOverageMicro      int64   `json:"projected_overage_microusd"`
+	ScaleBreakeven             bool    `json:"scale_breakeven"`
 }
 
 // UsageService provides usage data aggregation.
@@ -337,12 +339,20 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 		}
 	}
 
+	projectedComputeMicro := avgDailyCompute * int64(daysInMonth)
+	projectedOverage := computeOverageSpend(projectedComputeMicro, limits.ComputeCreditMicrousd)
+
+	// Scale breakeven: true when a Pro user's projected spend >= Scale price ($99).
+	scaleBreakeven := limits.PlanTier == domain.PlanPro && projectedComputeMicro >= CreditScaleMicrousd
+
 	return &UsageForecastResponse{
 		ProjectedMonthlyRuns:       projectedRuns,
 		ProjectedMonthlyComputeUsd: projectedCompute,
 		ProjectedMonthlyAICostUsd:  projectedAI,
 		RecommendedPlan:            recommended,
 		DaysUntilLimit:             daysUntilLimit,
+		ProjectedOverageMicro:      projectedOverage,
+		ScaleBreakeven:             scaleBreakeven,
 	}, nil
 }
 

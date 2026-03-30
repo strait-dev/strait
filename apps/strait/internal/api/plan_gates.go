@@ -3,11 +3,28 @@ package api
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"strait/internal/billing"
+	"strait/internal/clickhouse"
 )
+
+// recordBillingEvent enqueues a billing analytics event to ClickHouse.
+// No-op if the exporter is nil (self-hosted or analytics disabled).
+func (s *Server) recordBillingEvent(projectID, eventType, feature, planTier string) {
+	if s.chExporter == nil {
+		return
+	}
+	s.chExporter.Enqueue(clickhouse.BillingEventRecord{
+		Timestamp: time.Now(),
+		ProjectID: projectID,
+		EventType: eventType,
+		Feature:   feature,
+		PlanTier:  planTier,
+	})
+}
 
 // getOrgPlanLimits resolves the org's plan limits from a project ID.
 // Returns nil limits (and no error) when billing is unavailable or not
@@ -44,6 +61,8 @@ func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feat
 		return nil
 	}
 
+	s.recordBillingEvent(projectID, "gate_rejected", string(feature), string(limits.PlanTier))
+
 	return huma.Error400BadRequest(
 		fmt.Sprintf("%s requires a higher plan. Upgrade at /settings/billing", featureName),
 	)
@@ -64,6 +83,8 @@ func (s *Server) checkPresetAllowed(ctx context.Context, projectID, preset strin
 	if limits.IsPresetAllowed(preset) {
 		return nil
 	}
+
+	s.recordBillingEvent(projectID, "gate_rejected", preset, string(limits.PlanTier))
 
 	return huma.Error400BadRequest(
 		fmt.Sprintf("Machine preset %q is not available on the %s plan. Upgrade at /settings/billing", preset, limits.DisplayName),

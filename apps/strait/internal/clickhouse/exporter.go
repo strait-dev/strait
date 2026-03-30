@@ -156,6 +156,17 @@ type WebhookDeliveryEventRecord struct {
 	DeliveredAt    *time.Time
 }
 
+// BillingEventRecord maps to the billing_events ClickHouse table.
+type BillingEventRecord struct {
+	Timestamp time.Time
+	OrgID     string
+	ProjectID string
+	EventType string // "gate_rejected", "spending_limit_hit", "plan_changed", "addon_purchased"
+	Feature   string // e.g. "canary_deployments", "large-2x", "http_mode"
+	PlanTier  string
+	Details   string // JSON blob
+}
+
 // maxFlushRetries is the maximum number of consecutive flush failures before
 // a batch is dropped to prevent unbounded growth.
 const maxFlushRetries = 2
