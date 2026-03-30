@@ -43,6 +43,8 @@ import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthJwksRouteImport } from './routes/api/auth/jwks'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as authOauthConsentRouteImport } from './routes/(auth)/oauth/consent'
+import { Route as AppWebhooksIdRouteImport } from './routes/app/webhooks/$id'
+import { Route as AppWebhooksNewRouteImport } from './routes/app/webhooks/new'
 import { Route as AppProjectsProjectIdSettingsRouteImport } from './routes/app/projects/$projectId/settings'
 
 const AppLayoutRoute = AppLayoutRouteImport.update({
@@ -170,6 +172,16 @@ const AppBillingIndexRoute = AppBillingIndexRouteImport.update({
   path: '/billing/',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppWebhooksIdRoute = AppWebhooksIdRouteImport.update({
+  id: '/webhooks/$id',
+  path: '/webhooks/$id',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppWebhooksNewRoute = AppWebhooksNewRouteImport.update({
+  id: '/webhooks/new',
+  path: '/webhooks/new',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
   id: '/workflows/$id',
   path: '/workflows/$id',
@@ -256,6 +268,8 @@ export interface FileRoutesByFullPath {
   '/app/schedules/': typeof AppSchedulesIndexRoute
   '/app/settings/': typeof AppSettingsIndexRoute
   '/app/webhooks/': typeof AppWebhooksIndexRoute
+  '/app/webhooks/$id': typeof AppWebhooksIdRoute
+  '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/': typeof AppWorkflowsIndexRoute
   '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
@@ -292,6 +306,8 @@ export interface FileRoutesByTo {
   '/app/schedules': typeof AppSchedulesIndexRoute
   '/app/settings': typeof AppSettingsIndexRoute
   '/app/webhooks': typeof AppWebhooksIndexRoute
+  '/app/webhooks/$id': typeof AppWebhooksIdRoute
+  '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows': typeof AppWorkflowsIndexRoute
   '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
@@ -330,6 +346,8 @@ export interface FileRoutesById {
   '/app/schedules/': typeof AppSchedulesIndexRoute
   '/app/settings/': typeof AppSettingsIndexRoute
   '/app/webhooks/': typeof AppWebhooksIndexRoute
+  '/app/webhooks/$id': typeof AppWebhooksIdRoute
+  '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/': typeof AppWorkflowsIndexRoute
   '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
@@ -369,6 +387,8 @@ export interface FileRouteTypes {
     | '/app/schedules/'
     | '/app/settings/'
     | '/app/webhooks/'
+    | '/app/webhooks/$id'
+    | '/app/webhooks/new'
     | '/app/workflows/'
     | '/app/projects/$projectId/settings'
   fileRoutesByTo: FileRoutesByTo
@@ -405,6 +425,8 @@ export interface FileRouteTypes {
     | '/app/schedules'
     | '/app/settings'
     | '/app/webhooks'
+    | '/app/webhooks/$id'
+    | '/app/webhooks/new'
     | '/app/workflows'
     | '/app/projects/$projectId/settings'
   id:
@@ -442,6 +464,8 @@ export interface FileRouteTypes {
     | '/app/schedules/'
     | '/app/settings/'
     | '/app/webhooks/'
+    | '/app/webhooks/$id'
+    | '/app/webhooks/new'
     | '/app/workflows/'
     | '/app/projects/$projectId/settings'
   fileRoutesById: FileRoutesById
@@ -583,6 +607,20 @@ declare module '@tanstack/react-router' {
       path: '/webhooks'
       fullPath: '/app/webhooks/'
       preLoaderRoute: typeof AppWebhooksIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/webhooks/$id': {
+      id: '/app/webhooks/$id'
+      path: '/webhooks/$id'
+      fullPath: '/app/webhooks/$id'
+      preLoaderRoute: typeof AppWebhooksIdRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/webhooks/new': {
+      id: '/app/webhooks/new'
+      path: '/webhooks/new'
+      fullPath: '/app/webhooks/new'
+      preLoaderRoute: typeof AppWebhooksNewRouteImport
       parentRoute: typeof AppLayoutRoute
     }
     '/app/settings/': {
@@ -732,6 +770,8 @@ interface AppLayoutRouteChildren {
   AppRunsIndexRoute: typeof AppRunsIndexRoute
   AppSchedulesIndexRoute: typeof AppSchedulesIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+  AppWebhooksIdRoute: typeof AppWebhooksIdRoute
+  AppWebhooksNewRoute: typeof AppWebhooksNewRoute
   AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
   AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
   AppProjectsProjectIdSettingsRoute: typeof AppProjectsProjectIdSettingsRoute
@@ -755,6 +795,8 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppRunsIndexRoute: AppRunsIndexRoute,
   AppSchedulesIndexRoute: AppSchedulesIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
+  AppWebhooksIdRoute: AppWebhooksIdRoute,
+  AppWebhooksNewRoute: AppWebhooksNewRoute,
   AppWebhooksIndexRoute: AppWebhooksIndexRoute,
   AppWorkflowsIndexRoute: AppWorkflowsIndexRoute,
   AppProjectsProjectIdSettingsRoute: AppProjectsProjectIdSettingsRoute,

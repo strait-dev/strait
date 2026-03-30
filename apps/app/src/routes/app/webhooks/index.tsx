@@ -10,7 +10,7 @@ import {
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
@@ -28,8 +28,6 @@ import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import { createWebhookColumns } from "@/components/tables/webhooks-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
-import CreateWebhookDialog from "@/components/webhooks/create-webhook-dialog";
-import WebhookDetailSheet from "@/components/webhooks/webhook-detail-sheet";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { WebhookSubscription } from "@/hooks/api/types";
 import {
@@ -96,10 +94,6 @@ function WebhooksPage() {
     });
   }, [data?.data, selectedStatuses, hasProject]);
 
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [selectedWebhook, setSelectedWebhook] =
-    useState<WebhookSubscription | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
   const deleteWebhook = useDeleteWebhook();
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
@@ -144,8 +138,7 @@ function WebhooksPage() {
   }
 
   function handleRowClick(webhook: WebhookSubscription) {
-    setSelectedWebhook(webhook);
-    setSheetOpen(true);
+    navigate({ to: "/app/webhooks/$id", params: { id: webhook.id } });
   }
 
   const emptyState = hasProject ? (
@@ -215,7 +208,7 @@ function WebhooksPage() {
         <Button
           className="ml-auto"
           disabled={!hasProject}
-          onClick={() => setCreateDialogOpen(true)}
+          render={<Link to="/app/webhooks/new" />}
         >
           <HugeiconsIcon className="mr-1.5" icon={PlusIcon} size={14} />
           Create webhook
@@ -282,17 +275,6 @@ function WebhooksPage() {
           table={table}
         />
       </div>
-
-      <WebhookDetailSheet
-        onOpenChange={setSheetOpen}
-        open={sheetOpen}
-        webhook={selectedWebhook}
-      />
-
-      <CreateWebhookDialog
-        onOpenChange={setCreateDialogOpen}
-        open={createDialogOpen}
-      />
     </Shell>
   );
 }
