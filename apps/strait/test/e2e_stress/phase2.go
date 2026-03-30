@@ -165,7 +165,7 @@ func scenarioWebhookDeliveryOnComplete(ctx *testCtx, iter int) error {
 	code, result, raw, err := apiCall("POST", "/v1/webhooks/subscriptions", map[string]any{"project_id": ctx.projectID,
 		"webhook_url": ctx.echoURL + "/webhook-receiver",
 		"event_types": []string{"run.completed"},
-		"secret":      "test-secret",
+		"secret":      randomHex(16),
 	}, ctx.apiKey)
 	if err != nil {
 		return err
@@ -207,7 +207,7 @@ func scenarioWebhookDeliveryOnFailure(ctx *testCtx, iter int) error {
 	code, result, raw, err := apiCall("POST", "/v1/webhooks/subscriptions", map[string]any{"project_id": ctx.projectID,
 		"webhook_url": ctx.echoURL + "/webhook-receiver",
 		"event_types": []string{"run.failed"},
-		"secret":      "test-secret",
+		"secret":      randomHex(16),
 	}, ctx.apiKey)
 	if err != nil {
 		return err

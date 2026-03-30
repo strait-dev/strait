@@ -12,7 +12,6 @@ import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { requireProjectAccess } from "@/middlewares/require-access";
 
-
 export const fetchRegions = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
@@ -59,7 +58,6 @@ export const updateProjectSettingsFn = createServerFn({ method: "POST" })
     );
   });
 
-
 export const regionsQueryOptions = () =>
   queryOptions({
     queryKey: ["regions"],
@@ -76,7 +74,6 @@ export const projectSettingsQueryOptions = (projectId: string) =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
-
 
 export const useUpdateProjectSettings = () => {
   const queryClient = useQueryClient();

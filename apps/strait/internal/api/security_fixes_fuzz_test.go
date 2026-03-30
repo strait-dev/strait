@@ -189,7 +189,7 @@ func FuzzSDKTokenRunIDMismatch(f *testing.F) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		})
-		signed, err := token.SignedString([]byte("01234567890123456789012345678901"))
+		signed, err := token.SignedString([]byte(testJWTSigningKey))
 		if err != nil {
 			t.Skip("could not sign token")
 		}

@@ -12,8 +12,8 @@ func TestCORS_AllowedOrigin(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret",
-			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
+			InternalSecret:     "test-secret-value",
+			JWTSigningKey:      testJWTSigningKey,
 			CORSAllowedOrigins: []string{"https://example.com"},
 		},
 		Store:  &APIStoreMock{},
@@ -42,8 +42,8 @@ func TestCORS_Preflight(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret",
-			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
+			InternalSecret:     "test-secret-value",
+			JWTSigningKey:      testJWTSigningKey,
 			CORSAllowedOrigins: []string{"https://example.com"},
 		},
 		Store:  &APIStoreMock{},
@@ -79,8 +79,8 @@ func TestCORS_WildcardOrigin(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret",
-			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
+			InternalSecret:     "test-secret-value",
+			JWTSigningKey:      testJWTSigningKey,
 			CORSAllowedOrigins: []string{"*"},
 		},
 		Store:  &APIStoreMock{},
@@ -105,8 +105,8 @@ func TestCORS_Credentials(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:       "test-secret",
-			JWTSigningKey:        "test-jwt-key-must-be-32-chars-long",
+			InternalSecret:       "test-secret-value",
+			JWTSigningKey:        testJWTSigningKey,
 			CORSAllowedOrigins:   []string{"https://example.com"},
 			CORSAllowCredentials: true,
 		},
@@ -132,8 +132,8 @@ func TestCORS_NoOriginHeader(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret",
-			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
+			InternalSecret:     "test-secret-value",
+			JWTSigningKey:      testJWTSigningKey,
 			CORSAllowedOrigins: []string{"https://example.com"},
 		},
 		Store:  &APIStoreMock{},
@@ -157,8 +157,8 @@ func TestCORS_ExposedHeaders(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret",
-			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
+			InternalSecret:     "test-secret-value",
+			JWTSigningKey:      testJWTSigningKey,
 			CORSAllowedOrigins: []string{"*"},
 		},
 		Store:  &APIStoreMock{},

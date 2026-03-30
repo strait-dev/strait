@@ -1,0 +1,8 @@
+# Default owners for all files
+* @strait-dev/engineering
+
+# Go backend
+apps/strait/ @strait-dev/backend
+
+# CI/CD
+.github/ @strait-dev/platform

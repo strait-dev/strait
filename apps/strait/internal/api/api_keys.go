@@ -71,6 +71,21 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		t := time.Now().Add(time.Duration(*req.ExpiresIn) * 24 * time.Hour)
 		expiresAt = &t
 	}
+
+	// Enforce project-level max key lifetime if configured.
+	quota, _ := s.store.GetProjectQuota(ctx, req.ProjectID)
+	if quota != nil && quota.MaxKeyLifetimeDays > 0 {
+		maxExpiry := time.Now().Add(time.Duration(quota.MaxKeyLifetimeDays) * 24 * time.Hour)
+		if expiresAt == nil {
+			expiresAt = &maxExpiry
+			slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
+				"project_id", req.ProjectID, "max_days", quota.MaxKeyLifetimeDays)
+		} else if expiresAt.After(maxExpiry) {
+			return nil, huma.Error400BadRequest(
+				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", quota.MaxKeyLifetimeDays))
+		}
+	}
+
 	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays}
 	if req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0 {
 		nr := time.Now().Add(time.Duration(*req.RotationIntervalDays) * 24 * time.Hour)
@@ -78,6 +93,10 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	}
 	if err := s.store.CreateAPIKey(ctx, key); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
+	}
+	if expiresAt == nil {
+		slog.Warn("api key created without expiration; consider setting expires_in_days for security",
+			"key_id", key.ID, "project_id", key.ProjectID, "actor", actorFromContext(ctx))
 	}
 	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt}}, nil
 }
@@ -108,6 +127,61 @@ func (s *Server) handleListAPIKeys(ctx context.Context, input *ListAPIKeysInput)
 		return nil, huma.Error500InternalServerError("failed to list api keys")
 	}
 	return &ListAPIKeysOutput{Body: paginatedResult(keys, limit, func(k domain.APIKey) string { return k.CreatedAt.Format(time.RFC3339Nano) })}, nil
+}
+
+type ExpiringKeyInfo struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	KeyPrefix string     `json:"key_prefix"`
+	ExpiresAt *time.Time `json:"expires_at"`
+	DaysLeft  *int       `json:"days_left"`
+	NoExpiry  bool       `json:"no_expiry"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+type ListExpiringKeysInput struct {
+	WithinDays int `query:"within_days"`
+}
+type ListExpiringKeysOutput struct{ Body []ExpiringKeyInfo }
+
+func (s *Server) handleListExpiringKeys(ctx context.Context, input *ListExpiringKeysInput) (*ListExpiringKeysOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	withinDays := input.WithinDays
+	if withinDays <= 0 {
+		withinDays = 30
+	}
+	if withinDays > 365 {
+		withinDays = 365
+	}
+
+	keys, err := s.store.ListAPIKeysExpiringSoon(ctx, projectID, withinDays)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list expiring keys")
+	}
+
+	now := time.Now()
+	result := make([]ExpiringKeyInfo, 0, len(keys))
+	for _, k := range keys {
+		info := ExpiringKeyInfo{
+			ID:        k.ID,
+			Name:      k.Name,
+			KeyPrefix: k.KeyPrefix,
+			ExpiresAt: k.ExpiresAt,
+			NoExpiry:  k.ExpiresAt == nil,
+			CreatedAt: k.CreatedAt,
+		}
+		if k.ExpiresAt != nil {
+			days := max(int(k.ExpiresAt.Sub(now).Hours()/24), 0)
+			info.DaysLeft = &days
+		}
+		result = append(result, info)
+	}
+
+	return &ListExpiringKeysOutput{Body: result}, nil
 }
 
 type RevokeAPIKeyInput struct {

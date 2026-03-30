@@ -214,9 +214,9 @@ func newUsageTestServerFull(t *testing.T, opts usageTestServerOpts) *Server {
 	cfg := opts.config
 	if cfg == nil {
 		cfg = &config.Config{
-			InternalSecret:      "test-secret",
+			InternalSecret:      "test-secret-value",
 			MaxBulkTriggerItems: 500,
-			JWTSigningKey:       "01234567890123456789012345678901",
+			JWTSigningKey:       testJWTSigningKey,
 		}
 	}
 	ms := opts.store
@@ -255,7 +255,7 @@ func apiKeyRequestWithScopes(method, url, body, projectID string, scopes []strin
 	} else {
 		req = httptest.NewRequest(method, url, nil)
 	}
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	ctx := context.WithValue(req.Context(), ctxScopesKey, scopes)
 	ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
@@ -296,9 +296,9 @@ func newOIDCUsageTestServer(
 
 	opts.store = store
 	opts.config = &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "01234567890123456789012345678901",
+		JWTSigningKey:       testJWTSigningKey,
 		OIDCEnabled:         true,
 		OIDCIssuer:          "https://issuer.example",
 		OIDCAudience:        "strait-api",
@@ -1086,7 +1086,7 @@ func internalSecretRequestWithProject(method, url, body, projectID string) *http
 	} else {
 		req = httptest.NewRequest(method, url, nil)
 	}
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	if projectID != "" {
 		req.Header.Set("X-Project-Id", projectID)
 	}

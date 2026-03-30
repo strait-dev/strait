@@ -22,13 +22,40 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set(securityHeaderReferrerPolicy, "no-referrer")
 		w.Header().Set(securityHeaderPermissionsPolicy, "camera=(), microphone=(), geolocation=(), payment=()")
 		w.Header().Set(securityHeaderCrossDomainPolicies, "none")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 
 		if requestIsHTTPS(r) {
 			w.Header().Set(securityHeaderHSTS, "max-age=63072000; includeSubDomains")
 		}
 
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(&serverHeaderStripper{ResponseWriter: w}, r)
 	})
+}
+
+// serverHeaderStripper wraps http.ResponseWriter to strip the Server header
+// before it is sent. This prevents reverse proxies (e.g. Fly.io) from leaking
+// version information via the Server response header.
+type serverHeaderStripper struct {
+	http.ResponseWriter
+}
+
+func (s *serverHeaderStripper) WriteHeader(code int) {
+	s.Header().Del("Server")
+	s.ResponseWriter.WriteHeader(code)
+}
+
+// Flush delegates to the underlying ResponseWriter if it supports http.Flusher.
+// This is required for SSE streaming to work correctly.
+func (s *serverHeaderStripper) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap returns the underlying ResponseWriter for middleware that needs
+// to inspect the original writer (e.g. chi's timeout middleware).
+func (s *serverHeaderStripper) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
 }
 
 func requestIsHTTPS(r *http.Request) bool {

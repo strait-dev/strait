@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/ratelimit"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -29,8 +30,66 @@ const ctxAuthKeyObjKey contextKey = "api_key_obj"
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
 
+// requireJSONAccept returns 406 Not Acceptable if the client explicitly
+// requests a content type the API cannot serve. Allows application/json,
+// application/*, */*, and empty (default).
+func requireJSONAccept(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		accept := r.Header.Get("Accept")
+		if accept != "" && accept != "*/*" {
+			ok := false
+			for part := range strings.SplitSeq(accept, ",") {
+				mt := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
+				if mt == "application/json" || mt == "application/*" || mt == "*/*" {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				respondError(w, r, http.StatusNotAcceptable, "this API only serves application/json")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireJSONContentType returns 415 Unsupported Media Type if a mutation
+// request (POST/PUT/PATCH) has a body but the Content-Type is not application/json.
+func requireJSONContentType(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
+			if r.ContentLength > 0 || r.Header.Get("Content-Type") != "" {
+				ct := r.Header.Get("Content-Type")
+				mt := strings.TrimSpace(strings.SplitN(ct, ";", 2)[0])
+				if mt != "application/json" {
+					respondError(w, r, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// realIP extracts the client IP from the request, preferring X-Forwarded-For
+// (first entry) over RemoteAddr. Returns only the IP, stripping port if present.
+func realIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ip := strings.SplitN(xff, ",", 2)[0]
+		return strings.TrimSpace(ip)
+	}
+	ip := r.RemoteAddr
+	if idx := strings.LastIndex(ip, ":"); idx != -1 {
+		ip = ip[:idx]
+	}
+	return ip
+}
+
 // sseTokenAuth extracts auth token from ?token= query param for SSE endpoints
 // where browsers cannot set custom headers (EventSource API limitation).
+// It first tries to parse the token as a short-lived SSE JWT (recommended).
+// If that fails, it falls back to treating it as a raw API key (backward compatible).
 func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Internal-Secret") != "" {
@@ -38,9 +97,23 @@ func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 			return
 		}
 		token := r.URL.Query().Get("token")
-		if token != "" {
-			r.Header.Set("Authorization", "Bearer "+token)
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
 		}
+
+		// Try short-lived SSE JWT first (preferred path).
+		if claims := s.parseSSEToken(token); claims != nil {
+			ctx := context.WithValue(r.Context(), ctxProjectIDKey, claims.ProjectID)
+			ctx = context.WithValue(ctx, ctxScopesKey, claims.Scopes)
+			ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
+			ctx = context.WithValue(ctx, ctxActorIDKey, "sse:"+claims.ProjectID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		// Fall back to raw API key in query param (backward compatible).
+		r.Header.Set("Authorization", "Bearer "+token)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -81,8 +154,18 @@ func orgIDFromContext(ctx context.Context) string {
 
 func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := realIP(r)
+
+		// Check if this IP is locked out from too many failed attempts.
+		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+			respondError(w, r, http.StatusTooManyRequests, ratelimit.BlockedError(retryAfter))
+			return
+		}
+
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer strait_") {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing api key")
 			return
 		}
@@ -91,22 +174,26 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		keyHash := hashAPIKey(rawKey)
 
 		apiKey, err := s.store.GetAPIKeyByHash(r.Context(), keyHash)
-		if err != nil {
+		if err != nil || apiKey == nil {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "invalid api key")
 			return
 		}
 
 		if apiKey.RevokedAt != nil {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "api key has been revoked")
 			return
 		}
 
 		now := time.Now()
 		if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now) {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "api key has expired")
 			return
 		}
 		if apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now) {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "api key rotation grace period has ended")
 			return
 		}
@@ -142,6 +229,12 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// SSE token auth may have already authenticated via a short-lived JWT.
+		if actorType, _ := r.Context().Value(ctxActorTypeKey).(string); actorType == "sse_token" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		authHeader := r.Header.Get("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer strait_") {
 			s.apiKeyAuth(next).ServeHTTP(w, r)
@@ -362,8 +455,8 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 			actorType, _ := ctx.Value(ctxActorTypeKey).(string)
 
 			switch actorType {
-			case "api_key":
-				// API keys use scopes directly.
+			case "api_key", "sse_token":
+				// API keys and SSE tokens use scopes directly.
 				if domain.HasScope(scopes, permission) {
 					next.ServeHTTP(w, r)
 					return
@@ -519,8 +612,61 @@ func apiVersionHeader(next http.Handler) http.Handler {
 	})
 }
 
+type resolvedRateLimit struct {
+	limit      int
+	windowSecs int
+	key        string
+}
+
+// resolveRateLimit determines the applicable rate limit by cascading through:
+// API key override → project quota → plan-based → global defaults → per-IP.
+func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectID, apiKeyID string) resolvedRateLimit {
+	// 1. Try API key-level rate limit (from context, no DB hit).
+	if apiKeyID != "" {
+		if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0 {
+			return resolvedRateLimit{apiKey.RateLimitRequests, apiKey.RateLimitWindowSecs, "rl:apikey:" + apiKeyID}
+		}
+	}
+
+	// 2. Fall back to project quota rate limit.
+	if projectID != "" && s.store != nil {
+		quota, err := s.store.GetProjectQuota(ctx, projectID)
+		if err == nil && quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0 {
+			return resolvedRateLimit{quota.RateLimitRequests, quota.RateLimitWindowSecs, "rl:project:" + projectID}
+		}
+	}
+
+	// 3. Fall back to plan-based rate limit.
+	if projectID != "" && s.billingEnforcer != nil {
+		orgID, orgErr := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+		if orgErr == nil && orgID != "" {
+			planLimits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+			if limErr == nil && planLimits.APIRateLimit > 0 {
+				return resolvedRateLimit{planLimits.APIRateLimit, 60, "rl:plan:" + orgID}
+			}
+		}
+	}
+
+	// 4. Fall back to global default rate limit per API key.
+	if apiKeyID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
+		return resolvedRateLimit{s.config.DefaultAPIKeyRateLimit, s.config.DefaultAPIKeyRateWindowSecs, "rl:apikey:" + apiKeyID}
+	}
+
+	// 5. Fall back to global default rate limit per project.
+	if projectID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
+		return resolvedRateLimit{s.config.DefaultAPIKeyRateLimit, s.config.DefaultAPIKeyRateWindowSecs, "rl:project:" + projectID}
+	}
+
+	// 6. Fall back to per-IP rate limit when no key/project limits matched.
+	if s.config.RateLimitRequests > 0 {
+		ip := realIP(r)
+		return resolvedRateLimit{s.config.RateLimitRequests, int(time.Minute.Seconds()), "rl:ip:" + ip}
+	}
+
+	return resolvedRateLimit{}
+}
+
 // projectRateLimit enforces per-API-key and per-project rate limits using Redis.
-// Resolution order: API key override → project quota → global config fallback.
 func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.rateLimiter == nil {
@@ -536,73 +682,22 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		projectID := projectIDFromContext(ctx)
-		apiKeyID := apiKeyIDFromContext(ctx)
 
-		var limit int
-		var windowSecs int
-		var key string
-
-		// 1. Try API key-level rate limit (from context, no DB hit).
-		if apiKeyID != "" {
-			if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0 {
-				limit = apiKey.RateLimitRequests
-				windowSecs = apiKey.RateLimitWindowSecs
-				key = "rl:apikey:" + apiKeyID
-			}
-		}
-
-		// 2. Fall back to project quota rate limit.
-		if limit == 0 && projectID != "" && s.store != nil {
-			quota, err := s.store.GetProjectQuota(ctx, projectID)
-			if err == nil && quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0 {
-				limit = quota.RateLimitRequests
-				windowSecs = quota.RateLimitWindowSecs
-				key = "rl:project:" + projectID
-			}
-		}
-
-		// 3. Fall back to plan-based rate limit.
-		if limit == 0 && projectID != "" && s.billingEnforcer != nil {
-			orgID, orgErr := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-			if orgErr == nil && orgID != "" {
-				planLimits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
-				if limErr == nil && planLimits.APIRateLimit > 0 {
-					limit = planLimits.APIRateLimit
-					windowSecs = 60 // per-minute
-					key = "rl:plan:" + orgID
-				}
-			}
-		}
-
-		// 4. Fall back to global default rate limit per API key.
-		if limit == 0 && apiKeyID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
-			limit = s.config.DefaultAPIKeyRateLimit
-			windowSecs = s.config.DefaultAPIKeyRateWindowSecs
-			key = "rl:apikey:" + apiKeyID
-		}
-
-		// 5. Fall back to global default rate limit per project.
-		if limit == 0 && projectID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
-			limit = s.config.DefaultAPIKeyRateLimit
-			windowSecs = s.config.DefaultAPIKeyRateWindowSecs
-			key = "rl:project:" + projectID
-		}
-
-		if limit == 0 {
+		rl := s.resolveRateLimit(ctx, r, projectIDFromContext(ctx), apiKeyIDFromContext(ctx))
+		if rl.limit == 0 {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		window := time.Duration(windowSecs) * time.Second
-		result, rlErr := s.rateLimiter.Allow(ctx, key, limit, window)
+		window := time.Duration(rl.windowSecs) * time.Second
+		result, rlErr := s.rateLimiter.Allow(ctx, rl.key, rl.limit, window)
 		if rlErr != nil {
-			slog.Warn("rate limiter error, failing open", "key", key, "error", rlErr)
+			slog.Warn("rate limiter error, failing open", "key", rl.key, "error", rlErr)
 		}
-		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
+		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(rl.limit))
 		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.Remaining))
 		if !result.Allowed {
-			w.Header().Set("Retry-After", strconv.Itoa(windowSecs))
+			w.Header().Set("Retry-After", strconv.Itoa(rl.windowSecs))
 			respondError(w, r, http.StatusTooManyRequests, "rate limit exceeded")
 			return
 		}

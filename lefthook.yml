@@ -7,6 +7,9 @@ pre-commit:
     app_typecheck:
       run: cd apps/app && bun run typecheck
       fail_text: "App typecheck failed"
+    gitleaks:
+      run: command -v gitleaks > /dev/null 2>&1 && gitleaks protect --staged --no-banner || true
+      fail_text: "Secrets detected in staged files"
 
 commit-msg:
   commands:

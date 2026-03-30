@@ -15,8 +15,14 @@ func MarshalYAML(b *Bundle) ([]byte, error) {
 	return data, nil
 }
 
+// maxBundleYAMLSize is the maximum allowed size for bundle YAML input (1MB).
+const maxBundleYAMLSize = 1 << 20
+
 // UnmarshalYAML deserializes YAML bytes into a Bundle.
 func UnmarshalYAML(data []byte) (*Bundle, error) {
+	if len(data) > maxBundleYAMLSize {
+		return nil, fmt.Errorf("bundle YAML exceeds maximum size of %d bytes", maxBundleYAMLSize)
+	}
 	var b Bundle
 	if err := yaml.Unmarshal(data, &b); err != nil {
 		return nil, fmt.Errorf("unmarshal bundle: %w", err)

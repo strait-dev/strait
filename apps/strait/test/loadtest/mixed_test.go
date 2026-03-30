@@ -41,7 +41,7 @@ func TestMixed_ReadHeavyWorkload(t *testing.T) {
 		tgt.Method = "GET"
 		tgt.URL = baseURL + path
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 		}
 		return nil
 	}
@@ -102,7 +102,7 @@ func TestMixed_WriteHeavyWorkload(t *testing.T) {
 			))
 		}
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 		return nil
@@ -135,7 +135,7 @@ func TestMixed_ReadWriteRatio(t *testing.T) {
 	tgt := func(tgt *vegeta.Target) error {
 		i := counter.Add(1) - 1
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 
@@ -217,7 +217,7 @@ func TestMixed_CrossModuleWorkload(t *testing.T) {
 		tgt.Method = ep.method
 		tgt.URL = baseURL + ep.path
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 		if ep.body != "" {
@@ -254,7 +254,7 @@ func TestMixed_HealthEndpoints(t *testing.T) {
 		tgt.Method = "GET"
 		tgt.URL = baseURL + healthPaths[i%int64(len(healthPaths))]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 		}
 		return nil
 	}
@@ -335,7 +335,7 @@ func TestMixed_Reference(t *testing.T) {
 		i := counter.Add(1) - 1
 		tgt.Method = "GET"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 		}
 		if i%2 == 0 {
 			tgt.URL = baseURL + "/reference"

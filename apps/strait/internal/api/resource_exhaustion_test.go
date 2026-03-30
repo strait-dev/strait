@@ -40,7 +40,7 @@ func TestDoS_HTTPRequestTimeout(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/slow-job", nil)
 	req = req.WithContext(ctx)
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

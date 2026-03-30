@@ -25,8 +25,8 @@ func oidcProjectTestServer(t *testing.T, pubPEM []byte, ms *APIStoreMock) *Serve
 	t.Helper()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:   "test-secret",
-			JWTSigningKey:    "01234567890123456789012345678901",
+			InternalSecret:   "test-secret-value",
+			JWTSigningKey:    testJWTSigningKey,
 			OIDCEnabled:      true,
 			OIDCIssuer:       "https://issuer.test",
 			OIDCAudience:     "aud-test",
@@ -290,8 +290,8 @@ func FuzzOIDCProjectHeader(f *testing.F) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:   "test-secret",
-			JWTSigningKey:    "01234567890123456789012345678901",
+			InternalSecret:   "test-secret-value",
+			JWTSigningKey:    testJWTSigningKey,
 			OIDCEnabled:      true,
 			OIDCIssuer:       "https://issuer.test",
 			OIDCAudience:     "aud-test",

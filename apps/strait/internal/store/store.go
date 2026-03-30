@@ -167,6 +167,7 @@ type ProjectQuota struct {
 	MaxIterationsPerRun           int
 	MaxMemoryPerKeyBytes          int
 	MaxMemoryPerJobBytes          int
+	MaxKeyLifetimeDays            int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -408,6 +409,7 @@ type Store interface {
 type Queries struct {
 	db                  DBTX
 	secretEncryptionKey string
+	auditSigningKey     []byte
 }
 
 func New(db DBTX) *Queries {
@@ -416,6 +418,10 @@ func New(db DBTX) *Queries {
 
 func (q *Queries) SetSecretEncryptionKey(secretEncryptionKey string) {
 	q.secretEncryptionKey = secretEncryptionKey
+}
+
+func (q *Queries) SetAuditSigningKey(key []byte) {
+	q.auditSigningKey = key
 }
 
 type TxBeginner interface {

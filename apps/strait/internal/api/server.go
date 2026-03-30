@@ -113,6 +113,8 @@ type JobStore interface {
 	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error
+	UpdateProjectMaxKeyLifetimeDays(ctx context.Context, projectID string, days int) error
+	ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error)
 	PauseJob(ctx context.Context, id, reason string) error
 	ResumeJob(ctx context.Context, id string) error
 }
@@ -347,6 +349,7 @@ type RBACStore interface {
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
+	VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
 }
 
 // NotificationChannelStore handles notification channel and delivery operations.
@@ -489,6 +492,7 @@ type Server struct {
 	bgPool             pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
 	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
 	rateLimiter        *ratelimit.RedisRateLimiter
+	authLimiter        *ratelimit.AuthLimiter
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
 	polarWebhook       http.Handler
@@ -639,6 +643,7 @@ func NewServer(deps ServerDeps) *Server {
 		oidcVerifier:       verifier,
 		bgPool:             pond.NewPool(4),
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
+		authLimiter:        ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
 		polarWebhook:       deps.PolarWebhook,

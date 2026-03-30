@@ -30,7 +30,7 @@ func advAuthedReq(method, path, body string, projectID ...string) *http.Request 
 	} else {
 		r = httptest.NewRequest(method, path, nil)
 	}
-	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	r.Header.Set("Content-Type", "application/json")
 	if len(projectID) > 0 && projectID[0] != "" {
 		r.Header.Set("X-Project-Id", projectID[0])

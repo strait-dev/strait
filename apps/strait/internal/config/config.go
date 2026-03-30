@@ -70,7 +70,7 @@ type Config struct {
 	SequinWaitTimeMs   int    `env:"SEQUIN_WAIT_TIME_MS" default:"5000"`
 
 	// CORS settings
-	CORSAllowedOrigins   []string `env:"CORS_ALLOWED_ORIGINS" default:"*"`
+	CORSAllowedOrigins   []string `env:"CORS_ALLOWED_ORIGINS"`
 	CORSAllowCredentials bool     `env:"CORS_ALLOW_CREDENTIALS" default:"false"`
 
 	WorkerPartitions       []string `env:"WORKER_PARTITIONS"`
@@ -254,6 +254,9 @@ func Load() (*Config, error) {
 	if cfg.InternalSecret == "" {
 		return nil, &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "is required"}
 	}
+	if len(cfg.InternalSecret) < 16 {
+		return nil, &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "must be at least 16 characters"}
+	}
 	if len(cfg.JWTSigningKey) < 32 {
 		return nil, &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
 	}
@@ -283,6 +286,9 @@ func Load() (*Config, error) {
 	}
 
 	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
+		if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+			return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=disable is not allowed in non-development environments"}
+		}
 		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
 	}
 
@@ -314,6 +320,28 @@ func Load() (*Config, error) {
 
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return nil, &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
+	}
+
+	if cfg.EncryptionKey == "" && cfg.SecretEncryptionKey == "" {
+		slog.Warn("neither ENCRYPTION_KEY nor SECRET_ENCRYPTION_KEY is set; secret encryption will be unavailable")
+	}
+
+	for _, origin := range cfg.CORSAllowedOrigins {
+		if origin == "*" && cfg.CORSAllowCredentials {
+			return nil, &domain.ConfigError{
+				Field:   "CORS_ALLOWED_ORIGINS",
+				Message: "wildcard origin (*) is not allowed when CORS_ALLOW_CREDENTIALS is true",
+			}
+		}
+		if origin == "*" {
+			if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+				return nil, &domain.ConfigError{
+					Field:   "CORS_ALLOWED_ORIGINS",
+					Message: "wildcard origin (*) is not allowed in non-development environments",
+				}
+			}
+			slog.Warn("CORS_ALLOWED_ORIGINS is set to wildcard (*); consider restricting to specific origins in production")
+		}
 	}
 
 	slog.Info("config loaded",
