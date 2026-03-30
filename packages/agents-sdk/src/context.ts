@@ -337,6 +337,24 @@ export class StraitContext {
     });
   }
 
+  sendMessage(
+    targetAgentSlug: string,
+    payload: JsonValue,
+    signal?: AbortSignal
+  ): Promise<{ message_id: string }> {
+    if (!targetAgentSlug?.trim()) {
+      throw new StraitSDKError("targetAgentSlug is required");
+    }
+    return this.#client.post<{ message_id: string }>(
+      "/message",
+      {
+        target_agent_slug: targetAgentSlug.trim(),
+        payload,
+      },
+      { retryable: false, signal }
+    );
+  }
+
   complete(result?: JsonValue, signal?: AbortSignal): Promise<JobRunResponse> {
     return this.#client.post<JobRunResponse>(
       "/complete",

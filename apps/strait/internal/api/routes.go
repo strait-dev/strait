@@ -277,6 +277,8 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/run", TypedHandler(s, http.StatusCreated, s.handleRunAgent))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/runs", TypedHandler(s, http.StatusOK, s.handleListAgentRuns))
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions", TypedHandler(s, http.StatusOK, s.handleListAgentVersions))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/messages", TypedHandler(s, http.StatusCreated, s.handleSendAgentMessage))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/messages", TypedHandler(s, http.StatusOK, s.handleListAgentMessages))
 			})
 		})
 
