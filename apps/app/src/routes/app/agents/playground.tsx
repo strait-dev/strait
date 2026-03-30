@@ -81,7 +81,9 @@ export const Route = createFileRoute("/app/agents/playground" as any)({
 });
 
 function getStatusLabel(runId: string | null, connected: boolean): string {
-  if (!runId) return "Idle";
+  if (!runId) {
+    return "Idle";
+  }
   return connected ? "Streaming" : "Waiting";
 }
 
@@ -96,10 +98,12 @@ function StreamContent({
     return (
       <>
         {chunks.map((chunk, i) => (
-          <span key={`pg-${
-            // biome-ignore lint/suspicious/noArrayIndexKey: append-only stream
-            i
-          }`}>
+          <span
+            key={`pg-${
+              // biome-ignore lint/suspicious/noArrayIndexKey: append-only stream
+              i
+            }`}
+          >
             {chunk}
           </span>
         ))}
@@ -108,15 +112,15 @@ function StreamContent({
   }
   if (activeRunId) {
     return (
-      <span className="text-muted-foreground">
-        Waiting for stream data...
-      </span>
+      <span className="text-muted-foreground">Waiting for stream data...</span>
     );
   }
   return (
     <div className="space-y-2 text-muted-foreground">
       <p>Configure your agent on the left and click "Run Agent" to start.</p>
-      <p className="text-xs">The execution stream will appear here in real time.</p>
+      <p className="text-xs">
+        The execution stream will appear here in real time.
+      </p>
     </div>
   );
 }
@@ -190,7 +194,14 @@ function PlaygroundPage() {
               >
                 Model
               </label>
-              <Select onValueChange={(v) => { if (v) setModel(v); }} value={model}>
+              <Select
+                onValueChange={(v) => {
+                  if (v) {
+                    setModel(v);
+                  }
+                }}
+                value={model}
+              >
                 <SelectTrigger id="pg-model">
                   <SelectValue />
                 </SelectTrigger>
@@ -317,9 +328,7 @@ function PlaygroundPage() {
           <CardContent className="space-y-3 text-xs">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Status</span>
-              <span>
-                {getStatusLabel(activeRunId, stream.connected)}
-              </span>
+              <span>{getStatusLabel(activeRunId, stream.connected)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Chunks</span>

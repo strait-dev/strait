@@ -29,6 +29,8 @@ export {
   normalizeUsageReport,
 } from "./pricing";
 export { createSandboxTool } from "./sandbox";
+export type { AgentTemplate, AgentTemplateCategory } from "./templates";
+export { agentTemplates } from "./templates";
 export type {
   AgentBudget,
   BudgetInput,
@@ -49,8 +51,6 @@ export type {
   UsageReport,
   UsageTotals,
 } from "./types";
-export { agentTemplates } from "./templates";
-export type { AgentTemplate, AgentTemplateCategory } from "./templates";
 export {
   autoBudget,
   budgetExceeded,

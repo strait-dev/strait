@@ -770,8 +770,8 @@ function RunDetailPage() {
           blockedToolCallCount={summary.blocked_tool_call_count}
           isActive={isActive}
           latestCheckpoint={summary.latest_checkpoint}
-          runId={run.id}
           modelBreakdown={summary.model_breakdown}
+          runId={run.id}
           toolBreakdown={summary.tool_breakdown}
           toolDetails={summary.tool_details}
           toolExecutorBreakdown={summary.tool_executor_breakdown}

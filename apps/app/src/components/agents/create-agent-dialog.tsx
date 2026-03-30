@@ -35,11 +35,46 @@ type AgentTemplate = {
 };
 
 const AGENT_TEMPLATES: AgentTemplate[] = [
-  { name: "Incident Triage", slug: "incident-triage", description: "Classifies incidents by severity and suggests runbooks.", model: "gpt-5.4-mini", category: "operations", config: { temperature: 0.1, max_attempts: 3, timeout_secs: 120 } },
-  { name: "Content Classifier", slug: "content-classifier", description: "Categorizes text content with configurable taxonomy.", model: "gpt-5.4-mini", category: "content", config: { temperature: 0.0, max_attempts: 2 } },
-  { name: "Code Reviewer", slug: "code-reviewer", description: "Reviews PRs for security, performance, and style.", model: "claude-sonnet-4-6", category: "engineering", config: { temperature: 0.2, max_attempts: 2, budget: "$1.00" } },
-  { name: "Data Extractor", slug: "data-extractor", description: "Extracts structured data from unstructured text.", model: "gpt-5.4-mini", category: "content", config: { temperature: 0.0 } },
-  { name: "Support Router", slug: "support-router", description: "Routes support tickets to the right team.", model: "gpt-5.4-mini", category: "operations", config: { temperature: 0.1 } },
+  {
+    name: "Incident Triage",
+    slug: "incident-triage",
+    description: "Classifies incidents by severity and suggests runbooks.",
+    model: "gpt-5.4-mini",
+    category: "operations",
+    config: { temperature: 0.1, max_attempts: 3, timeout_secs: 120 },
+  },
+  {
+    name: "Content Classifier",
+    slug: "content-classifier",
+    description: "Categorizes text content with configurable taxonomy.",
+    model: "gpt-5.4-mini",
+    category: "content",
+    config: { temperature: 0.0, max_attempts: 2 },
+  },
+  {
+    name: "Code Reviewer",
+    slug: "code-reviewer",
+    description: "Reviews PRs for security, performance, and style.",
+    model: "claude-sonnet-4-6",
+    category: "engineering",
+    config: { temperature: 0.2, max_attempts: 2, budget: "$1.00" },
+  },
+  {
+    name: "Data Extractor",
+    slug: "data-extractor",
+    description: "Extracts structured data from unstructured text.",
+    model: "gpt-5.4-mini",
+    category: "content",
+    config: { temperature: 0.0 },
+  },
+  {
+    name: "Support Router",
+    slug: "support-router",
+    description: "Routes support tickets to the right team.",
+    model: "gpt-5.4-mini",
+    category: "operations",
+    config: { temperature: 0.1 },
+  },
 ];
 
 const createAgentSchema = z.object({

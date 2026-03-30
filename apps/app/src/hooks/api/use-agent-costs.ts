@@ -77,7 +77,7 @@ export const fetchAgentCostFromAnalytics = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<AgentCostSummary | null> => {
     const now = new Date();
     const from =
-      data.from ?? new Date(now.getTime() - 30 * 86400000).toISOString();
+      data.from ?? new Date(now.getTime() - 30 * 86_400_000).toISOString();
     const to = data.to ?? now.toISOString();
 
     try {
