@@ -1,0 +1,104 @@
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
+import {
+  ADDON_CATALOG,
+  getActivePackCount,
+} from "@/hooks/billing/use-addons";
+
+const PAID_PLANS = new Set(["starter", "pro", "scale", "enterprise"]);
+
+const AddonsTab = () => {
+  const { data: usage } = useQuery(orgUsageQueryOptions());
+  const navigate = useNavigate();
+
+  const plan = usage?.plan ?? "free";
+  const isPaid = PAID_PLANS.has(plan);
+  const activeAddons = usage?.active_addons;
+
+  if (!isPaid) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-4 py-12">
+          <p className="text-muted-foreground text-sm">
+            Add-ons are available on paid plans.
+          </p>
+          <Button
+            onClick={() => navigate({ to: "/app/upgrade" })}
+            variant="default"
+          >
+            Upgrade to Starter
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="font-normal text-foreground text-base tracking-tight">
+          Add-on packs
+        </h3>
+        <p className="text-muted-foreground text-sm">
+          Expand specific limits without upgrading your plan. Each pack is a
+          separate monthly subscription.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {ADDON_CATALOG.map((addon) => {
+          const activePacks = getActivePackCount(activeAddons, addon.type);
+
+          return (
+            <Card key={addon.type}>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">
+                    {addon.name}
+                  </CardTitle>
+                  {activePacks > 0 && (
+                    <Badge variant="secondary">
+                      {activePacks} active
+                    </Badge>
+                  )}
+                </div>
+                <CardDescription className="text-xs">
+                  {addon.description}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-foreground text-sm">
+                      +{addon.packSize} {addon.packUnit}
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      {addon.price} per pack
+                    </p>
+                  </div>
+                  <a href={`/api/auth/checkout/${addon.checkoutSlug}`}>
+                    <Button size="sm" variant="outline">
+                      Add pack
+                    </Button>
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+export default AddonsTab;

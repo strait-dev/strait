@@ -8,9 +8,11 @@ import {
 } from "@strait/ui/components/tabs";
 import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
+import AddonsTab from "@/components/billing/addons-tab";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
 import ProjectCostsTab from "@/components/billing/project-costs-tab";
 import ReferralProgram from "@/components/billing/referral-program";
+import SpendingLimitSetupBanner from "@/components/billing/spending-limit-setup-banner";
 import SpendingLimitsTab from "@/components/billing/spending-limits-tab";
 import UsageDashboard from "@/components/billing/usage-dashboard";
 import UsageHistoryTab from "@/components/billing/usage-history-tab";
@@ -72,6 +74,8 @@ function RouteComponent() {
           </p>
         </div>
 
+        <SpendingLimitSetupBanner />
+
         <Tabs className="w-full" defaultValue="overview">
           <TabsList>
             <TabsTrigger className="flex items-center gap-2" value="overview">
@@ -89,6 +93,10 @@ function RouteComponent() {
             <TabsTrigger className="flex items-center gap-2" value="spending">
               <HugeiconsIcon className="size-4" icon={TrendingUpIcon} />
               Spending
+            </TabsTrigger>
+            <TabsTrigger className="flex items-center gap-2" value="addons">
+              <HugeiconsIcon className="size-4" icon={CreditCardIcon} />
+              Add-ons
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="alerts">
               <HugeiconsIcon className="size-4" icon={AlertIcon} />
@@ -156,6 +164,21 @@ function RouteComponent() {
             >
               <Suspense fallback={<TabSkeleton />}>
                 <SpendingLimitsTab />
+              </Suspense>
+            </QueryErrorBoundary>
+          </TabsContent>
+
+          <TabsContent className="mt-6 space-y-6" value="addons">
+            <QueryErrorBoundary
+              fallback={({ resetErrorBoundary }) => (
+                <InlineError
+                  message="Failed to load add-ons"
+                  onRetry={resetErrorBoundary}
+                />
+              )}
+            >
+              <Suspense fallback={<TabSkeleton />}>
+                <AddonsTab />
               </Suspense>
             </QueryErrorBoundary>
           </TabsContent>

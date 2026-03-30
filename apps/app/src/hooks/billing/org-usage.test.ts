@@ -13,6 +13,8 @@ function baseUsage(): RawOrgUsageData {
     included_credit_microusd: 19_990_000,
     period_spend_microusd: 0,
     overage_microusd: 0,
+    credit_used_percent: 0,
+    credit_remaining_microusd: 19_990_000,
     usage: {
       runs_today: { used: 10, limit: 100, percent: 10 },
       concurrent_runs: { used: 1, limit: 5, percent: 20 },

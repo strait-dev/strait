@@ -32,6 +32,11 @@ export type OrgUsageDimensions = BaseUsageDimensions & {
   ai_assistant_messages_today: UsageDimension;
 };
 
+export type AddonSummary = {
+  type: string;
+  quantity: number;
+};
+
 export type RawOrgUsageData = {
   org_id: string;
   plan: string;
@@ -43,9 +48,12 @@ export type RawOrgUsageData = {
   included_credit_microusd: number;
   period_spend_microusd: number;
   overage_microusd: number;
+  credit_used_percent: number;
+  credit_remaining_microusd: number;
   alerts: UsageAlert[];
   payment_status?: string;
   grace_period_end?: string;
+  active_addons?: AddonSummary[];
 };
 
 export type OrgUsageData = Omit<RawOrgUsageData, "usage"> & {
@@ -67,6 +75,8 @@ export const EMPTY_ORG_USAGE: OrgUsageData = {
   included_credit_microusd: 0,
   period_spend_microusd: 0,
   overage_microusd: 0,
+  credit_used_percent: 0,
+  credit_remaining_microusd: 0,
   usage: {
     runs_today: { used: 0, limit: 5000, percent: 0, display: "0" },
     concurrent_runs: { used: 0, limit: 5, percent: 0, display: "0" },

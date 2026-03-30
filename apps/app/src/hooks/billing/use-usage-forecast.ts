@@ -12,6 +12,8 @@ export type UsageForecastData = {
   projected_monthly_ai_cost_usd: number;
   recommended_plan: string;
   days_until_limit: number;
+  projected_overage_microusd: number;
+  scale_breakeven: boolean;
 };
 
 const getUsageForecastServerFn = createServerFn({ method: "GET" })

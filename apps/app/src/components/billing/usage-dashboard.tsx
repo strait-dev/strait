@@ -31,6 +31,7 @@ import { capitalize, formatMicroUsd } from "@/lib/format";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import ChartTooltip from "../dashboard/chart-tooltip";
+import OverageWarningBanner from "./overage-warning-banner";
 import RadialUsageGauge from "./radial-usage-gauge";
 
 const RUNS_LABEL_MAP = {
@@ -136,6 +137,9 @@ const UsageDashboard = () => {
 
   return (
     <div className="space-y-6">
+      {/* Overage warning */}
+      <OverageWarningBanner />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
