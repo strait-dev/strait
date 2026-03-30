@@ -84,9 +84,9 @@ const UpgradeNudgeBanner = () => {
       return (
         <div className="flex items-center justify-between rounded-custom border border-accent/30 bg-accent/5 px-4 py-2">
           <p className="text-foreground text-sm">
-            You're spending <strong>${totalSpend}/mo</strong> on Pro +
-            add-ons (${addonSpend} in add-ons). Scale ($99/mo) gives you 5x
-            limits included.
+            You're spending <strong>${totalSpend}/mo</strong> on Pro + add-ons
+            (${addonSpend} in add-ons). Scale ($99/mo) gives you 5x limits
+            included.
           </p>
           <div className="flex items-center gap-2">
             <Button onClick={handleUpgrade} size="sm" variant="default">

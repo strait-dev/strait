@@ -259,8 +259,7 @@ export const auth = betterAuth({
                     slug: "scale-yearly",
                   },
                   {
-                    productId:
-                      process.env.POLAR_ADDON_CONCURRENT_RUNS_ID ?? "",
+                    productId: process.env.POLAR_ADDON_CONCURRENT_RUNS_ID ?? "",
                     slug: "addon-concurrent-runs",
                   },
                   {
@@ -268,13 +267,11 @@ export const auth = betterAuth({
                     slug: "addon-members",
                   },
                   {
-                    productId:
-                      process.env.POLAR_ADDON_CRON_SCHEDULES_ID ?? "",
+                    productId: process.env.POLAR_ADDON_CRON_SCHEDULES_ID ?? "",
                     slug: "addon-cron-schedules",
                   },
                   {
-                    productId:
-                      process.env.POLAR_ADDON_DATA_RETENTION_ID ?? "",
+                    productId: process.env.POLAR_ADDON_DATA_RETENTION_ID ?? "",
                     slug: "addon-data-retention",
                   },
                   {

@@ -41,14 +41,17 @@ const FeatureLock = ({ feature, children }: FeatureLockProps) => {
 
   return (
     <div className="relative">
-      <div className="pointer-events-none select-none opacity-30">{children}</div>
+      <div className="pointer-events-none select-none opacity-30">
+        {children}
+      </div>
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 rounded-custom border border-border bg-card/95 px-6 py-5 shadow-sm backdrop-blur-sm">
-          <HugeiconsIcon className="size-5 text-muted-foreground" icon={KeyIcon} />
+          <HugeiconsIcon
+            className="size-5 text-muted-foreground"
+            icon={KeyIcon}
+          />
           <div className="text-center">
-            <p className="font-medium text-foreground text-sm">
-              {label.name}
-            </p>
+            <p className="font-medium text-foreground text-sm">{label.name}</p>
             <p className="text-muted-foreground text-xs">
               Requires the{" "}
               <Badge className="text-xs" variant="secondary">

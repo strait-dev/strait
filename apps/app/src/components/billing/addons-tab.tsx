@@ -56,8 +56,8 @@ const AddonsTab = () => {
           Add-on packs
         </h3>
         <p className="text-muted-foreground text-sm">
-          Expand specific limits without upgrading your plan. Each pack is billed
-          as a separate monthly subscription.
+          Expand specific limits without upgrading your plan. Each pack is
+          billed as a separate monthly subscription.
         </p>
       </div>
 

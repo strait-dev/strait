@@ -34,7 +34,7 @@ const SpendingLimitSetupBanner = () => {
   const isPaid = PAID_PLANS.has(plan);
   const hasNoLimit = spending.spending_limit_usd === -1;
 
-  if (!isPaid || !hasNoLimit) {
+  if (!(isPaid && hasNoLimit)) {
     return null;
   }
 

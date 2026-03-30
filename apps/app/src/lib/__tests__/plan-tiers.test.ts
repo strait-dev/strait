@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   canUseFeature,
   isDowngrade,
-  tierAtLeast,
   type PlanFeature,
+  tierAtLeast,
 } from "../plan-tiers";
 
 describe("isDowngrade", () => {
