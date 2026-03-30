@@ -13,6 +13,7 @@ export type UsageForecastData = {
   recommended_plan: string;
   days_until_limit: number;
   projected_overage_microusd: number;
+  addon_spend_microusd: number;
   scale_breakeven: boolean;
 };
 

@@ -84,6 +84,7 @@ type UsageForecastResponse struct {
 	RecommendedPlan            string  `json:"recommended_plan"`
 	DaysUntilLimit             int     `json:"days_until_limit"`
 	ProjectedOverageMicro      int64   `json:"projected_overage_microusd"`
+	AddonSpendMicro            int64   `json:"addon_spend_microusd"`
 	ScaleBreakeven             bool    `json:"scale_breakeven"`
 }
 
@@ -342,8 +343,21 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	projectedComputeMicro := avgDailyCompute * int64(daysInMonth)
 	projectedOverage := computeOverageSpend(projectedComputeMicro, limits.ComputeCreditMicrousd)
 
-	// Scale breakeven: true when a Pro user's projected spend >= Scale price ($99).
-	scaleBreakeven := limits.PlanTier == domain.PlanPro && projectedComputeMicro >= CreditScaleMicrousd
+	// Sum active addon monthly costs (cents -> micro-USD: multiply by 10000).
+	var addonSpendMicro int64
+	addons, addonErr := s.store.ListActiveAddons(ctx, orgID)
+	if addonErr == nil {
+		for _, a := range addons {
+			if pack, ok := AddonPacks[a.AddonType]; ok && a.Active && a.Quantity > 0 {
+				addonSpendMicro += int64(pack.PriceCents) * int64(a.Quantity) * 10000
+			}
+		}
+	}
+
+	// Scale breakeven: true when a Pro user's total monthly spend
+	// (subscription + addons + projected overage) >= Scale price ($99).
+	totalProSpend := int64(PriceProMonthlyCents)*10000 + addonSpendMicro + projectedOverage
+	scaleBreakeven := limits.PlanTier == domain.PlanPro && totalProSpend >= CreditScaleMicrousd
 
 	return &UsageForecastResponse{
 		ProjectedMonthlyRuns:       projectedRuns,
@@ -352,6 +366,7 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 		RecommendedPlan:            recommended,
 		DaysUntilLimit:             daysUntilLimit,
 		ProjectedOverageMicro:      projectedOverage,
+		AddonSpendMicro:            addonSpendMicro,
 		ScaleBreakeven:             scaleBreakeven,
 	}, nil
 }
