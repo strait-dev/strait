@@ -199,6 +199,31 @@ type AgentDeployment struct {
 	DeployedAt       *time.Time            `json:"deployed_at,omitempty"`
 }
 
+// AgentMessageStatus represents the delivery status of an agent-to-agent message.
+type AgentMessageStatus string
+
+const (
+	AgentMessagePending   AgentMessageStatus = "pending"
+	AgentMessageDelivered AgentMessageStatus = "delivered"
+	AgentMessageFailed    AgentMessageStatus = "failed"
+)
+
+// AgentMessage represents a message sent between agents.
+type AgentMessage struct {
+	ID            string             `json:"id"`
+	ProjectID     string             `json:"project_id"`
+	SourceAgentID string             `json:"source_agent_id"`
+	TargetAgentID string             `json:"target_agent_id"`
+	SourceRunID   string             `json:"source_run_id,omitempty"`
+	ChainID       string             `json:"chain_id"`
+	ChainDepth    int                `json:"chain_depth"`
+	Payload       json.RawMessage    `json:"payload"`
+	Status        AgentMessageStatus `json:"status"`
+	CreatedAt     time.Time          `json:"created_at"`
+	DeliveredAt   *time.Time         `json:"delivered_at,omitempty"`
+	Error         string             `json:"error,omitempty"`
+}
+
 // ProjectRole defines a named set of permissions within a project.
 type ProjectRole struct {
 	ID           string    `json:"id"`
