@@ -9,35 +9,41 @@ import {
 } from "@strait/ui/components/card";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { ADDON_CATALOG, getActivePackCount } from "@/hooks/billing/use-addons";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
-import {
-  ADDON_CATALOG,
-  getActivePackCount,
-} from "@/hooks/billing/use-addons";
 
-const PAID_PLANS = new Set(["starter", "pro", "scale", "enterprise"]);
+/** Plans that can purchase add-ons. Enterprise has custom terms. */
+const ADDON_ELIGIBLE_PLANS = new Set(["starter", "pro", "scale"]);
 
 const AddonsTab = () => {
   const { data: usage } = useQuery(orgUsageQueryOptions());
   const navigate = useNavigate();
 
   const plan = usage?.plan ?? "free";
-  const isPaid = PAID_PLANS.has(plan);
+  const isEligible = ADDON_ELIGIBLE_PLANS.has(plan);
   const activeAddons = usage?.active_addons;
 
-  if (!isPaid) {
+  if (!isEligible) {
+    const message =
+      plan === "enterprise"
+        ? "Enterprise plans have custom limits. Contact your account manager to adjust."
+        : "Add-ons are available on paid plans.";
+
+    const action =
+      plan === "enterprise" ? null : (
+        <Button
+          onClick={() => navigate({ to: "/app/upgrade" })}
+          variant="default"
+        >
+          Upgrade to Starter
+        </Button>
+      );
+
     return (
       <Card>
         <CardContent className="flex flex-col items-center gap-4 py-12">
-          <p className="text-muted-foreground text-sm">
-            Add-ons are available on paid plans.
-          </p>
-          <Button
-            onClick={() => navigate({ to: "/app/upgrade" })}
-            variant="default"
-          >
-            Upgrade to Starter
-          </Button>
+          <p className="text-muted-foreground text-sm">{message}</p>
+          {action}
         </CardContent>
       </Card>
     );
@@ -46,12 +52,12 @@ const AddonsTab = () => {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="font-normal text-foreground text-base tracking-tight">
+        <h3 className="font-normal text-base text-foreground tracking-tight">
           Add-on packs
         </h3>
         <p className="text-muted-foreground text-sm">
-          Expand specific limits without upgrading your plan. Each pack is a
-          separate monthly subscription.
+          Expand specific limits without upgrading your plan. Each pack is billed
+          as a separate monthly subscription.
         </p>
       </div>
 
@@ -63,12 +69,12 @@ const AddonsTab = () => {
             <Card key={addon.type}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">
+                  <CardTitle className="font-medium text-sm">
                     {addon.name}
                   </CardTitle>
                   {activePacks > 0 && (
                     <Badge variant="secondary">
-                      {activePacks} active
+                      {activePacks} {activePacks === 1 ? "pack" : "packs"}
                     </Badge>
                   )}
                 </div>

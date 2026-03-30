@@ -18,10 +18,13 @@ const UpgradeNudgeBanner = () => {
 
   const orgId = usageData?.org_id ?? "";
   const periodStart = usageData?.period?.start ?? "";
-  const storageKey = `strait:banner_dismissed:${orgId}:${periodStart}`;
+  const storageKey =
+    orgId && periodStart
+      ? `strait:banner_dismissed:${orgId}:${periodStart}`
+      : "";
 
   const [dismissed, setDismissed] = useState(() => {
-    if (typeof window === "undefined") {
+    if (typeof window === "undefined" || !storageKey) {
       return false;
     }
     return localStorage.getItem(storageKey) === "true";
@@ -33,18 +36,22 @@ const UpgradeNudgeBanner = () => {
 
   const handleDismiss = () => {
     setDismissed(true);
-    localStorage.setItem(storageKey, "true");
+    if (storageKey) {
+      localStorage.setItem(storageKey, "true");
+    }
   };
 
   if (dismissed) {
     return null;
   }
 
-  // Priority 1: Scale breakeven -- Pro user should upgrade to Scale.
-  if (forecast?.scale_breakeven) {
+  const currentPlan = usageData?.plan;
+
+  // Priority 1: Scale breakeven -- only show to Pro users.
+  if (forecast?.scale_breakeven && currentPlan === "pro") {
     return (
       <div className="flex items-center justify-between rounded-custom border border-accent/30 bg-accent/5 px-4 py-2">
-        <p className="text-sm text-foreground">
+        <p className="text-foreground text-sm">
           Your projected spend exceeds $99/mo. Upgrade to{" "}
           <strong>Scale</strong> for the same price and get 5x concurrent runs,
           audit logs, and canary deploys.
@@ -65,7 +72,7 @@ const UpgradeNudgeBanner = () => {
   if (
     forecast?.projected_overage_microusd &&
     forecast.projected_overage_microusd > 0 &&
-    usageData?.plan === "pro"
+    currentPlan === "pro"
   ) {
     const projectedOverage = (
       forecast.projected_overage_microusd / MICRO_USD
