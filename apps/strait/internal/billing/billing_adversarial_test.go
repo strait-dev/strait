@@ -189,7 +189,9 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 	}
 	firstUpsertCount := store.upsertCount
 
-	// Duplicate delivery (same event replayed).
+	// Duplicate delivery (same event replayed with same webhook-id).
+	// Replay protection deduplicates by message ID, so the duplicate should
+	// be silently accepted without triggering a second upsert.
 	rr2 := httptest.NewRecorder()
 	handler.ServeHTTP(rr2, buildSignedWebhookRequest(t, testSecret, body))
 	if rr2.Code != http.StatusOK {
@@ -202,9 +204,10 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 		t.Fatalf("after duplicate: expected starter, got %s", sub2.PlanTier)
 	}
 
-	// Verify idempotent upsert was called twice.
-	if store.upsertCount != firstUpsertCount+1 {
-		t.Fatalf("expected upsert to be called for duplicate, got count=%d", store.upsertCount)
+	// Replay protection prevents the duplicate from reaching the handler,
+	// so the upsert count should remain unchanged.
+	if store.upsertCount != firstUpsertCount {
+		t.Fatalf("expected replay protection to skip duplicate, upsert count should be %d but got %d", firstUpsertCount, store.upsertCount)
 	}
 }
 

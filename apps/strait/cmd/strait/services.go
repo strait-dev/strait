@@ -413,7 +413,13 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			webhookOpts = append(webhookOpts, billing.WithWelcomeEmail(resendClient))
 		}
 		webhookOpts = append(webhookOpts, billing.WithEdition(cfg.Edition))
-		polarWebhook = billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
+		wh := billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
+		g.Go(func(ctx context.Context) error {
+			wh.StartReplayCleanup(ctx)
+			<-ctx.Done()
+			return nil
+		})
+		polarWebhook = wh
 		slog.Info("polar webhook handler enabled")
 	}
 

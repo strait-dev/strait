@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -44,11 +45,13 @@ func (s *Server) getOrgPlanLimits(ctx context.Context, projectID string) *billin
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
+		slog.Warn("plan gate: failed to resolve org for project", "project_id", projectID, "error", err)
 		return nil
 	}
 
 	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
+		slog.Warn("plan gate: failed to get org plan limits", "org_id", orgID, "error", err)
 		return nil
 	}
 

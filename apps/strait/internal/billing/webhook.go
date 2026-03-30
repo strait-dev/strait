@@ -49,6 +49,7 @@ type WebhookHandler struct {
 	chExporter   billingEventEnqueuer
 	edition      string
 	warnOnce     sync.Once
+	replayCache  sync.Map // msgID -> int64 (unix nanos), prevents replay within 10 minutes
 }
 
 // WebhookOption configures optional WebhookHandler behavior.
@@ -98,6 +99,20 @@ func isValidUUID(s string) bool {
 	return uuidPattern.MatchString(s)
 }
 
+// maskEmail returns a partially masked email for safe logging.
+// "user@example.com" becomes "u***@example.com".
+func maskEmail(email string) string {
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 || len(parts[0]) == 0 {
+		return "***"
+	}
+	local := parts[0]
+	if len(local) <= 1 {
+		return local + "***@" + parts[1]
+	}
+	return string(local[0]) + "***@" + parts[1]
+}
+
 // isValidEmail performs basic email format validation using net/mail.
 func isValidEmail(email string) bool {
 	if email == "" {
@@ -135,6 +150,29 @@ func NewWebhookHandler(store Store, mapping *PolarMapping, secret string, logger
 		opt(h)
 	}
 	return h
+}
+
+// StartReplayCleanup periodically removes stale replay cache entries.
+func (h *WebhookHandler) StartReplayCleanup(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				now := time.Now().UnixNano()
+				h.replayCache.Range(func(key, value any) bool {
+					ts := value.(int64)
+					if time.Duration(now-ts) > 10*time.Minute {
+						h.replayCache.Delete(key)
+					}
+					return true
+				})
+			}
+		}
+	}()
 }
 
 // PolarWebhookPayload represents the top-level Polar webhook envelope.
@@ -195,6 +233,21 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.warnOnce.Do(func() {
 			h.logger.Warn("polar webhook secret not configured — signature verification skipped")
 		})
+	}
+
+	// Deduplicate webhook deliveries by message ID to prevent replay attacks.
+	msgID := r.Header.Get("webhook-id")
+	if msgID != "" {
+		now := time.Now().UnixNano()
+		if prev, loaded := h.replayCache.LoadOrStore(msgID, now); loaded {
+			prevTime := prev.(int64)
+			if time.Duration(now-prevTime) < 10*time.Minute {
+				h.logger.Warn("duplicate webhook message ID", "msg_id", msgID)
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			h.replayCache.Store(msgID, now)
+		}
 	}
 
 	var payload PolarWebhookPayload
@@ -359,7 +412,7 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 	}
 	h.posthog.CaptureRevenueEvent(orgID, "subscription_created_server", map[string]any{
 		"plan":                  string(tier),
-		"customer_email":        customerEmail,
+		"customer_email":        maskEmail(customerEmail),
 		"polar_subscription_id": sub.ID,
 	})
 

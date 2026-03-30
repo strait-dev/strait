@@ -109,6 +109,36 @@ func (e *Enforcer) resetFailOpen(orgID, checkType string) {
 	e.failOpenTracker.Delete(orgID + ":" + checkType)
 }
 
+// startFailOpenCleanup periodically removes stale entries from the fail-open tracker.
+func (e *Enforcer) startFailOpenCleanup(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(failOpenWindow * 2)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				now := time.Now().UnixNano()
+				e.failOpenTracker.Range(func(key, value any) bool {
+					fe := value.(*failOpenEntry)
+					first := fe.firstSeen.Load()
+					if first > 0 && time.Duration(now-first) > failOpenWindow*2 {
+						e.failOpenTracker.Delete(key)
+					}
+					return true
+				})
+			}
+		}
+	}()
+}
+
+// StartCleanup starts background cleanup goroutines for bounded caches.
+// Call this after creating the enforcer. The goroutines stop when ctx is canceled.
+func (e *Enforcer) StartCleanup(ctx context.Context) {
+	e.startFailOpenCleanup(ctx)
+}
+
 // billingEventEnqueuer is the subset of clickhouse.Exporter needed for billing analytics.
 type billingEventEnqueuer interface {
 	Enqueue(record any) bool

@@ -378,6 +378,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if rdb != nil && (cfg.BillingEnforcementEnabled || cfg.PolarWebhookSecret != "") {
 		billingStore := billing.NewPgStore(dbPool)
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default())
+		billingEnforcer.StartCleanup(ctx)
 	}
 
 	if (cfg.BillingEnforcementEnabled || cfg.PolarWebhookSecret != "") && cfg.PolarWebhookSecret == "" {
