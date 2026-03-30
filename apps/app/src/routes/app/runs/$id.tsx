@@ -20,7 +20,7 @@ import {
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -45,6 +45,7 @@ import ExecutionTraceBar from "@/components/runs/execution-trace-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { DebugBundle, RunStatus } from "@/hooks/api/types";
 import { runDebugBundleQueryOptions } from "@/hooks/api/use-runs";
+import { useAgentStream } from "@/hooks/use-agent-stream";
 import { formatDuration, formatMicroUsd } from "@/lib/format";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
@@ -252,6 +253,7 @@ function RunTelemetryTab({
   isActive,
   latestCheckpoint,
   modelBreakdown,
+  runId,
   toolDetails,
   toolBreakdown,
   toolExecutorBreakdown,
@@ -264,6 +266,7 @@ function RunTelemetryTab({
   isActive: boolean;
   latestCheckpoint: unknown;
   modelBreakdown: ReturnType<typeof summarizeRunDebugBundle>["model_breakdown"];
+  runId: string;
   toolDetails: ReturnType<typeof summarizeRunDebugBundle>["tool_details"];
   toolBreakdown: ReturnType<typeof summarizeRunDebugBundle>["tool_breakdown"];
   toolExecutorBreakdown: ReturnType<
@@ -513,17 +516,70 @@ function RunTelemetryTab({
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Streaming</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          {isActive
-            ? "This run is active. Connect to the SSE stream endpoint to observe live token chunks."
-            : "Live stream replay is only available while a run is active in the current local implementation."}
-        </CardContent>
-      </Card>
+      <AgentStreamCard isActive={isActive} runId={runId} />
     </TabsContent>
+  );
+}
+
+function AgentStreamCard({
+  runId,
+  isActive,
+}: {
+  runId: string;
+  isActive: boolean;
+}) {
+  const stream = useAgentStream(runId, isActive);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Streaming
+          {stream.connected && (
+            <span className="size-2 rounded-full bg-green-500" />
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {!isActive && stream.chunks.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            Live streaming is available while a run is executing.
+          </p>
+        ) : (
+          <div
+            className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded bg-muted p-3 font-mono text-sm"
+            ref={scrollRef}
+          >
+            {stream.chunks.length > 0 ? (
+              stream.chunks.map((chunk, i) => (
+                <span
+                  key={`${runId}-chunk-${
+                    // biome-ignore lint/suspicious/noArrayIndexKey: stream chunks are append-only
+                    i
+                  }`}
+                >
+                  {chunk}
+                </span>
+              ))
+            ) : (
+              <span className="text-muted-foreground">
+                Waiting for stream data...
+              </span>
+            )}
+          </div>
+        )}
+        {stream.error && (
+          <p className="mt-2 text-destructive text-sm">{stream.error}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -714,6 +770,7 @@ function RunDetailPage() {
           blockedToolCallCount={summary.blocked_tool_call_count}
           isActive={isActive}
           latestCheckpoint={summary.latest_checkpoint}
+          runId={run.id}
           modelBreakdown={summary.model_breakdown}
           toolBreakdown={summary.tool_breakdown}
           toolDetails={summary.tool_details}
