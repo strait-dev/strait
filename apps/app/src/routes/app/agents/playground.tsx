@@ -69,7 +69,7 @@ const runPlayground = createServerFn({ method: "POST" })
     );
   });
 
-export const Route = createFileRoute("/app/agents/playground" as any)({
+export const Route = createFileRoute("/app/agents/playground")({
   loader: ({ context }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;

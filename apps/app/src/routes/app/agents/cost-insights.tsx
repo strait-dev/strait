@@ -43,7 +43,7 @@ const searchSchema = z.object({
   days: z.coerce.number().optional().default(30),
 });
 
-export const Route = createFileRoute("/app/agents/cost-insights" as any)({
+export const Route = createFileRoute("/app/agents/cost-insights")({
   validateSearch: zodValidator(searchSchema),
   loader: ({ context }) => {
     const { session } = context as AppRouteContext;
@@ -119,7 +119,7 @@ function CostInsightsPage() {
                   : "bg-muted text-muted-foreground hover:bg-muted/80"
               }`}
               key={d}
-              onClick={() => navigate({ search: { days: d } } as any)}
+              onClick={() => navigate({ search: { days: d } })}
               type="button"
             >
               {d}d

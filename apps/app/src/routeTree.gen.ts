@@ -47,6 +47,8 @@ import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as AppAgentsIdRouteImport } from './routes/app/agents/$id'
 import { Route as AppAgentsAnalyticsRouteImport } from './routes/app/agents/analytics'
+import { Route as AppAgentsPlaygroundRouteImport } from './routes/app/agents/playground'
+import { Route as AppAgentsCostInsightsRouteImport } from './routes/app/agents/cost-insights'
 import { Route as ApiAuthJwksRouteImport } from './routes/api/auth/jwks'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as authOauthConsentRouteImport } from './routes/(auth)/oauth/consent'
@@ -242,6 +244,16 @@ const AppAgentsAnalyticsRoute = AppAgentsAnalyticsRouteImport.update({
   path: '/agents/analytics',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppAgentsPlaygroundRoute = AppAgentsPlaygroundRouteImport.update({
+  id: '/agents/playground',
+  path: '/agents/playground',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppAgentsCostInsightsRoute = AppAgentsCostInsightsRouteImport.update({
+  id: '/agents/cost-insights',
+  path: '/agents/cost-insights',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const ApiAuthJwksRoute = ApiAuthJwksRouteImport.update({
   id: '/api/auth/jwks',
   path: '/api/auth/jwks',
@@ -287,6 +299,8 @@ export interface FileRoutesByFullPath {
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/agents/$id': typeof AppAgentsIdRoute
   '/app/agents/analytics': typeof AppAgentsAnalyticsRoute
+  '/app/agents/playground': typeof AppAgentsPlaygroundRoute
+  '/app/agents/cost-insights': typeof AppAgentsCostInsightsRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
@@ -330,6 +344,8 @@ export interface FileRoutesByTo {
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/agents/$id': typeof AppAgentsIdRoute
   '/app/agents/analytics': typeof AppAgentsAnalyticsRoute
+  '/app/agents/playground': typeof AppAgentsPlaygroundRoute
+  '/app/agents/cost-insights': typeof AppAgentsCostInsightsRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
@@ -375,6 +391,8 @@ export interface FileRoutesById {
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/agents/$id': typeof AppAgentsIdRoute
   '/app/agents/analytics': typeof AppAgentsAnalyticsRoute
+  '/app/agents/playground': typeof AppAgentsPlaygroundRoute
+  '/app/agents/cost-insights': typeof AppAgentsCostInsightsRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
@@ -421,6 +439,8 @@ export interface FileRouteTypes {
     | '/api/auth/jwks'
     | '/app/agents/$id'
     | '/app/agents/analytics'
+    | '/app/agents/playground'
+    | '/app/agents/cost-insights'
     | '/app/jobs/$id'
     | '/app/org/$id'
     | '/app/pricing/compare'
@@ -464,6 +484,8 @@ export interface FileRouteTypes {
     | '/api/auth/jwks'
     | '/app/agents/$id'
     | '/app/agents/analytics'
+    | '/app/agents/playground'
+    | '/app/agents/cost-insights'
     | '/app/jobs/$id'
     | '/app/org/$id'
     | '/app/pricing/compare'
@@ -508,6 +530,8 @@ export interface FileRouteTypes {
     | '/api/auth/jwks'
     | '/app/agents/$id'
     | '/app/agents/analytics'
+    | '/app/agents/playground'
+    | '/app/agents/cost-insights'
     | '/app/jobs/$id'
     | '/app/org/$id'
     | '/app/pricing/compare'
@@ -816,6 +840,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsAnalyticsRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/agents/playground': {
+      id: '/app/agents/playground'
+      path: '/agents/playground'
+      fullPath: '/app/agents/playground'
+      preLoaderRoute: typeof AppAgentsPlaygroundRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/agents/cost-insights': {
+      id: '/app/agents/cost-insights'
+      path: '/agents/cost-insights'
+      fullPath: '/app/agents/cost-insights'
+      preLoaderRoute: typeof AppAgentsCostInsightsRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/api/auth/jwks': {
       id: '/api/auth/jwks'
       path: '/api/auth/jwks'
@@ -855,6 +893,8 @@ interface AppLayoutRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppAgentsIdRoute: typeof AppAgentsIdRoute
   AppAgentsAnalyticsRoute: typeof AppAgentsAnalyticsRoute
+  AppAgentsPlaygroundRoute: typeof AppAgentsPlaygroundRoute
+  AppAgentsCostInsightsRoute: typeof AppAgentsCostInsightsRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
   AppOrgIdRoute: typeof AppOrgIdRoute
   AppPricingCompareRoute: typeof AppPricingCompareRoute
@@ -885,6 +925,8 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppAgentsIdRoute: AppAgentsIdRoute,
   AppAgentsAnalyticsRoute: AppAgentsAnalyticsRoute,
+  AppAgentsPlaygroundRoute: AppAgentsPlaygroundRoute,
+  AppAgentsCostInsightsRoute: AppAgentsCostInsightsRoute,
   AppJobsIdRoute: AppJobsIdRoute,
   AppOrgIdRoute: AppOrgIdRoute,
   AppPricingCompareRoute: AppPricingCompareRoute,
