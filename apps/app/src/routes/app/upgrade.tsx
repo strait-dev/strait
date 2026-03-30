@@ -43,17 +43,19 @@ const PLAN_SLUGS: Record<string, string> = {
   "starter-yearly": "starter-yearly",
   "pro-monthly": "pro-monthly",
   "pro-yearly": "pro-yearly",
+  "scale-monthly": "scale-monthly",
+  "scale-yearly": "scale-yearly",
   "enterprise-monthly": "enterprise-monthly",
   "enterprise-yearly": "enterprise-yearly",
 };
 
 type StartCheckoutInput = {
-  planSlug: "starter" | "pro" | "enterprise";
+  planSlug: "starter" | "pro" | "scale" | "enterprise";
   billingInterval: "monthly" | "yearly";
 };
 
 const startCheckoutInputSchema = z.object({
-  planSlug: z.enum(["starter", "pro", "enterprise"]),
+  planSlug: z.enum(["starter", "pro", "scale", "enterprise"]),
   billingInterval: z.enum(["monthly", "yearly"]),
 });
 
@@ -118,6 +120,7 @@ function RouteComponent() {
     | "free"
     | "starter"
     | "pro"
+    | "scale"
     | "enterprise";
   const [selectedPlan, setSelectedPlan] = useState<PlanType>(
     currentPlan || "starter"
@@ -146,7 +149,7 @@ function RouteComponent() {
       }
       return startCheckoutServerFn({
         data: {
-          planSlug: selectedPlan as "starter" | "pro" | "enterprise",
+          planSlug: selectedPlan as "starter" | "pro" | "scale" | "enterprise",
           billingInterval,
         },
       });

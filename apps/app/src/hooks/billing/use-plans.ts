@@ -228,7 +228,7 @@ export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
         monthlyInYearly,
       },
       features,
-      highlight: slug === "starter",
+      highlight: slug === "pro",
       badge: isFree ? "No credit card required" : undefined,
       badgeVariant: isFree ? ("success-light" as const) : undefined,
       isCustomPricing: isEnterprise,
