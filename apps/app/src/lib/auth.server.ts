@@ -37,8 +37,25 @@ import {
 } from "@/lib/oauth-scopes";
 import { resend } from "@/lib/resend.server";
 
+// Hyperdrive provides a proxied connection string in Cloudflare Workers.
+// Fall back to AUTH_DATABASE_URL for local development.
+function getAuthConnectionString(): string {
+  try {
+    const env = process.env as Record<string, unknown>;
+    const hyperdrive = env.HYPERDRIVE as
+      | { connectionString?: string }
+      | undefined;
+    if (hyperdrive?.connectionString) {
+      return hyperdrive.connectionString;
+    }
+  } catch (_) {
+    // Hyperdrive binding not available (local dev)
+  }
+  return process.env.AUTH_DATABASE_URL ?? "";
+}
+
 export const authPool = new Pool({
-  connectionString: process.env.AUTH_DATABASE_URL,
+  connectionString: getAuthConnectionString(),
 });
 
 // Cache the OIDC private key import — importPKCS8 parses PEM and is CPU
