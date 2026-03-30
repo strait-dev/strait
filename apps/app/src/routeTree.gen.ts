@@ -46,6 +46,7 @@ import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/comp
 import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as AppAgentsIdRouteImport } from './routes/app/agents/$id'
+import { Route as AppAgentsAnalyticsRouteImport } from './routes/app/agents/analytics'
 import { Route as ApiAuthJwksRouteImport } from './routes/api/auth/jwks'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as authOauthConsentRouteImport } from './routes/(auth)/oauth/consent'
@@ -236,6 +237,11 @@ const AppAgentsIdRoute = AppAgentsIdRouteImport.update({
   path: '/agents/$id',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppAgentsAnalyticsRoute = AppAgentsAnalyticsRouteImport.update({
+  id: '/agents/analytics',
+  path: '/agents/analytics',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const ApiAuthJwksRoute = ApiAuthJwksRouteImport.update({
   id: '/api/auth/jwks',
   path: '/api/auth/jwks',
@@ -280,6 +286,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/agents/$id': typeof AppAgentsIdRoute
+  '/app/agents/analytics': typeof AppAgentsAnalyticsRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
@@ -322,6 +329,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/agents/$id': typeof AppAgentsIdRoute
+  '/app/agents/analytics': typeof AppAgentsAnalyticsRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
@@ -366,6 +374,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/agents/$id': typeof AppAgentsIdRoute
+  '/app/agents/analytics': typeof AppAgentsAnalyticsRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
@@ -411,6 +420,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/jwks'
     | '/app/agents/$id'
+    | '/app/agents/analytics'
     | '/app/jobs/$id'
     | '/app/org/$id'
     | '/app/pricing/compare'
@@ -453,6 +463,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/jwks'
     | '/app/agents/$id'
+    | '/app/agents/analytics'
     | '/app/jobs/$id'
     | '/app/org/$id'
     | '/app/pricing/compare'
@@ -496,6 +507,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/jwks'
     | '/app/agents/$id'
+    | '/app/agents/analytics'
     | '/app/jobs/$id'
     | '/app/org/$id'
     | '/app/pricing/compare'
@@ -797,6 +809,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/agents/analytics': {
+      id: '/app/agents/analytics'
+      path: '/agents/analytics'
+      fullPath: '/app/agents/analytics'
+      preLoaderRoute: typeof AppAgentsAnalyticsRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/api/auth/jwks': {
       id: '/api/auth/jwks'
       path: '/api/auth/jwks'
@@ -835,6 +854,7 @@ interface AppLayoutRouteChildren {
   AppUpgradeRoute: typeof AppUpgradeRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAgentsIdRoute: typeof AppAgentsIdRoute
+  AppAgentsAnalyticsRoute: typeof AppAgentsAnalyticsRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
   AppOrgIdRoute: typeof AppOrgIdRoute
   AppPricingCompareRoute: typeof AppPricingCompareRoute
@@ -864,6 +884,7 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppUpgradeRoute: AppUpgradeRoute,
   AppIndexRoute: AppIndexRoute,
   AppAgentsIdRoute: AppAgentsIdRoute,
+  AppAgentsAnalyticsRoute: AppAgentsAnalyticsRoute,
   AppJobsIdRoute: AppJobsIdRoute,
   AppOrgIdRoute: AppOrgIdRoute,
   AppPricingCompareRoute: AppPricingCompareRoute,
