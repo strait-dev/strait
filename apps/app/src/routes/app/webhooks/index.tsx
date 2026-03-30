@@ -28,6 +28,7 @@ import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import { createWebhookColumns } from "@/components/tables/webhooks-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import CreateWebhookDialog from "@/components/webhooks/create-webhook-dialog";
 import WebhookDetailSheet from "@/components/webhooks/webhook-detail-sheet";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { WebhookSubscription } from "@/hooks/api/types";
@@ -38,6 +39,7 @@ import {
 import {
   EyeIcon,
   FilterIcon,
+  PlusIcon,
   SearchIcon,
   TrashIcon,
   WebhookIcon,
@@ -94,6 +96,7 @@ function WebhooksPage() {
     });
   }, [data?.data, selectedStatuses, hasProject]);
 
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedWebhook, setSelectedWebhook] =
     useState<WebhookSubscription | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -208,6 +211,15 @@ function WebhooksPage() {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <Button
+          className="ml-auto"
+          disabled={!hasProject}
+          onClick={() => setCreateDialogOpen(true)}
+        >
+          <HugeiconsIcon className="mr-1.5" icon={PlusIcon} size={14} />
+          Create webhook
+        </Button>
       </div>
 
       {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
@@ -275,6 +287,11 @@ function WebhooksPage() {
         onOpenChange={setSheetOpen}
         open={sheetOpen}
         webhook={selectedWebhook}
+      />
+
+      <CreateWebhookDialog
+        onOpenChange={setCreateDialogOpen}
+        open={createDialogOpen}
       />
     </Shell>
   );
