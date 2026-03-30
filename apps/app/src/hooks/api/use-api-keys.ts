@@ -17,7 +17,6 @@ import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-
 export const fetchApiKeys = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
@@ -74,7 +73,6 @@ export const rotateApiKeyFn = createServerFn({ method: "POST" })
     );
   });
 
-
 export const apiKeysQueryOptions = (search?: ListParams) =>
   queryOptions({
     queryKey: queryKeys.apiKeys.list(search).queryKey,
@@ -83,7 +81,6 @@ export const apiKeysQueryOptions = (search?: ListParams) =>
     gcTime: DEFAULT_GC_TIME,
     placeholderData: keepPreviousData,
   });
-
 
 export const useCreateApiKey = () => {
   const queryClient = useQueryClient();

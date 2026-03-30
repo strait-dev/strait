@@ -519,3 +519,23 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 	}
 	return &ListAuditEventsOutput{Body: paginatedResult(events, limit, func(ev domain.AuditEvent) string { return ev.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
+
+type VerifyAuditChainInput struct{}
+type VerifyAuditChainOutput struct {
+	Body *domain.AuditChainVerification
+}
+
+func (s *Server) handleVerifyAuditChain(ctx context.Context, _ *VerifyAuditChainInput) (*VerifyAuditChainOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	result, err := s.store.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		slog.Error("failed to verify audit chain", "project_id", projectID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to verify audit chain")
+	}
+
+	return &VerifyAuditChainOutput{Body: result}, nil
+}

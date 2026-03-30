@@ -128,7 +128,7 @@ func TestRuns_CancelRun(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/runs/" + runIDs[i] + "/"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 		}
 		return nil
 	}
@@ -165,7 +165,7 @@ func TestRuns_ReplayRun(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/runs/" + failedIDs[i] + "/replay"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 		return nil
@@ -245,7 +245,7 @@ func TestRuns_BulkCancel(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/runs/bulk-cancel"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 		tgt.Body = []byte(fmt.Sprintf(`{"run_ids":[%s]}`, ids))
@@ -596,7 +596,7 @@ func TestRuns_BulkDLQReplay(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/runs/bulk-dlq-replay"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 		tgt.Body = []byte(fmt.Sprintf(`{"run_ids":[%s]}`, runIDsJSON))

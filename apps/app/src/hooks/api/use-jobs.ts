@@ -168,8 +168,7 @@ export const usePauseJob = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["jobs", "pause"],
-    mutationFn: (data: { id: string; reason?: string }) =>
-      pauseJobFn({ data }),
+    mutationFn: (data: { id: string; reason?: string }) => pauseJobFn({ data }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("job_paused", { job_id: variables.id });
     },

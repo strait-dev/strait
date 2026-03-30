@@ -14,7 +14,6 @@ import {
   setActiveProjectServerFn,
 } from "@/lib/project-handler";
 
-
 export const projectsQueryOptions = (organizationId: string) =>
   queryOptions({
     queryKey: queryKeys.projects.list(organizationId).queryKey,
@@ -32,7 +31,6 @@ export const projectQueryOptions = (id: string) =>
     gcTime: DEFAULT_GC_TIME,
     enabled: !!id,
   });
-
 
 export const useCreateProject = () => {
   const queryClient = useQueryClient();

@@ -240,7 +240,21 @@ type AuditEvent struct {
 	ResourceType string          `json:"resource_type"`
 	ResourceID   string          `json:"resource_id"`
 	Details      json.RawMessage `json:"details,omitempty"`
+	Signature    string          `json:"signature,omitempty"`
+	PreviousHash string          `json:"previous_hash,omitempty"`
 	CreatedAt    time.Time       `json:"created_at"`
+}
+
+// AuditChainVerification is the result of verifying the HMAC chain
+// integrity for a project's audit event log.
+type AuditChainVerification struct {
+	ProjectID     string `json:"project_id"`
+	Valid         bool   `json:"valid"`
+	EventsChecked int    `json:"events_checked"`
+	FirstEventID  string `json:"first_event_id,omitempty"`
+	LastEventID   string `json:"last_event_id,omitempty"`
+	BrokenAtID    string `json:"broken_at_id,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 type Job struct {
@@ -270,7 +284,7 @@ type Job struct {
 	PausedAt                  *time.Time        `json:"paused_at,omitempty"`
 	PauseReason               string            `json:"pause_reason,omitempty"`
 	WebhookURL                string            `json:"webhook_url,omitempty"`
-	WebhookSecret             string            `json:"webhook_secret,omitempty"`
+	WebhookSecret             string            `json:"-"`
 	RunTTLSecs                int               `json:"run_ttl_secs,omitempty"`
 	RetryStrategy             string            `json:"retry_strategy,omitempty"`
 	RetryDelaysSecs           []int             `json:"retry_delays_secs,omitempty"`
@@ -691,7 +705,7 @@ type WebhookSubscription struct {
 	ProjectID  string    `json:"project_id"`
 	WebhookURL string    `json:"webhook_url"`
 	EventTypes []string  `json:"event_types"`
-	Secret     string    `json:"secret"`
+	Secret     string    `json:"-"`
 	Active     bool      `json:"active"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -736,7 +750,7 @@ type JobVersion struct {
 	MaxAttempts         int               `json:"max_attempts"`
 	TimeoutSecs         int               `json:"timeout_secs"`
 	WebhookURL          string            `json:"webhook_url,omitempty"`
-	WebhookSecret       string            `json:"webhook_secret,omitempty"`
+	WebhookSecret       string            `json:"-"`
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
 	MachinePreset       string            `json:"machine_preset,omitempty"`
 	ImageURI            string            `json:"image_uri,omitempty"`

@@ -128,7 +128,7 @@ func TestRBAC_DeleteRole(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/roles/" + roleIDs[pos]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 		}
 		return nil
 	}
@@ -200,7 +200,7 @@ func TestRBAC_RemoveMember(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/members/" + userIDs[pos]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 		}
 		return nil
 	}
@@ -286,7 +286,7 @@ func TestRBAC_RevokeAPIKey(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/api-keys/" + keyIDs[pos]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 		}
 		return nil
 	}

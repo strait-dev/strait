@@ -63,6 +63,23 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
+      - name: Verify staging deployment health
+        if: steps.check-workflows.outputs.ready == 'true'
+        run: |
+          sleep 10
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.strait.dev/health/ready || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Staging health check passed"
+              exit 0
+            fi
+            echo "Attempt $i: status=$STATUS, retrying in 10s..."
+            sleep 10
+          done
+          echo "WARNING: Staging health check failed after 5 attempts."
+          echo "Consider rollback: flyctl releases -a strait && flyctl deploy --image <previous-image>"
+          exit 1
+
   # Production: deploys on tag push (v*) after verifying CI passed.
   deploy-production:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -105,3 +122,19 @@ jobs:
         working-directory: apps/strait
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Verify production deployment health
+        run: |
+          sleep 10
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.strait.dev/health/ready || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Production health check passed"
+              exit 0
+            fi
+            echo "Attempt $i: status=$STATUS, retrying in 10s..."
+            sleep 10
+          done
+          echo "CRITICAL: Production health check failed after 5 attempts."
+          echo "Rollback: flyctl releases -a strait && flyctl deploy --image <previous-image>"
+          exit 1

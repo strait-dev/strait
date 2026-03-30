@@ -87,7 +87,7 @@ func TestHTTPProtocol_ContentLengthMismatch(t *testing.T) {
 
 	body := strings.Repeat("x", 50)
 	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", strings.NewReader(body))
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	req.Header.Set("Content-Type", "application/json")
 	req.ContentLength = 100 // Claim 100 bytes but only send 50.
 
@@ -108,7 +108,7 @@ func TestHTTPProtocol_DuplicateContentType(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", strings.NewReader(`{"name":"test"}`))
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Content-Type", "text/plain")
 
@@ -128,7 +128,7 @@ func TestHTTPProtocol_MissingContentTypeOnPOST(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", strings.NewReader(`{"name":"test"}`))
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	// Deliberately omit Content-Type.
 
 	rec := httptest.NewRecorder()
@@ -148,7 +148,7 @@ func TestHTTPProtocol_ChunkedZeroLength(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", strings.NewReader(""))
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Transfer-Encoding", "chunked")
 
@@ -173,7 +173,7 @@ func TestHTTPProtocol_UnexpectedMethods(t *testing.T) {
 			t.Parallel()
 
 			req := httptest.NewRequest(method, "/v1/jobs", nil)
-			req.Header.Set("X-Internal-Secret", "test-secret")
+			req.Header.Set("X-Internal-Secret", "test-secret-value")
 
 			rec := httptest.NewRecorder()
 			srv.ServeHTTP(rec, req)
@@ -191,7 +191,7 @@ func TestHTTPProtocol_UnexpectedMethods(t *testing.T) {
 		t.Parallel()
 
 		req := httptest.NewRequest(http.MethodOptions, "/v1/jobs", nil)
-		req.Header.Set("X-Internal-Secret", "test-secret")
+		req.Header.Set("X-Internal-Secret", "test-secret-value")
 
 		rec := httptest.NewRecorder()
 		srv.ServeHTTP(rec, req)
@@ -211,7 +211,7 @@ func TestHTTPProtocol_VeryLongURLPath(t *testing.T) {
 
 	longPath := "/v1/jobs/" + strings.Repeat("a", 100*1024)
 	req := httptest.NewRequest(http.MethodGet, longPath, nil)
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -239,7 +239,7 @@ func TestHTTPProtocol_MassiveQueryParameters(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, b.String(), nil)
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -257,7 +257,7 @@ func TestHTTPProtocol_BodyOnGETRequest(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", strings.NewReader(`{"unexpected":"body"}`))
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()

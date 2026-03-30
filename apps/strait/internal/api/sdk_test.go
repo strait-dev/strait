@@ -25,7 +25,7 @@ func generateRunToken(t *testing.T, runID string) string {
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	})
-	signed, err := token.SignedString([]byte("01234567890123456789012345678901"))
+	signed, err := token.SignedString([]byte(testJWTSigningKey))
 	if err != nil {
 		t.Fatalf("failed to sign token: %v", err)
 	}
@@ -55,7 +55,7 @@ func generateExpiredRunToken(t *testing.T, runID string) string {
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour)),
 		IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
 	})
-	signed, err := token.SignedString([]byte("01234567890123456789012345678901"))
+	signed, err := token.SignedString([]byte(testJWTSigningKey))
 	if err != nil {
 		t.Fatalf("failed to sign token: %v", err)
 	}

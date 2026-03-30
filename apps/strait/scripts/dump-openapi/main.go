@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,11 +23,17 @@ func main() {
 		output = os.Args[1]
 	}
 
+	jwtKey := make([]byte, 32)
+	if _, err := rand.Read(jwtKey); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to generate JWT key: %v\n", err)
+		os.Exit(1)
+	}
+
 	srv := api.NewServer(api.ServerDeps{
 		Config: &config.Config{
-			InternalSecret:      "dump-openapi",
+			InternalSecret:      "dump-openapi-placeholder",
 			MaxBulkTriggerItems: 500,
-			JWTSigningKey:       "01234567890123456789012345678901",
+			JWTSigningKey:       hex.EncodeToString(jwtKey),
 		},
 		Store:   nil,
 		Queue:   nil,

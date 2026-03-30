@@ -17,7 +17,6 @@ import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-
 export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
@@ -80,7 +79,6 @@ export const testWebhookFn = createServerFn({ method: "POST" })
     );
   });
 
-
 export const webhooksQueryOptions = (search?: ListParams) =>
   queryOptions({
     queryKey: queryKeys.webhooks.list(search).queryKey,
@@ -113,7 +111,6 @@ export const webhookDeliveriesQueryOptions = (webhookId: string) =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
-
 
 export const useCreateWebhook = () => {
   const queryClient = useQueryClient();

@@ -1,0 +1,84 @@
+package api
+
+import (
+	"context"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/golang-jwt/jwt/v5"
+)
+
+const (
+	sseTokenTTL    = 5 * time.Minute
+	sseTokenIssuer = "strait:sse"
+)
+
+// SSETokenClaims extends standard JWT claims with the project and scopes.
+type SSETokenClaims struct {
+	jwt.RegisteredClaims
+	ProjectID string   `json:"pid"`
+	Scopes    []string `json:"scp,omitempty"`
+}
+
+type CreateSSETokenInput struct{}
+type CreateSSETokenOutput struct {
+	Body struct {
+		Token     string    `json:"token"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+}
+
+// handleCreateSSEToken issues a short-lived JWT (5 minutes) for use as a
+// query-param token in SSE endpoints. This avoids exposing the long-lived
+// API key in URLs.
+func (s *Server) handleCreateSSEToken(ctx context.Context, _ *CreateSSETokenInput) (*CreateSSETokenOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	scopes := scopesFromContext(ctx)
+	now := time.Now()
+	expiresAt := now.Add(sseTokenTTL)
+
+	claims := SSETokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    sseTokenIssuer,
+			Subject:   projectID,
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+		ProjectID: projectID,
+		Scopes:    scopes,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to create SSE token")
+	}
+
+	out := &CreateSSETokenOutput{}
+	out.Body.Token = tokenString
+	out.Body.ExpiresAt = expiresAt
+	return out, nil
+}
+
+// parseSSEToken validates a short-lived SSE JWT and returns the claims.
+// Returns nil if the token is invalid or not an SSE token.
+func (s *Server) parseSSEToken(tokenString string) *SSETokenClaims {
+	claims := &SSETokenClaims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(s.config.JWTSigningKey), nil
+	})
+	if err != nil || !token.Valid {
+		return nil
+	}
+	if claims.Issuer != sseTokenIssuer {
+		return nil
+	}
+	return claims
+}

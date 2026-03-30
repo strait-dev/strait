@@ -81,7 +81,7 @@ func TestSecrets_Delete(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/secrets/" + secretIDs[pos]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 		}
 		return nil
 	}

@@ -39,9 +39,9 @@ func decodePaginatedList(t testing.TB, body []byte, out any) {
 func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "01234567890123456789012345678901",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	var p pubsub.Publisher
 	if pub != nil {
@@ -61,9 +61,9 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 func newTestServerWithPinger(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, pinger Pinger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	var p pubsub.Publisher
 	if pub != nil {
@@ -87,7 +87,7 @@ func authedRequest(method, path string, body string) *http.Request {
 	} else {
 		r = httptest.NewRequest(method, path, nil)
 	}
-	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	r.Header.Set("Content-Type", "application/json")
 	return r
 }
@@ -137,9 +137,9 @@ func TestHandleHealth_EditionField(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := &config.Config{
-				InternalSecret:      "test-secret",
+				InternalSecret:      "test-secret-value",
 				MaxBulkTriggerItems: 500,
-				JWTSigningKey:       "01234567890123456789012345678901",
+				JWTSigningKey:       testJWTSigningKey,
 			}
 			srv := NewServer(ServerDeps{
 				Config:  cfg,
@@ -2502,9 +2502,9 @@ func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:      cfg,
@@ -2529,9 +2529,9 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:      cfg,
@@ -2602,8 +2602,8 @@ func TestValidateCronFieldCount(t *testing.T) {
 func TestMetrics_Unauthenticated_Returns401(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "01234567890123456789012345678901",
+		InternalSecret: "test-secret-value",
+		JWTSigningKey:  testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:         cfg,
@@ -2625,8 +2625,8 @@ func TestMetrics_Unauthenticated_Returns401(t *testing.T) {
 func TestMetrics_Authenticated_Returns200(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "01234567890123456789012345678901",
+		InternalSecret: "test-secret-value",
+		JWTSigningKey:  testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:         cfg,
@@ -2639,7 +2639,7 @@ func TestMetrics_Authenticated_Returns200(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	srv.ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {

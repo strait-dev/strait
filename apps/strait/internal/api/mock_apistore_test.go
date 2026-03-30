@@ -1394,6 +1394,9 @@ type APIStoreMock struct {
 	// StreamAuditEventsFunc mocks the StreamAuditEvents method.
 	StreamAuditEventsFunc func(ctx context.Context, projectID string, actorID string, resourceType string, from time.Time, to time.Time, fn func(*domain.AuditEvent) error) error
 
+	// VerifyAuditChainFunc mocks the VerifyAuditChain method.
+	VerifyAuditChainFunc func(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
+
 	// SumJobMemorySizeBytesFunc mocks the SumJobMemorySizeBytes method.
 	SumJobMemorySizeBytesFunc func(ctx context.Context, jobID string) (int, error)
 
@@ -1438,6 +1441,12 @@ type APIStoreMock struct {
 
 	// UpdateProjectDefaultRegionFunc mocks the UpdateProjectDefaultRegion method.
 	UpdateProjectDefaultRegionFunc func(ctx context.Context, projectID string, defaultRegion string) error
+
+	// UpdateProjectMaxKeyLifetimeDaysFunc mocks the UpdateProjectMaxKeyLifetimeDays method.
+	UpdateProjectMaxKeyLifetimeDaysFunc func(ctx context.Context, projectID string, days int) error
+
+	// ListAPIKeysExpiringSoonFunc mocks the ListAPIKeysExpiringSoon method.
+	ListAPIKeysExpiringSoonFunc func(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error)
 
 	// UpdateProjectRoleFunc mocks the UpdateProjectRole method.
 	UpdateProjectRoleFunc func(ctx context.Context, role *domain.ProjectRole) error
@@ -3417,6 +3426,11 @@ type APIStoreMock struct {
 			// Fn is the fn argument value.
 			Fn func(*domain.AuditEvent) error
 		}
+		// VerifyAuditChain holds details about calls to the VerifyAuditChain method.
+		VerifyAuditChain []struct {
+			Ctx       context.Context
+			ProjectID string
+		}
 		// SumJobMemorySizeBytes holds details about calls to the SumJobMemorySizeBytes method.
 		SumJobMemorySizeBytes []struct {
 			// Ctx is the ctx argument value.
@@ -3903,6 +3917,7 @@ type APIStoreMock struct {
 	lockSeedProjectSystemRoles             sync.RWMutex
 	lockSetEventTriggerSentBy              sync.RWMutex
 	lockStreamAuditEvents                  sync.RWMutex
+	lockVerifyAuditChain                   sync.RWMutex
 	lockSumJobMemorySizeBytes              sync.RWMutex
 	lockSumProjectDailyCostMicrousd        sync.RWMutex
 	lockSumRunCostMicrousd                 sync.RWMutex
@@ -13237,6 +13252,24 @@ func (mock *APIStoreMock) StreamAuditEventsCalls() []struct {
 	return calls
 }
 
+// VerifyAuditChain calls VerifyAuditChainFunc.
+func (mock *APIStoreMock) VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+	}
+	mock.lockVerifyAuditChain.Lock()
+	mock.calls.VerifyAuditChain = append(mock.calls.VerifyAuditChain, callInfo)
+	mock.lockVerifyAuditChain.Unlock()
+	if mock.VerifyAuditChainFunc == nil {
+		return nil, nil
+	}
+	return mock.VerifyAuditChainFunc(ctx, projectID)
+}
+
 // SumJobMemorySizeBytes calls SumJobMemorySizeBytesFunc.
 func (mock *APIStoreMock) SumJobMemorySizeBytes(ctx context.Context, jobID string) (int, error) {
 	callInfo := struct {
@@ -13868,6 +13901,22 @@ func (mock *APIStoreMock) UpdateProjectDefaultRegionCalls() []struct {
 	calls = mock.calls.UpdateProjectDefaultRegion
 	mock.lockUpdateProjectDefaultRegion.RUnlock()
 	return calls
+}
+
+// UpdateProjectMaxKeyLifetimeDays calls UpdateProjectMaxKeyLifetimeDaysFunc.
+func (mock *APIStoreMock) UpdateProjectMaxKeyLifetimeDays(ctx context.Context, projectID string, days int) error {
+	if mock.UpdateProjectMaxKeyLifetimeDaysFunc == nil {
+		return nil
+	}
+	return mock.UpdateProjectMaxKeyLifetimeDaysFunc(ctx, projectID, days)
+}
+
+// ListAPIKeysExpiringSoon calls ListAPIKeysExpiringSoonFunc.
+func (mock *APIStoreMock) ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error) {
+	if mock.ListAPIKeysExpiringSoonFunc == nil {
+		return nil, nil
+	}
+	return mock.ListAPIKeysExpiringSoonFunc(ctx, projectID, withinDays)
 }
 
 // UpdateProjectRole calls UpdateProjectRoleFunc.

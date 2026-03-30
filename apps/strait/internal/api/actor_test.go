@@ -34,9 +34,9 @@ func (m *mockActorSyncer) UpsertKnownActor(_ context.Context, id, email, name st
 func newTestServerWithActorSyncer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, syncer ActorSyncer) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "01234567890123456789012345678901",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:      cfg,
@@ -154,7 +154,7 @@ func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
 
 	// Use internal secret with actor headers — should set user context.
 	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
-	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	r.Header.Set("X-Actor-Id", "user_leo")
 	r.Header.Set("X-Actor-Email", "leo@example.com")
 	r.Header.Set("X-Actor-Name", "Leonardo")
@@ -263,7 +263,7 @@ func TestInternalSecretAuth_NoActorHeaders(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
-	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	// No X-Actor-Id header.
 
 	w := httptest.NewRecorder()
@@ -292,7 +292,7 @@ func TestInternalSecretAuth_EmptyActorID(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
-	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	r.Header.Set("X-Actor-Id", "") // Empty string.
 
 	w := httptest.NewRecorder()
@@ -350,7 +350,7 @@ func TestActorSyncer_NilSyncer(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
-	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	r.Header.Set("X-Actor-Id", "user_leo")
 
 	w := httptest.NewRecorder()
