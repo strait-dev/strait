@@ -83,7 +83,7 @@ src/
 | Command | Description |
 |---|---|
 | `bun dev` | Start dev server on port 5173 |
-| `bun build` | Production build (Vercel preset) |
+| `bun build` | Production build (Cloudflare Workers) |
 | `bun start` | Start production server |
 | `bun test` | Run Vitest tests |
 | `bun run test:watch` | Run tests in watch mode |
