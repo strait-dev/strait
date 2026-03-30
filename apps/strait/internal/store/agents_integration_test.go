@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -233,5 +234,129 @@ func TestAgentNullableActors(t *testing.T) {
 	}
 	if len(deployments) != 1 {
 		t.Fatalf("ListAgentDeployments() len = %d, want 1", len(deployments))
+	}
+}
+
+func TestGetAgentTopologyEdgesEmpty(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-topo", Name: "Topo Project"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	edges, err := q.GetAgentTopologyEdges(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetAgentTopologyEdges() error = %v", err)
+	}
+	if len(edges) != 0 {
+		t.Fatalf("expected 0 edges, got %d", len(edges))
+	}
+}
+
+func TestGetAgentTopologyEdgesWithMessages(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-topo2", Name: "Topo Project 2"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	// Create two agents with a backing job each.
+	jobA := mustCreateJob(t, ctx, q, project.ID)
+	agentA := &domain.Agent{
+		ID: newID(), ProjectID: project.ID, JobID: jobA.ID,
+		Name: "Agent A", Slug: "agent-a", Model: "gpt-5.4",
+		Config: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgent(ctx, agentA); err != nil {
+		t.Fatalf("CreateAgent(A) error = %v", err)
+	}
+
+	jobB := mustCreateJob(t, ctx, q, project.ID)
+	agentB := &domain.Agent{
+		ID: newID(), ProjectID: project.ID, JobID: jobB.ID,
+		Name: "Agent B", Slug: "agent-b", Model: "gpt-5.4",
+		Config: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgent(ctx, agentB); err != nil {
+		t.Fatalf("CreateAgent(B) error = %v", err)
+	}
+
+	// Send two messages from A to B.
+	for i := 0; i < 2; i++ {
+		msg := &domain.AgentMessage{
+			ID: newID(), ProjectID: project.ID,
+			SourceAgentID: agentA.ID, TargetAgentID: agentB.ID,
+			ChainID: "chain-1", ChainDepth: i + 1,
+			Payload: json.RawMessage(`{}`), Status: domain.AgentMessagePending,
+		}
+		if err := q.CreateAgentMessage(ctx, msg); err != nil {
+			t.Fatalf("CreateAgentMessage() error = %v", err)
+		}
+	}
+
+	edges, err := q.GetAgentTopologyEdges(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetAgentTopologyEdges() error = %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].SourceAgentID != agentA.ID {
+		t.Fatalf("edge source = %q, want %q", edges[0].SourceAgentID, agentA.ID)
+	}
+	if edges[0].TargetAgentID != agentB.ID {
+		t.Fatalf("edge target = %q, want %q", edges[0].TargetAgentID, agentB.ID)
+	}
+	if edges[0].MessageCount != 2 {
+		t.Fatalf("edge message_count = %d, want 2", edges[0].MessageCount)
+	}
+}
+
+func TestCountProjectRunsSince(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-count", Name: "Count Project"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	job := mustCreateJob(t, ctx, q, project.ID)
+
+	// Create two runs.
+	for i := 0; i < 2; i++ {
+		run := &domain.JobRun{
+			ID: newID(), JobID: job.ID, ProjectID: project.ID,
+			Status: domain.StatusCompleted, Attempt: 1,
+			TriggeredBy: domain.TriggerManual,
+		}
+		if err := q.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun() error = %v", err)
+		}
+	}
+
+	// Count from the beginning of time should find both.
+	count, err := q.CountProjectRunsSince(ctx, project.ID, time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("CountProjectRunsSince() error = %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
+	}
+
+	// Count from the future should find none.
+	count, err = q.CountProjectRunsSince(ctx, project.ID, time.Now().Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("CountProjectRunsSince() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
 	}
 }

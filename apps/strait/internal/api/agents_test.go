@@ -249,6 +249,102 @@ func TestHandleRunAgentNotDeployed(t *testing.T) {
 	}
 }
 
+func TestHandleRunAgentQuotaExceeded(t *testing.T) {
+	t.Parallel()
+
+	srv := newAgentTestServer(t, &stubAgentService{
+		createAgentFunc: func(context.Context, agentsvc.CreateAgentRequest) (*domain.Agent, error) { return nil, nil },
+		getAgentFunc:    func(context.Context, string, string) (*domain.Agent, error) { return nil, nil },
+		listAgentsFunc:  func(context.Context, string, int, *time.Time) ([]domain.Agent, error) { return nil, nil },
+		updateAgentFunc: func(context.Context, agentsvc.UpdateAgentRequest) (*domain.Agent, error) { return nil, nil },
+		deleteAgentFunc: func(context.Context, string, string) error { return nil },
+		deployAgentFunc: func(context.Context, string, string, string) (*domain.AgentDeployment, error) { return nil, nil },
+		runAgentFunc: func(context.Context, agentsvc.RunAgentRequest) (*domain.JobRun, error) {
+			return nil, agentsvc.ErrAgentQuotaExceeded
+		},
+		listAgentRunsFunc: func(context.Context, string, string, int, int) ([]domain.JobRun, error) { return nil, nil },
+	})
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/agents/agent-1/run", `{"payload":{}}`, "proj-1"))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRunAgentRunQuotaExceeded(t *testing.T) {
+	t.Parallel()
+
+	srv := newAgentTestServer(t, &stubAgentService{
+		createAgentFunc: func(context.Context, agentsvc.CreateAgentRequest) (*domain.Agent, error) { return nil, nil },
+		getAgentFunc:    func(context.Context, string, string) (*domain.Agent, error) { return nil, nil },
+		listAgentsFunc:  func(context.Context, string, int, *time.Time) ([]domain.Agent, error) { return nil, nil },
+		updateAgentFunc: func(context.Context, agentsvc.UpdateAgentRequest) (*domain.Agent, error) { return nil, nil },
+		deleteAgentFunc: func(context.Context, string, string) error { return nil },
+		deployAgentFunc: func(context.Context, string, string, string) (*domain.AgentDeployment, error) { return nil, nil },
+		runAgentFunc: func(context.Context, agentsvc.RunAgentRequest) (*domain.JobRun, error) {
+			return nil, agentsvc.ErrRunQuotaExceeded
+		},
+		listAgentRunsFunc: func(context.Context, string, string, int, int) ([]domain.JobRun, error) { return nil, nil },
+	})
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/agents/agent-1/run", `{"payload":{}}`, "proj-1"))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRunAgentConcurrencyExceeded(t *testing.T) {
+	t.Parallel()
+
+	srv := newAgentTestServer(t, &stubAgentService{
+		createAgentFunc: func(context.Context, agentsvc.CreateAgentRequest) (*domain.Agent, error) { return nil, nil },
+		getAgentFunc:    func(context.Context, string, string) (*domain.Agent, error) { return nil, nil },
+		listAgentsFunc:  func(context.Context, string, int, *time.Time) ([]domain.Agent, error) { return nil, nil },
+		updateAgentFunc: func(context.Context, agentsvc.UpdateAgentRequest) (*domain.Agent, error) { return nil, nil },
+		deleteAgentFunc: func(context.Context, string, string) error { return nil },
+		deployAgentFunc: func(context.Context, string, string, string) (*domain.AgentDeployment, error) { return nil, nil },
+		runAgentFunc: func(context.Context, agentsvc.RunAgentRequest) (*domain.JobRun, error) {
+			return nil, agentsvc.ErrConcurrencyExceeded
+		},
+		listAgentRunsFunc: func(context.Context, string, string, int, int) ([]domain.JobRun, error) { return nil, nil },
+	})
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/agents/agent-1/run", `{"payload":{}}`, "proj-1"))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetAgentTopologyEmpty(t *testing.T) {
+	t.Parallel()
+
+	srv := newAgentTestServer(t, &stubAgentService{
+		createAgentFunc:   func(context.Context, agentsvc.CreateAgentRequest) (*domain.Agent, error) { return nil, nil },
+		getAgentFunc:      func(context.Context, string, string) (*domain.Agent, error) { return nil, nil },
+		listAgentsFunc:    func(context.Context, string, int, *time.Time) ([]domain.Agent, error) { return nil, nil },
+		updateAgentFunc:   func(context.Context, agentsvc.UpdateAgentRequest) (*domain.Agent, error) { return nil, nil },
+		deleteAgentFunc:   func(context.Context, string, string) error { return nil },
+		deployAgentFunc:   func(context.Context, string, string, string) (*domain.AgentDeployment, error) { return nil, nil },
+		runAgentFunc:      func(context.Context, agentsvc.RunAgentRequest) (*domain.JobRun, error) { return nil, nil },
+		listAgentRunsFunc: func(context.Context, string, string, int, int) ([]domain.JobRun, error) { return nil, nil },
+	})
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/agents/topology", "", "proj-1"))
+
+	// The mock store is not *store.Queries, so topology handler returns 500.
+	// This tests that the route is registered and the handler runs.
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 (mock store), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleListAgentRunsInvalidOffset(t *testing.T) {
 	t.Parallel()
 

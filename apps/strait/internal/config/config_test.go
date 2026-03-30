@@ -1189,3 +1189,70 @@ func TestLoad_WfMaxStepCapDefault(t *testing.T) {
 		t.Errorf("WfMaxStepCap = %d, want 100", cfg.WfMaxStepCap)
 	}
 }
+
+func TestValidateCORSOrigins(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{
+			name: "no origins is fine",
+			cfg:  Config{},
+		},
+		{
+			name: "specific origins are fine",
+			cfg:  Config{CORSAllowedOrigins: []string{"https://example.com"}},
+		},
+		{
+			name:    "wildcard with credentials is rejected",
+			cfg:     Config{CORSAllowedOrigins: []string{"*"}, CORSAllowCredentials: true},
+			wantErr: true,
+		},
+		{
+			name:    "wildcard in production is rejected",
+			cfg:     Config{CORSAllowedOrigins: []string{"*"}, SentryEnvironment: "production"},
+			wantErr: true,
+		},
+		{
+			name: "wildcard in development is allowed",
+			cfg:  Config{CORSAllowedOrigins: []string{"*"}, SentryEnvironment: "development"},
+		},
+		{
+			name: "wildcard in test is allowed",
+			cfg:  Config{CORSAllowedOrigins: []string{"*"}, SentryEnvironment: "test"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateCORSOrigins(&tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateCORSOrigins() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateCloudflareConfig_Disabled(t *testing.T) {
+	t.Parallel()
+
+	// Empty config (not enabled) should be valid.
+	cfg := &Config{}
+	if err := validateCloudflareConfig(cfg); err != nil {
+		t.Fatalf("validateCloudflareConfig() error = %v", err)
+	}
+}
+
+func TestValidateCloudflareConfig_MissingRequired(t *testing.T) {
+	t.Parallel()
+
+	// Setting only AccountID enables CF but is missing other required fields.
+	cfg := &Config{CFAccountID: "acct-123"}
+	if err := validateCloudflareConfig(cfg); err == nil {
+		t.Fatal("expected error for incomplete cloudflare config")
+	}
+}
