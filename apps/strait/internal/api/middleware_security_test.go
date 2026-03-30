@@ -25,6 +25,7 @@ func TestSecurityHeaders(t *testing.T) {
 			"Referrer-Policy":                   "no-referrer",
 			"Permissions-Policy":                "camera=(), microphone=(), geolocation=(), payment=()",
 			"X-Permitted-Cross-Domain-Policies": "none",
+			"Cross-Origin-Resource-Policy":      "same-origin",
 		}
 
 		for header, want := range expected {
@@ -67,6 +68,22 @@ func TestSecurityHeaders(t *testing.T) {
 			t.Error("HSTS should be set when X-Forwarded-Proto is https")
 		}
 	})
+}
+
+func TestSecurityHeaders_StripsServerHeader(t *testing.T) {
+	// Simulate a reverse proxy that sets a Server header (e.g. Fly.io).
+	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "Fly/58128dbb4 (2026-03-25)")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Server"); got != "" {
+		t.Errorf("Server header should be stripped, got %q", got)
+	}
 }
 
 func TestRequestIsHTTPS(t *testing.T) {
