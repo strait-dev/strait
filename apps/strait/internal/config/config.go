@@ -170,16 +170,21 @@ type Config struct {
 	OTLPMetricEnabled  bool   `env:"OTLP_METRIC_ENABLED" default:"false"`
 
 	// Polar billing integration
-	PolarAccessToken          string `env:"POLAR_ACCESS_TOKEN"`
-	PolarWebhookSecret        string `env:"POLAR_API_WEBHOOK_SECRET"`
-	PolarServer               string `env:"POLAR_SERVER"`
-	PolarStarterMonthlyID     string `env:"POLAR_STARTER_MONTHLY_ID"`
-	PolarStarterYearlyID      string `env:"POLAR_STARTER_YEARLY_ID"`
-	PolarProMonthlyID         string `env:"POLAR_PRO_MONTHLY_ID"`
-	PolarProYearlyID          string `env:"POLAR_PRO_YEARLY_ID"`
-	PolarScaleMonthlyID       string `env:"POLAR_SCALE_MONTHLY_ID"`
-	PolarScaleYearlyID        string `env:"POLAR_SCALE_YEARLY_ID"`
-	BillingEnforcementEnabled bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
+	PolarAccessToken           string `env:"POLAR_ACCESS_TOKEN"`
+	PolarWebhookSecret         string `env:"POLAR_API_WEBHOOK_SECRET"`
+	PolarServer                string `env:"POLAR_SERVER"`
+	PolarStarterMonthlyID      string `env:"POLAR_STARTER_MONTHLY_ID"`
+	PolarStarterYearlyID       string `env:"POLAR_STARTER_YEARLY_ID"`
+	PolarProMonthlyID          string `env:"POLAR_PRO_MONTHLY_ID"`
+	PolarProYearlyID           string `env:"POLAR_PRO_YEARLY_ID"`
+	PolarScaleMonthlyID        string `env:"POLAR_SCALE_MONTHLY_ID"`
+	PolarScaleYearlyID         string `env:"POLAR_SCALE_YEARLY_ID"`
+	PolarAddonConcurrentRuns   string `env:"POLAR_ADDON_CONCURRENT_RUNS_ID"`
+	PolarAddonMembers          string `env:"POLAR_ADDON_MEMBERS_ID"`
+	PolarAddonCronSchedules    string `env:"POLAR_ADDON_CRON_SCHEDULES_ID"`
+	PolarAddonDataRetention    string `env:"POLAR_ADDON_DATA_RETENTION_ID"`
+	PolarAddonWebhookEndpoints string `env:"POLAR_ADDON_WEBHOOK_ENDPOINTS_ID"`
+	BillingEnforcementEnabled  bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
 
 	// Resend email integration
 	ResendAPIKey    string `env:"RESEND_API_KEY"`

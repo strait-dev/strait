@@ -398,6 +398,11 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			billing.WithStarterProducts(cfg.PolarStarterMonthlyID, cfg.PolarStarterYearlyID),
 			billing.WithProProducts(cfg.PolarProMonthlyID, cfg.PolarProYearlyID),
 			billing.WithScaleProducts(cfg.PolarScaleMonthlyID, cfg.PolarScaleYearlyID),
+			billing.WithAddonProduct(cfg.PolarAddonConcurrentRuns, billing.AddonConcurrentRuns),
+			billing.WithAddonProduct(cfg.PolarAddonMembers, billing.AddonMembers),
+			billing.WithAddonProduct(cfg.PolarAddonCronSchedules, billing.AddonCronSchedules),
+			billing.WithAddonProduct(cfg.PolarAddonDataRetention, billing.AddonDataRetention),
+			billing.WithAddonProduct(cfg.PolarAddonWebhookEndpoints, billing.AddonWebhookEndpoints),
 		)
 		var webhookOpts []billing.WebhookOption
 		if posthogClient != nil {

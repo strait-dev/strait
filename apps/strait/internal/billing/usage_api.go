@@ -11,16 +11,25 @@ import (
 
 // CurrentUsageResponse is the response for GET /v1/usage/current.
 type CurrentUsageResponse struct {
-	OrgID               string          `json:"org_id"`
-	Plan                string          `json:"plan"`
-	Period              PeriodInfo      `json:"period"`
-	Usage               UsageDimensions `json:"usage"`
-	IncludedCreditMicro int64           `json:"included_credit_microusd"`
-	PeriodSpendMicro    int64           `json:"period_spend_microusd"`
-	OverageMicro        int64           `json:"overage_microusd"`
-	Alerts              []UsageAlert    `json:"alerts,omitempty"`
-	PaymentStatus       string          `json:"payment_status,omitempty"`
-	GracePeriodEnd      *string         `json:"grace_period_end,omitempty"`
+	OrgID                string          `json:"org_id"`
+	Plan                 string          `json:"plan"`
+	Period               PeriodInfo      `json:"period"`
+	Usage                UsageDimensions `json:"usage"`
+	IncludedCreditMicro  int64           `json:"included_credit_microusd"`
+	PeriodSpendMicro     int64           `json:"period_spend_microusd"`
+	OverageMicro         int64           `json:"overage_microusd"`
+	CreditUsedPercent    float64         `json:"credit_used_percent"`
+	CreditRemainingMicro int64           `json:"credit_remaining_microusd"`
+	Alerts               []UsageAlert    `json:"alerts,omitempty"`
+	PaymentStatus        string          `json:"payment_status,omitempty"`
+	GracePeriodEnd       *string         `json:"grace_period_end,omitempty"`
+	ActiveAddons         []AddonSummary  `json:"active_addons,omitempty"`
+}
+
+// AddonSummary represents an active add-on in the usage response.
+type AddonSummary struct {
+	Type     string `json:"type"`
+	Quantity int    `json:"quantity"`
 }
 
 // PeriodInfo describes the billing period.
@@ -196,6 +205,25 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	resp.IncludedCreditMicro = computeLimit
 	resp.PeriodSpendMicro = periodSpend
 	resp.OverageMicro = computeOverageSpend(periodSpend, computeLimit)
+	if computeLimit > 0 {
+		resp.CreditUsedPercent = float64(periodSpend) / float64(computeLimit) * 100
+	}
+	if periodSpend < computeLimit {
+		resp.CreditRemainingMicro = computeLimit - periodSpend
+	}
+
+	// Load active add-ons.
+	if orgID != "" {
+		addons, addonErr := s.store.ListActiveAddons(ctx, orgID)
+		if addonErr == nil {
+			for _, a := range addons {
+				resp.ActiveAddons = append(resp.ActiveAddons, AddonSummary{
+					Type:     string(a.AddonType),
+					Quantity: a.Quantity,
+				})
+			}
+		}
+	}
 
 	// Add alerts for dimensions approaching limits
 	resp.Alerts = s.buildAlerts(resp.Usage)
