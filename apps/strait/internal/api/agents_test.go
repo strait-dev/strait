@@ -56,6 +56,10 @@ func (s *stubAgentService) ListAgentRuns(ctx context.Context, projectID, agentID
 	return s.listAgentRunsFunc(ctx, projectID, agentID, limit, offset)
 }
 
+func (s *stubAgentService) PrepareDirectRun(_ context.Context, _ agentsvc.RunAgentRequest) (*agentsvc.DirectRunResult, error) {
+	return nil, nil
+}
+
 func newAgentTestServer(t *testing.T, svc agentsvc.Service) *Server {
 	t.Helper()
 

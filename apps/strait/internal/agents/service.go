@@ -32,6 +32,14 @@ var (
 	ErrConcurrencyExceeded = errors.New("agent has too many concurrent runs")
 )
 
+// DirectRunResult contains the data needed for client-side dispatch.
+type DirectRunResult struct {
+	RunID     string                  `json:"run_id"`
+	WorkerURL string                  `json:"worker_url"`
+	Token     string                  `json:"token"`
+	Envelope  RuntimeDispatchEnvelope `json:"envelope"`
+}
+
 type Service interface {
 	CreateAgent(ctx context.Context, req CreateAgentRequest) (*domain.Agent, error)
 	GetAgent(ctx context.Context, projectID, agentID string) (*domain.Agent, error)
@@ -40,6 +48,7 @@ type Service interface {
 	DeleteAgent(ctx context.Context, projectID, agentID string) error
 	DeployAgent(ctx context.Context, projectID, agentID, actor string) (*domain.AgentDeployment, error)
 	RunAgent(ctx context.Context, req RunAgentRequest) (*domain.JobRun, error)
+	PrepareDirectRun(ctx context.Context, req RunAgentRequest) (*DirectRunResult, error)
 	ListAgentRuns(ctx context.Context, projectID, agentID string, limit, offset int) ([]domain.JobRun, error)
 }
 
@@ -547,6 +556,67 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		})
 	}
 	return run, nil
+}
+
+func (s *localService) PrepareDirectRun(ctx context.Context, req RunAgentRequest) (*DirectRunResult, error) {
+	if err := validateRunRequest(req); err != nil {
+		return nil, err
+	}
+
+	agent, err := s.GetAgent(ctx, req.ProjectID, req.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	job, err := s.store.GetJob(ctx, agent.JobID)
+	if err != nil {
+		return nil, err
+	}
+	deployment, err := s.store.GetLatestAgentDeployment(ctx, agent.ID)
+	if err != nil {
+		return nil, ErrNotDeployed
+	}
+	if deployment.Status != domain.AgentDeploymentStatusDeployed {
+		return nil, ErrNotDeployed
+	}
+
+	// Create the run but do NOT dispatch it.
+	run := &domain.JobRun{
+		ID:            uuid.Must(uuid.NewV7()).String(),
+		JobID:         agent.JobID,
+		ProjectID:     agent.ProjectID,
+		Status:        domain.StatusQueued,
+		Attempt:       1,
+		Payload:       req.Payload,
+		TriggeredBy:   domain.TriggerManual,
+		JobVersion:    job.Version,
+		JobVersionID:  job.VersionID,
+		ExecutionMode: job.ExecutionMode,
+		CreatedBy:     req.Actor,
+	}
+	if err := s.store.CreateRun(ctx, run); err != nil {
+		return nil, err
+	}
+
+	envelope, token, err := s.buildRuntimeEnvelope(ctx, agent, job, deployment, run)
+	if err != nil {
+		return nil, fmt.Errorf("build runtime envelope: %w", err)
+	}
+
+	// Determine the worker URL from deployment metadata.
+	workerURL := s.apiBaseURL + "/v1/agents/" + agent.ID + "/run"
+	if deployment.Provider == ProviderNameCloudflare {
+		metadata, parseErr := ParseCloudflareDeploymentMetadata(deployment.ProviderMetadata)
+		if parseErr == nil {
+			workerURL = metadata.DispatchWorkerURL
+		}
+	}
+
+	return &DirectRunResult{
+		RunID:     run.ID,
+		WorkerURL: workerURL,
+		Token:     token,
+		Envelope:  envelope,
+	}, nil
 }
 
 func (s *localService) ListAgentRuns(ctx context.Context, projectID, agentID string, limit, offset int) ([]domain.JobRun, error) {
