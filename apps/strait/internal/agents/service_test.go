@@ -317,6 +317,46 @@ func TestResolveCloudflareSandboxPolicyFromConfigSnapshot(t *testing.T) {
 	}
 }
 
+func TestClassifyRuntimeError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		errMsg         string
+		wantClass      string
+		wantSuggestion bool
+	}{
+		{name: "cloudflare 1101 status", errMsg: "HTTP 1101: worker failed", wantClass: "oom", wantSuggestion: true},
+		{name: "exceeded resource limits", errMsg: "Worker exceeded resource limits", wantClass: "oom", wantSuggestion: true},
+		{name: "exceeded cpu", errMsg: "Exceeded CPU time limit", wantClass: "oom", wantSuggestion: true},
+		{name: "out of memory", errMsg: "process out of memory", wantClass: "oom", wantSuggestion: true},
+		{name: "oom keyword", errMsg: "worker OOM killed", wantClass: "oom", wantSuggestion: true},
+		{name: "timeout", errMsg: "execution timeout after 30s", wantClass: "timeout", wantSuggestion: true},
+		{name: "timed out", errMsg: "request timed out", wantClass: "timeout", wantSuggestion: true},
+		{name: "deadline exceeded", errMsg: "context deadline exceeded", wantClass: "timeout", wantSuggestion: true},
+		{name: "rate limit", errMsg: "rate limit exceeded", wantClass: "rate_limited", wantSuggestion: true},
+		{name: "http 429", errMsg: "HTTP 429 Too Many Requests", wantClass: "rate_limited", wantSuggestion: true},
+		{name: "generic error", errMsg: "unexpected internal error", wantClass: "runtime_error", wantSuggestion: false},
+		{name: "empty error", errMsg: "", wantClass: "runtime_error", wantSuggestion: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			class, suggestion := classifyRuntimeError(tt.errMsg)
+			if class != tt.wantClass {
+				t.Fatalf("classifyRuntimeError(%q) class = %q, want %q", tt.errMsg, class, tt.wantClass)
+			}
+			if tt.wantSuggestion && suggestion == "" {
+				t.Fatalf("classifyRuntimeError(%q) expected non-empty suggestion", tt.errMsg)
+			}
+			if !tt.wantSuggestion && suggestion != "" {
+				t.Fatalf("classifyRuntimeError(%q) expected empty suggestion, got %q", tt.errMsg, suggestion)
+			}
+		})
+	}
+}
+
 func TestParseCloudflareDeploymentMetadataRejectsCorruptInput(t *testing.T) {
 	t.Parallel()
 

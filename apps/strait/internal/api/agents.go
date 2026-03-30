@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"strconv"
@@ -381,6 +382,12 @@ func mapAgentServiceError(err error) error {
 		return huma.Error409Conflict("agent is not deployed")
 	case errors.Is(err, store.ErrAgentDeploymentNotFound):
 		return huma.Error404NotFound("agent deployment not found")
+	case errors.Is(err, agents.ErrAgentQuotaExceeded):
+		return huma.Error429TooManyRequests("agent quota exceeded for this project")
+	case errors.Is(err, agents.ErrRunQuotaExceeded):
+		return huma.Error429TooManyRequests("monthly agent run quota exceeded")
+	case errors.Is(err, agents.ErrConcurrencyExceeded):
+		return huma.Error429TooManyRequests("agent has too many concurrent runs")
 	}
 
 	var fieldErr *domain.FieldError
@@ -516,7 +523,7 @@ func (s *Server) handlePlaygroundRun(ctx context.Context, input *PlaygroundRunIn
 	}
 
 	configJSON, _ := json.Marshal(config)
-	slug := "playground-" + time.Now().UTC().Format("20060102-150405")
+	slug := "playground-" + time.Now().UTC().Format("20060102-150405") + "-" + fmt.Sprintf("%04d", time.Now().Nanosecond()/100000)
 
 	agent, createErr := svc.CreateAgent(ctx, agents.CreateAgentRequest{
 		ProjectID:   projectID,
@@ -577,7 +584,11 @@ func (s *Server) handleGetRecommendations(ctx context.Context, input *GetRecomme
 		return nil, mapAgentServiceError(agentErr)
 	}
 
-	recs, recErr := agents.GenerateRecommendations(ctx, s.store.(agents.CostOptimizerStore), agent)
+	costStore, ok := s.store.(agents.CostOptimizerStore)
+	if !ok {
+		return nil, huma.Error500InternalServerError("cost optimization not supported")
+	}
+	recs, recErr := agents.GenerateRecommendations(ctx, costStore, agent)
 	if recErr != nil {
 		return nil, huma.Error500InternalServerError("failed to generate recommendations")
 	}

@@ -202,6 +202,43 @@ func (q *Queries) ListAgentMessagesByAgent(ctx context.Context, agentID string, 
 	return messages, rows.Err()
 }
 
+// AgentMessageEdge represents a directed edge between two agents with a message count.
+type AgentMessageEdge struct {
+	SourceAgentID string `json:"source_agent_id"`
+	TargetAgentID string `json:"target_agent_id"`
+	MessageCount  int    `json:"message_count"`
+}
+
+// GetAgentTopologyEdges returns the directed edges between agents for a project,
+// grouped by source/target with message counts.
+func (q *Queries) GetAgentTopologyEdges(ctx context.Context, projectID string) ([]AgentMessageEdge, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAgentTopologyEdges")
+	defer span.End()
+
+	query := `
+		SELECT source_agent_id, target_agent_id, COUNT(*) AS message_count
+		FROM agent_messages
+		WHERE project_id = $1 AND source_agent_id != ''
+		GROUP BY source_agent_id, target_agent_id
+		ORDER BY message_count DESC`
+
+	rows, err := q.db.Query(ctx, query, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var edges []AgentMessageEdge
+	for rows.Next() {
+		var e AgentMessageEdge
+		if err := rows.Scan(&e.SourceAgentID, &e.TargetAgentID, &e.MessageCount); err != nil {
+			return nil, err
+		}
+		edges = append(edges, e)
+	}
+	return edges, rows.Err()
+}
+
 func argPlaceholder(n int) string {
 	return "$" + strconv.Itoa(n)
 }

@@ -18,9 +18,11 @@ export function useAgentStream(
   });
   const esRef = useRef<EventSource | null>(null);
   const retriesRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
   const connect = useCallback(() => {
-    if (!(enabled && runId)) {
+    if (!(enabled && runId && mountedRef.current)) {
       return;
     }
 
@@ -48,10 +50,14 @@ export function useAgentStream(
       esRef.current = null;
       setState((prev) => ({ ...prev, connected: false }));
 
+      if (!mountedRef.current) {
+        return;
+      }
+
       if (retriesRef.current < 5) {
         const delay = Math.min(1000 * 2 ** retriesRef.current, 16_000);
         retriesRef.current += 1;
-        setTimeout(connect, delay);
+        retryTimerRef.current = setTimeout(connect, delay);
       } else {
         setState((prev) => ({
           ...prev,
@@ -62,10 +68,16 @@ export function useAgentStream(
   }, [runId, enabled, baseUrl]);
 
   useEffect(() => {
+    mountedRef.current = true;
     if (enabled) {
       connect();
     }
     return () => {
+      mountedRef.current = false;
+      if (retryTimerRef.current != null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       esRef.current?.close();
       esRef.current = null;
     };

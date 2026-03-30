@@ -18,7 +18,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { z } from "zod/v4";
 import {
   type AgentListRow,
@@ -31,9 +31,16 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import { agentColumns } from "@/components/tables/agents-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import { agentListRowsQueryOptions } from "@/hooks/api/use-agents";
+import {
+  agentListRowsQueryOptions,
+  agentTopologyQueryOptions,
+} from "@/hooks/api/use-agents";
 import { SearchIcon, SparklesIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
+
+const AgentTopologyFlow = lazy(
+  () => import("@/components/agents/agent-topology-flow")
+);
 
 export const searchSchema = z.object({
   query: z.string().optional(),
@@ -63,6 +70,10 @@ function AgentsPage() {
     enabled: hasProject,
   });
   const agents = data as AgentListRow[] | undefined;
+  const { data: topology } = useQuery({
+    ...agentTopologyQueryOptions(),
+    enabled: hasProject,
+  });
 
   const filteredData = useMemo(
     () => filterAgents(hasProject ? (agents ?? []) : [], search.query),
@@ -189,6 +200,28 @@ function AgentsPage() {
       </div>
 
       <DataTable<AgentListRow> emptyState={emptyState} table={table} />
+
+      {hasProject && topology && topology.edges.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="text-sm">Agent Topology</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Suspense
+              fallback={
+                <div className="flex h-48 items-center justify-center text-muted-foreground text-sm">
+                  Loading topology...
+                </div>
+              }
+            >
+              <AgentTopologyFlow
+                edges={topology.edges}
+                nodes={topology.nodes}
+              />
+            </Suspense>
+          </CardContent>
+        </Card>
+      )}
 
       {hasProject && session.user.activeProjectId ? (
         <CreateAgentDialog

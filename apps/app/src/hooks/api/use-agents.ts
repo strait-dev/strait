@@ -260,3 +260,34 @@ export const agentVersionsQueryOptions = (agentId: string) =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
+
+export type AgentTopologyNode = {
+  agent_id: string;
+  agent_name: string;
+  agent_slug: string;
+};
+
+export type AgentTopologyEdge = {
+  message_count: number;
+  source: string;
+  target: string;
+};
+
+export type AgentTopology = {
+  edges: AgentTopologyEdge[];
+  nodes: AgentTopologyNode[];
+};
+
+const fetchAgentTopology = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler((): Promise<AgentTopology> => {
+    return runWithSentryReport(apiEffect<AgentTopology>("/v1/agents/topology"));
+  });
+
+export const agentTopologyQueryOptions = () =>
+  queryOptions({
+    queryKey: [...queryKeys.agents._def, "topology"],
+    queryFn: () => fetchAgentTopology(),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });

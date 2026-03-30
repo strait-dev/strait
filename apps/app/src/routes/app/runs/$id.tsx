@@ -32,6 +32,8 @@ import {
 } from "recharts";
 import {
   buildRunTimeline,
+  type ErrorClassification,
+  extractErrorClassification,
   type RunTimelineItem,
   summarizeRunDebugBundle,
 } from "@/components/agents/run-debug-utils";
@@ -583,6 +585,62 @@ function AgentStreamCard({
   );
 }
 
+const ERROR_CLASS_LABELS: Record<string, { fallback: string; title: string }> =
+  {
+    oom: {
+      title: "Out of Memory",
+      fallback:
+        "Worker exceeded resource limits. Consider reducing tool complexity or using a smaller model.",
+    },
+    timeout: {
+      title: "Execution Timeout",
+      fallback: "Agent execution timed out.",
+    },
+    rate_limited: {
+      title: "Rate Limited",
+      fallback: "Provider rate limit hit.",
+    },
+  };
+
+function RunErrorBanner({
+  classification,
+  genericError,
+}: {
+  classification: ErrorClassification | null;
+  genericError?: string;
+}) {
+  const label = classification
+    ? ERROR_CLASS_LABELS[classification.error_class]
+    : null;
+
+  if (label) {
+    return (
+      <Alert
+        className="mb-6 border-amber-500/40 bg-amber-500/10"
+        variant="destructive"
+      >
+        <HugeiconsIcon icon={AlertCircleIcon} size={16} />
+        <AlertTitle>{label.title}</AlertTitle>
+        <AlertDescription>
+          {classification?.suggestion ?? label.fallback}
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  if (genericError) {
+    return (
+      <Alert className="mb-6" variant="destructive">
+        <HugeiconsIcon icon={AlertCircleIcon} size={16} />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>{genericError}</AlertDescription>
+      </Alert>
+    );
+  }
+
+  return null;
+}
+
 function RunDetailPage() {
   const { id } = Route.useParams();
   usePageEvent("run_detail_viewed", { run_id: id });
@@ -614,6 +672,9 @@ function RunDetailPage() {
   const isActive = ACTIVE_STATUSES.has(run.status as RunStatus);
   const summary = summarizeRunDebugBundle(bundle);
   const timeline = buildRunTimeline(bundle);
+  const errorClassification = isFailed
+    ? extractErrorClassification(bundle)
+    : null;
   const usageSeries = (bundle.usage ?? []).map((usage, index) => ({
     cost_microusd: usage.cost_microusd,
     label: `${index + 1}`,
@@ -657,12 +718,11 @@ function RunDetailPage() {
         </div>
       </div>
 
-      {isFailed && run.error && (
-        <Alert className="mb-6" variant="destructive">
-          <HugeiconsIcon icon={AlertCircleIcon} size={16} />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{run.error}</AlertDescription>
-        </Alert>
+      {isFailed && (
+        <RunErrorBanner
+          classification={errorClassification}
+          genericError={run.error}
+        />
       )}
 
       <RunSummaryCards

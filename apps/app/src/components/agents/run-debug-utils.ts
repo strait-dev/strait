@@ -78,6 +78,39 @@ export type RunDebugSummary = {
   usage_count: number;
 };
 
+export type ErrorClassification = {
+  error_class: string;
+  suggestion?: string;
+};
+
+/**
+ * Extracts the error classification from the debug bundle events.
+ * Looks for error events that contain an `error_class` field in their data.
+ */
+export function extractErrorClassification(
+  bundle: DebugBundle
+): ErrorClassification | null {
+  for (const event of bundle.events ?? []) {
+    if (event.type !== "error" && event.level !== "error") {
+      continue;
+    }
+    const data = asRecord(event.data);
+    if (!data) {
+      continue;
+    }
+    const errorClass =
+      typeof data.error_class === "string" ? data.error_class : null;
+    if (errorClass) {
+      return {
+        error_class: errorClass,
+        suggestion:
+          typeof data.suggestion === "string" ? data.suggestion : undefined,
+      };
+    }
+  }
+  return null;
+}
+
 function asRecord(value: unknown): JsonRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;

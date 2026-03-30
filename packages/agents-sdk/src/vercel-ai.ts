@@ -24,6 +24,7 @@ import {
   toJsonValue,
 } from "./internal";
 import { defaultPricingCatalog } from "./pricing";
+import { applyPromptCaching, type PromptCacheOptions } from "./prompt-cache";
 import type { AgentBudget, BudgetInput, UsageTotals } from "./types";
 
 type AdapterContext = ReturnType<typeof resolveAdapterContext>;
@@ -41,7 +42,10 @@ type StreamChunkEvent =
     ? Event
     : never;
 
-export interface VercelAIAdapterOptions extends AdapterTelemetryOptions {}
+export interface VercelAIAdapterOptions extends AdapterTelemetryOptions {
+  /** Enable prompt caching for compatible providers (Anthropic, OpenAI). */
+  promptCaching?: PromptCacheOptions;
+}
 
 export interface AutoBudgetOptions {
   above: `${number}%` | number;
@@ -162,7 +166,10 @@ function buildMiddleware(
     specificationVersion: "v3",
     transformParams: async ({ params }) => {
       budgetGuard(context);
-      return await Promise.resolve(params);
+      const transformed = options.promptCaching
+        ? applyPromptCaching(params, options.promptCaching)
+        : params;
+      return await Promise.resolve(transformed);
     },
     wrapGenerate: async ({ doGenerate, params, model }) => {
       const result = await doGenerate();

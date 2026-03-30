@@ -213,6 +213,25 @@ func (q *Queries) CountRunsForJobSince(ctx context.Context, jobID string, since 
 	return count, nil
 }
 
+// CountProjectRunsSince returns the total number of runs for a project since the given time.
+func (q *Queries) CountProjectRunsSince(ctx context.Context, projectID string, since time.Time) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountProjectRunsSince")
+	defer span.End()
+
+	query := `
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE project_id = $1
+		  AND created_at >= $2`
+
+	var count int
+	if err := q.db.QueryRow(ctx, query, projectID, since).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count project runs since: %w", err)
+	}
+
+	return count, nil
+}
+
 // GetJobHealthStats returns aggregated health metrics for a job's runs over a given window.
 func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*JobHealthStats, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobHealthStats")

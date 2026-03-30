@@ -55,7 +55,6 @@ type AgentTopologyOutput struct {
 }
 
 type GetAgentTopologyInput struct {
-	AgentID string `path:"agentID"`
 }
 
 func (s *Server) handleSendAgentMessage(ctx context.Context, input *SendAgentMessageInput) (*SendAgentMessageOutput, error) {
@@ -108,6 +107,53 @@ func (s *Server) handleListAgentMessages(ctx context.Context, input *ListAgentMe
 		messages = []domain.AgentMessage{}
 	}
 	return &ListAgentMessagesOutput{Body: messages}, nil
+}
+
+func (s *Server) handleGetAgentTopology(ctx context.Context, _ *GetAgentTopologyInput) (*AgentTopologyOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+
+	q, ok := s.store.(*store.Queries)
+	if !ok {
+		return nil, huma.Error500InternalServerError("topology not supported")
+	}
+
+	// Get all agents for the project to build nodes.
+	agentList, err := q.ListAgents(ctx, projectID, 500, nil)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list agents")
+	}
+
+	nodes := make([]AgentTopologyNode, 0, len(agentList))
+	for _, a := range agentList {
+		nodes = append(nodes, AgentTopologyNode{
+			AgentID:   a.ID,
+			AgentSlug: a.Slug,
+			AgentName: a.Name,
+		})
+	}
+
+	// Get edges from message flow.
+	edgeRows, err := q.GetAgentTopologyEdges(ctx, projectID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get topology edges")
+	}
+
+	edges := make([]AgentTopologyEdge, 0, len(edgeRows))
+	for _, e := range edgeRows {
+		edges = append(edges, AgentTopologyEdge{
+			Source:       e.SourceAgentID,
+			Target:       e.TargetAgentID,
+			MessageCount: e.MessageCount,
+		})
+	}
+
+	out := &AgentTopologyOutput{}
+	out.Body.Nodes = nodes
+	out.Body.Edges = edges
+	return out, nil
 }
 
 func mapMessageError(err error) error {

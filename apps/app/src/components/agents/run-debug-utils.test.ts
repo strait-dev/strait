@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { DebugBundle } from "@/hooks/api/types";
-import { buildRunTimeline, summarizeRunDebugBundle } from "./run-debug-utils";
+import {
+  buildRunTimeline,
+  extractErrorClassification,
+  summarizeRunDebugBundle,
+} from "./run-debug-utils";
 
 const bundle: DebugBundle = {
   checkpoints: [
@@ -164,6 +168,100 @@ describe("run-debug-utils", () => {
       total_cost_microusd: 250,
       total_tokens: 30,
       usage_count: 1,
+    });
+  });
+});
+
+describe("extractErrorClassification", () => {
+  it("returns null when no error events exist", () => {
+    expect(extractErrorClassification(bundle)).toBeNull();
+  });
+
+  it("extracts oom classification from error event data", () => {
+    const oomBundle: DebugBundle = {
+      ...bundle,
+      events: [
+        {
+          created_at: "2026-03-28T10:00:00Z",
+          data: {
+            error: "Worker exceeded resource limits",
+            error_class: "oom",
+            suggestion: "Reduce tool complexity.",
+          },
+          id: "evt-err",
+          level: "error",
+          message: "agent runtime failed",
+          run_id: "run-1",
+          type: "error",
+        },
+      ],
+    };
+    const result = extractErrorClassification(oomBundle);
+    expect(result).toEqual({
+      error_class: "oom",
+      suggestion: "Reduce tool complexity.",
+    });
+  });
+
+  it("extracts timeout classification", () => {
+    const timeoutBundle: DebugBundle = {
+      ...bundle,
+      events: [
+        {
+          created_at: "2026-03-28T10:00:00Z",
+          data: { error_class: "timeout", suggestion: "Increase timeout." },
+          id: "evt-timeout",
+          level: "error",
+          message: "agent runtime failed",
+          run_id: "run-1",
+          type: "error",
+        },
+      ],
+    };
+    const result = extractErrorClassification(timeoutBundle);
+    expect(result).toEqual({
+      error_class: "timeout",
+      suggestion: "Increase timeout.",
+    });
+  });
+
+  it("returns null when event data has no error_class", () => {
+    const noClassBundle: DebugBundle = {
+      ...bundle,
+      events: [
+        {
+          created_at: "2026-03-28T10:00:00Z",
+          data: { error: "something" },
+          id: "evt-plain",
+          level: "error",
+          message: "agent runtime failed",
+          run_id: "run-1",
+          type: "error",
+        },
+      ],
+    };
+    expect(extractErrorClassification(noClassBundle)).toBeNull();
+  });
+
+  it("returns classification without suggestion when suggestion is missing", () => {
+    const noSuggestionBundle: DebugBundle = {
+      ...bundle,
+      events: [
+        {
+          created_at: "2026-03-28T10:00:00Z",
+          data: { error_class: "runtime_error" },
+          id: "evt-runtime",
+          level: "error",
+          message: "agent runtime failed",
+          run_id: "run-1",
+          type: "error",
+        },
+      ],
+    };
+    const result = extractErrorClassification(noSuggestionBundle);
+    expect(result).toEqual({
+      error_class: "runtime_error",
+      suggestion: undefined,
     });
   });
 });

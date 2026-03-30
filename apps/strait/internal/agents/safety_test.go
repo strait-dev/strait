@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 )
@@ -216,5 +217,78 @@ func TestExtractWebhookURLTrimsWhitespace(t *testing.T) {
 	got := extractWebhookURL(json.RawMessage(`{"webhook_url":"  https://example.com/hook  "}`))
 	if got != "https://example.com/hook" {
 		t.Fatalf("got %q, want trimmed URL", got)
+	}
+}
+
+func TestIsSafeWebhookURLBlocksSSRF(t *testing.T) {
+	t.Parallel()
+
+	blocked := []struct {
+		name string
+		url  string
+	}{
+		{"cloud metadata IPv4", "https://169.254.169.254/latest/meta-data/"},
+		{"google metadata", "https://metadata.google.internal/computeMetadata/v1/"},
+		{"localhost", "https://localhost:8080/admin"},
+		{"loopback", "https://127.0.0.1/admin"},
+		{"zero addr", "https://0.0.0.0/admin"},
+		{"dot local", "https://redis.local/"},
+		{"dot internal", "https://db.internal/"},
+		{"http scheme", "http://example.com/hook"},
+		{"ftp scheme", "ftp://example.com/hook"},
+		{"empty scheme", "//example.com/hook"},
+		{"invalid url", "://badurl"},
+	}
+
+	for _, tt := range blocked {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if isSafeWebhookURL(tt.url) {
+				t.Fatalf("isSafeWebhookURL(%q) should be false", tt.url)
+			}
+		})
+	}
+
+	allowed := []struct {
+		name string
+		url  string
+	}{
+		{"public https", "https://hooks.example.com/agent"},
+		{"public https with path", "https://api.myapp.io/webhooks/agent"},
+	}
+
+	for _, tt := range allowed {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if !isSafeWebhookURL(tt.url) {
+				t.Fatalf("isSafeWebhookURL(%q) should be true", tt.url)
+			}
+		})
+	}
+}
+
+func TestExtractWebhookURLRejectsHTTP(t *testing.T) {
+	t.Parallel()
+	got := extractWebhookURL(json.RawMessage(`{"webhook_url":"http://example.com/hook"}`))
+	if got != "" {
+		t.Fatalf("http webhook should be rejected, got %q", got)
+	}
+}
+
+func TestExtractWebhookURLRejectsInternalHosts(t *testing.T) {
+	t.Parallel()
+	got := extractWebhookURL(json.RawMessage(`{"webhook_url":"https://169.254.169.254/latest/"}`))
+	if got != "" {
+		t.Fatalf("metadata endpoint should be rejected, got %q", got)
+	}
+}
+
+func TestBeginningOfMonth(t *testing.T) {
+	t.Parallel()
+	now, _ := time.Parse(time.RFC3339, "2026-03-15T14:30:00Z")
+	got := beginningOfMonth(now)
+	want, _ := time.Parse(time.RFC3339, "2026-03-01T00:00:00Z")
+	if !got.Equal(want) {
+		t.Fatalf("beginningOfMonth(%v) = %v, want %v", now, got, want)
 	}
 }

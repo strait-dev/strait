@@ -28,6 +28,8 @@ export {
   lookupPricing,
   normalizeUsageReport,
 } from "./pricing";
+export type { PromptCacheOptions, PromptCacheType } from "./prompt-cache";
+export { applyPromptCaching } from "./prompt-cache";
 export { createSandboxTool } from "./sandbox";
 export type { AgentTemplate, AgentTemplateCategory } from "./templates";
 export { agentTemplates } from "./templates";

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,6 +54,7 @@ type Service interface {
 	RunAgent(ctx context.Context, req RunAgentRequest) (*domain.JobRun, error)
 	PrepareDirectRun(ctx context.Context, req RunAgentRequest) (*DirectRunResult, error)
 	ListAgentRuns(ctx context.Context, projectID, agentID string, limit, offset int) ([]domain.JobRun, error)
+	Close()
 }
 
 type agentStore interface {
@@ -131,6 +134,7 @@ func (LocalStubProvider) Run(_ context.Context, agent *domain.Agent, deployment 
 // QuotaChecker provides project quota information for agent enforcement.
 type QuotaChecker interface {
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	CountProjectRunsSince(ctx context.Context, projectID string, since time.Time) (int, error)
 }
 
 type localService struct {
@@ -520,6 +524,18 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		return nil, err
 	}
 
+	// Check monthly run quota.
+	if s.quotaChecker != nil {
+		quota, qErr := s.quotaChecker.GetProjectQuota(ctx, req.ProjectID)
+		if qErr == nil && quota != nil && quota.MaxAgentRunsPerMonth > 0 {
+			monthStart := beginningOfMonth(s.now())
+			count, countErr := s.quotaChecker.CountProjectRunsSince(ctx, req.ProjectID, monthStart)
+			if countErr == nil && count >= quota.MaxAgentRunsPerMonth {
+				return nil, ErrRunQuotaExceeded
+			}
+		}
+	}
+
 	agent, err := s.GetAgent(ctx, req.ProjectID, req.AgentID)
 	if err != nil {
 		return nil, err
@@ -711,6 +727,10 @@ func normalizedConfig(raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
+func beginningOfMonth(now time.Time) time.Time {
+	return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+}
+
 func advisoryLockID(value string) int64 {
 	sum := sha256.Sum256([]byte(value))
 	return int64(binary.BigEndian.Uint64(sum[:8]) & ((1 << 63) - 1))
@@ -883,25 +903,60 @@ func (s *localService) generateRunToken(runID string, timeoutSecs int, expiresAt
 	return signed, nil
 }
 
+// classifyRuntimeError inspects an error message from the Cloudflare Worker
+// runtime and returns a classification and optional user-facing suggestion.
+func classifyRuntimeError(errMsg string) (class string, suggestion string) {
+	lower := strings.ToLower(errMsg)
+	switch {
+	case strings.Contains(lower, "1101") ||
+		strings.Contains(lower, "exceeded resource limits") ||
+		strings.Contains(lower, "exceeded cpu") ||
+		strings.Contains(lower, "out of memory") ||
+		strings.Contains(lower, "oom"):
+		return "oom", "Worker exceeded resource limits. Consider reducing tool complexity or using a smaller model."
+	case strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "deadline exceeded"):
+		return "timeout", "Agent execution timed out. Consider increasing the timeout or simplifying the task."
+	case strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "429"):
+		return "rate_limited", "Provider rate limit hit. Consider adding retry delays or reducing concurrency."
+	default:
+		return "runtime_error", ""
+	}
+}
+
 func (s *localService) markRuntimeSystemFailed(ctx context.Context, runID, errMsg string) {
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil || run == nil || run.Status.IsTerminal() {
 		return
 	}
 
+	errorClass, suggestion := classifyRuntimeError(errMsg)
+
 	finishedAt := s.now().UTC()
 	if updateErr := s.store.UpdateRunStatus(ctx, runID, run.Status, domain.StatusSystemFailed, map[string]any{
 		"finished_at": finishedAt,
 		"error":       errMsg,
+		"error_class": errorClass,
 	}); updateErr != nil {
 		return
 	}
+
+	eventData := map[string]any{
+		"error":       errMsg,
+		"error_class": errorClass,
+	}
+	if suggestion != "" {
+		eventData["suggestion"] = suggestion
+	}
+
 	_ = s.store.InsertEvent(ctx, &domain.RunEvent{
 		RunID:   runID,
 		Type:    domain.EventError,
 		Level:   "error",
 		Message: "agent runtime failed",
-		Data:    mustJSON(map[string]any{"error": errMsg}),
+		Data:    mustJSON(eventData),
 	})
 
 	// Retry if the backing job allows more attempts. The next dispatch
@@ -1029,8 +1084,46 @@ func extractWebhookURL(config json.RawMessage) string {
 	if err := json.Unmarshal(config, &cfg); err != nil {
 		return ""
 	}
-	if webhookVal, ok := cfg["webhook_url"].(string); ok {
-		return strings.TrimSpace(webhookVal)
+	webhookVal, ok := cfg["webhook_url"].(string)
+	if !ok {
+		return ""
 	}
-	return ""
+	raw := strings.TrimSpace(webhookVal)
+	if raw == "" {
+		return ""
+	}
+	if !isSafeWebhookURL(raw) {
+		return ""
+	}
+	return raw
+}
+
+// isSafeWebhookURL rejects URLs that could target internal services or
+// cloud metadata endpoints (SSRF prevention).
+func isSafeWebhookURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	// Block cloud metadata, localhost, and private IP ranges.
+	blocked := []string{
+		"169.254.169.254",
+		"metadata.google.internal",
+		"localhost",
+		"127.0.0.1",
+		"[::1]",
+		"0.0.0.0",
+	}
+	if slices.Contains(blocked, host) {
+		return false
+	}
+	// Block .local and .internal TLDs.
+	if strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") {
+		return false
+	}
+	return true
 }
