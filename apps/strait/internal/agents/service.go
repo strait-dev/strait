@@ -30,6 +30,8 @@ const (
 var (
 	ErrNotDeployed         = errors.New("agent is not deployed")
 	ErrConcurrencyExceeded = errors.New("agent has too many concurrent runs")
+	ErrAgentQuotaExceeded  = errors.New("agent quota exceeded for this project")
+	ErrRunQuotaExceeded    = errors.New("monthly agent run quota exceeded")
 )
 
 // DirectRunResult contains the data needed for client-side dispatch.
@@ -126,6 +128,11 @@ func (LocalStubProvider) Run(_ context.Context, agent *domain.Agent, deployment 
 	}), nil
 }
 
+// QuotaChecker provides project quota information for agent enforcement.
+type QuotaChecker interface {
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+}
+
 type localService struct {
 	store             agentStore
 	txb               store.TxBeginner
@@ -139,6 +146,7 @@ type localService struct {
 	jwtSigningKey     string
 	dispatchPool      pond.Pool
 	maxConcurrentRuns int
+	quotaChecker      QuotaChecker
 }
 
 type Option func(*localService)
@@ -266,6 +274,14 @@ func WithDispatchHTTPClient(client *http.Client) Option {
 	}
 }
 
+func WithQuotaChecker(qc QuotaChecker) Option {
+	return func(s *localService) {
+		if qc != nil {
+			s.quotaChecker = qc
+		}
+	}
+}
+
 func WithMaxConcurrentRuns(n int) Option {
 	return func(s *localService) {
 		if n > 0 {
@@ -283,6 +299,17 @@ func (s *localService) Close() {
 func (s *localService) CreateAgent(ctx context.Context, req CreateAgentRequest) (*domain.Agent, error) {
 	if err := validateCreateRequest(req); err != nil {
 		return nil, err
+	}
+
+	// Check agent quota.
+	if s.quotaChecker != nil {
+		quota, qErr := s.quotaChecker.GetProjectQuota(ctx, req.ProjectID)
+		if qErr == nil && quota != nil && quota.MaxAgents > 0 {
+			existing, listErr := s.store.ListAgents(ctx, req.ProjectID, quota.MaxAgents+1, nil)
+			if listErr == nil && len(existing) >= quota.MaxAgents {
+				return nil, ErrAgentQuotaExceeded
+			}
+		}
 	}
 
 	var created *domain.Agent

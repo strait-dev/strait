@@ -1,0 +1,4 @@
+ALTER TABLE project_quotas
+    ADD COLUMN IF NOT EXISTS max_agents INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS max_agent_runs_per_month INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS max_agent_channels INT NOT NULL DEFAULT 0;
