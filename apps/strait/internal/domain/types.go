@@ -240,7 +240,21 @@ type AuditEvent struct {
 	ResourceType string          `json:"resource_type"`
 	ResourceID   string          `json:"resource_id"`
 	Details      json.RawMessage `json:"details,omitempty"`
+	Signature    string          `json:"signature,omitempty"`
+	PreviousHash string          `json:"previous_hash,omitempty"`
 	CreatedAt    time.Time       `json:"created_at"`
+}
+
+// AuditChainVerification is the result of verifying the HMAC chain
+// integrity for a project's audit event log.
+type AuditChainVerification struct {
+	ProjectID     string `json:"project_id"`
+	Valid         bool   `json:"valid"`
+	EventsChecked int    `json:"events_checked"`
+	FirstEventID  string `json:"first_event_id,omitempty"`
+	LastEventID   string `json:"last_event_id,omitempty"`
+	BrokenAtID    string `json:"broken_at_id,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 type Job struct {

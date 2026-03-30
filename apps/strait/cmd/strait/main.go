@@ -287,6 +287,13 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// Create dependencies
 	queries := store.New(dbPool)
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
+	if cfg.InternalSecret != "" {
+		auditKey, auditKeyErr := store.DeriveAuditSigningKey(cfg.InternalSecret)
+		if auditKeyErr != nil {
+			return fmt.Errorf("derive audit signing key: %w", auditKeyErr)
+		}
+		queries.SetAuditSigningKey(auditKey)
+	}
 	q := queue.NewPostgresQueue(dbPool, queue.WithPriorityAging(true))
 
 	pub, rdb, err := connectRedis(ctx, cfg)

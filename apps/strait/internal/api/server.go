@@ -344,6 +344,7 @@ type RBACStore interface {
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
+	VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
 }
 
 // NotificationChannelStore handles notification channel and delivery operations.

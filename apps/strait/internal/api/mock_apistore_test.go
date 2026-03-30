@@ -1394,6 +1394,9 @@ type APIStoreMock struct {
 	// StreamAuditEventsFunc mocks the StreamAuditEvents method.
 	StreamAuditEventsFunc func(ctx context.Context, projectID string, actorID string, resourceType string, from time.Time, to time.Time, fn func(*domain.AuditEvent) error) error
 
+	// VerifyAuditChainFunc mocks the VerifyAuditChain method.
+	VerifyAuditChainFunc func(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
+
 	// SumJobMemorySizeBytesFunc mocks the SumJobMemorySizeBytes method.
 	SumJobMemorySizeBytesFunc func(ctx context.Context, jobID string) (int, error)
 
@@ -3417,6 +3420,11 @@ type APIStoreMock struct {
 			// Fn is the fn argument value.
 			Fn func(*domain.AuditEvent) error
 		}
+		// VerifyAuditChain holds details about calls to the VerifyAuditChain method.
+		VerifyAuditChain []struct {
+			Ctx       context.Context
+			ProjectID string
+		}
 		// SumJobMemorySizeBytes holds details about calls to the SumJobMemorySizeBytes method.
 		SumJobMemorySizeBytes []struct {
 			// Ctx is the ctx argument value.
@@ -3903,6 +3911,7 @@ type APIStoreMock struct {
 	lockSeedProjectSystemRoles             sync.RWMutex
 	lockSetEventTriggerSentBy              sync.RWMutex
 	lockStreamAuditEvents                  sync.RWMutex
+	lockVerifyAuditChain                   sync.RWMutex
 	lockSumJobMemorySizeBytes              sync.RWMutex
 	lockSumProjectDailyCostMicrousd        sync.RWMutex
 	lockSumRunCostMicrousd                 sync.RWMutex
@@ -13235,6 +13244,24 @@ func (mock *APIStoreMock) StreamAuditEventsCalls() []struct {
 	calls = mock.calls.StreamAuditEvents
 	mock.lockStreamAuditEvents.RUnlock()
 	return calls
+}
+
+// VerifyAuditChain calls VerifyAuditChainFunc.
+func (mock *APIStoreMock) VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+	}
+	mock.lockVerifyAuditChain.Lock()
+	mock.calls.VerifyAuditChain = append(mock.calls.VerifyAuditChain, callInfo)
+	mock.lockVerifyAuditChain.Unlock()
+	if mock.VerifyAuditChainFunc == nil {
+		return nil, nil
+	}
+	return mock.VerifyAuditChainFunc(ctx, projectID)
 }
 
 // SumJobMemorySizeBytes calls SumJobMemorySizeBytesFunc.
