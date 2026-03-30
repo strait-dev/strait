@@ -143,7 +143,7 @@ const UsageDashboard = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-normal text-foreground text-lg tracking-tight">
+          <h2 className="text-balance font-normal text-foreground text-lg tracking-tight">
             Usage & Billing
           </h2>
           <p className="text-muted-foreground text-sm">

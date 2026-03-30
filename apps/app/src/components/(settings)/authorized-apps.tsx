@@ -58,7 +58,7 @@ export function AuthorizedApps() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center py-8">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+            <div className="size-5 animate-pulse rounded-full bg-muted" />
           </div>
         </CardContent>
       </Card>

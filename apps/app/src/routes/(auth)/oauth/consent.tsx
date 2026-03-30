@@ -108,7 +108,9 @@ const fetchClientInfo = createServerFn({ method: "GET" })
       return {
         name: String(client.name || "Unknown Application"),
         clientId: String(client.clientId || data.clientId),
-        redirectUrls: Array.isArray(client.redirectURLs) ? (client.redirectURLs as string[]) : [],
+        redirectUrls: Array.isArray(client.redirectURLs)
+          ? (client.redirectURLs as string[])
+          : [],
       } satisfies ClientInfo;
     } catch (err) {
       captureException(err, {
@@ -359,7 +361,7 @@ function OAuthConsentPage() {
           >
             {status === "authorizing" ? (
               <span className="flex items-center justify-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+                <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
                 Authorizing...
               </span>
             ) : (
@@ -454,7 +456,7 @@ function ConsentLoading() {
       title="Authorize Application"
     >
       <div className="flex items-center justify-center py-8">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+        <div className="size-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
       </div>
     </AuthLayout>
   );

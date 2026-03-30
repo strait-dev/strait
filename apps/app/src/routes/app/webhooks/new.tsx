@@ -13,6 +13,7 @@ import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
 import { toast } from "@strait/ui/components/toast/index";
+import { cn } from "@strait/ui/utils/index";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -139,7 +140,7 @@ function CreateWebhookPage() {
         <Button render={<Link to="/app/webhooks" />} size="sm" variant="ghost">
           <HugeiconsIcon icon={ChevronLeftIcon} size={14} />
         </Button>
-        <h1 className="font-semibold text-lg">Create webhook</h1>
+        <h1 className="text-balance font-semibold text-lg">Create webhook</h1>
       </div>
 
       <form
@@ -230,7 +231,10 @@ function CreateWebhookPage() {
                         />
                         <div className="flex-1">
                           <span
-                            className={`font-medium text-sm ${hasProEvents ? "" : "text-muted-foreground"}`}
+                            className={cn(
+                              "font-medium text-sm",
+                              !hasProEvents && "text-muted-foreground"
+                            )}
                           >
                             {event.label}
                           </span>
