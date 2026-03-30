@@ -25,6 +25,23 @@ import { queryKeys } from "@/hooks/query-keys";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon, PlusIcon } from "@/lib/icons";
 
+type AgentTemplate = {
+  category: string;
+  config: Record<string, unknown>;
+  description: string;
+  model: string;
+  name: string;
+  slug: string;
+};
+
+const AGENT_TEMPLATES: AgentTemplate[] = [
+  { name: "Incident Triage", slug: "incident-triage", description: "Classifies incidents by severity and suggests runbooks.", model: "gpt-5.4-mini", category: "operations", config: { temperature: 0.1, max_attempts: 3, timeout_secs: 120 } },
+  { name: "Content Classifier", slug: "content-classifier", description: "Categorizes text content with configurable taxonomy.", model: "gpt-5.4-mini", category: "content", config: { temperature: 0.0, max_attempts: 2 } },
+  { name: "Code Reviewer", slug: "code-reviewer", description: "Reviews PRs for security, performance, and style.", model: "claude-sonnet-4-6", category: "engineering", config: { temperature: 0.2, max_attempts: 2, budget: "$1.00" } },
+  { name: "Data Extractor", slug: "data-extractor", description: "Extracts structured data from unstructured text.", model: "gpt-5.4-mini", category: "content", config: { temperature: 0.0 } },
+  { name: "Support Router", slug: "support-router", description: "Routes support tickets to the right team.", model: "gpt-5.4-mini", category: "operations", config: { temperature: 0.1 } },
+];
+
 const createAgentSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   slug: z
@@ -136,6 +153,28 @@ const CreateAgentDialog = ({ open, onOpenChange, projectId }: Props) => {
               it locally from the dashboard.
             </DialogDescription>
           </DialogHeader>
+
+          <div className="flex flex-wrap gap-1.5 py-2">
+            {AGENT_TEMPLATES.map((template) => (
+              <button
+                className="rounded border px-2 py-1 text-xs hover:bg-muted"
+                key={template.slug}
+                onClick={() => {
+                  form.setFieldValue("name", template.name);
+                  form.setFieldValue("slug", template.slug);
+                  form.setFieldValue("description", template.description);
+                  form.setFieldValue("model", template.model);
+                  form.setFieldValue(
+                    "configText",
+                    JSON.stringify(template.config, null, 2)
+                  );
+                }}
+                type="button"
+              >
+                {template.name}
+              </button>
+            ))}
+          </div>
 
           <div className="flex flex-col gap-4 py-4">
             <form.Field name="name">

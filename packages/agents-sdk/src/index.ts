@@ -49,6 +49,8 @@ export type {
   UsageReport,
   UsageTotals,
 } from "./types";
+export { agentTemplates } from "./templates";
+export type { AgentTemplate, AgentTemplateCategory } from "./templates";
 export {
   autoBudget,
   budgetExceeded,
