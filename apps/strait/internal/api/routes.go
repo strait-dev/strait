@@ -268,6 +268,7 @@ func (s *Server) routes() chi.Router {
 		r.Route("/agents", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(30, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateAgent))
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAgents))
+			r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(10, time.Minute)).Post("/playground/run", TypedHandler(s, http.StatusCreated, s.handlePlaygroundRun))
 
 			r.Route("/{agentID}", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetAgent))

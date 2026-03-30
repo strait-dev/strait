@@ -464,3 +464,91 @@ func (s *Server) handleListAgentVersions(ctx context.Context, input *ListAgentVe
 	}
 	return &ListAgentVersionsOutput{Body: deployments}, nil
 }
+
+type PlaygroundRunRequest struct {
+	Model        string          `json:"model" validate:"required"`
+	SystemPrompt string          `json:"system_prompt,omitempty"`
+	MaxIter      int             `json:"max_iterations,omitempty"`
+	Budget       string          `json:"budget,omitempty"`
+	Payload      json.RawMessage `json:"payload,omitempty"`
+}
+
+type PlaygroundRunInput struct {
+	Body PlaygroundRunRequest
+}
+
+type PlaygroundRunOutput struct {
+	Body struct {
+		RunID   string `json:"run_id"`
+		AgentID string `json:"agent_id"`
+	}
+}
+
+func (s *Server) handlePlaygroundRun(ctx context.Context, input *PlaygroundRunInput) (*PlaygroundRunOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+	actor := actorFromContext(ctx)
+
+	model := input.Body.Model
+	if model == "" {
+		model = "gpt-5.4-mini"
+	}
+
+	config := map[string]any{
+		"playground": true,
+	}
+	if input.Body.SystemPrompt != "" {
+		config["system_prompt"] = input.Body.SystemPrompt
+	}
+	if input.Body.MaxIter > 0 {
+		config["max_iterations"] = input.Body.MaxIter
+	}
+	if input.Body.Budget != "" {
+		config["budget"] = input.Body.Budget
+	}
+
+	configJSON, _ := json.Marshal(config)
+	slug := "playground-" + time.Now().UTC().Format("20060102-150405")
+
+	agent, createErr := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID:   projectID,
+		Name:        "Playground " + slug,
+		Slug:        slug,
+		Description: "Temporary playground agent",
+		Model:       model,
+		Config:      configJSON,
+		Actor:       actor,
+	})
+	if createErr != nil {
+		return nil, mapAgentServiceError(createErr)
+	}
+
+	if _, deployErr := svc.DeployAgent(ctx, projectID, agent.ID, actor); deployErr != nil {
+		return nil, mapAgentServiceError(deployErr)
+	}
+
+	run, runErr := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID: projectID,
+		AgentID:   agent.ID,
+		Payload:   input.Body.Payload,
+		Actor:     actor,
+	})
+	if runErr != nil {
+		return nil, mapAgentServiceError(runErr)
+	}
+
+	return &PlaygroundRunOutput{Body: struct {
+		RunID   string `json:"run_id"`
+		AgentID string `json:"agent_id"`
+	}{
+		RunID:   run.ID,
+		AgentID: agent.ID,
+	}}, nil
+}
