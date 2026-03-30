@@ -1170,6 +1170,7 @@ func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, ena
 }
 
 // DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
+// Keeps the most recently updated jobs; clears cron on the oldest excess.
 func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {
 	result, err := s.pool.Exec(ctx, `
 		UPDATE jobs SET cron = '', updated_at = NOW()
@@ -1178,7 +1179,7 @@ func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND j.cron IS NOT NULL AND j.cron != ''
 			  AND j.deleted_at IS NULL
-			ORDER BY j.updated_at ASC
+			ORDER BY j.updated_at DESC
 			OFFSET $2
 		)
 	`, orgID, maxSchedules)
@@ -1189,6 +1190,7 @@ func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 }
 
 // DeactivateExcessEnvironments marks excess environments as deleted for an org.
+// Keeps the most recently created environments; deactivates the oldest excess.
 func (s *PgStore) DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error) {
 	result, err := s.pool.Exec(ctx, `
 		UPDATE environments SET deleted_at = NOW()
@@ -1196,7 +1198,7 @@ func (s *PgStore) DeactivateExcessEnvironments(ctx context.Context, orgID string
 			SELECT e.id FROM environments e
 			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND e.deleted_at IS NULL
-			ORDER BY e.created_at ASC
+			ORDER BY e.created_at DESC
 			OFFSET $2
 		)
 	`, orgID, maxEnvironments)
@@ -1207,6 +1209,7 @@ func (s *PgStore) DeactivateExcessEnvironments(ctx context.Context, orgID string
 }
 
 // DeactivateExcessWebhookSubscriptions deactivates webhook subscriptions beyond the limit.
+// Keeps the most recently created subscriptions; deactivates the oldest excess.
 func (s *PgStore) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error) {
 	result, err := s.pool.Exec(ctx, `
 		UPDATE webhook_subscriptions SET active = false
@@ -1214,7 +1217,7 @@ func (s *PgStore) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgI
 			SELECT ws.id FROM webhook_subscriptions ws
 			WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND ws.active = true
-			ORDER BY ws.created_at ASC
+			ORDER BY ws.created_at DESC
 			OFFSET $2
 		)
 	`, orgID, maxEndpoints)

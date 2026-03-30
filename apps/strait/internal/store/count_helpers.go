@@ -96,18 +96,20 @@ func (q *Queries) DeleteWorkflowRunsByOrgOlderThan(ctx context.Context, orgID st
 }
 
 // DeactivateExcessEnvironments marks excess environments as deleted for an org.
-// Keeps the most recently created environments up to the limit.
+// Keeps the most recently created environments up to the limit, deactivating the oldest.
 func (q *Queries) DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessEnvironments")
 	defer span.End()
 
+	// ORDER BY created_at DESC keeps the newest environments (first N rows after OFFSET
+	// are skipped). The subquery returns oldest environments beyond the limit.
 	result, err := q.db.Exec(ctx, `
 		UPDATE environments SET deleted_at = NOW()
 		WHERE id IN (
 			SELECT e.id FROM environments e
 			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND e.deleted_at IS NULL
-			ORDER BY e.created_at ASC
+			ORDER BY e.created_at DESC
 			OFFSET $2
 		)
 	`, orgID, maxEnvironments)
@@ -118,7 +120,7 @@ func (q *Queries) DeactivateExcessEnvironments(ctx context.Context, orgID string
 }
 
 // DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
-// Keeps the most recently updated jobs and clears the cron field on excess ones.
+// Keeps the most recently updated jobs and clears the cron field on the oldest excess ones.
 func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessCronJobs")
 	defer span.End()
@@ -130,7 +132,7 @@ func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND j.cron IS NOT NULL AND j.cron != ''
 			  AND j.deleted_at IS NULL
-			ORDER BY j.updated_at ASC
+			ORDER BY j.updated_at DESC
 			OFFSET $2
 		)
 	`, orgID, maxSchedules)
@@ -171,7 +173,7 @@ func (q *Queries) CountWebhookSubscriptionsByProject(ctx context.Context, projec
 	err := q.db.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM webhook_subscriptions
-		WHERE project_id = $1
+		WHERE project_id = $1 AND active = true
 	`, projectID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count webhook subscriptions by project: %w", err)

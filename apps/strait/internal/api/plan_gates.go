@@ -11,14 +11,22 @@ import (
 	"strait/internal/clickhouse"
 )
 
+// staticRegistry is a singleton PlanRegistry used by all plan gate checks.
+var staticRegistry = billing.NewStaticRegistry()
+
 // recordBillingEvent enqueues a billing analytics event to ClickHouse.
 // No-op if the exporter is nil (self-hosted or analytics disabled).
-func (s *Server) recordBillingEvent(projectID, eventType, feature, planTier string) {
+func (s *Server) recordBillingEvent(ctx context.Context, projectID, eventType, feature, planTier string) {
 	if s.chExporter == nil {
 		return
 	}
+	var orgID string
+	if s.billingEnforcer != nil {
+		orgID, _ = s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	}
 	s.chExporter.Enqueue(clickhouse.BillingEventRecord{
 		Timestamp: time.Now(),
+		OrgID:     orgID,
 		ProjectID: projectID,
 		EventType: eventType,
 		Feature:   feature,
@@ -56,12 +64,11 @@ func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feat
 		return nil // fail open
 	}
 
-	reg := billing.NewStaticRegistry()
-	if reg.AllowsFeature(limits.PlanTier, feature) {
+	if staticRegistry.AllowsFeature(limits.PlanTier, feature) {
 		return nil
 	}
 
-	s.recordBillingEvent(projectID, "gate_rejected", string(feature), string(limits.PlanTier))
+	s.recordBillingEvent(ctx, projectID, "gate_rejected", string(feature), string(limits.PlanTier))
 
 	return huma.Error400BadRequest(
 		fmt.Sprintf("%s requires a higher plan. Upgrade at /settings/billing", featureName),
@@ -84,7 +91,7 @@ func (s *Server) checkPresetAllowed(ctx context.Context, projectID, preset strin
 		return nil
 	}
 
-	s.recordBillingEvent(projectID, "gate_rejected", preset, string(limits.PlanTier))
+	s.recordBillingEvent(ctx, projectID, "gate_rejected", preset, string(limits.PlanTier))
 
 	return huma.Error400BadRequest(
 		fmt.Sprintf("Machine preset %q is not available on the %s plan. Upgrade at /settings/billing", preset, limits.DisplayName),
@@ -168,18 +175,21 @@ func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronE
 		return nil // not a scheduled job
 	}
 
-	limits := s.getOrgPlanLimits(ctx, projectID)
-	if limits == nil {
-		return nil // fail open
-	}
-
-	if limits.MaxScheduledJobs == -1 {
-		return nil // unlimited
+	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
+		return nil
 	}
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
 		return nil //nolint:nilerr // fail open
+	}
+
+	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+	if limErr != nil {
+		return nil //nolint:nilerr // fail open
+	}
+	if limits.MaxScheduledJobs == -1 {
+		return nil // unlimited
 	}
 
 	count, err := s.store.CountCronJobsByOrg(ctx, orgID)
