@@ -866,11 +866,11 @@ func scenarioWorkflowConditionalFailure(ctx *testCtx, iter int) error {
 }
 
 func scenarioWebhookSubscription(ctx *testCtx, iter int) error {
-	code, result, raw, err := apiCall("POST", "/v1/webhooks/subscriptions", map[string]any{ //nolint:gosec // G101: test fixture.
+	code, result, raw, err := apiCall("POST", "/v1/webhooks/subscriptions", map[string]any{
 		"project_id":  ctx.projectID,
 		"webhook_url": ctx.echoURL + "/webhook-receiver",
 		"event_types": []string{"run.completed", "run.failed"},
-		"secret":      "test-webhook-secret",
+		"secret":      randomHex(16),
 	}, ctx.apiKey)
 	if err != nil {
 		return err
@@ -1601,4 +1601,12 @@ func printReport(startTime time.Time) {
 	if stats.scenariosFail.Load() > 0 {
 		os.Exit(1)
 	}
+}
+
+func randomHex(byteLen int) string {
+	b := make([]byte, byteLen)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
 }
