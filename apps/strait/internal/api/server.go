@@ -487,6 +487,7 @@ type Server struct {
 	bgPool             pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
 	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
 	rateLimiter        *ratelimit.RedisRateLimiter
+	authLimiter        *ratelimit.AuthLimiter
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
 	polarWebhook       http.Handler
@@ -637,6 +638,7 @@ func NewServer(deps ServerDeps) *Server {
 		oidcVerifier:       verifier,
 		bgPool:             pond.NewPool(4),
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
+		authLimiter:        ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
 		polarWebhook:       deps.PolarWebhook,
