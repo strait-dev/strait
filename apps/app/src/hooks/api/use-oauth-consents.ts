@@ -26,14 +26,14 @@ export const fetchOAuthConsents = createServerFn({ method: "GET" })
   .handler(async () => {
     const consents = (await auth.api.getOAuthConsents()) ?? [];
     const items: OAuthConsentItem[] = [];
-    for (const consent of consents as any[]) {
+    for (const consent of consents) {
       let clientName = "Unknown Application";
       try {
-        const client = await (auth.api as any).getOAuthClient({
-          body: { client_id: consent.clientId },
+        const client = await auth.api.getOAuthClient({
+          query: { client_id: consent.clientId },
         });
         if (client?.name) {
-          clientName = client.name;
+          clientName = String(client.name);
         }
       } catch (err) {
         captureException(err, {

@@ -99,16 +99,16 @@ const fetchClientInfo = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     try {
-      const client = await (auth.api as any).getOAuthClient({
-        body: { client_id: data.clientId },
+      const client = await auth.api.getOAuthClient({
+        query: { client_id: data.clientId },
       });
       if (!client) {
         return null;
       }
       return {
-        name: (client as any).name ?? "Unknown Application",
-        clientId: (client as any).clientId ?? data.clientId,
-        redirectUrls: (client as any).redirectURLs ?? [],
+        name: String(client.name || "Unknown Application"),
+        clientId: String(client.clientId || data.clientId),
+        redirectUrls: Array.isArray(client.redirectURLs) ? (client.redirectURLs as string[]) : [],
       } satisfies ClientInfo;
     } catch (err) {
       captureException(err, {

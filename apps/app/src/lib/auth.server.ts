@@ -250,6 +250,14 @@ export const auth = betterAuth({
                     productId: process.env.POLAR_PRO_YEARLY_ID ?? "",
                     slug: "pro-yearly",
                   },
+                  {
+                    productId: process.env.POLAR_SCALE_MONTHLY_ID ?? "",
+                    slug: "scale-monthly",
+                  },
+                  {
+                    productId: process.env.POLAR_SCALE_YEARLY_ID ?? "",
+                    slug: "scale-yearly",
+                  },
                 ],
                 successUrl: "/app?checkout_success=true",
                 authenticatedUsersOnly: true,
@@ -265,7 +273,7 @@ export const auth = betterAuth({
                     }),
                   ]
                 : []),
-            ] as any,
+            ] as unknown as [ReturnType<typeof checkout>, ReturnType<typeof portal>, ReturnType<typeof polarUsage>],
           }),
         ]
       : []),
