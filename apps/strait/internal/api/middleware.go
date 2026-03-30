@@ -455,8 +455,8 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 			actorType, _ := ctx.Value(ctxActorTypeKey).(string)
 
 			switch actorType {
-			case "api_key":
-				// API keys use scopes directly.
+			case "api_key", "sse_token":
+				// API keys and SSE tokens use scopes directly.
 				if domain.HasScope(scopes, permission) {
 					next.ServeHTTP(w, r)
 					return

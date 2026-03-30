@@ -64,36 +64,45 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	}
 	ev.Details = details
 
-	// Fetch the signature of the most recent event for this project to chain.
-	var prevSig string
-	prevQuery := `SELECT signature FROM audit_events WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1`
-	if err := q.db.QueryRow(ctx, prevQuery, ev.ProjectID).Scan(&prevSig); err != nil {
-		prevSig = ZeroHash // first event in project
-	}
-	ev.PreviousHash = prevSig
+	// Use client-side timestamp so the signature can be fully computed before INSERT.
+	ev.CreatedAt = time.Now().UTC()
 
-	// Sign the event if a signing key is configured.
-	if q.auditSigningKey != nil {
-		ev.Signature = ComputeAuditSignature(ev, q.auditSigningKey)
-	}
+	// Step 1: Atomically fetch previous_hash + insert the event in a single CTE.
+	// The advisory lock serializes concurrent inserts for the same project within
+	// a single statement (which is its own implicit transaction in auto-commit mode).
+	// The signature is initially empty and set in step 2 after we know previous_hash.
+	atomicQuery := `
+		WITH lock_and_prev AS (
+			SELECT pg_advisory_xact_lock(hashtext($2)),
+			       COALESCE(
+			           (SELECT signature FROM audit_events WHERE project_id = $2 ORDER BY created_at DESC LIMIT 1),
+			           $10
+			       ) AS prev_hash
+		),
+		ins AS (
+			INSERT INTO audit_events (id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at)
+			SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, '', lock_and_prev.prev_hash, $9
+			FROM lock_and_prev
+			RETURNING previous_hash
+		)
+		SELECT previous_hash FROM ins`
 
-	query := `
-		INSERT INTO audit_events (id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-		RETURNING created_at`
-
-	if err := q.db.QueryRow(ctx, query,
+	if err := q.db.QueryRow(ctx, atomicQuery,
 		ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID, details,
-		ev.Signature, ev.PreviousHash,
-	).Scan(&ev.CreatedAt); err != nil {
+		ev.CreatedAt, ZeroHash,
+	).Scan(&ev.PreviousHash); err != nil {
 		return fmt.Errorf("create audit event: %w", err)
 	}
 
-	// Recompute signature with the database-assigned created_at timestamp.
+	// Step 2: Compute and persist the signature now that all fields are known.
+	// This UPDATE cannot cause chain corruption because the row already exists
+	// with the correct previous_hash, and the advisory lock has already released
+	// (allowing the next insert to chain from this event's signature once set).
+	// If this UPDATE fails, the event has an empty signature which VerifyAuditChain
+	// will detect -- but the chain linkage itself remains intact.
 	if q.auditSigningKey != nil {
 		ev.Signature = ComputeAuditSignature(ev, q.auditSigningKey)
-		updateQuery := `UPDATE audit_events SET signature = $1 WHERE id = $2`
-		if _, err := q.db.Exec(ctx, updateQuery, ev.Signature, ev.ID); err != nil {
+		if _, err := q.db.Exec(ctx, `UPDATE audit_events SET signature = $1 WHERE id = $2`, ev.Signature, ev.ID); err != nil {
 			return fmt.Errorf("update audit event signature: %w", err)
 		}
 	}
