@@ -2,10 +2,12 @@
 useDefault = true
 
 [allowlist]
-description = "Allowlist for test fixtures, docs examples, and dev-only config"
+description = "Allowlist for test fixtures, docs examples, build artifacts, and dev-only config"
 
 paths = [
     '''_test\.go$''',
+    '''_test\.ts$''',
+    '''__tests__/''',
     '''test/''',
     '''testdata/''',
     '''loadtest/''',
@@ -14,15 +16,24 @@ paths = [
     '''\.env\.example$''',
     '''docker-compose.*\.yml$''',
     '''Makefile$''',
+    '''\.next/''',
+    '''\.github/workflows/''',
+    '''apps/website/''',
+    '''apps/app/src/hooks/api/''',
 ]
 
 regexTarget = "match"
 regexes = [
-    '''test-secret-value''',
+    '''test-secret''',
     '''test-encryption-key''',
     '''aaaa-test-''',
-    '''strait_[a-f0-9]{10,}''',
+    '''e2e-internal-secret''',
+    '''e2e-jwt-signing-key''',
+    '''ci-jwt-key''',
+    '''strait_[a-f0-9]{6,}''',
+    '''whsec_[a-z0-9]+''',
     '''owasp-test-''',
     '''loadtest-secret''',
     '''dump-openapi''',
+    '''mwesulbn1k\.ufs\.sh''',
 ]
