@@ -1442,6 +1442,12 @@ type APIStoreMock struct {
 	// UpdateProjectDefaultRegionFunc mocks the UpdateProjectDefaultRegion method.
 	UpdateProjectDefaultRegionFunc func(ctx context.Context, projectID string, defaultRegion string) error
 
+	// UpdateProjectMaxKeyLifetimeDaysFunc mocks the UpdateProjectMaxKeyLifetimeDays method.
+	UpdateProjectMaxKeyLifetimeDaysFunc func(ctx context.Context, projectID string, days int) error
+
+	// ListAPIKeysExpiringSoonFunc mocks the ListAPIKeysExpiringSoon method.
+	ListAPIKeysExpiringSoonFunc func(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error)
+
 	// UpdateProjectRoleFunc mocks the UpdateProjectRole method.
 	UpdateProjectRoleFunc func(ctx context.Context, role *domain.ProjectRole) error
 
@@ -13895,6 +13901,22 @@ func (mock *APIStoreMock) UpdateProjectDefaultRegionCalls() []struct {
 	calls = mock.calls.UpdateProjectDefaultRegion
 	mock.lockUpdateProjectDefaultRegion.RUnlock()
 	return calls
+}
+
+// UpdateProjectMaxKeyLifetimeDays calls UpdateProjectMaxKeyLifetimeDaysFunc.
+func (mock *APIStoreMock) UpdateProjectMaxKeyLifetimeDays(ctx context.Context, projectID string, days int) error {
+	if mock.UpdateProjectMaxKeyLifetimeDaysFunc == nil {
+		return nil
+	}
+	return mock.UpdateProjectMaxKeyLifetimeDaysFunc(ctx, projectID, days)
+}
+
+// ListAPIKeysExpiringSoon calls ListAPIKeysExpiringSoonFunc.
+func (mock *APIStoreMock) ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error) {
+	if mock.ListAPIKeysExpiringSoonFunc == nil {
+		return nil, nil
+	}
+	return mock.ListAPIKeysExpiringSoonFunc(ctx, projectID, withinDays)
 }
 
 // UpdateProjectRole calls UpdateProjectRoleFunc.

@@ -113,6 +113,8 @@ type JobStore interface {
 	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error
+	UpdateProjectMaxKeyLifetimeDays(ctx context.Context, projectID string, days int) error
+	ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error)
 	PauseJob(ctx context.Context, id, reason string) error
 	ResumeJob(ctx context.Context, id string) error
 }

@@ -167,6 +167,7 @@ type ProjectQuota struct {
 	MaxIterationsPerRun           int
 	MaxMemoryPerKeyBytes          int
 	MaxMemoryPerJobBytes          int
+	MaxKeyLifetimeDays            int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.

@@ -255,6 +255,38 @@ func (q *Queries) ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, 
 	return keys, rows.Err()
 }
 
+func (q *Queries) ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAPIKeysExpiringSoon")
+	defer span.End()
+
+	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
+	                 rate_limit_requests, rate_limit_window_secs,
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url
+			  FROM api_keys
+			  WHERE project_id = $1
+			    AND revoked_at IS NULL
+			    AND (expires_at IS NULL OR expires_at <= NOW() + INTERVAL '1 day' * $2)
+			  ORDER BY expires_at ASC NULLS FIRST
+			  LIMIT 100`
+
+	rows, err := q.db.Query(ctx, query, projectID, withinDays)
+	if err != nil {
+		return nil, fmt.Errorf("list api keys expiring soon: %w", err)
+	}
+	defer rows.Close()
+
+	keys := make([]domain.APIKey, 0, 8)
+	for rows.Next() {
+		key, scanErr := scanAPIKey(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list api keys expiring soon scan: %w", scanErr)
+		}
+		keys = append(keys, *key)
+	}
+
+	return keys, rows.Err()
+}
+
 func (q *Queries) ListRunsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunsByOrg")
 	defer span.End()

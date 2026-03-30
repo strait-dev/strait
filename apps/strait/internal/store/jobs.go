@@ -541,7 +541,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone, max_cost_per_run_microusd, max_daily_cost_microusd,
 		       rate_limit_requests, rate_limit_window_secs, compute_daily_cost_limit_microusd, default_region, plan_tier,
 		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
-		       max_memory_per_key_bytes, max_memory_per_job_bytes
+		       max_memory_per_key_bytes, max_memory_per_job_bytes, max_key_lifetime_days
 		FROM project_quotas
 		WHERE project_id = $1`
 
@@ -562,6 +562,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	var maxIterationsPerRun *int
 	var maxMemoryPerKeyBytes *int
 	var maxMemoryPerJobBytes *int
+	var maxKeyLifetimeDays *int
 	err := q.db.QueryRow(ctx, query, projectID).Scan(
 		&quota.ProjectID,
 		&maxQueued,
@@ -580,6 +581,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 		&maxIterationsPerRun,
 		&maxMemoryPerKeyBytes,
 		&maxMemoryPerJobBytes,
+		&maxKeyLifetimeDays,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -635,6 +637,9 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	}
 	if maxMemoryPerJobBytes != nil {
 		quota.MaxMemoryPerJobBytes = *maxMemoryPerJobBytes
+	}
+	if maxKeyLifetimeDays != nil {
+		quota.MaxKeyLifetimeDays = *maxKeyLifetimeDays
 	}
 
 	return quota, nil
@@ -771,6 +776,22 @@ func (q *Queries) UpdateProjectDefaultRegion(ctx context.Context, projectID, def
 	_, err := q.db.Exec(ctx, query, projectID, defaultRegion)
 	if err != nil {
 		return fmt.Errorf("update project default region: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) UpdateProjectMaxKeyLifetimeDays(ctx context.Context, projectID string, days int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateProjectMaxKeyLifetimeDays")
+	defer span.End()
+
+	query := `
+		INSERT INTO project_quotas (project_id, max_key_lifetime_days)
+		VALUES ($1, $2)
+		ON CONFLICT (project_id) DO UPDATE SET max_key_lifetime_days = EXCLUDED.max_key_lifetime_days`
+
+	_, err := q.db.Exec(ctx, query, projectID, days)
+	if err != nil {
+		return fmt.Errorf("update project max key lifetime days: %w", err)
 	}
 	return nil
 }
