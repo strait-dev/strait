@@ -19,7 +19,7 @@ import (
 )
 
 // testSigningKey is the 32-byte HMAC key used by newTestServer and generateRunToken.
-const testSigningKey = "01234567890123456789012345678901"
+var testSigningKey = testJWTSigningKey
 
 // wrongSigningKey is a valid-length key that differs from testSigningKey.
 const wrongSigningKey = "99999999999999999999999999999999"

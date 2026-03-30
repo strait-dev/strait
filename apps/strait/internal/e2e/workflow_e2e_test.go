@@ -34,7 +34,7 @@ func wfSetup(t *testing.T) *api.Server {
 	return api.NewServer(api.ServerDeps{
 		Config: &config.Config{
 			InternalSecret:           "test-secret-value",
-			JWTSigningKey:            "test-jwt-key-must-be-at-least-32-chars-long",
+			JWTSigningKey:            testJWTSigningKey,
 			RateLimitRequests:        5000,
 			RateLimitWindow:          time.Minute,
 			TriggerRateLimitRequests: 5000,

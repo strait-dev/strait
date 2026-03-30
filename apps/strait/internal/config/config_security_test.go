@@ -7,7 +7,7 @@ import (
 func TestCORS_WildcardWithCredentials_Rejected(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "*")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
 
@@ -24,7 +24,7 @@ func TestCORS_WildcardWithCredentials_Rejected(t *testing.T) {
 func TestCORS_WildcardWithoutCredentials_Allowed(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "*")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "false")
 
@@ -40,7 +40,7 @@ func TestCORS_WildcardWithoutCredentials_Allowed(t *testing.T) {
 func TestCORS_EmptyOrigins_Allowed(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "")
 
 	cfg, err := Load()
@@ -55,7 +55,7 @@ func TestCORS_EmptyOrigins_Allowed(t *testing.T) {
 func TestInternalSecret_TooShort_Rejected(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
 	t.Setenv("INTERNAL_SECRET", "short-15-chars!") // exactly 15 chars
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 
 	_, err := Load()
 	if err == nil {
@@ -70,7 +70,7 @@ func TestInternalSecret_TooShort_Rejected(t *testing.T) {
 func TestInternalSecret_MinLength_Accepted(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
 	t.Setenv("INTERNAL_SECRET", "exactly-16-chars") // exactly 16 chars
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 
 	_, err := Load()
 	if err != nil {
@@ -81,7 +81,7 @@ func TestInternalSecret_MinLength_Accepted(t *testing.T) {
 func TestInternalSecret_Long_Accepted(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
 	t.Setenv("INTERNAL_SECRET", "this-is-a-very-long-secret-value-for-testing")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 
 	_, err := Load()
 	if err != nil {
@@ -92,7 +92,7 @@ func TestInternalSecret_Long_Accepted(t *testing.T) {
 func TestCORS_Wildcard_RejectedInProduction(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "*")
 	t.Setenv("SENTRY_ENVIRONMENT", "production")
 
@@ -109,7 +109,7 @@ func TestCORS_Wildcard_RejectedInProduction(t *testing.T) {
 func TestSSLMode_Disable_RejectedInProduction(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test?sslmode=disable")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("SENTRY_ENVIRONMENT", "production")
 
 	_, err := Load()
@@ -125,7 +125,7 @@ func TestSSLMode_Disable_RejectedInProduction(t *testing.T) {
 func TestSSLMode_Disable_AllowedInDev(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test?sslmode=disable")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("SENTRY_ENVIRONMENT", "development")
 
 	_, err := Load()
@@ -137,7 +137,7 @@ func TestSSLMode_Disable_AllowedInDev(t *testing.T) {
 func TestCORS_ExplicitOrigins_Allowed(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.strait.dev,https://dashboard.strait.dev")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
 

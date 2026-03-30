@@ -15,8 +15,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const testJWTKey = "test-jwt-key-must-be-32-chars-long"
-
 func TestHandleCreateSSEToken_Success(t *testing.T) {
 	t.Parallel()
 
@@ -63,7 +61,7 @@ func TestParseSSEToken_Valid(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret: "test-secret-value",
-			JWTSigningKey:  testJWTKey,
+			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
@@ -82,7 +80,7 @@ func TestParseSSEToken_Valid(t *testing.T) {
 		Scopes:    []string{domain.ScopeRunsRead},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString([]byte(testJWTKey))
+	signed, err := token.SignedString([]byte(testJWTSigningKey))
 	if err != nil {
 		t.Fatalf("sign error: %v", err)
 	}
@@ -105,7 +103,7 @@ func TestParseSSEToken_Expired(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret: "test-secret-value",
-			JWTSigningKey:  testJWTKey,
+			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
@@ -123,7 +121,7 @@ func TestParseSSEToken_Expired(t *testing.T) {
 		ProjectID: "proj-1",
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, _ := token.SignedString([]byte(testJWTKey))
+	signed, _ := token.SignedString([]byte(testJWTSigningKey))
 
 	parsed := srv.parseSSEToken(signed)
 	if parsed != nil {
@@ -137,7 +135,7 @@ func TestParseSSEToken_WrongIssuer(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret: "test-secret-value",
-			JWTSigningKey:  testJWTKey,
+			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
@@ -155,7 +153,7 @@ func TestParseSSEToken_WrongIssuer(t *testing.T) {
 		ProjectID: "proj-1",
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, _ := token.SignedString([]byte(testJWTKey))
+	signed, _ := token.SignedString([]byte(testJWTSigningKey))
 
 	parsed := srv.parseSSEToken(signed)
 	if parsed != nil {
@@ -169,7 +167,7 @@ func TestParseSSEToken_WrongKey(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret: "test-secret-value",
-			JWTSigningKey:  testJWTKey,
+			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
@@ -200,7 +198,7 @@ func TestParseSSEToken_GarbageInput(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret: "test-secret-value",
-			JWTSigningKey:  testJWTKey,
+			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},
@@ -222,7 +220,7 @@ func TestSSETokenAuth_ShortLivedJWT_BypassesAPIKeyAuth(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret: "test-secret-value",
-			JWTSigningKey:  testJWTKey,
+			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:   &APIStoreMock{},
 		Queue:   &mockQueue{},
@@ -243,7 +241,7 @@ func TestSSETokenAuth_ShortLivedJWT_BypassesAPIKeyAuth(t *testing.T) {
 		Scopes:    []string{domain.ScopeJobsRead},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, _ := token.SignedString([]byte(testJWTKey))
+	signed, _ := token.SignedString([]byte(testJWTSigningKey))
 
 	// Use the SSE token in the query param for an SSE endpoint.
 	// This should authenticate without needing an API key.
@@ -284,7 +282,7 @@ func FuzzParseSSEToken(f *testing.F) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret: "test-secret-value",
-			JWTSigningKey:  testJWTKey,
+			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
 		Queue:  &mockQueue{},

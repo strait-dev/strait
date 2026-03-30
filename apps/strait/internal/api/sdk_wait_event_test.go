@@ -17,7 +17,7 @@ import (
 func newSDKWaitEventTestServer(t *testing.T, s APIStore) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
 	}
@@ -36,7 +36,7 @@ func makeSDKRunToken(t *testing.T, runID string) string {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &jwt.RegisteredClaims{
 		Subject: runID,
 	})
-	signed, err := token.SignedString([]byte("test-jwt-key-must-be-32-chars-long"))
+	signed, err := token.SignedString([]byte(testJWTSigningKey))
 	if err != nil {
 		t.Fatalf("sign token: %v", err)
 	}

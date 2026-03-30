@@ -78,7 +78,7 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:   "test-secret-value",
-			JWTSigningKey:    "01234567890123456789012345678901",
+			JWTSigningKey:    testJWTSigningKey,
 			OIDCEnabled:      true,
 			OIDCIssuer:       "https://issuer.example",
 			OIDCAudience:     "strait-api",
@@ -113,7 +113,7 @@ func TestOIDCAuth_RejectsExpiredToken(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:   "test-secret-value",
-			JWTSigningKey:    "01234567890123456789012345678901",
+			JWTSigningKey:    testJWTSigningKey,
 			OIDCEnabled:      true,
 			OIDCIssuer:       "https://issuer.example",
 			OIDCAudience:     "strait-api",
@@ -148,7 +148,7 @@ func TestOIDCAuth_RejectsWrongAudience(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:   "test-secret-value",
-			JWTSigningKey:    "01234567890123456789012345678901",
+			JWTSigningKey:    testJWTSigningKey,
 			OIDCEnabled:      true,
 			OIDCIssuer:       "https://issuer.example",
 			OIDCAudience:     "strait-api",

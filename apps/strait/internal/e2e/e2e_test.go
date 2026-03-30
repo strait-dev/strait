@@ -47,7 +47,7 @@ func TestMain(m *testing.M) {
 	testServer = api.NewServer(api.ServerDeps{
 		Config: &config.Config{
 			InternalSecret:           "test-secret-value",
-			JWTSigningKey:            "test-jwt-key-must-be-at-least-32-chars-long",
+			JWTSigningKey:            testJWTSigningKey,
 			SecretEncryptionKey:      "test-encryption-key-32bytes!!!!",
 			RateLimitRequests:        0,
 			RateLimitWindow:          time.Minute,

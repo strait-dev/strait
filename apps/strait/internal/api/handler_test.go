@@ -41,7 +41,7 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "01234567890123456789012345678901",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	var p pubsub.Publisher
 	if pub != nil {
@@ -63,7 +63,7 @@ func newTestServerWithPinger(t *testing.T, s APIStore, q *mockQueue, pub *mockPu
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	var p pubsub.Publisher
 	if pub != nil {
@@ -139,7 +139,7 @@ func TestHandleHealth_EditionField(t *testing.T) {
 			cfg := &config.Config{
 				InternalSecret:      "test-secret-value",
 				MaxBulkTriggerItems: 500,
-				JWTSigningKey:       "01234567890123456789012345678901",
+				JWTSigningKey:       testJWTSigningKey,
 			}
 			srv := NewServer(ServerDeps{
 				Config:  cfg,
@@ -2504,7 +2504,7 @@ func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:      cfg,
@@ -2531,7 +2531,7 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:      cfg,
@@ -2603,7 +2603,7 @@ func TestMetrics_Unauthenticated_Returns401(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		InternalSecret: "test-secret-value",
-		JWTSigningKey:  "01234567890123456789012345678901",
+		JWTSigningKey:  testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:         cfg,
@@ -2626,7 +2626,7 @@ func TestMetrics_Authenticated_Returns200(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		InternalSecret: "test-secret-value",
-		JWTSigningKey:  "01234567890123456789012345678901",
+		JWTSigningKey:  testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:         cfg,

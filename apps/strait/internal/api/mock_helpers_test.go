@@ -2,10 +2,23 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 )
+
+// testJWTSigningKey is a cryptographically random 32-byte key generated once
+// per test binary. Using a random key instead of a hardcoded string avoids
+// gitleaks false positives and ensures tests don't depend on a specific key value.
+var testJWTSigningKey = func() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic("failed to generate test JWT key: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}()
 
 type mockQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error

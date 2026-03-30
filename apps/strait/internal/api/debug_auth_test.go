@@ -15,7 +15,7 @@ func TestDebugStatsviz_RequiresAuth(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret: "test-secret-value",
-			JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
+			JWTSigningKey:  testJWTSigningKey,
 			DebugStatsviz:  true,
 		},
 		Store:   &APIStoreMock{},
@@ -67,7 +67,7 @@ func TestDebugStatsviz_Disabled_Returns404(t *testing.T) {
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret: "test-secret-value",
-			JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
+			JWTSigningKey:  testJWTSigningKey,
 			DebugStatsviz:  false,
 		},
 		Store:   &APIStoreMock{},

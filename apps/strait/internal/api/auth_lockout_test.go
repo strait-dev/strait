@@ -21,7 +21,7 @@ func newTestServerWithRedis(t *testing.T, s APIStore) *Server {
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:      cfg,

@@ -676,7 +676,7 @@ func advNewTestServerWithWorkflowEngine(t *testing.T, s APIStore, we WorkflowTri
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "01234567890123456789012345678901",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:         cfg,
@@ -838,7 +838,7 @@ func advNewTestServerWithBilling(t *testing.T, s APIStore, be BillingEnforcer) *
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "01234567890123456789012345678901",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:          cfg,

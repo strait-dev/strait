@@ -98,7 +98,7 @@ func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPubl
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:         cfg,
@@ -116,7 +116,7 @@ func newWorkflowTestServerWithCallback(t *testing.T, s APIStore, q *mockQueue, p
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:           cfg,
@@ -3567,7 +3567,7 @@ func newWorkflowTestServerWithRuntime(t *testing.T, s APIStore, q *mockQueue, rt
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	srv := NewServer(ServerDeps{
 		Config:           cfg,

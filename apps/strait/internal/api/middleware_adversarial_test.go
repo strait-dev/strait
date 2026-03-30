@@ -399,7 +399,7 @@ func newTriggerTestServer(t *testing.T, ms *APIStoreMock) *Server {
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "01234567890123456789012345678901",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 	var p pubsub.Publisher
 	srv := NewServer(ServerDeps{
@@ -636,7 +636,7 @@ func TestHandleCreateProject_ProjectLimitExceeded_Adversarial(t *testing.T) {
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "01234567890123456789012345678901",
+		JWTSigningKey:       testJWTSigningKey,
 	}
 
 	ms := &APIStoreMock{

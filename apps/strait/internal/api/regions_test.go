@@ -301,7 +301,7 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 		cfg := &config.Config{
 			InternalSecret:      "test-secret-value",
 			MaxBulkTriggerItems: 500,
-			JWTSigningKey:       "01234567890123456789012345678901",
+			JWTSigningKey:       testJWTSigningKey,
 			EnforceRegionGating: true,
 		}
 		srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
@@ -340,7 +340,7 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 		cfg := &config.Config{
 			InternalSecret:      "test-secret-value",
 			MaxBulkTriggerItems: 500,
-			JWTSigningKey:       "01234567890123456789012345678901",
+			JWTSigningKey:       testJWTSigningKey,
 			EnforceRegionGating: true,
 		}
 		srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
@@ -458,7 +458,7 @@ func TestHandleCreateJob_PreferredRegions(t *testing.T) {
 		cfg := &config.Config{
 			InternalSecret:      "test-secret-value",
 			MaxBulkTriggerItems: 500,
-			JWTSigningKey:       "01234567890123456789012345678901",
+			JWTSigningKey:       testJWTSigningKey,
 			EnforceRegionGating: true,
 		}
 		srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})

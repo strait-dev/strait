@@ -19,9 +19,8 @@ paths = [
 regexTarget = "match"
 regexes = [
     '''test-secret-value''',
-    '''test-jwt-key''',
     '''test-encryption-key''',
-    '''01234567890123456789012345678901''',
+    '''aaaa-test-''',
     '''strait_[a-f0-9]{10,}''',
     '''owasp-test-''',
     '''loadtest-secret''',

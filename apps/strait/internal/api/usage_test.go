@@ -216,7 +216,7 @@ func newUsageTestServerFull(t *testing.T, opts usageTestServerOpts) *Server {
 		cfg = &config.Config{
 			InternalSecret:      "test-secret-value",
 			MaxBulkTriggerItems: 500,
-			JWTSigningKey:       "01234567890123456789012345678901",
+			JWTSigningKey:       testJWTSigningKey,
 		}
 	}
 	ms := opts.store
@@ -298,7 +298,7 @@ func newOIDCUsageTestServer(
 	opts.config = &config.Config{
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       "01234567890123456789012345678901",
+		JWTSigningKey:       testJWTSigningKey,
 		OIDCEnabled:         true,
 		OIDCIssuer:          "https://issuer.example",
 		OIDCAudience:        "strait-api",

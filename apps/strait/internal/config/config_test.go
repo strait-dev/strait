@@ -11,7 +11,7 @@ func setRequiredEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
-	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 }
 
 func TestLoad_Defaults(t *testing.T) {
@@ -149,7 +149,7 @@ func TestLoad_RequiredFields(t *testing.T) {
 			name: "missing database url",
 			setEnv: func(t *testing.T) {
 				t.Setenv("INTERNAL_SECRET", "test-secret-value")
-				t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+				t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 			},
 			errorSub: "DATABASE_URL",
 		},
@@ -157,7 +157,7 @@ func TestLoad_RequiredFields(t *testing.T) {
 			name: "missing internal secret",
 			setEnv: func(t *testing.T) {
 				t.Setenv("DATABASE_URL", "postgres://localhost/test")
-				t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+				t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 			},
 			errorSub: "INTERNAL_SECRET",
 		},
