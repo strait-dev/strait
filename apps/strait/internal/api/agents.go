@@ -412,3 +412,55 @@ func validateAgentConfigJSON(config json.RawMessage) error {
 	}
 	return nil
 }
+
+type ListAgentVersionsInput struct {
+	AgentID string `path:"agentID"`
+	Limit   string `query:"limit"`
+}
+
+type ListAgentVersionsOutput struct {
+	Body []domain.AgentDeployment
+}
+
+func (s *Server) handleListAgentVersions(ctx context.Context, input *ListAgentVersionsInput) (*ListAgentVersionsOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+
+	// Verify the agent belongs to the project.
+	if _, agentErr := svc.GetAgent(ctx, projectID, input.AgentID); agentErr != nil {
+		return nil, mapAgentServiceError(agentErr)
+	}
+
+	limit := 20
+	if input.Limit != "" {
+		if parsed, parseErr := strconv.Atoi(input.Limit); parseErr == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	// Use the store directly since the agent service's agentStore interface
+	// has ListAgentDeployments but the Service interface doesn't expose it.
+	// The store.Queries implements both APIStore and the needed method.
+	type deploymentLister interface {
+		ListAgentDeployments(ctx context.Context, agentID string, limit int, cursor *time.Time) ([]domain.AgentDeployment, error)
+	}
+	lister, ok := s.store.(deploymentLister)
+	if !ok {
+		return nil, huma.Error500InternalServerError("deployment listing not supported")
+	}
+
+	deployments, listErr := lister.ListAgentDeployments(ctx, input.AgentID, limit, nil)
+	if listErr != nil {
+		return nil, huma.Error500InternalServerError("failed to list agent versions")
+	}
+	if deployments == nil {
+		deployments = []domain.AgentDeployment{}
+	}
+	return &ListAgentVersionsOutput{Body: deployments}, nil
+}

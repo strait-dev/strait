@@ -227,3 +227,36 @@ export const useRunAgent = () => {
     },
   });
 };
+
+type AgentVersion = {
+  agent_id: string;
+  config_snapshot?: Record<string, object>;
+  created_at: string;
+  created_by?: string;
+  deployed_at?: string;
+  id: string;
+  provider: string;
+  provider_metadata?: Record<string, object>;
+  status: string;
+  updated_at: string;
+  version: number;
+};
+
+const fetchAgentVersions = createServerFn({ method: "GET" })
+  .inputValidator((data: { agentId: string; limit?: number }) => data)
+  .middleware([authMiddleware])
+  .handler(({ data }): Promise<AgentVersion[]> => {
+    return runWithSentryReport(
+      apiEffect<AgentVersion[]>(
+        `/v1/agents/${data.agentId}/versions?limit=${data.limit ?? 20}`
+      )
+    );
+  });
+
+export const agentVersionsQueryOptions = (agentId: string) =>
+  queryOptions({
+    queryKey: [...queryKeys.agents._def, "versions", agentId],
+    queryFn: () => fetchAgentVersions({ data: { agentId } }),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
