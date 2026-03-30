@@ -599,7 +599,7 @@ func (s *Server) handleGetRecommendations(ctx context.Context, input *GetRecomme
 }
 
 type ApplyRecommendationRequest struct {
-	Patch json.RawMessage `json:"patch" validate:"required"`
+	RecommendationID string `json:"recommendation_id" validate:"required"`
 }
 
 type ApplyRecommendationInput struct {
@@ -624,7 +624,28 @@ func (s *Server) handleApplyRecommendation(ctx context.Context, input *ApplyReco
 		return nil, mapAgentServiceError(agentErr)
 	}
 
-	// Merge the patch into the agent config.
+	// Generate recommendations and find the one the client approved.
+	costStore, ok := s.store.(agents.CostOptimizerStore)
+	if !ok {
+		return nil, huma.Error500InternalServerError("cost optimization not supported")
+	}
+	recs, recErr := agents.GenerateRecommendations(ctx, costStore, agent)
+	if recErr != nil {
+		return nil, huma.Error500InternalServerError("failed to generate recommendations")
+	}
+
+	var matched *agents.CostRecommendation
+	for i := range recs {
+		if recs[i].ID == input.Body.RecommendationID {
+			matched = &recs[i]
+			break
+		}
+	}
+	if matched == nil {
+		return nil, huma.Error404NotFound("recommendation not found")
+	}
+
+	// Apply the server-computed patch (not client-provided) with an allowlist.
 	var existingCfg map[string]any
 	if len(agent.Config) > 0 {
 		_ = json.Unmarshal(agent.Config, &existingCfg)
@@ -633,11 +654,14 @@ func (s *Server) handleApplyRecommendation(ctx context.Context, input *ApplyReco
 		existingCfg = make(map[string]any)
 	}
 
-	var patch map[string]any
-	if err := json.Unmarshal(input.Body.Patch, &patch); err != nil {
-		return nil, huma.Error400BadRequest("patch must be a valid JSON object")
+	safePatch := agents.FilterAllowedPatchKeys(matched.SuggestedPatch)
+	maps.Copy(existingCfg, safePatch)
+
+	// If the recommendation suggests a model change, apply it at the agent level too.
+	newModel := agent.Model
+	if m, ok := safePatch["model"].(string); ok && m != "" {
+		newModel = m
 	}
-	maps.Copy(existingCfg, patch)
 
 	mergedConfig, _ := json.Marshal(existingCfg)
 
@@ -647,7 +671,7 @@ func (s *Server) handleApplyRecommendation(ctx context.Context, input *ApplyReco
 		Name:        agent.Name,
 		Slug:        agent.Slug,
 		Description: agent.Description,
-		Model:       agent.Model,
+		Model:       newModel,
 		Config:      mergedConfig,
 		Actor:       actor,
 	})

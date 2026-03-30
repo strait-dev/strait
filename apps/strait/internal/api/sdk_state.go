@@ -210,40 +210,20 @@ func (s *Server) handleSDKSendMessage(ctx context.Context, input *SDKSendMessage
 		return nil, huma.Error404NotFound("run not found")
 	}
 
-	// Find the source agent by matching the run's job ID against agent backing jobs.
-	job, jobErr := s.store.GetJob(ctx, run.JobID)
-	if jobErr != nil || job == nil {
-		return nil, huma.Error500InternalServerError("failed to resolve agent for run")
-	}
-	sourceAgentSlug := job.Tags["agent_slug"]
-	if sourceAgentSlug == "" {
-		return nil, huma.Error409Conflict("run is not associated with an agent")
-	}
-
-	// Find source agent by listing agents and matching slug.
-	q, ok := s.store.(*store.Queries)
-	if !ok {
-		return nil, huma.Error503ServiceUnavailable("agent resolution not supported")
-	}
-	agentList, listErr := q.ListAgents(ctx, run.ProjectID, 500, nil)
-	if listErr != nil {
-		return nil, huma.Error500InternalServerError("failed to list agents")
-	}
-
-	var sourceAgentID, targetAgentID string
-	for _, a := range agentList {
-		if a.Slug == sourceAgentSlug {
-			sourceAgentID = a.ID
-		}
-		if a.Slug == input.Body.TargetAgentSlug {
-			targetAgentID = a.ID
-		}
-	}
+	// Prefer the cryptographically-bound agent ID from the JWT token.
+	// Fall back to slug-based resolution for tokens issued before this change.
+	sourceAgentID := agentIDFromTokenContext(ctx)
 	if sourceAgentID == "" {
-		return nil, huma.Error500InternalServerError("source agent not found")
+		sourceAgentID, err = s.resolveSourceAgentBySlug(ctx, run)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if targetAgentID == "" {
-		return nil, huma.Error404NotFound("target agent not found")
+
+	// Resolve target agent by slug.
+	targetAgentID, targetErr := s.resolveTargetAgentBySlug(ctx, run.ProjectID, input.Body.TargetAgentSlug)
+	if targetErr != nil {
+		return nil, targetErr
 	}
 
 	msgStore, ok := s.store.(agents.MessageStore)
@@ -266,6 +246,52 @@ func (s *Server) handleSDKSendMessage(ctx context.Context, input *SDKSendMessage
 	return &SDKSendMessageOutput{Body: struct {
 		MessageID string `json:"message_id"`
 	}{MessageID: msg.ID}}, nil
+}
+
+// resolveSourceAgentBySlug is the legacy path for tokens that don't
+// include an agent_id claim. It scans project agents by job slug tag.
+func (s *Server) resolveSourceAgentBySlug(ctx context.Context, run *domain.JobRun) (string, error) {
+	job, jobErr := s.store.GetJob(ctx, run.JobID)
+	if jobErr != nil || job == nil {
+		return "", huma.Error500InternalServerError("failed to resolve agent for run")
+	}
+	sourceAgentSlug := job.Tags["agent_slug"]
+	if sourceAgentSlug == "" {
+		return "", huma.Error409Conflict("run is not associated with an agent")
+	}
+
+	q, ok := s.store.(*store.Queries)
+	if !ok {
+		return "", huma.Error503ServiceUnavailable("agent resolution not supported")
+	}
+	agentList, listErr := q.ListAgents(ctx, run.ProjectID, 500, nil)
+	if listErr != nil {
+		return "", huma.Error500InternalServerError("failed to list agents")
+	}
+	for _, a := range agentList {
+		if a.Slug == sourceAgentSlug {
+			return a.ID, nil
+		}
+	}
+	return "", huma.Error500InternalServerError("source agent not found")
+}
+
+// resolveTargetAgentBySlug finds a target agent by slug within a project.
+func (s *Server) resolveTargetAgentBySlug(ctx context.Context, projectID, slug string) (string, error) {
+	q, ok := s.store.(*store.Queries)
+	if !ok {
+		return "", huma.Error503ServiceUnavailable("agent resolution not supported")
+	}
+	agentList, listErr := q.ListAgents(ctx, projectID, 500, nil)
+	if listErr != nil {
+		return "", huma.Error500InternalServerError("failed to list agents")
+	}
+	for _, a := range agentList {
+		if a.Slug == slug {
+			return a.ID, nil
+		}
+	}
+	return "", huma.Error404NotFound("target agent not found")
 }
 
 // SDK workflow submission callback.

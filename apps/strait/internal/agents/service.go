@@ -823,7 +823,7 @@ func (s *localService) transitionRunToExecuting(ctx context.Context, runID strin
 }
 
 func (s *localService) buildRuntimeEnvelope(ctx context.Context, agent *domain.Agent, job *domain.Job, deployment *domain.AgentDeployment, run *domain.JobRun) (RuntimeDispatchEnvelope, string, error) {
-	token, err := s.generateRunToken(run.ID, job.TimeoutSecs, run.ExpiresAt)
+	token, err := s.generateRunToken(run.ID, agent.ID, job.TimeoutSecs, run.ExpiresAt)
 	if err != nil {
 		return RuntimeDispatchEnvelope{}, "", err
 	}
@@ -884,7 +884,15 @@ func (s *localService) buildRuntimeEnvelope(ctx context.Context, agent *domain.A
 	return envelope, token, nil
 }
 
-func (s *localService) generateRunToken(runID string, timeoutSecs int, expiresAt *time.Time) (string, error) {
+// agentRunClaims extends the standard JWT claims with an agent ID so that
+// SDK callback handlers can cryptographically verify which agent the
+// runtime is acting on behalf of.
+type agentRunClaims struct {
+	jwt.RegisteredClaims
+	AgentID string `json:"agent_id,omitempty"`
+}
+
+func (s *localService) generateRunToken(runID, agentID string, timeoutSecs int, expiresAt *time.Time) (string, error) {
 	if s.jwtSigningKey == "" {
 		return "", fmt.Errorf("JWT signing key is not configured")
 	}
@@ -892,10 +900,13 @@ func (s *localService) generateRunToken(runID string, timeoutSecs int, expiresAt
 	if expiresAt != nil {
 		exp = *expiresAt
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject:   runID,
-		ExpiresAt: jwt.NewNumericDate(exp),
-		IssuedAt:  jwt.NewNumericDate(s.now()),
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, agentRunClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   runID,
+			ExpiresAt: jwt.NewNumericDate(exp),
+			IssuedAt:  jwt.NewNumericDate(s.now()),
+		},
+		AgentID: agentID,
 	})
 	signed, err := token.SignedString([]byte(s.jwtSigningKey))
 	if err != nil {

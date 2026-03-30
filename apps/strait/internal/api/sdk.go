@@ -23,6 +23,7 @@ import (
 type contextKey string
 
 const ctxRunIDKey contextKey = "run_id"
+const ctxAgentIDKey contextKey = "agent_id"
 const ctxSDKVersionKey contextKey = "sdk_version"
 const ctxSDKCapabilitiesKey contextKey = "sdk_capabilities"
 
@@ -30,6 +31,11 @@ type SDKCapabilities struct {
 	Progress    bool
 	Checkpoint  bool
 	UsageReport bool
+}
+
+func agentIDFromTokenContext(ctx context.Context) string {
+	v, _ := ctx.Value(ctxAgentIDKey).(string)
+	return v
 }
 
 func sdkVersionFromContext(ctx context.Context) string {
@@ -94,6 +100,14 @@ func (s *Server) sdkResponseHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// runTokenClaims mirrors the claims emitted by agents.generateRunToken.
+// The AgentID field binds the token to a specific agent, preventing a
+// compromised runtime from impersonating other agents in the project.
+type runTokenClaims struct {
+	jwt.RegisteredClaims
+	AgentID string `json:"agent_id,omitempty"`
+}
+
 func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
@@ -102,7 +116,7 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			return
 		}
 		tokenString := strings.TrimPrefix(auth, "Bearer ")
-		claims := &jwt.RegisteredClaims{}
+		claims := &runTokenClaims{}
 		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -126,6 +140,9 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		sdkVersion := strings.TrimSpace(r.Header.Get("X-SDK-Version"))
 		sdkCaps := resolveSDKCapabilities(sdkVersion)
 		ctx := context.WithValue(r.Context(), ctxRunIDKey, subject)
+		if claims.AgentID != "" {
+			ctx = context.WithValue(ctx, ctxAgentIDKey, claims.AgentID)
+		}
 		ctx = context.WithValue(ctx, ctxSDKVersionKey, sdkVersion)
 		ctx = context.WithValue(ctx, ctxSDKCapabilitiesKey, sdkCaps)
 		next.ServeHTTP(w, r.WithContext(ctx))

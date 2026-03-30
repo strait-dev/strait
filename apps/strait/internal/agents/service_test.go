@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestValidateCreateRequest(t *testing.T) {
@@ -377,5 +380,131 @@ func TestParseCloudflareDeploymentMetadataRejectsCorruptInput(t *testing.T) {
 				t.Fatalf("expected parse error for %s", raw)
 			}
 		})
+	}
+}
+
+func TestGenerateRunTokenIncludesAgentID(t *testing.T) {
+	t.Parallel()
+
+	svc := &localService{
+		jwtSigningKey: testCFToken, // reuse the random test token as a signing key
+		now:           time.Now,
+	}
+
+	token, err := svc.generateRunToken("run-123", "agent-abc", 300, nil)
+	if err != nil {
+		t.Fatalf("generateRunToken() error = %v", err)
+	}
+
+	// Parse the token back and verify the agent_id claim.
+	claims := &agentRunClaims{}
+	parsed, parseErr := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (any, error) {
+		return []byte(svc.jwtSigningKey), nil
+	})
+	if parseErr != nil || !parsed.Valid {
+		t.Fatalf("ParseWithClaims() error = %v, valid = %v", parseErr, parsed.Valid)
+	}
+	if claims.Subject != "run-123" {
+		t.Fatalf("Subject = %q, want run-123", claims.Subject)
+	}
+	if claims.AgentID != "agent-abc" {
+		t.Fatalf("AgentID = %q, want agent-abc", claims.AgentID)
+	}
+}
+
+func TestGenerateRunTokenBackwardCompatParsing(t *testing.T) {
+	t.Parallel()
+
+	svc := &localService{
+		jwtSigningKey: testCFToken,
+		now:           time.Now,
+	}
+
+	// Generate a token without agent ID (empty string).
+	token, err := svc.generateRunToken("run-456", "", 300, nil)
+	if err != nil {
+		t.Fatalf("generateRunToken() error = %v", err)
+	}
+
+	// Parsing with agentRunClaims should still work -- AgentID is empty.
+	claims := &agentRunClaims{}
+	parsed, parseErr := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (any, error) {
+		return []byte(svc.jwtSigningKey), nil
+	})
+	if parseErr != nil || !parsed.Valid {
+		t.Fatalf("ParseWithClaims() error = %v, valid = %v", parseErr, parsed.Valid)
+	}
+	if claims.Subject != "run-456" {
+		t.Fatalf("Subject = %q, want run-456", claims.Subject)
+	}
+	if claims.AgentID != "" {
+		t.Fatalf("AgentID = %q, want empty", claims.AgentID)
+	}
+
+	// Also verify that old-style RegisteredClaims parsing still works.
+	oldClaims := &jwt.RegisteredClaims{}
+	parsed2, parseErr2 := jwt.ParseWithClaims(token, oldClaims, func(_ *jwt.Token) (any, error) {
+		return []byte(svc.jwtSigningKey), nil
+	})
+	if parseErr2 != nil || !parsed2.Valid {
+		t.Fatalf("old-style parse error = %v, valid = %v", parseErr2, parsed2.Valid)
+	}
+	if oldClaims.Subject != "run-456" {
+		t.Fatalf("old-style Subject = %q, want run-456", oldClaims.Subject)
+	}
+}
+
+func TestFilterAllowedPatchKeys(t *testing.T) {
+	t.Parallel()
+
+	patch := map[string]any{
+		"model":          "gpt-5.4-mini",
+		"budget":         "$5.00",
+		"prompt_caching": true,
+		"webhook_url":    "https://evil.com",                    // should be dropped
+		"sandbox":        map[string]any{"policy": "allow_all"}, // should be dropped
+	}
+
+	safe := FilterAllowedPatchKeys(patch)
+
+	if len(safe) != 3 {
+		t.Fatalf("expected 3 keys, got %d: %v", len(safe), safe)
+	}
+	if safe["model"] != "gpt-5.4-mini" {
+		t.Fatalf("model = %v", safe["model"])
+	}
+	if safe["budget"] != "$5.00" {
+		t.Fatalf("budget = %v", safe["budget"])
+	}
+	if safe["prompt_caching"] != true {
+		t.Fatalf("prompt_caching = %v", safe["prompt_caching"])
+	}
+	if _, exists := safe["webhook_url"]; exists {
+		t.Fatal("webhook_url should have been filtered out")
+	}
+	if _, exists := safe["sandbox"]; exists {
+		t.Fatal("sandbox should have been filtered out")
+	}
+}
+
+func TestFilterAllowedPatchKeysEmptyPatch(t *testing.T) {
+	t.Parallel()
+
+	safe := FilterAllowedPatchKeys(map[string]any{})
+	if len(safe) != 0 {
+		t.Fatalf("expected 0 keys, got %d", len(safe))
+	}
+}
+
+func TestFilterAllowedPatchKeysAllBlocked(t *testing.T) {
+	t.Parallel()
+
+	patch := map[string]any{
+		"webhook_url":  "https://evil.com",
+		"max_attempts": 999,
+	}
+	safe := FilterAllowedPatchKeys(patch)
+	if len(safe) != 0 {
+		t.Fatalf("expected 0 keys after filtering, got %d: %v", len(safe), safe)
 	}
 }

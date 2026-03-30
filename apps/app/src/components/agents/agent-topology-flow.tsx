@@ -109,15 +109,18 @@ function layoutNodes(
     }
   }
 
-  const flowEdges: Edge[] = topologyEdges.map((edge, index) => ({
-    id: `e-${index}`,
-    source: edge.source,
-    target: edge.target,
-    animated: true,
-    label: `${edge.message_count}`,
-    labelStyle: { fontSize: 11, fontWeight: 500 },
-    style: { strokeWidth: Math.min(1 + edge.message_count / 5, 4) },
-  }));
+  const flowEdges: Edge[] = topologyEdges.map((edge, index) => {
+    const count = Number(edge.message_count) || 0;
+    return {
+      id: `e-${index}`,
+      source: edge.source,
+      target: edge.target,
+      animated: true,
+      label: String(count),
+      labelStyle: { fontSize: 11, fontWeight: 500 },
+      style: { strokeWidth: Math.min(1 + count / 5, 4) },
+    };
+  });
 
   return { flowEdges, flowNodes };
 }

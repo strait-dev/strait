@@ -128,6 +128,27 @@ func safeIDPrefix(id string) string {
 	return id[:8]
 }
 
+// allowedPatchKeys defines the config keys that cost recommendations are
+// allowed to modify. Any key outside this set is silently dropped to
+// prevent injection of unexpected config fields (ESAA IV-F01).
+var allowedPatchKeys = map[string]bool{
+	"model":          true,
+	"budget":         true,
+	"prompt_caching": true,
+}
+
+// FilterAllowedPatchKeys returns a copy of the patch containing only
+// keys that are in the allowlist.
+func FilterAllowedPatchKeys(patch map[string]any) map[string]any {
+	safe := make(map[string]any, len(patch))
+	for k, v := range patch {
+		if allowedPatchKeys[k] {
+			safe[k] = v
+		}
+	}
+	return safe
+}
+
 func isExpensiveModel(model string) bool {
 	switch model {
 	case "gpt-5.4", "claude-opus-4-6", "claude-sonnet-4-6":
