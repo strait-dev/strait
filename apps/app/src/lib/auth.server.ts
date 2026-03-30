@@ -38,18 +38,18 @@ import {
 import { resend } from "@/lib/resend.server";
 
 // Hyperdrive provides a proxied connection string in Cloudflare Workers.
-// Fall back to AUTH_DATABASE_URL for local development.
+// Access the binding via `cloudflare:workers` env, falling back to
+// AUTH_DATABASE_URL for local development.
 function getAuthConnectionString(): string {
   try {
-    const env = process.env as Record<string, unknown>;
-    const hyperdrive = env.HYPERDRIVE as
-      | { connectionString?: string }
-      | undefined;
-    if (hyperdrive?.connectionString) {
-      return hyperdrive.connectionString;
+    const { env } = require("cloudflare:workers") as {
+      env: { HYPERDRIVE?: { connectionString: string } };
+    };
+    if (env.HYPERDRIVE?.connectionString) {
+      return env.HYPERDRIVE.connectionString;
     }
   } catch (_) {
-    // Hyperdrive binding not available (local dev)
+    // cloudflare:workers module not available (local dev)
   }
   return process.env.AUTH_DATABASE_URL ?? "";
 }
