@@ -636,6 +636,8 @@ func (s *Server) routes() chi.Router {
 			r.Get("/workflow-state/{key}", TypedHandler(s, http.StatusOK, s.handleSDKGetWorkflowState))
 			r.Delete("/workflow-state/{key}", TypedHandler(s, http.StatusNoContent, s.handleSDKDeleteWorkflowState))
 			r.Post("/stream", TypedHandler(s, http.StatusOK, s.handleSDKStreamChunk))
+			r.Post("/message", TypedHandler(s, http.StatusCreated, s.handleSDKSendMessage))
+			r.Post("/workflow", TypedHandler(s, http.StatusCreated, s.handleSDKSubmitWorkflow))
 			r.Post("/resources", TypedHandler(s, http.StatusCreated, s.handleSDKResources))
 			r.Post("/resource-snapshot", TypedHandler(s, http.StatusCreated, s.handleSDKResourceSnapshot))
 			r.Post("/iteration", TypedHandler(s, http.StatusOK, s.handleSDKIteration))

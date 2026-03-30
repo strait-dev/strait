@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"strait/internal/agents"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -183,4 +184,137 @@ func (s *Server) handleListRunState(ctx context.Context, input *ListRunStateInpu
 		return nil, huma.Error500InternalServerError("failed to list run state")
 	}
 	return &ListRunStateOutput{Body: items}, nil
+}
+
+// SDK agent messaging callback.
+
+type SDKSendMessageRequest struct {
+	TargetAgentSlug string          `json:"target_agent_slug" validate:"required"`
+	Payload         json.RawMessage `json:"payload"`
+}
+
+type SDKSendMessageInput struct {
+	RunID string `path:"runID"`
+	Body  SDKSendMessageRequest
+}
+
+type SDKSendMessageOutput struct {
+	Body struct {
+		MessageID string `json:"message_id"`
+	}
+}
+
+func (s *Server) handleSDKSendMessage(ctx context.Context, input *SDKSendMessageInput) (*SDKSendMessageOutput, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
+	if err != nil {
+		return nil, huma.Error404NotFound("run not found")
+	}
+
+	// Find the source agent by matching the run's job ID against agent backing jobs.
+	job, jobErr := s.store.GetJob(ctx, run.JobID)
+	if jobErr != nil || job == nil {
+		return nil, huma.Error500InternalServerError("failed to resolve agent for run")
+	}
+	sourceAgentSlug := job.Tags["agent_slug"]
+	if sourceAgentSlug == "" {
+		return nil, huma.Error409Conflict("run is not associated with an agent")
+	}
+
+	// Find source agent by listing agents and matching slug.
+	q, ok := s.store.(*store.Queries)
+	if !ok {
+		return nil, huma.Error503ServiceUnavailable("agent resolution not supported")
+	}
+	agentList, listErr := q.ListAgents(ctx, run.ProjectID, 500, nil)
+	if listErr != nil {
+		return nil, huma.Error500InternalServerError("failed to list agents")
+	}
+
+	var sourceAgentID, targetAgentID string
+	for _, a := range agentList {
+		if a.Slug == sourceAgentSlug {
+			sourceAgentID = a.ID
+		}
+		if a.Slug == input.Body.TargetAgentSlug {
+			targetAgentID = a.ID
+		}
+	}
+	if sourceAgentID == "" {
+		return nil, huma.Error500InternalServerError("source agent not found")
+	}
+	if targetAgentID == "" {
+		return nil, huma.Error404NotFound("target agent not found")
+	}
+
+	msgStore, ok := s.store.(agents.MessageStore)
+	if !ok {
+		return nil, huma.Error503ServiceUnavailable("messaging not supported")
+	}
+
+	msgSvc := agents.NewAgentMessageService(msgStore)
+	msg, sendErr := msgSvc.Send(ctx, agents.SendRequest{
+		ProjectID:     run.ProjectID,
+		SourceAgentID: sourceAgentID,
+		TargetAgentID: targetAgentID,
+		SourceRunID:   run.ID,
+		Payload:       input.Body.Payload,
+	})
+	if sendErr != nil {
+		return nil, mapMessageError(sendErr)
+	}
+
+	return &SDKSendMessageOutput{Body: struct {
+		MessageID string `json:"message_id"`
+	}{MessageID: msg.ID}}, nil
+}
+
+// SDK workflow submission callback.
+
+type SDKSubmitWorkflowRequest struct {
+	Name  string          `json:"name" validate:"required"`
+	Slug  string          `json:"slug" validate:"required"`
+	Steps json.RawMessage `json:"steps" validate:"required"`
+}
+
+type SDKSubmitWorkflowInput struct {
+	RunID string `path:"runID"`
+	Body  SDKSubmitWorkflowRequest
+}
+
+type SDKSubmitWorkflowOutput struct {
+	Body struct {
+		WorkflowID string `json:"workflow_id"`
+	}
+}
+
+func (s *Server) handleSDKSubmitWorkflow(ctx context.Context, input *SDKSubmitWorkflowInput) (*SDKSubmitWorkflowOutput, error) {
+	run, err := s.store.GetRun(ctx, input.RunID)
+	if err != nil {
+		return nil, huma.Error404NotFound("run not found")
+	}
+
+	// For now, store the workflow definition as a run state entry so it can
+	// be picked up by the workflow engine. Full workflow creation requires
+	// the workflow store interface which is not part of the SDK callback path.
+	state := &domain.RunState{
+		RunID:    run.ID,
+		StateKey: "_submitted_workflow",
+		Value: mustSDKJSON(map[string]any{
+			"name":  input.Body.Name,
+			"slug":  input.Body.Slug,
+			"steps": input.Body.Steps,
+		}),
+	}
+	if err := s.store.UpsertRunState(ctx, state); err != nil {
+		return nil, huma.Error500InternalServerError("failed to store workflow definition")
+	}
+
+	return &SDKSubmitWorkflowOutput{Body: struct {
+		WorkflowID string `json:"workflow_id"`
+	}{WorkflowID: run.ID + ":workflow"}}, nil
+}
+
+func mustSDKJSON(v any) json.RawMessage {
+	raw, _ := json.Marshal(v)
+	return raw
 }
