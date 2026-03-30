@@ -24,7 +24,7 @@ import {
   twoFactor,
 } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
-import { importPKCS8, type KeyLike, SignJWT } from "jose";
+import { importPKCS8, SignJWT } from "jose";
 import { Pool } from "pg";
 import {
   ALL_OAUTH_SCOPES,
@@ -45,8 +45,8 @@ export const authPool = new Pool({
 // work that should happen once, not on every token sign. If import fails
 // (e.g. invalid PEM), the cache is cleared so the next call retries
 // instead of returning the rejected promise forever.
-let oidcPrivateKeyPromise: Promise<KeyLike> | null = null;
-function getOIDCPrivateKey(): Promise<KeyLike> {
+let oidcPrivateKeyPromise: Promise<CryptoKey> | null = null;
+function getOIDCPrivateKey(): Promise<CryptoKey> {
   if (!oidcPrivateKeyPromise) {
     oidcPrivateKeyPromise = importPKCS8(
       process.env.OIDC_PRIVATE_KEY_PEM as string,
