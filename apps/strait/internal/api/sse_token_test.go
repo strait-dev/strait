@@ -1,0 +1,298 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"strait/internal/config"
+	"strait/internal/domain"
+
+	"github.com/golang-jwt/jwt/v5"
+)
+
+const testJWTKey = "test-jwt-key-must-be-32-chars-long"
+
+func TestHandleCreateSSEToken_Success(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	handler := srv.requirePermission(domain.ScopeRunsRead)(
+		TypedHandler(srv, http.StatusCreated, srv.handleCreateSSEToken),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/sse-token", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeRunsRead, domain.ScopeJobsRead})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Token     string    `json:"token"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if resp.Token == "" {
+		t.Fatal("empty token")
+	}
+	if resp.ExpiresAt.Before(time.Now()) {
+		t.Error("expires_at is in the past")
+	}
+	if resp.ExpiresAt.After(time.Now().Add(6 * time.Minute)) {
+		t.Error("expires_at exceeds 5-minute TTL")
+	}
+}
+
+func TestParseSSEToken_Valid(t *testing.T) {
+	t.Parallel()
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret: "test-secret-value",
+			JWTSigningKey:  testJWTKey,
+		},
+		Store:  &APIStoreMock{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
+	t.Cleanup(srv.Close)
+
+	claims := SSETokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    sseTokenIssuer,
+			Subject:   "proj-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		ProjectID: "proj-1",
+		Scopes:    []string{domain.ScopeRunsRead},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(testJWTKey))
+	if err != nil {
+		t.Fatalf("sign error: %v", err)
+	}
+
+	parsed := srv.parseSSEToken(signed)
+	if parsed == nil {
+		t.Fatal("expected valid claims, got nil")
+	}
+	if parsed.ProjectID != "proj-1" {
+		t.Errorf("project_id = %q, want %q", parsed.ProjectID, "proj-1")
+	}
+	if len(parsed.Scopes) != 1 || parsed.Scopes[0] != domain.ScopeRunsRead {
+		t.Errorf("scopes = %v, want [runs:read]", parsed.Scopes)
+	}
+}
+
+func TestParseSSEToken_Expired(t *testing.T) {
+	t.Parallel()
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret: "test-secret-value",
+			JWTSigningKey:  testJWTKey,
+		},
+		Store:  &APIStoreMock{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
+	t.Cleanup(srv.Close)
+
+	claims := SSETokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    sseTokenIssuer,
+			Subject:   "proj-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-1 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-6 * time.Minute)),
+		},
+		ProjectID: "proj-1",
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, _ := token.SignedString([]byte(testJWTKey))
+
+	parsed := srv.parseSSEToken(signed)
+	if parsed != nil {
+		t.Error("expected nil for expired token")
+	}
+}
+
+func TestParseSSEToken_WrongIssuer(t *testing.T) {
+	t.Parallel()
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret: "test-secret-value",
+			JWTSigningKey:  testJWTKey,
+		},
+		Store:  &APIStoreMock{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
+	t.Cleanup(srv.Close)
+
+	claims := SSETokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "wrong-issuer",
+			Subject:   "proj-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		ProjectID: "proj-1",
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, _ := token.SignedString([]byte(testJWTKey))
+
+	parsed := srv.parseSSEToken(signed)
+	if parsed != nil {
+		t.Error("expected nil for wrong issuer")
+	}
+}
+
+func TestParseSSEToken_WrongKey(t *testing.T) {
+	t.Parallel()
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret: "test-secret-value",
+			JWTSigningKey:  testJWTKey,
+		},
+		Store:  &APIStoreMock{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
+	t.Cleanup(srv.Close)
+
+	claims := SSETokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    sseTokenIssuer,
+			Subject:   "proj-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+		},
+		ProjectID: "proj-1",
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, _ := token.SignedString([]byte("wrong-key-that-is-32-chars-long!"))
+
+	parsed := srv.parseSSEToken(signed)
+	if parsed != nil {
+		t.Error("expected nil for wrong signing key")
+	}
+}
+
+func TestParseSSEToken_GarbageInput(t *testing.T) {
+	t.Parallel()
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret: "test-secret-value",
+			JWTSigningKey:  testJWTKey,
+		},
+		Store:  &APIStoreMock{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
+	t.Cleanup(srv.Close)
+
+	inputs := []string{"", "not-a-jwt", "a.b.c", "strait_realkey123", strings.Repeat("x", 1000)}
+	for _, input := range inputs {
+		if srv.parseSSEToken(input) != nil {
+			t.Errorf("expected nil for garbage input %q", input[:min(len(input), 20)])
+		}
+	}
+}
+
+func TestSSETokenAuth_ShortLivedJWT_BypassesAPIKeyAuth(t *testing.T) {
+	t.Parallel()
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret: "test-secret-value",
+			JWTSigningKey:  testJWTKey,
+		},
+		Store:   &APIStoreMock{},
+		Queue:   &mockQueue{},
+		PubSub:  &mockPublisher{},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	// Create a valid SSE token.
+	claims := SSETokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    sseTokenIssuer,
+			Subject:   "proj-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		ProjectID: "proj-1",
+		Scopes:    []string{domain.ScopeJobsRead},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, _ := token.SignedString([]byte(testJWTKey))
+
+	// Use the SSE token in the query param for an SSE endpoint.
+	// This should authenticate without needing an API key.
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/test-key/stream?token="+signed, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	// Should not be 401 (unauthenticated) -- the SSE token should have authenticated.
+	if w.Code == http.StatusUnauthorized {
+		t.Errorf("SSE token should bypass API key auth, got 401; body: %s", w.Body.String())
+	}
+}
+
+func TestSSETokenAuth_RawAPIKey_StillWorks(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+
+	// Raw API key in query param should still work (backward compatible).
+	// It will fail auth (mock returns nil key) but should get 401 not 500.
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/test-key/stream?token=strait_someapikey", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	// 401 is expected (invalid key), not 500 or panic.
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("raw API key fallback: status = %d, want 401", w.Code)
+	}
+}
+
+func FuzzParseSSEToken(f *testing.F) {
+	f.Add("valid-looking.jwt.token")
+	f.Add("")
+	f.Add("strait_rawkey")
+	f.Add(strings.Repeat("a", 10000))
+	f.Add("eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJ3cm9uZyJ9.signature")
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret: "test-secret-value",
+			JWTSigningKey:  testJWTKey,
+		},
+		Store:  &APIStoreMock{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
+
+	f.Fuzz(func(t *testing.T, token string) {
+		// Should never panic.
+		srv.parseSSEToken(token)
+	})
+}

@@ -383,6 +383,7 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Post("/cli/device-codes/approve", TypedHandler(s, http.StatusOK, s.handleApproveDeviceCode))
 
 		r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/stats", TypedHandler(s, http.StatusOK, s.handleStats))
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Post("/sse-token", TypedHandler(s, http.StatusCreated, s.handleCreateSSEToken))
 
 		r.Route("/analytics", func(r chi.Router) {
 			// Community analytics (Postgres-backed, always available)

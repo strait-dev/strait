@@ -88,6 +88,8 @@ func realIP(r *http.Request) string {
 
 // sseTokenAuth extracts auth token from ?token= query param for SSE endpoints
 // where browsers cannot set custom headers (EventSource API limitation).
+// It first tries to parse the token as a short-lived SSE JWT (recommended).
+// If that fails, it falls back to treating it as a raw API key (backward compatible).
 func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Internal-Secret") != "" {
@@ -95,9 +97,23 @@ func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 			return
 		}
 		token := r.URL.Query().Get("token")
-		if token != "" {
-			r.Header.Set("Authorization", "Bearer "+token)
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
 		}
+
+		// Try short-lived SSE JWT first (preferred path).
+		if claims := s.parseSSEToken(token); claims != nil {
+			ctx := context.WithValue(r.Context(), ctxProjectIDKey, claims.ProjectID)
+			ctx = context.WithValue(ctx, ctxScopesKey, claims.Scopes)
+			ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
+			ctx = context.WithValue(ctx, ctxActorIDKey, "sse:"+claims.ProjectID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		// Fall back to raw API key in query param (backward compatible).
+		r.Header.Set("Authorization", "Bearer "+token)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -213,6 +229,12 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// SSE token auth may have already authenticated via a short-lived JWT.
+		if actorType, _ := r.Context().Value(ctxActorTypeKey).(string); actorType == "sse_token" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		authHeader := r.Header.Get("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer strait_") {
 			s.apiKeyAuth(next).ServeHTTP(w, r)
