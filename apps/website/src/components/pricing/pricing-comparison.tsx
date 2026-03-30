@@ -169,6 +169,81 @@ function buildSections(): PricingSection[] {
       ],
     },
     {
+      name: "Execution",
+      rows: [
+        row(
+          "Execution modes",
+          "text",
+          (k) => PLANS[k].limits.executionModes,
+          "Managed: we run your container. HTTP: we orchestrate, you run the compute."
+        ),
+        row(
+          "API rate limit",
+          "text",
+          (k) => {
+            const limit = PLANS[k].limits.apiRateLimit;
+            if (limit === null) {
+              return "Unlimited";
+            }
+            return `${limit.toLocaleString()} req/min`;
+          },
+          "Maximum API requests per minute per organization."
+        ),
+      ],
+    },
+    {
+      name: "Workflows",
+      rows: [
+        row(
+          "Workflow DAG steps",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.workflowSteps),
+          "Maximum number of steps in a workflow DAG definition."
+        ),
+        row(
+          "Approval gates",
+          "boolean",
+          (k) => PLANS[k].limits.approvalGates,
+          "Human-in-the-loop approval steps that pause workflow execution until approved."
+        ),
+        row(
+          "Sub-workflows",
+          "boolean",
+          (k) => PLANS[k].limits.subWorkflows,
+          "Nest workflows inside other workflows for complex orchestration patterns."
+        ),
+        row(
+          "Job chaining",
+          "boolean",
+          (k) => PLANS[k].limits.jobChaining,
+          "Trigger follow-up jobs on completion or failure with payload mapping."
+        ),
+        row(
+          "Canary deployments",
+          "boolean",
+          (k) => PLANS[k].limits.canaryDeployments,
+          "Gradually shift traffic between workflow versions with auto-promote/rollback."
+        ),
+      ],
+    },
+    {
+      name: "Automation",
+      rows: [
+        row(
+          "Scheduled jobs (cron)",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.scheduledJobs),
+          "Maximum number of cron schedule definitions across the organization."
+        ),
+        row(
+          "Webhook endpoints",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.webhookEndpoints),
+          "HTTP endpoints that receive real-time notifications for job lifecycle events."
+        ),
+      ],
+    },
+    {
       name: "Support",
       rows: [
         row(

@@ -1945,6 +1945,10 @@ func (m *advMockDowngradeStore) DeactivateExcessWebhookSubscriptions(_ context.C
 	return 0, nil
 }
 
+func (m *advMockDowngradeStore) DeactivateExcessEnvironments(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
 type advMockReferralStore struct {
 	expireFn func(ctx context.Context) (int64, error)
 }

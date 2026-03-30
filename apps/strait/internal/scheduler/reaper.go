@@ -53,6 +53,7 @@ type ReaperStore interface {
 	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 	DeleteRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error)
+	DeleteWorkflowRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error)
 }
 
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
@@ -1040,6 +1041,14 @@ func (r *Reaper) reapPerOrgRetention(ctx context.Context) {
 			continue
 		}
 		totalDeleted += deleted
+
+		wfDeleted, wfErr := r.store.DeleteWorkflowRunsByOrgOlderThan(ctx, orgID, retention)
+		if wfErr != nil {
+			r.logger.Warn("failed to delete retained workflow runs for org",
+				"org_id", orgID, "retention_days", days, "error", wfErr)
+			continue
+		}
+		totalDeleted += wfDeleted
 	}
 
 	if totalDeleted > 0 {

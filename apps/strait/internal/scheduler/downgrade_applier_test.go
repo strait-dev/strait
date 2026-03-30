@@ -49,6 +49,10 @@ func (m *mockDowngradeStore) DeactivateExcessWebhookSubscriptions(_ context.Cont
 	return 0, nil
 }
 
+func (m *mockDowngradeStore) DeactivateExcessEnvironments(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
 func newTestEnforcer(t *testing.T) *billing.Enforcer {
 	t.Helper()
 	mr := miniredis.RunT(t)

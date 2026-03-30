@@ -108,6 +108,10 @@ func (m *mockSchedulerStore) DeleteRunsByOrgOlderThan(ctx context.Context, orgID
 	return m.reaper.DeleteRunsByOrgOlderThan(ctx, orgID, retention)
 }
 
+func (m *mockSchedulerStore) DeleteWorkflowRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error) {
+	return m.reaper.DeleteWorkflowRunsByOrgOlderThan(ctx, orgID, retention)
+}
+
 func (m *mockSchedulerStore) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error) {
 	return m.reaper.ListExpiredEventTriggers(ctx)
 }

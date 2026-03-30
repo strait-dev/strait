@@ -16,6 +16,7 @@ type DowngradeApplierStore interface {
 	SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error)
 	DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error)
 	DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error)
+	DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error)
 }
 
 // Advisory lock ID for the downgrade applier (arbitrary unique constant).
@@ -134,6 +135,14 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 			slog.Warn("failed to deactivate excess webhooks", "org_id", orgID, "error", err)
 		} else if n > 0 {
 			slog.Info("deactivated excess webhooks after downgrade", "org_id", orgID, "count", n)
+		}
+	}
+
+	if newLimits.MaxEnvironments > 0 {
+		if n, err := d.store.DeactivateExcessEnvironments(ctx, orgID, newLimits.MaxEnvironments); err != nil {
+			slog.Warn("failed to deactivate excess environments", "org_id", orgID, "error", err)
+		} else if n > 0 {
+			slog.Info("deactivated excess environments after downgrade", "org_id", orgID, "count", n)
 		}
 	}
 }

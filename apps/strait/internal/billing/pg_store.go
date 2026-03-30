@@ -1188,6 +1188,24 @@ func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 	return result.RowsAffected(), nil
 }
 
+// DeactivateExcessEnvironments marks excess environments as deleted for an org.
+func (s *PgStore) DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error) {
+	result, err := s.pool.Exec(ctx, `
+		UPDATE environments SET deleted_at = NOW()
+		WHERE id IN (
+			SELECT e.id FROM environments e
+			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND e.deleted_at IS NULL
+			ORDER BY e.created_at ASC
+			OFFSET $2
+		)
+	`, orgID, maxEnvironments)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess environments: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
 // DeactivateExcessWebhookSubscriptions deactivates webhook subscriptions beyond the limit.
 func (s *PgStore) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error) {
 	result, err := s.pool.Exec(ctx, `

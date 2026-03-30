@@ -70,6 +70,53 @@ func (q *Queries) DeleteRunsByOrgOlderThan(ctx context.Context, orgID string, re
 	return result.RowsAffected(), nil
 }
 
+// DeleteWorkflowRunsByOrgOlderThan deletes terminal workflow runs for an org that
+// are older than the given retention duration.
+func (q *Queries) DeleteWorkflowRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteWorkflowRunsByOrgOlderThan")
+	defer span.End()
+
+	cutoff := time.Now().Add(-retention)
+	result, err := q.db.Exec(ctx, `
+		DELETE FROM workflow_runs
+		WHERE id IN (
+			SELECT wr.id FROM workflow_runs wr
+			JOIN workflows w ON wr.workflow_id = w.id
+			WHERE w.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND wr.status IN ('completed', 'failed', 'canceled', 'timed_out')
+			  AND wr.finished_at IS NOT NULL
+			  AND wr.finished_at < $2
+			LIMIT 1000
+		)
+	`, orgID, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("delete workflow runs by org older than %v: %w", retention, err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// DeactivateExcessEnvironments marks excess environments as deleted for an org.
+// Keeps the most recently created environments up to the limit.
+func (q *Queries) DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessEnvironments")
+	defer span.End()
+
+	result, err := q.db.Exec(ctx, `
+		UPDATE environments SET deleted_at = NOW()
+		WHERE id IN (
+			SELECT e.id FROM environments e
+			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND e.deleted_at IS NULL
+			ORDER BY e.created_at ASC
+			OFFSET $2
+		)
+	`, orgID, maxEnvironments)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess environments: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
 // DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
 // Keeps the most recently updated jobs and clears the cron field on excess ones.
 func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {

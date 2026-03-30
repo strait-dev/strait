@@ -18,6 +18,15 @@ export type Plan = {
     regions: string;
     spendingLimits: string;
     overagePerThousandRuns: number | null;
+    executionModes: string;
+    workflowSteps: number | null;
+    approvalGates: boolean;
+    subWorkflows: boolean;
+    jobChaining: boolean;
+    canaryDeployments: boolean;
+    scheduledJobs: number | null;
+    webhookEndpoints: number | null;
+    apiRateLimit: number | null;
   };
   governance: {
     rbac: "none" | "basic" | "full";
@@ -65,6 +74,15 @@ export const PLANS: Record<PlanKey, Plan> = {
       regions: "1 (iad)",
       spendingLimits: "Hard cap",
       overagePerThousandRuns: null,
+      executionModes: "Managed only",
+      workflowSteps: 10,
+      approvalGates: false,
+      subWorkflows: false,
+      jobChaining: false,
+      canaryDeployments: false,
+      scheduledJobs: 10,
+      webhookEndpoints: 0,
+      apiRateLimit: 60,
     },
     governance: {
       rbac: "none",
@@ -102,6 +120,15 @@ export const PLANS: Record<PlanKey, Plan> = {
       regions: "6",
       spendingLimits: "Configurable",
       overagePerThousandRuns: 200,
+      executionModes: "Managed only",
+      workflowSteps: 50,
+      approvalGates: false,
+      subWorkflows: false,
+      jobChaining: false,
+      canaryDeployments: false,
+      scheduledJobs: 25,
+      webhookEndpoints: 3,
+      apiRateLimit: 300,
     },
     governance: {
       rbac: "basic",
@@ -141,6 +168,15 @@ export const PLANS: Record<PlanKey, Plan> = {
       regions: "All",
       spendingLimits: "Configurable",
       overagePerThousandRuns: 200,
+      executionModes: "Managed + HTTP",
+      workflowSteps: 250,
+      approvalGates: true,
+      subWorkflows: true,
+      jobChaining: true,
+      canaryDeployments: false,
+      scheduledJobs: 100,
+      webhookEndpoints: 10,
+      apiRateLimit: 1000,
     },
     governance: {
       rbac: "full",
@@ -180,6 +216,15 @@ export const PLANS: Record<PlanKey, Plan> = {
       regions: "All",
       spendingLimits: "Configurable",
       overagePerThousandRuns: 200,
+      executionModes: "Managed + HTTP",
+      workflowSteps: 1000,
+      approvalGates: true,
+      subWorkflows: true,
+      jobChaining: true,
+      canaryDeployments: true,
+      scheduledJobs: 500,
+      webhookEndpoints: 25,
+      apiRateLimit: 3000,
     },
     governance: {
       rbac: "full",
@@ -220,6 +265,15 @@ export const PLANS: Record<PlanKey, Plan> = {
       regions: "All",
       spendingLimits: "Custom",
       overagePerThousandRuns: null,
+      executionModes: "Managed + HTTP",
+      workflowSteps: null,
+      approvalGates: true,
+      subWorkflows: true,
+      jobChaining: true,
+      canaryDeployments: true,
+      scheduledJobs: null,
+      webhookEndpoints: null,
+      apiRateLimit: null,
     },
     governance: {
       rbac: "full",
