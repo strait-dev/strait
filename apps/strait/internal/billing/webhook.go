@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/domain"
 )
 
@@ -42,6 +43,7 @@ type WebhookHandler struct {
 	auditStore   AuditStore
 	welcomeEmail WelcomeEmailFunc
 	posthog      *PostHogClient
+	chExporter   billingEventEnqueuer
 }
 
 // WebhookOption configures optional WebhookHandler behavior.
@@ -55,6 +57,23 @@ func WithWelcomeEmail(fn WelcomeEmailFunc) WebhookOption {
 // WithPostHog sets the PostHog client for server-side revenue event tracking.
 func WithPostHog(client *PostHogClient) WebhookOption {
 	return func(h *WebhookHandler) { h.posthog = client }
+}
+
+// WithWebhookClickHouse attaches a ClickHouse exporter for billing events.
+func WithWebhookClickHouse(exporter billingEventEnqueuer) WebhookOption {
+	return func(h *WebhookHandler) { h.chExporter = exporter }
+}
+
+func (h *WebhookHandler) emitBillingEvent(orgID, eventType, planTier string) {
+	if h.chExporter == nil {
+		return
+	}
+	h.chExporter.Enqueue(clickhouse.BillingEventRecord{
+		Timestamp: time.Now(),
+		OrgID:     orgID,
+		EventType: eventType,
+		PlanTier:  planTier,
+	})
 }
 
 // NewWebhookHandler creates a new Polar webhook handler.
@@ -271,6 +290,8 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		"plan_tier":             string(tier),
 		"polar_subscription_id": sub.ID,
 	})
+
+	h.emitBillingEvent(orgID, "plan_changed", string(tier))
 
 	h.logger.Info("subscription created",
 		"org_id", orgID,

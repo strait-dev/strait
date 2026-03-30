@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"strait/internal/clickhouse"
 	"strait/internal/domain"
 	"strait/internal/telemetry"
 
@@ -58,6 +59,12 @@ type Enforcer struct {
 	limitsGroup    singleflight.Group
 	cacheTTL       time.Duration
 	suspendedCache sync.Map // projectID -> *suspendedCacheEntry
+	chExporter     billingEventEnqueuer
+}
+
+// billingEventEnqueuer is the subset of clickhouse.Exporter needed for billing analytics.
+type billingEventEnqueuer interface {
+	Enqueue(record any) bool
 }
 
 type cachedOrgLimits struct {
@@ -102,6 +109,26 @@ func WithMetrics(m *telemetry.Metrics) EnforcerOption {
 	return func(e *Enforcer) {
 		e.metrics = m
 	}
+}
+
+// WithClickHouse attaches a ClickHouse exporter for billing analytics events.
+func WithClickHouse(exporter billingEventEnqueuer) EnforcerOption {
+	return func(e *Enforcer) {
+		e.chExporter = exporter
+	}
+}
+
+// emitBillingEvent sends a billing analytics event to ClickHouse.
+func (e *Enforcer) emitBillingEvent(orgID, eventType, planTier string) {
+	if e.chExporter == nil {
+		return
+	}
+	e.chExporter.Enqueue(clickhouse.BillingEventRecord{
+		Timestamp: time.Now(),
+		OrgID:     orgID,
+		EventType: eventType,
+		PlanTier:  planTier,
+	})
 }
 
 // InvalidateOrgCache removes cached plan limits for an org (call on plan change).
@@ -601,6 +628,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 
 	if isOverageLimitReached(sub.SpendingLimitMicrousd, overageSpend) {
 		e.recordRejection(ctx, "spending_limit", limits.PlanTier)
+		e.emitBillingEvent(orgID, "spending_limit_hit", sub.PlanTier)
 		return &LimitError{
 			Code:         "spending_limit_reached",
 			Message:      fmt.Sprintf("Your monthly spending limit of $%.2f has been reached.", float64(sub.SpendingLimitMicrousd)/1000000),
