@@ -164,7 +164,7 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.sseTokenAuth)
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(chimw.Timeout(requestTimeout))
-		r.Get("/", s.handleEventTriggerStream)
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleEventTriggerStream)
 	})
 
 	// Run stream route without timeout middleware so SSE connections stay open.
@@ -187,8 +187,8 @@ func (s *Server) routes() chi.Router {
 	r.Route("/v1/organizations/{orgID}", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(chimw.Timeout(requestTimeout))
-		r.Get("/runs", TypedHandler(s, http.StatusOK, s.handleListOrgRuns))
-		r.Get("/jobs", TypedHandler(s, http.StatusOK, s.handleListOrgJobs))
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/runs", TypedHandler(s, http.StatusOK, s.handleListOrgRuns))
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", TypedHandler(s, http.StatusOK, s.handleListOrgJobs))
 	})
 
 	r.Route("/v1", func(r chi.Router) {
@@ -202,7 +202,7 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeSecretsWrite)).Delete("/{secretID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteSecret))
 		})
 
-		r.Get("/plans", TypedHandler(s, http.StatusOK, s.handleGetPlans))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/plans", TypedHandler(s, http.StatusOK, s.handleGetPlans))
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/regions", TypedHandler(s, http.StatusOK, s.handleListRegions))
 
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/current", TypedHandler(s, http.StatusOK, s.handleGetCurrentUsage))
@@ -221,7 +221,7 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/anomaly-config", TypedHandler(s, http.StatusOK, s.handleUpdateAnomalyConfig))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/email-preferences", TypedHandler(s, http.StatusOK, s.handleGetEmailPreferences))
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/usage/email-preferences", TypedHandler(s, http.StatusOK, s.handleUpdateEmailPreferences))
-		r.Get("/billing/check-org-limit", TypedHandler(s, http.StatusOK, s.handleCheckOrgLimit))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/billing/check-org-limit", TypedHandler(s, http.StatusOK, s.handleCheckOrgLimit))
 		r.Route("/referrals", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateReferralCode))
 			r.With(s.requirePermission(domain.ScopeProjectsManage), rateLimit(5, time.Minute)).Post("/activate", TypedHandler(s, http.StatusOK, s.handleActivateReferral))

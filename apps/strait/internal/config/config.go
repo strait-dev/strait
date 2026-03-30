@@ -279,6 +279,9 @@ func Load() (*Config, error) {
 	}
 
 	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
+		if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+			return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=disable is not allowed in non-development environments"}
+		}
 		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
 	}
 
@@ -324,6 +327,12 @@ func Load() (*Config, error) {
 			}
 		}
 		if origin == "*" {
+			if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+				return nil, &domain.ConfigError{
+					Field:   "CORS_ALLOWED_ORIGINS",
+					Message: "wildcard origin (*) is not allowed in non-development environments",
+				}
+			}
 			slog.Warn("CORS_ALLOWED_ORIGINS is set to wildcard (*); consider restricting to specific origins in production")
 		}
 	}

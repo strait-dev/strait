@@ -736,7 +736,7 @@ type JobVersion struct {
 	MaxAttempts         int               `json:"max_attempts"`
 	TimeoutSecs         int               `json:"timeout_secs"`
 	WebhookURL          string            `json:"webhook_url,omitempty"`
-	WebhookSecret       string            `json:"webhook_secret,omitempty"`
+	WebhookSecret       string            `json:"-"`
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
 	MachinePreset       string            `json:"machine_preset,omitempty"`
 	ImageURI            string            `json:"image_uri,omitempty"`

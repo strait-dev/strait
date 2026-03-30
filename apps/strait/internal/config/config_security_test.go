@@ -89,6 +89,51 @@ func TestInternalSecret_Long_Accepted(t *testing.T) {
 	}
 }
 
+func TestCORS_Wildcard_RejectedInProduction(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
+	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "*")
+	t.Setenv("SENTRY_ENVIRONMENT", "production")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for wildcard CORS in production, got nil")
+	}
+	want := "config CORS_ALLOWED_ORIGINS: wildcard origin (*) is not allowed in non-development environments"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestSSLMode_Disable_RejectedInProduction(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test?sslmode=disable")
+	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("SENTRY_ENVIRONMENT", "production")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for sslmode=disable in production, got nil")
+	}
+	want := "config DATABASE_URL: sslmode=disable is not allowed in non-development environments"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestSSLMode_Disable_AllowedInDev(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test?sslmode=disable")
+	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("SENTRY_ENVIRONMENT", "development")
+
+	_, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestCORS_ExplicitOrigins_Allowed(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")

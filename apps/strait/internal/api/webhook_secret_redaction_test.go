@@ -82,6 +82,28 @@ func TestJob_WebhookSecret_Adversarial_NestedMarshal(t *testing.T) {
 	}
 }
 
+func TestJobVersion_WebhookSecret_NotSerialized(t *testing.T) {
+	t.Parallel()
+
+	jv := domain.JobVersion{
+		ID:            "jv-1",
+		JobID:         "job-1",
+		WebhookSecret: "version-secret-value",
+	}
+
+	data, err := json.Marshal(jv)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+
+	if strings.Contains(string(data), "version-secret-value") {
+		t.Error("serialized JobVersion contains webhook_secret value")
+	}
+	if strings.Contains(string(data), "webhook_secret") {
+		t.Error("serialized JobVersion contains webhook_secret key")
+	}
+}
+
 func TestWebhookSubscription_Secret_Adversarial_SliceMarshal(t *testing.T) {
 	t.Parallel()
 
