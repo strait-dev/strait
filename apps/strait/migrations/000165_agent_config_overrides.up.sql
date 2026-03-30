@@ -1,0 +1,1 @@
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS config_overrides JSONB NOT NULL DEFAULT '{}'::jsonb;
