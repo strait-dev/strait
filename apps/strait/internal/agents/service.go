@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -1099,7 +1100,8 @@ func extractWebhookURL(config json.RawMessage) string {
 }
 
 // isSafeWebhookURL rejects URLs that could target internal services or
-// cloud metadata endpoints (SSRF prevention).
+// cloud metadata endpoints (SSRF prevention). It checks both the hostname
+// string and the resolved IP addresses to defend against DNS rebinding.
 func isSafeWebhookURL(raw string) bool {
 	parsed, err := url.Parse(raw)
 	if err != nil {
@@ -1124,6 +1126,20 @@ func isSafeWebhookURL(raw string) bool {
 	// Block .local and .internal TLDs.
 	if strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") {
 		return false
+	}
+	// Resolve DNS and block private/reserved IP ranges to prevent DNS rebinding.
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return false
+	}
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			return false
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return false
+		}
 	}
 	return true
 }

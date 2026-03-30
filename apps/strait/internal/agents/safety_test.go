@@ -253,8 +253,8 @@ func TestIsSafeWebhookURLBlocksSSRF(t *testing.T) {
 		name string
 		url  string
 	}{
-		{"public https", "https://hooks.example.com/agent"},
-		{"public https with path", "https://api.myapp.io/webhooks/agent"},
+		{"public https google", "https://www.google.com/webhooks"},
+		{"public https github", "https://github.com/webhooks"},
 	}
 
 	for _, tt := range allowed {
@@ -280,6 +280,53 @@ func TestExtractWebhookURLRejectsInternalHosts(t *testing.T) {
 	got := extractWebhookURL(json.RawMessage(`{"webhook_url":"https://169.254.169.254/latest/"}`))
 	if got != "" {
 		t.Fatalf("metadata endpoint should be rejected, got %q", got)
+	}
+}
+
+func TestIsSafeWebhookURLBlocksDNSRebinding(t *testing.T) {
+	t.Parallel()
+	// A real hostname that resolves to a loopback should be blocked.
+	// localhost.localdomain typically resolves to 127.0.0.1.
+	if isSafeWebhookURL("https://localhost.localdomain/hook") {
+		t.Fatal("localhost.localdomain should be blocked by DNS resolution check")
+	}
+}
+
+func TestIsSafeWebhookURLBlocksPrivateIPHostnames(t *testing.T) {
+	t.Parallel()
+	// A direct private IP in hostname should be blocked both by DNS resolution
+	// and by the hostname blocklist.
+	if isSafeWebhookURL("https://127.0.0.1/hook") {
+		t.Fatal("127.0.0.1 should be blocked")
+	}
+}
+
+func TestChainMessageLimitEnforced(t *testing.T) {
+	t.Parallel()
+	store := newMockStore("a", "b")
+	svc := NewAgentMessageService(store)
+	ctx := context.Background()
+
+	// Pre-populate chain with maxMessagesPerChain messages.
+	for i := range maxMessagesPerChain {
+		store.messages = append(store.messages, domain.AgentMessage{
+			SourceAgentID: "a",
+			TargetAgentID: "b",
+			ChainID:       "flood-chain",
+			ChainDepth:    i + 1,
+		})
+	}
+
+	// The next message should be rejected by message count limit.
+	_, err := svc.Send(ctx, SendRequest{
+		ProjectID:     "proj-1",
+		SourceAgentID: "a",
+		TargetAgentID: "b",
+		ChainID:       "flood-chain",
+		ChainDepth:    maxChainDepth, // within depth limit but over message count
+	})
+	if !errors.Is(err, ErrChainMessageLimit) {
+		t.Fatalf("expected ErrChainMessageLimit, got %v", err)
 	}
 }
 

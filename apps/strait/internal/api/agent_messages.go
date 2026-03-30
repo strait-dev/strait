@@ -166,6 +166,8 @@ func mapMessageError(err error) error {
 		return huma.Error409Conflict("circular message chain detected")
 	case errors.Is(err, agents.ErrChainTooDeep):
 		return huma.Error400BadRequest("message chain exceeds maximum depth")
+	case errors.Is(err, agents.ErrChainMessageLimit):
+		return huma.Error429TooManyRequests("message chain exceeds maximum message count")
 	case errors.Is(err, agents.ErrTargetNotFound):
 		return huma.Error404NotFound("target agent not found")
 	default:

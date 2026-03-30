@@ -12,13 +12,17 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxChainDepth = 20
+const (
+	maxChainDepth       = 20
+	maxMessagesPerChain = 100
+)
 
 var (
-	ErrCycleDetected  = errors.New("circular agent message chain detected")
-	ErrChainTooDeep   = errors.New("agent message chain exceeds maximum depth")
-	ErrSelfMessage    = errors.New("agent cannot send a message to itself")
-	ErrTargetNotFound = errors.New("target agent not found")
+	ErrCycleDetected     = errors.New("circular agent message chain detected")
+	ErrChainTooDeep      = errors.New("agent message chain exceeds maximum depth")
+	ErrChainMessageLimit = errors.New("message chain exceeds maximum message count")
+	ErrSelfMessage       = errors.New("agent cannot send a message to itself")
+	ErrTargetNotFound    = errors.New("target agent not found")
 )
 
 // MessageStore defines the store methods needed by the messaging service.
@@ -99,6 +103,12 @@ func (s *AgentMessageService) Send(ctx context.Context, req SendRequest) (*domai
 	// Run cycle detection on the chain.
 	if err := s.detectCycle(ctx, req.SourceAgentID, req.TargetAgentID, chainID); err != nil {
 		return nil, err
+	}
+
+	// Enforce per-chain message limit to prevent message flooding.
+	chainMessages, chainErr := s.store.ListAgentMessagesByChain(ctx, chainID)
+	if chainErr == nil && len(chainMessages) >= maxMessagesPerChain {
+		return nil, ErrChainMessageLimit
 	}
 
 	msg := &domain.AgentMessage{
