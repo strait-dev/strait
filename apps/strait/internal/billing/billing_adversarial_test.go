@@ -168,7 +168,7 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 		Status:     "active",
 		CustomerID: "cust_1",
 		ProductID:  "starter-id",
-		Metadata:   map[string]string{"org_id": "org-dup"},
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000020"},
 	}
 
 	body := webhookPayload(t, "subscription.created", data)
@@ -180,7 +180,7 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 		t.Fatalf("first delivery: expected 200, got %d", rr.Code)
 	}
 
-	sub, err := store.GetOrgSubscription(context.Background(), "org-dup")
+	sub, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000020")
 	if err != nil {
 		t.Fatalf("expected subscription after first delivery: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 	}
 
 	// Subscription should still be starter, not double-created.
-	sub2, _ := store.GetOrgSubscription(context.Background(), "org-dup")
+	sub2, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000020")
 	if sub2.PlanTier != string(domain.PlanStarter) {
 		t.Fatalf("after duplicate: expected starter, got %s", sub2.PlanTier)
 	}
@@ -216,8 +216,8 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 	periodEnd := now.Add(30 * 24 * time.Hour)
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-dup-upd": {
-				OrgID:              "org-dup-upd",
+			"00000000-0000-0000-0000-000000000021": {
+				OrgID:              "00000000-0000-0000-0000-000000000021",
 				PlanTier:           string(domain.PlanStarter),
 				Status:             "active",
 				CurrentPeriodStart: &periodStart,
@@ -235,7 +235,7 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 		ProductID:          "pro-id",
 		CurrentPeriodStart: &periodStart,
 		CurrentPeriodEnd:   &periodEnd,
-		Metadata:           map[string]string{"org_id": "org-dup-upd"},
+		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-000000000021"},
 	}
 
 	body := webhookPayload(t, "subscription.updated", data)
@@ -247,7 +247,7 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 		t.Fatalf("first update: expected 200, got %d", rr1.Code)
 	}
 
-	sub, _ := store.GetOrgSubscription(context.Background(), "org-dup-upd")
+	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000021")
 	if sub.PlanTier != string(domain.PlanPro) {
 		t.Fatalf("after first update: expected pro, got %s", sub.PlanTier)
 	}
@@ -259,7 +259,7 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 		t.Fatalf("duplicate update: expected 200, got %d", rr2.Code)
 	}
 
-	sub2, _ := store.GetOrgSubscription(context.Background(), "org-dup-upd")
+	sub2, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000021")
 	if sub2.PlanTier != string(domain.PlanPro) {
 		t.Fatalf("after duplicate update: expected pro, got %s", sub2.PlanTier)
 	}
@@ -456,8 +456,8 @@ func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
 	periodEnd := time.Now().Add(23 * 24 * time.Hour)
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-defer": {
-				OrgID:              "org-defer",
+			"00000000-0000-0000-0000-000000000022": {
+				OrgID:              "00000000-0000-0000-0000-000000000022",
 				PlanTier:           string(domain.PlanPro),
 				Status:             "active",
 				CurrentPeriodStart: &periodStart,
@@ -476,7 +476,7 @@ func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
 		ProductID:          "starter-id",
 		CurrentPeriodStart: &periodStart,
 		CurrentPeriodEnd:   &periodEnd,
-		Metadata:           map[string]string{"org_id": "org-defer"},
+		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-000000000022"},
 	}
 	body := webhookPayload(t, "subscription.updated", data)
 	rr := httptest.NewRecorder()
@@ -486,7 +486,7 @@ func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
 	}
 
 	// Plan tier should remain pro (deferred).
-	sub, _ := store.GetOrgSubscription(context.Background(), "org-defer")
+	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000022")
 	if sub.PlanTier != string(domain.PlanPro) {
 		t.Fatalf("expected pro (deferred), got %s", sub.PlanTier)
 	}
@@ -501,8 +501,8 @@ func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
 	canceledAt := time.Now()
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-already-free": {
-				OrgID:    "org-already-free",
+			"00000000-0000-0000-0000-000000000023": {
+				OrgID:    "00000000-0000-0000-0000-000000000023",
 				PlanTier: string(domain.PlanFree),
 				Status:   "active",
 			},
@@ -513,8 +513,10 @@ func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
 
 	data := PolarSubscriptionData{
 		ID:         "sub_cancel_free",
+		ProductID:  "starter-id",
+		CustomerID: "cust_cancel_free",
 		CanceledAt: &canceledAt,
-		Metadata:   map[string]string{"org_id": "org-already-free"},
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000023"},
 	}
 	body := webhookPayload(t, "subscription.canceled", data)
 	rr := httptest.NewRecorder()
@@ -523,7 +525,7 @@ func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	sub, _ := store.GetOrgSubscription(context.Background(), "org-already-free")
+	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000023")
 	if sub.Status != "canceled" {
 		t.Fatalf("expected status canceled, got %s", sub.Status)
 	}
@@ -539,8 +541,8 @@ func TestWebhook_RevokeSubscription(t *testing.T) {
 	pending := string(domain.PlanStarter)
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-revoke": {
-				OrgID:           "org-revoke",
+			"00000000-0000-0000-0000-000000000024": {
+				OrgID:           "00000000-0000-0000-0000-000000000024",
 				PlanTier:        string(domain.PlanPro),
 				Status:          "active",
 				PendingPlanTier: &pending,
@@ -551,8 +553,10 @@ func TestWebhook_RevokeSubscription(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:       "sub_revoke_1",
-		Metadata: map[string]string{"org_id": "org-revoke"},
+		ID:         "sub_revoke_1",
+		ProductID:  "starter-id",
+		CustomerID: "cust_revoke",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000024"},
 	}
 	body := webhookPayload(t, "subscription.revoked", data)
 	rr := httptest.NewRecorder()
@@ -561,7 +565,7 @@ func TestWebhook_RevokeSubscription(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	sub, _ := store.GetOrgSubscription(context.Background(), "org-revoke")
+	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000024")
 	if sub.PlanTier != string(domain.PlanFree) {
 		t.Fatalf("expected free after revoke, got %s", sub.PlanTier)
 	}
@@ -626,9 +630,10 @@ func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:        "sub_no_org",
-		ProductID: "starter-id",
-		Metadata:  map[string]string{}, // no org_id
+		ID:         "sub_no_org",
+		ProductID:  "starter-id",
+		CustomerID: "cust_no_org",
+		Metadata:   map[string]string{}, // no org_id
 	}
 	body := webhookPayload(t, "subscription.created", data)
 	rr := httptest.NewRecorder()
@@ -658,7 +663,7 @@ func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
 		Customer: &PolarCustomerData{
 			ID:       "cust_meta_1",
 			Email:    "user@example.com",
-			Metadata: map[string]string{"org_id": "org-from-customer"},
+			Metadata: map[string]string{"org_id": "00000000-0000-0000-0000-000000000025"},
 		},
 	}
 	body := webhookPayload(t, "subscription.created", data)
@@ -668,7 +673,7 @@ func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
-	_, err := store.GetOrgSubscription(context.Background(), "org-from-customer")
+	_, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000025")
 	if err != nil {
 		t.Fatalf("expected subscription created from customer metadata: %v", err)
 	}
@@ -729,9 +734,10 @@ func TestWebhook_UnknownProductID(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:        "sub_unknown_prod",
-		ProductID: "unknown-product-xyz",
-		Metadata:  map[string]string{"org_id": "org-unknown-prod"},
+		ID:         "sub_unknown_prod",
+		ProductID:  "unknown-product-xyz",
+		CustomerID: "cust_unknown",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000026"},
 	}
 	body := webhookPayload(t, "subscription.created", data)
 	rr := httptest.NewRecorder()
@@ -756,7 +762,7 @@ func TestWebhook_ProductFromNestedObject(t *testing.T) {
 		ProductID:  "",
 		CustomerID: "cust_nested",
 		Product:    &PolarProductData{ID: "pro-id", Name: "Pro"},
-		Metadata:   map[string]string{"org_id": "org-nested-prod"},
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000027"},
 	}
 	body := webhookPayload(t, "subscription.created", data)
 	rr := httptest.NewRecorder()
@@ -765,7 +771,7 @@ func TestWebhook_ProductFromNestedObject(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	sub, err := store.GetOrgSubscription(context.Background(), "org-nested-prod")
+	sub, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000027")
 	if err != nil {
 		t.Fatalf("expected subscription: %v", err)
 	}
@@ -840,7 +846,7 @@ func TestWebhook_ConcurrentCreatedEvents(t *testing.T) {
 		Status:     "active",
 		CustomerID: "cust_conc",
 		ProductID:  "starter-id",
-		Metadata:   map[string]string{"org_id": "org-concurrent"},
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000028"},
 	}
 	body := webhookPayload(t, "subscription.created", data)
 
@@ -862,7 +868,7 @@ func TestWebhook_ConcurrentCreatedEvents(t *testing.T) {
 	}
 
 	// Final state should be consistent.
-	sub, err := store.GetOrgSubscription(context.Background(), "org-concurrent")
+	sub, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000028")
 	if err != nil {
 		t.Fatalf("expected subscription: %v", err)
 	}
@@ -954,9 +960,10 @@ func TestWebhook_UpsertErrorOnCreate(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:        "sub_err_create",
-		ProductID: "starter-id",
-		Metadata:  map[string]string{"org_id": "org-err-create"},
+		ID:         "sub_err_create",
+		ProductID:  "starter-id",
+		CustomerID: "cust_err",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000029"},
 	}
 	body := webhookPayload(t, "subscription.created", data)
 	rr := httptest.NewRecorder()
@@ -977,10 +984,11 @@ func TestWebhook_GetSubErrorOnUpdated(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:        "sub_err_update",
-		ProductID: "starter-id",
-		Status:    "active",
-		Metadata:  map[string]string{"org_id": "org-err-update"},
+		ID:         "sub_err_update",
+		ProductID:  "starter-id",
+		CustomerID: "cust_err_upd",
+		Status:     "active",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002a"},
 	}
 	body := webhookPayload(t, "subscription.updated", data)
 	rr := httptest.NewRecorder()
@@ -997,8 +1005,8 @@ func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
 	store := &errStore{
 		mockBillingStore: mockBillingStore{
 			subscriptions: map[string]*OrgSubscription{
-				"org-fall": {
-					OrgID:    "org-fall",
+				"00000000-0000-0000-0000-00000000002b": {
+					OrgID:    "00000000-0000-0000-0000-00000000002b",
 					PlanTier: string(domain.PlanStarter),
 					Status:   "active",
 				},
@@ -1015,7 +1023,7 @@ func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
 		ProductID:  "pro-id",
 		Status:     "active",
 		CustomerID: "cust_fall",
-		Metadata:   map[string]string{"org_id": "org-fall"},
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002b"},
 	}
 	body := webhookPayload(t, "subscription.updated", data)
 	rr := httptest.NewRecorder()
@@ -1040,9 +1048,10 @@ func TestWebhook_AuditStoreError(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, auditStore)
 
 	data := PolarSubscriptionData{
-		ID:        "sub_audit_err",
-		ProductID: "starter-id",
-		Metadata:  map[string]string{"org_id": "org-audit-err"},
+		ID:         "sub_audit_err",
+		ProductID:  "starter-id",
+		CustomerID: "cust_audit_err",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002c"},
 	}
 	body := webhookPayload(t, "subscription.created", data)
 	rr := httptest.NewRecorder()
@@ -1054,7 +1063,7 @@ func TestWebhook_AuditStoreError(t *testing.T) {
 	}
 
 	// Subscription should still be created.
-	_, err := store.GetOrgSubscription(context.Background(), "org-audit-err")
+	_, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002c")
 	if err != nil {
 		t.Fatalf("subscription should exist despite audit error: %v", err)
 	}
@@ -1328,8 +1337,8 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 	periodEnd := now.Add(15 * 24 * time.Hour)
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-pastdue": {
-				OrgID:              "org-pastdue",
+			"00000000-0000-0000-0000-00000000002d": {
+				OrgID:              "00000000-0000-0000-0000-00000000002d",
 				PlanTier:           string(domain.PlanStarter),
 				Status:             "active",
 				PaymentStatus:      "ok",
@@ -1344,10 +1353,11 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 	data := PolarSubscriptionData{
 		ID:                 "sub_pastdue",
 		ProductID:          "starter-id",
+		CustomerID:         "cust_pastdue",
 		Status:             "past_due",
 		CurrentPeriodStart: &periodStart,
 		CurrentPeriodEnd:   &periodEnd,
-		Metadata:           map[string]string{"org_id": "org-pastdue"},
+		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-00000000002d"},
 	}
 	body := webhookPayload(t, "subscription.updated", data)
 	rr := httptest.NewRecorder()
@@ -1356,7 +1366,7 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	sub, _ := store.GetOrgSubscription(context.Background(), "org-pastdue")
+	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002d")
 	if sub.PaymentStatus != "grace" {
 		t.Fatalf("expected payment_status=grace, got %s", sub.PaymentStatus)
 	}
@@ -1373,8 +1383,8 @@ func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
 	periodEnd := time.Now().Add(15 * 24 * time.Hour)
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-recover": {
-				OrgID:              "org-recover",
+			"00000000-0000-0000-0000-00000000002e": {
+				OrgID:              "00000000-0000-0000-0000-00000000002e",
 				PlanTier:           string(domain.PlanStarter),
 				Status:             "active",
 				PaymentStatus:      "grace",
@@ -1390,10 +1400,11 @@ func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
 	data := PolarSubscriptionData{
 		ID:                 "sub_recover",
 		ProductID:          "starter-id",
+		CustomerID:         "cust_recover",
 		Status:             "active",
 		CurrentPeriodStart: &periodStart,
 		CurrentPeriodEnd:   &periodEnd,
-		Metadata:           map[string]string{"org_id": "org-recover"},
+		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-00000000002e"},
 	}
 	body := webhookPayload(t, "subscription.updated", data)
 	rr := httptest.NewRecorder()
@@ -1402,7 +1413,7 @@ func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	sub, _ := store.GetOrgSubscription(context.Background(), "org-recover")
+	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002e")
 	if sub.PaymentStatus != "ok" {
 		t.Fatalf("expected payment_status=ok after recovery, got %s", sub.PaymentStatus)
 	}
@@ -1414,8 +1425,8 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 	graceEnd := time.Now().Add(48 * time.Hour)
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-paid": {
-				OrgID:          "org-paid",
+			"00000000-0000-0000-0000-00000000002f": {
+				OrgID:          "00000000-0000-0000-0000-00000000002f",
 				PlanTier:       string(domain.PlanStarter),
 				Status:         "active",
 				PaymentStatus:  "restricted",
@@ -1427,8 +1438,10 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:       "sub_paid",
-		Metadata: map[string]string{"org_id": "org-paid"},
+		ID:         "sub_paid",
+		ProductID:  "starter-id",
+		CustomerID: "cust_paid",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002f"},
 	}
 	body := webhookPayload(t, "subscription.active", data)
 	rr := httptest.NewRecorder()
@@ -1437,7 +1450,7 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	sub, _ := store.GetOrgSubscription(context.Background(), "org-paid")
+	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002f")
 	if sub.PaymentStatus != "ok" {
 		t.Fatalf("expected payment_status=ok after payment, got %s", sub.PaymentStatus)
 	}
@@ -1448,8 +1461,8 @@ func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-already-ok": {
-				OrgID:         "org-already-ok",
+			"00000000-0000-0000-0000-000000000030": {
+				OrgID:         "00000000-0000-0000-0000-000000000030",
 				PlanTier:      string(domain.PlanStarter),
 				Status:        "active",
 				PaymentStatus: "ok",
@@ -1460,8 +1473,10 @@ func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:       "sub_ok",
-		Metadata: map[string]string{"org_id": "org-already-ok"},
+		ID:         "sub_ok",
+		ProductID:  "starter-id",
+		CustomerID: "cust_ok",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000030"},
 	}
 	body := webhookPayload(t, "subscription.active", data)
 	rr := httptest.NewRecorder()
@@ -1488,9 +1503,10 @@ func TestWebhook_MultipleSignaturesInHeader(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:        "sub_multisig",
-		ProductID: "starter-id",
-		Metadata:  map[string]string{"org_id": "org-multisig"},
+		ID:         "sub_multisig",
+		ProductID:  "starter-id",
+		CustomerID: "cust_multisig",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000031"},
 	}
 	body := webhookPayload(t, "subscription.created", data)
 
@@ -1801,7 +1817,7 @@ func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
 		ID:         "sub_welcome",
 		ProductID:  "starter-id",
 		CustomerID: "cust_welcome",
-		Metadata:   map[string]string{"org_id": "org-welcome"},
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000032"},
 		Customer:   &PolarCustomerData{ID: "cust_welcome", Email: "welcome@example.com"},
 	}
 	body := webhookPayload(t, "subscription.created", data)
@@ -1846,7 +1862,7 @@ func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
 		ID:         "sub_no_email",
 		ProductID:  "starter-id",
 		CustomerID: "cust_no_email",
-		Metadata:   map[string]string{"org_id": "org-no-email"},
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000033"},
 		// Customer is nil, so email is empty.
 	}
 	body := webhookPayload(t, "subscription.created", data)
@@ -2271,8 +2287,10 @@ func TestWebhook_CancelNonExistentOrg(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:       "sub_cancel_noexist",
-		Metadata: map[string]string{"org_id": "org-nonexistent"},
+		ID:         "sub_cancel_noexist",
+		ProductID:  "starter-id",
+		CustomerID: "cust_noexist",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000034"},
 	}
 	body := webhookPayload(t, "subscription.canceled", data)
 	rr := httptest.NewRecorder()
@@ -2295,7 +2313,7 @@ func TestWebhook_RevokeNonExistentOrg(t *testing.T) {
 
 	data := PolarSubscriptionData{
 		ID:       "sub_revoke_noexist",
-		Metadata: map[string]string{"org_id": "org-nonexistent"},
+		Metadata: map[string]string{"org_id": "00000000-0000-0000-0000-000000000034"},
 	}
 	body := webhookPayload(t, "subscription.revoked", data)
 	rr := httptest.NewRecorder()
@@ -2318,7 +2336,7 @@ func TestWebhook_PaymentSucceededNonExistentOrg(t *testing.T) {
 
 	data := PolarSubscriptionData{
 		ID:       "sub_pay_noexist",
-		Metadata: map[string]string{"org_id": "org-nonexistent"},
+		Metadata: map[string]string{"org_id": "00000000-0000-0000-0000-000000000034"},
 	}
 	body := webhookPayload(t, "order.paid", data)
 	rr := httptest.NewRecorder()
@@ -2337,8 +2355,8 @@ func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-unk-prod": {
-				OrgID:    "org-unk-prod",
+			"00000000-0000-0000-0000-000000000035": {
+				OrgID:    "00000000-0000-0000-0000-000000000035",
 				PlanTier: string(domain.PlanStarter),
 				Status:   "active",
 			},
@@ -2348,10 +2366,11 @@ func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:        "sub_unk_prod_upd",
-		ProductID: "unknown-product",
-		Status:    "active",
-		Metadata:  map[string]string{"org_id": "org-unk-prod"},
+		ID:         "sub_unk_prod_upd",
+		ProductID:  "unknown-product",
+		CustomerID: "cust_unk_prod",
+		Status:     "active",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000035"},
 	}
 	body := webhookPayload(t, "subscription.updated", data)
 	rr := httptest.NewRecorder()
@@ -2375,8 +2394,8 @@ func TestWebhook_UpdatedEmptyStatusDefaultsActive(t *testing.T) {
 	pe := now.Add(23 * 24 * time.Hour)
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-empty-status": {
-				OrgID:              "org-empty-status",
+			"00000000-0000-0000-0000-000000000036": {
+				OrgID:              "00000000-0000-0000-0000-000000000036",
 				PlanTier:           string(domain.PlanStarter),
 				Status:             "active",
 				CurrentPeriodStart: &ps,
@@ -2390,10 +2409,11 @@ func TestWebhook_UpdatedEmptyStatusDefaultsActive(t *testing.T) {
 	data := PolarSubscriptionData{
 		ID:                 "sub_empty_status",
 		ProductID:          "starter-id",
+		CustomerID:         "cust_empty_status",
 		Status:             "", // empty, should default to "active"
 		CurrentPeriodStart: &ps,
 		CurrentPeriodEnd:   &pe,
-		Metadata:           map[string]string{"org_id": "org-empty-status"},
+		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-000000000036"},
 	}
 	body := webhookPayload(t, "subscription.updated", data)
 	rr := httptest.NewRecorder()

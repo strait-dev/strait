@@ -361,7 +361,7 @@ func TestPolarWebhookEnforcement(t *testing.T) {
 		store := &mockBillingStore{}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-		body := `{"type":"subscription.created","data":{"id":"sub-1","status":"active","product_id":"scale-m","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"org-1"}}}}`
+		body := `{"type":"subscription.created","data":{"id":"sub-1","status":"active","product_id":"scale-m","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
 		req := httptest.NewRequest("POST", "/polar/webhook", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -389,7 +389,7 @@ func TestPolarWebhookEnforcement(t *testing.T) {
 		}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-		body := `{"type":"subscription.created","data":{"id":"addon-sub-1","status":"active","product_id":"addon-cr","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"org-1"}}}}`
+		body := `{"type":"subscription.created","data":{"id":"addon-sub-1","status":"active","product_id":"addon-cr","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
 		req := httptest.NewRequest("POST", "/polar/webhook", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -405,7 +405,7 @@ func TestPolarWebhookEnforcement(t *testing.T) {
 		store := &mockBillingStore{}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-		body := `{"type":"subscription.created","data":{"id":"sub-x","status":"active","product_id":"unknown-id","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"org-1"}}}}`
+		body := `{"type":"subscription.created","data":{"id":"sub-x","status":"active","product_id":"unknown-id","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
 		req := httptest.NewRequest("POST", "/polar/webhook", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -421,7 +421,7 @@ func TestPolarWebhookEnforcement(t *testing.T) {
 		store := &mockBillingStore{}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-		body := `{"type":"subscription.created","data":{"id":"sub-dup","status":"active","product_id":"starter-m","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"org-1"}}}}`
+		body := `{"type":"subscription.created","data":{"id":"sub-dup","status":"active","product_id":"starter-m","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
 
 		// Send twice.
 		for range 2 {

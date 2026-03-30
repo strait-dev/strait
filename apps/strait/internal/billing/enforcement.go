@@ -660,6 +660,23 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		return nil // no limit set
 	}
 
+	// Serialize concurrent spending checks for the same org to prevent TOCTOU races.
+	// Best-effort: if the lock cannot be acquired, proceed without it.
+	if e.rdb != nil {
+		lockKey := "strait:spend_check:" + orgID
+		acquired, lockErr := e.rdb.SetNX(ctx, lockKey, "1", 500*time.Millisecond).Result()
+		if lockErr == nil && !acquired {
+			// Another check is in progress for this org -- wait briefly and retry once.
+			time.Sleep(100 * time.Millisecond)
+			acquired, lockErr = e.rdb.SetNX(ctx, lockKey, "1", 500*time.Millisecond).Result()
+		}
+		if lockErr == nil && acquired {
+			defer e.rdb.Del(ctx, lockKey)
+		}
+		// If lock is not acquired after retry, proceed without serialization.
+		// The underlying query is still safe; the lock only reduces TOCTOU window.
+	}
+
 	periodStart, _ := usagePeriodWindow(time.Now().UTC(), limits.PlanTier, sub)
 	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {
@@ -1127,6 +1144,13 @@ func (e *Enforcer) CheckProjectSuspended(ctx context.Context, projectID string) 
 // Call this after changing a project's suspended status.
 func (e *Enforcer) InvalidateProjectSuspendedCache(projectID string) {
 	e.suspendedCache.Delete(projectID)
+}
+
+// FlushSuspendedCacheForOrg removes cached suspension status for all given project IDs.
+func (e *Enforcer) FlushSuspendedCacheForOrg(projectIDs []string) {
+	for _, pid := range projectIDs {
+		e.suspendedCache.Delete(pid)
+	}
 }
 
 // SuspendExcessProjects suspends projects that exceed the plan limit for an org,

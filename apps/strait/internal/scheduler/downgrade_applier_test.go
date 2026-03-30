@@ -53,6 +53,10 @@ func (m *mockDowngradeStore) DeactivateExcessEnvironments(_ context.Context, _ s
 	return 0, nil
 }
 
+func (m *mockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
 func newTestEnforcer(t *testing.T) *billing.Enforcer {
 	t.Helper()
 	mr := miniredis.RunT(t)

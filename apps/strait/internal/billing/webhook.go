@@ -11,6 +11,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/mail"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,6 +72,39 @@ func WithWebhookClickHouse(exporter billingEventEnqueuer) WebhookOption {
 // WithEdition sets the application edition for security mode decisions.
 func WithEdition(edition string) WebhookOption {
 	return func(h *WebhookHandler) { h.edition = edition }
+}
+
+// validateSubscriptionData checks that required fields are present in the webhook payload.
+func validateSubscriptionData(sub PolarSubscriptionData) error {
+	if sub.ID == "" {
+		return fmt.Errorf("subscription ID is empty")
+	}
+	productID := sub.ProductID
+	if sub.Product != nil {
+		productID = sub.Product.ID
+	}
+	if productID == "" {
+		return fmt.Errorf("product ID is empty")
+	}
+	if sub.CustomerID == "" {
+		return fmt.Errorf("customer ID is empty")
+	}
+	return nil
+}
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+func isValidUUID(s string) bool {
+	return uuidPattern.MatchString(s)
+}
+
+// isValidEmail performs basic email format validation using net/mail.
+func isValidEmail(email string) bool {
+	if email == "" {
+		return false
+	}
+	_, err := mail.ParseAddress(email)
+	return err == nil
 }
 
 func (h *WebhookHandler) emitBillingEvent(orgID, eventType, planTier string) {
@@ -253,6 +288,11 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		return fmt.Errorf("parsing subscription data: %w", err)
 	}
 
+	if err := validateSubscriptionData(sub); err != nil {
+		h.logger.Warn("invalid webhook subscription data", "error", err)
+		return fmt.Errorf("invalid subscription data: %w", err)
+	}
+
 	productID := sub.ProductID
 	if sub.Product != nil {
 		productID = sub.Product.ID
@@ -325,7 +365,7 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 
 	// Send welcome email for paid plan subscriptions (async to avoid blocking webhook response).
 	if h.welcomeEmail != nil && tier != domain.PlanFree {
-		if customerEmail != "" {
+		if isValidEmail(customerEmail) {
 			welcomeFn := h.welcomeEmail
 			go func() { //nolint:gosec // intentional: async email with own timeout, webhook ctx may expire
 				emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -347,11 +387,16 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 // is low. A full fix requires transactional store operations (BeginTx + conditional
 // UPDATEs). See review finding #2.
 //
-//nolint:gocyclo,cyclop
+//nolint:gocyclo,cyclop,gocognit
 func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data json.RawMessage) error {
 	var sub PolarSubscriptionData
 	if err := json.Unmarshal(data, &sub); err != nil {
 		return fmt.Errorf("parsing subscription data: %w", err)
+	}
+
+	if err := validateSubscriptionData(sub); err != nil {
+		h.logger.Warn("invalid webhook subscription data", "error", err)
+		return fmt.Errorf("invalid subscription data: %w", err)
 	}
 
 	productID := sub.ProductID
@@ -522,6 +567,11 @@ func (h *WebhookHandler) handleSubscriptionCanceled(ctx context.Context, data js
 		return fmt.Errorf("parsing subscription data: %w", err)
 	}
 
+	if err := validateSubscriptionData(sub); err != nil {
+		h.logger.Warn("invalid webhook subscription data", "error", err)
+		return fmt.Errorf("invalid subscription data: %w", err)
+	}
+
 	// Handle addon subscription cancellation.
 	productID := sub.ProductID
 	if sub.Product != nil {
@@ -679,11 +729,11 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 
 // resolveOrgID extracts the org_id from subscription metadata or customer metadata.
 func (h *WebhookHandler) resolveOrgID(sub PolarSubscriptionData) string {
-	if orgID, ok := sub.Metadata["org_id"]; ok && orgID != "" {
+	if orgID, ok := sub.Metadata["org_id"]; ok && isValidUUID(orgID) {
 		return orgID
 	}
 	if sub.Customer != nil {
-		if orgID, ok := sub.Customer.Metadata["org_id"]; ok && orgID != "" {
+		if orgID, ok := sub.Customer.Metadata["org_id"]; ok && isValidUUID(orgID) {
 			return orgID
 		}
 	}

@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"fmt"
+	"html"
 
 	"strait/internal/domain"
 
@@ -48,6 +49,9 @@ func NewResendWelcomeEmailFunc(apiKey, fromEmail string) WelcomeEmailFunc {
 	client := resend.NewClient(apiKey)
 
 	return func(ctx context.Context, _ string, tier domain.PlanTier, customerEmail string) error {
+		if !isValidEmail(customerEmail) {
+			return fmt.Errorf("invalid email address: %q", customerEmail)
+		}
 		name := planDisplayName(tier)
 		credit := creditDisplayUSD(tier)
 		subject := fmt.Sprintf("Welcome to Strait %s!", name)
@@ -71,6 +75,8 @@ func NewResendWelcomeEmailFunc(apiKey, fromEmail string) WelcomeEmailFunc {
 // This mirrors the React Email template in packages/transactional but is
 // rendered server-side as a static string to avoid a Node.js dependency.
 func welcomeEmailHTML(planName, includedCredit string) string {
+	safePlan := html.EscapeString(planName)
+	safeCredit := html.EscapeString(includedCredit)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -138,5 +144,5 @@ func welcomeEmailHTML(planName, includedCredit string) string {
     </tr>
   </table>
 </body>
-</html>`, planName, planName, includedCredit)
+</html>`, safePlan, safePlan, safeCredit)
 }

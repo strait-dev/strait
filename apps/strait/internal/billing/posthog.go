@@ -40,6 +40,9 @@ func NewPostHogClient(apiKey, host string, logger *slog.Logger) *PostHogClient {
 }
 
 type posthogCapturePayload struct {
+	// APIKey is PostHog's write-only project API key, included per PostHog's
+	// /capture endpoint specification. This is intentionally a write-only key
+	// that can only send events -- it cannot read data or modify project settings.
 	APIKey     string         `json:"api_key"`
 	DistinctID string         `json:"distinct_id"`
 	Event      string         `json:"event"`

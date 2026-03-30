@@ -1949,6 +1949,10 @@ func (m *advMockDowngradeStore) DeactivateExcessEnvironments(_ context.Context, 
 	return 0, nil
 }
 
+func (m *advMockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
 type advMockReferralStore struct {
 	expireFn func(ctx context.Context) (int64, error)
 }

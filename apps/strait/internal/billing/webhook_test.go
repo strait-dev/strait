@@ -123,7 +123,7 @@ func TestWebhookHandler_SubscriptionCreated(t *testing.T) {
 			ID:         "sub_123",
 			ProductID:  "pro-id",
 			CustomerID: "cust_456",
-			Metadata:   map[string]string{"org_id": "org_test"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000001"},
 		}),
 	}
 
@@ -143,7 +143,7 @@ func TestWebhookHandler_SubscriptionCreated(t *testing.T) {
 	if store.lastUpserted == nil {
 		t.Fatal("expected subscription to be upserted")
 	}
-	if store.lastUpserted.OrgID != "org_test" {
+	if store.lastUpserted.OrgID != "00000000-0000-0000-0000-000000000001" {
 		t.Errorf("org_id = %q, want org_test", store.lastUpserted.OrgID)
 	}
 	if store.lastUpserted.PlanTier != "pro" {
@@ -157,8 +157,8 @@ func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 	pendingTier := "starter"
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_revoke": {
-				OrgID:           "org_revoke",
+			"00000000-0000-0000-0000-000000000002": {
+				OrgID:           "00000000-0000-0000-0000-000000000002",
 				PlanTier:        "pro",
 				Status:          "active",
 				PendingPlanTier: &pendingTier,
@@ -174,7 +174,7 @@ func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 			ID:         "sub_123",
 			ProductID:  "pro-id",
 			CustomerID: "cust_456",
-			Metadata:   map[string]string{"org_id": "org_revoke"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000002"},
 		}),
 	}
 
@@ -200,10 +200,10 @@ func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 	if store.lastPlanUpdate.status != "revoked" {
 		t.Errorf("status = %q, want revoked", store.lastPlanUpdate.status)
 	}
-	if store.lastClearedPending != "org_revoke" {
+	if store.lastClearedPending != "00000000-0000-0000-0000-000000000002" {
 		t.Errorf("cleared pending org = %q, want org_revoke", store.lastClearedPending)
 	}
-	if store.subscriptions["org_revoke"].PendingPlanTier != nil {
+	if store.subscriptions["00000000-0000-0000-0000-000000000002"].PendingPlanTier != nil {
 		t.Fatal("expected pending plan tier to be cleared on revoke")
 	}
 }
@@ -247,7 +247,7 @@ func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
 			ID:         "sub_idem",
 			ProductID:  "starter-id",
 			CustomerID: "cust_idem",
-			Metadata:   map[string]string{"org_id": "org_idem"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000003"},
 		}),
 	}
 
@@ -277,8 +277,8 @@ func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 	pendingTier := "free"
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_limit": {
-				OrgID:                 "org_limit",
+			"00000000-0000-0000-0000-000000000004": {
+				OrgID:                 "00000000-0000-0000-0000-000000000004",
 				PlanTier:              "starter",
 				Status:                "active",
 				SpendingLimitMicrousd: 50000000, // $50
@@ -297,7 +297,7 @@ func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 			ID:         "sub_dup",
 			ProductID:  "starter-id",
 			CustomerID: "cust_dup",
-			Metadata:   map[string]string{"org_id": "org_limit"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000004"},
 		}),
 	}
 
@@ -315,7 +315,7 @@ func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 	}
 
 	// The spending limit should be preserved (not reset to -1).
-	sub := store.subscriptions["org_limit"]
+	sub := store.subscriptions["00000000-0000-0000-0000-000000000004"]
 	if sub.SpendingLimitMicrousd != 50000000 {
 		t.Errorf("spending limit was overwritten: got %d, want 50000000", sub.SpendingLimitMicrousd)
 	}
@@ -334,8 +334,8 @@ func TestWebhook_UpdatedRefreshesPeriodDates(t *testing.T) {
 	oldEnd := time.Date(2025, 1, 31, 0, 0, 0, 0, time.UTC)
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_period": {
-				OrgID:              "org_period",
+			"00000000-0000-0000-0000-000000000005": {
+				OrgID:              "00000000-0000-0000-0000-000000000005",
 				PlanTier:           "starter",
 				Status:             "active",
 				CurrentPeriodStart: &oldStart,
@@ -357,7 +357,7 @@ func TestWebhook_UpdatedRefreshesPeriodDates(t *testing.T) {
 			CustomerID:         "cust_period",
 			CurrentPeriodStart: &newStart,
 			CurrentPeriodEnd:   &newEnd,
-			Metadata:           map[string]string{"org_id": "org_period"},
+			Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-000000000005"},
 		}),
 	}
 
@@ -390,8 +390,8 @@ func TestWebhook_DowngradeDeferred(t *testing.T) {
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_down": {
-				OrgID:    "org_down",
+			"00000000-0000-0000-0000-000000000006": {
+				OrgID:    "00000000-0000-0000-0000-000000000006",
 				PlanTier: "pro",
 				Status:   "active",
 			},
@@ -407,7 +407,7 @@ func TestWebhook_DowngradeDeferred(t *testing.T) {
 			ID:         "sub_down",
 			ProductID:  "starter-id",
 			CustomerID: "cust_down",
-			Metadata:   map[string]string{"org_id": "org_down"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000006"},
 		}),
 	}
 
@@ -425,7 +425,7 @@ func TestWebhook_DowngradeDeferred(t *testing.T) {
 	}
 
 	// Plan should still be "pro" (not immediately downgraded).
-	sub := store.subscriptions["org_down"]
+	sub := store.subscriptions["00000000-0000-0000-0000-000000000006"]
 	if sub.PlanTier != "pro" {
 		t.Errorf("expected plan to remain pro during deferred downgrade, got %q", sub.PlanTier)
 	}
@@ -441,8 +441,8 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 	pendingTier := "free"
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_up": {
-				OrgID:           "org_up",
+			"00000000-0000-0000-0000-000000000007": {
+				OrgID:           "00000000-0000-0000-0000-000000000007",
 				PlanTier:        "starter",
 				Status:          "active",
 				PendingPlanTier: &pendingTier,
@@ -459,7 +459,7 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 			ID:         "sub_up",
 			ProductID:  "pro-id",
 			CustomerID: "cust_up",
-			Metadata:   map[string]string{"org_id": "org_up"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000007"},
 		}),
 	}
 
@@ -487,10 +487,10 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 	if store.lastPendingTier != "" {
 		t.Errorf("expected no pending tier for upgrade, got %q", store.lastPendingTier)
 	}
-	if store.lastClearedPending != "org_up" {
+	if store.lastClearedPending != "00000000-0000-0000-0000-000000000007" {
 		t.Errorf("expected pending tier to be cleared for org_up, got %q", store.lastClearedPending)
 	}
-	if store.subscriptions["org_up"].PendingPlanTier != nil {
+	if store.subscriptions["00000000-0000-0000-0000-000000000007"].PendingPlanTier != nil {
 		t.Fatal("expected pending tier to be cleared on immediate upgrade")
 	}
 }
@@ -501,8 +501,8 @@ func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
 	pendingTier := "free"
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_reactivate": {
-				OrgID:           "org_reactivate",
+			"00000000-0000-0000-0000-000000000008": {
+				OrgID:           "00000000-0000-0000-0000-000000000008",
 				PlanTier:        "starter",
 				Status:          "canceled",
 				PendingPlanTier: &pendingTier,
@@ -519,7 +519,7 @@ func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
 			ProductID:  "pro-id",
 			CustomerID: "cust_reactivate",
 			Status:     "active",
-			Metadata:   map[string]string{"org_id": "org_reactivate"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000008"},
 		}),
 	}
 
@@ -535,11 +535,11 @@ func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
-	if store.subscriptions["org_reactivate"].PendingPlanTier != nil {
+	if store.subscriptions["00000000-0000-0000-0000-000000000008"].PendingPlanTier != nil {
 		t.Fatal("expected stale pending free tier to be cleared")
 	}
-	if store.subscriptions["org_reactivate"].PlanTier != "pro" {
-		t.Fatalf("plan tier = %q, want pro", store.subscriptions["org_reactivate"].PlanTier)
+	if store.subscriptions["00000000-0000-0000-0000-000000000008"].PlanTier != "pro" {
+		t.Fatalf("plan tier = %q, want pro", store.subscriptions["00000000-0000-0000-0000-000000000008"].PlanTier)
 	}
 }
 
@@ -548,8 +548,8 @@ func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_cancel": {
-				OrgID:    "org_cancel",
+			"00000000-0000-0000-0000-000000000009": {
+				OrgID:    "00000000-0000-0000-0000-000000000009",
 				PlanTier: "pro",
 				Status:   "active",
 			},
@@ -566,7 +566,7 @@ func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
 			ProductID:  "pro-id",
 			CustomerID: "cust_cancel",
 			CanceledAt: &now,
-			Metadata:   map[string]string{"org_id": "org_cancel"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000009"},
 		}),
 	}
 
@@ -589,7 +589,7 @@ func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
 	}
 
 	// Plan should still be "pro" (not immediately changed).
-	sub := store.subscriptions["org_cancel"]
+	sub := store.subscriptions["00000000-0000-0000-0000-000000000009"]
 	if sub.PlanTier != "pro" {
 		t.Errorf("expected plan to remain pro until period end, got %q", sub.PlanTier)
 	}
@@ -611,7 +611,7 @@ func TestWebhook_CanceledWithNoPriorSubscription(t *testing.T) {
 			ID:         "sub_noexist",
 			ProductID:  "pro-id",
 			CustomerID: "cust_noexist",
-			Metadata:   map[string]string{"org_id": "org_noexist"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000000a"},
 		}),
 	}
 
@@ -650,7 +650,7 @@ func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) 
 				ID:         "sub_starter",
 				ProductID:  "starter-id",
 				CustomerID: "cust_starter",
-				Metadata:   map[string]string{"org_id": "org_starter"},
+				Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000000b"},
 			}),
 		}
 
@@ -688,7 +688,7 @@ func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) 
 				ID:         "sub_pro",
 				ProductID:  "pro-id",
 				CustomerID: "cust_pro",
-				Metadata:   map[string]string{"org_id": "org_pro"},
+				Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000000c"},
 			}),
 		}
 
@@ -750,7 +750,7 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 					ID:    "cust_welcome",
 					Email: "user@example.com",
 				},
-				Metadata: map[string]string{"org_id": "org_welcome"},
+				Metadata: map[string]string{"org_id": "00000000-0000-0000-0000-00000000000d"},
 			}),
 		}
 
@@ -777,7 +777,7 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 		if len(calls) != 1 {
 			t.Fatalf("expected 1 welcome email call, got %d", len(calls))
 		}
-		if calls[0].orgID != "org_welcome" {
+		if calls[0].orgID != "00000000-0000-0000-0000-00000000000d" {
 			t.Errorf("orgID = %q, want org_welcome", calls[0].orgID)
 		}
 		if calls[0].tier != domain.PlanStarter {
@@ -809,7 +809,7 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 				ID:         "sub_noemail",
 				ProductID:  "starter-id",
 				CustomerID: "cust_noemail",
-				Metadata:   map[string]string{"org_id": "org_noemail"},
+				Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000000e"},
 			}),
 		}
 
@@ -853,7 +853,7 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 					ID:    "cust_nofn",
 					Email: "user@example.com",
 				},
-				Metadata: map[string]string{"org_id": "org_nofn"},
+				Metadata: map[string]string{"org_id": "00000000-0000-0000-0000-00000000000f"},
 			}),
 		}
 
@@ -905,7 +905,7 @@ func TestWebhook_SubscriptionCreated_CreatesAuditEvent(t *testing.T) {
 			ID:         "sub_audit",
 			ProductID:  "pro-id",
 			CustomerID: "cust_audit",
-			Metadata:   map[string]string{"org_id": "org_audit"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000010"},
 		}),
 	}
 
@@ -943,7 +943,7 @@ func TestWebhook_SubscriptionCreated_AuditDetails_ContainsPlanTier(t *testing.T)
 			ID:         "sub_details",
 			ProductID:  "pro-id",
 			CustomerID: "cust_details",
-			Metadata:   map[string]string{"org_id": "org_details"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000011"},
 		}),
 	}
 
@@ -980,8 +980,8 @@ func TestWebhook_SubscriptionUpdated_Upgrade_AuditHasPreviousTier(t *testing.T) 
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_upgrade_audit": {
-				OrgID:    "org_upgrade_audit",
+			"00000000-0000-0000-0000-000000000012": {
+				OrgID:    "00000000-0000-0000-0000-000000000012",
 				PlanTier: "starter",
 				Status:   "active",
 			},
@@ -997,7 +997,7 @@ func TestWebhook_SubscriptionUpdated_Upgrade_AuditHasPreviousTier(t *testing.T) 
 			ID:         "sub_upgrade_audit",
 			ProductID:  "pro-id",
 			CustomerID: "cust_upgrade_audit",
-			Metadata:   map[string]string{"org_id": "org_upgrade_audit"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000012"},
 		}),
 	}
 
@@ -1034,8 +1034,8 @@ func TestWebhook_SubscriptionUpdated_Downgrade_AuditHasPendingTier(t *testing.T)
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_down_audit": {
-				OrgID:    "org_down_audit",
+			"00000000-0000-0000-0000-000000000013": {
+				OrgID:    "00000000-0000-0000-0000-000000000013",
 				PlanTier: "pro",
 				Status:   "active",
 			},
@@ -1051,7 +1051,7 @@ func TestWebhook_SubscriptionUpdated_Downgrade_AuditHasPendingTier(t *testing.T)
 			ID:         "sub_down_audit",
 			ProductID:  "starter-id",
 			CustomerID: "cust_down_audit",
-			Metadata:   map[string]string{"org_id": "org_down_audit"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000013"},
 		}),
 	}
 
@@ -1088,8 +1088,8 @@ func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_cancel_audit": {
-				OrgID:    "org_cancel_audit",
+			"00000000-0000-0000-0000-000000000014": {
+				OrgID:    "00000000-0000-0000-0000-000000000014",
 				PlanTier: "pro",
 				Status:   "active",
 			},
@@ -1107,7 +1107,7 @@ func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
 			ProductID:  "pro-id",
 			CustomerID: "cust_cancel_audit",
 			CanceledAt: &now,
-			Metadata:   map[string]string{"org_id": "org_cancel_audit"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000014"},
 		}),
 	}
 
@@ -1136,8 +1136,8 @@ func TestWebhook_SubscriptionRevoked_CreatesAuditEvent(t *testing.T) {
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_revoke_audit": {
-				OrgID:    "org_revoke_audit",
+			"00000000-0000-0000-0000-000000000015": {
+				OrgID:    "00000000-0000-0000-0000-000000000015",
 				PlanTier: "pro",
 				Status:   "active",
 			},
@@ -1153,7 +1153,7 @@ func TestWebhook_SubscriptionRevoked_CreatesAuditEvent(t *testing.T) {
 			ID:         "sub_revoke_audit",
 			ProductID:  "pro-id",
 			CustomerID: "cust_revoke_audit",
-			Metadata:   map[string]string{"org_id": "org_revoke_audit"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000015"},
 		}),
 	}
 
@@ -1191,7 +1191,7 @@ func TestWebhook_AuditStore_Nil_DoesNotPanic(t *testing.T) {
 			ID:         "sub_nil_audit",
 			ProductID:  "pro-id",
 			CustomerID: "cust_nil_audit",
-			Metadata:   map[string]string{"org_id": "org_nil_audit"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000016"},
 		}),
 	}
 
@@ -1223,7 +1223,7 @@ func TestWebhook_AuditEvent_HasCorrectResourceType(t *testing.T) {
 			ID:         "sub_restype",
 			ProductID:  "pro-id",
 			CustomerID: "cust_restype",
-			Metadata:   map[string]string{"org_id": "org_restype"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000017"},
 		}),
 	}
 
@@ -1245,7 +1245,7 @@ func TestWebhook_AuditEvent_HasCorrectResourceType(t *testing.T) {
 	if audit.events[0].ResourceType != "subscription" {
 		t.Errorf("resource_type = %q, want subscription", audit.events[0].ResourceType)
 	}
-	if audit.events[0].ResourceID != "org_restype" {
+	if audit.events[0].ResourceID != "00000000-0000-0000-0000-000000000017" {
 		t.Errorf("resource_id = %q, want org_restype", audit.events[0].ResourceID)
 	}
 	if audit.events[0].ActorType != "system" {
@@ -1263,8 +1263,8 @@ func TestWebhook_PaymentFailed_SetsGracePeriod72h(t *testing.T) {
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_pastdue": {
-				OrgID:         "org_pastdue",
+			"00000000-0000-0000-0000-000000000018": {
+				OrgID:         "00000000-0000-0000-0000-000000000018",
 				PlanTier:      "pro",
 				Status:        "active",
 				PaymentStatus: "ok",
@@ -1281,7 +1281,7 @@ func TestWebhook_PaymentFailed_SetsGracePeriod72h(t *testing.T) {
 			ProductID:  "pro-id",
 			CustomerID: "cust_pastdue",
 			Status:     "past_due",
-			Metadata:   map[string]string{"org_id": "org_pastdue"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000018"},
 		}),
 	}
 
@@ -1299,7 +1299,7 @@ func TestWebhook_PaymentFailed_SetsGracePeriod72h(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	sub := store.subscriptions["org_pastdue"]
+	sub := store.subscriptions["00000000-0000-0000-0000-000000000018"]
 	if sub.PaymentStatus != "grace" {
 		t.Errorf("payment_status = %q, want grace", sub.PaymentStatus)
 	}
@@ -1319,8 +1319,8 @@ func TestWebhook_PaymentFailed_StatusBecomesGrace(t *testing.T) {
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_grace_status": {
-				OrgID:         "org_grace_status",
+			"00000000-0000-0000-0000-000000000019": {
+				OrgID:         "00000000-0000-0000-0000-000000000019",
 				PlanTier:      "starter",
 				Status:        "active",
 				PaymentStatus: "ok",
@@ -1337,7 +1337,7 @@ func TestWebhook_PaymentFailed_StatusBecomesGrace(t *testing.T) {
 			ProductID:  "starter-id",
 			CustomerID: "cust_grace",
 			Status:     "past_due",
-			Metadata:   map[string]string{"org_id": "org_grace_status"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000019"},
 		}),
 	}
 
@@ -1368,8 +1368,8 @@ func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
 	graceEnd := time.Now().Add(48 * time.Hour)
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_recover": {
-				OrgID:          "org_recover",
+			"00000000-0000-0000-0000-00000000001a": {
+				OrgID:          "00000000-0000-0000-0000-00000000001a",
 				PlanTier:       "pro",
 				Status:         "active",
 				PaymentStatus:  "grace",
@@ -1386,7 +1386,7 @@ func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
 			ID:         "sub_recover",
 			ProductID:  "pro-id",
 			CustomerID: "cust_recover",
-			Metadata:   map[string]string{"org_id": "org_recover"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001a"},
 		}),
 	}
 
@@ -1403,7 +1403,7 @@ func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	sub := store.subscriptions["org_recover"]
+	sub := store.subscriptions["00000000-0000-0000-0000-00000000001a"]
 	if sub.PaymentStatus != "ok" {
 		t.Errorf("payment_status = %q, want ok", sub.PaymentStatus)
 	}
@@ -1418,8 +1418,8 @@ func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
 	oldGrace := time.Now().Add(24 * time.Hour) // 24h left
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_extend": {
-				OrgID:          "org_extend",
+			"00000000-0000-0000-0000-00000000001b": {
+				OrgID:          "00000000-0000-0000-0000-00000000001b",
 				PlanTier:       "pro",
 				Status:         "active",
 				PaymentStatus:  "grace",
@@ -1437,7 +1437,7 @@ func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
 			ProductID:  "pro-id",
 			CustomerID: "cust_extend",
 			Status:     "past_due",
-			Metadata:   map[string]string{"org_id": "org_extend"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001b"},
 		}),
 	}
 
@@ -1454,7 +1454,7 @@ func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	sub := store.subscriptions["org_extend"]
+	sub := store.subscriptions["00000000-0000-0000-0000-00000000001b"]
 	if sub.PaymentStatus != "grace" {
 		t.Errorf("payment_status = %q, want grace", sub.PaymentStatus)
 	}
@@ -1472,8 +1472,8 @@ func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org_free_pay": {
-				OrgID:         "org_free_pay",
+			"00000000-0000-0000-0000-00000000001c": {
+				OrgID:         "00000000-0000-0000-0000-00000000001c",
 				PlanTier:      "free",
 				Status:        "active",
 				PaymentStatus: "ok",
@@ -1490,7 +1490,7 @@ func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
 			ProductID:  "starter-id",
 			CustomerID: "cust_free_pay",
 			Status:     "past_due",
-			Metadata:   map[string]string{"org_id": "org_free_pay"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001c"},
 		}),
 	}
 
@@ -1508,7 +1508,7 @@ func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
 	}
 
 	// Free org should not have grace period set.
-	sub := store.subscriptions["org_free_pay"]
+	sub := store.subscriptions["00000000-0000-0000-0000-00000000001c"]
 	if sub.PaymentStatus != "ok" {
 		t.Errorf("payment_status = %q, want ok (no grace for free orgs)", sub.PaymentStatus)
 	}
@@ -1530,7 +1530,7 @@ func TestWebhook_EmptySecretCloudMode_Rejects(t *testing.T) {
 			ProductID:  "starter-id",
 			CustomerID: "cust_1",
 			Status:     "active",
-			Metadata:   map[string]string{"org_id": "org-1"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001d"},
 		}),
 	}
 
@@ -1561,7 +1561,7 @@ func TestWebhook_EmptySecretCommunityMode_Allows(t *testing.T) {
 			ProductID:  "starter-id",
 			CustomerID: "cust_1",
 			Status:     "active",
-			Metadata:   map[string]string{"org_id": "org-1"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001d"},
 		}),
 	}
 
@@ -1592,7 +1592,7 @@ func TestWebhook_EmptySecretDefaultEdition_Allows(t *testing.T) {
 			ProductID:  "starter-id",
 			CustomerID: "cust_1",
 			Status:     "active",
-			Metadata:   map[string]string{"org_id": "org-1"},
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001d"},
 		}),
 	}
 
@@ -1621,7 +1621,7 @@ func FuzzWebhookSignatureHeader(f *testing.F) {
 	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil, nil)
 
 	f.Fuzz(func(t *testing.T, sigHeader string) {
-		payload := `{"type":"subscription.created","data":{"id":"sub_1","product_id":"starter-id","customer_id":"cust_1","status":"active","metadata":{"org_id":"org-1"}}}`
+		payload := `{"type":"subscription.created","data":{"id":"sub_1","product_id":"starter-id","customer_id":"cust_1","status":"active","metadata":{"org_id":"00000000-0000-0000-0000-00000000001d"}}}`
 		req := httptest.NewRequest(http.MethodPost, "/webhooks/polar", strings.NewReader(payload))
 		req.Header.Set("webhook-id", "msg_test")
 		req.Header.Set("webhook-timestamp", strconv.FormatInt(time.Now().Unix(), 10))

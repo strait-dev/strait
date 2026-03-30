@@ -17,6 +17,7 @@ type DowngradeApplierStore interface {
 	DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error)
 	DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error)
 	DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error)
+	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
 }
 
 // Advisory lock ID for the downgrade applier (arbitrary unique constant).
@@ -120,6 +121,12 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 		} else if n > 0 {
 			slog.Info("suspended excess projects after downgrade", "org_id", orgID, "count", n)
 		}
+	}
+
+	// Flush suspended cache so enforcement picks up the new suspension state immediately.
+	if d.enforcer != nil {
+		projectIDs, _ := d.store.ListProjectsByOrg(ctx, orgID)
+		d.enforcer.FlushSuspendedCacheForOrg(projectIDs)
 	}
 
 	if newLimits.MaxScheduledJobs != -1 {

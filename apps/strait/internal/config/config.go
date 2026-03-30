@@ -355,6 +355,32 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
+// Redacted returns a map of config field names to values with secrets masked.
+func (c *Config) Redacted() map[string]any {
+	result := map[string]any{
+		"Mode":              c.Mode,
+		"Port":              c.Port,
+		"Edition":           c.Edition,
+		"DatabaseURL":       "[REDACTED]",
+		"RedisURL":          "[REDACTED]",
+		"WorkerConcurrency": c.WorkerConcurrency,
+	}
+	return result
+}
+
+// String returns a redacted string representation of the config for logging.
+func (c *Config) String() string {
+	r := c.Redacted()
+	var sb strings.Builder
+	for k, v := range r {
+		if sb.Len() > 0 {
+			sb.WriteString(" ")
+		}
+		fmt.Fprintf(&sb, "%s=%v", k, v)
+	}
+	return sb.String()
+}
+
 func parseCSVEnv(key string) []string {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
