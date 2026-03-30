@@ -10,6 +10,7 @@ import {
 } from "@strait/ui/components/sheet";
 import { cn } from "@strait/ui/utils/index";
 import { Link } from "@tanstack/react-router";
+import FeatureBadge from "@/components/billing/feature-badge";
 import type { Workflow, WorkflowStepType } from "@/hooks/api/types";
 import { ClockIcon, PlayActionIcon, TagIcon } from "@/lib/icons";
 import StatusBadge from "./status-badge";
@@ -88,6 +89,7 @@ const WorkflowDetailSheet = ({
                   { name: "validate-input", type: "job" as const },
                   { name: "process-payment", type: "job" as const },
                   { name: "mgr-approval", type: "approval" as const },
+                  { name: "notify-sub", type: "sub_workflow" as const },
                   { name: "send-notification", type: "job" as const },
                   { name: "cool-down", type: "sleep" as const },
                 ] as const
@@ -103,8 +105,14 @@ const WorkflowDetailSheet = ({
                     )}
                   />
                   <span className="text-sm">{step.name}</span>
-                  <span className="ml-auto text-muted-foreground text-sm">
+                  <span className="ml-auto flex items-center text-muted-foreground text-sm">
                     {step.type}
+                    {step.type === "approval" && (
+                      <FeatureBadge feature="approval_gates" />
+                    )}
+                    {step.type === "sub_workflow" && (
+                      <FeatureBadge feature="sub_workflows" />
+                    )}
                   </span>
                 </div>
               ))}
