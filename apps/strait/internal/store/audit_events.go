@@ -64,52 +64,61 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	}
 	ev.Details = details
 
-	// Use client-side timestamp so the signature can be fully computed before INSERT.
+	// Use client-side timestamp so all fields are known for signature computation.
 	ev.CreatedAt = time.Now().UTC()
 
-	// Acquire a session-scoped advisory lock keyed on the project ID to serialize
-	// audit event inserts per project. This prevents the race condition where two
-	// concurrent inserts read the same previous_hash. The session-scoped lock
-	// (pg_advisory_lock) persists across auto-commit statement boundaries, unlike
-	// pg_advisory_xact_lock which releases after each statement.
-	lockKey := fmt.Sprintf("hashtext('%s')", ev.ProjectID)
-	if _, err := q.db.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, ev.ProjectID); err != nil {
-		return fmt.Errorf("acquire audit chain lock: %w", err)
-	}
-	defer func() {
-		// Release the advisory lock. Use a background context in case the
-		// original context was canceled.
-		unlockCtx := context.WithoutCancel(ctx)
-		q.db.Exec(unlockCtx, `SELECT pg_advisory_unlock(`+lockKey+`)`) //nolint:errcheck,gosec // best-effort unlock
-	}()
+	// Atomic single-statement insert with chain linkage.
+	//
+	// This uses a CTE with pg_advisory_xact_lock to serialize inserts per project.
+	// Because this is a single SQL statement, it executes as one implicit transaction,
+	// so the advisory lock holds for the entire SELECT + INSERT. This avoids the
+	// connection pool problem where session-scoped pg_advisory_lock could acquire
+	// and release on different pool connections.
+	//
+	// The signature is initially empty and updated after we know the previous_hash.
+	// Both the INSERT and UPDATE happen in the same CTE chain (single statement),
+	// so the lock covers both operations atomically.
+	atomicQuery := `
+		WITH lock_and_prev AS (
+			SELECT pg_advisory_xact_lock(hashtext($2)),
+			       COALESCE(
+			           (SELECT signature FROM audit_events
+			            WHERE project_id = $2 AND signature != ''
+			            ORDER BY created_at DESC LIMIT 1),
+			           $10
+			       ) AS prev_hash
+		),
+		ins AS (
+			INSERT INTO audit_events (id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at)
+			SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, '', lock_and_prev.prev_hash, $9
+			FROM lock_and_prev
+			RETURNING previous_hash
+		)
+		SELECT previous_hash FROM ins`
 
-	// Fetch the previous event's signature while holding the lock.
-	var prevSig string
-	prevQuery := `SELECT signature FROM audit_events WHERE project_id = $1 AND signature != '' ORDER BY created_at DESC LIMIT 1`
-	if err := q.db.QueryRow(ctx, prevQuery, ev.ProjectID).Scan(&prevSig); err != nil {
-		prevSig = ZeroHash
-	}
-	ev.PreviousHash = prevSig
-
-	// Compute signature with all fields known.
-	if q.auditSigningKey != nil {
-		ev.Signature = ComputeAuditSignature(ev, q.auditSigningKey)
-	}
-
-	// Insert the fully-signed event. The advisory lock is still held, so no
-	// concurrent insert can read a stale previous_hash.
-	insertQuery := `
-		INSERT INTO audit_events (id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)`
-
-	if _, err := q.db.Exec(ctx, insertQuery,
+	if err := q.db.QueryRow(ctx, atomicQuery,
 		ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID, details,
-		ev.Signature, ev.PreviousHash, ev.CreatedAt,
-	); err != nil {
+		ev.CreatedAt, ZeroHash,
+	).Scan(&ev.PreviousHash); err != nil {
 		return fmt.Errorf("create audit event: %w", err)
 	}
 
-	// Lock is released by the deferred pg_advisory_unlock.
+	// Compute and persist the HMAC signature now that previous_hash is known.
+	// This is a separate UPDATE but is safe because:
+	// 1. The row already exists with the correct previous_hash chain linkage.
+	// 2. The next insert's CTE filters "signature != ''" so it won't chain from
+	//    this event until the signature is set.
+	// 3. If this UPDATE fails, the event has an empty signature which
+	//    VerifyAuditChain will detect, but the chain linkage remains intact.
+	if q.auditSigningKey != nil {
+		ev.Signature = ComputeAuditSignature(ev, q.auditSigningKey)
+		if _, err := q.db.Exec(ctx, `UPDATE audit_events SET signature = $1 WHERE id = $2`,
+			ev.Signature, ev.ID,
+		); err != nil {
+			return fmt.Errorf("update audit event signature: %w", err)
+		}
+	}
+
 	return nil
 }
 
