@@ -2,8 +2,11 @@ package agents
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -14,6 +17,14 @@ import (
 
 	"strait/internal/domain"
 )
+
+var testCFToken = func() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("generate test CF token: %v", err))
+	}
+	return hex.EncodeToString(b)
+}()
 
 func TestBuildCloudflareScriptName(t *testing.T) {
 	t.Parallel()
@@ -72,7 +83,7 @@ func TestCloudflareAPIClientUpsertScriptBuildsMultipartRequest(t *testing.T) {
 
 	client := NewCloudflareAPIClient(CloudflareConfig{
 		AccountID: "acct-1",
-		APIToken:  "token-1",
+		APIToken:  testCFToken,
 	}, WithCloudflareAPIBaseURL(server.URL))
 
 	result, err := client.UpsertScript(context.Background(), CloudflareScriptUploadRequest{
@@ -93,8 +104,8 @@ func TestCloudflareAPIClientUpsertScriptBuildsMultipartRequest(t *testing.T) {
 		t.Fatalf("UpsertScript() error = %v", err)
 	}
 
-	if seenAuth != "Bearer token-1" {
-		t.Fatalf("Authorization = %q, want Bearer token-1", seenAuth)
+	if seenAuth != "Bearer "+testCFToken {
+		t.Fatalf("Authorization = %q, want Bearer %s", seenAuth, testCFToken)
 	}
 	if seenPath != "/accounts/acct-1/workers/dispatch/namespaces/ns-prod/scripts/agent-script" {
 		t.Fatalf("path = %q", seenPath)
@@ -137,7 +148,7 @@ func TestCloudflareProviderDeployReturnsMetadata(t *testing.T) {
 
 	provider := NewCloudflareProvider(CloudflareConfig{
 		AccountID:         "acct-1",
-		APIToken:          "token-1",
+		APIToken:          testCFToken,
 		DispatchNamespace: "ns-prod",
 		DispatchWorkerURL: "https://dispatch.example.com",
 		CompatibilityDate: "2026-03-29",
@@ -190,7 +201,7 @@ func TestCloudflareProviderUndeployDeletesScript(t *testing.T) {
 
 	provider := NewCloudflareProvider(CloudflareConfig{
 		AccountID:         "acct-1",
-		APIToken:          "token-1",
+		APIToken:          testCFToken,
 		DispatchNamespace: "ns-prod",
 		DispatchWorkerURL: "https://dispatch.example.com",
 		CompatibilityDate: "2026-03-29",

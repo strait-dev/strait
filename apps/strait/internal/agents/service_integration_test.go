@@ -30,8 +30,9 @@ import (
 )
 
 var (
-	runtimeTestJWTKey      = testutil.GenerateTestJWTKey()
-	runtimeTestIntSecret   = testutil.GenerateTestInternalSecret()
+	runtimeTestJWTKey    = testutil.GenerateTestJWTKey()
+	runtimeTestIntSecret = testutil.GenerateTestInternalSecret()
+	testCFToken          = testutil.GenerateTestSecret(16)
 
 	testDB *testutil.TestDB
 )
@@ -461,7 +462,7 @@ func TestServiceCloudflareDeployAndDeleteCleanup(t *testing.T) {
 		testDB.Pool,
 		agents.WithProvider(agents.NewCloudflareProvider(agents.CloudflareConfig{
 			AccountID:         "acct-1",
-			APIToken:          "token-1",
+			APIToken:          testCFToken,
 			DispatchNamespace: "ns-prod",
 			DispatchWorkerURL: "https://dispatch.example.com",
 			CompatibilityDate: "2026-03-29",
@@ -590,7 +591,7 @@ func TestServiceCloudflareRunDispatchCompletesViaCallbacks(t *testing.T) {
 		testDB.Pool,
 		agents.WithProvider(agents.NewCloudflareProvider(agents.CloudflareConfig{
 			AccountID:         "acct-1",
-			APIToken:          "token-1",
+			APIToken:          testCFToken,
 			DispatchNamespace: "ns-prod",
 			DispatchWorkerURL: dispatchServer.URL,
 			CompatibilityDate: "2026-03-29",
@@ -660,7 +661,7 @@ func TestServiceCloudflareRunDispatchFailureMapsToSystemFailed(t *testing.T) {
 		testDB.Pool,
 		agents.WithProvider(agents.NewCloudflareProvider(agents.CloudflareConfig{
 			AccountID:         "acct-1",
-			APIToken:          "token-1",
+			APIToken:          testCFToken,
 			DispatchNamespace: "ns-prod",
 			DispatchWorkerURL: dispatchServer.URL,
 			CompatibilityDate: "2026-03-29",

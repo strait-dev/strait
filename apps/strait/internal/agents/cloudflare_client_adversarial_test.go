@@ -23,7 +23,7 @@ func TestCloudflareAPIClientUpsertScriptRejectsMalformedSuccessBody(t *testing.T
 
 	client := NewCloudflareAPIClient(CloudflareConfig{
 		AccountID: "acct-1",
-		APIToken:  "token-1",
+		APIToken:  testCFToken,
 	}, WithCloudflareAPIBaseURL(server.URL))
 
 	_, err := client.UpsertScript(context.Background(), CloudflareScriptUploadRequest{
@@ -49,7 +49,7 @@ func TestCloudflareAPIClientUpsertScriptHandlesCloudflareErrors(t *testing.T) {
 
 	client := NewCloudflareAPIClient(CloudflareConfig{
 		AccountID: "acct-1",
-		APIToken:  "token-1",
+		APIToken:  testCFToken,
 	}, WithCloudflareAPIBaseURL(server.URL))
 
 	_, err := client.UpsertScript(context.Background(), CloudflareScriptUploadRequest{
@@ -79,7 +79,7 @@ func TestCloudflareProviderUndeployRejectsCorruptMetadata(t *testing.T) {
 
 	provider := NewCloudflareProvider(CloudflareConfig{
 		AccountID:         "acct-1",
-		APIToken:          "token-1",
+		APIToken:          testCFToken,
 		DispatchNamespace: "ns-prod",
 		DispatchWorkerURL: "https://dispatch.example.com",
 		CompatibilityDate: "2026-03-29",

@@ -152,7 +152,7 @@ func TestSelectProviderReturnsCloudflare(t *testing.T) {
 
 	provider := SelectProvider(CloudflareConfig{
 		AccountID:         "acct-1",
-		APIToken:          "token-1",
+		APIToken:          testCFToken,
 		DispatchNamespace: "ns-prod",
 		DispatchWorkerURL: "https://dispatch.example.com",
 		CompatibilityDate: "2026-03-29",
@@ -179,7 +179,7 @@ func TestCloudflareConfigValidate(t *testing.T) {
 			name: "valid dynamic worker",
 			cfg: CloudflareConfig{
 				AccountID:         "acct-1",
-				APIToken:          "token-1",
+				APIToken:          testCFToken,
 				DispatchNamespace: "ns-prod",
 				DispatchWorkerURL: "https://dispatch.example.com",
 				CompatibilityDate: "2026-03-29",
@@ -190,7 +190,7 @@ func TestCloudflareConfigValidate(t *testing.T) {
 			name: "valid outbound worker",
 			cfg: CloudflareConfig{
 				AccountID:          "acct-1",
-				APIToken:           "token-1",
+				APIToken:           testCFToken,
 				DispatchNamespace:  "ns-prod",
 				DispatchWorkerURL:  "https://dispatch.example.com",
 				OutboundWorkerName: "agents-outbound",
@@ -209,7 +209,7 @@ func TestCloudflareConfigValidate(t *testing.T) {
 			name: "invalid sandbox mode",
 			cfg: CloudflareConfig{
 				AccountID:         "acct-1",
-				APIToken:          "token-1",
+				APIToken:          testCFToken,
 				DispatchNamespace: "ns-prod",
 				DispatchWorkerURL: "https://dispatch.example.com",
 				CompatibilityDate: "2026-03-29",
@@ -221,7 +221,7 @@ func TestCloudflareConfigValidate(t *testing.T) {
 			name: "outbound worker requires name",
 			cfg: CloudflareConfig{
 				AccountID:         "acct-1",
-				APIToken:          "token-1",
+				APIToken:          testCFToken,
 				DispatchNamespace: "ns-prod",
 				DispatchWorkerURL: "https://dispatch.example.com",
 				CompatibilityDate: "2026-03-29",
@@ -233,7 +233,7 @@ func TestCloudflareConfigValidate(t *testing.T) {
 			name: "invalid dispatch worker url",
 			cfg: CloudflareConfig{
 				AccountID:         "acct-1",
-				APIToken:          "token-1",
+				APIToken:          testCFToken,
 				DispatchNamespace: "ns-prod",
 				DispatchWorkerURL: "://bad-url",
 				CompatibilityDate: "2026-03-29",
