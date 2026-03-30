@@ -132,7 +132,10 @@ func (s *Server) routes() chi.Router {
 
 	if s.config.DebugStatsviz {
 		slog.Warn("statsviz debug endpoints enabled at /debug/statsviz/ -- disable in production")
-		debug.MountDebugRoutes(r)
+		r.Group(func(r chi.Router) {
+			r.Use(s.internalSecretAuth)
+			debug.MountDebugRoutes(r)
+		})
 	}
 
 	// Polar billing webhook (HMAC-verified, no API key auth).

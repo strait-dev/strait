@@ -9,7 +9,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"time"
+
+	"golang.org/x/crypto/hkdf"
 
 	"strait/internal/dbscan"
 	"strait/internal/domain"
@@ -67,11 +71,6 @@ func (q *Queries) GetJobSecret(ctx context.Context, id string) (*domain.JobSecre
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobSecret")
 	defer span.End()
 
-	encryptionKey, err := q.secretKey()
-	if err != nil {
-		return nil, fmt.Errorf("get job secret: %w", err)
-	}
-
 	query := `
 		SELECT id, project_id, job_id, environment, secret_key, encrypted_value, key_version, created_at, updated_at
 		FROM job_secrets
@@ -85,7 +84,7 @@ func (q *Queries) GetJobSecret(ctx context.Context, id string) (*domain.JobSecre
 		return nil, fmt.Errorf("get job secret: %w", err)
 	}
 
-	decrypted, err := decryptSecret(secret.EncryptedValue, encryptionKey)
+	decrypted, err := q.decryptSecretWithFallback(secret.EncryptedValue)
 	if err != nil {
 		return nil, fmt.Errorf("get job secret: %w", err)
 	}
@@ -97,11 +96,6 @@ func (q *Queries) GetJobSecret(ctx context.Context, id string) (*domain.JobSecre
 func (q *Queries) ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobSecrets")
 	defer span.End()
-
-	encryptionKey, err := q.secretKey()
-	if err != nil {
-		return nil, fmt.Errorf("list job secrets: %w", err)
-	}
 
 	query := `
 		SELECT id, project_id, job_id, environment, secret_key, encrypted_value, key_version, created_at, updated_at
@@ -144,7 +138,7 @@ func (q *Queries) ListJobSecrets(ctx context.Context, projectID, jobID, environm
 			return nil, fmt.Errorf("list job secrets scan: %w", scanErr)
 		}
 
-		decrypted, decryptErr := decryptSecret(secret.EncryptedValue, encryptionKey)
+		decrypted, decryptErr := q.decryptSecretWithFallback(secret.EncryptedValue)
 		if decryptErr != nil {
 			return nil, fmt.Errorf("list job secrets decrypt: %w", decryptErr)
 		}
@@ -180,11 +174,6 @@ func (q *Queries) ListJobSecretsByJob(ctx context.Context, jobID, environment st
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobSecretsByJob")
 	defer span.End()
 
-	encryptionKey, err := q.secretKey()
-	if err != nil {
-		return nil, fmt.Errorf("list job secrets by job: %w", err)
-	}
-
 	query := `
 		SELECT s.id, s.project_id, s.job_id, s.environment, s.secret_key, s.encrypted_value, s.key_version, s.created_at, s.updated_at
 		FROM job_secrets s
@@ -206,7 +195,7 @@ func (q *Queries) ListJobSecretsByJob(ctx context.Context, jobID, environment st
 			return nil, fmt.Errorf("list job secrets by job scan: %w", scanErr)
 		}
 
-		decrypted, decryptErr := decryptSecret(secret.EncryptedValue, encryptionKey)
+		decrypted, decryptErr := q.decryptSecretWithFallback(secret.EncryptedValue)
 		if decryptErr != nil {
 			return nil, fmt.Errorf("list job secrets by job decrypt: %w", decryptErr)
 		}
@@ -227,8 +216,50 @@ func (q *Queries) secretKey() ([]byte, error) {
 		return nil, fmt.Errorf("secret encryption key is not configured")
 	}
 
+	hkdfReader := hkdf.New(sha256.New, []byte(q.secretEncryptionKey), []byte("secret-store-encryption"), nil)
+	derived := make([]byte, 32)
+	if _, err := io.ReadFull(hkdfReader, derived); err != nil {
+		return nil, fmt.Errorf("hkdf derive secret key: %w", err)
+	}
+	return derived, nil
+}
+
+// secretKeyLegacy returns the old SHA-256 derived key for backward-compatible
+// decryption of secrets encrypted before the HKDF migration.
+func (q *Queries) secretKeyLegacy() ([]byte, error) {
+	if q.secretEncryptionKey == "" {
+		return nil, fmt.Errorf("secret encryption key is not configured")
+	}
+
 	sum := sha256.Sum256([]byte(q.secretEncryptionKey))
 	return sum[:], nil
+}
+
+// decryptSecretWithFallback tries the HKDF-derived key first, then falls back
+// to the legacy SHA-256 key for secrets encrypted before the migration.
+func (q *Queries) decryptSecretWithFallback(ciphertext string) (string, error) {
+	primaryKey, err := q.secretKey()
+	if err != nil {
+		return "", err
+	}
+
+	plaintext, err := decryptSecret(ciphertext, primaryKey)
+	if err == nil {
+		return plaintext, nil
+	}
+
+	legacyKey, legacyErr := q.secretKeyLegacy()
+	if legacyErr != nil {
+		return "", err
+	}
+
+	plaintext, legacyErr = decryptSecret(ciphertext, legacyKey)
+	if legacyErr != nil {
+		return "", err
+	}
+
+	slog.Warn("decrypted secret using legacy SHA-256 key; re-encrypt to use HKDF-derived key")
+	return plaintext, nil
 }
 
 func encryptSecret(plaintext string, key []byte) (string, error) {

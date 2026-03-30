@@ -104,7 +104,7 @@ func TestMain(m *testing.M) {
 
 	srv := api.NewServer(api.ServerDeps{
 		Config: &config.Config{
-			InternalSecret:           "test-secret",
+			InternalSecret:           "test-secret-value",
 			JWTSigningKey:            "test-jwt-key-must-be-at-least-32-chars-long",
 			SecretEncryptionKey:      "test-encryption-key-32bytes!!!!",
 			RateLimitRequests:        0, // disabled for load testing
@@ -314,7 +314,7 @@ func newTargeter(method, path string, bodyFn func() []byte) vegeta.Targeter {
 		tgt.Method = method
 		tgt.URL = baseURL + path
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 		if bodyFn != nil {
@@ -330,7 +330,7 @@ func newProjectTargeter(method, path, projectID string, bodyFn func() []byte) ve
 		tgt.Method = method
 		tgt.URL = baseURL + path
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"X-Project-Id":      []string{projectID},
 			"Content-Type":      []string{"application/json"},
 		}
@@ -347,7 +347,7 @@ func newDynamicTargeter(method string, pathFn func() string, bodyFn func() []byt
 		tgt.Method = method
 		tgt.URL = baseURL + pathFn()
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 		if bodyFn != nil {
@@ -660,7 +660,7 @@ func httpDo(t *testing.T, method, path, body string, extraHeaders http.Header) m
 	if err != nil {
 		t.Fatalf("httpDo new request: %v", err)
 	}
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range extraHeaders {
 		req.Header[k] = v
@@ -698,7 +698,7 @@ func httpDoStatus(t *testing.T, method, path, body string) (int, []byte) {
 	if err != nil {
 		t.Fatalf("httpDoStatus new request: %v", err)
 	}
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := httpClient.Do(req)

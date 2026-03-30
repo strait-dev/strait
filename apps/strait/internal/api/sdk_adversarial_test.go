@@ -145,7 +145,7 @@ func TestSDKCapabilitiesHeader_AllCombinations(t *testing.T) {
 func newAuthTestServer(t *testing.T) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testSigningKey,
 	}

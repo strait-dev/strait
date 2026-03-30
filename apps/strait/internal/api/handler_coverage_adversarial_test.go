@@ -495,7 +495,7 @@ func TestHandlerGetPlans_TierOrdering(t *testing.T) {
 
 func llmStreamRequest(runID string) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "/v1/runs/"+runID+"/stream/chunks", nil)
-	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("runID", runID)
 	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
@@ -674,7 +674,7 @@ func (m *advMockWorkflowEngine) RetryWorkflowRun(ctx context.Context, originalRu
 func advNewTestServerWithWorkflowEngine(t *testing.T, s APIStore, we WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       "01234567890123456789012345678901",
 	}
@@ -836,7 +836,7 @@ func (m *advMockBillingEnforcer) CheckOrgCreationLimit(ctx context.Context, user
 func advNewTestServerWithBilling(t *testing.T, s APIStore, be BillingEnforcer) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       "01234567890123456789012345678901",
 	}

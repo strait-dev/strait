@@ -159,7 +159,7 @@ func TestEventRoutes_Integration_InternalSecret_AllowsAll(t *testing.T) {
 			} else {
 				r = httptest.NewRequest(route.method, route.path, nil)
 			}
-			r.Header.Set("X-Internal-Secret", "test-secret")
+			r.Header.Set("X-Internal-Secret", "test-secret-value")
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, r)
 

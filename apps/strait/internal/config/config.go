@@ -247,6 +247,9 @@ func Load() (*Config, error) {
 	if cfg.InternalSecret == "" {
 		return nil, &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "is required"}
 	}
+	if len(cfg.InternalSecret) < 16 {
+		return nil, &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "must be at least 16 characters"}
+	}
 	if len(cfg.JWTSigningKey) < 32 {
 		return nil, &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
 	}
@@ -307,6 +310,10 @@ func Load() (*Config, error) {
 
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return nil, &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
+	}
+
+	if cfg.EncryptionKey == "" && cfg.SecretEncryptionKey == "" {
+		slog.Warn("neither ENCRYPTION_KEY nor SECRET_ENCRYPTION_KEY is set; secret encryption will be unavailable")
 	}
 
 	for _, origin := range cfg.CORSAllowedOrigins {

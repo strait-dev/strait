@@ -336,7 +336,7 @@ func TestHandleListNotificationChannels_ReturnsConfig(t *testing.T) {
 
 func TestGlobalAllowPrivateEndpoints_ResetBetweenServers(t *testing.T) {
 	cfg1 := &config.Config{
-		InternalSecret:        "test-secret",
+		InternalSecret:        "test-secret-value",
 		MaxBulkTriggerItems:   500,
 		JWTSigningKey:         "01234567890123456789012345678901",
 		AllowPrivateEndpoints: true,
@@ -348,7 +348,7 @@ func TestGlobalAllowPrivateEndpoints_ResetBetweenServers(t *testing.T) {
 	}
 
 	cfg2 := &config.Config{
-		InternalSecret:        "test-secret",
+		InternalSecret:        "test-secret-value",
 		MaxBulkTriggerItems:   500,
 		JWTSigningKey:         "01234567890123456789012345678901",
 		AllowPrivateEndpoints: false,
@@ -362,7 +362,7 @@ func TestGlobalAllowPrivateEndpoints_ResetBetweenServers(t *testing.T) {
 
 func TestGlobalAllowPrivateEndpoints_DefaultFalse(t *testing.T) {
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       "01234567890123456789012345678901",
 	}

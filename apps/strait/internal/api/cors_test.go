@@ -12,7 +12,7 @@ func TestCORS_AllowedOrigin(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret",
+			InternalSecret:     "test-secret-value",
 			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins: []string{"https://example.com"},
 		},
@@ -42,7 +42,7 @@ func TestCORS_Preflight(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret",
+			InternalSecret:     "test-secret-value",
 			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins: []string{"https://example.com"},
 		},
@@ -79,7 +79,7 @@ func TestCORS_WildcardOrigin(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret",
+			InternalSecret:     "test-secret-value",
 			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins: []string{"*"},
 		},
@@ -105,7 +105,7 @@ func TestCORS_Credentials(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:       "test-secret",
+			InternalSecret:       "test-secret-value",
 			JWTSigningKey:        "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins:   []string{"https://example.com"},
 			CORSAllowCredentials: true,
@@ -132,7 +132,7 @@ func TestCORS_NoOriginHeader(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret",
+			InternalSecret:     "test-secret-value",
 			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins: []string{"https://example.com"},
 		},
@@ -157,7 +157,7 @@ func TestCORS_ExposedHeaders(t *testing.T) {
 	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret",
+			InternalSecret:     "test-secret-value",
 			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
 			CORSAllowedOrigins: []string{"*"},
 		},

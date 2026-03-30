@@ -77,7 +77,7 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:   "test-secret",
+			InternalSecret:   "test-secret-value",
 			JWTSigningKey:    "01234567890123456789012345678901",
 			OIDCEnabled:      true,
 			OIDCIssuer:       "https://issuer.example",
@@ -112,7 +112,7 @@ func TestOIDCAuth_RejectsExpiredToken(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:   "test-secret",
+			InternalSecret:   "test-secret-value",
 			JWTSigningKey:    "01234567890123456789012345678901",
 			OIDCEnabled:      true,
 			OIDCIssuer:       "https://issuer.example",
@@ -147,7 +147,7 @@ func TestOIDCAuth_RejectsWrongAudience(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:   "test-secret",
+			InternalSecret:   "test-secret-value",
 			JWTSigningKey:    "01234567890123456789012345678901",
 			OIDCEnabled:      true,
 			OIDCIssuer:       "https://issuer.example",

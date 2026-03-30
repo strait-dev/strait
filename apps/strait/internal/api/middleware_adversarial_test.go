@@ -397,7 +397,7 @@ func TestNormalizeAPIError_JoinedErrors(t *testing.T) {
 func newTriggerTestServer(t *testing.T, ms *APIStoreMock) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       "01234567890123456789012345678901",
 	}
@@ -634,7 +634,7 @@ func TestHandleCreateProject_ProjectLimitExceeded_Adversarial(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		InternalSecret:      "test-secret",
+		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       "01234567890123456789012345678901",
 	}
@@ -722,7 +722,7 @@ func TestHandleCreateProject_ForbiddenForAPIKeyAuth_Adversarial(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/v1/projects/", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	// Simulate a request with scopes set (API key auth) via internal secret + context.
-	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{"projects:write"})
 	r = r.WithContext(ctx)
 

@@ -101,7 +101,7 @@ func TestWorkflowRuns_Cancel(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/workflow-runs/" + workflowRunIDs[pos] + "/"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 		}
 		return nil
 	}
@@ -149,7 +149,7 @@ func TestWorkflowRuns_PauseResume(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/workflow-runs/" + workflowRunIDs[pos] + "/pause"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 		return nil
@@ -162,7 +162,7 @@ func TestWorkflowRuns_PauseResume(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/workflow-runs/" + workflowRunIDs[pos] + "/resume"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret"},
+			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 		return nil

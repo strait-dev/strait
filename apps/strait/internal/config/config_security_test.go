@@ -52,6 +52,43 @@ func TestCORS_EmptyOrigins_Allowed(t *testing.T) {
 	}
 }
 
+func TestInternalSecret_TooShort_Rejected(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
+	t.Setenv("INTERNAL_SECRET", "short-15-chars!") // exactly 15 chars
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for short internal secret, got nil")
+	}
+	want := "config INTERNAL_SECRET: must be at least 16 characters"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestInternalSecret_MinLength_Accepted(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
+	t.Setenv("INTERNAL_SECRET", "exactly-16-chars") // exactly 16 chars
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+
+	_, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInternalSecret_Long_Accepted(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
+	t.Setenv("INTERNAL_SECRET", "this-is-a-very-long-secret-value-for-testing")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+
+	_, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestCORS_ExplicitOrigins_Allowed(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
