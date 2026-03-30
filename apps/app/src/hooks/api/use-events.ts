@@ -10,7 +10,6 @@ import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-
 export const fetchEvents = createServerFn({ method: "GET" })
   .inputValidator(
     (
@@ -46,7 +45,6 @@ export const fetchEvent = createServerFn({ method: "GET" })
       apiEffect<EventTrigger>(`/v1/events/${data.eventKey}`)
     );
   });
-
 
 export const eventsQueryOptions = (
   search?: ListParams & {

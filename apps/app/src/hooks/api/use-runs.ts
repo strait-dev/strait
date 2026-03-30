@@ -17,7 +17,6 @@ import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-
 export const fetchRuns = createServerFn({ method: "GET" })
   .inputValidator(
     (
@@ -87,7 +86,6 @@ export const cancelRunFn = createServerFn({ method: "POST" })
     );
   });
 
-
 type RunsSearchParams = ListParams & {
   status?: string;
   job_id?: string;
@@ -118,7 +116,6 @@ export const runEventsQueryOptions = (runId: string) =>
     staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
-
 
 export const useRetryRun = () => {
   const queryClient = useQueryClient();

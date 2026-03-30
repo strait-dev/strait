@@ -7,7 +7,6 @@ import type {
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-
 export const fetchStats = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
@@ -26,7 +25,6 @@ export const fetchAnalytics = createServerFn({ method: "GET" })
       })
     );
   });
-
 
 export const statsQueryOptions = () =>
   queryOptions({

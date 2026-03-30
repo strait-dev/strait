@@ -3,9 +3,7 @@
 
 import type { components } from "@/lib/api/schema";
 
-
 type Schema = components["schemas"];
-
 
 /** Matches Go domain.RunStatus constants. */
 export type RunStatus =
@@ -54,7 +52,6 @@ export type StepRunStatus =
 /** Matches Go domain.VersionPolicy. */
 export type VersionPolicy = "pin" | "latest" | "minor";
 
-
 /** Timing breakdown for a job run execution. */
 export type ExecutionTrace = Schema["ExecutionTrace"];
 
@@ -90,7 +87,6 @@ export type APIKey = Schema["CreateAPIKeyResponse"];
 
 /** Response from POST /v1/api-keys/{keyID}/rotate. */
 export type RotateAPIKeyResponse = Schema["RotateAPIKeyRequest"];
-
 
 /** Workflow DAG definition. Extracted from WorkflowResponse. */
 export type Workflow = {
