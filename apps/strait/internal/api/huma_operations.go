@@ -97,4 +97,19 @@ func (s *Server) registerStreamOps(api huma.API) {
 	}) (*struct{ Body any }, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "stream-project-activity",
+		Method:      http.MethodGet,
+		Path:        "/v1/projects/{projectID}/activity/stream",
+		Summary:     "Stream project activity",
+		Description: "Opens an SSE stream for real-time updates on all project activity including job runs, workflow runs, and event triggers.",
+		Tags:        []string{"Projects"},
+		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Errors:      []int{400, 401, 500, 503},
+	}, func(_ context.Context, _ *struct {
+		ProjectID string `path:"projectID" doc:"Project ID" example:"proj_01HX8BQNP4"`
+	}) (*struct{}, error) {
+		return nil, nil //nolint:nilnil // doc-only stub
+	})
 }
