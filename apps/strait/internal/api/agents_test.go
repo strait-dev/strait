@@ -60,6 +60,10 @@ func (s *stubAgentService) PrepareDirectRun(_ context.Context, _ agentsvc.RunAge
 	return nil, nil
 }
 
+func (s *stubAgentService) ReplayAgentRun(_ context.Context, _ agentsvc.ReplayAgentRunRequest) (*domain.JobRun, error) {
+	return nil, nil
+}
+
 func (s *stubAgentService) Close() {}
 
 func newAgentTestServer(t *testing.T, svc agentsvc.Service) *Server {

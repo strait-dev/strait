@@ -710,6 +710,46 @@ func (s *Server) handleDismissRecommendation(ctx context.Context, _ *DismissReco
 	return nil, nil
 }
 
+type ReplayAgentRunRequest struct {
+	ConfigOverrides map[string]any `json:"config_overrides,omitempty"`
+	FromCheckpoint  int            `json:"from_checkpoint,omitempty"`
+}
+
+type ReplayAgentRunInput struct {
+	AgentID string `path:"agentID"`
+	RunID   string `path:"runID"`
+	Body    ReplayAgentRunRequest
+}
+
+type ReplayAgentRunOutput struct {
+	Body *domain.JobRun
+}
+
+func (s *Server) handleReplayAgentRun(ctx context.Context, input *ReplayAgentRunInput) (*ReplayAgentRunOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+
+	run, runErr := svc.ReplayAgentRun(ctx, agents.ReplayAgentRunRequest{
+		ProjectID:       projectID,
+		AgentID:         input.AgentID,
+		OriginalRunID:   input.RunID,
+		ConfigOverrides: input.Body.ConfigOverrides,
+		FromCheckpoint:  input.Body.FromCheckpoint,
+		Actor:           actorFromContext(ctx),
+	})
+	if runErr != nil {
+		return nil, mapAgentServiceError(runErr)
+	}
+
+	return &ReplayAgentRunOutput{Body: run}, nil
+}
+
 type GetAgentHealthInput struct {
 	AgentID string `path:"agentID"`
 }

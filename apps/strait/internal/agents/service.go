@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -46,6 +47,15 @@ type DirectRunResult struct {
 	Envelope  RuntimeDispatchEnvelope `json:"envelope"`
 }
 
+type ReplayAgentRunRequest struct {
+	ProjectID       string
+	AgentID         string
+	OriginalRunID   string
+	ConfigOverrides map[string]any
+	FromCheckpoint  int
+	Actor           string
+}
+
 type Service interface {
 	CreateAgent(ctx context.Context, req CreateAgentRequest) (*domain.Agent, error)
 	GetAgent(ctx context.Context, projectID, agentID string) (*domain.Agent, error)
@@ -56,6 +66,7 @@ type Service interface {
 	RunAgent(ctx context.Context, req RunAgentRequest) (*domain.JobRun, error)
 	PrepareDirectRun(ctx context.Context, req RunAgentRequest) (*DirectRunResult, error)
 	ListAgentRuns(ctx context.Context, projectID, agentID string, limit, offset int) ([]domain.JobRun, error)
+	ReplayAgentRun(ctx context.Context, req ReplayAgentRunRequest) (*domain.JobRun, error)
 	Close()
 }
 
@@ -714,6 +725,104 @@ func (s *localService) ListAgentRuns(ctx context.Context, projectID, agentID str
 		return nil, err
 	}
 	return s.store.ListRunsByJob(ctx, agent.JobID, limit, offset)
+}
+
+func (s *localService) ReplayAgentRun(ctx context.Context, req ReplayAgentRunRequest) (*domain.JobRun, error) {
+	agent, err := s.GetAgent(ctx, req.ProjectID, req.AgentID)
+	if err != nil {
+		return nil, err
+	}
+
+	originalRun, err := s.store.GetRun(ctx, req.OriginalRunID)
+	if err != nil {
+		return nil, fmt.Errorf("get original run: %w", err)
+	}
+	if !originalRun.Status.IsTerminal() {
+		return nil, fmt.Errorf("can only replay terminal runs (current: %s)", originalRun.Status)
+	}
+
+	deployment, err := s.store.GetLatestAgentDeployment(ctx, agent.ID)
+	if err != nil {
+		return nil, ErrNotDeployed
+	}
+	if deployment.Status != domain.AgentDeploymentStatusDeployed {
+		return nil, ErrNotDeployed
+	}
+
+	// Determine payload: use checkpoint state if requested, otherwise original payload.
+	payload := originalRun.Payload
+	if req.FromCheckpoint > 0 {
+		cp, cpErr := s.store.GetLatestCheckpoint(ctx, req.OriginalRunID)
+		if cpErr != nil || cp == nil {
+			return nil, fmt.Errorf("checkpoint not found for run %s", req.OriginalRunID)
+		}
+		payload = cp.State
+	}
+
+	// Apply config overrides if provided.
+	agentForRun := *agent
+	if len(req.ConfigOverrides) > 0 {
+		var existingCfg map[string]any
+		if len(agent.Config) > 0 {
+			_ = json.Unmarshal(agent.Config, &existingCfg)
+		}
+		if existingCfg == nil {
+			existingCfg = make(map[string]any)
+		}
+		maps.Copy(existingCfg, req.ConfigOverrides)
+		merged, _ := json.Marshal(existingCfg)
+		agentForRun.Config = merged
+
+		// If model override is specified, apply at agent level too.
+		if m, ok := req.ConfigOverrides["model"].(string); ok && m != "" {
+			agentForRun.Model = m
+		}
+	}
+
+	job, err := s.store.GetJob(ctx, agent.JobID)
+	if err != nil {
+		return nil, err
+	}
+
+	run := &domain.JobRun{
+		ID:            uuid.Must(uuid.NewV7()).String(),
+		JobID:         agent.JobID,
+		ProjectID:     agent.ProjectID,
+		Status:        domain.StatusQueued,
+		Attempt:       1,
+		Payload:       payload,
+		TriggeredBy:   "replay",
+		JobVersion:    job.Version,
+		JobVersionID:  job.VersionID,
+		ExecutionMode: job.ExecutionMode,
+		CreatedBy:     req.Actor,
+	}
+	if err := s.store.CreateRun(ctx, run); err != nil {
+		return nil, err
+	}
+
+	_ = s.store.InsertEvent(ctx, &domain.RunEvent{
+		RunID:   run.ID,
+		Type:    domain.EventStateChange,
+		Level:   "info",
+		Message: "agent run replayed",
+		Data: mustJSON(map[string]any{
+			"original_run_id": req.OriginalRunID,
+			"from_checkpoint": req.FromCheckpoint,
+			"has_overrides":   len(req.ConfigOverrides) > 0,
+		}),
+	})
+
+	if s.dispatchPool != nil {
+		agentCopy := agentForRun
+		jobCopy := *job
+		deploymentCopy := *deployment
+		s.dispatchPool.Submit(func() {
+			s.dispatchRun(context.Background(), &agentCopy, &jobCopy, &deploymentCopy, run.ID)
+		})
+	}
+
+	return run, nil
 }
 
 func buildBackingJob(req CreateAgentRequest) *domain.Job {

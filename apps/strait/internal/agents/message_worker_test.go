@@ -98,6 +98,9 @@ func (m *mockMWAgentService) PrepareDirectRun(_ context.Context, _ RunAgentReque
 func (m *mockMWAgentService) ListAgentRuns(_ context.Context, _, _ string, _, _ int) ([]domain.JobRun, error) {
 	return nil, nil
 }
+func (m *mockMWAgentService) ReplayAgentRun(_ context.Context, _ ReplayAgentRunRequest) (*domain.JobRun, error) {
+	return nil, nil
+}
 func (m *mockMWAgentService) Close() {}
 
 // -- Lifecycle tests.
