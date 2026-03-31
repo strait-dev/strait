@@ -338,3 +338,15 @@ func (m *mockBillingStore) CreateAddon(_ context.Context, _ *Addon) error {
 func (m *mockBillingStore) DeactivateAddon(_ context.Context, _ string) error {
 	return nil
 }
+
+func (m *mockBillingStore) CountActiveAddonsByType(_ context.Context, _ string, _ AddonType) (int, error) {
+	return 0, nil
+}
+
+func (m *mockBillingStore) RecordProcessedWebhook(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockBillingStore) IsWebhookProcessed(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}

@@ -48,13 +48,14 @@ type OrgPlanLimits struct {
 	HasCanaryDeployments bool // canary deployment support (Scale+)
 
 	// Resource limits.
-	MaxScheduledJobs       int      // max cron schedules; -1 = unlimited
-	AllCronOverlapPolicies bool     // false = "allow" only; true = all policies
-	MaxEnvironments        int      // max environments per project
-	AllowedPresets         []string // nil = all presets; non-nil = restricted list
-	MaxWebhookEndpoints    int      // max webhook endpoints; -1 = unlimited, 0 = none
-	WebhookEventLevel      string   // "none", "basic", "all", "all_custom"
-	APIRateLimit           int      // requests per minute; -1 = unlimited
+	MaxScheduledJobs       int               // max cron schedules; -1 = unlimited
+	AllCronOverlapPolicies bool              // false = "allow" only; true = all policies
+	MaxEnvironments        int               // max environments per project
+	AllowedPresets         []string          // nil = all presets; non-nil = restricted list
+	MaxWebhookEndpoints    int               // max webhook endpoints; -1 = unlimited, 0 = none
+	WebhookEventLevel      string            // "none", "basic", "all", "all_custom"
+	APIRateLimit           int               // requests per minute; -1 = unlimited
+	MaxAddonPacks          map[AddonType]int `json:"max_addon_packs,omitempty"` // max packs per addon type; -1 = unlimited
 }
 
 // IsPresetAllowed returns true if the given machine preset name is allowed on this plan.
@@ -198,6 +199,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxWebhookEndpoints:     0,
 		WebhookEventLevel:       "none",
 		APIRateLimit:            APIRateFree,
+		MaxAddonPacks:           nil, // no addons on free tier
 	},
 	domain.PlanStarter: {
 		PlanTier:                domain.PlanStarter,
@@ -243,6 +245,13 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxWebhookEndpoints:     3,
 		WebhookEventLevel:       "basic",
 		APIRateLimit:            APIRateStarter,
+		MaxAddonPacks: map[AddonType]int{
+			AddonConcurrentRuns:   2,
+			AddonMembers:          2,
+			AddonCronSchedules:    2,
+			AddonDataRetention:    2,
+			AddonWebhookEndpoints: 2,
+		},
 	},
 	domain.PlanPro: {
 		PlanTier:                domain.PlanPro,
@@ -288,6 +297,13 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxWebhookEndpoints:     10,
 		WebhookEventLevel:       "all",
 		APIRateLimit:            APIRatePro,
+		MaxAddonPacks: map[AddonType]int{
+			AddonConcurrentRuns:   5,
+			AddonMembers:          5,
+			AddonCronSchedules:    5,
+			AddonDataRetention:    5,
+			AddonWebhookEndpoints: 5,
+		},
 	},
 	domain.PlanScale: {
 		PlanTier:                domain.PlanScale,
@@ -333,6 +349,13 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxWebhookEndpoints:     25,
 		WebhookEventLevel:       "all",
 		APIRateLimit:            APIRateScale,
+		MaxAddonPacks: map[AddonType]int{
+			AddonConcurrentRuns:   10,
+			AddonMembers:          10,
+			AddonCronSchedules:    10,
+			AddonDataRetention:    10,
+			AddonWebhookEndpoints: 10,
+		},
 	},
 	domain.PlanEnterprise: {
 		PlanTier:                domain.PlanEnterprise,
@@ -378,6 +401,13 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxWebhookEndpoints:     -1,
 		WebhookEventLevel:       "all_custom",
 		APIRateLimit:            -1,
+		MaxAddonPacks: map[AddonType]int{
+			AddonConcurrentRuns:   -1,
+			AddonMembers:          -1,
+			AddonCronSchedules:    -1,
+			AddonDataRetention:    -1,
+			AddonWebhookEndpoints: -1,
+		},
 	},
 }
 

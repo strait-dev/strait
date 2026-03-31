@@ -157,6 +157,18 @@ func (m *mockReportStore) DeactivateAddon(context.Context, string) error {
 	return nil
 }
 
+func (m *mockReportStore) CountActiveAddonsByType(context.Context, string, billing.AddonType) (int, error) {
+	return 0, nil
+}
+
+func (m *mockReportStore) RecordProcessedWebhook(context.Context, string) error {
+	return nil
+}
+
+func (m *mockReportStore) IsWebhookProcessed(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 type mockResendAPI struct {
 	sent []*resend.SendEmailRequest
 }

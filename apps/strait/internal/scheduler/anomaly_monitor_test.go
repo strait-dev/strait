@@ -201,6 +201,18 @@ func (m *mockAnomalyMonitorStore) DeactivateAddon(context.Context, string) error
 	return nil
 }
 
+func (m *mockAnomalyMonitorStore) CountActiveAddonsByType(context.Context, string, billing.AddonType) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAnomalyMonitorStore) RecordProcessedWebhook(context.Context, string) error {
+	return nil
+}
+
+func (m *mockAnomalyMonitorStore) IsWebhookProcessed(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 // mockCooldown implements AnomalyCooldown for testing.
 type mockCooldown struct {
 	cooled map[string]bool

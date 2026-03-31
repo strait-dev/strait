@@ -260,6 +260,14 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			h.replayCache.Store(msgID, now)
 		}
+
+		// DB-level idempotency check (survives server restarts).
+		processed, dbErr := h.store.IsWebhookProcessed(r.Context(), msgID)
+		if dbErr == nil && processed {
+			h.logger.Info("webhook already processed (DB)", "msg_id", msgID)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 	}
 
 	var payload PolarWebhookPayload
@@ -293,6 +301,11 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("failed to handle webhook", "type", payload.Type, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// Record successful webhook processing in DB for cross-restart idempotency.
+	if msgID != "" {
+		_ = h.store.RecordProcessedWebhook(r.Context(), msgID)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -447,10 +460,10 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 }
 
 // handleSubscriptionUpdated processes plan changes. NOTE: concurrent webhooks for
-// the same org can cause TOCTOU issues (read-check-write on payment status and plan
-// tier). Polar delivers webhooks in order per subscription, so the practical risk
-// is low. A full fix requires transactional store operations (BeginTx + conditional
-// UPDATEs). See review finding #2.
+// the same org have a small TOCTOU window between reading the current plan and
+// writing the update. Polar delivers webhooks in subscription order, and the
+// DB-level idempotency check prevents exact duplicates. A full fix would require
+// pg_advisory_xact_lock(hashtext(orgID)) inside a transaction.
 //
 //nolint:gocyclo,cyclop,gocognit
 func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data json.RawMessage) error {
@@ -851,6 +864,22 @@ func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub
 	if orgID == "" {
 		h.logger.Warn("cannot resolve org_id for addon subscription", "subscription_id", sub.ID)
 		return nil
+	}
+
+	// Check addon quantity cap for this org's plan tier.
+	if h.enforcer != nil {
+		limits, limErr := h.enforcer.GetOrgPlanLimits(ctx, orgID)
+		if limErr == nil && limits.MaxAddonPacks != nil {
+			maxPacks, hasCap := limits.MaxAddonPacks[addonType]
+			if hasCap && maxPacks >= 0 {
+				existing, _ := h.store.CountActiveAddonsByType(ctx, orgID, addonType)
+				if existing >= maxPacks {
+					h.logger.Warn("addon cap exceeded, ignoring addon webhook",
+						"org_id", orgID, "addon_type", addonType, "cap", maxPacks, "existing", existing)
+					return nil
+				}
+			}
+		}
 	}
 
 	addon := &Addon{

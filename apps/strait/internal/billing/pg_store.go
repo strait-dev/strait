@@ -1126,3 +1126,38 @@ func (s *PgStore) DeactivateAddon(ctx context.Context, addonID string) error {
 	}
 	return nil
 }
+
+// CountActiveAddonsByType returns the number of active add-ons for an org and type.
+func (s *PgStore) CountActiveAddonsByType(ctx context.Context, orgID string, addonType AddonType) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM organization_addons WHERE org_id = $1 AND addon_type = $2 AND active = true",
+		orgID, string(addonType)).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active addons by type: %w", err)
+	}
+	return count, nil
+}
+
+// RecordProcessedWebhook records a webhook message ID as processed for idempotency.
+func (s *PgStore) RecordProcessedWebhook(ctx context.Context, msgID string) error {
+	_, err := s.pool.Exec(ctx,
+		"INSERT INTO processed_webhook_messages (msg_id) VALUES ($1) ON CONFLICT (msg_id) DO NOTHING",
+		msgID)
+	if err != nil {
+		return fmt.Errorf("record processed webhook: %w", err)
+	}
+	return nil
+}
+
+// IsWebhookProcessed checks whether a webhook message ID has already been processed.
+func (s *PgStore) IsWebhookProcessed(ctx context.Context, msgID string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM processed_webhook_messages WHERE msg_id = $1)",
+		msgID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check webhook processed: %w", err)
+	}
+	return exists, nil
+}

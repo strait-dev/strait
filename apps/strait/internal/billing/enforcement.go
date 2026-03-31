@@ -690,8 +690,10 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		return nil // no limit set
 	}
 
-	// Serialize concurrent spending checks for the same org to prevent TOCTOU races.
-	// Best-effort: if the lock cannot be acquired, proceed without it.
+	// Best-effort Redis lock reduces the TOCTOU window for concurrent spending checks.
+	// A strict fix would use pg_advisory_xact_lock inside a transaction, but the
+	// current approach is sufficient for practical workloads (spending checks happen
+	// once per run dispatch, not per request, and the race requires sub-second timing).
 	if e.rdb != nil {
 		lockKey := "strait:spend_check:" + orgID
 		acquired, lockErr := e.rdb.SetNX(ctx, lockKey, "1", 500*time.Millisecond).Result()

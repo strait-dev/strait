@@ -196,6 +196,18 @@ func (m *mockEnforcerStore) DeactivateAddon(_ context.Context, _ string) error {
 	return nil
 }
 
+func (m *mockEnforcerStore) CountActiveAddonsByType(_ context.Context, _ string, _ billing.AddonType) (int, error) {
+	return 0, nil
+}
+
+func (m *mockEnforcerStore) RecordProcessedWebhook(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockEnforcerStore) IsWebhookProcessed(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
 func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 	t.Parallel()
 
