@@ -2,6 +2,7 @@ import { BudgetLedger } from "./budget";
 import { StraitSDKError } from "./errors";
 import { StraitHTTPClient } from "./http";
 import { normalizeBudgetInput } from "./internal";
+import { StraitPlatformClient } from "./platform";
 import { defaultPricingCatalog, normalizeUsageReport } from "./pricing";
 import type {
   BudgetSnapshot,
@@ -127,6 +128,7 @@ export class StraitContext {
   readonly runId: string;
   readonly run: { state: StateScopeClient };
   readonly workflow: { state: StateScopeClient };
+  readonly platform: StraitPlatformClient;
 
   constructor(options: StraitContextOptions) {
     this.runId = assertNonEmptyString(options.runId, "runId");
@@ -139,6 +141,7 @@ export class StraitContext {
     this.workflow = {
       state: this.#createStateScope("/workflow-state"),
     };
+    this.platform = new StraitPlatformClient(this.#client);
   }
 
   #createStateScope(basePath: string): StateScopeClient {

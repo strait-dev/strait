@@ -22,6 +22,13 @@ export {
 export type { FallbackCondition, ModelFallbackOptions } from "./model-fallback";
 export { isRetriableError, withModelFallback } from "./model-fallback";
 export { createOpenAIAdapter, withStrait as withOpenAI } from "./openai";
+export type {
+  AwaitRunResult,
+  TriggerAgentResult,
+  TriggerJobResult,
+  TriggerWorkflowResult,
+} from "./platform";
+export { StraitPlatformClient } from "./platform";
 export {
   createPricingCatalog,
   defaultPricingCatalog,

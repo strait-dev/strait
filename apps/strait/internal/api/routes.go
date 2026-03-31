@@ -653,6 +653,12 @@ func (s *Server) routes() chi.Router {
 			r.Post("/resources", TypedHandler(s, http.StatusCreated, s.handleSDKResources))
 			r.Post("/resource-snapshot", TypedHandler(s, http.StatusCreated, s.handleSDKResourceSnapshot))
 			r.Post("/iteration", TypedHandler(s, http.StatusOK, s.handleSDKIteration))
+			r.Route("/platform", func(r chi.Router) {
+				r.Post("/trigger-job", TypedHandler(s, http.StatusCreated, s.handleSDKTriggerJob))
+				r.Post("/trigger-workflow", TypedHandler(s, http.StatusCreated, s.handleSDKTriggerWorkflow))
+				r.Post("/trigger-agent", TypedHandler(s, http.StatusCreated, s.handleSDKTriggerAgent))
+				r.Post("/await-run", TypedHandler(s, http.StatusOK, s.handleSDKAwaitRun))
+			})
 			r.Route("/memory", func(r chi.Router) {
 				r.Post("/{key}", TypedHandler(s, http.StatusCreated, s.handleSDKSetMemory))
 				r.Get("/{key}", TypedHandler(s, http.StatusOK, s.handleSDKGetMemory))
