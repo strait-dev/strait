@@ -59,6 +59,12 @@ func (baseReaperStore) UpdateWorkflowStepApproval(_ context.Context, _ string, _
 func (baseReaperStore) DeleteTerminalRunsPastRetention(_ context.Context, _, _ time.Duration) (int64, error) {
 	return 0, nil
 }
+func (baseReaperStore) DeleteRunsByOrgOlderThan(_ context.Context, _ string, _ time.Duration) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) DeleteWorkflowRunsByOrgOlderThan(_ context.Context, _ string, _ time.Duration) (int64, error) {
+	return 0, nil
+}
 func (baseReaperStore) UpdateRunStatus(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 	return nil
 }
