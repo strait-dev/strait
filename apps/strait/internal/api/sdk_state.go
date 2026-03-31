@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"strings"
+	"time"
 
 	"strait/internal/agents"
 	"strait/internal/domain"
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/google/uuid"
 )
 
 type SDKSetStateRequest struct {
@@ -309,7 +313,7 @@ type SDKSubmitWorkflowInput struct {
 
 type SDKSubmitWorkflowOutput struct {
 	Body struct {
-		WorkflowID string `json:"workflow_id"`
+		WorkflowRunID string `json:"workflow_run_id"`
 	}
 }
 
@@ -319,28 +323,65 @@ func (s *Server) handleSDKSubmitWorkflow(ctx context.Context, input *SDKSubmitWo
 		return nil, huma.Error404NotFound("run not found")
 	}
 
-	// For now, store the workflow definition as a run state entry so it can
-	// be picked up by the workflow engine. Full workflow creation requires
-	// the workflow store interface which is not part of the SDK callback path.
-	state := &domain.RunState{
-		RunID:    run.ID,
-		StateKey: "_submitted_workflow",
-		Value: mustSDKJSON(map[string]any{
-			"name":  input.Body.Name,
-			"slug":  input.Body.Slug,
-			"steps": input.Body.Steps,
-		}),
+	name := strings.TrimSpace(input.Body.Name)
+	slug := strings.TrimSpace(input.Body.Slug)
+	if name == "" {
+		return nil, huma.Error400BadRequest("workflow name is required")
 	}
-	if err := s.store.UpsertRunState(ctx, state); err != nil {
-		return nil, huma.Error500InternalServerError("failed to store workflow definition")
+	if slug == "" {
+		return nil, huma.Error400BadRequest("workflow slug is required")
 	}
+	if len(input.Body.Steps) == 0 || string(input.Body.Steps) == "null" {
+		return nil, huma.Error400BadRequest("workflow steps are required")
+	}
+
+	q, ok := s.store.(*store.Queries)
+	if !ok {
+		return nil, huma.Error503ServiceUnavailable("workflow submission not supported")
+	}
+
+	// Check if workflow with this slug already exists in the project.
+	existingWF, _ := q.GetWorkflowBySlug(ctx, run.ProjectID, slug)
+	var wfID string
+
+	if existingWF != nil {
+		wfID = existingWF.ID
+	} else {
+		// Create a new workflow definition.
+		wf := &domain.Workflow{
+			ID:          uuid.Must(uuid.NewV7()).String(),
+			ProjectID:   run.ProjectID,
+			Name:        name,
+			Slug:        slug,
+			Description: "Submitted by agent run " + run.ID,
+			Enabled:     true,
+			Version:     1,
+			CreatedBy:   "agent:" + run.ID,
+		}
+		if createErr := q.CreateWorkflow(ctx, wf); createErr != nil {
+			slog.Error("sdk: failed to create workflow from agent", "run_id", run.ID, "error", createErr)
+			return nil, huma.Error500InternalServerError("failed to create workflow")
+		}
+		wfID = wf.ID
+	}
+
+	// Trigger the workflow run.
+	if s.workflowEngine == nil {
+		return nil, huma.Error503ServiceUnavailable("workflow engine unavailable")
+	}
+
+	wfRun, triggerErr := s.workflowEngine.TriggerWorkflow(ctx, wfID, run.ProjectID, input.Body.Steps, "agent:"+run.ID, nil, nil)
+	if triggerErr != nil {
+		slog.Error("sdk: failed to trigger workflow from agent", "run_id", run.ID, "workflow_id", wfID, "error", triggerErr)
+		return nil, huma.Error500InternalServerError("failed to trigger workflow")
+	}
+
+	s.publishRunEvent(ctx, input.RunID, map[string]any{
+		"type": "workflow_submitted", "workflow_run_id": wfRun.ID,
+		"workflow_slug": slug, "timestamp": time.Now().UTC(),
+	})
 
 	return &SDKSubmitWorkflowOutput{Body: struct {
-		WorkflowID string `json:"workflow_id"`
-	}{WorkflowID: run.ID + ":workflow"}}, nil
-}
-
-func mustSDKJSON(v any) json.RawMessage {
-	raw, _ := json.Marshal(v)
-	return raw
+		WorkflowRunID string `json:"workflow_run_id"`
+	}{WorkflowRunID: wfRun.ID}}, nil
 }
