@@ -446,3 +446,116 @@ func (q *Queries) UpdateAgentDeployment(ctx context.Context, id string, patch ma
 	}
 	return nil
 }
+
+// GetAgentHealthStats returns aggregated health metrics for an agent over a time window.
+// Queries the agent's backing job runs and computes a composite health score
+// factoring success rate, error class distribution, and cost efficiency.
+func (q *Queries) GetAgentHealthStats(ctx context.Context, agentID string, since time.Time) (*AgentHealthStats, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAgentHealthStats")
+	defer span.End()
+
+	agent, err := scanAgent(q.db.QueryRow(ctx, `SELECT `+agentColumns+` FROM agents WHERE id = $1`, agentID))
+	if err != nil {
+		return nil, fmt.Errorf("get agent for health: %w", err)
+	}
+
+	query := `
+		SELECT
+			COUNT(*) AS total_runs,
+			COUNT(*) FILTER (WHERE status = 'completed') AS completed_runs,
+			COUNT(*) FILTER (WHERE status IN ('failed', 'system_failed')) AS failed_runs,
+			COALESCE(
+				AVG(EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
+				0
+			) AS avg_duration_secs
+		FROM job_runs
+		WHERE job_id = $1
+			AND created_at >= $2
+			AND status IN ('completed', 'failed', 'system_failed', 'timed_out', 'crashed', 'canceled')`
+
+	stats := &AgentHealthStats{}
+	if err := q.db.QueryRow(ctx, query, agent.JobID, since).Scan(
+		&stats.TotalRuns,
+		&stats.CompletedRuns,
+		&stats.FailedRuns,
+		&stats.AvgDurationSecs,
+	); err != nil {
+		return nil, fmt.Errorf("get agent health stats: %w", err)
+	}
+
+	// Count error classes from run events.
+	errClassQuery := `
+		SELECT
+			COUNT(*) FILTER (WHERE data::jsonb->>'error_class' = 'oom') AS oom_runs,
+			COUNT(*) FILTER (WHERE data::jsonb->>'error_class' = 'timeout') AS timeout_runs,
+			COUNT(*) FILTER (WHERE data::jsonb->>'error_class' = 'rate_limited') AS rate_limited_runs
+		FROM run_events
+		WHERE run_id IN (
+			SELECT id FROM job_runs WHERE job_id = $1 AND created_at >= $2
+		)
+		AND type = 'error'`
+
+	_ = q.db.QueryRow(ctx, errClassQuery, agent.JobID, since).Scan(
+		&stats.OOMRuns,
+		&stats.TimeoutRuns,
+		&stats.RateLimitedRuns,
+	)
+
+	// Compute average cost.
+	costQuery := `
+		SELECT COALESCE(AVG(cost_microusd), 0)
+		FROM run_usage
+		WHERE run_id IN (
+			SELECT id FROM job_runs WHERE job_id = $1 AND created_at >= $2
+		)`
+	_ = q.db.QueryRow(ctx, costQuery, agent.JobID, since).Scan(&stats.AvgCostMicrousd)
+
+	// Compute health score.
+	stats.HealthScore, stats.HealthLevel = ComputeAgentHealthScore(stats)
+	if stats.TotalRuns > 0 {
+		stats.SuccessRate = float64(stats.CompletedRuns) / float64(stats.TotalRuns) * 100
+	}
+
+	return stats, nil
+}
+
+// ComputeAgentHealthScore calculates a 0-100 health score for an agent.
+// 50% success rate + 25% error class severity + 25% stability.
+func ComputeAgentHealthScore(stats *AgentHealthStats) (float64, string) {
+	if stats.TotalRuns == 0 {
+		return 0, "unknown"
+	}
+
+	successRate := float64(stats.CompletedRuns) / float64(stats.TotalRuns)
+	failureRate := 1 - successRate
+
+	// Success component: 60% weight.
+	successComponent := successRate * 60
+
+	// Error class component: 20% weight. Scaled by success -- no credit if everything fails.
+	// OOM/timeout are penalized extra on top of the failure rate.
+	errorComponent := successRate * 20
+	if stats.TotalRuns > 0 {
+		severeErrorRate := float64(stats.OOMRuns+stats.TimeoutRuns) / float64(stats.TotalRuns)
+		errorComponent = max(0, errorComponent-severeErrorRate*40)
+	}
+
+	// Stability component: 20% weight. Penalize high failure rates and long durations.
+	stabilityComponent := (1 - failureRate) * 20
+	if stats.AvgDurationSecs > 120 {
+		penalty := min(stabilityComponent, (stats.AvgDurationSecs-120)/60*5)
+		stabilityComponent = max(0, stabilityComponent-penalty)
+	}
+
+	score := min(100, successComponent+errorComponent+stabilityComponent)
+
+	level := "healthy"
+	switch {
+	case score < 30:
+		level = "unhealthy"
+	case score <= 60:
+		level = "degraded"
+	}
+
+	return score, level
+}

@@ -709,3 +709,39 @@ func (s *Server) handleDismissRecommendation(ctx context.Context, _ *DismissReco
 	_ = ctx
 	return nil, nil
 }
+
+type GetAgentHealthInput struct {
+	AgentID string `path:"agentID"`
+}
+
+type GetAgentHealthOutput struct {
+	Body *store.AgentHealthStats
+}
+
+func (s *Server) handleGetAgentHealth(ctx context.Context, input *GetAgentHealthInput) (*GetAgentHealthOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+
+	if _, agentErr := svc.GetAgent(ctx, projectID, input.AgentID); agentErr != nil {
+		return nil, mapAgentServiceError(agentErr)
+	}
+
+	q, ok := s.store.(*store.Queries)
+	if !ok {
+		return nil, huma.Error500InternalServerError("health stats not supported")
+	}
+
+	since := time.Now().Add(-24 * time.Hour)
+	stats, statsErr := q.GetAgentHealthStats(ctx, input.AgentID, since)
+	if statsErr != nil {
+		return nil, huma.Error500InternalServerError("failed to get agent health stats")
+	}
+
+	return &GetAgentHealthOutput{Body: stats}, nil
+}

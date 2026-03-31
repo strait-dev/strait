@@ -192,6 +192,21 @@ type JobHealthStats struct {
 	HealthScore     float64 `json:"health_score"`
 }
 
+// AgentHealthStats contains aggregated health metrics for an agent.
+type AgentHealthStats struct {
+	TotalRuns       int     `json:"total_runs"`
+	CompletedRuns   int     `json:"completed_runs"`
+	FailedRuns      int     `json:"failed_runs"`
+	OOMRuns         int     `json:"oom_runs"`
+	TimeoutRuns     int     `json:"timeout_runs"`
+	RateLimitedRuns int     `json:"rate_limited_runs"`
+	SuccessRate     float64 `json:"success_rate"`
+	AvgCostMicrousd float64 `json:"avg_cost_microusd"`
+	AvgDurationSecs float64 `json:"avg_duration_secs"`
+	HealthScore     float64 `json:"health_score"`
+	HealthLevel     string  `json:"health_level"`
+}
+
 type EventStore interface {
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)

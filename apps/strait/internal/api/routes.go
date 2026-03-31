@@ -292,6 +292,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/recommendations", TypedHandler(s, http.StatusOK, s.handleGetRecommendations))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/recommendations/apply", TypedHandler(s, http.StatusOK, s.handleApplyRecommendation))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/recommendations/dismiss", TypedHandler(s, http.StatusNoContent, s.handleDismissRecommendation))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", TypedHandler(s, http.StatusOK, s.handleGetAgentHealth))
 			})
 		})
 
