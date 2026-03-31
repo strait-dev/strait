@@ -587,3 +587,71 @@ func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
 		t.Fatalf("expected redirect to /reference/openapi.json, got %q", loc)
 	}
 }
+
+// ─── OpenAPI Path Parameter Validation ────────────────────────────────────────.
+
+// openAPIPathParams returns the names of path parameters declared on a
+// specific operation (method + path) in the OpenAPI spec.
+func openAPIPathParams(t *testing.T, spec map[string]any, path, method string) []string {
+	t.Helper()
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("spec missing 'paths'")
+	}
+	pathItem, ok := paths[path].(map[string]any)
+	if !ok {
+		t.Fatalf("path %q not found in spec", path)
+	}
+	op, ok := pathItem[method].(map[string]any)
+	if !ok {
+		t.Fatalf("method %q not found on path %q", method, path)
+	}
+	params, _ := op["parameters"].([]any)
+	var names []string
+	for _, p := range params {
+		pm, _ := p.(map[string]any)
+		if pm["in"] == "path" {
+			names = append(names, pm["name"].(string))
+		}
+	}
+	return names
+}
+
+func fetchOpenAPISpec(t *testing.T) map[string]any {
+	t.Helper()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var spec map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+		t.Fatalf("failed to unmarshal OpenAPI spec: %v", err)
+	}
+	return spec
+}
+
+func TestOpenAPISpec_DeleteEventSubscription_HasSourceIDParam(t *testing.T) {
+	t.Parallel()
+	spec := fetchOpenAPISpec(t)
+	params := openAPIPathParams(t, spec, "/v1/event-sources/{sourceID}/subscriptions/{subID}", "delete")
+
+	want := map[string]bool{"sourceID": false, "subID": false}
+	for _, name := range params {
+		if _, ok := want[name]; ok {
+			want[name] = true
+		} else {
+			t.Errorf("unexpected path param %q", name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Errorf("missing expected path param %q", name)
+		}
+	}
+	if len(params) != 2 {
+		t.Errorf("expected exactly 2 path params, got %d: %v", len(params), params)
+	}
+}

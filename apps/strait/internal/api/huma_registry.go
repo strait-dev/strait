@@ -1309,11 +1309,23 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Event Sources"}, Security: bearerSecurity, Errors: []int{400, 401, 409, 429, 500},
 	}, s.handleSubscribeToEventSource)
 
-	RegisterTypedOp(api, OpMeta{
-		ID: "delete-event-subscription", Method: http.MethodDelete, Path: "/v1/event-sources/{sourceID}/subscriptions/{subID}",
-		Summary: "Delete an event subscription", Description: "Removes a subscription from an event source.",
-		Tags: []string{"Event Sources"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
-	}, s.handleDeleteEventSubscription)
+	// Registered manually (not via RegisterTypedOp) because RegisterTypedOp
+	// with the handler's *struct{} output type drops the sourceID path param.
+	huma.Register(api, huma.Operation{
+		OperationID: "delete-event-subscription",
+		Method:      http.MethodDelete,
+		Path:        "/v1/event-sources/{sourceID}/subscriptions/{subID}",
+		Summary:     "Delete an event subscription",
+		Description: "Removes a subscription from an event source.",
+		Tags:        []string{"Event Sources"},
+		Security:    bearerSecurity,
+		Errors:      []int{401, 404, 500},
+	}, func(_ context.Context, _ *struct {
+		SourceID string `path:"sourceID" doc:"Event source ID" example:"src_01HX8BQNP4"`
+		SubID    string `path:"subID" doc:"Event subscription ID" example:"sub_01HX8BQNP4"`
+	}) (*struct{}, error) {
+		return nil, nil //nolint:nilnil // doc-only stub
+	})
 
 	// -- Events --
 	RegisterTypedOp(api, OpMeta{
