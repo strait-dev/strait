@@ -120,4 +120,7 @@ type Store interface {
 	// Webhook idempotency
 	RecordProcessedWebhook(ctx context.Context, msgID string) error
 	IsWebhookProcessed(ctx context.Context, msgID string) (bool, error)
+
+	// Webhook message cleanup
+	DeleteOldWebhookMessages(ctx context.Context, olderThan time.Time) (int64, error)
 }

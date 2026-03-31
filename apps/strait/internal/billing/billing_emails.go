@@ -88,12 +88,9 @@ func (s *BillingEmailSender) send(ctx context.Context, to []string, subject, htm
 	}
 }
 
-// spendingLimitWarningHTML returns the HTML body for the spending limit warning email.
-func spendingLimitWarningHTML(planName, currentSpend, limit, percent string) string {
-	safePlan := html.EscapeString(planName)
-	safeSpend := html.EscapeString(currentSpend)
-	safeLimit := html.EscapeString(limit)
-	safePercent := html.EscapeString(percent)
+// billingEmailWrapper returns the shared HTML shell for all billing emails.
+// heading is the bold title; bodyRows contains the unique <tr> rows for that email.
+func billingEmailWrapper(heading, bodyRows string) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -110,11 +107,35 @@ func spendingLimitWarningHTML(planName, currentSpend, limit, percent string) str
     <tr><td style="height:16px;"></td></tr>
     <tr>
       <td style="font-size:18px;font-weight:600;color:#252525;letter-spacing:-0.02em;">
-        Spending limit warning
+        %s
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    %s
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td style="font-size:12px;color:#8D8D8D;line-height:1.6;">
+        If you have any questions, just reply to this email or contact our support team at <a href="mailto:support@strait.dev" style="color:#171717;text-decoration:underline;">support@strait.dev</a>.
       </td>
     </tr>
     <tr><td style="height:16px;"></td></tr>
     <tr>
+      <td style="border-top:1px solid #EBEBEB;padding-top:16px;">
+        <span style="font-size:12px;color:#8D8D8D;">&copy; 2026 Strait, All rights reserved</span>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`, heading, bodyRows)
+}
+
+// spendingLimitWarningHTML returns the HTML body for the spending limit warning email.
+func spendingLimitWarningHTML(planName, currentSpend, limit, percent string) string {
+	safePlan := html.EscapeString(planName)
+	safeSpend := html.EscapeString(currentSpend)
+	safeLimit := html.EscapeString(limit)
+	safePercent := html.EscapeString(percent)
+	body := fmt.Sprintf(`<tr>
       <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
         Your %s plan has used <strong style="color:#252525;">%s</strong> of your %s spending limit (%s spent this billing period).
       </td>
@@ -126,22 +147,8 @@ func spendingLimitWarningHTML(planName, currentSpend, limit, percent string) str
           Adjust spending limit
         </a>
       </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="font-size:12px;color:#8D8D8D;line-height:1.6;">
-        If you have any questions, just reply to this email or contact our support team at <a href="mailto:support@strait.dev" style="color:#171717;text-decoration:underline;">support@strait.dev</a>.
-      </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="border-top:1px solid #EBEBEB;padding-top:16px;">
-        <span style="font-size:12px;color:#8D8D8D;">&copy; 2026 Strait, All rights reserved</span>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`, safePlan, safePercent, safeLimit, safeSpend)
+    </tr>`, safePlan, safePercent, safeLimit, safeSpend)
+	return billingEmailWrapper("Spending limit warning", body)
 }
 
 // overageAlertHTML returns the HTML body for the overage alert email.
@@ -149,27 +156,7 @@ func overageAlertHTML(planName, overageAmount, includedCredit string) string {
 	safePlan := html.EscapeString(planName)
 	safeOverage := html.EscapeString(overageAmount)
 	safeCredit := html.EscapeString(includedCredit)
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Geist',Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:40px auto;max-width:500px;border:1px solid #EBEBEB;border-radius:2px;padding:32px 40px;">
-    <tr>
-      <td>
-        <img src="https://app.usestrait.com/static/strait-logo-black.svg" alt="Strait" width="150" style="display:block;" />
-      </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="font-size:18px;font-weight:600;color:#252525;letter-spacing:-0.02em;">
-        Overage alert
-      </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
+	body := fmt.Sprintf(`<tr>
       <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
         Your %s plan has exceeded its %s included credit. Current overage: <strong style="color:#252525;">%s</strong>. Set a spending limit to control costs.
       </td>
@@ -181,49 +168,15 @@ func overageAlertHTML(planName, overageAmount, includedCredit string) string {
           Set spending limit
         </a>
       </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="font-size:12px;color:#8D8D8D;line-height:1.6;">
-        If you have any questions, just reply to this email or contact our support team at <a href="mailto:support@strait.dev" style="color:#171717;text-decoration:underline;">support@strait.dev</a>.
-      </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="border-top:1px solid #EBEBEB;padding-top:16px;">
-        <span style="font-size:12px;color:#8D8D8D;">&copy; 2026 Strait, All rights reserved</span>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`, safePlan, safeCredit, safeOverage)
+    </tr>`, safePlan, safeCredit, safeOverage)
+	return billingEmailWrapper("Overage alert", body)
 }
 
 // paymentFailedHTML returns the HTML body for the payment failed email.
 func paymentFailedHTML(planName, gracePeriodEnd string) string {
 	safePlan := html.EscapeString(planName)
 	safeGrace := html.EscapeString(gracePeriodEnd)
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Geist',Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:40px auto;max-width:500px;border:1px solid #EBEBEB;border-radius:2px;padding:32px 40px;">
-    <tr>
-      <td>
-        <img src="https://app.usestrait.com/static/strait-logo-black.svg" alt="Strait" width="150" style="display:block;" />
-      </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="font-size:18px;font-weight:600;color:#252525;letter-spacing:-0.02em;">
-        Payment failed
-      </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
+	body := fmt.Sprintf(`<tr>
       <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
         We were unable to process payment for your %s plan. Your account is in a grace period until <strong style="color:#252525;">%s</strong>. Please update your payment method to avoid service interruption.
       </td>
@@ -235,22 +188,8 @@ func paymentFailedHTML(planName, gracePeriodEnd string) string {
           Update payment method
         </a>
       </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="font-size:12px;color:#8D8D8D;line-height:1.6;">
-        If you have any questions, just reply to this email or contact our support team at <a href="mailto:support@strait.dev" style="color:#171717;text-decoration:underline;">support@strait.dev</a>.
-      </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="border-top:1px solid #EBEBEB;padding-top:16px;">
-        <span style="font-size:12px;color:#8D8D8D;">&copy; 2026 Strait, All rights reserved</span>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`, safePlan, safeGrace)
+    </tr>`, safePlan, safeGrace)
+	return billingEmailWrapper("Payment failed", body)
 }
 
 // planChangedHTML returns the HTML body for the plan changed email.
@@ -258,27 +197,7 @@ func planChangedHTML(previousPlan, newPlan, effectiveDate string) string {
 	safePrev := html.EscapeString(previousPlan)
 	safeNew := html.EscapeString(newPlan)
 	safeDate := html.EscapeString(effectiveDate)
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Geist',Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:40px auto;max-width:500px;border:1px solid #EBEBEB;border-radius:2px;padding:32px 40px;">
-    <tr>
-      <td>
-        <img src="https://app.usestrait.com/static/strait-logo-black.svg" alt="Strait" width="150" style="display:block;" />
-      </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="font-size:18px;font-weight:600;color:#252525;letter-spacing:-0.02em;">
-        Plan changed
-      </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
+	body := fmt.Sprintf(`<tr>
       <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
         Your plan has been changed from <strong style="color:#252525;">%s</strong> to <strong style="color:#252525;">%s</strong>, effective %s.
       </td>
@@ -290,20 +209,6 @@ func planChangedHTML(previousPlan, newPlan, effectiveDate string) string {
           View billing
         </a>
       </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="font-size:12px;color:#8D8D8D;line-height:1.6;">
-        If you have any questions, just reply to this email or contact our support team at <a href="mailto:support@strait.dev" style="color:#171717;text-decoration:underline;">support@strait.dev</a>.
-      </td>
-    </tr>
-    <tr><td style="height:16px;"></td></tr>
-    <tr>
-      <td style="border-top:1px solid #EBEBEB;padding-top:16px;">
-        <span style="font-size:12px;color:#8D8D8D;">&copy; 2026 Strait, All rights reserved</span>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`, safePrev, safeNew, safeDate)
+    </tr>`, safePrev, safeNew, safeDate)
+	return billingEmailWrapper("Plan changed", body)
 }

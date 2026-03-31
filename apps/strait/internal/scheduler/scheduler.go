@@ -47,6 +47,7 @@ type Scheduler struct {
 	memoryCleanup            *MemoryCleanup
 	gracePeriodEnforcer      *GracePeriodEnforcer
 	staleSubscriptionChecker *StaleSubscriptionChecker
+	webhookMessageCleanup    *WebhookMessageCleanup
 	wg                       conc.WaitGroup
 }
 
@@ -151,6 +152,13 @@ func WithStaleSubscriptionChecker(checker *StaleSubscriptionChecker) SchedulerOp
 	}
 }
 
+// WithWebhookMessageCleanup enables periodic cleanup of old processed webhook messages.
+func WithWebhookMessageCleanup(cleanup *WebhookMessageCleanup) SchedulerOption {
+	return func(s *Scheduler) {
+		s.webhookMessageCleanup = cleanup
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
@@ -183,6 +191,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.staleSubscriptionChecker != nil {
 		safeGo(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })
+	}
+	if s.webhookMessageCleanup != nil {
+		safeGo(&s.wg, "webhook_message_cleanup", func() { s.webhookMessageCleanup.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

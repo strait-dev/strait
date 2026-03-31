@@ -213,6 +213,10 @@ func (m *mockAnomalyMonitorStore) IsWebhookProcessed(context.Context, string) (b
 	return false, nil
 }
 
+func (m *mockAnomalyMonitorStore) DeleteOldWebhookMessages(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+
 // mockCooldown implements AnomalyCooldown for testing.
 type mockCooldown struct {
 	cooled map[string]bool

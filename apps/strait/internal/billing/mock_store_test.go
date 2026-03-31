@@ -350,3 +350,7 @@ func (m *mockBillingStore) RecordProcessedWebhook(_ context.Context, _ string) e
 func (m *mockBillingStore) IsWebhookProcessed(_ context.Context, _ string) (bool, error) {
 	return false, nil
 }
+
+func (m *mockBillingStore) DeleteOldWebhookMessages(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
+}

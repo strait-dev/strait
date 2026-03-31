@@ -169,6 +169,10 @@ func (m *mockReportStore) IsWebhookProcessed(context.Context, string) (bool, err
 	return false, nil
 }
 
+func (m *mockReportStore) DeleteOldWebhookMessages(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+
 type mockResendAPI struct {
 	sent []*resend.SendEmailRequest
 }

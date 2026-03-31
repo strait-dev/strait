@@ -208,6 +208,10 @@ func (m *mockEnforcerStore) IsWebhookProcessed(_ context.Context, _ string) (boo
 	return false, nil
 }
 
+func (m *mockEnforcerStore) DeleteOldWebhookMessages(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
 func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 	t.Parallel()
 

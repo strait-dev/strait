@@ -715,6 +715,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			downgradeApplier := scheduler.NewDowngradeApplier(billingStore, billingEnforcer, 5*time.Minute)
 			schedOpts = append(schedOpts, scheduler.WithDowngradeApplier(downgradeApplier))
 			slog.Info("downgrade applier enabled")
+
+			webhookCleanup := scheduler.NewWebhookMessageCleanup(billingStore, slog.Default())
+			schedOpts = append(schedOpts, scheduler.WithWebhookMessageCleanup(webhookCleanup))
 		}
 		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
 			schedOpts...,

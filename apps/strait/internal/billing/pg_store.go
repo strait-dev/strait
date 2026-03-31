@@ -1161,3 +1161,14 @@ func (s *PgStore) IsWebhookProcessed(ctx context.Context, msgID string) (bool, e
 	}
 	return exists, nil
 }
+
+// DeleteOldWebhookMessages removes processed webhook message records older than the given time.
+func (s *PgStore) DeleteOldWebhookMessages(ctx context.Context, olderThan time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		"DELETE FROM processed_webhook_messages WHERE processed_at < $1",
+		olderThan)
+	if err != nil {
+		return 0, fmt.Errorf("delete old webhook messages: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
