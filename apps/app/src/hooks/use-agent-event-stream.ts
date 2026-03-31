@@ -95,7 +95,9 @@ export function useAgentEventStream(
     ];
     for (const eventType of eventTypes) {
       es.addEventListener(eventType, (event: MessageEvent) => {
-        if (!event.data) return;
+        if (!event.data) {
+          return;
+        }
         const parsed = parseEvent(eventType, event.data as string);
         setState((prev) => ({
           ...prev,
@@ -106,7 +108,9 @@ export function useAgentEventStream(
 
     // Fallback for untyped messages (backward compat).
     es.onmessage = (event: MessageEvent) => {
-      if (!event.data) return;
+      if (!event.data) {
+        return;
+      }
       const parsed = parseEvent("stream", event.data as string);
       setState((prev) => ({
         ...prev,
@@ -119,7 +123,9 @@ export function useAgentEventStream(
       esRef.current = null;
       setState((prev) => ({ ...prev, connected: false }));
 
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) {
+        return;
+      }
 
       if (retriesRef.current < 5) {
         const delay = Math.min(1000 * 2 ** retriesRef.current, 16_000);
