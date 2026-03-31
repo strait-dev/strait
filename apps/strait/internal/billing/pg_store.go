@@ -1033,7 +1033,6 @@ func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 			SELECT j.id FROM jobs j
 			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND j.cron IS NOT NULL AND j.cron != ''
-			  AND j.deleted_at IS NULL
 			ORDER BY j.updated_at DESC
 			OFFSET $2
 		)
@@ -1048,11 +1047,10 @@ func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 // Keeps the most recently created environments; deactivates the oldest excess.
 func (s *PgStore) DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error) {
 	result, err := s.pool.Exec(ctx, `
-		UPDATE environments SET deleted_at = NOW()
+		DELETE FROM environments
 		WHERE id IN (
 			SELECT e.id FROM environments e
 			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-			  AND e.deleted_at IS NULL
 			ORDER BY e.created_at DESC
 			OFFSET $2
 		)
