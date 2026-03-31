@@ -19,20 +19,24 @@ import (
 )
 
 type CreateAgentRequest struct {
-	ProjectID   string          `json:"project_id" validate:"required"`
-	Name        string          `json:"name" validate:"required"`
-	Slug        string          `json:"slug" validate:"required"`
-	Description string          `json:"description,omitempty"`
-	Model       string          `json:"model" validate:"required"`
-	Config      json.RawMessage `json:"config,omitempty"`
+	ProjectID    string          `json:"project_id" validate:"required"`
+	Name         string          `json:"name" validate:"required"`
+	Slug         string          `json:"slug" validate:"required"`
+	Description  string          `json:"description,omitempty"`
+	Model        string          `json:"model" validate:"required"`
+	Config       json.RawMessage `json:"config,omitempty"`
+	Cron         string          `json:"cron,omitempty"`
+	CronTimezone string          `json:"cron_timezone,omitempty"`
 }
 
 type UpdateAgentRequest struct {
-	Name        *string          `json:"name,omitempty"`
-	Slug        *string          `json:"slug,omitempty"`
-	Description *string          `json:"description,omitempty"`
-	Model       *string          `json:"model,omitempty"`
-	Config      *json.RawMessage `json:"config,omitempty"`
+	Name         *string          `json:"name,omitempty"`
+	Slug         *string          `json:"slug,omitempty"`
+	Description  *string          `json:"description,omitempty"`
+	Model        *string          `json:"model,omitempty"`
+	Config       *json.RawMessage `json:"config,omitempty"`
+	Cron         *string          `json:"cron,omitempty"`
+	CronTimezone *string          `json:"cron_timezone,omitempty"`
 }
 
 type RunAgentRequest struct {
@@ -137,13 +141,15 @@ func (s *Server) handleCreateAgent(ctx context.Context, input *CreateAgentInput)
 	}
 
 	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
-		ProjectID:   projectID,
-		Name:        req.Name,
-		Slug:        req.Slug,
-		Description: req.Description,
-		Model:       req.Model,
-		Config:      req.Config,
-		Actor:       actorFromContext(ctx),
+		ProjectID:    projectID,
+		Name:         req.Name,
+		Slug:         req.Slug,
+		Description:  req.Description,
+		Model:        req.Model,
+		Config:       req.Config,
+		Cron:         req.Cron,
+		CronTimezone: req.CronTimezone,
+		Actor:        actorFromContext(ctx),
 	})
 	if err != nil {
 		return nil, mapAgentServiceError(err)
@@ -256,6 +262,12 @@ func (s *Server) handleUpdateAgent(ctx context.Context, input *UpdateAgentInput)
 			return nil, err
 		}
 		updated.Config = *req.Config
+	}
+	if req.Cron != nil {
+		updated.Cron = *req.Cron
+	}
+	if req.CronTimezone != nil {
+		updated.CronTimezone = *req.CronTimezone
 	}
 
 	agent, err := svc.UpdateAgent(ctx, updated)

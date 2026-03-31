@@ -101,6 +101,87 @@ func TestLocalStubProviderRun(t *testing.T) {
 	}
 }
 
+func TestValidateCron(t *testing.T) {
+	t.Parallel()
+
+	valid := []string{"", "0 * * * *", "*/5 * * * *", "0 9 * * 1-5", "30 2 1 * *"}
+	for _, expr := range valid {
+		if err := validateCron(expr); err != nil {
+			t.Fatalf("validateCron(%q) unexpected error: %v", expr, err)
+		}
+	}
+
+	invalid := []string{"not a cron", "60 * * * *", "* * *", "0 25 * * *"}
+	for _, expr := range invalid {
+		if err := validateCron(expr); err == nil {
+			t.Fatalf("validateCron(%q) expected error", expr)
+		}
+	}
+}
+
+func TestValidateCronTimezone(t *testing.T) {
+	t.Parallel()
+
+	valid := []string{"", "UTC", "America/New_York", "Europe/London", "Asia/Tokyo"}
+	for _, tz := range valid {
+		if err := validateCronTimezone(tz); err != nil {
+			t.Fatalf("validateCronTimezone(%q) unexpected error: %v", tz, err)
+		}
+	}
+
+	invalid := []string{"Not/A/Zone", "InvalidTZ", "Foo"}
+	for _, tz := range invalid {
+		if err := validateCronTimezone(tz); err == nil {
+			t.Fatalf("validateCronTimezone(%q) expected error", tz)
+		}
+	}
+}
+
+func TestBuildBackingJobWithCron(t *testing.T) {
+	t.Parallel()
+
+	req := CreateAgentRequest{
+		ProjectID:    "proj-1",
+		Name:         "Scheduled Agent",
+		Slug:         "scheduled-agent",
+		Model:        "gpt-5.4",
+		Config:       json.RawMessage(`{}`),
+		Cron:         "0 * * * *",
+		CronTimezone: "America/New_York",
+		Actor:        "user-1",
+	}
+	job := buildBackingJob(req)
+	if job.Cron != "0 * * * *" {
+		t.Fatalf("job.Cron = %q, want '0 * * * *'", job.Cron)
+	}
+	if job.Timezone != "America/New_York" {
+		t.Fatalf("job.Timezone = %q, want 'America/New_York'", job.Timezone)
+	}
+	if !job.Enabled {
+		t.Fatal("job.Enabled should be true when cron is set")
+	}
+}
+
+func TestBuildBackingJobWithoutCron(t *testing.T) {
+	t.Parallel()
+
+	req := CreateAgentRequest{
+		ProjectID: "proj-1",
+		Name:      "Manual Agent",
+		Slug:      "manual-agent",
+		Model:     "gpt-5.4",
+		Config:    json.RawMessage(`{}`),
+		Actor:     "user-1",
+	}
+	job := buildBackingJob(req)
+	if job.Cron != "" {
+		t.Fatalf("job.Cron = %q, want empty", job.Cron)
+	}
+	if job.Enabled {
+		t.Fatal("job.Enabled should be false when no cron")
+	}
+}
+
 func TestLocalStubProviderRunReturnsStubError(t *testing.T) {
 	t.Parallel()
 

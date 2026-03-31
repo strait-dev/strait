@@ -127,6 +127,22 @@ func FuzzParseCloudflareDeploymentMetadata(f *testing.F) {
 	})
 }
 
+func FuzzValidateCron(f *testing.F) {
+	f.Add("0 * * * *")
+	f.Add("*/5 * * * *")
+	f.Add("not a cron")
+	f.Add("")
+	f.Add("60 25 32 13 8")
+
+	f.Fuzz(func(t *testing.T, expr string) {
+		if len(expr) > 256 {
+			t.Skip()
+		}
+		// Should never panic regardless of input.
+		_ = validateCron(expr)
+	})
+}
+
 func FuzzWebhookPayloadMarshal(f *testing.F) {
 	f.Add("agent-1", "support-agent", "completed", "")
 	f.Add("", "", "failed", "some error")

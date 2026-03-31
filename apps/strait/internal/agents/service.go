@@ -165,24 +165,28 @@ type localService struct {
 type Option func(*localService)
 
 type CreateAgentRequest struct {
-	ProjectID   string
-	Name        string
-	Slug        string
-	Description string
-	Model       string
-	Config      json.RawMessage
-	Actor       string
+	ProjectID    string
+	Name         string
+	Slug         string
+	Description  string
+	Model        string
+	Config       json.RawMessage
+	Cron         string
+	CronTimezone string
+	Actor        string
 }
 
 type UpdateAgentRequest struct {
-	ProjectID   string
-	AgentID     string
-	Name        string
-	Slug        string
-	Description string
-	Model       string
-	Config      json.RawMessage
-	Actor       string
+	ProjectID    string
+	AgentID      string
+	Name         string
+	Slug         string
+	Description  string
+	Model        string
+	Config       json.RawMessage
+	Cron         string
+	CronTimezone string
+	Actor        string
 }
 
 type RunAgentRequest struct {
@@ -413,6 +417,9 @@ func (s *localService) UpdateAgent(ctx context.Context, req UpdateAgentRequest) 
 			"strait_internal": "agent",
 			"agent_slug":      updated.Slug,
 		}
+		job.Cron = req.Cron
+		job.Timezone = req.CronTimezone
+		job.Enabled = req.Cron != ""
 		job.UpdatedBy = req.Actor
 		if err := txQ.UpdateJob(ctx, job); err != nil {
 			if errors.Is(err, store.ErrJobSlugConflict) {
@@ -709,7 +716,7 @@ func buildBackingJob(req CreateAgentRequest) *domain.Job {
 		}
 	}
 
-	return &domain.Job{
+	job := &domain.Job{
 		ID:          uuid.Must(uuid.NewV7()).String(),
 		ProjectID:   req.ProjectID,
 		Name:        "[internal] agent " + req.Name,
@@ -731,6 +738,12 @@ func buildBackingJob(req CreateAgentRequest) *domain.Job {
 		CreatedBy:     req.Actor,
 		UpdatedBy:     req.Actor,
 	}
+	if req.Cron != "" {
+		job.Cron = req.Cron
+		job.Timezone = req.CronTimezone
+		job.Enabled = true
+	}
+	return job
 }
 
 func backingJobSlug(agentSlug string) string {

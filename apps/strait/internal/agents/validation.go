@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 const (
@@ -33,6 +36,12 @@ func validateCreateRequest(req CreateAgentRequest) error {
 		return err
 	}
 	if err := validateModel(req.Model); err != nil {
+		return err
+	}
+	if err := validateCron(req.Cron); err != nil {
+		return err
+	}
+	if err := validateCronTimezone(req.CronTimezone); err != nil {
 		return err
 	}
 	return validateConfig(req.Config)
@@ -119,6 +128,28 @@ func validateConfig(config json.RawMessage) error {
 	}
 	if _, ok := decoded.(map[string]any); !ok {
 		return &ValidationError{field: "config", message: "must be a JSON object"}
+	}
+	return nil
+}
+
+var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+
+func validateCron(expr string) error {
+	if expr == "" {
+		return nil
+	}
+	if _, err := cronParser.Parse(expr); err != nil {
+		return &ValidationError{field: "cron", message: fmt.Sprintf("invalid cron expression: %v", err)}
+	}
+	return nil
+}
+
+func validateCronTimezone(tz string) error {
+	if tz == "" {
+		return nil
+	}
+	if _, err := time.LoadLocation(tz); err != nil {
+		return &ValidationError{field: "cron_timezone", message: fmt.Sprintf("invalid timezone: %v", err)}
 	}
 	return nil
 }
