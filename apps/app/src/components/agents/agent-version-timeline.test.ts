@@ -27,7 +27,11 @@ function makeVersion(overrides: Partial<AgentVersion> = {}): AgentVersion {
 
 describe("agent-version-timeline helpers", () => {
   it("sorts versions newest first", () => {
-    const versions = [makeVersion({ version: 1 }), makeVersion({ version: 3 }), makeVersion({ version: 2 })];
+    const versions = [
+      makeVersion({ version: 1 }),
+      makeVersion({ version: 3 }),
+      makeVersion({ version: 2 }),
+    ];
     const sorted = sortVersions(versions);
     expect(sorted.map((v) => v.version)).toEqual([3, 2, 1]);
   });

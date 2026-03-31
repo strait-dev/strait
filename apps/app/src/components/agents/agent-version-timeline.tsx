@@ -29,7 +29,9 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> =
   };
 
 function formatTimestamp(value: string | undefined): string {
-  if (!value) return "-";
+  if (!value) {
+    return "-";
+  }
   return new Date(value).toLocaleString();
 }
 
@@ -57,7 +59,7 @@ function VersionEntry({
       <div className="flex flex-col items-center">
         <div
           className={cn(
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold",
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 font-bold text-xs",
             isLatest
               ? "border-primary bg-primary text-primary-foreground"
               : "border-muted-foreground/30 bg-card text-muted-foreground"
@@ -65,9 +67,7 @@ function VersionEntry({
         >
           v{version.version}
         </div>
-        {!isFirst && (
-          <div className="mt-1 w-px grow bg-muted-foreground/20" />
-        )}
+        {!isFirst && <div className="mt-1 w-px grow bg-muted-foreground/20" />}
       </div>
       <div className="flex-1 pt-1">
         <div className="flex items-center gap-2">
@@ -118,7 +118,9 @@ function VersionCompare({ versions }: { versions: AgentVersion[] }) {
   const leftVersion = versions[Number(leftIdx)];
   const rightVersion = versions[Number(rightIdx)];
 
-  if (!leftVersion || !rightVersion) return null;
+  if (!(leftVersion && rightVersion)) {
+    return null;
+  }
 
   return (
     <Card>
@@ -127,7 +129,14 @@ function VersionCompare({ versions }: { versions: AgentVersion[] }) {
       </CardHeader>
       <CardContent>
         <div className="mb-4 flex items-center gap-4">
-          <Select onValueChange={(v) => { if (v) setLeftIdx(v); }} value={leftIdx}>
+          <Select
+            onValueChange={(v) => {
+              if (v) {
+                setLeftIdx(v);
+              }
+            }}
+            value={leftIdx}
+          >
             <SelectTrigger className="w-32">
               <SelectValue />
             </SelectTrigger>
@@ -140,7 +149,14 @@ function VersionCompare({ versions }: { versions: AgentVersion[] }) {
             </SelectContent>
           </Select>
           <span className="text-muted-foreground text-sm">vs</span>
-          <Select onValueChange={(v) => { if (v) setRightIdx(v); }} value={rightIdx}>
+          <Select
+            onValueChange={(v) => {
+              if (v) {
+                setRightIdx(v);
+              }
+            }}
+            value={rightIdx}
+          >
             <SelectTrigger className="w-32">
               <SelectValue />
             </SelectTrigger>
@@ -196,9 +212,7 @@ export default function AgentVersionTimeline({
               index={index}
               isLatest={index === 0}
               key={version.id}
-              previousConfig={
-                previousVersion?.config_snapshot ?? emptyConfig()
-              }
+              previousConfig={previousVersion?.config_snapshot ?? emptyConfig()}
               version={version}
             />
           );

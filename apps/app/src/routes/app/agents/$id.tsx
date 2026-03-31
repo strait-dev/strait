@@ -82,9 +82,7 @@ export const Route = createFileRoute("/app/agents/$id")({
       context.queryClient.ensureQueryData(
         agentCostSummaryQueryOptions(params.id)
       ),
-      context.queryClient.ensureQueryData(
-        agentVersionsQueryOptions(params.id)
-      ),
+      context.queryClient.ensureQueryData(agentVersionsQueryOptions(params.id)),
     ]);
   },
   pendingComponent: DetailPageSkeleton,
