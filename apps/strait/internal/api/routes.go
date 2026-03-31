@@ -505,8 +505,13 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{fromVersionID}/diff/{toVersionID}", TypedHandler(s, http.StatusOK, s.handleWorkflowVersionDiff))
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/impact", TypedHandler(s, http.StatusOK, s.handleWorkflowVersionImpact))
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/active-versions", TypedHandler(s, http.StatusOK, s.handleGetActiveVersions))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Patch("/canary", TypedHandler(s, http.StatusOK, s.handleUpdateCanaryDeployment))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/canary", TypedHandler(s, http.StatusOK, s.handleGetCanaryStatus))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/canary/rollback", TypedHandler(s, http.StatusOK, s.handleRollbackCanaryDeployment))
 			})
 		})
+
+		r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/canary-deployments", TypedHandler(s, http.StatusCreated, s.handleCreateCanaryDeployment))
 
 		r.Route("/deployments", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateDeploymentVersion))
@@ -569,6 +574,10 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/retry", TypedHandler(s, http.StatusOK, s.handleRetryWorkflowStep))
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/replay-subtree", TypedHandler(s, http.StatusOK, s.handleReplayWorkflowSubtree))
 				r.With(s.requirePermission(domain.ScopeWorkflowsTrigger)).Post("/retry", TypedHandler(s, http.StatusCreated, s.handleRetryWorkflowRun))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/debug", TypedHandler(s, http.StatusOK, s.handleGetWorkflowRunDebug))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/compare/{otherRunID}", TypedHandler(s, http.StatusOK, s.handleCompareWorkflowRuns))
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/compensate", TypedHandler(s, http.StatusOK, s.handleCompensateWorkflowRun))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/compensation-plan", TypedHandler(s, http.StatusOK, s.handleGetCompensationPlan))
 			})
 		})
 	})
