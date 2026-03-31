@@ -29,6 +29,7 @@ import { Suspense, useState } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import {
   AlertIcon,
+  AnalyticsIcon,
   BriefcaseIcon,
   ChevronDownIcon,
   ClockIcon,
@@ -59,6 +60,7 @@ type NavItem = {
 const mainNav: NavItem[] = [
   { title: "Overview", url: "/app", icon: DashboardIcon, exact: true },
   { title: "Dashboard", url: "/app/dashboard", icon: TrendingUpIcon },
+  { title: "Analytics", url: "/app/analytics", icon: AnalyticsIcon },
   { title: "Jobs", url: "/app/jobs", icon: BriefcaseIcon },
   { title: "Workflows", url: "/app/workflows", icon: WorkflowIcon },
   { title: "Runs", url: "/app/runs", icon: PlayActionIcon },
