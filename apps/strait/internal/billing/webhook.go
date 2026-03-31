@@ -884,9 +884,15 @@ func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub
 	}
 
 	// Check addon quantity cap for this org's plan tier.
+	// A nil MaxAddonPacks map means addons are not allowed (e.g. Free tier).
 	if h.enforcer != nil {
 		limits, limErr := h.enforcer.GetOrgPlanLimits(ctx, orgID)
-		if limErr == nil && limits.MaxAddonPacks != nil {
+		if limErr == nil {
+			if limits.MaxAddonPacks == nil {
+				h.logger.Warn("addons not allowed on plan, ignoring addon webhook",
+					"org_id", orgID, "plan_tier", limits.PlanTier, "addon_type", addonType)
+				return nil
+			}
 			maxPacks, hasCap := limits.MaxAddonPacks[addonType]
 			if hasCap && maxPacks >= 0 {
 				existing, _ := h.store.CountActiveAddonsByType(ctx, orgID, addonType)
