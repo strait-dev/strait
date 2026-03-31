@@ -196,6 +196,20 @@ func FuzzWebhookPayloadMarshal(f *testing.F) {
 	})
 }
 
+func FuzzNormalizePayload(f *testing.F) {
+	f.Add([]byte(`{"key":"value"}`))
+	f.Add([]byte(`null`))
+	f.Add([]byte{})
+	f.Add([]byte(`[1,2,3]`))
+
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		result := normalizePayload(json.RawMessage(raw))
+		if len(result) == 0 {
+			t.Fatal("normalizePayload returned empty result")
+		}
+	})
+}
+
 func FuzzBuildCloudflareMultipartUpload(f *testing.F) {
 	f.Add("ns-prod", "agent-script", "2026-03-29", `export default { async fetch() { return new Response("ok"); } };`)
 	f.Add("", "agent-script", "2026-03-29", `export default {}`)

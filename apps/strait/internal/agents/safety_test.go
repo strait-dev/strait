@@ -339,3 +339,28 @@ func TestBeginningOfMonth(t *testing.T) {
 		t.Fatalf("beginningOfMonth(%v) = %v, want %v", now, got, want)
 	}
 }
+
+func TestNormalizePayload_Nil(t *testing.T) {
+	t.Parallel()
+	got := normalizePayload(nil)
+	if string(got) != "{}" {
+		t.Fatalf("normalizePayload(nil) = %q, want {}", string(got))
+	}
+}
+
+func TestNormalizePayload_Empty(t *testing.T) {
+	t.Parallel()
+	got := normalizePayload(json.RawMessage{})
+	if string(got) != "{}" {
+		t.Fatalf("normalizePayload(empty) = %q, want {}", string(got))
+	}
+}
+
+func TestNormalizePayload_Preserves(t *testing.T) {
+	t.Parallel()
+	input := json.RawMessage(`{"key":"value"}`)
+	got := normalizePayload(input)
+	if string(got) != `{"key":"value"}` {
+		t.Fatalf("normalizePayload(valid) = %q", string(got))
+	}
+}
