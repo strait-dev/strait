@@ -655,3 +655,16 @@ func TestOpenAPISpec_DeleteEventSubscription_HasSourceIDParam(t *testing.T) {
 		t.Errorf("expected exactly 2 path params, got %d: %v", len(params), params)
 	}
 }
+
+func TestOpenAPISpec_RetryWebhookDeliveryLegacy_NoPhantomParams(t *testing.T) {
+	t.Parallel()
+	spec := fetchOpenAPISpec(t)
+	params := openAPIPathParams(t, spec, "/v1/webhook-deliveries/{deliveryID}/retry", "post")
+
+	if len(params) != 1 {
+		t.Fatalf("expected exactly 1 path param, got %d: %v", len(params), params)
+	}
+	if params[0] != "deliveryID" {
+		t.Errorf("expected path param 'deliveryID', got %q", params[0])
+	}
+}
