@@ -62,6 +62,7 @@ type Enforcer struct {
 	suspendedCache  sync.Map // projectID -> *suspendedCacheEntry
 	chExporter      billingEventEnqueuer
 	failOpenTracker sync.Map // "orgID:checkType" -> *failOpenEntry
+	billingEmails   *BillingEmailSender
 }
 
 const (
@@ -193,6 +194,24 @@ func WithClickHouse(exporter billingEventEnqueuer) EnforcerOption {
 	return func(e *Enforcer) {
 		e.chExporter = exporter
 	}
+}
+
+// WithEnforcerBillingEmails attaches a billing email sender for spending alerts.
+func WithEnforcerBillingEmails(sender *BillingEmailSender) EnforcerOption {
+	return func(e *Enforcer) { e.billingEmails = sender }
+}
+
+// shouldSendBillingEmail checks if a billing email should be sent (24h cooldown per org+type).
+func (e *Enforcer) shouldSendBillingEmail(ctx context.Context, orgID, emailType string) bool {
+	if e.rdb == nil {
+		return true
+	}
+	key := "strait:billing_email:" + orgID + ":" + emailType
+	set, err := e.rdb.SetNX(ctx, key, "1", 24*time.Hour).Result()
+	if err != nil {
+		return true // fail open
+	}
+	return set
 }
 
 // emitBillingEvent sends a billing analytics event to ClickHouse.
@@ -717,6 +736,34 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	}
 
 	overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
+
+	// Send spending alerts (async with 24h cooldown per org).
+	if e.billingEmails != nil && sub.SpendingLimitMicrousd > 0 {
+		spendPct := float64(overageSpend) / float64(sub.SpendingLimitMicrousd)
+		if spendPct >= 0.8 && spendPct < 1.0 && e.shouldSendBillingEmail(ctx, orgID, "spending_80pct") {
+			adminEmails, _ := e.store.ListOrgAdminEmails(ctx, orgID)
+			go func() { //nolint:gosec // async email with own timeout
+				emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				e.billingEmails.SendSpendingLimitWarning(emailCtx, adminEmails, sub.PlanTier,
+					fmt.Sprintf("$%.2f", float64(periodSpend)/1e6),
+					fmt.Sprintf("$%.2f", float64(sub.SpendingLimitMicrousd)/1e6),
+					fmt.Sprintf("%.0f%%", spendPct*100))
+			}()
+		}
+	}
+
+	// Send overage alert when org first enters overage.
+	if overageSpend > 0 && e.billingEmails != nil && e.shouldSendBillingEmail(ctx, orgID, "overage_entered") {
+		adminEmails, _ := e.store.ListOrgAdminEmails(ctx, orgID)
+		go func() { //nolint:gosec // async email with own timeout
+			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			e.billingEmails.SendOverageAlert(emailCtx, adminEmails, sub.PlanTier,
+				fmt.Sprintf("$%.2f", float64(overageSpend)/1e6),
+				fmt.Sprintf("$%.2f", float64(limits.ComputeCreditMicrousd)/1e6))
+		}()
+	}
 
 	if isOverageLimitReached(sub.SpendingLimitMicrousd, overageSpend) {
 		e.recordRejection(ctx, "spending_limit", limits.PlanTier)

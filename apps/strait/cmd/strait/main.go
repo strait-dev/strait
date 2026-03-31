@@ -377,7 +377,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 	var billingEnforcer *billing.Enforcer
 	if rdb != nil && (cfg.BillingEnforcementEnabled || cfg.PolarWebhookSecret != "") {
 		billingStore := billing.NewPgStore(dbPool)
-		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default())
+		var enforcerOpts []billing.EnforcerOption
+		billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
+		if billingEmailSender != nil {
+			enforcerOpts = append(enforcerOpts, billing.WithEnforcerBillingEmails(billingEmailSender))
+		}
+		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default(), enforcerOpts...)
 		billingEnforcer.StartCleanup(ctx)
 	}
 

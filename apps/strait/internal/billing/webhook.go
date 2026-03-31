@@ -471,7 +471,7 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 // DB-level idempotency check prevents exact duplicates. A full fix would require
 // pg_advisory_xact_lock(hashtext(orgID)) inside a transaction.
 //
-//nolint:gocyclo,cyclop,gocognit
+//nolint:gocyclo,cyclop,gocognit,funlen
 func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data json.RawMessage) error {
 	var sub PolarSubscriptionData
 	if err := json.Unmarshal(data, &sub); err != nil {
@@ -520,6 +520,17 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 				"org_id", orgID,
 				"grace_period_end", graceEnd,
 			)
+
+			// Send payment failed email.
+			if h.billingEmails != nil {
+				adminEmails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
+				localGraceEnd := graceEnd
+				go func() { //nolint:gosec // async email with own timeout
+					emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					h.billingEmails.SendPaymentFailed(emailCtx, adminEmails, existing.PlanTier, localGraceEnd)
+				}()
+			}
 		}
 	}
 
