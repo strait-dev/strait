@@ -112,18 +112,6 @@ func (s *Server) handleCreateProject(ctx context.Context, input *CreateProjectIn
 		}
 	}
 
-	// Auto-activate referral on first project creation.
-	if s.referralService != nil {
-		projects, listErr := s.store.ListProjectsByOrg(ctx, req.OrgID)
-		if listErr != nil {
-			slog.Warn("failed to count projects for referral auto-activation", "org_id", req.OrgID, "error", listErr)
-		} else if len(projects) == 1 {
-			if activateErr := s.referralService.AutoActivateReferral(ctx, req.OrgID); activateErr != nil {
-				slog.Warn("failed to auto-activate referral", "org_id", req.OrgID, "error", activateErr)
-			}
-		}
-	}
-
 	return &CreateProjectOutput{Body: project}, nil
 }
 

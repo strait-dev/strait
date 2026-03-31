@@ -1,5 +1,6 @@
 import { Badge } from "@strait/ui/components/badge";
 import { cn } from "@strait/ui/utils/index";
+import FeatureBadge from "@/components/billing/feature-badge";
 import {
   Background,
   Controls,
@@ -95,9 +96,17 @@ const WorkflowStepNode = ({ data }: { data: StepNodeData }) => {
             {data.label}
           </span>
         </div>
-        <Badge className="text-[10px]" size="xs" variant={badgeVariant}>
-          {TYPE_LABELS[data.stepType] ?? data.stepType}
-        </Badge>
+        <span className="flex items-center">
+          <Badge className="text-[10px]" size="xs" variant={badgeVariant}>
+            {TYPE_LABELS[data.stepType] ?? data.stepType}
+          </Badge>
+          {data.stepType === "approval" && (
+            <FeatureBadge feature="approval_gates" />
+          )}
+          {data.stepType === "sub_workflow" && (
+            <FeatureBadge feature="sub_workflows" />
+          )}
+        </span>
       </div>
       <Handle
         className="!bg-muted-foreground/50 !w-2 !h-2 !border-0"

@@ -11,7 +11,6 @@ import { Suspense } from "react";
 import AddonsTab from "@/components/billing/addons-tab";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
 import ProjectCostsTab from "@/components/billing/project-costs-tab";
-import ReferralProgram from "@/components/billing/referral-program";
 import SpendingLimitSetupBanner from "@/components/billing/spending-limit-setup-banner";
 import SpendingLimitsTab from "@/components/billing/spending-limits-tab";
 import UsageDashboard from "@/components/billing/usage-dashboard";
@@ -26,7 +25,6 @@ import { anomalyAlertsQueryOptions } from "@/hooks/billing/use-anomaly-alerts";
 import { anomalyConfigQueryOptions } from "@/hooks/billing/use-anomaly-config";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
-import { referralsQueryOptions } from "@/hooks/billing/use-referrals";
 import { spendingLimitQueryOptions } from "@/hooks/billing/use-spending-limit";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
@@ -36,7 +34,6 @@ import {
   BriefcaseIcon,
   CreditCardIcon,
   TrendingUpIcon,
-  UsersIcon,
 } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -50,7 +47,6 @@ export const Route = createFileRoute("/app/billing/")({
       ctx.queryClient.ensureQueryData(spendingLimitQueryOptions()),
       ctx.queryClient.ensureQueryData(anomalyAlertsQueryOptions()),
       ctx.queryClient.ensureQueryData(usageForecastQueryOptions()),
-      ctx.queryClient.ensureQueryData(referralsQueryOptions()),
       ctx.queryClient.ensureQueryData(anomalyConfigQueryOptions()),
     ]);
   },
@@ -101,10 +97,6 @@ function RouteComponent() {
             <TabsTrigger className="flex items-center gap-2" value="alerts">
               <HugeiconsIcon className="size-4" icon={AlertIcon} />
               Alerts
-            </TabsTrigger>
-            <TabsTrigger className="flex items-center gap-2" value="referrals">
-              <HugeiconsIcon className="size-4" icon={UsersIcon} />
-              Referrals
             </TabsTrigger>
           </TabsList>
 
@@ -198,20 +190,6 @@ function RouteComponent() {
             </QueryErrorBoundary>
           </TabsContent>
 
-          <TabsContent className="mt-6 space-y-6" value="referrals">
-            <QueryErrorBoundary
-              fallback={({ resetErrorBoundary }) => (
-                <InlineError
-                  message="Failed to load referrals"
-                  onRetry={resetErrorBoundary}
-                />
-              )}
-            >
-              <Suspense fallback={<TabSkeleton />}>
-                <ReferralProgram />
-              </Suspense>
-            </QueryErrorBoundary>
-          </TabsContent>
         </Tabs>
       </div>
     </Shell>

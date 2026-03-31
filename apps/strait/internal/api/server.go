@@ -499,7 +499,6 @@ type Server struct {
 	polarWebhook       http.Handler
 	billingEnforcer    BillingEnforcer
 	usageService       UsageService
-	referralService    ReferralService
 	chExporter         *clickhouse.Exporter
 	edition            domain.Edition
 	version            string
@@ -567,14 +566,6 @@ type UsageService interface {
 	UpdateEmailPreferences(ctx context.Context, orgID string, enabled bool) error
 }
 
-// ReferralService handles referral code management.
-type ReferralService interface {
-	GenerateCode(ctx context.Context, orgID string) (*billing.Referral, error)
-	ActivateReferral(ctx context.Context, code, referredOrgID, referredEmail string) (*billing.Referral, error)
-	ListReferrals(ctx context.Context, orgID string) ([]billing.Referral, error)
-	AutoActivateReferral(ctx context.Context, orgID string) error
-}
-
 // ServerDeps holds all dependencies required to construct a Server.
 type ServerDeps struct {
 	Config             *config.Config
@@ -597,7 +588,6 @@ type ServerDeps struct {
 	PolarWebhook       http.Handler             // Optional: Polar billing webhook handler.
 	BillingEnforcer    BillingEnforcer          // Optional: enables billing limit checks on project create.
 	UsageService       UsageService             // Optional: enables usage endpoint.
-	ReferralService    ReferralService          // Optional: enables referral endpoints.
 	CHExporter         *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
 	Edition            domain.Edition           // Edition controls feature gating (community vs cloud).
 	Version            string                   // Build version (injected via ldflags).
@@ -650,7 +640,6 @@ func NewServer(deps ServerDeps) *Server {
 		polarWebhook:       deps.PolarWebhook,
 		billingEnforcer:    deps.BillingEnforcer,
 		usageService:       deps.UsageService,
-		referralService:    deps.ReferralService,
 		chExporter:         deps.CHExporter,
 		edition:            deps.Edition,
 		version:            deps.Version,

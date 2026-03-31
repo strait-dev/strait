@@ -1776,32 +1776,6 @@ func TestDowngradeApplier_EmptyList(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Referral expiry edge cases
-// ---------------------------------------------------------------------------.
-
-func TestReferralExpiry_StoreError(t *testing.T) {
-	t.Parallel()
-	s := &advMockReferralStore{
-		expireFn: func(_ context.Context) (int64, error) {
-			return 0, errors.New("db error")
-		},
-	}
-	r := NewReferralExpiry(s, time.Minute)
-	r.expire(context.Background())
-}
-
-func TestReferralExpiry_ExpiresEntries(t *testing.T) {
-	t.Parallel()
-	s := &advMockReferralStore{
-		expireFn: func(_ context.Context) (int64, error) {
-			return 5, nil
-		},
-	}
-	r := NewReferralExpiry(s, time.Minute)
-	r.expire(context.Background())
-}
-
-// ---------------------------------------------------------------------------.
 // Concurrent reconciler edge cases
 // ---------------------------------------------------------------------------.
 
@@ -1951,15 +1925,4 @@ func (m *advMockDowngradeStore) DeactivateExcessEnvironments(_ context.Context, 
 
 func (m *advMockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
-}
-
-type advMockReferralStore struct {
-	expireFn func(ctx context.Context) (int64, error)
-}
-
-func (m *advMockReferralStore) ExpireOldReferrals(ctx context.Context) (int64, error) {
-	if m.expireFn != nil {
-		return m.expireFn(ctx)
-	}
-	return 0, nil
 }

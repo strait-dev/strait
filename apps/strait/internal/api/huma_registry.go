@@ -176,25 +176,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleCheckOrgLimit)
 
-	// -- Referrals --
-	RegisterTypedOp(api, OpMeta{
-		ID: "create-referral-code", Method: http.MethodPost, Path: "/v1/referrals",
-		Summary: "Create a referral code", Description: "Generates a new referral code for sharing with other users.",
-		Tags: []string{"Referrals"}, Security: bearerSecurity, Errors: []int{400, 401, 409, 429, 500},
-	}, s.handleCreateReferralCode)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "activate-referral", Method: http.MethodPost, Path: "/v1/referrals/activate",
-		Summary: "Activate a referral code", Description: "Activates a referral code to receive the referral benefit.",
-		Tags: []string{"Referrals"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
-	}, s.handleActivateReferral)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "list-referrals", Method: http.MethodGet, Path: "/v1/referrals",
-		Summary: "List referrals", Description: "Returns all referral codes and their activation status.",
-		Tags: []string{"Referrals"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
-	}, s.handleListReferrals)
-
 	// -- Projects --
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-project", Method: http.MethodPost, Path: "/v1/projects",

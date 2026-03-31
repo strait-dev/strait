@@ -175,30 +175,11 @@ func (m *mockUsageService) UpdateEmailPreferences(_ context.Context, _ string, _
 	return nil
 }
 
-type mockReferralService struct{}
-
-func (m *mockReferralService) GenerateCode(_ context.Context, orgID string) (*billing.Referral, error) {
-	return &billing.Referral{ID: "ref-1", ReferrerOrgID: orgID, ReferralCode: "abc123", Status: "pending"}, nil
-}
-
-func (m *mockReferralService) ActivateReferral(_ context.Context, _ string, referredOrgID, _ string) (*billing.Referral, error) {
-	return &billing.Referral{ID: "ref-1", ReferredOrgID: referredOrgID, Status: "activated"}, nil
-}
-
-func (m *mockReferralService) ListReferrals(_ context.Context, _ string) ([]billing.Referral, error) {
-	return []billing.Referral{}, nil
-}
-
-func (m *mockReferralService) AutoActivateReferral(_ context.Context, _ string) error {
-	return nil
-}
-
 type usageTestServerOpts struct {
-	enforcer    BillingEnforcer
-	usageSvc    UsageService
-	referralSvc ReferralService
-	store       *APIStoreMock
-	config      *config.Config
+	enforcer BillingEnforcer
+	usageSvc UsageService
+	store    *APIStoreMock
+	config   *config.Config
 }
 
 func newUsageTestServer(t *testing.T, enforcer BillingEnforcer, usageSvc UsageService) *Server {
@@ -234,7 +215,6 @@ func newUsageTestServerFull(t *testing.T, opts usageTestServerOpts) *Server {
 		Queue:           &mockQueue{},
 		BillingEnforcer: opts.enforcer,
 		UsageService:    opts.usageSvc,
-		ReferralService: opts.referralSvc,
 	})
 	t.Cleanup(srv.Close)
 	return srv
@@ -819,50 +799,6 @@ func TestSpendingLimit_OIDC_ReadRoleCannotMutate(t *testing.T) {
 	}
 }
 
-func TestCreateReferral_OIDC_ManageRoleAllowed(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv, token := newOIDCUsageTestServer(t, usageTestServerOpts{
-		enforcer:    enforcer,
-		referralSvc: &mockReferralService{},
-	}, func(_ context.Context, _, _ string) ([]string, error) {
-		return []string{domain.ScopeProjectsManage}, nil
-	})
-
-	req := oidcRequest(http.MethodPost, "/v1/referrals", `{"org_id":"org-A"}`, token, "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 with projects:manage, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-// List referrals cross-tenant tests.
-
-func TestListReferrals_APIKey_CrossTenantForbidden(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer:    enforcer,
-		referralSvc: &mockReferralService{},
-	})
-
-	req := apiKeyRequest(http.MethodGet, "/v1/referrals?org_id=org-B", "", "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestUsageEndpoint_APIKey_ReadScopeRequired(t *testing.T) {
 	t.Parallel()
 
@@ -894,184 +830,6 @@ func TestUsageEndpoint_APIKey_ReadScopeAllowed(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 with projects:read, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestListReferrals_APIKey_SameTenantAllowed(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer:    enforcer,
-		referralSvc: &mockReferralService{},
-	})
-
-	req := apiKeyRequest(http.MethodGet, "/v1/referrals?org_id=org-A", "", "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestListReferrals_InternalSecret_AllowsAnyOrg(t *testing.T) {
-	t.Parallel()
-
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer:    &mockBillingEnforcer{},
-		referralSvc: &mockReferralService{},
-	})
-
-	req := authedRequest(http.MethodGet, "/v1/referrals?org_id=any-org", "")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-// Create referral cross-tenant tests.
-
-func TestCreateReferral_APIKey_CrossTenantForbidden(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer:    enforcer,
-		referralSvc: &mockReferralService{},
-	})
-
-	req := apiKeyRequest(http.MethodPost, "/v1/referrals", `{"org_id":"org-B"}`, "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCreateReferral_APIKey_SameTenantAllowed(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer:    enforcer,
-		referralSvc: &mockReferralService{},
-	})
-
-	req := apiKeyRequest(http.MethodPost, "/v1/referrals", `{"org_id":"org-A"}`, "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCreateReferral_APIKey_ManageScopeRequired(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer:    enforcer,
-		referralSvc: &mockReferralService{},
-	})
-
-	req := apiKeyRequestWithScopes(http.MethodPost, "/v1/referrals", `{"org_id":"org-A"}`, "proj-1", []string{domain.ScopeProjectsRead})
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 without projects:manage, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCreateReferral_APIKey_ManageScopeAllowed(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer:    enforcer,
-		referralSvc: &mockReferralService{},
-	})
-
-	req := apiKeyRequestWithScopes(http.MethodPost, "/v1/referrals", `{"org_id":"org-A"}`, "proj-1", []string{domain.ScopeProjectsManage})
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 with projects:manage, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCreateReferral_InternalSecret_AllowsAnyOrg(t *testing.T) {
-	t.Parallel()
-
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer:    &mockBillingEnforcer{},
-		referralSvc: &mockReferralService{},
-	})
-
-	req := authedRequest(http.MethodPost, "/v1/referrals", `{"org_id":"any-org"}`)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-// Activate referral cross-tenant tests.
-
-func TestActivateReferral_APIKey_CrossTenantForbidden(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer:    enforcer,
-		referralSvc: &mockReferralService{},
-	})
-
-	req := apiKeyRequest(http.MethodPost, "/v1/referrals/activate", `{"code":"xxx","referred_org_id":"org-B"}`, "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestActivateReferral_APIKey_SameTenantAllowed(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer:    enforcer,
-		referralSvc: &mockReferralService{},
-	})
-
-	req := apiKeyRequest(http.MethodPost, "/v1/referrals/activate", `{"code":"xxx","referred_org_id":"org-A"}`, "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

@@ -45,7 +45,6 @@ type Scheduler struct {
 	downgradeApplier         *DowngradeApplier
 	costEstimateRefresher    *CostEstimateRefresher
 	memoryCleanup            *MemoryCleanup
-	referralExpiry           *ReferralExpiry
 	gracePeriodEnforcer      *GracePeriodEnforcer
 	staleSubscriptionChecker *StaleSubscriptionChecker
 	wg                       conc.WaitGroup
@@ -138,13 +137,6 @@ func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
 	}
 }
 
-// WithReferralExpiry enables periodic expiration of old referral credits.
-func WithReferralExpiry(expiry *ReferralExpiry) SchedulerOption {
-	return func(s *Scheduler) {
-		s.referralExpiry = expiry
-	}
-}
-
 // WithGracePeriodEnforcer enables periodic enforcement of expired payment grace periods.
 func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
 	return func(s *Scheduler) {
@@ -185,9 +177,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.anomalyMonitor != nil {
 		safeGo(&s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
-	}
-	if s.referralExpiry != nil {
-		safeGo(&s.wg, "referral_expiry", func() { s.referralExpiry.Run(ctx) })
 	}
 	if s.gracePeriodEnforcer != nil {
 		safeGo(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
