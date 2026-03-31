@@ -9,7 +9,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
-import { auth } from "@/lib/auth.server";
+import { getAuth } from "@/lib/auth.server";
 
 export type InvitationData = {
   id: string;
@@ -64,7 +64,7 @@ const listInvitationsServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: InvitationParams) => data)
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    const invitations = await auth.api.listInvitations({
+    const invitations = await getAuth().api.listInvitations({
       query: { organizationId: data.organizationId },
       headers,
     });
@@ -79,7 +79,7 @@ const getInvitationServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    const invitation = await auth.api.getInvitation({
+    const invitation = await getAuth().api.getInvitation({
       query: { id: data.id },
       headers,
     });
@@ -98,7 +98,7 @@ const createInvitationServerFn = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    const invitation = await auth.api.createInvitation({
+    const invitation = await getAuth().api.createInvitation({
       body: {
         email: data.email,
         role: data.role,
@@ -114,7 +114,7 @@ const cancelInvitationServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { invitationId: string }) => data)
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    await auth.api.cancelInvitation({
+    await getAuth().api.cancelInvitation({
       body: { invitationId: data.invitationId },
       headers,
     });
@@ -155,7 +155,7 @@ export const getPublicInvitationServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .handler(async ({ data }): Promise<PublicInvitationData | null> => {
     const headers = getRequestHeaders();
-    const invitation = await auth.api.getInvitation({
+    const invitation = await getAuth().api.getInvitation({
       query: { id: data.id },
       headers,
     });
@@ -235,17 +235,17 @@ export type UserInvitationData = InvitationData & {
 const listUserInvitationsServerFn = createServerFn({ method: "GET" }).handler(
   async () => {
     const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
+    const session = await getAuth().api.getSession({ headers });
     if (!session?.user?.email) {
       return [];
     }
 
-    const orgs = await auth.api.listOrganizations({ headers });
+    const orgs = await getAuth().api.listOrganizations({ headers });
     const allInvitations: UserInvitationData[] = [];
 
     for (const org of orgs ?? []) {
       try {
-        const invitations = await auth.api.listInvitations({
+        const invitations = await getAuth().api.listInvitations({
           query: { organizationId: org.id },
           headers,
         });

@@ -6,7 +6,7 @@ import { z } from "zod";
 import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
-import { auth } from "@/lib/auth.server";
+import { getAuth } from "@/lib/auth.server";
 import {
   OAUTH_LOGIN_PAGE,
   OIDC_STANDARD_SCOPES,
@@ -99,7 +99,7 @@ const fetchClientInfo = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     try {
-      const client = await (auth.api as any).getOAuthClient({
+      const client = await (getAuth().api as any).getOAuthClient({
         body: { client_id: data.clientId },
       });
       if (!client) {
@@ -137,7 +137,7 @@ const submitConsent = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const result = await auth.api.oauth2Consent({
+    const result = await getAuth().api.oauth2Consent({
       body: {
         accept: data.accept,
         scope: data.scope,

@@ -36,7 +36,7 @@ import { useForm } from "react-hook-form";
 import type z from "zod/v4";
 import { getPostHog } from "@/lib/analytics";
 import { HelpCircleIcon, LoadingIcon } from "@/lib/icons";
-import { resend } from "@/lib/resend.server";
+import { getResend } from "@/lib/resend.server";
 import { SupportFormSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
 import type { AuthUser } from "@/routes/__root";
@@ -47,7 +47,7 @@ const supportAction = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(
     async ({ data, context }) =>
-      await resend.emails.send({
+      await getResend().emails.send({
         from: "Support <hello@usestrait.com>",
         to: "leo@usestrait.com",
         subject: `Support — ${data.email}`,

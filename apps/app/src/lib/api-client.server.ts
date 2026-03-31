@@ -1,5 +1,5 @@
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { auth } from "@/lib/auth.server";
+import { getAuth } from "@/lib/auth.server";
 
 function getApiBaseUrl(): string {
   return process.env.STRAIT_API_URL || "http://localhost:8080";
@@ -25,7 +25,7 @@ export type RequestOptions = {
 async function resolveProjectId(): Promise<string | undefined> {
   try {
     const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
+    const session = await getAuth().api.getSession({ headers });
 
     if (session?.user) {
       const activeProjectId = (session.user as Record<string, unknown>)
