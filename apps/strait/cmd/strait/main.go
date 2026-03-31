@@ -388,6 +388,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	startWebhookWorker(g, cfg, eventNotifier)
 	startNotificationWorker(g, cfg, queries, metrics)
 	startLogDrainWorker(g, cfg, queries, metrics)
+	startMaintenanceWorker(g, queries)
 	var chAnalytics api.AnalyticsStore
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))

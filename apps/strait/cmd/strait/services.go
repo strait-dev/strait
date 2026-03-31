@@ -769,6 +769,25 @@ func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {
 	return nil
 }
 
+func startMaintenanceWorker(g *pool.ContextPool, queries *store.Queries) {
+	g.Go(func(ctx context.Context) error {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
+				if n, err := queries.CleanExpiredIdempotencyKeys(ctx); err != nil {
+					slog.Warn("failed to clean expired idempotency keys", "error", err)
+				} else if n > 0 {
+					slog.Info("cleaned expired idempotency keys", "count", n)
+				}
+			}
+		}
+	})
+}
+
 // nilSafeBillingEnforcer prevents the classic Go nil-interface trap where a
 // typed nil (*billing.Enforcer)(nil) assigned to an interface makes the
 // interface value non-nil, causing nil-pointer dereferences on method calls.
