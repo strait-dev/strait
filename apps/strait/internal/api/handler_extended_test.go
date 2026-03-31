@@ -681,3 +681,33 @@ func TestOpenAPISpec_RetryWebhookDelivery_NoPhantomParams(t *testing.T) {
 		t.Errorf("expected path param 'id', got %q", params[0])
 	}
 }
+
+func TestOpenAPISpec_MissingEndpoints_AreRegistered(t *testing.T) {
+	t.Parallel()
+	spec := fetchOpenAPISpec(t)
+
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("spec missing 'paths'")
+	}
+
+	required := []struct {
+		path   string
+		method string
+	}{
+		{"/v1/sse-token", "post"},
+		{"/v1/api-keys/expiring-soon", "get"},
+		{"/v1/audit-events/verify", "get"},
+	}
+
+	for _, r := range required {
+		pathItem, ok := paths[r.path].(map[string]any)
+		if !ok {
+			t.Errorf("path %q not found in spec", r.path)
+			continue
+		}
+		if _, ok := pathItem[r.method]; !ok {
+			t.Errorf("method %q not found on path %q", r.method, r.path)
+		}
+	}
+}

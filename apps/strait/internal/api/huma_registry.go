@@ -797,6 +797,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"API Keys"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleRevokeAPIKey)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-expiring-keys", Method: http.MethodGet, Path: "/v1/api-keys/expiring-soon",
+		Summary: "List expiring API keys", Description: "Returns API keys that are expiring within the specified number of days.",
+		Tags: []string{"API Keys"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
+	}, s.handleListExpiringKeys)
+
 	// -- CLI Auth (approve) --
 	RegisterTypedOp(api, OpMeta{
 		ID: "approve-device-code", Method: http.MethodPost, Path: "/v1/cli/device-codes/approve",
@@ -810,6 +816,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Get project statistics", Description: "Returns aggregate statistics for the current project including job and run counts.",
 		Tags: []string{"Stats"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleStats)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "create-sse-token", Method: http.MethodPost, Path: "/v1/sse-token",
+		Summary: "Create SSE token", Description: "Issues a short-lived JWT for use as a query-param token in SSE endpoints.",
+		Tags: []string{"Authentication"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
+	}, s.handleCreateSSEToken)
 
 	// -- Analytics (Community, Postgres-backed) --
 	RegisterTypedOp(api, OpMeta{
@@ -1080,6 +1092,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Export audit events", Description: "Exports audit events as CSV or JSON for compliance and reporting.",
 		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleExportAuditEvents)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "verify-audit-chain", Method: http.MethodGet, Path: "/v1/audit-events/verify",
+		Summary: "Verify audit chain", Description: "Verifies the integrity of the audit event hash chain.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
+	}, s.handleVerifyAuditChain)
 
 	// -- RBAC: Resource Policies --
 	RegisterTypedOp(api, OpMeta{
