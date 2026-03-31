@@ -173,6 +173,14 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleRunStream)
 	})
 
+	// Agent run events stream (SSE, no timeout -- connections stay open).
+	r.Route("/v1/agents/{agentID}/runs/{runID}/events", func(r chi.Router) {
+		r.Use(s.sseTokenAuth)
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectContextMiddleware)
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleAgentRunEvents)
+	})
+
 	// Project activity stream (SSE, no timeout -- connections stay open).
 	r.Route("/v1/projects/{projectID}/activity/stream", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)

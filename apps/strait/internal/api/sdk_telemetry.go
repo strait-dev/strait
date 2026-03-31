@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"slices"
+	"time"
 
 	"strait/internal/domain"
 
@@ -70,6 +72,11 @@ func (s *Server) handleSDKUsage(ctx context.Context, input *SDKUsageInput) (*SDK
 	if err := s.store.CreateRunUsage(ctx, usage); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create run usage")
 	}
+	s.publishRunEvent(ctx, runID, map[string]any{
+		"type": "usage", "provider": req.Provider, "model": req.Model,
+		"total_tokens": req.TotalTokens, "cost_microusd": req.CostMicrousd,
+		"timestamp": time.Now().UTC(),
+	})
 	return &SDKUsageOutput{Body: usage}, nil
 }
 
@@ -120,7 +127,28 @@ func (s *Server) handleSDKToolCall(ctx context.Context, input *SDKToolCallInput)
 	if err := s.store.CreateRunToolCall(ctx, call); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create run tool call")
 	}
+	s.publishRunEvent(ctx, runID, map[string]any{
+		"type": "tool_call", "tool_name": req.ToolName,
+		"status": req.Status, "duration_ms": req.DurationMs,
+		"timestamp": time.Now().UTC(),
+	})
 	return &SDKToolCallOutput{Body: call}, nil
+}
+
+// publishRunEvent publishes a typed event to the run's pubsub channel
+// for real-time SSE consumption. Errors are logged but never fail the request.
+func (s *Server) publishRunEvent(ctx context.Context, runID string, event map[string]any) {
+	if s.pubsub == nil {
+		return
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		slog.Warn("failed to marshal run event for pubsub", "run_id", runID, "error", err)
+		return
+	}
+	if pubErr := s.pubsub.Publish(ctx, fmt.Sprintf("run:%s", runID), payload); pubErr != nil {
+		slog.Warn("failed to publish run event", "run_id", runID, "error", pubErr)
+	}
 }
 
 type SDKOutputRequest struct {

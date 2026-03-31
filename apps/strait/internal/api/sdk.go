@@ -359,5 +359,9 @@ func (s *Server) handleSDKCheckpoint(ctx context.Context, input *SDKCheckpointIn
 	if err := s.store.CreateRunCheckpoint(ctx, checkpoint); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create checkpoint")
 	}
+	s.publishRunEvent(ctx, runID, map[string]any{
+		"type": "checkpoint", "sequence": checkpoint.Sequence,
+		"source": source, "timestamp": time.Now().UTC(),
+	})
 	return &SDKCheckpointOutput{Body: checkpoint}, nil
 }
