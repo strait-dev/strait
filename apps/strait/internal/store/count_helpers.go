@@ -103,11 +103,10 @@ func (q *Queries) DeactivateExcessEnvironments(ctx context.Context, orgID string
 	// ORDER BY created_at DESC keeps the newest environments (first N rows after OFFSET
 	// are skipped). The subquery returns oldest environments beyond the limit.
 	result, err := q.db.Exec(ctx, `
-		UPDATE environments SET deleted_at = NOW()
+		DELETE FROM environments
 		WHERE id IN (
 			SELECT e.id FROM environments e
 			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-			  AND e.deleted_at IS NULL
 			ORDER BY e.created_at DESC
 			OFFSET $2
 		)
