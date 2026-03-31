@@ -20,7 +20,6 @@ func (q *Queries) CountCronJobsByOrg(ctx context.Context, orgID string) (int, er
 		FROM jobs
 		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 		  AND cron IS NOT NULL AND cron != ''
-		  AND deleted_at IS NULL
 	`, orgID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count cron jobs by org: %w", err)
@@ -37,7 +36,7 @@ func (q *Queries) CountEnvironmentsByProject(ctx context.Context, projectID stri
 	err := q.db.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM environments
-		WHERE project_id = $1 AND deleted_at IS NULL
+		WHERE project_id = $1
 	`, projectID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count environments by project: %w", err)
