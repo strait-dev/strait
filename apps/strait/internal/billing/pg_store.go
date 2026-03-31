@@ -48,6 +48,7 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 			grace_period_end, COALESCE(payment_status, 'ok'),
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
+			COALESCE(monthly_usage_email, false),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE org_id = $1
@@ -60,6 +61,7 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 		&sub.GracePeriodEnd, &sub.PaymentStatus,
 		&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 		&sub.EnforcementMode,
+		&sub.MonthlyUsageEmail,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
