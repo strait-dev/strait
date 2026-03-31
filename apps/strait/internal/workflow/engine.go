@@ -25,6 +25,12 @@ const DefaultMaxNestingDepth = 10
 // metrics and webhook notification. Must be safe to call concurrently.
 type EventTriggerNotifyFunc func(trigger *domain.EventTrigger)
 
+// AgentRunner dispatches agent runs from "agent" workflow step types.
+// RunAgentBySlug resolves the agent by slug within the project and dispatches a run.
+type AgentRunner interface {
+	RunAgentBySlug(ctx context.Context, projectID, agentSlug string, payload json.RawMessage, actor string) (*domain.JobRun, error)
+}
+
 type WorkflowEngine struct {
 	store           EngineStore
 	queue           EngineQueue
@@ -33,6 +39,7 @@ type WorkflowEngine struct {
 	onTriggerCreate EventTriggerNotifyFunc
 	metrics         *telemetry.Metrics
 	runInTx         func(ctx context.Context, fn func(s EngineStore) error) error
+	agentRunner     AgentRunner
 }
 
 type EngineStore interface {
@@ -86,6 +93,12 @@ func (e *WorkflowEngine) WithOnTriggerCreate(fn EventTriggerNotifyFunc) *Workflo
 
 func (e *WorkflowEngine) WithMetrics(m *telemetry.Metrics) *WorkflowEngine {
 	e.metrics = m
+	return e
+}
+
+// WithAgentRunner sets the agent runner for dispatching "agent" step types.
+func (e *WorkflowEngine) WithAgentRunner(r AgentRunner) *WorkflowEngine {
+	e.agentRunner = r
 	return e
 }
 

@@ -1012,6 +1012,7 @@ const (
 	WorkflowStepTypeSubWorkflow  WorkflowStepType = "sub_workflow"
 	WorkflowStepTypeWaitForEvent WorkflowStepType = "wait_for_event"
 	WorkflowStepTypeSleep        WorkflowStepType = "sleep"
+	WorkflowStepTypeAgent        WorkflowStepType = "agent"
 )
 
 // ApprovalStatus constants for workflow step approvals.
@@ -1244,6 +1245,7 @@ type WorkflowStep struct {
 	StageNotifications        json.RawMessage    `json:"stage_notifications,omitempty"`
 	CompensationJobID         string             `json:"compensation_job_id,omitempty"`
 	CompensationTimeoutSecs   int                `json:"compensation_timeout_secs,omitempty"`
+	AgentSlug                 string             `json:"agent_slug,omitempty"`
 	CreatedAt                 time.Time          `json:"created_at"`
 }
 

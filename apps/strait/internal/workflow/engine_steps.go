@@ -91,6 +91,10 @@ func (e *WorkflowEngine) startStep(
 		return e.startSubWorkflowStep(ctx, stepRun, step, wfRun, mergedPayload, now)
 	}
 
+	if step.StepType == domain.WorkflowStepTypeAgent {
+		return e.startAgentStep(ctx, stepRun, step, wfRun, mergedPayload, now)
+	}
+
 	// Cost gate: if a threshold is configured and the estimated cost exceeds it,
 	// pause the step and request approval before proceeding.
 	if step.CostGateThresholdMicrousd > 0 && step.JobID != "" {
@@ -496,4 +500,76 @@ func (e *WorkflowEngine) enqueueApprovalNotifications(
 		"requested_at":    approval.RequestedAt,
 		"expires_at":      approval.ExpiresAt,
 	})
+}
+
+// startAgentStep dispatches an agent run for an "agent" step type.
+// The agent's backing job run is linked to the step run. When the
+// backing job completes/fails, OnJobRunTerminal handles step progression.
+func (e *WorkflowEngine) startAgentStep(
+	ctx context.Context,
+	stepRun *domain.WorkflowStepRun,
+	step *domain.WorkflowStep,
+	wfRun *domain.WorkflowRun,
+	mergedPayload json.RawMessage,
+	now time.Time,
+) error {
+	if e.agentRunner == nil {
+		return e.failStep(ctx, stepRun, wfRun, "agent service not configured")
+	}
+
+	agentSlug := step.AgentSlug
+	if agentSlug == "" {
+		return e.failStep(ctx, stepRun, wfRun, "agent step missing agent_slug")
+	}
+
+	agentRun, runErr := e.agentRunner.RunAgentBySlug(ctx, wfRun.ProjectID, agentSlug, mergedPayload, "workflow:"+wfRun.ID)
+	if runErr != nil {
+		return e.failStep(ctx, stepRun, wfRun, fmt.Sprintf("failed to dispatch agent run: %v", runErr))
+	}
+
+	// Link the agent's backing job run to the step run.
+	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{
+		"started_at": now,
+		"job_run_id": agentRun.ID,
+	}); err != nil {
+		return fmt.Errorf("set agent step running: %w", err)
+	}
+
+	stepRun.Status = domain.StepRunning
+	stepRun.StartedAt = &now
+	stepRun.JobRunID = agentRun.ID
+
+	e.logger.Info("agent step dispatched",
+		"workflow_run_id", wfRun.ID,
+		"step_ref", step.StepRef,
+		"agent_slug", agentSlug,
+		"agent_run_id", agentRun.ID,
+	)
+
+	return nil
+}
+
+// failStep marks a step as failed with an error message.
+func (e *WorkflowEngine) failStep(
+	ctx context.Context,
+	stepRun *domain.WorkflowStepRun,
+	wfRun *domain.WorkflowRun,
+	errMsg string,
+) error {
+	now := time.Now()
+	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepFailed, map[string]any{
+		"started_at":  now,
+		"finished_at": now,
+		"error":       errMsg,
+	}); err != nil {
+		return fmt.Errorf("fail agent step: %w", err)
+	}
+
+	e.logger.Error("workflow step failed",
+		"workflow_run_id", wfRun.ID,
+		"step_ref", stepRun.StepRef,
+		"error", errMsg,
+	)
+
+	return nil
 }
