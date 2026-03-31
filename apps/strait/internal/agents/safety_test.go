@@ -58,9 +58,16 @@ func TestGenerateRecommendationsNilAgent(t *testing.T) {
 
 type mockCostStore struct {
 	runs []domain.JobRun
+	err  error
 }
 
-func (m *mockCostStore) ListRunsByJob(_ context.Context, _ string, _, _ int) ([]domain.JobRun, error) {
+func (m *mockCostStore) ListRunsByJob(_ context.Context, _ string, limit, _ int) ([]domain.JobRun, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if limit > 0 && limit < len(m.runs) {
+		return m.runs[:limit], nil
+	}
 	return m.runs, nil
 }
 

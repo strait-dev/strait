@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -336,4 +337,118 @@ func TestValidationEdgeCases(t *testing.T) {
 
 func agentID(n int) string {
 	return "agent-" + strings.Repeat("0", 3) + strconv.Itoa(n)
+}
+
+// -- Cost optimizer happy path tests.
+
+func makeRuns(completed, failed int) []domain.JobRun {
+	runs := make([]domain.JobRun, 0, completed+failed)
+	for range completed {
+		runs = append(runs, domain.JobRun{Status: domain.StatusCompleted})
+	}
+	for range failed {
+		runs = append(runs, domain.JobRun{Status: domain.StatusFailed})
+	}
+	return runs
+}
+
+func TestGenerateRecommendations_ModelDowngrade(t *testing.T) {
+	t.Parallel()
+	store := &mockCostStore{runs: makeRuns(49, 1)} // 98% success
+	agent := &domain.Agent{ID: "agent-1", Model: "gpt-5.4", Config: json.RawMessage(`{"budget":"$10"}`)}
+	recs, err := GenerateRecommendations(context.Background(), store, agent)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	found := false
+	for _, r := range recs {
+		if r.Type == RecModelDowngrade {
+			found = true
+			if r.SuggestedPatch["model"] != "gpt-5.4-mini" {
+				t.Fatalf("suggested model = %v", r.SuggestedPatch["model"])
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected model_downgrade recommendation")
+	}
+}
+
+func TestGenerateRecommendations_BudgetReduction(t *testing.T) {
+	t.Parallel()
+	store := &mockCostStore{runs: makeRuns(8, 2)} // 10 runs, no budget
+	agent := &domain.Agent{ID: "agent-1", Model: "claude-haiku-4-5", Config: json.RawMessage(`{}`)}
+	recs, err := GenerateRecommendations(context.Background(), store, agent)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	found := false
+	for _, r := range recs {
+		if r.Type == RecBudgetReduction {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected budget_reduction recommendation when no budget set")
+	}
+}
+
+func TestGenerateRecommendations_PromptCaching(t *testing.T) {
+	t.Parallel()
+	store := &mockCostStore{runs: makeRuns(25, 0)}
+	agent := &domain.Agent{ID: "agent-1", Model: "claude-haiku-4-5", Config: json.RawMessage(`{"budget":"$5"}`)}
+	recs, err := GenerateRecommendations(context.Background(), store, agent)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	found := false
+	for _, r := range recs {
+		if r.Type == RecPromptCaching {
+			found = true
+			if !strings.Contains(r.Description, "25") {
+				t.Fatalf("description should mention run count, got %q", r.Description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected prompt_caching recommendation for 25+ runs")
+	}
+}
+
+func TestGenerateRecommendations_AllThree(t *testing.T) {
+	t.Parallel()
+	store := &mockCostStore{runs: makeRuns(49, 1)}                                         // 98% success, 50 runs
+	agent := &domain.Agent{ID: "agent-1", Model: "gpt-5.4", Config: json.RawMessage(`{}`)} // expensive, no budget
+	recs, err := GenerateRecommendations(context.Background(), store, agent)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if len(recs) != 3 {
+		t.Fatalf("expected 3 recommendations, got %d", len(recs))
+	}
+}
+
+func TestGenerateRecommendations_StoreError(t *testing.T) {
+	t.Parallel()
+	store := &mockCostStore{err: errors.New("store error")}
+	agent := &domain.Agent{ID: "agent-1", Model: "gpt-5.4"}
+	_, err := GenerateRecommendations(context.Background(), store, agent)
+	if err == nil {
+		t.Fatal("expected error when store fails")
+	}
+}
+
+func TestGenerateRecommendations_LowSuccessRate(t *testing.T) {
+	t.Parallel()
+	store := &mockCostStore{runs: makeRuns(3, 7)} // 30% success
+	agent := &domain.Agent{ID: "agent-1", Model: "gpt-5.4", Config: json.RawMessage(`{}`)}
+	recs, err := GenerateRecommendations(context.Background(), store, agent)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	for _, r := range recs {
+		if r.Type == RecModelDowngrade {
+			t.Fatal("should NOT recommend downgrade with low success rate")
+		}
+	}
 }
