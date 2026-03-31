@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -83,6 +84,8 @@ func (s *Server) handleSDKComplete(ctx context.Context, input *SDKCompleteInput)
 			}
 		}
 	}
+	s.ingestAgentRunPolarEvent(ctx, run)
+
 	updatedRun, err := s.store.GetRun(ctx, runID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get updated run")
@@ -142,6 +145,8 @@ func (s *Server) handleSDKFail(ctx context.Context, input *SDKFailInput) (*SDKFa
 			}
 		}
 	}
+	s.ingestAgentRunPolarEvent(ctx, run)
+
 	updatedRun, err := s.store.GetRun(ctx, runID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get updated run")
@@ -318,4 +323,65 @@ func (s *Server) resumeWaitingParentIfReady(ctx context.Context, run *domain.Job
 		return nil
 	}
 	return s.store.UpdateRunStatus(ctx, parent.ID, domain.StatusWaiting, domain.StatusQueued, map[string]any{"started_at": nil, "finished_at": nil, "next_retry_at": nil})
+}
+
+// ingestAgentRunPolarEvent sends a Polar billing event if the run belongs
+// to an agent. Checks job tags for "strait_internal":"agent". Fire-and-forget
+// so Polar API failures never block run completion.
+func (s *Server) ingestAgentRunPolarEvent(ctx context.Context, run *domain.JobRun) {
+	if s.polarIngester == nil || s.billingEnforcer == nil {
+		return
+	}
+
+	// Check if this run belongs to an agent via job tags.
+	job, jobErr := s.store.GetJob(ctx, run.JobID)
+	if jobErr != nil || job == nil {
+		return
+	}
+	if job.Tags["strait_internal"] != "agent" {
+		return
+	}
+
+	// Gather usage metrics.
+	costMicro, _ := s.store.SumRunCostMicrousd(ctx, run.ID)
+	totalTokens, _ := s.store.SumRunTotalTokens(ctx, run.ID)
+
+	// Resolve model from the agent slug in job tags.
+	model := ""
+	if agentSlug := job.Tags["agent_slug"]; agentSlug != "" {
+		q, ok := s.store.(*store.Queries)
+		if ok {
+			agent, agentErr := q.GetAgentBySlug(ctx, run.ProjectID, agentSlug)
+			if agentErr == nil && agent != nil {
+				model = agent.Model
+			}
+		}
+	}
+
+	// Resolve org's Polar customer ID.
+	orgID, orgErr := s.billingEnforcer.GetProjectOrgID(ctx, run.ProjectID)
+	if orgErr != nil || orgID == "" {
+		return
+	}
+	polarCustomerID, custErr := s.billingEnforcer.GetPolarCustomerID(ctx, orgID)
+	if custErr != nil || polarCustomerID == "" {
+		return
+	}
+
+	// Fire-and-forget: don't block run completion on Polar API latency.
+	// Uses Background() intentionally -- the request context may be canceled
+	// before the Polar API call completes, and we still want to record usage.
+	go func() { //nolint:gosec // Background context is intentional for async billing.
+		if ingestErr := s.polarIngester.IngestAgentRunUsage(context.Background(), polarCustomerID, run.ID, billing.AgentRunBillingMeta{
+			ProjectID:    run.ProjectID,
+			Model:        model,
+			TotalTokens:  totalTokens,
+			CostMicrousd: costMicro,
+		}); ingestErr != nil {
+			slog.Error("failed to ingest agent run polar event",
+				"run_id", run.ID,
+				"error", ingestErr,
+			)
+		}
+	}()
 }

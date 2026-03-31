@@ -829,6 +829,9 @@ func (m *advMockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (
 	return 0, nil
 }
 func (m *advMockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
+func (m *advMockBillingEnforcer) GetPolarCustomerID(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
 func (m *advMockBillingEnforcer) CheckOrgCreationLimit(ctx context.Context, userID string, planTier domain.PlanTier) error {
 	if m.checkOrgCreationLimitFn != nil {
 		return m.checkOrgCreationLimitFn(ctx, userID, planTier)
