@@ -176,6 +176,11 @@ type RunStore interface {
 	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 	ResetRunIdempotencyKey(ctx context.Context, runID string) error
+
+	// General-purpose idempotency keys (not run-specific).
+	TryAcquireIdempotencyKey(ctx context.Context, projectID, key string, ttl time.Duration) (string, int, []byte, error)
+	CompleteIdempotencyKey(ctx context.Context, projectID, key string, responseStatus int, responseBody []byte) error
+
 	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
 	CreateBatchOperation(ctx context.Context, op *domain.BatchOperation) error
 	FinalizeBatchOperation(ctx context.Context, batchID string, createdCount int) error
