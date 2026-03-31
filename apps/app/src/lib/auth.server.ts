@@ -1,3 +1,4 @@
+import { env as cfEnv } from "cloudflare:workers";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
 import {
@@ -46,15 +47,48 @@ import { getResend } from "@/lib/resend.server";
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve the auth database connection string.
+ *
+ * In production (Cloudflare Workers), uses the Hyperdrive binding which
+ * provides a proxied connection string that `pg` can connect to over
+ * Cloudflare's internal network. Without Hyperdrive, raw TCP connections
+ * from Workers will hang indefinitely.
+ *
+ * Falls back to `AUTH_DATABASE_URL` for local development where raw
+ * TCP is available.
+ */
+/**
+ * Resolve the auth database connection string.
+ *
+ * In Cloudflare Workers, uses the Hyperdrive binding which provides a
+ * proxied connection string. Without Hyperdrive, `pg` cannot establish
+ * raw TCP connections from the Workers runtime and will hang.
+ *
+ * Falls back to `AUTH_DATABASE_URL` for local development where
+ * Hyperdrive provides a local connection string automatically.
+ */
+function getAuthConnectionString(): string {
+  const hyperdrive = (cfEnv as Record<string, unknown>).HYPERDRIVE as
+    | { connectionString: string }
+    | undefined;
+  if (hyperdrive?.connectionString) {
+    return hyperdrive.connectionString;
+  }
+  return process.env.AUTH_DATABASE_URL ?? "";
+}
+
+/**
  * Lazily initialized PostgreSQL connection pool for the auth database.
- * Uses `AUTH_DATABASE_URL` from the environment.
+ *
+ * Uses Hyperdrive in production for proxied TCP connections, falling
+ * back to `AUTH_DATABASE_URL` for local development.
  */
 let _authPool: Pool | null = null;
 
 export function getAuthPool(): Pool {
   if (!_authPool) {
     _authPool = new Pool({
-      connectionString: process.env.AUTH_DATABASE_URL ?? "",
+      connectionString: getAuthConnectionString(),
     });
   }
   return _authPool;
