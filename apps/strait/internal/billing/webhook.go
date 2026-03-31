@@ -298,6 +298,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		// Clear the in-memory replay cache so Polar's retry can be processed.
+		// Without this, a partially-failed webhook would be permanently rejected
+		// by the replay cache even though it was never fully processed.
+		if msgID != "" {
+			h.replayCache.Delete(msgID)
+		}
 		h.logger.Error("failed to handle webhook", "type", payload.Type, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
