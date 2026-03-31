@@ -1,0 +1,163 @@
+package agents
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"strait/internal/webhook"
+)
+
+func TestSignWebhookPayload_ProducesValidSignature(t *testing.T) {
+	t.Parallel()
+	secret := "whsec_test_secret_123"
+	body := []byte(`{"event":"agent.run.terminal","run_id":"run-1"}`)
+	ts := time.Now()
+
+	sig := SignWebhookPayload(secret, body, ts)
+	if sig == "" {
+		t.Fatal("expected non-empty signature")
+	}
+
+	// Verify using the existing Stripe-v1 validator (same format).
+	err := webhook.ValidateSignature("stripe-v1", secret, body, sig)
+	if err != nil {
+		t.Fatalf("signature validation failed: %v", err)
+	}
+}
+
+func TestSignWebhookPayload_DifferentBodies(t *testing.T) {
+	t.Parallel()
+	secret := "whsec_test"
+	ts := time.Now()
+
+	sig1 := SignWebhookPayload(secret, []byte(`{"a":1}`), ts)
+	sig2 := SignWebhookPayload(secret, []byte(`{"b":2}`), ts)
+
+	if sig1 == sig2 {
+		t.Fatal("different bodies should produce different signatures")
+	}
+}
+
+func TestSignWebhookPayload_DifferentSecrets(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"data":"test"}`)
+	ts := time.Now()
+
+	sig1 := SignWebhookPayload("secret-A", body, ts)
+	sig2 := SignWebhookPayload("secret-B", body, ts)
+
+	if sig1 == sig2 {
+		t.Fatal("different secrets should produce different signatures")
+	}
+}
+
+func TestSignWebhookPayload_IncludesTimestamp(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 3, 31, 12, 0, 0, 0, time.UTC)
+	sig := SignWebhookPayload("secret", []byte("body"), ts)
+
+	if !strings.Contains(sig, "t=") {
+		t.Fatalf("signature should contain t= component: %q", sig)
+	}
+	if !strings.Contains(sig, "v1=") {
+		t.Fatalf("signature should contain v1= component: %q", sig)
+	}
+}
+
+func TestSignWebhookPayload_EmptySecret(t *testing.T) {
+	t.Parallel()
+	sig := SignWebhookPayload("", []byte("body"), time.Now())
+	if sig != "" {
+		t.Fatalf("expected empty signature for empty secret, got %q", sig)
+	}
+}
+
+func TestSignWebhookPayload_WhitespaceSecret(t *testing.T) {
+	t.Parallel()
+	sig := SignWebhookPayload("   ", []byte("body"), time.Now())
+	if sig != "" {
+		t.Fatalf("expected empty signature for whitespace secret, got %q", sig)
+	}
+}
+
+func TestSignWebhookPayload_NilBody(t *testing.T) {
+	t.Parallel()
+	sig := SignWebhookPayload("secret", nil, time.Now())
+	if sig == "" {
+		t.Fatal("nil body should still produce a signature")
+	}
+	// Should be verifiable.
+	err := webhook.ValidateSignature("stripe-v1", "secret", nil, sig)
+	if err != nil {
+		t.Fatalf("nil body signature validation failed: %v", err)
+	}
+}
+
+func TestSignWebhookPayload_LargeBody(t *testing.T) {
+	t.Parallel()
+	body := make([]byte, 5*1024*1024) // 5MB.
+	sig := SignWebhookPayload("secret", body, time.Now())
+	if sig == "" {
+		t.Fatal("large body should still produce a signature")
+	}
+	if !strings.Contains(sig, "v1=") {
+		t.Fatal("signature format incorrect for large body")
+	}
+}
+
+// -- ExtractWebhookSecret tests.
+
+func TestExtractWebhookSecret_ValidSecret(t *testing.T) {
+	t.Parallel()
+	config := json.RawMessage(`{"webhook_url":"https://example.com","webhook_secret":"whsec_abc123"}`)
+	secret := ExtractWebhookSecret(config)
+	if secret != "whsec_abc123" {
+		t.Fatalf("secret = %q, want whsec_abc123", secret)
+	}
+}
+
+func TestExtractWebhookSecret_NoSecret(t *testing.T) {
+	t.Parallel()
+	config := json.RawMessage(`{"webhook_url":"https://example.com"}`)
+	secret := ExtractWebhookSecret(config)
+	if secret != "" {
+		t.Fatalf("secret = %q, want empty", secret)
+	}
+}
+
+func TestExtractWebhookSecret_EmptyConfig(t *testing.T) {
+	t.Parallel()
+	secret := ExtractWebhookSecret(nil)
+	if secret != "" {
+		t.Fatalf("secret = %q, want empty", secret)
+	}
+}
+
+func TestExtractWebhookSecret_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	secret := ExtractWebhookSecret(json.RawMessage(`not json`))
+	if secret != "" {
+		t.Fatalf("secret = %q, want empty", secret)
+	}
+}
+
+// -- Fuzz test.
+
+func FuzzSignWebhookPayload(f *testing.F) {
+	f.Add("whsec_test", []byte(`{"event":"test"}`))
+	f.Add("", []byte{})
+	f.Add("secret", []byte(`null`))
+
+	f.Fuzz(func(t *testing.T, secret string, body []byte) {
+		if len(body) > 1024*1024 {
+			t.Skip()
+		}
+		sig := SignWebhookPayload(secret, body, time.Now())
+		// Should never panic. If secret is non-empty, signature should be non-empty.
+		if strings.TrimSpace(secret) != "" && sig == "" {
+			t.Fatal("expected non-empty signature for non-empty secret")
+		}
+	})
+}

@@ -1302,6 +1302,9 @@ func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "strait-agents/1.0")
+	if webhookSecret := ExtractWebhookSecret(agent.Config); webhookSecret != "" {
+		req.Header.Set("X-Strait-Signature", SignWebhookPayload(webhookSecret, payload, s.now()))
+	}
 
 	resp, doErr := s.dispatchHTTP.Do(req)
 	if doErr != nil {
