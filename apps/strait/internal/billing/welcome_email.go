@@ -56,13 +56,13 @@ func NewResendWelcomeEmailFunc(apiKey, fromEmail string) WelcomeEmailFunc {
 		credit := creditDisplayUSD(tier)
 		subject := fmt.Sprintf("Welcome to Strait %s!", name)
 
-		html := welcomeEmailHTML(name, credit)
+		body := welcomeEmailHTML(name, credit)
 
 		_, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
 			From:    fromEmail,
 			To:      []string{customerEmail},
 			Subject: subject,
-			Html:    html,
+			Html:    body,
 		})
 		if err != nil {
 			return fmt.Errorf("send welcome email via resend: %w", err)

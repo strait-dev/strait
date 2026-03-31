@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -356,27 +357,46 @@ func Load() (*Config, error) {
 }
 
 // Redacted returns a map of config field names to values with secrets masked.
+// Includes all operationally useful fields while hiding credentials and keys.
 func (c *Config) Redacted() map[string]any {
-	result := map[string]any{
-		"Mode":              c.Mode,
-		"Port":              c.Port,
-		"Edition":           c.Edition,
-		"DatabaseURL":       "[REDACTED]",
-		"RedisURL":          "[REDACTED]",
-		"WorkerConcurrency": c.WorkerConcurrency,
+	return map[string]any{
+		"Mode":                   c.Mode,
+		"Port":                   c.Port,
+		"Edition":                c.Edition,
+		"WorkerConcurrency":      c.WorkerConcurrency,
+		"PollerInterval":         c.PollerInterval.String(),
+		"DBMaxConns":             c.DBMaxConns,
+		"ComputeRuntime":         c.ComputeRuntime,
+		"SentryEnvironment":      c.SentryEnvironment,
+		"DefaultAPIKeyRateLimit": c.DefaultAPIKeyRateLimit,
+		"DatabaseURL":            "[REDACTED]",
+		"RedisURL":               "[REDACTED]",
+		"InternalSecret":         "[REDACTED]",
+		"JWTSigningKey":          "[REDACTED]",
+		"EncryptionKey":          "[REDACTED]",
+		"PolarAccessToken":       "[REDACTED]",
+		"PolarWebhookSecret":     "[REDACTED]",
+		"ResendAPIKey":           "[REDACTED]",
+		"PostHogAPIKey":          "[REDACTED]",
+		"SentryDSN":              "[REDACTED]",
 	}
-	return result
 }
 
 // String returns a redacted string representation of the config for logging.
+// Keys are sorted for deterministic output.
 func (c *Config) String() string {
 	r := c.Redacted()
+	keys := make([]string, 0, len(r))
+	for k := range r {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
 	var sb strings.Builder
-	for k, v := range r {
+	for _, k := range keys {
 		if sb.Len() > 0 {
 			sb.WriteString(" ")
 		}
-		fmt.Fprintf(&sb, "%s=%v", k, v)
+		fmt.Fprintf(&sb, "%s=%v", k, r[k])
 	}
 	return sb.String()
 }

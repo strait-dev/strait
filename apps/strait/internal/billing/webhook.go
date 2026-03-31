@@ -75,20 +75,26 @@ func WithEdition(edition string) WebhookOption {
 	return func(h *WebhookHandler) { h.edition = edition }
 }
 
+var (
+	errEmptySubscriptionID = errors.New("subscription ID is empty")
+	errEmptyProductID      = errors.New("product ID is empty")
+	errEmptyCustomerID     = errors.New("customer ID is empty")
+)
+
 // validateSubscriptionData checks that required fields are present in the webhook payload.
 func validateSubscriptionData(sub PolarSubscriptionData) error {
 	if sub.ID == "" {
-		return fmt.Errorf("subscription ID is empty")
+		return errEmptySubscriptionID
 	}
 	productID := sub.ProductID
 	if sub.Product != nil {
 		productID = sub.Product.ID
 	}
 	if productID == "" {
-		return fmt.Errorf("product ID is empty")
+		return errEmptyProductID
 	}
 	if sub.CustomerID == "" {
-		return fmt.Errorf("customer ID is empty")
+		return errEmptyCustomerID
 	}
 	return nil
 }
