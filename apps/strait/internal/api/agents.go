@@ -710,6 +710,47 @@ func (s *Server) handleDismissRecommendation(ctx context.Context, _ *DismissReco
 	return nil, nil
 }
 
+type CompareAgentRunsInput struct {
+	AgentID string `path:"agentID"`
+	RunA    string `query:"run_a"`
+	RunB    string `query:"run_b"`
+}
+
+type CompareAgentRunsOutput struct {
+	Body *agents.AgentRunComparison
+}
+
+func (s *Server) handleCompareAgentRuns(ctx context.Context, input *CompareAgentRunsInput) (*CompareAgentRunsOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+
+	if input.RunA == "" || input.RunB == "" {
+		return nil, huma.Error400BadRequest("both run_a and run_b query parameters are required")
+	}
+
+	if _, agentErr := svc.GetAgent(ctx, projectID, input.AgentID); agentErr != nil {
+		return nil, mapAgentServiceError(agentErr)
+	}
+
+	compStore, ok := s.store.(agents.RunComparisonStore)
+	if !ok {
+		return nil, huma.Error500InternalServerError("run comparison not supported")
+	}
+
+	comp, compErr := agents.CompareAgentRuns(ctx, compStore, input.RunA, input.RunB)
+	if compErr != nil {
+		return nil, huma.Error500InternalServerError("failed to compare runs")
+	}
+
+	return &CompareAgentRunsOutput{Body: comp}, nil
+}
+
 type ReplayAgentRunRequest struct {
 	ConfigOverrides map[string]any `json:"config_overrides,omitempty"`
 	FromCheckpoint  int            `json:"from_checkpoint,omitempty"`
