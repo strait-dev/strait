@@ -3,6 +3,9 @@ package agents
 import (
 	"encoding/json"
 	"testing"
+	"time"
+
+	"strait/internal/domain"
 )
 
 func FuzzValidateConfig(f *testing.F) {
@@ -121,6 +124,27 @@ func FuzzParseCloudflareDeploymentMetadata(f *testing.F) {
 			t.Skip()
 		}
 		_, _ = ParseCloudflareDeploymentMetadata(json.RawMessage(raw))
+	})
+}
+
+func FuzzWebhookPayloadMarshal(f *testing.F) {
+	f.Add("agent-1", "support-agent", "completed", "")
+	f.Add("", "", "failed", "some error")
+	f.Add("agent-\x00-null", "slug/with/slashes", "system_failed", "OOM killed\n\ttrace")
+
+	f.Fuzz(func(t *testing.T, agentID, slug, status, errMsg string) {
+		svc := &localService{now: time.Now}
+		run := &domain.JobRun{
+			ID:      "run-1",
+			Status:  domain.RunStatus(status),
+			Attempt: 1,
+			Error:   errMsg,
+		}
+		agent := &domain.Agent{ID: agentID, Slug: slug}
+		payload := svc.buildWebhookPayload(agent, run)
+		if !json.Valid(payload) {
+			t.Fatalf("buildWebhookPayload produced invalid JSON for agent_id=%q slug=%q status=%q error=%q", agentID, slug, status, errMsg)
+		}
 	})
 }
 

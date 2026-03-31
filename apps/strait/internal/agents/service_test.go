@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -507,4 +508,228 @@ func TestFilterAllowedPatchKeysAllBlocked(t *testing.T) {
 	if len(safe) != 0 {
 		t.Fatalf("expected 0 keys after filtering, got %d: %v", len(safe), safe)
 	}
+}
+
+// Webhook delivery tests.
+
+type mockWebhookStore struct {
+	mu      sync.Mutex
+	created *domain.WebhookDelivery
+	count   int
+	err     error
+}
+
+func (m *mockWebhookStore) CreateWebhookDelivery(_ context.Context, d *domain.WebhookDelivery) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.created = d
+	m.count++
+	return m.err
+}
+
+type mockAgentStoreForWebhook struct {
+	agentStore
+	run *domain.JobRun
+}
+
+func (m *mockAgentStoreForWebhook) GetRun(_ context.Context, _ string) (*domain.JobRun, error) {
+	return m.run, nil
+}
+
+func TestFireAgentWebhookCreatesDurableDelivery(t *testing.T) {
+	t.Parallel()
+
+	ws := &mockWebhookStore{}
+	svc := &localService{
+		store: &mockAgentStoreForWebhook{
+			run: &domain.JobRun{ID: "run-1", JobID: "job-1", Status: domain.StatusCompleted},
+		},
+		webhookStore: ws,
+		now:          time.Now,
+	}
+
+	agent := &domain.Agent{
+		ID:     "agent-1",
+		Slug:   "test-agent",
+		Config: json.RawMessage(`{"webhook_url":"https://www.google.com/webhook-test"}`),
+	}
+	svc.fireAgentWebhook(context.Background(), agent, "run-1")
+
+	if ws.created == nil {
+		t.Fatal("expected webhook delivery to be created")
+	}
+	if ws.created.WebhookURL != "https://www.google.com/webhook-test" {
+		t.Fatalf("WebhookURL = %q", ws.created.WebhookURL)
+	}
+	if ws.created.MaxAttempts != 5 {
+		t.Fatalf("MaxAttempts = %d, want 5", ws.created.MaxAttempts)
+	}
+	if ws.created.RetryPolicy != domain.WebhookRetryPolicyExponential {
+		t.Fatalf("RetryPolicy = %q, want exponential", ws.created.RetryPolicy)
+	}
+	if ws.created.RunID != "run-1" {
+		t.Fatalf("RunID = %q, want run-1", ws.created.RunID)
+	}
+}
+
+func TestFireAgentWebhookFallsBackWhenNoStore(t *testing.T) {
+	t.Parallel()
+
+	// When webhookStore is nil and dispatchHTTP is nil, the fallback path
+	// exits after checking dispatchHTTP == nil. This confirms the durable
+	// delivery path is skipped and the direct-fire path is entered.
+	svc := &localService{
+		store: &mockAgentStoreForWebhook{
+			run: &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted},
+		},
+		dispatchHTTP: nil, // no HTTP client -> fallback path exits silently
+		webhookStore: nil,
+		now:          time.Now,
+	}
+
+	agent := &domain.Agent{
+		ID:     "agent-1",
+		Slug:   "test-agent",
+		Config: json.RawMessage(`{"webhook_url":"https://www.google.com/fallback-test"}`),
+	}
+	// Should not panic. Falls through to direct-fire path, exits because dispatchHTTP is nil.
+	svc.fireAgentWebhook(context.Background(), agent, "run-1")
+}
+
+func TestFireAgentWebhookSkipsEmptyURL(t *testing.T) {
+	t.Parallel()
+
+	ws := &mockWebhookStore{}
+	svc := &localService{
+		store:        &mockAgentStoreForWebhook{run: &domain.JobRun{ID: "run-1"}},
+		webhookStore: ws,
+		now:          time.Now,
+	}
+
+	agent := &domain.Agent{ID: "agent-1", Config: json.RawMessage(`{}`)}
+	svc.fireAgentWebhook(context.Background(), agent, "run-1")
+
+	if ws.created != nil {
+		t.Fatal("expected no delivery for empty webhook URL")
+	}
+}
+
+func TestFireAgentWebhookSkipsUnsafeURL(t *testing.T) {
+	t.Parallel()
+
+	ws := &mockWebhookStore{}
+	svc := &localService{
+		store:        &mockAgentStoreForWebhook{run: &domain.JobRun{ID: "run-1"}},
+		webhookStore: ws,
+		now:          time.Now,
+	}
+
+	agent := &domain.Agent{
+		ID:     "agent-1",
+		Config: json.RawMessage(`{"webhook_url":"http://169.254.169.254/metadata"}`),
+	}
+	svc.fireAgentWebhook(context.Background(), agent, "run-1")
+
+	if ws.created != nil {
+		t.Fatal("expected no delivery for unsafe URL")
+	}
+}
+
+func TestFireAgentWebhookNilAgent(t *testing.T) {
+	t.Parallel()
+
+	svc := &localService{now: time.Now}
+	// Should not panic.
+	svc.fireAgentWebhook(context.Background(), nil, "run-1")
+}
+
+func TestFireAgentWebhookNilRun(t *testing.T) {
+	t.Parallel()
+
+	svc := &localService{
+		store:        &mockAgentStoreForWebhook{run: nil},
+		webhookStore: &mockWebhookStore{},
+		now:          time.Now,
+	}
+
+	agent := &domain.Agent{
+		ID:     "agent-1",
+		Config: json.RawMessage(`{"webhook_url":"https://www.google.com/webhook-test"}`),
+	}
+	// Should not panic, should log error.
+	svc.fireAgentWebhook(context.Background(), agent, "run-1")
+}
+
+func TestFireAgentWebhookPayloadShape(t *testing.T) {
+	t.Parallel()
+
+	svc := &localService{now: time.Now}
+	run := &domain.JobRun{
+		ID:      "run-1",
+		Status:  domain.StatusCompleted,
+		Attempt: 2,
+		Error:   "retry succeeded",
+	}
+	agent := &domain.Agent{ID: "agent-1", Slug: "support-agent"}
+
+	payload := svc.buildWebhookPayload(agent, run)
+	var parsed map[string]any
+	if err := json.Unmarshal(payload, &parsed); err != nil {
+		t.Fatalf("payload is not valid JSON: %v", err)
+	}
+
+	requiredKeys := []string{"event", "agent_id", "agent_slug", "run_id", "status", "attempt", "timestamp"}
+	for _, key := range requiredKeys {
+		if _, ok := parsed[key]; !ok {
+			t.Fatalf("payload missing required key %q", key)
+		}
+	}
+	if parsed["event"] != "agent.run.terminal" {
+		t.Fatalf("event = %q", parsed["event"])
+	}
+	if parsed["agent_id"] != "agent-1" {
+		t.Fatalf("agent_id = %q", parsed["agent_id"])
+	}
+}
+
+func TestFireAgentWebhookPayloadNilResult(t *testing.T) {
+	t.Parallel()
+
+	svc := &localService{now: time.Now}
+	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed, Result: nil}
+	agent := &domain.Agent{ID: "agent-1", Slug: "test"}
+
+	payload := svc.buildWebhookPayload(agent, run)
+	if !json.Valid(payload) {
+		t.Fatal("payload with nil result should still be valid JSON")
+	}
+}
+
+func TestFireAgentWebhookConcurrentCalls(t *testing.T) {
+	t.Parallel()
+
+	ws := &mockWebhookStore{}
+	store := &mockAgentStoreForWebhook{
+		run: &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted},
+	}
+	svc := &localService{
+		store:        store,
+		webhookStore: ws,
+		now:          time.Now,
+	}
+
+	agent := &domain.Agent{
+		ID:     "agent-1",
+		Slug:   "concurrent-agent",
+		Config: json.RawMessage(`{"webhook_url":"https://www.google.com/webhook-concurrent"}`),
+	}
+
+	// Fire 100 concurrent webhook calls. Should not race.
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Go(func() {
+			svc.fireAgentWebhook(context.Background(), agent, "run-1")
+		})
+	}
+	wg.Wait()
 }

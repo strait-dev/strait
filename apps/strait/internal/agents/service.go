@@ -139,6 +139,12 @@ type QuotaChecker interface {
 	CountProjectRunsSince(ctx context.Context, projectID string, since time.Time) (int, error)
 }
 
+// WebhookDeliveryStore creates durable webhook delivery records that the
+// existing DeliveryWorker processes with exponential backoff.
+type WebhookDeliveryStore interface {
+	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+}
+
 type localService struct {
 	store             agentStore
 	txb               store.TxBeginner
@@ -153,6 +159,7 @@ type localService struct {
 	dispatchPool      pond.Pool
 	maxConcurrentRuns int
 	quotaChecker      QuotaChecker
+	webhookStore      WebhookDeliveryStore
 }
 
 type Option func(*localService)
@@ -292,6 +299,14 @@ func WithMaxConcurrentRuns(n int) Option {
 	return func(s *localService) {
 		if n > 0 {
 			s.maxConcurrentRuns = n
+		}
+	}
+}
+
+func WithWebhookStore(ws WebhookDeliveryStore) Option {
+	return func(s *localService) {
+		if ws != nil {
+			s.webhookStore = ws
 		}
 	}
 }
@@ -1049,10 +1064,27 @@ func (s *localService) scheduleAgentRetry(ctx context.Context, failedRun *domain
 	}
 }
 
+// buildWebhookPayload constructs the JSON payload for agent webhook notifications.
+func (s *localService) buildWebhookPayload(agent *domain.Agent, run *domain.JobRun) json.RawMessage {
+	return mustJSON(map[string]any{
+		"event":      "agent.run.terminal",
+		"agent_id":   agent.ID,
+		"agent_slug": agent.Slug,
+		"run_id":     run.ID,
+		"status":     string(run.Status),
+		"attempt":    run.Attempt,
+		"result":     run.Result,
+		"error":      run.Error,
+		"timestamp":  s.now().UTC(),
+	})
+}
+
 // fireAgentWebhook sends a webhook notification if the agent has a webhook URL configured.
-// Errors are logged with structured context for Sentry visibility.
+// When a WebhookDeliveryStore is available, it creates a durable delivery record
+// processed by the existing DeliveryWorker with exponential backoff and retries.
+// Falls back to fire-and-forget HTTP when no store is configured.
 func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent, runID string) {
-	if s.dispatchHTTP == nil {
+	if agent == nil {
 		return
 	}
 	webhookURL := extractWebhookURL(agent.Config)
@@ -1070,18 +1102,33 @@ func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent
 		return
 	}
 
-	payload := mustJSON(map[string]any{
-		"event":      "agent.run.terminal",
-		"agent_id":   agent.ID,
-		"agent_slug": agent.Slug,
-		"run_id":     run.ID,
-		"status":     string(run.Status),
-		"attempt":    run.Attempt,
-		"result":     run.Result,
-		"error":      run.Error,
-		"timestamp":  s.now().UTC(),
-	})
+	payload := s.buildWebhookPayload(agent, run)
 
+	// Prefer durable delivery when the webhook store is available.
+	if s.webhookStore != nil {
+		delivery := &domain.WebhookDelivery{
+			ID:          uuid.Must(uuid.NewV7()).String(),
+			RunID:       run.ID,
+			JobID:       run.JobID,
+			WebhookURL:  webhookURL,
+			RetryPolicy: domain.WebhookRetryPolicyExponential,
+			Status:      "pending",
+			MaxAttempts: 5,
+		}
+		if createErr := s.webhookStore.CreateWebhookDelivery(ctx, delivery); createErr != nil {
+			slog.Error("agent webhook: failed to create durable delivery",
+				"agent_id", agent.ID,
+				"run_id", runID,
+				"error", createErr,
+			)
+		}
+		return
+	}
+
+	// Fallback: fire-and-forget when no webhook store is configured.
+	if s.dispatchHTTP == nil {
+		return
+	}
 	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
 	if reqErr != nil {
 		slog.Error("agent webhook: failed to build request",
