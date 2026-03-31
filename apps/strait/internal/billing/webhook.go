@@ -750,6 +750,10 @@ func (h *WebhookHandler) handleSubscriptionRevoked(ctx context.Context, data jso
 	if err := json.Unmarshal(data, &sub); err != nil {
 		return fmt.Errorf("parsing subscription data: %w", err)
 	}
+	if err := validateSubscriptionData(sub); err != nil {
+		h.logger.Warn("invalid webhook subscription data", "error", err)
+		return fmt.Errorf("invalid subscription data: %w", err)
+	}
 
 	// Handle addon subscription revocation.
 	productID := sub.ProductID
@@ -798,6 +802,10 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 	var sub PolarSubscriptionData
 	if err := json.Unmarshal(data, &sub); err != nil {
 		return fmt.Errorf("parsing payment success data: %w", err)
+	}
+	if err := validateSubscriptionData(sub); err != nil {
+		h.logger.Warn("invalid payment success data", "error", err)
+		return fmt.Errorf("invalid subscription data: %w", err)
 	}
 
 	orgID := h.resolveOrgID(sub)

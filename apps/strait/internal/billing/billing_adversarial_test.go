@@ -2315,8 +2315,10 @@ func TestWebhook_RevokeNonExistentOrg(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:       "sub_revoke_noexist",
-		Metadata: map[string]string{"org_id": "00000000-0000-0000-0000-000000000034"},
+		ID:         "sub_revoke_noexist",
+		ProductID:  "starter-id",
+		CustomerID: "cust_revoke",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000034"},
 	}
 	body := webhookPayload(t, "subscription.revoked", data)
 	rr := httptest.NewRecorder()
@@ -2338,8 +2340,10 @@ func TestWebhook_PaymentSucceededNonExistentOrg(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := PolarSubscriptionData{
-		ID:       "sub_pay_noexist",
-		Metadata: map[string]string{"org_id": "00000000-0000-0000-0000-000000000034"},
+		ID:         "sub_pay_noexist",
+		ProductID:  "starter-id",
+		CustomerID: "cust_pay",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000034"},
 	}
 	body := webhookPayload(t, "order.paid", data)
 	rr := httptest.NewRecorder()
