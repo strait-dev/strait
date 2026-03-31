@@ -1,0 +1,172 @@
+{
+  "title": "Strait AI Agents",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "title": "Agent Run Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(http_server_requests_total{route=~\"/v1/agents/.*/run\"}[5m])) by (status)"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "reqps"}
+      }
+    },
+    {
+      "title": "Agent Run Latency P50/P95/P99",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, rate(strait_agent_run_duration_seconds_bucket[5m]))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, rate(strait_agent_run_duration_seconds_bucket[5m]))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, rate(strait_agent_run_duration_seconds_bucket[5m]))", "legendFormat": "p99"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s"}
+      }
+    },
+    {
+      "title": "Active Agent Runs",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+      "targets": [
+        {"expr": "strait_agent_active_runs"}
+      ],
+      "fieldConfig": {
+        "defaults": {"thresholds": {"steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 50}, {"color": "red", "value": 100}]}}
+      }
+    },
+    {
+      "title": "Run Success Rate (24h)",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {"expr": "sum(increase(strait_agent_run_transitions_total{to=\"completed\"}[24h])) / clamp_min(sum(increase(strait_agent_run_transitions_total{to=~\"completed|failed|system_failed\"}[24h])), 1) * 100"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percent", "thresholds": {"steps": [{"color": "red", "value": 0}, {"color": "yellow", "value": 90}, {"color": "green", "value": 98}]}}
+      }
+    },
+    {
+      "title": "Error Rate by Class",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "sum(rate(strait_agent_error_class_total[5m])) by (error_class)"}
+      ],
+      "fieldConfig": {
+        "defaults": {"custom": {"stacking": {"mode": "normal"}}}
+      }
+    },
+    {
+      "title": "OOM/Timeout Trend (7d)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 8},
+      "targets": [
+        {"expr": "sum(rate(strait_agent_error_class_total{error_class=\"oom\"}[1h]))", "legendFormat": "OOM"},
+        {"expr": "sum(rate(strait_agent_error_class_total{error_class=\"timeout\"}[1h]))", "legendFormat": "Timeout"}
+      ]
+    },
+    {
+      "title": "Top 10 Failing Agents",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 8},
+      "targets": [
+        {"expr": "topk(10, sum by (agent_slug) (increase(strait_agent_error_class_total[24h])))"}
+      ],
+      "transformations": [
+        {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "Value", "desc": true}]}}
+      ]
+    },
+    {
+      "title": "Error Class Distribution",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 8},
+      "targets": [
+        {"expr": "sum by (error_class) (increase(strait_agent_error_class_total[24h]))"}
+      ]
+    },
+    {
+      "title": "Daily Agent Cost (USD)",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 16},
+      "targets": [
+        {"expr": "sum(strait_agent_daily_cost_microusd) / 1e6", "legendFormat": "Daily Cost"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "currencyUSD"}
+      }
+    },
+    {
+      "title": "Token Usage by Model",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 16},
+      "targets": [
+        {"expr": "sum(rate(strait_agent_tokens_total[5m])) by (model)"}
+      ],
+      "fieldConfig": {
+        "defaults": {"custom": {"stacking": {"mode": "normal"}}, "unit": "short"}
+      }
+    },
+    {
+      "title": "Top 5 Agents by Spend",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 16},
+      "targets": [
+        {"expr": "topk(5, sum by (agent_slug) (increase(strait_agent_cost_microusd_total[24h])))"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"}
+      }
+    },
+    {
+      "title": "Cost per Run Trend",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 16},
+      "targets": [
+        {"expr": "sum(rate(strait_agent_cost_microusd_total[5m])) / clamp_min(sum(rate(strait_agent_run_transitions_total{to=\"completed\"}[5m])), 0.001) / 1e6"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "currencyUSD"}
+      }
+    },
+    {
+      "title": "Webhook Delivery Success Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
+      "targets": [
+        {"expr": "sum(rate(strait_agent_webhook_attempts_total{result=\"success\"}[5m]))", "legendFormat": "Success"},
+        {"expr": "sum(rate(strait_agent_webhook_attempts_total{result=\"failure\"}[5m]))", "legendFormat": "Failure"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "reqps"}
+      }
+    },
+    {
+      "title": "Message Worker Throughput",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
+      "targets": [
+        {"expr": "sum(rate(strait_agent_messages_delivered_total[5m]))", "legendFormat": "Delivered/s"},
+        {"expr": "strait_agent_pending_messages", "legendFormat": "Pending"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"}
+      }
+    },
+    {
+      "title": "Quota Utilization",
+      "type": "bargauge",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
+      "targets": [
+        {"expr": "strait_agent_quota_utilization_ratio * 100"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percent", "max": 100, "thresholds": {"steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 75}, {"color": "red", "value": 90}]}}
+      }
+    }
+  ]
+}

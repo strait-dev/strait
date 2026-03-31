@@ -1,0 +1,77 @@
+groups:
+  - name: strait-agents
+    interval: 30s
+    rules:
+      # Run health.
+      - alert: StraitAgentRunErrorRateHigh
+        expr: >
+          sum(rate(strait_agent_error_class_total[5m]))
+          / clamp_min(sum(rate(strait_agent_run_transitions_total[5m])), 1) > 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent run error rate exceeds 15%"
+          description: "More than 15% of agent runs are failing. Investigate error_class breakdown in the Agents dashboard."
+
+      - alert: StraitAgentOOMBurst
+        expr: sum(rate(strait_agent_error_class_total{error_class="oom"}[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Sustained OOM errors from agent runtime"
+          description: "Agent workers are consistently hitting resource limits. Consider reducing tool complexity or scaling worker resources."
+
+      - alert: StraitAgentRunLatencyHigh
+        expr: histogram_quantile(0.95, rate(strait_agent_run_duration_seconds_bucket[5m])) > 30
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent run P95 latency exceeds 30s"
+          description: "Agent runs are taking longer than expected. Check for slow LLM providers or complex tool chains."
+
+      # Webhook delivery.
+      - alert: StraitAgentWebhookFailureRate
+        expr: >
+          sum(rate(strait_agent_webhook_attempts_total{result="failure"}[10m]))
+          / clamp_min(sum(rate(strait_agent_webhook_attempts_total[10m])), 1) > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent webhook delivery failure rate >25%"
+          description: "Webhook endpoints are failing. Check target URLs and circuit breaker state."
+
+      # Message worker.
+      - alert: StraitAgentMessageWorkerBacklog
+        expr: strait_agent_pending_messages > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent message worker backlog exceeds 500"
+          description: "Agent-to-agent messages are accumulating. Check message worker health and target agent deployment status."
+
+      # Quota.
+      - alert: StraitAgentQuotaNearLimit
+        expr: strait_agent_quota_utilization_ratio > 0.9
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Project approaching agent quota limit (>90%)"
+          description: "A project is nearing its agent quota. Consider upgrading the plan or cleaning up unused agents."
+
+      # Cost.
+      - alert: StraitAgentCostSpike
+        expr: >
+          sum(rate(strait_agent_cost_microusd_total[1h]))
+          > 2 * sum(rate(strait_agent_cost_microusd_total[1h] offset 1d))
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent cost spike detected (>2x vs yesterday)"
+          description: "Agent spending has doubled compared to the same time yesterday. Check for runaway agents or misconfigured budgets."
