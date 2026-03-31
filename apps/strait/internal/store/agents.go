@@ -27,6 +27,7 @@ func scanAgent(scanner interface {
 	var agent domain.Agent
 	var createdBy *string
 	var updatedBy *string
+	var providerSecretsEncrypted *string
 	if err := scanner.Scan(
 		&agent.ID,
 		&agent.ProjectID,
@@ -37,13 +38,16 @@ func scanAgent(scanner interface {
 		&agent.Model,
 		&agent.ModelFallbacks,
 		&agent.Config,
-		&agent.ProviderSecretsEncrypted,
+		&providerSecretsEncrypted,
 		&createdBy,
 		&updatedBy,
 		&agent.CreatedAt,
 		&agent.UpdatedAt,
 	); err != nil {
 		return nil, err
+	}
+	if providerSecretsEncrypted != nil {
+		agent.ProviderSecretsEncrypted = *providerSecretsEncrypted
 	}
 	if createdBy != nil {
 		agent.CreatedBy = *createdBy

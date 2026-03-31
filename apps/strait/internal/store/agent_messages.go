@@ -15,6 +15,26 @@ import (
 
 var ErrAgentMessageNotFound = errors.New("agent message not found")
 
+func scanAgentMessage(scanner interface{ Scan(dest ...any) error }) (*domain.AgentMessage, error) {
+	var msg domain.AgentMessage
+	var sourceRunID *string
+	var errMsg *string
+	if err := scanner.Scan(
+		&msg.ID, &msg.ProjectID, &msg.SourceAgentID, &msg.TargetAgentID,
+		&sourceRunID, &msg.ChainID, &msg.ChainDepth, &msg.Payload, &msg.Status,
+		&msg.CreatedAt, &msg.DeliveredAt, &errMsg,
+	); err != nil {
+		return nil, err
+	}
+	if sourceRunID != nil {
+		msg.SourceRunID = *sourceRunID
+	}
+	if errMsg != nil {
+		msg.Error = *errMsg
+	}
+	return &msg, nil
+}
+
 func (q *Queries) CreateAgentMessage(ctx context.Context, msg *domain.AgentMessage) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateAgentMessage")
 	defer span.End()
@@ -47,19 +67,14 @@ func (q *Queries) GetAgentMessage(ctx context.Context, id string) (*domain.Agent
 			created_at, delivered_at, error
 		FROM agent_messages WHERE id = $1`
 
-	var msg domain.AgentMessage
-	err := q.db.QueryRow(ctx, query, id).Scan(
-		&msg.ID, &msg.ProjectID, &msg.SourceAgentID, &msg.TargetAgentID,
-		&msg.SourceRunID, &msg.ChainID, &msg.ChainDepth, &msg.Payload, &msg.Status,
-		&msg.CreatedAt, &msg.DeliveredAt, &msg.Error,
-	)
+	msg, err := scanAgentMessage(q.db.QueryRow(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrAgentMessageNotFound
 		}
 		return nil, err
 	}
-	return &msg, nil
+	return msg, nil
 }
 
 func (q *Queries) UpdateAgentMessageStatus(ctx context.Context, id string, status domain.AgentMessageStatus, fields map[string]any) error {
@@ -106,15 +121,11 @@ func (q *Queries) ListAgentMessagesByChain(ctx context.Context, chainID string) 
 
 	var messages []domain.AgentMessage
 	for rows.Next() {
-		var msg domain.AgentMessage
-		if err := rows.Scan(
-			&msg.ID, &msg.ProjectID, &msg.SourceAgentID, &msg.TargetAgentID,
-			&msg.SourceRunID, &msg.ChainID, &msg.ChainDepth, &msg.Payload, &msg.Status,
-			&msg.CreatedAt, &msg.DeliveredAt, &msg.Error,
-		); err != nil {
-			return nil, err
+		msg, scanErr := scanAgentMessage(rows)
+		if scanErr != nil {
+			return nil, scanErr
 		}
-		messages = append(messages, msg)
+		messages = append(messages, *msg)
 	}
 	return messages, rows.Err()
 }
@@ -144,15 +155,11 @@ func (q *Queries) ListPendingAgentMessages(ctx context.Context, limit int) ([]do
 
 	var messages []domain.AgentMessage
 	for rows.Next() {
-		var msg domain.AgentMessage
-		if err := rows.Scan(
-			&msg.ID, &msg.ProjectID, &msg.SourceAgentID, &msg.TargetAgentID,
-			&msg.SourceRunID, &msg.ChainID, &msg.ChainDepth, &msg.Payload, &msg.Status,
-			&msg.CreatedAt, &msg.DeliveredAt, &msg.Error,
-		); err != nil {
-			return nil, err
+		msg, scanErr := scanAgentMessage(rows)
+		if scanErr != nil {
+			return nil, scanErr
 		}
-		messages = append(messages, msg)
+		messages = append(messages, *msg)
 	}
 	return messages, rows.Err()
 }
@@ -189,15 +196,11 @@ func (q *Queries) ListAgentMessagesByAgent(ctx context.Context, agentID string, 
 
 	var messages []domain.AgentMessage
 	for rows.Next() {
-		var msg domain.AgentMessage
-		if err := rows.Scan(
-			&msg.ID, &msg.ProjectID, &msg.SourceAgentID, &msg.TargetAgentID,
-			&msg.SourceRunID, &msg.ChainID, &msg.ChainDepth, &msg.Payload, &msg.Status,
-			&msg.CreatedAt, &msg.DeliveredAt, &msg.Error,
-		); err != nil {
-			return nil, err
+		msg, scanErr := scanAgentMessage(rows)
+		if scanErr != nil {
+			return nil, scanErr
 		}
-		messages = append(messages, msg)
+		messages = append(messages, *msg)
 	}
 	return messages, rows.Err()
 }

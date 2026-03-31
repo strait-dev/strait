@@ -630,6 +630,30 @@ func TestUpdateAgentDeployment_NotFound(t *testing.T) {
 
 // -- Agent Message CRUD tests.
 
+// mustCreateAgentPair creates two agents in the project and returns their IDs.
+func mustCreateAgentPair(t *testing.T, ctx context.Context, q *store.Queries, projectID string) (srcID, tgtID string) {
+	t.Helper()
+	jobA := mustCreateJob(t, ctx, q, projectID)
+	jobB := mustCreateJob(t, ctx, q, projectID)
+	agentA := &domain.Agent{
+		ID: newID(), ProjectID: projectID, JobID: jobA.ID,
+		Name: "Source Agent", Slug: "src-agent-" + newID()[:8], Model: "gpt-5.4",
+		Config: json.RawMessage(`{}`),
+	}
+	agentB := &domain.Agent{
+		ID: newID(), ProjectID: projectID, JobID: jobB.ID,
+		Name: "Target Agent", Slug: "tgt-agent-" + newID()[:8], Model: "gpt-5.4",
+		Config: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgent(ctx, agentA); err != nil {
+		t.Fatalf("CreateAgent(A) error = %v", err)
+	}
+	if err := q.CreateAgent(ctx, agentB); err != nil {
+		t.Fatalf("CreateAgent(B) error = %v", err)
+	}
+	return agentA.ID, agentB.ID
+}
+
 func TestAgentMessageCRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -640,9 +664,11 @@ func TestAgentMessageCRUD(t *testing.T) {
 		t.Fatalf("CreateProject() error = %v", err)
 	}
 
+	srcID, tgtID := mustCreateAgentPair(t, ctx, q, project.ID)
+
 	msg := &domain.AgentMessage{
 		ID: newID(), ProjectID: project.ID,
-		SourceAgentID: "agent-src", TargetAgentID: "agent-tgt",
+		SourceAgentID: srcID, TargetAgentID: tgtID,
 		ChainID: "chain-1", ChainDepth: 1,
 		Payload: json.RawMessage(`{"text":"hello"}`),
 		Status:  domain.AgentMessagePending,
@@ -659,7 +685,7 @@ func TestAgentMessageCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgentMessage() error = %v", err)
 	}
-	if got.SourceAgentID != "agent-src" {
+	if got.SourceAgentID != srcID {
 		t.Fatalf("SourceAgentID = %q", got.SourceAgentID)
 	}
 	if got.Status != domain.AgentMessagePending {
@@ -706,9 +732,11 @@ func TestUpdateAgentMessageStatus_Failed(t *testing.T) {
 		t.Fatalf("CreateProject() error = %v", err)
 	}
 
+	srcID, tgtID := mustCreateAgentPair(t, ctx, q, project.ID)
+
 	msg := &domain.AgentMessage{
 		ID: newID(), ProjectID: project.ID,
-		SourceAgentID: "a", TargetAgentID: "b",
+		SourceAgentID: srcID, TargetAgentID: tgtID,
 		ChainID: "chain-fail", ChainDepth: 1,
 		Payload: json.RawMessage(`{}`), Status: domain.AgentMessagePending,
 	}
@@ -746,11 +774,13 @@ func TestListAgentMessagesByChain_OrderedByDepth(t *testing.T) {
 		t.Fatalf("CreateProject() error = %v", err)
 	}
 
+	srcID, tgtID := mustCreateAgentPair(t, ctx, q, project.ID)
+
 	chainID := "chain-ordered"
 	for depth := 3; depth >= 1; depth-- {
 		msg := &domain.AgentMessage{
 			ID: newID(), ProjectID: project.ID,
-			SourceAgentID: "a", TargetAgentID: "b",
+			SourceAgentID: srcID, TargetAgentID: tgtID,
 			ChainID: chainID, ChainDepth: depth,
 			Payload: json.RawMessage(`{}`), Status: domain.AgentMessagePending,
 		}
@@ -794,10 +824,12 @@ func TestListAgentMessagesByChain_DoesNotMixChains(t *testing.T) {
 		t.Fatalf("CreateProject() error = %v", err)
 	}
 
+	srcID, tgtID := mustCreateAgentPair(t, ctx, q, project.ID)
+
 	for _, chain := range []string{"chain-A", "chain-B"} {
 		msg := &domain.AgentMessage{
 			ID: newID(), ProjectID: project.ID,
-			SourceAgentID: "a", TargetAgentID: "b",
+			SourceAgentID: srcID, TargetAgentID: tgtID,
 			ChainID: chain, ChainDepth: 1,
 			Payload: json.RawMessage(`{}`), Status: domain.AgentMessagePending,
 		}
@@ -827,16 +859,18 @@ func TestListPendingAgentMessages_ReturnsPending(t *testing.T) {
 		t.Fatalf("CreateProject() error = %v", err)
 	}
 
+	srcID, tgtID := mustCreateAgentPair(t, ctx, q, project.ID)
+
 	// Create one pending and one delivered.
 	pending := &domain.AgentMessage{
 		ID: newID(), ProjectID: project.ID,
-		SourceAgentID: "a", TargetAgentID: "b",
+		SourceAgentID: srcID, TargetAgentID: tgtID,
 		ChainID: "chain-pend", ChainDepth: 1,
 		Payload: json.RawMessage(`{}`), Status: domain.AgentMessagePending,
 	}
 	delivered := &domain.AgentMessage{
 		ID: newID(), ProjectID: project.ID,
-		SourceAgentID: "a", TargetAgentID: "b",
+		SourceAgentID: srcID, TargetAgentID: tgtID,
 		ChainID: "chain-pend", ChainDepth: 2,
 		Payload: json.RawMessage(`{}`), Status: domain.AgentMessagePending,
 	}
@@ -890,18 +924,19 @@ func TestListAgentMessagesByAgent_ReturnsSourceAndTarget(t *testing.T) {
 		t.Fatalf("CreateProject() error = %v", err)
 	}
 
-	agentID := "agent-both-directions"
+	srcID, tgtID := mustCreateAgentPair(t, ctx, q, project.ID)
+	agentID := srcID
 	// Message where agent is source.
 	m1 := &domain.AgentMessage{
 		ID: newID(), ProjectID: project.ID,
-		SourceAgentID: agentID, TargetAgentID: "other-agent",
+		SourceAgentID: agentID, TargetAgentID: tgtID,
 		ChainID: "chain-dir", ChainDepth: 1,
 		Payload: json.RawMessage(`{}`), Status: domain.AgentMessagePending,
 	}
 	// Message where agent is target.
 	m2 := &domain.AgentMessage{
 		ID: newID(), ProjectID: project.ID,
-		SourceAgentID: "other-agent", TargetAgentID: agentID,
+		SourceAgentID: tgtID, TargetAgentID: agentID,
 		ChainID: "chain-dir", ChainDepth: 2,
 		Payload: json.RawMessage(`{}`), Status: domain.AgentMessagePending,
 	}
