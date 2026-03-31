@@ -428,26 +428,39 @@ func TestClaimPendingNotificationDeliveries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClaimPendingNotificationDeliveries() error = %v", err)
 	}
-	if len(claimed) != 1 {
-		t.Fatalf("claimed len = %d, want 1", len(claimed))
+	if len(claimed) < 1 {
+		t.Fatalf("claimed len = %d, want >= 1", len(claimed))
 	}
-	if claimed[0].Status != "processing" {
-		t.Fatalf("claimed status = %q, want processing", claimed[0].Status)
+	// Find our specific delivery in the claimed batch.
+	var found *domain.NotificationDelivery
+	for i := range claimed {
+		if claimed[i].ChannelID == ch.ID {
+			found = &claimed[i]
+			break
+		}
 	}
-	if claimed[0].ClaimToken == "" {
+	if found == nil {
+		t.Fatal("our delivery not found in claimed batch")
+	}
+	if found.Status != "processing" {
+		t.Fatalf("claimed status = %q, want processing", found.Status)
+	}
+	if found.ClaimToken == "" {
 		t.Fatal("claim token = empty, want non-empty")
 	}
-	if claimed[0].LeaseExpiry == nil {
+	if found.LeaseExpiry == nil {
 		t.Fatal("lease expiry = nil, want non-nil")
 	}
 
-	// Second claim gets nothing (already processing and lease not expired).
+	// Second claim should not return our delivery again (already processing).
 	second, err := q.ClaimPendingNotificationDeliveries(ctx, 10, time.Minute)
 	if err != nil {
 		t.Fatalf("ClaimPendingNotificationDeliveries(second) error = %v", err)
 	}
-	if len(second) != 0 {
-		t.Fatalf("second claim len = %d, want 0", len(second))
+	for _, s := range second {
+		if s.ChannelID == ch.ID {
+			t.Fatal("our delivery was re-claimed, should have been excluded (already processing)")
+		}
 	}
 }
 

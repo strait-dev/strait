@@ -4765,8 +4765,11 @@ func TestNotificationDeliveryClaimLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClaimPendingNotificationDeliveries(second) error = %v", err)
 	}
-	if len(secondClaim) != 0 {
-		t.Fatalf("second claim len = %d, want 0", len(secondClaim))
+	// Verify our specific delivery is NOT re-claimed (others may exist from parallel tests).
+	for _, s := range secondClaim {
+		if s.ChannelID == channel.ID {
+			t.Fatal("our delivery was re-claimed, should be excluded (already processing)")
+		}
 	}
 
 	expiringDelivery := &domain.NotificationDelivery{

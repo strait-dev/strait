@@ -129,7 +129,6 @@ func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 			SELECT j.id FROM jobs j
 			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND j.cron IS NOT NULL AND j.cron != ''
-			  AND j.deleted_at IS NULL
 			ORDER BY j.updated_at DESC
 			OFFSET $2
 		)

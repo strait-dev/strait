@@ -81,12 +81,12 @@ func TestCreateAPIKey_DuplicateHash(t *testing.T) {
 	mustClean(t, ctx)
 
 	hash := "hash-dup-" + newID()
-	key1 := &domain.APIKey{ProjectID: "proj-dup-hash", Name: "k1", KeyHash: hash, KeyPrefix: "sk_1"}
+	key1 := &domain.APIKey{ProjectID: "proj-dup-hash", Name: "k1", KeyHash: hash, KeyPrefix: "sk_1", Scopes: []string{"read"}}
 	if err := q.CreateAPIKey(ctx, key1); err != nil {
 		t.Fatalf("CreateAPIKey(key1) error = %v", err)
 	}
 
-	key2 := &domain.APIKey{ProjectID: "proj-dup-hash", Name: "k2", KeyHash: hash, KeyPrefix: "sk_2"}
+	key2 := &domain.APIKey{ProjectID: "proj-dup-hash", Name: "k2", KeyHash: hash, KeyPrefix: "sk_2", Scopes: []string{"read"}}
 	if err := q.CreateAPIKey(ctx, key2); err == nil {
 		t.Fatal("CreateAPIKey(duplicate hash) error = nil, want error")
 	}
