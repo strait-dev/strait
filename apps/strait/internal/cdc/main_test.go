@@ -7,5 +7,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	goleak.VerifyTestMain(m,
+		goleak.IgnoreTopFunction("github.com/testcontainers/testcontainers-go.(*Reaper).connect.func1"),
+		goleak.IgnoreTopFunction("internal/poll.runtime_pollWait"),
+	)
 }

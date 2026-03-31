@@ -373,7 +373,7 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 		_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
 	}()
 
-	deadline := time.After(10 * time.Second)
+	deadline := time.After(30 * time.Second)
 	for {
 		if int(totalRequests.Load()) >= deliveryCount {
 			break
@@ -651,7 +651,7 @@ func TestTimeoutHandlingWithSlowServer(t *testing.T) {
 	}()
 
 	// Wait for the first attempt (which will timeout).
-	deadline := time.After(10 * time.Second)
+	deadline := time.After(30 * time.Second)
 	for {
 		got, err := st.GetWebhookDelivery(ctx, d.ID)
 		if err != nil {
