@@ -49,17 +49,6 @@ import { getResend } from "@/lib/resend.server";
 /**
  * Resolve the auth database connection string.
  *
- * In production (Cloudflare Workers), uses the Hyperdrive binding which
- * provides a proxied connection string that `pg` can connect to over
- * Cloudflare's internal network. Without Hyperdrive, raw TCP connections
- * from Workers will hang indefinitely.
- *
- * Falls back to `AUTH_DATABASE_URL` for local development where raw
- * TCP is available.
- */
-/**
- * Resolve the auth database connection string.
- *
  * In Cloudflare Workers, uses the Hyperdrive binding which provides a
  * proxied connection string. Without Hyperdrive, `pg` cannot establish
  * raw TCP connections from the Workers runtime and will hang.
@@ -71,10 +60,15 @@ function getAuthConnectionString(): string {
   const hyperdrive = (cfEnv as Record<string, unknown>).HYPERDRIVE as
     | { connectionString: string }
     | undefined;
+  console.log("[auth] Hyperdrive binding present:", !!hyperdrive);
+  console.log("[auth] Hyperdrive connectionString present:", !!hyperdrive?.connectionString);
   if (hyperdrive?.connectionString) {
+    console.log("[auth] Using Hyperdrive connection string");
     return hyperdrive.connectionString;
   }
-  return process.env.AUTH_DATABASE_URL ?? "";
+  const fallback = process.env.AUTH_DATABASE_URL ?? "";
+  console.log("[auth] Falling back to AUTH_DATABASE_URL, present:", !!fallback);
+  return fallback;
 }
 
 /**
