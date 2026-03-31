@@ -14,7 +14,9 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as InvitationIdRouteImport } from './routes/invitation/$id'
 import { Route as AppUpgradeRouteImport } from './routes/app/upgrade'
+import { Route as AppEnterpriseContactRouteImport } from './routes/app/enterprise-contact'
 import { Route as AppDashboardRouteImport } from './routes/app/dashboard'
+import { Route as AppAnalyticsRouteImport } from './routes/app/analytics'
 import { Route as authVerifyEmailRouteImport } from './routes/(auth)/verify-email'
 import { Route as authTwoFactorRouteImport } from './routes/(auth)/two-factor'
 import { Route as authSsoRouteImport } from './routes/(auth)/sso'
@@ -72,9 +74,19 @@ const AppUpgradeRoute = AppUpgradeRouteImport.update({
   path: '/upgrade',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppEnterpriseContactRoute = AppEnterpriseContactRouteImport.update({
+  id: '/enterprise-contact',
+  path: '/enterprise-contact',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
   getParentRoute: () => AppLayoutRoute,
 } as any)
 const authVerifyEmailRoute = authVerifyEmailRouteImport.update({
@@ -246,7 +258,9 @@ export interface FileRoutesByFullPath {
   '/sso': typeof authSsoRoute
   '/two-factor': typeof authTwoFactorRoute
   '/verify-email': typeof authVerifyEmailRoute
+  '/app/analytics': typeof AppAnalyticsRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/enterprise-contact': typeof AppEnterpriseContactRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
@@ -284,7 +298,9 @@ export interface FileRoutesByTo {
   '/sso': typeof authSsoRoute
   '/two-factor': typeof authTwoFactorRoute
   '/verify-email': typeof authVerifyEmailRoute
+  '/app/analytics': typeof AppAnalyticsRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/enterprise-contact': typeof AppEnterpriseContactRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app': typeof AppIndexRoute
@@ -324,7 +340,9 @@ export interface FileRoutesById {
   '/(auth)/sso': typeof authSsoRoute
   '/(auth)/two-factor': typeof authTwoFactorRoute
   '/(auth)/verify-email': typeof authVerifyEmailRoute
+  '/app/analytics': typeof AppAnalyticsRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/enterprise-contact': typeof AppEnterpriseContactRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
@@ -365,7 +383,9 @@ export interface FileRouteTypes {
     | '/sso'
     | '/two-factor'
     | '/verify-email'
+    | '/app/analytics'
     | '/app/dashboard'
+    | '/app/enterprise-contact'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app/'
@@ -403,7 +423,9 @@ export interface FileRouteTypes {
     | '/sso'
     | '/two-factor'
     | '/verify-email'
+    | '/app/analytics'
     | '/app/dashboard'
+    | '/app/enterprise-contact'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app'
@@ -442,7 +464,9 @@ export interface FileRouteTypes {
     | '/(auth)/sso'
     | '/(auth)/two-factor'
     | '/(auth)/verify-email'
+    | '/app/analytics'
     | '/app/dashboard'
+    | '/app/enterprise-contact'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app/'
@@ -525,11 +549,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUpgradeRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/enterprise-contact': {
+      id: '/app/enterprise-contact'
+      path: '/enterprise-contact'
+      fullPath: '/app/enterprise-contact'
+      preLoaderRoute: typeof AppEnterpriseContactRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/dashboard': {
       id: '/app/dashboard'
       path: '/dashboard'
       fullPath: '/app/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/analytics': {
+      id: '/app/analytics'
+      path: '/analytics'
+      fullPath: '/app/analytics'
+      preLoaderRoute: typeof AppAnalyticsRouteImport
       parentRoute: typeof AppLayoutRoute
     }
     '/(auth)/verify-email': {
@@ -753,7 +791,9 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppLayoutRouteChildren {
+  AppAnalyticsRoute: typeof AppAnalyticsRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppEnterpriseContactRoute: typeof AppEnterpriseContactRoute
   AppUpgradeRoute: typeof AppUpgradeRoute
   AppIndexRoute: typeof AppIndexRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
@@ -778,7 +818,9 @@ interface AppLayoutRouteChildren {
 }
 
 const AppLayoutRouteChildren: AppLayoutRouteChildren = {
+  AppAnalyticsRoute: AppAnalyticsRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppEnterpriseContactRoute: AppEnterpriseContactRoute,
   AppUpgradeRoute: AppUpgradeRoute,
   AppIndexRoute: AppIndexRoute,
   AppJobsIdRoute: AppJobsIdRoute,

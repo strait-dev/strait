@@ -310,7 +310,7 @@ const PricingCard = ({
           onClick={(e) => {
             e.stopPropagation();
             if (isEnterprise) {
-              window.open("mailto:sales@strait.dev", "_blank");
+              window.location.assign("/app/enterprise-contact");
               return;
             }
             if (isFreePlan) {
