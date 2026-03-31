@@ -38,18 +38,19 @@ type WelcomeEmailFunc func(ctx context.Context, orgID string, planTier domain.Pl
 
 // WebhookHandler handles incoming Polar webhook events.
 type WebhookHandler struct {
-	store        Store
-	polarMapping *PolarMapping
-	secret       string
-	logger       *slog.Logger
-	enforcer     *Enforcer
-	auditStore   AuditStore
-	welcomeEmail WelcomeEmailFunc
-	posthog      *PostHogClient
-	chExporter   billingEventEnqueuer
-	edition      string
-	warnOnce     sync.Once
-	replayCache  sync.Map // msgID -> int64 (unix nanos), prevents replay within 10 minutes
+	store         Store
+	polarMapping  *PolarMapping
+	secret        string
+	logger        *slog.Logger
+	enforcer      *Enforcer
+	auditStore    AuditStore
+	welcomeEmail  WelcomeEmailFunc
+	posthog       *PostHogClient
+	chExporter    billingEventEnqueuer
+	billingEmails *BillingEmailSender
+	edition       string
+	warnOnce      sync.Once
+	replayCache   sync.Map // msgID -> int64 (unix nanos), prevents replay within 10 minutes
 }
 
 // WebhookOption configures optional WebhookHandler behavior.
@@ -68,6 +69,11 @@ func WithPostHog(client *PostHogClient) WebhookOption {
 // WithWebhookClickHouse attaches a ClickHouse exporter for billing events.
 func WithWebhookClickHouse(exporter billingEventEnqueuer) WebhookOption {
 	return func(h *WebhookHandler) { h.chExporter = exporter }
+}
+
+// WithBillingEmails sets the billing email sender for plan change notifications.
+func WithBillingEmails(sender *BillingEmailSender) WebhookOption {
+	return func(h *WebhookHandler) { h.billingEmails = sender }
 }
 
 // WithEdition sets the application edition for security mode decisions.
@@ -611,6 +617,18 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		auditDetails["previous_tier"] = previousTier
 	}
 	h.logAuditEvent(ctx, "subscription.updated", orgID, auditDetails)
+
+	// Send plan-changed email when the tier actually changed (async).
+	oldTier := previousTier
+	newTier := string(tier)
+	if h.billingEmails != nil && oldTier != "" && oldTier != newTier {
+		emails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
+		go func() { //nolint:gosec // intentional: async email with own timeout
+			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			h.billingEmails.SendPlanChanged(emailCtx, emails, oldTier, newTier)
+		}()
+	}
 
 	h.logger.Info("subscription updated",
 		"org_id", orgID,

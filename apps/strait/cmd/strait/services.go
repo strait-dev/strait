@@ -412,6 +412,10 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			resendClient := billing.NewResendWelcomeEmailFunc(cfg.ResendAPIKey, cfg.ResendFromEmail)
 			webhookOpts = append(webhookOpts, billing.WithWelcomeEmail(resendClient))
 		}
+		billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
+		if billingEmailSender != nil {
+			webhookOpts = append(webhookOpts, billing.WithBillingEmails(billingEmailSender))
+		}
 		webhookOpts = append(webhookOpts, billing.WithEdition(cfg.Edition))
 		wh := billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
 		g.Go(func(ctx context.Context) error {
