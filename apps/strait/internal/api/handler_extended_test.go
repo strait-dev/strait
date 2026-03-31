@@ -668,3 +668,16 @@ func TestOpenAPISpec_RetryWebhookDeliveryLegacy_NoPhantomParams(t *testing.T) {
 		t.Errorf("expected path param 'deliveryID', got %q", params[0])
 	}
 }
+
+func TestOpenAPISpec_RetryWebhookDelivery_NoPhantomParams(t *testing.T) {
+	t.Parallel()
+	spec := fetchOpenAPISpec(t)
+	params := openAPIPathParams(t, spec, "/v1/webhooks/deliveries/{id}/retry", "post")
+
+	if len(params) != 1 {
+		t.Fatalf("expected exactly 1 path param, got %d: %v", len(params), params)
+	}
+	if params[0] != "id" {
+		t.Errorf("expected path param 'id', got %q", params[0])
+	}
+}

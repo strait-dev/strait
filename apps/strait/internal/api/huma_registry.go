@@ -674,7 +674,9 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Errors:      []int{400, 401, 404, 409, 500},
 	}, func(_ context.Context, _ *struct {
 		ID string `path:"id" doc:"Webhook delivery ID" example:"whd_01HX8BQNP4"`
-	}) (*RetryWebhookDeliveryOutput, error) {
+	}) (*struct {
+		Body *domain.WebhookDelivery
+	}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
 
