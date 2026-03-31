@@ -85,6 +85,9 @@ var _ APIStore = &APIStoreMock{}
 //			CountCronJobsByOrgFunc: func(ctx context.Context, orgID string) (int, error) {
 //				panic("mock out the CountCronJobsByOrg method")
 //			},
+//			CountEnvironmentsByOrgFunc: func(ctx context.Context, orgID string) (int, error) {
+//				panic("mock out the CountEnvironmentsByOrg method")
+//			},
 //			CountEnvironmentsByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
 //				panic("mock out the CountEnvironmentsByProject method")
 //			},
@@ -108,6 +111,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			CountRunsForJobSinceFunc: func(ctx context.Context, jobID string, since time.Time) (int, error) {
 //				panic("mock out the CountRunsForJobSince method")
+//			},
+//			CountWebhookSubscriptionsByOrgFunc: func(ctx context.Context, orgID string) (int, error) {
+//				panic("mock out the CountWebhookSubscriptionsByOrg method")
 //			},
 //			CountWebhookSubscriptionsByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
 //				panic("mock out the CountWebhookSubscriptionsByProject method")
@@ -442,6 +448,9 @@ var _ APIStore = &APIStoreMock{}
 //			ListAPIKeysByProjectFunc: func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error) {
 //				panic("mock out the ListAPIKeysByProject method")
 //			},
+//			ListAPIKeysExpiringSoonFunc: func(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error) {
+//				panic("mock out the ListAPIKeysExpiringSoon method")
+//			},
 //			ListActiveWorkflowVersionsFunc: func(ctx context.Context, workflowID string) ([]store.ActiveVersion, error) {
 //				panic("mock out the ListActiveWorkflowVersions method")
 //			},
@@ -712,6 +721,9 @@ var _ APIStore = &APIStoreMock{}
 //			UpdateProjectDefaultRegionFunc: func(ctx context.Context, projectID string, defaultRegion string) error {
 //				panic("mock out the UpdateProjectDefaultRegion method")
 //			},
+//			UpdateProjectMaxKeyLifetimeDaysFunc: func(ctx context.Context, projectID string, days int) error {
+//				panic("mock out the UpdateProjectMaxKeyLifetimeDays method")
+//			},
 //			UpdateProjectRoleFunc: func(ctx context.Context, role *domain.ProjectRole) error {
 //				panic("mock out the UpdateProjectRole method")
 //			},
@@ -759,6 +771,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			UserHasProjectAccessFunc: func(ctx context.Context, userID string, projectID string) (bool, error) {
 //				panic("mock out the UserHasProjectAccess method")
+//			},
+//			VerifyAuditChainFunc: func(ctx context.Context, projectID string) (*domain.AuditChainVerification, error) {
+//				panic("mock out the VerifyAuditChain method")
 //			},
 //		}
 //
@@ -830,6 +845,9 @@ type APIStoreMock struct {
 	// CountCronJobsByOrgFunc mocks the CountCronJobsByOrg method.
 	CountCronJobsByOrgFunc func(ctx context.Context, orgID string) (int, error)
 
+	// CountEnvironmentsByOrgFunc mocks the CountEnvironmentsByOrg method.
+	CountEnvironmentsByOrgFunc func(ctx context.Context, orgID string) (int, error)
+
 	// CountEnvironmentsByProjectFunc mocks the CountEnvironmentsByProject method.
 	CountEnvironmentsByProjectFunc func(ctx context.Context, projectID string) (int, error)
 
@@ -853,6 +871,9 @@ type APIStoreMock struct {
 
 	// CountRunsForJobSinceFunc mocks the CountRunsForJobSince method.
 	CountRunsForJobSinceFunc func(ctx context.Context, jobID string, since time.Time) (int, error)
+
+	// CountWebhookSubscriptionsByOrgFunc mocks the CountWebhookSubscriptionsByOrg method.
+	CountWebhookSubscriptionsByOrgFunc func(ctx context.Context, orgID string) (int, error)
 
 	// CountWebhookSubscriptionsByProjectFunc mocks the CountWebhookSubscriptionsByProject method.
 	CountWebhookSubscriptionsByProjectFunc func(ctx context.Context, projectID string) (int, error)
@@ -1187,6 +1208,9 @@ type APIStoreMock struct {
 	// ListAPIKeysByProjectFunc mocks the ListAPIKeysByProject method.
 	ListAPIKeysByProjectFunc func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 
+	// ListAPIKeysExpiringSoonFunc mocks the ListAPIKeysExpiringSoon method.
+	ListAPIKeysExpiringSoonFunc func(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error)
+
 	// ListActiveWorkflowVersionsFunc mocks the ListActiveWorkflowVersions method.
 	ListActiveWorkflowVersionsFunc func(ctx context.Context, workflowID string) ([]store.ActiveVersion, error)
 
@@ -1412,9 +1436,6 @@ type APIStoreMock struct {
 	// StreamAuditEventsFunc mocks the StreamAuditEvents method.
 	StreamAuditEventsFunc func(ctx context.Context, projectID string, actorID string, resourceType string, from time.Time, to time.Time, fn func(*domain.AuditEvent) error) error
 
-	// VerifyAuditChainFunc mocks the VerifyAuditChain method.
-	VerifyAuditChainFunc func(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
-
 	// SumJobMemorySizeBytesFunc mocks the SumJobMemorySizeBytes method.
 	SumJobMemorySizeBytesFunc func(ctx context.Context, jobID string) (int, error)
 
@@ -1463,9 +1484,6 @@ type APIStoreMock struct {
 	// UpdateProjectMaxKeyLifetimeDaysFunc mocks the UpdateProjectMaxKeyLifetimeDays method.
 	UpdateProjectMaxKeyLifetimeDaysFunc func(ctx context.Context, projectID string, days int) error
 
-	// ListAPIKeysExpiringSoonFunc mocks the ListAPIKeysExpiringSoon method.
-	ListAPIKeysExpiringSoonFunc func(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error)
-
 	// UpdateProjectRoleFunc mocks the UpdateProjectRole method.
 	UpdateProjectRoleFunc func(ctx context.Context, role *domain.ProjectRole) error
 
@@ -1513,6 +1531,9 @@ type APIStoreMock struct {
 
 	// UserHasProjectAccessFunc mocks the UserHasProjectAccess method.
 	UserHasProjectAccessFunc func(ctx context.Context, userID string, projectID string) (bool, error)
+
+	// VerifyAuditChainFunc mocks the VerifyAuditChain method.
+	VerifyAuditChainFunc func(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -1709,6 +1730,13 @@ type APIStoreMock struct {
 			// OrgID is the orgID argument value.
 			OrgID string
 		}
+		// CountEnvironmentsByOrg holds details about calls to the CountEnvironmentsByOrg method.
+		CountEnvironmentsByOrg []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OrgID is the orgID argument value.
+			OrgID string
+		}
 		// CountEnvironmentsByProject holds details about calls to the CountEnvironmentsByProject method.
 		CountEnvironmentsByProject []struct {
 			// Ctx is the ctx argument value.
@@ -1766,6 +1794,13 @@ type APIStoreMock struct {
 			JobID string
 			// Since is the since argument value.
 			Since time.Time
+		}
+		// CountWebhookSubscriptionsByOrg holds details about calls to the CountWebhookSubscriptionsByOrg method.
+		CountWebhookSubscriptionsByOrg []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OrgID is the orgID argument value.
+			OrgID string
 		}
 		// CountWebhookSubscriptionsByProject holds details about calls to the CountWebhookSubscriptionsByProject method.
 		CountWebhookSubscriptionsByProject []struct {
@@ -2662,6 +2697,15 @@ type APIStoreMock struct {
 			// Cursor is the cursor argument value.
 			Cursor *time.Time
 		}
+		// ListAPIKeysExpiringSoon holds details about calls to the ListAPIKeysExpiringSoon method.
+		ListAPIKeysExpiringSoon []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// WithinDays is the withinDays argument value.
+			WithinDays int
+		}
 		// ListActiveWorkflowVersions holds details about calls to the ListActiveWorkflowVersions method.
 		ListActiveWorkflowVersions []struct {
 			// Ctx is the ctx argument value.
@@ -3465,11 +3509,6 @@ type APIStoreMock struct {
 			// Fn is the fn argument value.
 			Fn func(*domain.AuditEvent) error
 		}
-		// VerifyAuditChain holds details about calls to the VerifyAuditChain method.
-		VerifyAuditChain []struct {
-			Ctx       context.Context
-			ProjectID string
-		}
 		// SumJobMemorySizeBytes holds details about calls to the SumJobMemorySizeBytes method.
 		SumJobMemorySizeBytes []struct {
 			// Ctx is the ctx argument value.
@@ -3596,6 +3635,15 @@ type APIStoreMock struct {
 			ProjectID string
 			// DefaultRegion is the defaultRegion argument value.
 			DefaultRegion string
+		}
+		// UpdateProjectMaxKeyLifetimeDays holds details about calls to the UpdateProjectMaxKeyLifetimeDays method.
+		UpdateProjectMaxKeyLifetimeDays []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Days is the days argument value.
+			Days int
 		}
 		// UpdateProjectRole holds details about calls to the UpdateProjectRole method.
 		UpdateProjectRole []struct {
@@ -3743,6 +3791,13 @@ type APIStoreMock struct {
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
+		// VerifyAuditChain holds details about calls to the VerifyAuditChain method.
+		VerifyAuditChain []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+		}
 	}
 	lockAggregateCostStatsHourly           sync.RWMutex
 	lockApproveDeviceCode                  sync.RWMutex
@@ -3765,6 +3820,7 @@ type APIStoreMock struct {
 	lockCountActiveWorkflowRunsByVersion   sync.RWMutex
 	lockCountBatchBufferItems              sync.RWMutex
 	lockCountCronJobsByOrg                 sync.RWMutex
+	lockCountEnvironmentsByOrg             sync.RWMutex
 	lockCountEnvironmentsByProject         sync.RWMutex
 	lockCountEventTriggersFinishedBefore   sync.RWMutex
 	lockCountProjectActiveRuns             sync.RWMutex
@@ -3773,6 +3829,7 @@ type APIStoreMock struct {
 	lockCountRunToolCalls                  sync.RWMutex
 	lockCountRunningWorkflowRuns           sync.RWMutex
 	lockCountRunsForJobSince               sync.RWMutex
+	lockCountWebhookSubscriptionsByOrg     sync.RWMutex
 	lockCountWebhookSubscriptionsByProject sync.RWMutex
 	lockCreateAPIKey                       sync.RWMutex
 	lockCreateAuditEvent                   sync.RWMutex
@@ -3884,6 +3941,7 @@ type APIStoreMock struct {
 	lockInsertEvent                        sync.RWMutex
 	lockListAPIKeysByOrg                   sync.RWMutex
 	lockListAPIKeysByProject               sync.RWMutex
+	lockListAPIKeysExpiringSoon            sync.RWMutex
 	lockListActiveWorkflowVersions         sync.RWMutex
 	lockListAuditEvents                    sync.RWMutex
 	lockListBatchOperations                sync.RWMutex
@@ -3959,7 +4017,6 @@ type APIStoreMock struct {
 	lockSeedProjectSystemRoles             sync.RWMutex
 	lockSetEventTriggerSentBy              sync.RWMutex
 	lockStreamAuditEvents                  sync.RWMutex
-	lockVerifyAuditChain                   sync.RWMutex
 	lockSumJobMemorySizeBytes              sync.RWMutex
 	lockSumProjectDailyCostMicrousd        sync.RWMutex
 	lockSumRunCostMicrousd                 sync.RWMutex
@@ -3975,6 +4032,7 @@ type APIStoreMock struct {
 	lockUpdateLogDrain                     sync.RWMutex
 	lockUpdateNotificationChannel          sync.RWMutex
 	lockUpdateProjectDefaultRegion         sync.RWMutex
+	lockUpdateProjectMaxKeyLifetimeDays    sync.RWMutex
 	lockUpdateProjectRole                  sync.RWMutex
 	lockUpdateRunDebugMode                 sync.RWMutex
 	lockUpdateRunMetadata                  sync.RWMutex
@@ -3991,6 +4049,7 @@ type APIStoreMock struct {
 	lockUpsertRunState                     sync.RWMutex
 	lockUpsertWorkflowPolicy               sync.RWMutex
 	lockUserHasProjectAccess               sync.RWMutex
+	lockVerifyAuditChain                   sync.RWMutex
 }
 
 // AggregateCostStatsHourly calls AggregateCostStatsHourlyFunc.
@@ -4921,6 +4980,46 @@ func (mock *APIStoreMock) CountCronJobsByOrgCalls() []struct {
 	return calls
 }
 
+// CountEnvironmentsByOrg calls CountEnvironmentsByOrgFunc.
+func (mock *APIStoreMock) CountEnvironmentsByOrg(ctx context.Context, orgID string) (int, error) {
+	callInfo := struct {
+		Ctx   context.Context
+		OrgID string
+	}{
+		Ctx:   ctx,
+		OrgID: orgID,
+	}
+	mock.lockCountEnvironmentsByOrg.Lock()
+	mock.calls.CountEnvironmentsByOrg = append(mock.calls.CountEnvironmentsByOrg, callInfo)
+	mock.lockCountEnvironmentsByOrg.Unlock()
+	if mock.CountEnvironmentsByOrgFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountEnvironmentsByOrgFunc(ctx, orgID)
+}
+
+// CountEnvironmentsByOrgCalls gets all the calls that were made to CountEnvironmentsByOrg.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountEnvironmentsByOrgCalls())
+func (mock *APIStoreMock) CountEnvironmentsByOrgCalls() []struct {
+	Ctx   context.Context
+	OrgID string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		OrgID string
+	}
+	mock.lockCountEnvironmentsByOrg.RLock()
+	calls = mock.calls.CountEnvironmentsByOrg
+	mock.lockCountEnvironmentsByOrg.RUnlock()
+	return calls
+}
+
 // CountEnvironmentsByProject calls CountEnvironmentsByProjectFunc.
 func (mock *APIStoreMock) CountEnvironmentsByProject(ctx context.Context, projectID string) (int, error) {
 	callInfo := struct {
@@ -5242,6 +5341,46 @@ func (mock *APIStoreMock) CountRunsForJobSinceCalls() []struct {
 	mock.lockCountRunsForJobSince.RLock()
 	calls = mock.calls.CountRunsForJobSince
 	mock.lockCountRunsForJobSince.RUnlock()
+	return calls
+}
+
+// CountWebhookSubscriptionsByOrg calls CountWebhookSubscriptionsByOrgFunc.
+func (mock *APIStoreMock) CountWebhookSubscriptionsByOrg(ctx context.Context, orgID string) (int, error) {
+	callInfo := struct {
+		Ctx   context.Context
+		OrgID string
+	}{
+		Ctx:   ctx,
+		OrgID: orgID,
+	}
+	mock.lockCountWebhookSubscriptionsByOrg.Lock()
+	mock.calls.CountWebhookSubscriptionsByOrg = append(mock.calls.CountWebhookSubscriptionsByOrg, callInfo)
+	mock.lockCountWebhookSubscriptionsByOrg.Unlock()
+	if mock.CountWebhookSubscriptionsByOrgFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountWebhookSubscriptionsByOrgFunc(ctx, orgID)
+}
+
+// CountWebhookSubscriptionsByOrgCalls gets all the calls that were made to CountWebhookSubscriptionsByOrg.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountWebhookSubscriptionsByOrgCalls())
+func (mock *APIStoreMock) CountWebhookSubscriptionsByOrgCalls() []struct {
+	Ctx   context.Context
+	OrgID string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		OrgID string
+	}
+	mock.lockCountWebhookSubscriptionsByOrg.RLock()
+	calls = mock.calls.CountWebhookSubscriptionsByOrg
+	mock.lockCountWebhookSubscriptionsByOrg.RUnlock()
 	return calls
 }
 
@@ -9871,6 +10010,50 @@ func (mock *APIStoreMock) ListAPIKeysByProjectCalls() []struct {
 	return calls
 }
 
+// ListAPIKeysExpiringSoon calls ListAPIKeysExpiringSoonFunc.
+func (mock *APIStoreMock) ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error) {
+	callInfo := struct {
+		Ctx        context.Context
+		ProjectID  string
+		WithinDays int
+	}{
+		Ctx:        ctx,
+		ProjectID:  projectID,
+		WithinDays: withinDays,
+	}
+	mock.lockListAPIKeysExpiringSoon.Lock()
+	mock.calls.ListAPIKeysExpiringSoon = append(mock.calls.ListAPIKeysExpiringSoon, callInfo)
+	mock.lockListAPIKeysExpiringSoon.Unlock()
+	if mock.ListAPIKeysExpiringSoonFunc == nil {
+		var (
+			aPIKeysOut []domain.APIKey
+			errOut     error
+		)
+		return aPIKeysOut, errOut
+	}
+	return mock.ListAPIKeysExpiringSoonFunc(ctx, projectID, withinDays)
+}
+
+// ListAPIKeysExpiringSoonCalls gets all the calls that were made to ListAPIKeysExpiringSoon.
+// Check the length with:
+//
+//	len(mockedAPIStore.ListAPIKeysExpiringSoonCalls())
+func (mock *APIStoreMock) ListAPIKeysExpiringSoonCalls() []struct {
+	Ctx        context.Context
+	ProjectID  string
+	WithinDays int
+} {
+	var calls []struct {
+		Ctx        context.Context
+		ProjectID  string
+		WithinDays int
+	}
+	mock.lockListAPIKeysExpiringSoon.RLock()
+	calls = mock.calls.ListAPIKeysExpiringSoon
+	mock.lockListAPIKeysExpiringSoon.RUnlock()
+	return calls
+}
+
 // ListActiveWorkflowVersions calls ListActiveWorkflowVersionsFunc.
 func (mock *APIStoreMock) ListActiveWorkflowVersions(ctx context.Context, workflowID string) ([]store.ActiveVersion, error) {
 	callInfo := struct {
@@ -13414,24 +13597,6 @@ func (mock *APIStoreMock) StreamAuditEventsCalls() []struct {
 	return calls
 }
 
-// VerifyAuditChain calls VerifyAuditChainFunc.
-func (mock *APIStoreMock) VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error) {
-	callInfo := struct {
-		Ctx       context.Context
-		ProjectID string
-	}{
-		Ctx:       ctx,
-		ProjectID: projectID,
-	}
-	mock.lockVerifyAuditChain.Lock()
-	mock.calls.VerifyAuditChain = append(mock.calls.VerifyAuditChain, callInfo)
-	mock.lockVerifyAuditChain.Unlock()
-	if mock.VerifyAuditChainFunc == nil {
-		return nil, nil
-	}
-	return mock.VerifyAuditChainFunc(ctx, projectID)
-}
-
 // SumJobMemorySizeBytes calls SumJobMemorySizeBytesFunc.
 func (mock *APIStoreMock) SumJobMemorySizeBytes(ctx context.Context, jobID string) (int, error) {
 	callInfo := struct {
@@ -14067,18 +14232,45 @@ func (mock *APIStoreMock) UpdateProjectDefaultRegionCalls() []struct {
 
 // UpdateProjectMaxKeyLifetimeDays calls UpdateProjectMaxKeyLifetimeDaysFunc.
 func (mock *APIStoreMock) UpdateProjectMaxKeyLifetimeDays(ctx context.Context, projectID string, days int) error {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		Days      int
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		Days:      days,
+	}
+	mock.lockUpdateProjectMaxKeyLifetimeDays.Lock()
+	mock.calls.UpdateProjectMaxKeyLifetimeDays = append(mock.calls.UpdateProjectMaxKeyLifetimeDays, callInfo)
+	mock.lockUpdateProjectMaxKeyLifetimeDays.Unlock()
 	if mock.UpdateProjectMaxKeyLifetimeDaysFunc == nil {
-		return nil
+		var (
+			errOut error
+		)
+		return errOut
 	}
 	return mock.UpdateProjectMaxKeyLifetimeDaysFunc(ctx, projectID, days)
 }
 
-// ListAPIKeysExpiringSoon calls ListAPIKeysExpiringSoonFunc.
-func (mock *APIStoreMock) ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error) {
-	if mock.ListAPIKeysExpiringSoonFunc == nil {
-		return nil, nil
+// UpdateProjectMaxKeyLifetimeDaysCalls gets all the calls that were made to UpdateProjectMaxKeyLifetimeDays.
+// Check the length with:
+//
+//	len(mockedAPIStore.UpdateProjectMaxKeyLifetimeDaysCalls())
+func (mock *APIStoreMock) UpdateProjectMaxKeyLifetimeDaysCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	Days      int
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		Days      int
 	}
-	return mock.ListAPIKeysExpiringSoonFunc(ctx, projectID, withinDays)
+	mock.lockUpdateProjectMaxKeyLifetimeDays.RLock()
+	calls = mock.calls.UpdateProjectMaxKeyLifetimeDays
+	mock.lockUpdateProjectMaxKeyLifetimeDays.RUnlock()
+	return calls
 }
 
 // UpdateProjectRole calls UpdateProjectRoleFunc.
@@ -14771,5 +14963,45 @@ func (mock *APIStoreMock) UserHasProjectAccessCalls() []struct {
 	mock.lockUserHasProjectAccess.RLock()
 	calls = mock.calls.UserHasProjectAccess
 	mock.lockUserHasProjectAccess.RUnlock()
+	return calls
+}
+
+// VerifyAuditChain calls VerifyAuditChainFunc.
+func (mock *APIStoreMock) VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+	}
+	mock.lockVerifyAuditChain.Lock()
+	mock.calls.VerifyAuditChain = append(mock.calls.VerifyAuditChain, callInfo)
+	mock.lockVerifyAuditChain.Unlock()
+	if mock.VerifyAuditChainFunc == nil {
+		var (
+			auditChainVerificationOut *domain.AuditChainVerification
+			errOut                    error
+		)
+		return auditChainVerificationOut, errOut
+	}
+	return mock.VerifyAuditChainFunc(ctx, projectID)
+}
+
+// VerifyAuditChainCalls gets all the calls that were made to VerifyAuditChain.
+// Check the length with:
+//
+//	len(mockedAPIStore.VerifyAuditChainCalls())
+func (mock *APIStoreMock) VerifyAuditChainCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+	}
+	mock.lockVerifyAuditChain.RLock()
+	calls = mock.calls.VerifyAuditChain
+	mock.lockVerifyAuditChain.RUnlock()
 	return calls
 }

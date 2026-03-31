@@ -144,8 +144,9 @@ func (s *Server) checkCronOverlapPolicy(ctx context.Context, projectID, policy s
 	)
 }
 
-// checkEnvironmentLimit verifies that the project has not exceeded its
-// plan's MaxEnvironments. Counts environments via the store.
+// checkEnvironmentLimit verifies that the org has not exceeded its
+// plan's MaxEnvironments. Counts environments across ALL projects in the org
+// to match the downgrade cleanup logic (DeactivateExcessEnvironments).
 func (s *Server) checkEnvironmentLimit(ctx context.Context, projectID string) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
@@ -156,7 +157,12 @@ func (s *Server) checkEnvironmentLimit(ctx context.Context, projectID string) er
 		return nil // unlimited or not enforced
 	}
 
-	count, err := s.store.CountEnvironmentsByProject(ctx, projectID)
+	// Count org-wide to match downgrade enforcement scope.
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return nil //nolint:nilerr // fail open
+	}
+	count, err := s.store.CountEnvironmentsByOrg(ctx, orgID)
 	if err != nil {
 		return nil //nolint:nilerr // fail open: billing unavailable should not block environment creation
 	}
@@ -210,8 +216,8 @@ func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronE
 	return nil
 }
 
-// checkWebhookEndpointLimit verifies that the project has not exceeded its
-// plan's MaxWebhookEndpoints.
+// checkWebhookEndpointLimit verifies that the org has not exceeded its
+// plan's MaxWebhookEndpoints. Counts across ALL projects to match downgrade cleanup.
 func (s *Server) checkWebhookEndpointLimit(ctx context.Context, projectID string) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
@@ -228,7 +234,12 @@ func (s *Server) checkWebhookEndpointLimit(ctx context.Context, projectID string
 		)
 	}
 
-	count, err := s.store.CountWebhookSubscriptionsByProject(ctx, projectID)
+	// Count org-wide to match downgrade enforcement scope.
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return nil //nolint:nilerr // fail open
+	}
+	count, err := s.store.CountWebhookSubscriptionsByOrg(ctx, orgID)
 	if err != nil {
 		return nil //nolint:nilerr // fail open: billing unavailable should not block webhook creation
 	}

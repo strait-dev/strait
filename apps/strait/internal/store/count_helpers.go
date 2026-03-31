@@ -27,6 +27,23 @@ func (q *Queries) CountCronJobsByOrg(ctx context.Context, orgID string) (int, er
 	return count, nil
 }
 
+// CountEnvironmentsByOrg counts environments across all active projects in an org.
+func (q *Queries) CountEnvironmentsByOrg(ctx context.Context, orgID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountEnvironmentsByOrg")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM environments
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count environments by org: %w", err)
+	}
+	return count, nil
+}
+
 // CountEnvironmentsByProject counts environments belonging to a project.
 func (q *Queries) CountEnvironmentsByProject(ctx context.Context, projectID string) (int, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountEnvironmentsByProject")
@@ -159,6 +176,24 @@ func (q *Queries) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgI
 		return 0, fmt.Errorf("deactivate excess webhook subscriptions: %w", err)
 	}
 	return result.RowsAffected(), nil
+}
+
+// CountWebhookSubscriptionsByOrg counts active webhook subscriptions across all projects in an org.
+func (q *Queries) CountWebhookSubscriptionsByOrg(ctx context.Context, orgID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountWebhookSubscriptionsByOrg")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM webhook_subscriptions ws
+		WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND ws.active = true
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count webhook subscriptions by org: %w", err)
+	}
+	return count, nil
 }
 
 // CountWebhookSubscriptionsByProject counts webhook subscriptions for a project.

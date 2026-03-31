@@ -317,7 +317,9 @@ type AuthStore interface {
 	ListJobsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	CountCronJobsByOrg(ctx context.Context, orgID string) (int, error)
 	CountEnvironmentsByProject(ctx context.Context, projectID string) (int, error)
+	CountEnvironmentsByOrg(ctx context.Context, orgID string) (int, error)
 	CountWebhookSubscriptionsByProject(ctx context.Context, projectID string) (int, error)
+	CountWebhookSubscriptionsByOrg(ctx context.Context, orgID string) (int, error)
 	CreateDeviceCode(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error
 	GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
 	ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error
