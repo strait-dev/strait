@@ -1,6 +1,5 @@
 import { Badge } from "@strait/ui/components/badge";
 import { cn } from "@strait/ui/utils/index";
-import FeatureBadge from "@/components/billing/feature-badge";
 import {
   Background,
   Controls,
@@ -12,6 +11,7 @@ import {
   useEdgesState,
   useNodesState,
 } from "@xyflow/react";
+import FeatureBadge from "@/components/billing/feature-badge";
 import "@xyflow/react/dist/style.css";
 import { useMemo } from "react";
 import type { StepRunStatus, WorkflowStepType } from "@/hooks/api/types";

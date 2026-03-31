@@ -73,9 +73,8 @@ const PaymentFailed = ({
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
             {name ? `Hello ${name},` : "Hello,"} we were unable to process
             payment for your {planName} plan. Your account is in a grace period
-            until{" "}
-            <strong style={{ color: "#252525" }}>{gracePeriodEnd}</strong>.
-            Please update your payment method to avoid service interruption.
+            until <strong style={{ color: "#252525" }}>{gracePeriodEnd}</strong>
+            . Please update your payment method to avoid service interruption.
           </Text>
 
           <br />

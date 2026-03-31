@@ -189,7 +189,6 @@ function RouteComponent() {
               </Suspense>
             </QueryErrorBoundary>
           </TabsContent>
-
         </Tabs>
       </div>
     </Shell>
