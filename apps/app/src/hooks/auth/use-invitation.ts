@@ -9,6 +9,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
+import { authClient } from "@/lib/auth-client";
 import { getAuth } from "@/lib/auth.server";
 
 export type InvitationData = {
@@ -281,8 +282,6 @@ export const useAcceptInvitation = () => {
   return useMutation({
     mutationKey: ["invitations", "accept"],
     mutationFn: async (invitationId: string) => {
-      // This needs to be called client-side; we import dynamically
-      const { authClient } = await import("@/lib/auth-client");
       const result = await authClient.organization.acceptInvitation({
         invitationId,
       });
@@ -318,7 +317,6 @@ export const useRejectInvitation = () => {
   return useMutation({
     mutationKey: ["invitations", "reject"],
     mutationFn: async (invitationId: string) => {
-      const { authClient } = await import("@/lib/auth-client");
       const result = await authClient.organization.rejectInvitation({
         invitationId,
       });
