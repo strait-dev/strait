@@ -23,7 +23,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -52,6 +52,7 @@ import { agentCostSummaryQueryOptions } from "@/hooks/api/use-agent-costs";
 import {
   agentQueryOptions,
   agentRunsQueryOptions,
+  agentVersionsQueryOptions,
   useDeployAgent,
   useRunAgent,
 } from "@/hooks/api/use-agents";
@@ -67,6 +68,10 @@ import {
 } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
 
+const AgentVersionTimeline = lazy(
+  () => import("@/components/agents/agent-version-timeline")
+);
+
 export const Route = createFileRoute("/app/agents/$id")({
   loader: async ({ context, params }) => {
     await Promise.all([
@@ -76,6 +81,9 @@ export const Route = createFileRoute("/app/agents/$id")({
       ),
       context.queryClient.ensureQueryData(
         agentCostSummaryQueryOptions(params.id)
+      ),
+      context.queryClient.ensureQueryData(
+        agentVersionsQueryOptions(params.id)
       ),
     ]);
   },
@@ -163,6 +171,9 @@ function AgentDetailPage() {
   }) as {
     data: AgentCostSummary;
   };
+  const { data: versions } = useSuspenseQuery(
+    agentVersionsQueryOptions(id)
+  ) as { data: import("@/hooks/api/use-agents").AgentVersion[] | undefined };
   const deployAgent = useDeployAgent();
   const runAgent = useRunAgent();
   const [activeTab, setActiveTab] = useState("overview");
@@ -266,6 +277,7 @@ function AgentDetailPage() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="runs">Recent Runs</TabsTrigger>
           <TabsTrigger value="costs">Costs</TabsTrigger>
+          <TabsTrigger value="versions">Versions</TabsTrigger>
           <TabsTrigger value="config">Config</TabsTrigger>
         </TabsList>
 
@@ -785,6 +797,18 @@ function AgentDetailPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent className="mt-6" value="versions">
+          <Suspense
+            fallback={
+              <p className="text-muted-foreground text-sm">
+                Loading versions...
+              </p>
+            }
+          >
+            <AgentVersionTimeline versions={versions ?? []} />
+          </Suspense>
         </TabsContent>
 
         <TabsContent className="mt-6" value="config">

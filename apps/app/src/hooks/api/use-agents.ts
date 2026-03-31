@@ -228,7 +228,7 @@ export const useRunAgent = () => {
   });
 };
 
-type AgentVersion = {
+export type AgentVersion = {
   agent_id: string;
   config_snapshot?: Record<string, object>;
   created_at: string;
