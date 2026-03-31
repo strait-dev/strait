@@ -34,10 +34,8 @@
     "run-all": "bun run manypkg:fix && bun run manypkg:check && bun run biome:format && bun run biome:write && bun run biome:fix:unsafe && bun run biome:lint && bun run typecheck && bun run go:lint",
     "update-all": "bunx npm-check-updates -ui -ws",
     "release": "changeset version && bash packages/scripts/sync-sdk-versions.sh",
-    "deploy:api": "cd apps/strait && make deploy",
-    "deploy:api:staging": "cd apps/strait && make deploy-staging",
-    "deploy:app": "cd apps/app && bun run deploy",
-    "deploy:website": "cd apps/website && bun run deploy",
+    "deploy": "cd apps/strait && make deploy",
+    "deploy:staging": "cd apps/strait && make deploy-staging",
     "deploy:sequin": "cd packages/deploy/sequin && fly deploy -a strait-sequin"
   },
   "overrides": {
@@ -54,11 +52,11 @@
     "@biomejs/biome": "2.4.10",
     "@changesets/cli": "^2.30.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260403.1",
-    "knip": "^6.3.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260330.1",
+    "knip": "^6.1.0",
     "lefthook": "^2.1.4",
     "openapi-typescript": "^7.13.0",
-    "turbo": "^2.9.3",
-    "ultracite": "7.4.3"
+    "turbo": "^2.9.1",
+    "ultracite": "7.4.0"
   }
 }

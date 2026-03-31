@@ -24,8 +24,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260327.2",
-    "fast-check": "^3.23.2",
+    "@typescript/native-preview": "^7.0.0-dev.20260330.1",
+    "fast-check": "^4.6.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2",
     "wrangler": "^4.78.0"
