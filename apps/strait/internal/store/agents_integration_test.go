@@ -968,3 +968,269 @@ func TestListAgentMessagesByAgent_WrongAgent(t *testing.T) {
 		t.Fatalf("expected 0 messages, got %d", len(messages))
 	}
 }
+
+// mustStoreWithEncryption returns a Queries with a test encryption key configured.
+func mustStoreWithEncryption(t *testing.T) *store.Queries {
+	t.Helper()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-for-agents-32b")
+	return q
+}
+
+// -- Provider secrets encryption integration tests.
+
+func TestProviderSecrets_EncryptDecryptRoundTrip(t *testing.T) {
+	q := mustStoreWithEncryption(t)
+
+	secrets := map[string]string{"openai": "sk-test-123", "anthropic": "sk-ant-456"}
+	ciphertext, err := q.EncryptAgentProviderSecrets(secrets)
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+	if ciphertext == "" {
+		t.Fatal("expected non-empty ciphertext")
+	}
+
+	decrypted, err := q.DecryptAgentProviderSecrets(ciphertext)
+	if err != nil {
+		t.Fatalf("Decrypt() error = %v", err)
+	}
+	if decrypted["openai"] != "sk-test-123" {
+		t.Fatalf("openai = %q", decrypted["openai"])
+	}
+	if decrypted["anthropic"] != "sk-ant-456" {
+		t.Fatalf("anthropic = %q", decrypted["anthropic"])
+	}
+}
+
+func TestProviderSecrets_EmptyMapReturnsEmptyString(t *testing.T) {
+	q := mustStoreWithEncryption(t)
+
+	ciphertext, err := q.EncryptAgentProviderSecrets(map[string]string{})
+	if err != nil {
+		t.Fatalf("Encrypt(empty) error = %v", err)
+	}
+	if ciphertext != "" {
+		t.Fatalf("expected empty ciphertext for empty map, got %q", ciphertext)
+	}
+
+	decrypted, err := q.DecryptAgentProviderSecrets("")
+	if err != nil {
+		t.Fatalf("Decrypt(empty) error = %v", err)
+	}
+	if decrypted != nil {
+		t.Fatalf("expected nil for empty ciphertext, got %v", decrypted)
+	}
+}
+
+func TestProviderSecrets_DifferentCiphertext(t *testing.T) {
+	q := mustStoreWithEncryption(t)
+
+	secrets := map[string]string{"openai": "sk-test"}
+	ct1, _ := q.EncryptAgentProviderSecrets(secrets)
+	ct2, _ := q.EncryptAgentProviderSecrets(secrets)
+
+	if ct1 == ct2 {
+		t.Fatal("expected different ciphertext for same data (random nonce)")
+	}
+}
+
+func TestProviderSecrets_CorruptCiphertextFails(t *testing.T) {
+	q := mustStoreWithEncryption(t)
+
+	_, err := q.DecryptAgentProviderSecrets("this-is-not-valid-ciphertext")
+	if err == nil {
+		t.Fatal("expected error decrypting corrupt ciphertext")
+	}
+}
+
+// -- Deployment pagination integration tests.
+
+func TestListAgentDeployments_EmptyAgent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-dep-empty", Name: "Dep Empty"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	job := mustCreateJob(t, ctx, q, project.ID)
+	agent := &domain.Agent{
+		ID: newID(), ProjectID: project.ID, JobID: job.ID,
+		Name: "No Deps", Slug: "no-deps", Model: "gpt-5.4",
+		Config: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	deps, err := q.ListAgentDeployments(ctx, agent.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListAgentDeployments() error = %v", err)
+	}
+	if len(deps) != 0 {
+		t.Fatalf("expected 0 deployments, got %d", len(deps))
+	}
+}
+
+func TestUpdateAgentDeployment_StatusAndMetadata(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-dep-up", Name: "Dep Update"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	job := mustCreateJob(t, ctx, q, project.ID)
+	agent := &domain.Agent{
+		ID: newID(), ProjectID: project.ID, JobID: job.ID,
+		Name: "Dep Agent", Slug: "dep-agent", Model: "gpt-5.4",
+		Config: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	dep := &domain.AgentDeployment{
+		ID: newID(), AgentID: agent.ID, Version: 1,
+		Status: domain.AgentDeploymentStatusPending, Provider: "local_stub",
+		ConfigSnapshot: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgentDeployment(ctx, dep); err != nil {
+		t.Fatalf("CreateAgentDeployment() error = %v", err)
+	}
+
+	if err := q.UpdateAgentDeployment(ctx, dep.ID, map[string]any{
+		"status":            string(domain.AgentDeploymentStatusDeployed),
+		"provider_metadata": json.RawMessage(`{"script":"test"}`),
+	}); err != nil {
+		t.Fatalf("UpdateAgentDeployment() error = %v", err)
+	}
+
+	latest, err := q.GetLatestAgentDeployment(ctx, agent.ID)
+	if err != nil {
+		t.Fatalf("GetLatestAgentDeployment() error = %v", err)
+	}
+	if latest.Status != domain.AgentDeploymentStatusDeployed {
+		t.Fatalf("Status = %s, want deployed", latest.Status)
+	}
+}
+
+// -- Agent CRUD edge cases.
+
+func TestCreateAgent_SlugConflict(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-conflict", Name: "Conflict Project"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	job1 := mustCreateJob(t, ctx, q, project.ID)
+	job2 := mustCreateJob(t, ctx, q, project.ID)
+
+	a1 := &domain.Agent{
+		ID: newID(), ProjectID: project.ID, JobID: job1.ID,
+		Name: "Agent 1", Slug: "conflict-slug", Model: "gpt-5.4",
+		Config: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgent(ctx, a1); err != nil {
+		t.Fatalf("first CreateAgent() error = %v", err)
+	}
+
+	a2 := &domain.Agent{
+		ID: newID(), ProjectID: project.ID, JobID: job2.ID,
+		Name: "Agent 2", Slug: "conflict-slug", Model: "gpt-5.4",
+		Config: json.RawMessage(`{}`),
+	}
+	err := q.CreateAgent(ctx, a2)
+	if !errors.Is(err, store.ErrAgentSlugConflict) {
+		t.Fatalf("expected ErrAgentSlugConflict, got %v", err)
+	}
+}
+
+func TestGetAgent_AfterUpdate(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-upd", Name: "Update Project"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	job := mustCreateJob(t, ctx, q, project.ID)
+	agent := &domain.Agent{
+		ID: newID(), ProjectID: project.ID, JobID: job.ID,
+		Name: "Original", Slug: "original", Model: "gpt-5.4",
+		Config: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	agent.Name = "Updated Name"
+	agent.Model = "claude-sonnet-4-6"
+	if err := q.UpdateAgent(ctx, agent); err != nil {
+		t.Fatalf("UpdateAgent() error = %v", err)
+	}
+
+	got, err := q.GetAgent(ctx, agent.ID)
+	if err != nil {
+		t.Fatalf("GetAgent() error = %v", err)
+	}
+	if got.Name != "Updated Name" {
+		t.Fatalf("Name = %q, want 'Updated Name'", got.Name)
+	}
+	if got.Model != "claude-sonnet-4-6" {
+		t.Fatalf("Model = %q, want 'claude-sonnet-4-6'", got.Model)
+	}
+}
+
+func TestCountProjectRunsSince_MultipleProjects(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projA := &domain.Project{ID: newID(), OrgID: "org-countmp", Name: "Count A"}
+	projB := &domain.Project{ID: newID(), OrgID: "org-countmp", Name: "Count B"}
+	if err := q.CreateProject(ctx, projA); err != nil {
+		t.Fatalf("CreateProject(A) error = %v", err)
+	}
+	if err := q.CreateProject(ctx, projB); err != nil {
+		t.Fatalf("CreateProject(B) error = %v", err)
+	}
+
+	jobA := mustCreateJob(t, ctx, q, projA.ID)
+	jobB := mustCreateJob(t, ctx, q, projB.ID)
+
+	for range 3 {
+		run := &domain.JobRun{ID: newID(), JobID: jobA.ID, ProjectID: projA.ID, Status: domain.StatusCompleted, Attempt: 1, TriggeredBy: domain.TriggerManual}
+		if err := q.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun(A) error = %v", err)
+		}
+	}
+	for range 2 {
+		run := &domain.JobRun{ID: newID(), JobID: jobB.ID, ProjectID: projB.ID, Status: domain.StatusCompleted, Attempt: 1, TriggeredBy: domain.TriggerManual}
+		if err := q.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun(B) error = %v", err)
+		}
+	}
+
+	countA, err := q.CountProjectRunsSince(ctx, projA.ID, time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("CountProjectRunsSince(A) error = %v", err)
+	}
+	if countA != 3 {
+		t.Fatalf("countA = %d, want 3", countA)
+	}
+
+	countB, err := q.CountProjectRunsSince(ctx, projB.ID, time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("CountProjectRunsSince(B) error = %v", err)
+	}
+	if countB != 2 {
+		t.Fatalf("countB = %d, want 2", countB)
+	}
+}
