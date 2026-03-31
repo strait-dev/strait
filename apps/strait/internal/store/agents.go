@@ -17,7 +17,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-const agentColumns = `id, project_id, job_id, name, slug, description, model, config, created_by, updated_by, created_at, updated_at`
+const agentColumns = `id, project_id, job_id, name, slug, description, model, model_fallbacks, config, provider_secrets_encrypted, created_by, updated_by, created_at, updated_at`
 
 const agentDeploymentColumns = `id, agent_id, version, status, provider, config_snapshot, provider_metadata, created_by, created_at, updated_at, deployed_at`
 
@@ -35,7 +35,9 @@ func scanAgent(scanner interface {
 		&agent.Slug,
 		&agent.Description,
 		&agent.Model,
+		&agent.ModelFallbacks,
 		&agent.Config,
+		&agent.ProviderSecretsEncrypted,
 		&createdBy,
 		&updatedBy,
 		&agent.CreatedAt,
@@ -89,8 +91,8 @@ func (q *Queries) CreateAgent(ctx context.Context, agent *domain.Agent) error {
 	}
 
 	err := q.db.QueryRow(ctx, `
-		INSERT INTO agents (id, project_id, job_id, name, slug, description, model, config, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO agents (id, project_id, job_id, name, slug, description, model, model_fallbacks, config, provider_secrets_encrypted, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING created_at, updated_at
 	`,
 		agent.ID,
@@ -100,7 +102,9 @@ func (q *Queries) CreateAgent(ctx context.Context, agent *domain.Agent) error {
 		agent.Slug,
 		agent.Description,
 		agent.Model,
+		agent.ModelFallbacks,
 		dbscan.NilIfEmptyRawMessage(agent.Config),
+		dbscan.NilIfEmptyString(agent.ProviderSecretsEncrypted),
 		dbscan.NilIfEmptyString(agent.CreatedBy),
 		dbscan.NilIfEmptyString(agent.UpdatedBy),
 	).Scan(&agent.CreatedAt, &agent.UpdatedAt)
@@ -219,8 +223,10 @@ func (q *Queries) UpdateAgent(ctx context.Context, agent *domain.Agent) error {
 		    slug = $3,
 		    description = $4,
 		    model = $5,
-		    config = $6,
-		    updated_by = $7,
+		    model_fallbacks = $6,
+		    config = $7,
+		    provider_secrets_encrypted = $8,
+		    updated_by = $9,
 		    updated_at = NOW()
 		WHERE id = $1
 		RETURNING updated_at
@@ -230,7 +236,9 @@ func (q *Queries) UpdateAgent(ctx context.Context, agent *domain.Agent) error {
 		agent.Slug,
 		agent.Description,
 		agent.Model,
+		agent.ModelFallbacks,
 		dbscan.NilIfEmptyRawMessage(agent.Config),
+		dbscan.NilIfEmptyString(agent.ProviderSecretsEncrypted),
 		dbscan.NilIfEmptyString(agent.UpdatedBy),
 	).Scan(&agent.UpdatedAt)
 	if err != nil {
@@ -245,6 +253,40 @@ func (q *Queries) UpdateAgent(ctx context.Context, agent *domain.Agent) error {
 	}
 
 	return nil
+}
+
+// EncryptAgentProviderSecrets encrypts a map of provider keys to a ciphertext
+// string suitable for storage in the provider_secrets_encrypted column.
+func (q *Queries) EncryptAgentProviderSecrets(secrets map[string]string) (string, error) {
+	if len(secrets) == 0 {
+		return "", nil
+	}
+	raw, err := json.Marshal(secrets)
+	if err != nil {
+		return "", fmt.Errorf("marshal provider secrets: %w", err)
+	}
+	key, err := q.secretKey()
+	if err != nil {
+		return "", err
+	}
+	return encryptSecret(string(raw), key)
+}
+
+// DecryptAgentProviderSecrets decrypts a ciphertext string back to a map of
+// provider keys. Used exclusively by the runtime envelope builder.
+func (q *Queries) DecryptAgentProviderSecrets(ciphertext string) (map[string]string, error) {
+	if ciphertext == "" {
+		return nil, nil
+	}
+	plaintext, err := q.decryptSecretWithFallback(ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt provider secrets: %w", err)
+	}
+	var secrets map[string]string
+	if jsonErr := json.Unmarshal([]byte(plaintext), &secrets); jsonErr != nil {
+		return nil, fmt.Errorf("unmarshal provider secrets: %w", jsonErr)
+	}
+	return secrets, nil
 }
 
 func (q *Queries) DeleteAgent(ctx context.Context, id string) error {

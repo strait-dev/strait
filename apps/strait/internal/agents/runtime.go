@@ -27,10 +27,12 @@ type RuntimeDispatchRun struct {
 }
 
 type RuntimeDispatchAgent struct {
-	ID     string          `json:"id"`
-	Slug   string          `json:"slug"`
-	Model  string          `json:"model"`
-	Config json.RawMessage `json:"config,omitempty"`
+	ID             string            `json:"id"`
+	Slug           string            `json:"slug"`
+	Model          string            `json:"model"`
+	ModelFallbacks []string          `json:"model_fallbacks,omitempty"`
+	Config         json.RawMessage   `json:"config,omitempty"`
+	ProviderKeys   map[string]string `json:"provider_keys,omitempty"`
 }
 
 type RuntimeDispatchDeployment struct {

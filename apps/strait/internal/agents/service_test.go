@@ -591,6 +591,104 @@ func TestFilterAllowedPatchKeysAllBlocked(t *testing.T) {
 	}
 }
 
+func TestValidateModelFallbacks(t *testing.T) {
+	t.Parallel()
+
+	if err := validateModelFallbacks(nil); err != nil {
+		t.Fatalf("nil fallbacks: %v", err)
+	}
+	if err := validateModelFallbacks([]string{"gpt-5.4-mini", "claude-haiku-4-5"}); err != nil {
+		t.Fatalf("valid fallbacks: %v", err)
+	}
+	if err := validateModelFallbacks([]string{"a", "b", "c", "d", "e", "f"}); err == nil {
+		t.Fatal("expected error for too many fallbacks")
+	}
+	if err := validateModelFallbacks([]string{"gpt-5.4", ""}); err == nil {
+		t.Fatal("expected error for empty model in fallbacks")
+	}
+}
+
+func TestValidateProviderSecrets(t *testing.T) {
+	t.Parallel()
+
+	if err := validateProviderSecrets(nil); err != nil {
+		t.Fatalf("nil secrets: %v", err)
+	}
+	if err := validateProviderSecrets(map[string]string{"openai": "sk-test", "anthropic": "sk-ant-test"}); err != nil {
+		t.Fatalf("valid secrets: %v", err)
+	}
+	if err := validateProviderSecrets(map[string]string{"openai": ""}); err == nil {
+		t.Fatal("expected error for empty secret value")
+	}
+	if err := validateProviderSecrets(map[string]string{"": "sk-test"}); err == nil {
+		t.Fatal("expected error for empty provider name")
+	}
+	// Too many providers.
+	many := make(map[string]string)
+	for i := range 11 {
+		many[strings.Repeat("p", i+1)] = "sk-test"
+	}
+	if err := validateProviderSecrets(many); err == nil {
+		t.Fatal("expected error for too many providers")
+	}
+}
+
+func TestProviderSecretsNeverInAPIResponse(t *testing.T) {
+	t.Parallel()
+
+	agent := domain.Agent{
+		ID:                       "agent-1",
+		Model:                    "gpt-5.4",
+		ProviderSecretsEncrypted: "encrypted-blob-here",
+	}
+	raw, err := json.Marshal(agent)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "encrypted-blob-here") {
+		t.Fatal("provider_secrets_encrypted should not appear in JSON output")
+	}
+	if strings.Contains(string(raw), "provider_secrets") {
+		t.Fatal("no provider_secrets key should appear in JSON output")
+	}
+}
+
+func TestProviderSecretsNotInWebhookPayload(t *testing.T) {
+	t.Parallel()
+
+	svc := &localService{now: time.Now}
+	agent := &domain.Agent{
+		ID:                       "agent-1",
+		Slug:                     "test",
+		ProviderSecretsEncrypted: "secret-cipher",
+	}
+	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
+	payload := svc.buildWebhookPayload(agent, run)
+	if strings.Contains(string(payload), "secret") {
+		t.Fatal("webhook payload should not contain provider secrets")
+	}
+}
+
+func TestBuildBackingJobWithModelFallbacks(t *testing.T) {
+	t.Parallel()
+
+	req := CreateAgentRequest{
+		ProjectID:      "proj-1",
+		Name:           "Fallback Agent",
+		Slug:           "fallback-agent",
+		Model:          "claude-sonnet-4-6",
+		ModelFallbacks: []string{"gpt-5.4-mini"},
+		Config:         json.RawMessage(`{}`),
+		Actor:          "user-1",
+	}
+	// buildBackingJob doesn't use ModelFallbacks (they're on the agent, not the job).
+	// This test verifies no panic.
+	job := buildBackingJob(req)
+	if job == nil {
+		t.Fatal("expected non-nil job")
+	}
+}
+
 // Webhook delivery tests.
 
 type mockWebhookStore struct {

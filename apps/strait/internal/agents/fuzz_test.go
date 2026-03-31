@@ -2,6 +2,7 @@ package agents
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,6 +125,37 @@ func FuzzParseCloudflareDeploymentMetadata(f *testing.F) {
 			t.Skip()
 		}
 		_, _ = ParseCloudflareDeploymentMetadata(json.RawMessage(raw))
+	})
+}
+
+func FuzzValidateModelFallbacks(f *testing.F) {
+	f.Add("gpt-5.4-mini,claude-haiku-4-5")
+	f.Add("")
+	f.Add("a,b,c,d,e,f,g")
+
+	f.Fuzz(func(t *testing.T, raw string) {
+		var fallbacks []string
+		if raw != "" {
+			fallbacks = strings.Split(raw, ",")
+		}
+		if len(fallbacks) > 20 {
+			t.Skip()
+		}
+		_ = validateModelFallbacks(fallbacks)
+	})
+}
+
+func FuzzValidateProviderSecrets(f *testing.F) {
+	f.Add("openai", "sk-test")
+	f.Add("", "")
+	f.Add("provider", "")
+
+	f.Fuzz(func(t *testing.T, key, value string) {
+		if len(key) > 256 || len(value) > 256 {
+			t.Skip()
+		}
+		secrets := map[string]string{key: value}
+		_ = validateProviderSecrets(secrets)
 	})
 }
 

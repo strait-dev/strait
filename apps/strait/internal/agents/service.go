@@ -165,28 +165,32 @@ type localService struct {
 type Option func(*localService)
 
 type CreateAgentRequest struct {
-	ProjectID    string
-	Name         string
-	Slug         string
-	Description  string
-	Model        string
-	Config       json.RawMessage
-	Cron         string
-	CronTimezone string
-	Actor        string
+	ProjectID       string
+	Name            string
+	Slug            string
+	Description     string
+	Model           string
+	ModelFallbacks  []string
+	Config          json.RawMessage
+	ProviderSecrets map[string]string
+	Cron            string
+	CronTimezone    string
+	Actor           string
 }
 
 type UpdateAgentRequest struct {
-	ProjectID    string
-	AgentID      string
-	Name         string
-	Slug         string
-	Description  string
-	Model        string
-	Config       json.RawMessage
-	Cron         string
-	CronTimezone string
-	Actor        string
+	ProjectID       string
+	AgentID         string
+	Name            string
+	Slug            string
+	Description     string
+	Model           string
+	ModelFallbacks  []string
+	Config          json.RawMessage
+	ProviderSecrets map[string]string
+	Cron            string
+	CronTimezone    string
+	Actor           string
 }
 
 type RunAgentRequest struct {
@@ -347,17 +351,28 @@ func (s *localService) CreateAgent(ctx context.Context, req CreateAgentRequest) 
 			return err
 		}
 
+		var encryptedSecrets string
+		if len(req.ProviderSecrets) > 0 {
+			var encErr error
+			encryptedSecrets, encErr = txQ.EncryptAgentProviderSecrets(req.ProviderSecrets)
+			if encErr != nil {
+				return fmt.Errorf("encrypt provider secrets: %w", encErr)
+			}
+		}
+
 		agent := &domain.Agent{
-			ID:          uuid.Must(uuid.NewV7()).String(),
-			ProjectID:   req.ProjectID,
-			JobID:       backingJob.ID,
-			Name:        req.Name,
-			Slug:        req.Slug,
-			Description: req.Description,
-			Model:       req.Model,
-			Config:      normalizedConfig(req.Config),
-			CreatedBy:   req.Actor,
-			UpdatedBy:   req.Actor,
+			ID:                       uuid.Must(uuid.NewV7()).String(),
+			ProjectID:                req.ProjectID,
+			JobID:                    backingJob.ID,
+			Name:                     req.Name,
+			Slug:                     req.Slug,
+			Description:              req.Description,
+			Model:                    req.Model,
+			ModelFallbacks:           req.ModelFallbacks,
+			Config:                   normalizedConfig(req.Config),
+			ProviderSecretsEncrypted: encryptedSecrets,
+			CreatedBy:                req.Actor,
+			UpdatedBy:                req.Actor,
 		}
 		if err := txQ.CreateAgent(ctx, agent); err != nil {
 			return err
@@ -875,10 +890,12 @@ func (s *localService) buildRuntimeEnvelope(ctx context.Context, agent *domain.A
 			TimeoutSecs: job.TimeoutSecs,
 		},
 		Agent: RuntimeDispatchAgent{
-			ID:     agent.ID,
-			Slug:   agent.Slug,
-			Model:  agent.Model,
-			Config: agent.Config,
+			ID:             agent.ID,
+			Slug:           agent.Slug,
+			Model:          agent.Model,
+			ModelFallbacks: agent.ModelFallbacks,
+			Config:         agent.Config,
+			ProviderKeys:   s.decryptProviderSecrets(ctx, agent),
 		},
 		Deployment: RuntimeDispatchDeployment{
 			ID:             deployment.ID,
@@ -1075,6 +1092,29 @@ func (s *localService) scheduleAgentRetry(ctx context.Context, failedRun *domain
 			s.dispatchRun(context.Background(), foundAgent, &jobCopy, &deploymentCopy, retryRun.ID)
 		})
 	}
+}
+
+// decryptProviderSecrets decrypts the agent's encrypted provider secrets for
+// inclusion in the runtime dispatch envelope. Returns nil if no secrets are set
+// or if decryption fails (logged to sentry). This is the ONLY place where
+// provider secrets are decrypted.
+func (s *localService) decryptProviderSecrets(_ context.Context, agent *domain.Agent) map[string]string {
+	if agent.ProviderSecretsEncrypted == "" {
+		return nil
+	}
+	q, ok := s.store.(*store.Queries)
+	if !ok {
+		return nil
+	}
+	decrypted, err := q.DecryptAgentProviderSecrets(agent.ProviderSecretsEncrypted)
+	if err != nil {
+		slog.Error("agent: failed to decrypt provider secrets",
+			"agent_id", agent.ID,
+			"error", err,
+		)
+		return nil
+	}
+	return decrypted
 }
 
 // buildWebhookPayload constructs the JSON payload for agent webhook notifications.

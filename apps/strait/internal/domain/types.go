@@ -153,18 +153,20 @@ type Project struct {
 }
 
 type Agent struct {
-	ID          string          `json:"id"`
-	ProjectID   string          `json:"project_id"`
-	JobID       string          `json:"job_id"`
-	Name        string          `json:"name"`
-	Slug        string          `json:"slug"`
-	Description string          `json:"description,omitempty"`
-	Model       string          `json:"model"`
-	Config      json.RawMessage `json:"config,omitempty"`
-	CreatedBy   string          `json:"created_by,omitempty"`
-	UpdatedBy   string          `json:"updated_by,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	ID                       string          `json:"id"`
+	ProjectID                string          `json:"project_id"`
+	JobID                    string          `json:"job_id"`
+	Name                     string          `json:"name"`
+	Slug                     string          `json:"slug"`
+	Description              string          `json:"description,omitempty"`
+	Model                    string          `json:"model"`
+	ModelFallbacks           []string        `json:"model_fallbacks,omitempty"`
+	Config                   json.RawMessage `json:"config,omitempty"`
+	ProviderSecretsEncrypted string          `json:"-"` // AES-256-GCM encrypted, never serialized to API.
+	CreatedBy                string          `json:"created_by,omitempty"`
+	UpdatedBy                string          `json:"updated_by,omitempty"`
+	CreatedAt                time.Time       `json:"created_at"`
+	UpdatedAt                time.Time       `json:"updated_at"`
 }
 
 type AgentDeploymentStatus string

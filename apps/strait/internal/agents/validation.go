@@ -38,6 +38,12 @@ func validateCreateRequest(req CreateAgentRequest) error {
 	if err := validateModel(req.Model); err != nil {
 		return err
 	}
+	if err := validateModelFallbacks(req.ModelFallbacks); err != nil {
+		return err
+	}
+	if err := validateProviderSecrets(req.ProviderSecrets); err != nil {
+		return err
+	}
 	if err := validateCron(req.Cron); err != nil {
 		return err
 	}
@@ -52,11 +58,15 @@ func validateUpdateRequest(req UpdateAgentRequest) error {
 		return &ValidationError{field: "agent_id", message: "is required"}
 	}
 	return validateCreateRequest(CreateAgentRequest{
-		ProjectID: req.ProjectID,
-		Name:      req.Name,
-		Slug:      req.Slug,
-		Model:     req.Model,
-		Config:    req.Config,
+		ProjectID:       req.ProjectID,
+		Name:            req.Name,
+		Slug:            req.Slug,
+		Model:           req.Model,
+		ModelFallbacks:  req.ModelFallbacks,
+		Config:          req.Config,
+		ProviderSecrets: req.ProviderSecrets,
+		Cron:            req.Cron,
+		CronTimezone:    req.CronTimezone,
 	})
 }
 
@@ -128,6 +138,38 @@ func validateConfig(config json.RawMessage) error {
 	}
 	if _, ok := decoded.(map[string]any); !ok {
 		return &ValidationError{field: "config", message: "must be a JSON object"}
+	}
+	return nil
+}
+
+const (
+	maxModelFallbacks  = 5
+	maxProviderSecrets = 10
+)
+
+func validateModelFallbacks(fallbacks []string) error {
+	if len(fallbacks) > maxModelFallbacks {
+		return &ValidationError{field: "model_fallbacks", message: fmt.Sprintf("too many fallbacks (max %d)", maxModelFallbacks)}
+	}
+	for i, model := range fallbacks {
+		if err := validateModel(model); err != nil {
+			return &ValidationError{field: "model_fallbacks", message: fmt.Sprintf("fallback[%d]: %s", i, err.Error())}
+		}
+	}
+	return nil
+}
+
+func validateProviderSecrets(secrets map[string]string) error {
+	if len(secrets) > maxProviderSecrets {
+		return &ValidationError{field: "provider_secrets", message: fmt.Sprintf("too many providers (max %d)", maxProviderSecrets)}
+	}
+	for k, v := range secrets {
+		if strings.TrimSpace(k) == "" {
+			return &ValidationError{field: "provider_secrets", message: "provider name must not be empty"}
+		}
+		if strings.TrimSpace(v) == "" {
+			return &ValidationError{field: "provider_secrets", message: fmt.Sprintf("secret for provider %q must not be empty", k)}
+		}
 	}
 	return nil
 }
