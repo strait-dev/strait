@@ -1213,7 +1213,11 @@ func isSafeWebhookURL(raw string) bool {
 		return false
 	}
 	// Resolve DNS and block private/reserved IP ranges to prevent DNS rebinding.
-	ips, err := net.LookupHost(host)
+	// Use a 3-second timeout to avoid blocking the dispatch pool on slow resolvers.
+	resolver := &net.Resolver{}
+	dnsCtx, dnsCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer dnsCancel()
+	ips, err := resolver.LookupHost(dnsCtx, host)
 	if err != nil {
 		return false
 	}

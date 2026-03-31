@@ -90,6 +90,7 @@ func (w *MessageWorker) Start(ctx context.Context) {
 }
 
 // Stop signals the worker to stop and waits for it to finish.
+// Safe to call even if Start() was never called.
 func (w *MessageWorker) Stop() {
 	if w == nil {
 		return
@@ -97,7 +98,10 @@ func (w *MessageWorker) Stop() {
 	w.stopOnce.Do(func() {
 		close(w.stop)
 	})
-	<-w.done
+	// Only wait if Start() was called; otherwise done is never closed.
+	if w.running.Load() {
+		<-w.done
+	}
 }
 
 func (w *MessageWorker) poll(ctx context.Context) {

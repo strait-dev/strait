@@ -100,14 +100,19 @@ func (s *AgentMessageService) Send(ctx context.Context, req SendRequest) (*domai
 		return nil, ErrChainTooDeep
 	}
 
+	// Load chain messages once for both cycle detection and flood check.
+	chainMessages, chainErr := s.store.ListAgentMessagesByChain(ctx, chainID)
+	if chainErr != nil {
+		return nil, fmt.Errorf("load chain messages: %w", chainErr)
+	}
+
 	// Run cycle detection on the chain.
-	if err := s.detectCycle(ctx, req.SourceAgentID, req.TargetAgentID, chainID); err != nil {
+	if err := detectCycleFromMessages(chainMessages, req.SourceAgentID, req.TargetAgentID); err != nil {
 		return nil, err
 	}
 
 	// Enforce per-chain message limit to prevent message flooding.
-	chainMessages, chainErr := s.store.ListAgentMessagesByChain(ctx, chainID)
-	if chainErr == nil && len(chainMessages) >= maxMessagesPerChain {
+	if len(chainMessages) >= maxMessagesPerChain {
 		return nil, ErrChainMessageLimit
 	}
 
@@ -130,15 +135,10 @@ func (s *AgentMessageService) Send(ctx context.Context, req SendRequest) (*domai
 	return msg, nil
 }
 
-// detectCycle checks whether delivering a message from source to target
-// would create a cycle in the message chain. It builds an adjacency list
-// from all messages in the chain and runs DFS to find back edges.
-func (s *AgentMessageService) detectCycle(ctx context.Context, sourceAgentID, targetAgentID, chainID string) error {
-	messages, err := s.store.ListAgentMessagesByChain(ctx, chainID)
-	if err != nil {
-		return fmt.Errorf("list chain messages for cycle detection: %w", err)
-	}
-
+// detectCycleFromMessages checks whether delivering a message from source to
+// target would create a cycle in the message chain. It builds an adjacency
+// list from the provided messages and runs DFS to find back edges.
+func detectCycleFromMessages(messages []domain.AgentMessage, sourceAgentID, targetAgentID string) error {
 	// Build adjacency list: source -> set of targets.
 	graph := make(map[string]map[string]struct{})
 	for _, msg := range messages {
