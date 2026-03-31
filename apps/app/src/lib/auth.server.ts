@@ -7,7 +7,7 @@ import {
   portal,
   webhooks,
 } from "@polar-sh/better-auth";
-import { Polar } from "@polar-sh/sdk";
+import type { Polar } from "@polar-sh/sdk";
 import { render } from "@react-email/render";
 import {
   ConfirmAccount,
@@ -85,11 +85,15 @@ function getOIDCPrivateKey(): Promise<CryptoKey> {
  * Create a Polar SDK client if the access token is configured.
  * Called once during `createAuth()`.
  */
-function createPolarClient(): Polar | null {
+async function createPolarClient(): Promise<Polar | null> {
   if (!process.env.POLAR_ACCESS_TOKEN) {
     return null;
   }
-  return new Polar({
+  // Dynamic import: @polar-sh/sdk depends on tsyringe, which checks for
+  // Reflect.getMetadata at module evaluation time. A top-level import
+  // would crash the Worker before any request handling code runs.
+  const { Polar: PolarClient } = await import("@polar-sh/sdk");
+  return new PolarClient({
     accessToken: process.env.POLAR_ACCESS_TOKEN,
     server:
       (process.env.POLAR_SERVER as "sandbox" | "production") ?? "production",
@@ -113,9 +117,9 @@ function createPolarClient(): Polar | null {
  * - Google OAuth
  * - GitHub OAuth
  */
-function createAuth() {
+async function createAuth() {
   const pool = getAuthPool();
-  const polarClient = createPolarClient();
+  const polarClient = await createPolarClient();
   const resend = getResend();
   return betterAuth({
     database: pool,
@@ -318,7 +322,7 @@ function createAuth() {
               const slug = `ws-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
               // Server-side call: pass userId directly (no session headers needed).
-              const org = await getAuth().api.createOrganization({
+              const org = await (await getAuth()).api.createOrganization({
                 body: { name: workspaceName, slug, userId: user.id },
               });
 
@@ -449,11 +453,27 @@ function createAuth() {
  * In Cloudflare Workers these are only available during request handling,
  * so we defer the entire construction to the first call.
  */
-let _auth: ReturnType<typeof createAuth> | null = null;
+type AuthInstance = Awaited<ReturnType<typeof createAuth>>;
 
-export function getAuth(): ReturnType<typeof createAuth> {
-  if (!_auth) {
-    _auth = createAuth();
+let _auth: AuthInstance | null = null;
+let _authPromise: Promise<AuthInstance> | null = null;
+
+/**
+ * Returns the Better Auth singleton, initializing it on first call.
+ *
+ * The first call triggers an async initialization (to dynamically import
+ * `@polar-sh/sdk`). Subsequent calls return the cached instance
+ * synchronously. Callers must `await` the result.
+ */
+export function getAuth(): Promise<AuthInstance> {
+  if (_auth) {
+    return Promise.resolve(_auth);
   }
-  return _auth;
+  if (!_authPromise) {
+    _authPromise = createAuth().then((instance) => {
+      _auth = instance;
+      return instance;
+    });
+  }
+  return _authPromise;
 }

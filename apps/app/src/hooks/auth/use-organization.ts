@@ -115,7 +115,9 @@ interface UpdateOrganizationParams {
 const listOrganizationsServerFn = createServerFn({ method: "GET" }).handler(
   async () => {
     const headers = getRequestHeaders();
-    const organizations = await getAuth().api.listOrganizations({ headers });
+    const organizations = await (await getAuth()).api.listOrganizations({
+      headers,
+    });
     return (organizations ?? []).map(mapOrganization);
   }
 );
@@ -124,7 +126,7 @@ const getOrganizationServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: { organizationId: string }) => data)
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    const organization = await getAuth().api.getFullOrganization({
+    const organization = await (await getAuth()).api.getFullOrganization({
       query: { organizationId: data.organizationId },
       headers,
     });
@@ -144,7 +146,7 @@ const createOrganizationServerFn = createServerFn({ method: "POST" })
       data.slug ??
       `${data.name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}`;
 
-    const organization = await getAuth().api.createOrganization({
+    const organization = await (await getAuth()).api.createOrganization({
       body: {
         name: data.name,
         slug,
@@ -179,7 +181,7 @@ const updateOrganizationServerFn = createServerFn({ method: "POST" })
       metadata,
     } = data;
 
-    const organization = await getAuth().api.updateOrganization({
+    const organization = await (await getAuth()).api.updateOrganization({
       body: {
         organizationId,
         data: {

@@ -179,7 +179,7 @@ export const setActiveProjectServerFn = createServerFn({ method: "POST" })
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
     const headers = getRequestHeaders();
-    await getAuth().api.updateUser({
+    await (await getAuth()).api.updateUser({
       body: { activeProjectId: data.projectId },
       headers,
     });

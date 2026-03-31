@@ -43,7 +43,7 @@ export const createOrganizationServerFn = createServerFn({ method: "POST" })
           .toLowerCase()
           .replace(/\s+/g, "-")
           .replace(/[^a-z0-9-]/g, "");
-      const org = await getAuth().api.createOrganization({
+      const org = await (await getAuth()).api.createOrganization({
         body: {
           name,
           slug,
@@ -81,7 +81,7 @@ const getFullOrganizationAuth = createServerFn({ method: "GET" })
     try {
       const headers = getRequestHeaders();
 
-      const org = await getAuth().api.getFullOrganization({
+      const org = await (await getAuth()).api.getFullOrganization({
         query: { organizationId: data.organizationId },
         headers,
       });
@@ -109,13 +109,13 @@ export const setActiveOrganizationAuth = createServerFn({ method: "POST" })
     try {
       const headers = getRequestHeaders();
 
-      const result = await getAuth().api.setActiveOrganization({
+      const result = await (await getAuth()).api.setActiveOrganization({
         body: { organizationId: data.organizationId },
         headers,
       });
 
       // Also update the user's defaultOrganizationId
-      await getAuth().api.updateUser({
+      await (await getAuth()).api.updateUser({
         body: { defaultOrganizationId: data.organizationId },
         headers,
       });
@@ -135,7 +135,7 @@ const listOrganizationsAuth = createServerFn({ method: "GET" }).handler(
     try {
       const headers = getRequestHeaders();
 
-      const organizations = await getAuth().api.listOrganizations({
+      const organizations = await (await getAuth()).api.listOrganizations({
         headers,
       });
 
@@ -298,7 +298,7 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
     const headers = getRequestHeaders();
 
     // Check if this is the user's default organization
-    const session = await getAuth().api.getSession({ headers });
+    const session = await (await getAuth()).api.getSession({ headers });
     const defaultOrgId = (session?.user as Record<string, unknown> | undefined)
       ?.defaultOrganizationId as string | undefined;
     const isDefaultOrganization = defaultOrgId === organizationId;
@@ -311,7 +311,7 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
       }
 
       try {
-        await getAuth().api.updateUser({
+        await (await getAuth()).api.updateUser({
           body: { activeProjectId: null },
           headers,
         });
@@ -321,7 +321,7 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
     }
 
     // Delete the organization via Better Auth
-    await getAuth().api.deleteOrganization({
+    await (await getAuth()).api.deleteOrganization({
       body: { organizationId },
       headers,
     });
@@ -524,7 +524,7 @@ export const deleteLastOrganizationWithTokenServerFn = createServerFn({
     const headers = getRequestHeaders();
 
     // Delete the organization via Better Auth
-    await getAuth().api.deleteOrganization({
+    await (await getAuth()).api.deleteOrganization({
       body: { organizationId },
       headers,
     });

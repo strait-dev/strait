@@ -18,7 +18,7 @@ async function migrate() {
   console.log("Checking for pending Better Auth migrations...\n");
 
   const { toBeCreated, toBeAdded, runMigrations } = await getMigrations(
-    getAuth().options
+    (await getAuth()).options
   );
 
   if (toBeCreated.length === 0 && toBeAdded.length === 0) {

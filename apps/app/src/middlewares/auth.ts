@@ -9,7 +9,7 @@ import { getAuth } from "@/lib/auth.server";
  */
 export const authMiddleware = createMiddleware().server(async ({ next }) => {
   const headers = getRequestHeaders();
-  const session = await getAuth().api.getSession({ headers });
+  const session = await (await getAuth()).api.getSession({ headers });
 
   if (!session) {
     throw new Error("Unauthorized");

@@ -19,7 +19,7 @@ export const handler = async (request: Request): Promise<Response> => {
     return new Response(null, { status: 204, headers: OAUTH_API_CORS_HEADERS });
   }
 
-  const response = await getAuth().handler(request);
+  const response = await (await getAuth()).handler(request);
 
   if (needsCors(request)) {
     const headers = new Headers(response.headers);

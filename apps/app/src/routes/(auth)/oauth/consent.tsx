@@ -99,7 +99,7 @@ const fetchClientInfo = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     try {
-      const client = await (getAuth().api as any).getOAuthClient({
+      const client = await ((await getAuth()).api as any).getOAuthClient({
         body: { client_id: data.clientId },
       });
       if (!client) {
@@ -137,7 +137,7 @@ const submitConsent = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const result = await getAuth().api.oauth2Consent({
+    const result = await (await getAuth()).api.oauth2Consent({
       body: {
         accept: data.accept,
         scope: data.scope,

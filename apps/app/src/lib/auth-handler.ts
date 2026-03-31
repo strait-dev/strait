@@ -9,7 +9,7 @@ import { getAuth } from "./auth.server";
 export const getSession = createServerFn({ method: "GET" }).handler(
   async () => {
     const headers = getRequestHeaders();
-    const session = await getAuth().api.getSession({ headers });
+    const session = await (await getAuth()).api.getSession({ headers });
     return session ?? null;
   }
 );
@@ -21,7 +21,7 @@ export const getSession = createServerFn({ method: "GET" }).handler(
 export const ensureSession = createServerFn({ method: "GET" }).handler(
   async () => {
     const headers = getRequestHeaders();
-    const session = await getAuth().api.getSession({ headers });
+    const session = await (await getAuth()).api.getSession({ headers });
 
     if (!session) {
       throw new Error("Unauthorized");

@@ -24,12 +24,12 @@ export type OAuthConsentItem = {
 export const fetchOAuthConsents = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
-    const consents = (await getAuth().api.getOAuthConsents()) ?? [];
+    const consents = (await (await getAuth()).api.getOAuthConsents()) ?? [];
     const items: OAuthConsentItem[] = [];
     for (const consent of consents as any[]) {
       let clientName = "Unknown Application";
       try {
-        const client = await (getAuth().api as any).getOAuthClient({
+        const client = await ((await getAuth()).api as any).getOAuthClient({
           body: { client_id: consent.clientId },
         });
         if (client?.name) {
@@ -58,7 +58,7 @@ export const revokeOAuthConsentFn = createServerFn({ method: "POST" })
   .inputValidator(z.object({ consentId: z.string().min(1) }))
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    await getAuth().api.deleteOAuthConsent({
+    await (await getAuth()).api.deleteOAuthConsent({
       body: { id: data.consentId },
     });
     return { success: true };

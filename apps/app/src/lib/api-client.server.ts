@@ -25,7 +25,7 @@ export type RequestOptions = {
 async function resolveProjectId(): Promise<string | undefined> {
   try {
     const headers = getRequestHeaders();
-    const session = await getAuth().api.getSession({ headers });
+    const session = await (await getAuth()).api.getSession({ headers });
 
     if (session?.user) {
       const activeProjectId = (session.user as Record<string, unknown>)

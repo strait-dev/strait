@@ -147,7 +147,7 @@ const getSubscriptionByEmail = async (
 const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SubscriptionData | null> => {
     const headers = getRequestHeaders();
-    const session = await getAuth().api.getSession({ headers });
+    const session = await (await getAuth()).api.getSession({ headers });
     const email = session?.user?.email;
 
     if (!email) {
@@ -190,7 +190,7 @@ const getBackendPlanTier = async (
 const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SubscriptionStateData> => {
     const headers = getRequestHeaders();
-    const session = await getAuth().api.getSession({ headers });
+    const session = await (await getAuth()).api.getSession({ headers });
     const email = session?.user?.email;
 
     if (!email) {
