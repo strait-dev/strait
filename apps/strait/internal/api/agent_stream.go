@@ -26,11 +26,13 @@ func (s *Server) handleAgentRunEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.agentService != nil {
-		if _, agentErr := s.agentService.GetAgent(r.Context(), projectID, agentID); agentErr != nil {
-			respondError(w, r, http.StatusNotFound, "agent not found")
-			return
-		}
+	if s.agentService == nil {
+		respondError(w, r, http.StatusServiceUnavailable, "agent service unavailable")
+		return
+	}
+	if _, agentErr := s.agentService.GetAgent(r.Context(), projectID, agentID); agentErr != nil {
+		respondError(w, r, http.StatusNotFound, "agent not found")
+		return
 	}
 
 	run, err := s.store.GetRun(r.Context(), runID)

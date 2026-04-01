@@ -149,6 +149,24 @@ func FilterAllowedPatchKeys(patch map[string]any) map[string]any {
 	return safe
 }
 
+// allowedReplayKeys defines config keys that can be overridden in a replay.
+// Excludes webhook_url, webhook_secret, sandbox, and provider_secrets to
+// prevent data exfiltration or sandbox escape via replay config injection.
+func FilterAllowedReplayKeys(overrides map[string]any) map[string]any {
+	blocked := map[string]bool{
+		"webhook_url":    true,
+		"webhook_secret": true,
+		"sandbox":        true,
+	}
+	safe := make(map[string]any, len(overrides))
+	for k, v := range overrides {
+		if !blocked[k] {
+			safe[k] = v
+		}
+	}
+	return safe
+}
+
 func isExpensiveModel(model string) bool {
 	switch model {
 	case "gpt-5.4", "claude-opus-4-6", "claude-sonnet-4-6":

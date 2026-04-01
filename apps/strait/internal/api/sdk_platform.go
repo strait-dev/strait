@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxAwaitTimeoutMs = 300000 // 5 minutes.
+const maxAwaitTimeoutMs = 60000 // 60 seconds. Capped to prevent goroutine exhaustion.
 
 // Trigger job.
 

@@ -143,6 +143,39 @@ func TestExtractWebhookSecret_InvalidJSON(t *testing.T) {
 	}
 }
 
+// Fix 1 regression: verify SignWebhookPayload does not mutate the input body.
+func TestSignWebhookPayload_DoesNotMutateBody(t *testing.T) {
+	t.Parallel()
+	secret := "whsec_test"
+	body := []byte(`{"event":"test"}`)
+	original := make([]byte, len(body))
+	copy(original, body)
+
+	_ = SignWebhookPayload(secret, body, time.Now())
+
+	if string(body) != string(original) {
+		t.Fatalf("body was mutated: got %q, want %q", body, original)
+	}
+}
+
+// Verify body with extra capacity is not corrupted by append.
+func TestSignWebhookPayload_BodyWithExtraCapacity(t *testing.T) {
+	t.Parallel()
+	secret := "whsec_test"
+	// Create a backing array with extra capacity and a sentinel byte after the body.
+	backing := make([]byte, 32, 1024)
+	copy(backing, `{"event":"test"}`)
+	body := backing[:16]
+	sentinel := byte(0xAA)
+	backing[16] = sentinel // byte just past the body length within the backing.
+
+	_ = SignWebhookPayload(secret, body, time.Now())
+
+	if backing[16] != sentinel {
+		t.Fatalf("backing array was corrupted: byte at [16] = %x, want %x", backing[16], sentinel)
+	}
+}
+
 // -- GenerateWebhookSecret tests.
 
 func TestGenerateWebhookSecret_Format(t *testing.T) {

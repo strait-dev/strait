@@ -23,7 +23,11 @@ func SignWebhookPayload(secret string, body []byte, timestamp time.Time) string 
 	ts := fmt.Sprintf("%d", timestamp.Unix())
 
 	// Signed payload: <timestamp>.<body> (same format as Stripe).
-	signedPayload := append([]byte(ts+"."), body...)
+	// Allocate a new buffer to avoid mutating the caller's body slice.
+	prefix := []byte(ts + ".")
+	signedPayload := make([]byte, 0, len(prefix)+len(body))
+	signedPayload = append(signedPayload, prefix...)
+	signedPayload = append(signedPayload, body...)
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(signedPayload)
 	sig := hex.EncodeToString(mac.Sum(nil))

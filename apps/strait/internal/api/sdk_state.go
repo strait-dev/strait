@@ -13,7 +13,6 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/google/uuid"
 )
 
 type SDKSetStateRequest struct {
@@ -340,30 +339,14 @@ func (s *Server) handleSDKSubmitWorkflow(ctx context.Context, input *SDKSubmitWo
 		return nil, huma.Error503ServiceUnavailable("workflow submission not supported")
 	}
 
-	// Check if workflow with this slug already exists in the project.
-	existingWF, _ := q.GetWorkflowBySlug(ctx, run.ProjectID, slug)
-	var wfID string
-
-	if existingWF != nil {
-		wfID = existingWF.ID
-	} else {
-		// Create a new workflow definition.
-		wf := &domain.Workflow{
-			ID:          uuid.Must(uuid.NewV7()).String(),
-			ProjectID:   run.ProjectID,
-			Name:        name,
-			Slug:        slug,
-			Description: "Submitted by agent run " + run.ID,
-			Enabled:     true,
-			Version:     1,
-			CreatedBy:   "agent:" + run.ID,
-		}
-		if createErr := q.CreateWorkflow(ctx, wf); createErr != nil {
-			slog.Error("sdk: failed to create workflow from agent", "run_id", run.ID, "error", createErr)
-			return nil, huma.Error500InternalServerError("failed to create workflow")
-		}
-		wfID = wf.ID
+	// Look up existing workflow by slug. Agents cannot create new workflow
+	// definitions -- only trigger existing ones. This prevents a compromised
+	// runtime from creating unlimited workflow records.
+	existingWF, wfLookupErr := q.GetWorkflowBySlug(ctx, run.ProjectID, slug)
+	if wfLookupErr != nil || existingWF == nil {
+		return nil, huma.Error404NotFound("workflow not found -- agents can only trigger existing workflows")
 	}
+	wfID := existingWF.ID
 
 	// Trigger the workflow run.
 	if s.workflowEngine == nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"testing"
 	"time"
 
@@ -334,6 +335,77 @@ func TestChainMessageLimitEnforced(t *testing.T) {
 	})
 	if !errors.Is(err, ErrChainMessageLimit) {
 		t.Fatalf("expected ErrChainMessageLimit, got %v", err)
+	}
+}
+
+// Fix 2 regression: CGNAT range (100.64.0.0/10) must be blocked.
+func TestCGNATRangeBlocked(t *testing.T) {
+	t.Parallel()
+	// 100.64.0.0/10 covers 100.64.0.0 - 100.127.255.255.
+	cgnat := &net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)}
+	testIPs := []string{"100.64.0.1", "100.100.100.100", "100.127.255.254"}
+	for _, ipStr := range testIPs {
+		ip := net.ParseIP(ipStr)
+		if !cgnat.Contains(ip) {
+			t.Fatalf("CGNAT block should contain %s", ipStr)
+		}
+	}
+	// 100.128.0.0 is outside CGNAT.
+	outside := net.ParseIP("100.128.0.1")
+	if cgnat.Contains(outside) {
+		t.Fatal("100.128.0.1 should NOT be in CGNAT range")
+	}
+}
+
+// Fix 6 regression: replay overrides must not allow webhook_url injection.
+func TestFilterAllowedReplayKeys_BlocksWebhookURL(t *testing.T) {
+	t.Parallel()
+	overrides := map[string]any{
+		"model":          "gpt-5.4-mini",
+		"budget":         "$2.00",
+		"webhook_url":    "https://evil.com/exfil",
+		"webhook_secret": "stolen_secret",
+		"sandbox":        map[string]any{"policy": "allow_all"},
+		"temperature":    0.5,
+	}
+	safe := FilterAllowedReplayKeys(overrides)
+
+	if _, exists := safe["webhook_url"]; exists {
+		t.Fatal("webhook_url must be blocked in replay overrides")
+	}
+	if _, exists := safe["webhook_secret"]; exists {
+		t.Fatal("webhook_secret must be blocked in replay overrides")
+	}
+	if _, exists := safe["sandbox"]; exists {
+		t.Fatal("sandbox must be blocked in replay overrides")
+	}
+	// Allowed keys pass through.
+	if safe["model"] != "gpt-5.4-mini" {
+		t.Fatalf("model = %v", safe["model"])
+	}
+	if safe["temperature"] != 0.5 {
+		t.Fatalf("temperature = %v", safe["temperature"])
+	}
+}
+
+func TestFilterAllowedReplayKeys_EmptyOverrides(t *testing.T) {
+	t.Parallel()
+	safe := FilterAllowedReplayKeys(map[string]any{})
+	if len(safe) != 0 {
+		t.Fatalf("expected 0 keys, got %d", len(safe))
+	}
+}
+
+func TestFilterAllowedReplayKeys_AllBlocked(t *testing.T) {
+	t.Parallel()
+	overrides := map[string]any{
+		"webhook_url":    "https://evil.com",
+		"webhook_secret": "secret",
+		"sandbox":        "escape",
+	}
+	safe := FilterAllowedReplayKeys(overrides)
+	if len(safe) != 0 {
+		t.Fatalf("expected 0 keys, got %d: %v", len(safe), safe)
 	}
 }
 

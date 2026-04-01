@@ -32,6 +32,9 @@ const (
 	defaultMaxConcurrentRuns = 10
 )
 
+// cgnatBlock is the Carrier-Grade NAT range (RFC 6598) not covered by net.IP.IsPrivate().
+var cgnatBlock = &net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)}
+
 var (
 	ErrNotDeployed         = errors.New("agent is not deployed")
 	ErrConcurrencyExceeded = errors.New("agent has too many concurrent runs")
@@ -651,8 +654,15 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		agentCopy := *agent
 		jobCopy := *job
 		deploymentCopy := *deployment
+		runID := run.ID
 		s.dispatchPool.Submit(func() {
-			s.dispatchRun(context.Background(), &agentCopy, &jobCopy, &deploymentCopy, run.ID)
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("agent dispatch panic recovered", "run_id", runID, "panic", r)
+					s.markRuntimeSystemFailed(context.Background(), runID, fmt.Sprintf("dispatch panic: %v", r))
+				}
+			}()
+			s.dispatchRun(context.Background(), &agentCopy, &jobCopy, &deploymentCopy, runID)
 		})
 	}
 	return run, nil
@@ -759,9 +769,11 @@ func (s *localService) ReplayAgentRun(ctx context.Context, req ReplayAgentRunReq
 		payload = cp.State
 	}
 
-	// Apply config overrides if provided.
+	// Apply config overrides if provided. Filter through allowlist to prevent
+	// injection of webhook_url, webhook_secret, sandbox, or provider_secrets.
 	agentForRun := *agent
 	if len(req.ConfigOverrides) > 0 {
+		safeOverrides := FilterAllowedReplayKeys(req.ConfigOverrides)
 		var existingCfg map[string]any
 		if len(agent.Config) > 0 {
 			_ = json.Unmarshal(agent.Config, &existingCfg)
@@ -769,12 +781,12 @@ func (s *localService) ReplayAgentRun(ctx context.Context, req ReplayAgentRunReq
 		if existingCfg == nil {
 			existingCfg = make(map[string]any)
 		}
-		maps.Copy(existingCfg, req.ConfigOverrides)
+		maps.Copy(existingCfg, safeOverrides)
 		merged, _ := json.Marshal(existingCfg)
 		agentForRun.Config = merged
 
 		// If model override is specified, apply at agent level too.
-		if m, ok := req.ConfigOverrides["model"].(string); ok && m != "" {
+		if m, ok := safeOverrides["model"].(string); ok && m != "" {
 			agentForRun.Model = m
 		}
 	}
@@ -817,8 +829,15 @@ func (s *localService) ReplayAgentRun(ctx context.Context, req ReplayAgentRunReq
 		agentCopy := agentForRun
 		jobCopy := *job
 		deploymentCopy := *deployment
+		replayRunID := run.ID
 		s.dispatchPool.Submit(func() {
-			s.dispatchRun(context.Background(), &agentCopy, &jobCopy, &deploymentCopy, run.ID)
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("agent replay dispatch panic recovered", "run_id", replayRunID, "panic", r)
+					s.markRuntimeSystemFailed(context.Background(), replayRunID, fmt.Sprintf("dispatch panic: %v", r))
+				}
+			}()
+			s.dispatchRun(context.Background(), &agentCopy, &jobCopy, &deploymentCopy, replayRunID)
 		})
 	}
 
@@ -1393,6 +1412,10 @@ func isSafeWebhookURL(raw string) bool {
 			return false
 		}
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return false
+		}
+		// Block CGNAT range (100.64.0.0/10) not covered by IsPrivate.
+		if cgnatBlock.Contains(ip) {
 			return false
 		}
 	}
