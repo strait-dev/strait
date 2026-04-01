@@ -40,11 +40,21 @@ const defaultMaxDeadlineSecs = 3600
 // Acts as a safety net for jobs where Destroy is not called (crashes, bugs).
 const jobTTLAfterFinished = 600 // 10 minutes
 
+// K8sMetrics is an optional interface for recording K8s runtime metrics.
+// Keeps the compute package decoupled from the telemetry package.
+type K8sMetrics interface {
+	RecordJobCreate(status string, preset string, durationSecs float64)
+	RecordJobWait(exitStatus string, durationSecs float64)
+	RecordPodScheduling(durationSecs float64)
+	IncJobsActive(delta int64)
+}
+
 // K8sRuntime implements ContainerRuntime using Kubernetes Jobs via client-go.
 type K8sRuntime struct {
 	clientset     kubernetes.Interface
 	namespace     string
 	priorityClass string
+	metrics       K8sMetrics // Optional, nil-safe.
 }
 
 // NewK8sRuntime creates a new Kubernetes runtime.
@@ -74,6 +84,9 @@ func NewK8sRuntime(kubeconfig, namespace, priorityClass string) (*K8sRuntime, er
 	}, nil
 }
 
+// SetMetrics attaches optional metrics recording to the runtime.
+func (k *K8sRuntime) SetMetrics(m K8sMetrics) { k.metrics = m }
+
 // NewK8sRuntimeFromClient creates a K8sRuntime from an existing clientset (for testing).
 func NewK8sRuntimeFromClient(clientset kubernetes.Interface, namespace, priorityClass string) *K8sRuntime {
 	return &K8sRuntime{
@@ -95,6 +108,8 @@ func (k *K8sRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, error
 // Create provisions a Kubernetes Job and returns the job name as machineID.
 // Retries up to maxCreateRetries times on name collision.
 func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error) {
+	createStart := time.Now()
+
 	if err := validateImageURI(req.ImageURI); err != nil {
 		return "", NewFatalError(422, "invalid image URI", err)
 	}
@@ -171,6 +186,10 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 
 		_, err = k.clientset.BatchV1().Jobs(k.namespace).Create(ctx, job, metav1.CreateOptions{})
 		if err == nil {
+			if k.metrics != nil {
+				k.metrics.RecordJobCreate("success", req.MachinePreset, time.Since(createStart).Seconds())
+				k.metrics.IncJobsActive(1)
+			}
 			return jobName, nil
 		}
 
@@ -178,14 +197,18 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 			if attempt < maxCreateRetries-1 {
 				continue // Retry with a new name.
 			}
+			k.recordCreateError(req.MachinePreset, createStart)
 			return "", NewRetryableError(409, "job name collision after retries", err)
 		}
 		if k8serrors.IsInvalid(err) {
+			k.recordCreateError(req.MachinePreset, createStart)
 			return "", NewFatalError(422, fmt.Sprintf("invalid job spec: %v", err), nil)
 		}
+		k.recordCreateError(req.MachinePreset, createStart)
 		return "", NewRetryableError(500, "create k8s job", err)
 	}
 
+	k.recordCreateError(req.MachinePreset, createStart)
 	return "", NewRetryableError(500, "create k8s job: exhausted retries", nil)
 }
 
@@ -194,6 +217,9 @@ func (k *K8sRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int
 	if err := validateMachineID(machineID); err != nil {
 		return nil, err
 	}
+
+	waitStart := time.Now()
+	var podRunningAt time.Time
 
 	now := time.Now()
 	result := &RunResult{
@@ -218,6 +244,10 @@ func (k *K8sRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int
 	for {
 		select {
 		case <-waitCtx.Done():
+			if k.metrics != nil {
+				k.metrics.RecordJobWait("timeout", time.Since(waitStart).Seconds())
+				k.metrics.IncJobsActive(-1)
+			}
 			return result, NewTimeoutError("wait timed out", waitCtx.Err())
 		case <-ticker.C:
 			pod, err := k.findJobPod(waitCtx, machineID)
@@ -243,8 +273,26 @@ func (k *K8sRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int
 					}
 				}
 
+				if k.metrics != nil {
+					exitStatus := "success"
+					if result.OOMKilled {
+						exitStatus = "oom"
+					} else if result.ExitCode != 0 {
+						exitStatus = "failure"
+					}
+					k.metrics.RecordJobWait(exitStatus, time.Since(waitStart).Seconds())
+					k.metrics.IncJobsActive(-1)
+				}
+
 				return result, nil
 			case corev1.PodRunning, corev1.PodUnknown:
+				// Record pod scheduling duration once (first time we see Running).
+				if podRunningAt.IsZero() {
+					podRunningAt = time.Now()
+					if k.metrics != nil {
+						k.metrics.RecordPodScheduling(podRunningAt.Sub(waitStart).Seconds())
+					}
+				}
 				// Reset to faster polling once pod is running.
 				pollInterval = time.Second
 				ticker.Reset(pollInterval)
@@ -362,6 +410,12 @@ func (k *K8sRuntime) GetLogs(ctx context.Context, machineID string, lines int) (
 	}
 
 	return string(body), nil
+}
+
+func (k *K8sRuntime) recordCreateError(preset string, start time.Time) {
+	if k.metrics != nil {
+		k.metrics.RecordJobCreate("error", preset, time.Since(start).Seconds())
+	}
 }
 
 // validateMachineID rejects machineIDs that don't match the expected format.
