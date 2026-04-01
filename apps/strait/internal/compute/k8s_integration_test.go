@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -427,18 +428,21 @@ func TestK8sIntegration_E2E_RuntimeConstruction(t *testing.T) {
 // Metrics recording test.
 
 type mockK8sMetrics struct {
-	createCalls   int
-	waitCalls     int
-	scheduleCalls int
+	createCalls   atomic.Int64
+	waitCalls     atomic.Int64
+	scheduleCalls atomic.Int64
+	mu            sync.Mutex
 	activeDeltas  []int64
 }
 
-func (m *mockK8sMetrics) RecordJobCreate(string, string, float64) { m.createCalls++ }
-func (m *mockK8sMetrics) RecordJobWait(string, float64)           { m.waitCalls++ }
-func (m *mockK8sMetrics) RecordPodScheduling(float64)             { m.scheduleCalls++ }
+func (m *mockK8sMetrics) RecordJobCreate(string, string, float64) { m.createCalls.Add(1) }
+func (m *mockK8sMetrics) RecordJobWait(string, float64)           { m.waitCalls.Add(1) }
+func (m *mockK8sMetrics) RecordPodScheduling(float64)             { m.scheduleCalls.Add(1) }
 
 func (m *mockK8sMetrics) IncJobsActive(delta int64) {
+	m.mu.Lock()
 	m.activeDeltas = append(m.activeDeltas, delta)
+	m.mu.Unlock()
 }
 
 func TestK8sIntegration_MetricsRecorded(t *testing.T) {
@@ -459,16 +463,19 @@ func TestK8sIntegration_MetricsRecorded(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = rt.Destroy(context.Background(), result.MachineID) })
 
-	if mock.createCalls != 1 {
-		t.Errorf("RecordJobCreate called %d times, want 1", mock.createCalls)
+	if mock.createCalls.Load() != 1 {
+		t.Errorf("RecordJobCreate called %d times, want 1", mock.createCalls.Load())
 	}
-	if mock.waitCalls != 1 {
-		t.Errorf("RecordJobWait called %d times, want 1", mock.waitCalls)
+	if mock.waitCalls.Load() != 1 {
+		t.Errorf("RecordJobWait called %d times, want 1", mock.waitCalls.Load())
 	}
 	// Pod scheduling may or may not be recorded depending on whether we see Running before Succeeded.
 	// At minimum, active should have +1 and -1.
-	if len(mock.activeDeltas) < 2 {
-		t.Errorf("IncJobsActive called %d times, want at least 2 (+1, -1)", len(mock.activeDeltas))
+	mock.mu.Lock()
+	deltaCount := len(mock.activeDeltas)
+	mock.mu.Unlock()
+	if deltaCount < 2 {
+		t.Errorf("IncJobsActive called %d times, want at least 2 (+1, -1)", deltaCount)
 	}
 }
 
