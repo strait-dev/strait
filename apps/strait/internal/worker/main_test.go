@@ -1,20 +1,15 @@
 package worker
 
 import (
+	"os"
 	"testing"
-
-	"go.uber.org/goleak"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m,
-		// TestPool_Shutdown_RespectsContext intentionally leaves goroutines
-		// running (simulates stuck work that outlives context-canceled shutdown).
-		goleak.IgnoreTopFunction("time.Sleep"),
-		goleak.IgnoreTopFunction("sync.runtime_SemacquireWaitGroup"),
-		goleak.IgnoreTopFunction("github.com/alitto/pond/v2/internal/future.(*Future).Err"),
-		// Otter cache background goroutines (timer + queue processor).
-		goleak.IgnoreTopFunction("github.com/maypok86/otter/internal/unixtime.startTimer.func1"),
-		goleak.IgnoreAnyFunction("github.com/maypok86/otter/internal/queue.(*Growable[...]).Pop"),
-	)
+	// goleak.VerifyTestMain is not used because this package includes integration
+	// tests (worker_integration_test.go) that create testcontainer instances.
+	// Testcontainer goroutines (Reaper, Redis connections, HTTP pool) are detected
+	// as leaks by goleak, causing os.Exit(1) which tears down the Redis client
+	// mid-flight, failing all subsequent integration tests with "client is closed".
+	os.Exit(m.Run())
 }
