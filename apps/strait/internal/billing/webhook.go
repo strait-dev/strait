@@ -271,6 +271,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		err = h.handlePaymentSucceeded(ctx, event.Data.Raw)
 	case stripe.EventTypeInvoicePaymentFailed:
 		err = h.handlePaymentFailed(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionPaused:
+		err = h.handleSubscriptionPaused(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionResumed:
+		err = h.handleSubscriptionResumed(ctx, event.Data.Raw)
 	default:
 		h.logger.Debug("ignoring unhandled stripe event", "type", event.Type)
 		w.WriteHeader(http.StatusOK)
@@ -823,6 +827,82 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 		}()
 	}
 
+	return nil
+}
+
+// handleSubscriptionPaused handles customer.subscription.paused events.
+// Sets the subscription status to "paused" and restricts access.
+func (h *WebhookHandler) handleSubscriptionPaused(ctx context.Context, data json.RawMessage) error {
+	var sub stripe.Subscription
+	if err := json.Unmarshal(data, &sub); err != nil {
+		return fmt.Errorf("parsing subscription data: %w", err)
+	}
+
+	orgID := h.resolveOrgID(&sub)
+	if orgID == "" {
+		return nil
+	}
+
+	if err := h.store.UpdateOrgSubscriptionPlan(ctx, orgID, "", "paused"); err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return nil
+		}
+		return fmt.Errorf("pausing subscription: %w", err)
+	}
+
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(orgID)
+	}
+
+	h.logAuditEvent(ctx, "subscription.paused", orgID, map[string]string{
+		"stripe_subscription_id": sub.ID,
+	})
+
+	h.logger.Info("subscription paused", "org_id", orgID)
+	return nil
+}
+
+// handleSubscriptionResumed handles customer.subscription.resumed events.
+// Restores the subscription to active status.
+func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data json.RawMessage) error {
+	var sub stripe.Subscription
+	if err := json.Unmarshal(data, &sub); err != nil {
+		return fmt.Errorf("parsing subscription data: %w", err)
+	}
+
+	if err := validateStripeSubscription(&sub); err != nil {
+		return fmt.Errorf("invalid subscription data: %w", err)
+	}
+
+	orgID := h.resolveOrgID(&sub)
+	if orgID == "" {
+		return nil
+	}
+
+	priceID := extractPriceID(&sub)
+	tier, ok := h.stripeMapping.TierForPrice(priceID)
+	if !ok {
+		return nil
+	}
+
+	periodStart, periodEnd := extractPeriod(&sub)
+	if err := h.store.UpdateOrgSubscriptionFull(ctx, orgID, string(tier), "active", periodStart, periodEnd); err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return nil
+		}
+		return fmt.Errorf("resuming subscription: %w", err)
+	}
+
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(orgID)
+	}
+
+	h.logAuditEvent(ctx, "subscription.resumed", orgID, map[string]string{
+		"plan_tier":              string(tier),
+		"stripe_subscription_id": sub.ID,
+	})
+
+	h.logger.Info("subscription resumed", "org_id", orgID, "plan_tier", tier)
 	return nil
 }
 

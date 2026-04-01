@@ -1,21 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import Stripe from "stripe";
-
-/**
- * Lazily initialized Stripe client singleton.
- * Deferred because Cloudflare Workers only populate `process.env` during
- * request handling, not at module load time.
- */
-let _stripeClient: Stripe | null = null;
-
-function getStripeClient(): Stripe {
-  if (!_stripeClient) {
-    _stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-      apiVersion: "2025-08-27.basil",
-    });
-  }
-  return _stripeClient;
-}
+import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
 
 type CustomerPortalResponse = {
   url: string | null;
@@ -40,27 +24,22 @@ export const getCustomerPortalUrlServerFn = createServerFn({
   }
 
   try {
-    const stripe = getStripeClient();
+    const customerId = await findCustomerByEmail(session.user.email);
 
-    // Look up the Stripe customer by email
-    const customers = await stripe.customers.list({
-      email: session.user.email,
-      limit: 1,
-    });
-
-    if (customers.data.length === 0) {
+    if (!customerId) {
       return {
         url: null,
         error: "Customer not found",
       };
     }
 
-    const customerId = customers.data[0].id;
+    const stripe = getStripeClient();
+    const baseUrl =
+      process.env.BETTER_AUTH_URL ?? "http://localhost:5173";
 
-    // Create a Stripe Billing Portal session
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: process.env.BETTER_AUTH_URL ?? "http://localhost:5173",
+      return_url: `${baseUrl}/app/billing`,
     });
 
     return {

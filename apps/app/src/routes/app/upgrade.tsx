@@ -60,6 +60,7 @@ const startCheckoutInputSchema = z.object({
 /**
  * Server function to start checkout for plan upgrade.
  * Creates a Stripe Checkout Session and returns the URL.
+ * Reuses existing Stripe customers to avoid duplicates.
  */
 const startCheckoutServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: StartCheckoutInput) =>
@@ -67,8 +68,10 @@ const startCheckoutServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const { default: Stripe } = await import("stripe");
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "");
+    const { getStripeClient, findOrCreateCustomer } = await import(
+      "@/lib/stripe.server"
+    );
+    const stripe = getStripeClient();
 
     const slug = `${data.planSlug}-${data.billingInterval}`;
     const priceId = PLAN_PRICE_MAP[slug];
@@ -91,12 +94,22 @@ const startCheckoutServerFn = createServerFn({ method: "POST" })
     const email = ctx?.session?.user?.email;
     const orgId = ctx?.session?.session?.activeOrganizationId;
 
+    // Reuse existing Stripe customer to avoid duplicates.
+    const customerId = email
+      ? await findOrCreateCustomer(
+          email,
+          orgId ? { org_id: orgId } : undefined
+        )
+      : undefined;
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/app?checkout_success=true`,
       cancel_url: `${baseUrl}/app/upgrade?canceled=true`,
-      customer_email: email,
+      ...(customerId ? { customer: customerId } : { customer_email: email }),
+      allow_promotion_codes: true,
+      automatic_tax: { enabled: true },
       subscription_data: {
         metadata: orgId ? { org_id: orgId } : {},
       },

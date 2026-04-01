@@ -2,10 +2,10 @@ import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { Effect } from "effect";
-import Stripe from "stripe";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getAuth } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
+import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
 import {
   deriveSubscriptionState,
   type NormalizedSubscription,
@@ -14,19 +14,6 @@ import {
   type SubscriptionData,
   type SubscriptionStateData,
 } from "./subscription-state";
-
-let _stripe: Stripe | null = null;
-
-function getStripeClient(): Stripe | null {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) {
-    return null;
-  }
-  if (!_stripe) {
-    _stripe = new Stripe(key, { apiVersion: "2025-08-27.basil" });
-  }
-  return _stripe;
-}
 
 const PRICE_PLAN_MAP: Record<string, string> = {
   [process.env.STRIPE_STARTER_MONTHLY_PRICE_ID ?? ""]: "starter",
@@ -48,19 +35,14 @@ const ACTIVE_STATUSES = new Set([
 const getSubscriptionByEmail = async (
   email: string
 ): Promise<NormalizedSubscription | null> => {
+  if (!process.env.STRIPE_SECRET_KEY) return null;
+
+  const customerId = await findCustomerByEmail(email);
+  if (!customerId) return null;
+
   const stripe = getStripeClient();
-  if (!stripe) {
-    return null;
-  }
-
-  const customers = await stripe.customers.list({ email, limit: 1 });
-  const customer = customers.data[0];
-  if (!customer) {
-    return null;
-  }
-
   const subscriptions = await stripe.subscriptions.list({
-    customer: customer.id,
+    customer: customerId,
     limit: 20,
     expand: ["data.items.data.price"],
   });

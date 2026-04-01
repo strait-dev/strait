@@ -141,10 +141,17 @@ async function createStripeCustomer(
   user: { id: string; email: string; name: string },
   orgId: string
 ): Promise<void> {
-  if (!process.env.STRIPE_SECRET_KEY) return;
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return;
+  }
   try {
-    const { default: Stripe } = await import("stripe");
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    const { findCustomerByEmail, getStripeClient } = await import(
+      "@/lib/stripe.server"
+    );
+    const existing = await findCustomerByEmail(user.email);
+    if (existing) return; // Customer already exists
+
+    const stripe = getStripeClient();
     await stripe.customers.create({
       email: user.email,
       name: user.name || undefined,

@@ -29,8 +29,10 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { checkoutSlug: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const { default: Stripe } = await import("stripe");
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "");
+    const { getStripeClient, findOrCreateCustomer } = await import(
+      "@/lib/stripe.server"
+    );
+    const stripe = getStripeClient();
 
     const priceId = ADDON_PRICE_MAP[data.checkoutSlug];
     if (!priceId) {
@@ -51,12 +53,21 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
     const email = ctx?.session?.user?.email;
     const orgId = ctx?.session?.session?.activeOrganizationId;
 
+    const customerId = email
+      ? await findOrCreateCustomer(
+          email,
+          orgId ? { org_id: orgId } : undefined
+        )
+      : undefined;
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/app/billing?addon_success=true`,
       cancel_url: `${baseUrl}/app/billing`,
-      customer_email: email,
+      ...(customerId ? { customer: customerId } : { customer_email: email }),
+      allow_promotion_codes: true,
+      automatic_tax: { enabled: true },
       subscription_data: {
         metadata: orgId ? { org_id: orgId } : {},
       },
