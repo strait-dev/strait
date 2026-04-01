@@ -14,6 +14,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { ADDON_CATALOG, getActivePackCount } from "@/hooks/billing/use-addons";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
+import {
+  findOrCreateCustomer,
+  getStripeClient,
+} from "@/lib/stripe.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 const ADDON_PRICE_MAP: Record<string, string | undefined> = {
@@ -29,9 +33,6 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { checkoutSlug: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const { getStripeClient, findOrCreateCustomer } = await import(
-      "@/lib/stripe.server"
-    );
     const stripe = getStripeClient();
 
     const priceId = ADDON_PRICE_MAP[data.checkoutSlug];
@@ -54,10 +55,7 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
     const orgId = ctx?.session?.session?.activeOrganizationId;
 
     const customerId = email
-      ? await findOrCreateCustomer(
-          email,
-          orgId ? { org_id: orgId } : undefined
-        )
+      ? await findOrCreateCustomer(email, orgId ? { org_id: orgId } : undefined)
       : undefined;
 
     const session = await stripe.checkout.sessions.create({

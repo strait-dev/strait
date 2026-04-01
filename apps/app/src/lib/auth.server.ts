@@ -2,6 +2,7 @@ import { env as cfEnv } from "cloudflare:workers";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
 import { render } from "@react-email/render";
+import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
 import {
   ConfirmAccount,
   MagicLink,
@@ -145,11 +146,10 @@ async function createStripeCustomer(
     return;
   }
   try {
-    const { findCustomerByEmail, getStripeClient } = await import(
-      "@/lib/stripe.server"
-    );
     const existing = await findCustomerByEmail(user.email);
-    if (existing) return; // Customer already exists
+    if (existing) {
+      return; // Customer already exists
+    }
 
     const stripe = getStripeClient();
     await stripe.customers.create({

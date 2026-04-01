@@ -1,4 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  findOrCreateCustomer,
+  getStripeClient,
+} from "@/lib/stripe.server";
 import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -68,9 +72,6 @@ const startCheckoutServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const { getStripeClient, findOrCreateCustomer } = await import(
-      "@/lib/stripe.server"
-    );
     const stripe = getStripeClient();
 
     const slug = `${data.planSlug}-${data.billingInterval}`;
@@ -96,10 +97,7 @@ const startCheckoutServerFn = createServerFn({ method: "POST" })
 
     // Reuse existing Stripe customer to avoid duplicates.
     const customerId = email
-      ? await findOrCreateCustomer(
-          email,
-          orgId ? { org_id: orgId } : undefined
-        )
+      ? await findOrCreateCustomer(email, orgId ? { org_id: orgId } : undefined)
       : undefined;
 
     const session = await stripe.checkout.sessions.create({
