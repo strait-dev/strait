@@ -1,8 +1,22 @@
+/**
+ * Better Auth server configuration and lazy singletons.
+ *
+ * **Important: Deferred initialization pattern.**
+ * Cloudflare Workers only populate `process.env` during request handling,
+ * not at module load time. Every constructor that reads an env var must be
+ * wrapped in a lazy getter so it runs on the first request, not on import.
+ *
+ * This module exports {@link getAuth} and {@link getAuthPool} as the primary
+ * entry points. Both are lazily initialized on first call.
+ *
+ * @see https://developers.cloudflare.com/workers/runtime-apis/handlers/fetch/
+ * @see https://www.better-auth.com/docs/introduction — Better Auth docs
+ * @see https://www.better-auth.com/docs/concepts/database — Database adapters
+ */
 import { env as cfEnv } from "cloudflare:workers";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
 import { render } from "@react-email/render";
-import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
 import {
   ConfirmAccount,
   MagicLink,
@@ -30,14 +44,7 @@ import {
   STRAIT_API_SCOPES,
 } from "@/lib/oauth-scopes";
 import { getResend } from "@/lib/resend.server";
-
-// ---------------------------------------------------------------------------
-// Deferred singletons
-//
-// Cloudflare Workers only populate `process.env` during request handling,
-// not at module load time. Every constructor that reads an env var must be
-// wrapped in a lazy getter so it runs on the first request, not on import.
-// ---------------------------------------------------------------------------
+import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
 
 /**
  * Resolve the auth database connection string.
@@ -49,7 +56,7 @@ import { getResend } from "@/lib/resend.server";
  * Falls back to `AUTH_DATABASE_URL` for local development where
  * Hyperdrive provides a local connection string automatically.
  */
-function getAuthConnectionString(): string {
+const getAuthConnectionString = (): string => {
   const hyperdrive = (cfEnv as Record<string, unknown>).HYPERDRIVE as
     | { connectionString: string }
     | undefined;
@@ -65,7 +72,7 @@ function getAuthConnectionString(): string {
   const fallback = process.env.AUTH_DATABASE_URL ?? "";
   console.log("[auth] Falling back to AUTH_DATABASE_URL, present:", !!fallback);
   return fallback;
-}
+};
 
 /**
  * Lazily initialized PostgreSQL connection pool for the auth database.
@@ -83,7 +90,7 @@ function getAuthConnectionString(): string {
  * The returned object implements the `query()` and `connect()` methods
  * that Better Auth's Kysely adapter requires.
  */
-export function getAuthPool(): Pool {
+export const getAuthPool = (): Pool => {
   const connectionString = getAuthConnectionString();
   return {
     async query(text: string, values?: unknown[]) {
@@ -110,7 +117,7 @@ export function getAuthPool(): Pool {
       };
     },
   } as unknown as Pool;
-}
+};
 
 /**
  * Cache the OIDC private key import. `importPKCS8` parses PEM and is CPU
@@ -120,7 +127,7 @@ export function getAuthPool(): Pool {
  */
 let oidcPrivateKeyPromise: Promise<CryptoKey> | null = null;
 
-function getOIDCPrivateKey(): Promise<CryptoKey> {
+const getOIDCPrivateKey = (): Promise<CryptoKey> => {
   if (!oidcPrivateKeyPromise) {
     oidcPrivateKeyPromise = importPKCS8(
       process.env.OIDC_PRIVATE_KEY_PEM as string,
@@ -131,17 +138,17 @@ function getOIDCPrivateKey(): Promise<CryptoKey> {
     });
   }
   return oidcPrivateKeyPromise;
-}
+};
 
 /**
  * Create a Stripe customer for a newly signed-up user.
  * Links the org_id in metadata so the Go webhook handler can resolve orgs.
  * Best-effort: errors are logged but never fail signup.
  */
-async function createStripeCustomer(
+const createStripeCustomer = async (
   user: { id: string; email: string; name: string },
   orgId: string
-): Promise<void> {
+): Promise<void> => {
   if (!process.env.STRIPE_SECRET_KEY) {
     return;
   }
@@ -160,7 +167,7 @@ async function createStripeCustomer(
   } catch (err) {
     console.error("Failed to create Stripe customer for user", user.id, err);
   }
-}
+};
 
 /**
  * Build the Better Auth configuration.
@@ -179,7 +186,7 @@ async function createStripeCustomer(
  * - Google OAuth
  * - GitHub OAuth
  */
-function createAuth() {
+const createAuth = () => {
   const pool = getAuthPool();
   const resend = getResend();
   return betterAuth({
@@ -468,30 +475,22 @@ function createAuth() {
       },
     },
   });
-}
+};
 
-// ---------------------------------------------------------------------------
-// Exported lazy singletons
-// ---------------------------------------------------------------------------
-
-/**
- * Lazily initialized Better Auth server instance.
- *
- * The full `betterAuth()` config reads dozens of `process.env` values.
- * In Cloudflare Workers these are only available during request handling,
- * so we defer the entire construction to the first call.
- */
 type AuthInstance = ReturnType<typeof createAuth>;
 
 let _auth: AuthInstance | null = null;
 
 /**
  * Returns the Better Auth singleton, initializing it on first call.
+ *
  * Callers must `await` the result for backwards compatibility.
+ *
+ * @see https://www.better-auth.com/docs/introduction
  */
-export function getAuth(): Promise<AuthInstance> {
+export const getAuth = (): Promise<AuthInstance> => {
   if (!_auth) {
     _auth = createAuth();
   }
   return Promise.resolve(_auth);
-}
+};
