@@ -645,6 +645,45 @@ func TestK8sRuntime_Create_JobNameLength(t *testing.T) {
 	}
 }
 
+func TestK8sRuntime_Create_DefaultNamespace(t *testing.T) {
+	rt, cs := newTestK8sRuntime()
+	ctx := context.Background()
+
+	id, _ := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.19",
+		MachinePreset: "micro",
+		// Namespace empty -- should use default from runtime ("test-ns").
+	})
+
+	job, _ := cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
+	if job == nil {
+		t.Fatal("job not found in default namespace")
+	}
+}
+
+func TestK8sRuntime_Create_OverrideNamespace(t *testing.T) {
+	rt, cs := newTestK8sRuntime()
+	ctx := context.Background()
+
+	id, _ := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.19",
+		MachinePreset: "micro",
+		Namespace:     "tenant-abc",
+	})
+
+	// Job should be in the override namespace.
+	job, err := cs.BatchV1().Jobs("tenant-abc").Get(ctx, id, metav1.GetOptions{})
+	if err != nil || job == nil {
+		t.Fatalf("job not found in override namespace tenant-abc: %v", err)
+	}
+
+	// Job should NOT be in the default namespace.
+	_, err = cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
+	if err == nil {
+		t.Error("job found in default namespace, should be in tenant-abc")
+	}
+}
+
 func TestK8sRuntime_Create_InvalidImageURI(t *testing.T) {
 	rt, _ := newTestK8sRuntime()
 	_, err := rt.Create(context.Background(), RunRequest{

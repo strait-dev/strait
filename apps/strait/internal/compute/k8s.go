@@ -120,6 +120,7 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 		return "", NewFatalError(422, "invalid machine preset", err)
 	}
 
+	ns := k.resolveNamespace(req.Namespace)
 	requests, limits := preset.K8sResources()
 	userLabels := sanitizeUserLabels(req.Labels)
 
@@ -131,7 +132,7 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 		job := &batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      jobName,
-				Namespace: k.namespace,
+				Namespace: ns,
 				Labels:    mergeLabels(userLabels, map[string]string{"app": "strait-job"}),
 			},
 			Spec: batchv1.JobSpec{
@@ -185,7 +186,7 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 		}
 		job.Spec.ActiveDeadlineSeconds = &deadline
 
-		_, err = k.clientset.BatchV1().Jobs(k.namespace).Create(ctx, job, metav1.CreateOptions{})
+		_, err = k.clientset.BatchV1().Jobs(ns).Create(ctx, job, metav1.CreateOptions{})
 		if err == nil {
 			if k.metrics != nil {
 				k.metrics.RecordJobCreate("success", req.MachinePreset, time.Since(createStart).Seconds())
@@ -499,6 +500,14 @@ func (k *K8sRuntime) GetLogs(ctx context.Context, machineID string, lines int) (
 	}
 
 	return string(body), nil
+}
+
+// resolveNamespace returns the override namespace if set, otherwise the default.
+func (k *K8sRuntime) resolveNamespace(override string) string {
+	if override != "" {
+		return override
+	}
+	return k.namespace
 }
 
 func (k *K8sRuntime) recordCreateError(preset string, start time.Time) {
