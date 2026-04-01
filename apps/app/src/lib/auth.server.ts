@@ -88,7 +88,7 @@ export function getAuthPool(): Pool {
       connectionString: getAuthConnectionString(),
       max: 1,
       idleTimeoutMillis: 0,
-      connectionTimeoutMillis: 10000,
+      connectionTimeoutMillis: 10_000,
     });
   }
   return _authPool;
