@@ -73,6 +73,9 @@ var _ APIStore = &APIStoreMock{}
 //			CompleteCanaryDeploymentFunc: func(ctx context.Context, workflowID string, status string) error {
 //				panic("mock out the CompleteCanaryDeployment method")
 //			},
+//			CompleteIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string, responseStatus int, responseBody []byte) error {
+//				panic("mock out the CompleteIdempotencyKey method")
+//			},
 //			CountActiveEventTriggersByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
 //				panic("mock out the CountActiveEventTriggersByProject method")
 //			},
@@ -228,6 +231,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			DeleteEventTriggersFinishedBeforeFunc: func(ctx context.Context, before time.Time, limit int) (int64, error) {
 //				panic("mock out the DeleteEventTriggersFinishedBefore method")
+//			},
+//			DeleteIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string) (int64, error) {
+//				panic("mock out the DeleteIdempotencyKey method")
 //			},
 //			DeleteJobFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the DeleteJob method")
@@ -417,6 +423,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			GetWebhookSubscriptionFunc: func(ctx context.Context, id string) (*domain.WebhookSubscription, error) {
 //				panic("mock out the GetWebhookSubscription method")
+//			},
+//			GetWebhookSubscriptionSecretsFunc: func(ctx context.Context, subscriptionID string) (string, string, *time.Time, error) {
+//				panic("mock out the GetWebhookSubscriptionSecrets method")
 //			},
 //			GetWorkflowFunc: func(ctx context.Context, id string) (*domain.Workflow, error) {
 //				panic("mock out the GetWorkflow method")
@@ -667,6 +676,9 @@ var _ APIStore = &APIStoreMock{}
 //			RollbackDeploymentVersionFunc: func(ctx context.Context, deploymentID string, projectID string, environment string, updatedBy string) (*domain.DeploymentVersion, error) {
 //				panic("mock out the RollbackDeploymentVersion method")
 //			},
+//			RotateWebhookSecretFunc: func(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error {
+//				panic("mock out the RotateWebhookSecret method")
+//			},
 //			SeedProjectSystemRolesFunc: func(ctx context.Context, projectID string) error {
 //				panic("mock out the SeedProjectSystemRoles method")
 //			},
@@ -675,6 +687,15 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			StreamAuditEventsFunc: func(ctx context.Context, projectID string, actorID string, resourceType string, from time.Time, to time.Time, fn func(*domain.AuditEvent) error) error {
 //				panic("mock out the StreamAuditEvents method")
+//			},
+//			StreamJobsFunc: func(ctx context.Context, projectID string, fn func(*domain.Job) error) error {
+//				panic("mock out the StreamJobs method")
+//			},
+//			StreamRunsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time, fn func(*domain.JobRun) error) error {
+//				panic("mock out the StreamRuns method")
+//			},
+//			StreamWorkflowsFunc: func(ctx context.Context, projectID string, fn func(*domain.Workflow) error) error {
+//				panic("mock out the StreamWorkflows method")
 //			},
 //			SumJobMemorySizeBytesFunc: func(ctx context.Context, jobID string) (int, error) {
 //				panic("mock out the SumJobMemorySizeBytes method")
@@ -690,6 +711,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			TouchAPIKeyLastUsedFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the TouchAPIKeyLastUsed method")
+//			},
+//			TryAcquireIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, []byte, error) {
+//				panic("mock out the TryAcquireIdempotencyKey method")
 //			},
 //			UpdateCanaryDeploymentTrafficFunc: func(ctx context.Context, workflowID string, trafficPct int) error {
 //				panic("mock out the UpdateCanaryDeploymentTraffic method")
@@ -832,6 +856,9 @@ type APIStoreMock struct {
 
 	// CompleteCanaryDeploymentFunc mocks the CompleteCanaryDeployment method.
 	CompleteCanaryDeploymentFunc func(ctx context.Context, workflowID string, status string) error
+
+	// CompleteIdempotencyKeyFunc mocks the CompleteIdempotencyKey method.
+	CompleteIdempotencyKeyFunc func(ctx context.Context, projectID string, key string, responseStatus int, responseBody []byte) error
 
 	// CountActiveEventTriggersByProjectFunc mocks the CountActiveEventTriggersByProject method.
 	CountActiveEventTriggersByProjectFunc func(ctx context.Context, projectID string) (int, error)
@@ -988,6 +1015,9 @@ type APIStoreMock struct {
 
 	// DeleteEventTriggersFinishedBeforeFunc mocks the DeleteEventTriggersFinishedBefore method.
 	DeleteEventTriggersFinishedBeforeFunc func(ctx context.Context, before time.Time, limit int) (int64, error)
+
+	// DeleteIdempotencyKeyFunc mocks the DeleteIdempotencyKey method.
+	DeleteIdempotencyKeyFunc func(ctx context.Context, projectID string, key string) (int64, error)
 
 	// DeleteJobFunc mocks the DeleteJob method.
 	DeleteJobFunc func(ctx context.Context, id string) error
@@ -1177,6 +1207,9 @@ type APIStoreMock struct {
 
 	// GetWebhookSubscriptionFunc mocks the GetWebhookSubscription method.
 	GetWebhookSubscriptionFunc func(ctx context.Context, id string) (*domain.WebhookSubscription, error)
+
+	// GetWebhookSubscriptionSecretsFunc mocks the GetWebhookSubscriptionSecrets method.
+	GetWebhookSubscriptionSecretsFunc func(ctx context.Context, subscriptionID string) (string, string, *time.Time, error)
 
 	// GetWorkflowFunc mocks the GetWorkflow method.
 	GetWorkflowFunc func(ctx context.Context, id string) (*domain.Workflow, error)
@@ -1427,6 +1460,9 @@ type APIStoreMock struct {
 	// RollbackDeploymentVersionFunc mocks the RollbackDeploymentVersion method.
 	RollbackDeploymentVersionFunc func(ctx context.Context, deploymentID string, projectID string, environment string, updatedBy string) (*domain.DeploymentVersion, error)
 
+	// RotateWebhookSecretFunc mocks the RotateWebhookSecret method.
+	RotateWebhookSecretFunc func(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error
+
 	// SeedProjectSystemRolesFunc mocks the SeedProjectSystemRoles method.
 	SeedProjectSystemRolesFunc func(ctx context.Context, projectID string) error
 
@@ -1435,6 +1471,15 @@ type APIStoreMock struct {
 
 	// StreamAuditEventsFunc mocks the StreamAuditEvents method.
 	StreamAuditEventsFunc func(ctx context.Context, projectID string, actorID string, resourceType string, from time.Time, to time.Time, fn func(*domain.AuditEvent) error) error
+
+	// StreamJobsFunc mocks the StreamJobs method.
+	StreamJobsFunc func(ctx context.Context, projectID string, fn func(*domain.Job) error) error
+
+	// StreamRunsFunc mocks the StreamRuns method.
+	StreamRunsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time, fn func(*domain.JobRun) error) error
+
+	// StreamWorkflowsFunc mocks the StreamWorkflows method.
+	StreamWorkflowsFunc func(ctx context.Context, projectID string, fn func(*domain.Workflow) error) error
 
 	// SumJobMemorySizeBytesFunc mocks the SumJobMemorySizeBytes method.
 	SumJobMemorySizeBytesFunc func(ctx context.Context, jobID string) (int, error)
@@ -1450,6 +1495,9 @@ type APIStoreMock struct {
 
 	// TouchAPIKeyLastUsedFunc mocks the TouchAPIKeyLastUsed method.
 	TouchAPIKeyLastUsedFunc func(ctx context.Context, id string) error
+
+	// TryAcquireIdempotencyKeyFunc mocks the TryAcquireIdempotencyKey method.
+	TryAcquireIdempotencyKeyFunc func(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, []byte, error)
 
 	// UpdateCanaryDeploymentTrafficFunc mocks the UpdateCanaryDeploymentTraffic method.
 	UpdateCanaryDeploymentTrafficFunc func(ctx context.Context, workflowID string, trafficPct int) error
@@ -1697,6 +1745,19 @@ type APIStoreMock struct {
 			WorkflowID string
 			// Status is the status argument value.
 			Status string
+		}
+		// CompleteIdempotencyKey holds details about calls to the CompleteIdempotencyKey method.
+		CompleteIdempotencyKey []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Key is the key argument value.
+			Key string
+			// ResponseStatus is the responseStatus argument value.
+			ResponseStatus int
+			// ResponseBody is the responseBody argument value.
+			ResponseBody []byte
 		}
 		// CountActiveEventTriggersByProject holds details about calls to the CountActiveEventTriggersByProject method.
 		CountActiveEventTriggersByProject []struct {
@@ -2083,6 +2144,15 @@ type APIStoreMock struct {
 			Before time.Time
 			// Limit is the limit argument value.
 			Limit int
+		}
+		// DeleteIdempotencyKey holds details about calls to the DeleteIdempotencyKey method.
+		DeleteIdempotencyKey []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Key is the key argument value.
+			Key string
 		}
 		// DeleteJob holds details about calls to the DeleteJob method.
 		DeleteJob []struct {
@@ -2614,6 +2684,13 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+		}
+		// GetWebhookSubscriptionSecrets holds details about calls to the GetWebhookSubscriptionSecrets method.
+		GetWebhookSubscriptionSecrets []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// SubscriptionID is the subscriptionID argument value.
+			SubscriptionID string
 		}
 		// GetWorkflow holds details about calls to the GetWorkflow method.
 		GetWorkflow []struct {
@@ -3476,6 +3553,17 @@ type APIStoreMock struct {
 			// UpdatedBy is the updatedBy argument value.
 			UpdatedBy string
 		}
+		// RotateWebhookSecret holds details about calls to the RotateWebhookSecret method.
+		RotateWebhookSecret []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+			// NewSecret is the newSecret argument value.
+			NewSecret string
+			// GraceExpiresAt is the graceExpiresAt argument value.
+			GraceExpiresAt time.Time
+		}
 		// SeedProjectSystemRoles holds details about calls to the SeedProjectSystemRoles method.
 		SeedProjectSystemRoles []struct {
 			// Ctx is the ctx argument value.
@@ -3508,6 +3596,37 @@ type APIStoreMock struct {
 			To time.Time
 			// Fn is the fn argument value.
 			Fn func(*domain.AuditEvent) error
+		}
+		// StreamJobs holds details about calls to the StreamJobs method.
+		StreamJobs []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Fn is the fn argument value.
+			Fn func(*domain.Job) error
+		}
+		// StreamRuns holds details about calls to the StreamRuns method.
+		StreamRuns []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// From is the from argument value.
+			From time.Time
+			// To is the to argument value.
+			To time.Time
+			// Fn is the fn argument value.
+			Fn func(*domain.JobRun) error
+		}
+		// StreamWorkflows holds details about calls to the StreamWorkflows method.
+		StreamWorkflows []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Fn is the fn argument value.
+			Fn func(*domain.Workflow) error
 		}
 		// SumJobMemorySizeBytes holds details about calls to the SumJobMemorySizeBytes method.
 		SumJobMemorySizeBytes []struct {
@@ -3545,6 +3664,17 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+		}
+		// TryAcquireIdempotencyKey holds details about calls to the TryAcquireIdempotencyKey method.
+		TryAcquireIdempotencyKey []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Key is the key argument value.
+			Key string
+			// TTL is the ttl argument value.
+			TTL time.Duration
 		}
 		// UpdateCanaryDeploymentTraffic holds details about calls to the UpdateCanaryDeploymentTraffic method.
 		UpdateCanaryDeploymentTraffic []struct {
@@ -3816,6 +3946,7 @@ type APIStoreMock struct {
 	lockCancelNonTerminalStepRuns          sync.RWMutex
 	lockCleanupExpiredDeviceCodes          sync.RWMutex
 	lockCompleteCanaryDeployment           sync.RWMutex
+	lockCompleteIdempotencyKey             sync.RWMutex
 	lockCountActiveEventTriggersByProject  sync.RWMutex
 	lockCountActiveWorkflowRunsByVersion   sync.RWMutex
 	lockCountBatchBufferItems              sync.RWMutex
@@ -3868,6 +3999,7 @@ type APIStoreMock struct {
 	lockDeleteEventSource                  sync.RWMutex
 	lockDeleteEventSubscription            sync.RWMutex
 	lockDeleteEventTriggersFinishedBefore  sync.RWMutex
+	lockDeleteIdempotencyKey               sync.RWMutex
 	lockDeleteJob                          sync.RWMutex
 	lockDeleteJobDependency                sync.RWMutex
 	lockDeleteJobGroup                     sync.RWMutex
@@ -3931,6 +4063,7 @@ type APIStoreMock struct {
 	lockGetUserPermissions                 sync.RWMutex
 	lockGetWebhookDelivery                 sync.RWMutex
 	lockGetWebhookSubscription             sync.RWMutex
+	lockGetWebhookSubscriptionSecrets      sync.RWMutex
 	lockGetWorkflow                        sync.RWMutex
 	lockGetWorkflowBySlug                  sync.RWMutex
 	lockGetWorkflowPolicyByProject         sync.RWMutex
@@ -4014,14 +4147,19 @@ type APIStoreMock struct {
 	lockRetryWebhookDelivery               sync.RWMutex
 	lockRevokeAPIKey                       sync.RWMutex
 	lockRollbackDeploymentVersion          sync.RWMutex
+	lockRotateWebhookSecret                sync.RWMutex
 	lockSeedProjectSystemRoles             sync.RWMutex
 	lockSetEventTriggerSentBy              sync.RWMutex
 	lockStreamAuditEvents                  sync.RWMutex
+	lockStreamJobs                         sync.RWMutex
+	lockStreamRuns                         sync.RWMutex
+	lockStreamWorkflows                    sync.RWMutex
 	lockSumJobMemorySizeBytes              sync.RWMutex
 	lockSumProjectDailyCostMicrousd        sync.RWMutex
 	lockSumRunCostMicrousd                 sync.RWMutex
 	lockSumRunTotalTokens                  sync.RWMutex
 	lockTouchAPIKeyLastUsed                sync.RWMutex
+	lockTryAcquireIdempotencyKey           sync.RWMutex
 	lockUpdateCanaryDeploymentTraffic      sync.RWMutex
 	lockUpdateEnvironment                  sync.RWMutex
 	lockUpdateEventSource                  sync.RWMutex
@@ -4809,6 +4947,57 @@ func (mock *APIStoreMock) CompleteCanaryDeploymentCalls() []struct {
 	mock.lockCompleteCanaryDeployment.RLock()
 	calls = mock.calls.CompleteCanaryDeployment
 	mock.lockCompleteCanaryDeployment.RUnlock()
+	return calls
+}
+
+// CompleteIdempotencyKey calls CompleteIdempotencyKeyFunc.
+func (mock *APIStoreMock) CompleteIdempotencyKey(ctx context.Context, projectID string, key string, responseStatus int, responseBody []byte) error {
+	callInfo := struct {
+		Ctx            context.Context
+		ProjectID      string
+		Key            string
+		ResponseStatus int
+		ResponseBody   []byte
+	}{
+		Ctx:            ctx,
+		ProjectID:      projectID,
+		Key:            key,
+		ResponseStatus: responseStatus,
+		ResponseBody:   responseBody,
+	}
+	mock.lockCompleteIdempotencyKey.Lock()
+	mock.calls.CompleteIdempotencyKey = append(mock.calls.CompleteIdempotencyKey, callInfo)
+	mock.lockCompleteIdempotencyKey.Unlock()
+	if mock.CompleteIdempotencyKeyFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CompleteIdempotencyKeyFunc(ctx, projectID, key, responseStatus, responseBody)
+}
+
+// CompleteIdempotencyKeyCalls gets all the calls that were made to CompleteIdempotencyKey.
+// Check the length with:
+//
+//	len(mockedAPIStore.CompleteIdempotencyKeyCalls())
+func (mock *APIStoreMock) CompleteIdempotencyKeyCalls() []struct {
+	Ctx            context.Context
+	ProjectID      string
+	Key            string
+	ResponseStatus int
+	ResponseBody   []byte
+} {
+	var calls []struct {
+		Ctx            context.Context
+		ProjectID      string
+		Key            string
+		ResponseStatus int
+		ResponseBody   []byte
+	}
+	mock.lockCompleteIdempotencyKey.RLock()
+	calls = mock.calls.CompleteIdempotencyKey
+	mock.lockCompleteIdempotencyKey.RUnlock()
 	return calls
 }
 
@@ -6897,6 +7086,50 @@ func (mock *APIStoreMock) DeleteEventTriggersFinishedBeforeCalls() []struct {
 	mock.lockDeleteEventTriggersFinishedBefore.RLock()
 	calls = mock.calls.DeleteEventTriggersFinishedBefore
 	mock.lockDeleteEventTriggersFinishedBefore.RUnlock()
+	return calls
+}
+
+// DeleteIdempotencyKey calls DeleteIdempotencyKeyFunc.
+func (mock *APIStoreMock) DeleteIdempotencyKey(ctx context.Context, projectID string, key string) (int64, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		Key       string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		Key:       key,
+	}
+	mock.lockDeleteIdempotencyKey.Lock()
+	mock.calls.DeleteIdempotencyKey = append(mock.calls.DeleteIdempotencyKey, callInfo)
+	mock.lockDeleteIdempotencyKey.Unlock()
+	if mock.DeleteIdempotencyKeyFunc == nil {
+		var (
+			nOut   int64
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.DeleteIdempotencyKeyFunc(ctx, projectID, key)
+}
+
+// DeleteIdempotencyKeyCalls gets all the calls that were made to DeleteIdempotencyKey.
+// Check the length with:
+//
+//	len(mockedAPIStore.DeleteIdempotencyKeyCalls())
+func (mock *APIStoreMock) DeleteIdempotencyKeyCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	Key       string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		Key       string
+	}
+	mock.lockDeleteIdempotencyKey.RLock()
+	calls = mock.calls.DeleteIdempotencyKey
+	mock.lockDeleteIdempotencyKey.RUnlock()
 	return calls
 }
 
@@ -9585,6 +9818,48 @@ func (mock *APIStoreMock) GetWebhookSubscriptionCalls() []struct {
 	mock.lockGetWebhookSubscription.RLock()
 	calls = mock.calls.GetWebhookSubscription
 	mock.lockGetWebhookSubscription.RUnlock()
+	return calls
+}
+
+// GetWebhookSubscriptionSecrets calls GetWebhookSubscriptionSecretsFunc.
+func (mock *APIStoreMock) GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error) {
+	callInfo := struct {
+		Ctx            context.Context
+		SubscriptionID string
+	}{
+		Ctx:            ctx,
+		SubscriptionID: subscriptionID,
+	}
+	mock.lockGetWebhookSubscriptionSecrets.Lock()
+	mock.calls.GetWebhookSubscriptionSecrets = append(mock.calls.GetWebhookSubscriptionSecrets, callInfo)
+	mock.lockGetWebhookSubscriptionSecrets.Unlock()
+	if mock.GetWebhookSubscriptionSecretsFunc == nil {
+		var (
+			sOut1   string
+			sOut2   string
+			timeOut *time.Time
+			errOut  error
+		)
+		return sOut1, sOut2, timeOut, errOut
+	}
+	return mock.GetWebhookSubscriptionSecretsFunc(ctx, subscriptionID)
+}
+
+// GetWebhookSubscriptionSecretsCalls gets all the calls that were made to GetWebhookSubscriptionSecrets.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetWebhookSubscriptionSecretsCalls())
+func (mock *APIStoreMock) GetWebhookSubscriptionSecretsCalls() []struct {
+	Ctx            context.Context
+	SubscriptionID string
+} {
+	var calls []struct {
+		Ctx            context.Context
+		SubscriptionID string
+	}
+	mock.lockGetWebhookSubscriptionSecrets.RLock()
+	calls = mock.calls.GetWebhookSubscriptionSecrets
+	mock.lockGetWebhookSubscriptionSecrets.RUnlock()
 	return calls
 }
 
@@ -13456,6 +13731,53 @@ func (mock *APIStoreMock) RollbackDeploymentVersionCalls() []struct {
 	return calls
 }
 
+// RotateWebhookSecret calls RotateWebhookSecretFunc.
+func (mock *APIStoreMock) RotateWebhookSecret(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error {
+	callInfo := struct {
+		Ctx            context.Context
+		ID             string
+		NewSecret      string
+		GraceExpiresAt time.Time
+	}{
+		Ctx:            ctx,
+		ID:             id,
+		NewSecret:      newSecret,
+		GraceExpiresAt: graceExpiresAt,
+	}
+	mock.lockRotateWebhookSecret.Lock()
+	mock.calls.RotateWebhookSecret = append(mock.calls.RotateWebhookSecret, callInfo)
+	mock.lockRotateWebhookSecret.Unlock()
+	if mock.RotateWebhookSecretFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.RotateWebhookSecretFunc(ctx, id, newSecret, graceExpiresAt)
+}
+
+// RotateWebhookSecretCalls gets all the calls that were made to RotateWebhookSecret.
+// Check the length with:
+//
+//	len(mockedAPIStore.RotateWebhookSecretCalls())
+func (mock *APIStoreMock) RotateWebhookSecretCalls() []struct {
+	Ctx            context.Context
+	ID             string
+	NewSecret      string
+	GraceExpiresAt time.Time
+} {
+	var calls []struct {
+		Ctx            context.Context
+		ID             string
+		NewSecret      string
+		GraceExpiresAt time.Time
+	}
+	mock.lockRotateWebhookSecret.RLock()
+	calls = mock.calls.RotateWebhookSecret
+	mock.lockRotateWebhookSecret.RUnlock()
+	return calls
+}
+
 // SeedProjectSystemRoles calls SeedProjectSystemRolesFunc.
 func (mock *APIStoreMock) SeedProjectSystemRoles(ctx context.Context, projectID string) error {
 	callInfo := struct {
@@ -13594,6 +13916,143 @@ func (mock *APIStoreMock) StreamAuditEventsCalls() []struct {
 	mock.lockStreamAuditEvents.RLock()
 	calls = mock.calls.StreamAuditEvents
 	mock.lockStreamAuditEvents.RUnlock()
+	return calls
+}
+
+// StreamJobs calls StreamJobsFunc.
+func (mock *APIStoreMock) StreamJobs(ctx context.Context, projectID string, fn func(*domain.Job) error) error {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		Fn        func(*domain.Job) error
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		Fn:        fn,
+	}
+	mock.lockStreamJobs.Lock()
+	mock.calls.StreamJobs = append(mock.calls.StreamJobs, callInfo)
+	mock.lockStreamJobs.Unlock()
+	if mock.StreamJobsFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.StreamJobsFunc(ctx, projectID, fn)
+}
+
+// StreamJobsCalls gets all the calls that were made to StreamJobs.
+// Check the length with:
+//
+//	len(mockedAPIStore.StreamJobsCalls())
+func (mock *APIStoreMock) StreamJobsCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	Fn        func(*domain.Job) error
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		Fn        func(*domain.Job) error
+	}
+	mock.lockStreamJobs.RLock()
+	calls = mock.calls.StreamJobs
+	mock.lockStreamJobs.RUnlock()
+	return calls
+}
+
+// StreamRuns calls StreamRunsFunc.
+func (mock *APIStoreMock) StreamRuns(ctx context.Context, projectID string, from time.Time, to time.Time, fn func(*domain.JobRun) error) error {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		From      time.Time
+		To        time.Time
+		Fn        func(*domain.JobRun) error
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		From:      from,
+		To:        to,
+		Fn:        fn,
+	}
+	mock.lockStreamRuns.Lock()
+	mock.calls.StreamRuns = append(mock.calls.StreamRuns, callInfo)
+	mock.lockStreamRuns.Unlock()
+	if mock.StreamRunsFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.StreamRunsFunc(ctx, projectID, from, to, fn)
+}
+
+// StreamRunsCalls gets all the calls that were made to StreamRuns.
+// Check the length with:
+//
+//	len(mockedAPIStore.StreamRunsCalls())
+func (mock *APIStoreMock) StreamRunsCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	From      time.Time
+	To        time.Time
+	Fn        func(*domain.JobRun) error
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		From      time.Time
+		To        time.Time
+		Fn        func(*domain.JobRun) error
+	}
+	mock.lockStreamRuns.RLock()
+	calls = mock.calls.StreamRuns
+	mock.lockStreamRuns.RUnlock()
+	return calls
+}
+
+// StreamWorkflows calls StreamWorkflowsFunc.
+func (mock *APIStoreMock) StreamWorkflows(ctx context.Context, projectID string, fn func(*domain.Workflow) error) error {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		Fn        func(*domain.Workflow) error
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		Fn:        fn,
+	}
+	mock.lockStreamWorkflows.Lock()
+	mock.calls.StreamWorkflows = append(mock.calls.StreamWorkflows, callInfo)
+	mock.lockStreamWorkflows.Unlock()
+	if mock.StreamWorkflowsFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.StreamWorkflowsFunc(ctx, projectID, fn)
+}
+
+// StreamWorkflowsCalls gets all the calls that were made to StreamWorkflows.
+// Check the length with:
+//
+//	len(mockedAPIStore.StreamWorkflowsCalls())
+func (mock *APIStoreMock) StreamWorkflowsCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	Fn        func(*domain.Workflow) error
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		Fn        func(*domain.Workflow) error
+	}
+	mock.lockStreamWorkflows.RLock()
+	calls = mock.calls.StreamWorkflows
+	mock.lockStreamWorkflows.RUnlock()
 	return calls
 }
 
@@ -13797,6 +14256,56 @@ func (mock *APIStoreMock) TouchAPIKeyLastUsedCalls() []struct {
 	mock.lockTouchAPIKeyLastUsed.RLock()
 	calls = mock.calls.TouchAPIKeyLastUsed
 	mock.lockTouchAPIKeyLastUsed.RUnlock()
+	return calls
+}
+
+// TryAcquireIdempotencyKey calls TryAcquireIdempotencyKeyFunc.
+func (mock *APIStoreMock) TryAcquireIdempotencyKey(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, []byte, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		Key       string
+		TTL       time.Duration
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		Key:       key,
+		TTL:       ttl,
+	}
+	mock.lockTryAcquireIdempotencyKey.Lock()
+	mock.calls.TryAcquireIdempotencyKey = append(mock.calls.TryAcquireIdempotencyKey, callInfo)
+	mock.lockTryAcquireIdempotencyKey.Unlock()
+	if mock.TryAcquireIdempotencyKeyFunc == nil {
+		var (
+			sOut     string
+			nOut     int
+			bytesOut []byte
+			errOut   error
+		)
+		return sOut, nOut, bytesOut, errOut
+	}
+	return mock.TryAcquireIdempotencyKeyFunc(ctx, projectID, key, ttl)
+}
+
+// TryAcquireIdempotencyKeyCalls gets all the calls that were made to TryAcquireIdempotencyKey.
+// Check the length with:
+//
+//	len(mockedAPIStore.TryAcquireIdempotencyKeyCalls())
+func (mock *APIStoreMock) TryAcquireIdempotencyKeyCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	Key       string
+	TTL       time.Duration
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		Key       string
+		TTL       time.Duration
+	}
+	mock.lockTryAcquireIdempotencyKey.RLock()
+	calls = mock.calls.TryAcquireIdempotencyKey
+	mock.lockTryAcquireIdempotencyKey.RUnlock()
 	return calls
 }
 

@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -119,4 +122,64 @@ func (s *Server) handleDeleteWebhookSubscription(ctx context.Context, input *Del
 		return nil, huma.Error500InternalServerError("failed to delete webhook subscription")
 	}
 	return nil, nil
+}
+
+type RotateWebhookSecretRequest struct {
+	GracePeriodMinutes int `json:"grace_period_minutes,omitempty"`
+}
+
+type RotateWebhookSecretInput struct {
+	ID   string `path:"id"`
+	Body RotateWebhookSecretRequest
+}
+
+type RotateWebhookSecretOutput struct {
+	Body any
+}
+
+func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWebhookSecretInput) (*RotateWebhookSecretOutput, error) {
+	graceMins := input.Body.GracePeriodMinutes
+	if graceMins <= 0 {
+		graceMins = 60
+	}
+	if graceMins > 10080 { // 7 days
+		return nil, huma.Error400BadRequest("grace_period_minutes must be <= 10080")
+	}
+
+	sub, err := s.store.GetWebhookSubscription(ctx, input.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
+			return nil, huma.Error404NotFound("webhook subscription not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get webhook subscription")
+	}
+	if err := requireProjectMatch(ctx, sub.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("webhook subscription not found")
+	}
+
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, huma.Error500InternalServerError("failed to generate secret")
+	}
+	newSecret := "whsec_" + hex.EncodeToString(b)
+
+	graceExpiresAt := time.Now().Add(time.Duration(graceMins) * time.Minute)
+	if err := s.store.RotateWebhookSecret(ctx, input.ID, newSecret, graceExpiresAt); err != nil {
+		if errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
+			return nil, huma.Error404NotFound("webhook subscription not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to rotate webhook secret")
+	}
+
+	s.emitAuditEvent(ctx, "webhook_subscription.rotate_secret", "webhook_subscription", input.ID, map[string]any{
+		"grace_expires_at":     graceExpiresAt,
+		"grace_period_minutes": graceMins,
+	})
+
+	return &RotateWebhookSecretOutput{Body: map[string]any{
+		"subscription_id":      input.ID,
+		"new_secret":           newSecret,
+		"grace_expires_at":     graceExpiresAt,
+		"grace_period_minutes": graceMins,
+	}}, nil
 }
