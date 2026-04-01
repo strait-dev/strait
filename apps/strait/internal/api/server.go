@@ -163,6 +163,8 @@ type RunStore interface {
 	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
 	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)
 	DeleteWebhookSubscription(ctx context.Context, id string) error
+	RotateWebhookSecret(ctx context.Context, id, newSecret string, graceExpiresAt time.Time) error
+	GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error)
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
 	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)

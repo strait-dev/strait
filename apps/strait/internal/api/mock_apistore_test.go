@@ -406,6 +406,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetWebhookSubscriptionFunc: func(ctx context.Context, id string) (*domain.WebhookSubscription, error) {
 //				panic("mock out the GetWebhookSubscription method")
 //			},
+//			GetWebhookSubscriptionSecretsFunc: func(ctx context.Context, subscriptionID string) (string, string, *time.Time, error) {
+//				panic("mock out the GetWebhookSubscriptionSecrets method")
+//			},
 //			GetWorkflowFunc: func(ctx context.Context, id string) (*domain.Workflow, error) {
 //				panic("mock out the GetWorkflow method")
 //			},
@@ -654,6 +657,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			RollbackDeploymentVersionFunc: func(ctx context.Context, deploymentID string, projectID string, environment string, updatedBy string) (*domain.DeploymentVersion, error) {
 //				panic("mock out the RollbackDeploymentVersion method")
+//			},
+//			RotateWebhookSecretFunc: func(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error {
+//				panic("mock out the RotateWebhookSecret method")
 //			},
 //			SeedProjectSystemRolesFunc: func(ctx context.Context, projectID string) error {
 //				panic("mock out the SeedProjectSystemRoles method")
@@ -1157,6 +1163,9 @@ type APIStoreMock struct {
 	// GetWebhookSubscriptionFunc mocks the GetWebhookSubscription method.
 	GetWebhookSubscriptionFunc func(ctx context.Context, id string) (*domain.WebhookSubscription, error)
 
+	// GetWebhookSubscriptionSecretsFunc mocks the GetWebhookSubscriptionSecrets method.
+	GetWebhookSubscriptionSecretsFunc func(ctx context.Context, subscriptionID string) (string, string, *time.Time, error)
+
 	// GetWorkflowFunc mocks the GetWorkflow method.
 	GetWorkflowFunc func(ctx context.Context, id string) (*domain.Workflow, error)
 
@@ -1405,6 +1414,9 @@ type APIStoreMock struct {
 
 	// RollbackDeploymentVersionFunc mocks the RollbackDeploymentVersion method.
 	RollbackDeploymentVersionFunc func(ctx context.Context, deploymentID string, projectID string, environment string, updatedBy string) (*domain.DeploymentVersion, error)
+
+	// RotateWebhookSecretFunc mocks the RotateWebhookSecret method.
+	RotateWebhookSecretFunc func(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error
 
 	// SeedProjectSystemRolesFunc mocks the SeedProjectSystemRoles method.
 	SeedProjectSystemRolesFunc func(ctx context.Context, projectID string) error
@@ -2575,6 +2587,13 @@ type APIStoreMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// GetWebhookSubscriptionSecrets holds details about calls to the GetWebhookSubscriptionSecrets method.
+		GetWebhookSubscriptionSecrets []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// SubscriptionID is the subscriptionID argument value.
+			SubscriptionID string
+		}
 		// GetWorkflow holds details about calls to the GetWorkflow method.
 		GetWorkflow []struct {
 			// Ctx is the ctx argument value.
@@ -3436,6 +3455,17 @@ type APIStoreMock struct {
 			// UpdatedBy is the updatedBy argument value.
 			UpdatedBy string
 		}
+		// RotateWebhookSecret holds details about calls to the RotateWebhookSecret method.
+		RotateWebhookSecret []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+			// NewSecret is the newSecret argument value.
+			NewSecret string
+			// GraceExpiresAt is the graceExpiresAt argument value.
+			GraceExpiresAt time.Time
+		}
 		// SeedProjectSystemRoles holds details about calls to the SeedProjectSystemRoles method.
 		SeedProjectSystemRoles []struct {
 			// Ctx is the ctx argument value.
@@ -3898,6 +3928,7 @@ type APIStoreMock struct {
 	lockGetUserPermissions                 sync.RWMutex
 	lockGetWebhookDelivery                 sync.RWMutex
 	lockGetWebhookSubscription             sync.RWMutex
+	lockGetWebhookSubscriptionSecrets      sync.RWMutex
 	lockGetWorkflow                        sync.RWMutex
 	lockGetWorkflowBySlug                  sync.RWMutex
 	lockGetWorkflowPolicyByProject         sync.RWMutex
@@ -3981,6 +4012,7 @@ type APIStoreMock struct {
 	lockRetryWebhookDelivery               sync.RWMutex
 	lockRevokeAPIKey                       sync.RWMutex
 	lockRollbackDeploymentVersion          sync.RWMutex
+	lockRotateWebhookSecret                sync.RWMutex
 	lockSeedProjectSystemRoles             sync.RWMutex
 	lockSetEventTriggerSentBy              sync.RWMutex
 	lockStreamAuditEvents                  sync.RWMutex
@@ -9407,6 +9439,48 @@ func (mock *APIStoreMock) GetWebhookSubscriptionCalls() []struct {
 	return calls
 }
 
+// GetWebhookSubscriptionSecrets calls GetWebhookSubscriptionSecretsFunc.
+func (mock *APIStoreMock) GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error) {
+	callInfo := struct {
+		Ctx            context.Context
+		SubscriptionID string
+	}{
+		Ctx:            ctx,
+		SubscriptionID: subscriptionID,
+	}
+	mock.lockGetWebhookSubscriptionSecrets.Lock()
+	mock.calls.GetWebhookSubscriptionSecrets = append(mock.calls.GetWebhookSubscriptionSecrets, callInfo)
+	mock.lockGetWebhookSubscriptionSecrets.Unlock()
+	if mock.GetWebhookSubscriptionSecretsFunc == nil {
+		var (
+			sOut1   string
+			sOut2   string
+			timeOut *time.Time
+			errOut  error
+		)
+		return sOut1, sOut2, timeOut, errOut
+	}
+	return mock.GetWebhookSubscriptionSecretsFunc(ctx, subscriptionID)
+}
+
+// GetWebhookSubscriptionSecretsCalls gets all the calls that were made to GetWebhookSubscriptionSecrets.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetWebhookSubscriptionSecretsCalls())
+func (mock *APIStoreMock) GetWebhookSubscriptionSecretsCalls() []struct {
+	Ctx            context.Context
+	SubscriptionID string
+} {
+	var calls []struct {
+		Ctx            context.Context
+		SubscriptionID string
+	}
+	mock.lockGetWebhookSubscriptionSecrets.RLock()
+	calls = mock.calls.GetWebhookSubscriptionSecrets
+	mock.lockGetWebhookSubscriptionSecrets.RUnlock()
+	return calls
+}
+
 // GetWorkflow calls GetWorkflowFunc.
 func (mock *APIStoreMock) GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error) {
 	callInfo := struct {
@@ -13272,6 +13346,53 @@ func (mock *APIStoreMock) RollbackDeploymentVersionCalls() []struct {
 	mock.lockRollbackDeploymentVersion.RLock()
 	calls = mock.calls.RollbackDeploymentVersion
 	mock.lockRollbackDeploymentVersion.RUnlock()
+	return calls
+}
+
+// RotateWebhookSecret calls RotateWebhookSecretFunc.
+func (mock *APIStoreMock) RotateWebhookSecret(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error {
+	callInfo := struct {
+		Ctx            context.Context
+		ID             string
+		NewSecret      string
+		GraceExpiresAt time.Time
+	}{
+		Ctx:            ctx,
+		ID:             id,
+		NewSecret:      newSecret,
+		GraceExpiresAt: graceExpiresAt,
+	}
+	mock.lockRotateWebhookSecret.Lock()
+	mock.calls.RotateWebhookSecret = append(mock.calls.RotateWebhookSecret, callInfo)
+	mock.lockRotateWebhookSecret.Unlock()
+	if mock.RotateWebhookSecretFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.RotateWebhookSecretFunc(ctx, id, newSecret, graceExpiresAt)
+}
+
+// RotateWebhookSecretCalls gets all the calls that were made to RotateWebhookSecret.
+// Check the length with:
+//
+//	len(mockedAPIStore.RotateWebhookSecretCalls())
+func (mock *APIStoreMock) RotateWebhookSecretCalls() []struct {
+	Ctx            context.Context
+	ID             string
+	NewSecret      string
+	GraceExpiresAt time.Time
+} {
+	var calls []struct {
+		Ctx            context.Context
+		ID             string
+		NewSecret      string
+		GraceExpiresAt time.Time
+	}
+	mock.lockRotateWebhookSecret.RLock()
+	calls = mock.calls.RotateWebhookSecret
+	mock.lockRotateWebhookSecret.RUnlock()
 	return calls
 }
 
