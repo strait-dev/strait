@@ -56,6 +56,7 @@ type WrapOperation<TResult> =
   | PromiseLike<TResult>
   | (() => PromiseLike<TResult>);
 
+/** Validates a non-empty name. Throws before entering Effect context. */
 function requireName(value: string, field: string): string {
   const normalized = value.trim();
   if (normalized.length === 0) {
@@ -103,13 +104,14 @@ export function createAIStep<
         metadata?: JsonValue;
       } = {}
     ): Promise<TResult> {
+      const stepName = requireName(name, "name");
       return runPromise(
         Effect.gen(function* () {
           const startedAt = Date.now();
           yield* Effect.tryPromise(() =>
             context.checkpoint(
               {
-                step: requireName(name, "name"),
+                step: stepName,
                 phase: "started",
                 metadata: options.metadata ?? null,
               },
@@ -124,7 +126,7 @@ export function createAIStep<
           yield* Effect.tryPromise(() =>
             context.checkpoint(
               {
-                step: name,
+                step: stepName,
                 phase: "completed",
                 durationMs: Date.now() - startedAt,
               },

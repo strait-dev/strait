@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 
 import { StraitContext } from "./context";
 import { runPromise } from "./effects";
@@ -124,6 +124,7 @@ export function resolveAdapterContext(
   );
 }
 
+/** Safely converts an unknown value to a JSON-serializable form. */
 export function toJsonValue(value: unknown): JsonValue {
   if (
     value === null ||
@@ -145,32 +146,37 @@ export function toJsonValue(value: unknown): JsonValue {
     };
   }
 
-  try {
-    return JSON.parse(JSON.stringify(value)) as JsonValue;
-  } catch {
-    return {
-      value: String(value),
-    };
-  }
+  const result = Either.try(
+    () => JSON.parse(JSON.stringify(value)) as JsonValue
+  );
+  return Either.isRight(result) ? result.right : { value: String(value) };
 }
 
+/** Attempts to parse a string as JSON, falling back to the raw string on failure. */
 export function parseJsonish(value: string): JsonValue {
-  try {
-    return JSON.parse(value) as JsonValue;
-  } catch {
-    return value;
-  }
+  const result = Either.try(() => JSON.parse(value) as JsonValue);
+  return Either.isRight(result) ? result.right : value;
 }
 
+/** Executes a reporting operation, suppressing errors to avoid interrupting agent execution. */
 export function reportSafely<T>(operation: () => Promise<T>): Promise<void> {
   return runPromise(
     Effect.tryPromise({
       try: operation,
-      catch: () => undefined,
-    }).pipe(Effect.catchAll(() => Effect.void))
+      catch: (e) =>
+        e instanceof StraitSDKError
+          ? e
+          : new StraitSDKError("report failed", { cause: e }),
+    }).pipe(
+      Effect.catchIf(
+        (e): e is StraitSDKError => e instanceof StraitSDKError,
+        () => Effect.void
+      )
+    )
   ).then(() => undefined);
 }
 
+/** Throws BudgetExceededError if the adapter's budget limit has been reached. */
 export function budgetGuard(context: AdapterContext): void {
   context.budgetExceeded?.();
 }
@@ -217,6 +223,7 @@ export function reportUsageEvent(
   return reportSafely(() => context.reportUsage(usage));
 }
 
+/** Accumulates usage totals from a new usage report, computing cost via the pricing catalog. */
 export function sumUsageTotals(
   totals: UsageTotals,
   usage: UsageReport,
