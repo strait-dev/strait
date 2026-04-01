@@ -15,6 +15,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -212,19 +213,27 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 	return "", NewRetryableError(500, "create k8s job: exhausted retries", nil)
 }
 
+// waitState holds shared state for wait operations.
+type waitState struct {
+	result       *RunResult
+	waitStart    time.Time
+	podRunningAt time.Time
+}
+
 // Wait blocks until a Kubernetes Job's pod completes and returns the result.
+// Tries K8s watch API first for efficiency; falls back to polling on watch errors.
 func (k *K8sRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int) (*RunResult, error) {
 	if err := validateMachineID(machineID); err != nil {
 		return nil, err
 	}
 
-	waitStart := time.Now()
-	var podRunningAt time.Time
-
 	now := time.Now()
-	result := &RunResult{
-		MachineID: machineID,
-		StartedAt: &now,
+	ws := &waitState{
+		result: &RunResult{
+			MachineID: machineID,
+			StartedAt: &now,
+		},
+		waitStart: now,
 	}
 
 	waitTimeout := 300
@@ -235,7 +244,59 @@ func (k *K8sRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int
 	waitCtx, cancel := context.WithTimeout(ctx, time.Duration(waitTimeout)*time.Second)
 	defer cancel()
 
-	// Poll with exponential backoff. Starts at 1s, caps at 10s.
+	// Try watch-based waiting first (efficient, event-driven).
+	selector := labels.Set{"job-name": machineID}.String()
+	watcher, err := k.clientset.CoreV1().Pods(k.namespace).Watch(waitCtx, metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err == nil {
+		result, watchErr := k.waitWatch(ctx, waitCtx, machineID, watcher, ws)
+		if watchErr == nil {
+			return result, nil
+		}
+		// Watch closed or errored -- fall through to polling.
+	}
+
+	// Fallback: polling with exponential backoff.
+	return k.waitPoll(ctx, waitCtx, machineID, ws)
+}
+
+// waitWatch uses the K8s watch API to wait for pod completion.
+func (k *K8sRuntime) waitWatch(ctx, waitCtx context.Context, machineID string, watcher watch.Interface, ws *waitState) (*RunResult, error) {
+	defer watcher.Stop()
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			k.recordWaitTimeout(ws)
+			return ws.result, NewTimeoutError("wait timed out", waitCtx.Err())
+
+		case event, ok := <-watcher.ResultChan():
+			if !ok {
+				// Watch channel closed -- fall back to polling.
+				return nil, fmt.Errorf("watch closed")
+			}
+
+			pod, isPod := event.Object.(*corev1.Pod)
+			if !isPod {
+				continue
+			}
+
+			action := k.handlePodPhase(ctx, machineID, pod, ws)
+			switch action {
+			case podActionComplete:
+				return ws.result, nil
+			case podActionFatal:
+				return ws.result, NewFatalError(422, k.podFailureReason(pod), nil)
+			case podActionContinue:
+				continue
+			}
+		}
+	}
+}
+
+// waitPoll uses polling with exponential backoff to wait for pod completion.
+func (k *K8sRuntime) waitPoll(ctx, waitCtx context.Context, machineID string, ws *waitState) (*RunResult, error) {
 	pollInterval := time.Second
 	const maxPollInterval = 10 * time.Second
 	ticker := time.NewTicker(pollInterval)
@@ -244,71 +305,99 @@ func (k *K8sRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int
 	for {
 		select {
 		case <-waitCtx.Done():
-			if k.metrics != nil {
-				k.metrics.RecordJobWait("timeout", time.Since(waitStart).Seconds())
-				k.metrics.IncJobsActive(-1)
-			}
-			return result, NewTimeoutError("wait timed out", waitCtx.Err())
+			k.recordWaitTimeout(ws)
+			return ws.result, NewTimeoutError("wait timed out", waitCtx.Err())
 		case <-ticker.C:
 			pod, err := k.findJobPod(waitCtx, machineID)
 			if err != nil {
-				// Pod may not exist yet. Back off.
 				pollInterval = min(pollInterval*2, maxPollInterval)
 				ticker.Reset(pollInterval)
 				continue
 			}
 
-			switch pod.Status.Phase {
-			case corev1.PodSucceeded, corev1.PodFailed:
-				finished := time.Now()
-				result.FinishedAt = &finished
-				k.extractExitInfo(pod, result)
-
-				if result.ExitCode != 0 {
-					logCtx, logCancel := context.WithTimeout(ctx, 10*time.Second)
-					logs, logErr := k.GetLogs(logCtx, machineID, 100)
-					logCancel()
-					if logErr == nil {
-						result.Logs = logs
-					}
-				}
-
-				if k.metrics != nil {
-					exitStatus := "success"
-					if result.OOMKilled {
-						exitStatus = "oom"
-					} else if result.ExitCode != 0 {
-						exitStatus = "failure"
-					}
-					k.metrics.RecordJobWait(exitStatus, time.Since(waitStart).Seconds())
-					k.metrics.IncJobsActive(-1)
-				}
-
-				return result, nil
-			case corev1.PodRunning, corev1.PodUnknown:
-				// Record pod scheduling duration once (first time we see Running).
-				if podRunningAt.IsZero() {
-					podRunningAt = time.Now()
-					if k.metrics != nil {
-						k.metrics.RecordPodScheduling(podRunningAt.Sub(waitStart).Seconds())
-					}
-				}
+			action := k.handlePodPhase(ctx, machineID, pod, ws)
+			switch action {
+			case podActionComplete:
+				return ws.result, nil
+			case podActionFatal:
+				return ws.result, NewFatalError(422, k.podFailureReason(pod), nil)
+			case podActionContinue:
 				// Reset to faster polling once pod is running.
-				pollInterval = time.Second
-				ticker.Reset(pollInterval)
-			case corev1.PodPending:
-				// Check for unrecoverable scheduling issues.
-				if reason := k.podFailureReason(pod); reason != "" {
-					finished := time.Now()
-					result.FinishedAt = &finished
-					result.ExitCode = -1
-					return result, NewFatalError(422, reason, nil)
+				if pod.Status.Phase == corev1.PodRunning {
+					pollInterval = time.Second
+				} else {
+					pollInterval = min(pollInterval*2, maxPollInterval)
 				}
-				// Back off while pending.
-				pollInterval = min(pollInterval*2, maxPollInterval)
 				ticker.Reset(pollInterval)
 			}
 		}
+	}
+}
+
+type podAction int
+
+const (
+	podActionContinue podAction = iota
+	podActionComplete
+	podActionFatal
+)
+
+// handlePodPhase processes a pod status update and returns what the caller should do.
+func (k *K8sRuntime) handlePodPhase(ctx context.Context, machineID string, pod *corev1.Pod, ws *waitState) podAction {
+	switch pod.Status.Phase {
+	case corev1.PodSucceeded, corev1.PodFailed:
+		finished := time.Now()
+		ws.result.FinishedAt = &finished
+		k.extractExitInfo(pod, ws.result)
+
+		if ws.result.ExitCode != 0 {
+			logCtx, logCancel := context.WithTimeout(ctx, 10*time.Second)
+			logs, logErr := k.GetLogs(logCtx, machineID, 100)
+			logCancel()
+			if logErr == nil {
+				ws.result.Logs = logs
+			}
+		}
+
+		if k.metrics != nil {
+			exitStatus := "success"
+			if ws.result.OOMKilled {
+				exitStatus = "oom"
+			} else if ws.result.ExitCode != 0 {
+				exitStatus = "failure"
+			}
+			k.metrics.RecordJobWait(exitStatus, time.Since(ws.waitStart).Seconds())
+			k.metrics.IncJobsActive(-1)
+		}
+		return podActionComplete
+
+	case corev1.PodRunning, corev1.PodUnknown:
+		if ws.podRunningAt.IsZero() {
+			ws.podRunningAt = time.Now()
+			if k.metrics != nil {
+				k.metrics.RecordPodScheduling(ws.podRunningAt.Sub(ws.waitStart).Seconds())
+			}
+		}
+		return podActionContinue
+
+	case corev1.PodPending:
+		if reason := k.podFailureReason(pod); reason != "" {
+			finished := time.Now()
+			ws.result.FinishedAt = &finished
+			ws.result.ExitCode = -1
+			return podActionFatal
+		}
+		return podActionContinue
+	}
+
+	return podActionContinue
+}
+
+// recordWaitTimeout records timeout metrics.
+func (k *K8sRuntime) recordWaitTimeout(ws *waitState) {
+	if k.metrics != nil {
+		k.metrics.RecordJobWait("timeout", time.Since(ws.waitStart).Seconds())
+		k.metrics.IncJobsActive(-1)
 	}
 }
 
