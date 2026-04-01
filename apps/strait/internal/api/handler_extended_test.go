@@ -587,3 +587,127 @@ func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
 		t.Fatalf("expected redirect to /reference/openapi.json, got %q", loc)
 	}
 }
+
+// ─── OpenAPI Path Parameter Validation ────────────────────────────────────────.
+
+// openAPIPathParams returns the names of path parameters declared on a
+// specific operation (method + path) in the OpenAPI spec.
+func openAPIPathParams(t *testing.T, spec map[string]any, path, method string) []string {
+	t.Helper()
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("spec missing 'paths'")
+	}
+	pathItem, ok := paths[path].(map[string]any)
+	if !ok {
+		t.Fatalf("path %q not found in spec", path)
+	}
+	op, ok := pathItem[method].(map[string]any)
+	if !ok {
+		t.Fatalf("method %q not found on path %q", method, path)
+	}
+	params, _ := op["parameters"].([]any)
+	var names []string
+	for _, p := range params {
+		pm, _ := p.(map[string]any)
+		if pm["in"] == "path" {
+			names = append(names, pm["name"].(string))
+		}
+	}
+	return names
+}
+
+func fetchOpenAPISpec(t *testing.T) map[string]any {
+	t.Helper()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var spec map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+		t.Fatalf("failed to unmarshal OpenAPI spec: %v", err)
+	}
+	return spec
+}
+
+func TestOpenAPISpec_DeleteEventSubscription_HasSourceIDParam(t *testing.T) {
+	t.Parallel()
+	spec := fetchOpenAPISpec(t)
+	params := openAPIPathParams(t, spec, "/v1/event-sources/{sourceID}/subscriptions/{subID}", "delete")
+
+	want := map[string]bool{"sourceID": false, "subID": false}
+	for _, name := range params {
+		if _, ok := want[name]; ok {
+			want[name] = true
+		} else {
+			t.Errorf("unexpected path param %q", name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Errorf("missing expected path param %q", name)
+		}
+	}
+	if len(params) != 2 {
+		t.Errorf("expected exactly 2 path params, got %d: %v", len(params), params)
+	}
+}
+
+func TestOpenAPISpec_RetryWebhookDeliveryLegacy_NoPhantomParams(t *testing.T) {
+	t.Parallel()
+	spec := fetchOpenAPISpec(t)
+	params := openAPIPathParams(t, spec, "/v1/webhook-deliveries/{deliveryID}/retry", "post")
+
+	if len(params) != 1 {
+		t.Fatalf("expected exactly 1 path param, got %d: %v", len(params), params)
+	}
+	if params[0] != "deliveryID" {
+		t.Errorf("expected path param 'deliveryID', got %q", params[0])
+	}
+}
+
+func TestOpenAPISpec_RetryWebhookDelivery_NoPhantomParams(t *testing.T) {
+	t.Parallel()
+	spec := fetchOpenAPISpec(t)
+	params := openAPIPathParams(t, spec, "/v1/webhooks/deliveries/{id}/retry", "post")
+
+	if len(params) != 1 {
+		t.Fatalf("expected exactly 1 path param, got %d: %v", len(params), params)
+	}
+	if params[0] != "id" {
+		t.Errorf("expected path param 'id', got %q", params[0])
+	}
+}
+
+func TestOpenAPISpec_MissingEndpoints_AreRegistered(t *testing.T) {
+	t.Parallel()
+	spec := fetchOpenAPISpec(t)
+
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("spec missing 'paths'")
+	}
+
+	required := []struct {
+		path   string
+		method string
+	}{
+		{"/v1/sse-token", "post"},
+		{"/v1/api-keys/expiring-soon", "get"},
+		{"/v1/audit-events/verify", "get"},
+	}
+
+	for _, r := range required {
+		pathItem, ok := paths[r.path].(map[string]any)
+		if !ok {
+			t.Errorf("path %q not found in spec", r.path)
+			continue
+		}
+		if _, ok := pathItem[r.method]; !ok {
+			t.Errorf("method %q not found on path %q", r.method, r.path)
+		}
+	}
+}

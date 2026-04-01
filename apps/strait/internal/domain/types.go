@@ -687,6 +687,7 @@ type WebhookDelivery struct {
 	RunID          string     `json:"run_id,omitempty"`
 	JobID          string     `json:"job_id,omitempty"`
 	EventTriggerID string     `json:"event_trigger_id,omitempty"`
+	SubscriptionID string     `json:"subscription_id,omitempty"`
 	WebhookURL     string     `json:"webhook_url"`
 	RetryPolicy    string     `json:"webhook_retry_policy,omitempty"`
 	Status         string     `json:"status"`
@@ -701,13 +702,15 @@ type WebhookDelivery struct {
 }
 
 type WebhookSubscription struct {
-	ID         string    `json:"id"`
-	ProjectID  string    `json:"project_id"`
-	WebhookURL string    `json:"webhook_url"`
-	EventTypes []string  `json:"event_types"`
-	Secret     string    `json:"-"`
-	Active     bool      `json:"active"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID                   string     `json:"id"`
+	ProjectID            string     `json:"project_id"`
+	WebhookURL           string     `json:"webhook_url"`
+	EventTypes           []string   `json:"event_types"`
+	Secret               string     `json:"-"`
+	PreviousSecret       string     `json:"-"`
+	SecretGraceExpiresAt *time.Time `json:"-"`
+	Active               bool       `json:"active"`
+	CreatedAt            time.Time  `json:"created_at"`
 }
 
 // APIKey represents a per-project or org-scoped API key for authentication.

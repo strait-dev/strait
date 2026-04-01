@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"strait/internal/domain"
 
@@ -109,4 +110,58 @@ func (q *Queries) GetWebhookSubscription(ctx context.Context, id string) (*domai
 	}
 
 	return &sub, nil
+}
+
+// RotateWebhookSecret rotates the signing secret for a webhook subscription.
+// The current secret is moved to previous_secret, and the new secret takes effect.
+// During the grace period, both secrets are available for signing.
+func (q *Queries) RotateWebhookSecret(ctx context.Context, id, newSecret string, graceExpiresAt time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RotateWebhookSecret")
+	defer span.End()
+
+	query := `
+		UPDATE webhook_subscriptions
+		SET previous_secret = secret,
+		    secret = $2,
+		    secret_grace_expires_at = $3
+		WHERE id = $1`
+
+	tag, err := q.db.Exec(ctx, query, id, newSecret, graceExpiresAt)
+	if err != nil {
+		return fmt.Errorf("rotate webhook secret: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrWebhookSubscriptionNotFound
+	}
+	return nil
+}
+
+// GetWebhookSubscriptionSecrets returns the current and previous signing secrets
+// for a webhook subscription. Used by the delivery worker to sign payloads.
+func (q *Queries) GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWebhookSubscriptionSecrets")
+	defer span.End()
+
+	query := `
+		SELECT secret, previous_secret, secret_grace_expires_at
+		FROM webhook_subscriptions
+		WHERE id = $1`
+
+	var secret string
+	var previousSecret *string
+	var graceExpiresAt *time.Time
+
+	err := q.db.QueryRow(ctx, query, subscriptionID).Scan(&secret, &previousSecret, &graceExpiresAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", nil, nil
+		}
+		return "", "", nil, fmt.Errorf("get webhook subscription secrets: %w", err)
+	}
+
+	prev := ""
+	if previousSecret != nil {
+		prev = *previousSecret
+	}
+	return secret, prev, graceExpiresAt, nil
 }

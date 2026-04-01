@@ -42,6 +42,7 @@ type DeliveryStore interface {
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
 	UpdateEventTriggerNotifyStatus(ctx context.Context, id string, notifyStatus string) error
+	GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error)
 }
 
 const (
@@ -654,7 +655,7 @@ func (n *DeliveryWorker) enqueueDeliveryEvent(d *domain.WebhookDelivery, duratio
 
 // attemptDelivery makes one HTTP request for a delivery.
 //
-//nolint:funlen
+//nolint:funlen,gocyclo,cyclop
 func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookDelivery) {
 	start := time.Now()
 	now := time.Now()
@@ -763,6 +764,21 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	req.Header.Set("X-Strait-Delivery-ID", d.ID)
 	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
 	req.Header.Set("X-Strait-Idempotency-Key", fmt.Sprintf("%s:%d", d.ID, d.Attempts))
+
+	// Sign the payload with the subscription's HMAC secret.
+	if d.SubscriptionID != "" {
+		secret, prevSecret, graceExpires, lookupErr := n.store.GetWebhookSubscriptionSecrets(ctx, d.SubscriptionID)
+		if lookupErr != nil {
+			n.logger.Warn("failed to look up webhook signing secret", "delivery_id", d.ID, "subscription_id", d.SubscriptionID, "error", lookupErr)
+		} else if secret != "" {
+			sig := ComputeHMACSHA256(secret, body)
+			req.Header.Set("X-Webhook-Signature", "sha256="+sig)
+			if prevSecret != "" && graceExpires != nil && time.Now().Before(*graceExpires) {
+				oldSig := ComputeHMACSHA256(prevSecret, body)
+				req.Header.Set("X-Webhook-Signature-Old", "sha256="+oldSig)
+			}
+		}
+	}
 
 	resp, err := n.client.Do(req)
 	if err != nil {

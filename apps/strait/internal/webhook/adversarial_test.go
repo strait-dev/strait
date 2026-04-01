@@ -165,3 +165,80 @@ func FuzzStripeSignatureManipulation(f *testing.F) {
 		_ = ValidateSignature("stripe-v1", "fuzz-secret", body, header)
 	})
 }
+
+// ─── ComputeHMACSHA256 adversarial tests ──────────────────────────────────────.
+
+// TestSigning_NullBytesInBody verifies that signing works with null bytes.
+func TestSigning_NullBytesInBody(t *testing.T) {
+	t.Parallel()
+	body := []byte("before\x00middle\x00\x00after")
+	sig := ComputeHMACSHA256("secret", body)
+	if len(sig) != 64 {
+		t.Fatalf("expected 64 hex chars, got %d", len(sig))
+	}
+	// Verify round-trip.
+	err := ValidateSignature("hmac-sha256", "secret", body, "sha256="+sig)
+	if err != nil {
+		t.Fatalf("signature with null bytes should validate, got %v", err)
+	}
+}
+
+// TestSigning_HugeBody_10MB verifies signing a 10MB payload.
+func TestSigning_HugeBody_10MB(t *testing.T) {
+	t.Parallel()
+	body := make([]byte, 10*1024*1024)
+	for i := range body {
+		body[i] = byte(i % 256)
+	}
+	sig := ComputeHMACSHA256("test-secret", body)
+	if len(sig) != 64 {
+		t.Fatalf("expected 64 hex chars, got %d", len(sig))
+	}
+	err := ValidateSignature("hmac-sha256", "test-secret", body, "sha256="+sig)
+	if err != nil {
+		t.Fatalf("10MB body signature should validate, got %v", err)
+	}
+}
+
+// TestSigning_UnicodeSecret verifies that Unicode secrets produce valid signatures.
+func TestSigning_UnicodeSecret(t *testing.T) {
+	t.Parallel()
+	secret := "geheimnis-\u00e4\u00f6\u00fc-\u4e16\u754c-\U0001f512"
+	body := []byte(`{"event":"unicode-test"}`)
+	sig := ComputeHMACSHA256(secret, body)
+	if len(sig) != 64 {
+		t.Fatalf("expected 64 hex chars, got %d", len(sig))
+	}
+	err := ValidateSignature("hmac-sha256", secret, body, "sha256="+sig)
+	if err != nil {
+		t.Fatalf("unicode secret signature should validate, got %v", err)
+	}
+}
+
+// TestSigning_BinaryPayload verifies signing of non-JSON binary data.
+func TestSigning_BinaryPayload(t *testing.T) {
+	t.Parallel()
+	body := make([]byte, 512)
+	for i := range body {
+		body[i] = byte(i % 256)
+	}
+	sig := ComputeHMACSHA256("binary-secret", body)
+	if len(sig) != 64 {
+		t.Fatalf("expected 64 hex chars, got %d", len(sig))
+	}
+	err := ValidateSignature("hmac-sha256", "binary-secret", body, "sha256="+sig)
+	if err != nil {
+		t.Fatalf("binary payload signature should validate, got %v", err)
+	}
+}
+
+// TestSigning_Deterministic verifies that signing the same input twice gives the same result.
+func TestSigning_Deterministic(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"stable":"true"}`)
+	sig1 := ComputeHMACSHA256("stable-key", body)
+	sig2 := ComputeHMACSHA256("stable-key", body)
+	if sig1 != sig2 {
+		t.Fatalf("same input must produce same signature: %q != %q", sig1, sig2)
+	}
+}

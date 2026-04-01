@@ -163,6 +163,8 @@ type RunStore interface {
 	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
 	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)
 	DeleteWebhookSubscription(ctx context.Context, id string) error
+	RotateWebhookSecret(ctx context.Context, id, newSecret string, graceExpiresAt time.Time) error
+	GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error)
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
 	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
@@ -176,6 +178,12 @@ type RunStore interface {
 	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 	ResetRunIdempotencyKey(ctx context.Context, runID string) error
+
+	// General-purpose idempotency keys (not run-specific).
+	TryAcquireIdempotencyKey(ctx context.Context, projectID, key string, ttl time.Duration) (string, int, []byte, error)
+	CompleteIdempotencyKey(ctx context.Context, projectID, key string, responseStatus int, responseBody []byte) error
+	DeleteIdempotencyKey(ctx context.Context, projectID, key string) (int64, error)
+
 	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
 	CreateBatchOperation(ctx context.Context, op *domain.BatchOperation) error
 	FinalizeBatchOperation(ctx context.Context, batchID string, createdCount int) error
@@ -347,6 +355,11 @@ type RBACStore interface {
 	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
+
+	// Data export streaming.
+	StreamJobs(ctx context.Context, projectID string, fn func(*domain.Job) error) error
+	StreamRuns(ctx context.Context, projectID string, from, to time.Time, fn func(*domain.JobRun) error) error
+	StreamWorkflows(ctx context.Context, projectID string, fn func(*domain.Workflow) error) error
 }
 
 // NotificationChannelStore handles notification channel and delivery operations.

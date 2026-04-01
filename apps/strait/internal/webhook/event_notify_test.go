@@ -344,6 +344,10 @@ func (m *mockDeliveryStore) UpdateEventTriggerNotifyStatus(_ context.Context, _ 
 	return nil
 }
 
+func (m *mockDeliveryStore) GetWebhookSubscriptionSecrets(_ context.Context, _ string) (string, string, *time.Time, error) {
+	return "", "", nil, nil
+}
+
 func (m *mockDeliveryStore) getNotifyStatus() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -3553,6 +3557,10 @@ func (m *errorDeliveryStore) ListPendingWebhookRetries(_ context.Context) ([]dom
 
 func (m *errorDeliveryStore) UpdateEventTriggerNotifyStatus(_ context.Context, _ string, _ string) error {
 	return nil
+}
+
+func (m *errorDeliveryStore) GetWebhookSubscriptionSecrets(_ context.Context, _ string) (string, string, *time.Time, error) {
+	return "", "", nil, nil
 }
 
 func (m *errorDeliveryStore) getDeliveries() []*domain.WebhookDelivery {

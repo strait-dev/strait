@@ -244,6 +244,10 @@ func (m *mockDeliveryStoreE2E) UpdateEventTriggerNotifyStatus(context.Context, s
 	return nil
 }
 
+func (m *mockDeliveryStoreE2E) GetWebhookSubscriptionSecrets(context.Context, string) (string, string, *time.Time, error) {
+	return "", "", nil, nil
+}
+
 func newPendingDelivery(id, webhookURL string) domain.WebhookDelivery {
 	nextRetryAt := time.Now().UTC().Add(-time.Second)
 	return domain.WebhookDelivery{

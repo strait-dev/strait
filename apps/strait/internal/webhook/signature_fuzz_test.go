@@ -95,3 +95,20 @@ func computeFuzzHMAC(secret string, data []byte) string {
 	mac.Write(data)
 	return hex.EncodeToString(mac.Sum(nil))
 }
+
+// FuzzComputeHMACSHA256 verifies that ComputeHMACSHA256 never panics
+// and always returns a 64-character hex string.
+func FuzzComputeHMACSHA256(f *testing.F) {
+	f.Add("secret", []byte("body"))
+	f.Add("", []byte{})
+	f.Add("key", []byte("\x00\xff\n\t"))
+	f.Add(string(make([]byte, 256)), []byte("short"))
+	f.Add("key", make([]byte, 1<<16))
+
+	f.Fuzz(func(t *testing.T, secret string, body []byte) {
+		result := ComputeHMACSHA256(secret, body)
+		if len(result) != 64 {
+			t.Errorf("expected 64 hex chars, got %d for secret len=%d body len=%d", len(result), len(secret), len(body))
+		}
+	})
+}
