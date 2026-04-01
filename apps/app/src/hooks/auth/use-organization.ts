@@ -11,7 +11,7 @@ import type z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
-import { auth } from "@/lib/auth.server";
+import { getAuth } from "@/lib/auth.server";
 import {
   deleteLastOrganizationWithTokenServerFn,
   deleteOrganizationWithTokenServerFn,
@@ -115,7 +115,9 @@ interface UpdateOrganizationParams {
 const listOrganizationsServerFn = createServerFn({ method: "GET" }).handler(
   async () => {
     const headers = getRequestHeaders();
-    const organizations = await auth.api.listOrganizations({ headers });
+    const organizations = await (await getAuth()).api.listOrganizations({
+      headers,
+    });
     return (organizations ?? []).map(mapOrganization);
   }
 );
@@ -124,7 +126,7 @@ const getOrganizationServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: { organizationId: string }) => data)
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    const organization = await auth.api.getFullOrganization({
+    const organization = await (await getAuth()).api.getFullOrganization({
       query: { organizationId: data.organizationId },
       headers,
     });
@@ -144,7 +146,7 @@ const createOrganizationServerFn = createServerFn({ method: "POST" })
       data.slug ??
       `${data.name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}`;
 
-    const organization = await auth.api.createOrganization({
+    const organization = await (await getAuth()).api.createOrganization({
       body: {
         name: data.name,
         slug,
@@ -179,7 +181,7 @@ const updateOrganizationServerFn = createServerFn({ method: "POST" })
       metadata,
     } = data;
 
-    const organization = await auth.api.updateOrganization({
+    const organization = await (await getAuth()).api.updateOrganization({
       body: {
         organizationId,
         data: {

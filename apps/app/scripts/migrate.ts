@@ -10,7 +10,7 @@
  * resolution issues in monorepo setups.
  */
 import { getMigrations } from "better-auth/db/migration";
-import { auth } from "../src/lib/auth.server";
+import { getAuth } from "../src/lib/auth.server";
 
 const dryRun = process.argv.includes("--dry");
 
@@ -18,7 +18,7 @@ async function migrate() {
   console.log("Checking for pending Better Auth migrations...\n");
 
   const { toBeCreated, toBeAdded, runMigrations } = await getMigrations(
-    auth.options
+    (await getAuth()).options
   );
 
   if (toBeCreated.length === 0 && toBeAdded.length === 0) {

@@ -1,3 +1,28 @@
+const currencyFormatOptions: Intl.NumberFormatOptions = {
+  style: "currency",
+  currency: "USD",
+  currencyDisplay: "symbol",
+  currencySign: "standard",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+};
+
+const moneyFormatter = new Intl.NumberFormat("en-US", currencyFormatOptions);
+
+/** Format a number as currency (e.g., 79 -> "$79"). */
+export function formatCurrency(
+  valueOrCurrency: number | string,
+  maybeValue?: number
+): string {
+  if (typeof valueOrCurrency === "number") {
+    return moneyFormatter.format(valueOrCurrency);
+  }
+  return new Intl.NumberFormat("en-US", {
+    ...currencyFormatOptions,
+    currency: valueOrCurrency,
+  }).format(maybeValue ?? 0);
+}
+
 /** Format a micro-USD integer (1 USD = 1,000,000) as a dollar string. */
 export function formatMicroUsd(microUsd: number): string {
   return `$${(microUsd / 1_000_000).toFixed(2)}`;

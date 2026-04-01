@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockQuery = vi.fn();
 vi.mock("@/lib/auth.server", () => ({
-  authPool: { query: vi.fn() },
+  getAuthPool: () => ({ query: mockQuery }),
 }));
 
-import { authPool } from "@/lib/auth.server";
 import { requireOrgAccess, requireProjectAccess } from "../require-access";
-
-const mockQuery = authPool.query as ReturnType<typeof vi.fn>;
 
 describe("requireOrgAccess", () => {
   beforeEach(() => {

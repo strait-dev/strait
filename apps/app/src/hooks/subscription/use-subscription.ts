@@ -4,7 +4,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { Effect } from "effect";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import { auth } from "@/lib/auth.server";
+import { getAuth } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import {
   deriveSubscriptionState,
@@ -147,7 +147,7 @@ const getSubscriptionByEmail = async (
 const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SubscriptionData | null> => {
     const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
+    const session = await (await getAuth()).api.getSession({ headers });
     const email = session?.user?.email;
 
     if (!email) {
@@ -190,7 +190,7 @@ const getBackendPlanTier = async (
 const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SubscriptionStateData> => {
     const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
+    const session = await (await getAuth()).api.getSession({ headers });
     const email = session?.user?.email;
 
     if (!email) {
