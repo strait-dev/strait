@@ -155,6 +155,11 @@ type Config struct {
 	WarmPoolTTL             time.Duration `env:"WARM_POOL_TTL"`
 	DisableMachinePoolReuse bool          `env:"DISABLE_MACHINE_POOL_REUSE" default:"true"`
 
+	// Kubernetes runtime
+	K8sKubeconfig    string `env:"K8S_KUBECONFIG"`
+	K8sNamespace     string `env:"K8S_NAMESPACE" default:"default"`
+	K8sPriorityClass string `env:"K8S_PRIORITY_CLASS" default:"strait-job"`
+
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
 
@@ -215,7 +220,7 @@ type Config struct {
 
 // Load reads configuration from environment variables.
 //
-//nolint:gocyclo,cyclop
+//nolint:gocyclo,cyclop,gocognit
 func Load() (*Config, error) {
 	var cfg Config
 
@@ -303,10 +308,10 @@ func Load() (*Config, error) {
 	}
 
 	switch cfg.ComputeRuntime {
-	case "none", "fly", "docker", "":
+	case "none", "fly", "docker", "k8s", "":
 		// valid
 	default:
-		return nil, &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, fly, or docker"}
+		return nil, &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, fly, docker, or k8s"}
 	}
 	if cfg.ComputeRuntime == "fly" {
 		if cfg.FlyAPIToken == "" {
@@ -314,6 +319,11 @@ func Load() (*Config, error) {
 		}
 		if cfg.FlyAppName == "" {
 			return nil, &domain.ConfigError{Field: "FLY_APP_NAME", Message: "is required when COMPUTE_RUNTIME=fly"}
+		}
+	}
+	if cfg.ComputeRuntime == "k8s" {
+		if cfg.K8sNamespace == "" {
+			return nil, &domain.ConfigError{Field: "K8S_NAMESPACE", Message: "is required when COMPUTE_RUNTIME=k8s"}
 		}
 	}
 	if cfg.Edition == string(domain.EditionCommunity) && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {

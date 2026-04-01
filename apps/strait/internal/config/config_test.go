@@ -788,6 +788,89 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 			t.Fatalf("ComputeRuntime = %q, want none (community edition override)", cfg.ComputeRuntime)
 		}
 	})
+
+	t.Run("k8s valid with defaults", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("STRAIT_EDITION", "cloud")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeRuntime != "k8s" {
+			t.Fatalf("ComputeRuntime = %q, want k8s", cfg.ComputeRuntime)
+		}
+		if cfg.K8sNamespace != "default" {
+			t.Fatalf("K8sNamespace = %q, want default", cfg.K8sNamespace)
+		}
+		if cfg.K8sPriorityClass != "strait-job" {
+			t.Fatalf("K8sPriorityClass = %q, want strait-job", cfg.K8sPriorityClass)
+		}
+	})
+
+	t.Run("k8s with custom namespace", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("K8S_NAMESPACE", "strait-jobs")
+		t.Setenv("K8S_PRIORITY_CLASS", "high-priority")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.K8sNamespace != "strait-jobs" {
+			t.Fatalf("K8sNamespace = %q, want strait-jobs", cfg.K8sNamespace)
+		}
+		if cfg.K8sPriorityClass != "high-priority" {
+			t.Fatalf("K8sPriorityClass = %q, want high-priority", cfg.K8sPriorityClass)
+		}
+	})
+
+	t.Run("k8s namespace defaults to default when empty", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("K8S_NAMESPACE", "")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.K8sNamespace != "default" {
+			t.Fatalf("K8sNamespace = %q, want default (env default)", cfg.K8sNamespace)
+		}
+	})
+
+	t.Run("k8s kubeconfig optional", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("STRAIT_EDITION", "cloud")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.K8sKubeconfig != "" {
+			t.Fatalf("K8sKubeconfig = %q, want empty (in-cluster fallback)", cfg.K8sKubeconfig)
+		}
+	})
+
+	t.Run("k8s with kubeconfig", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("K8S_KUBECONFIG", "/path/to/kubeconfig")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.K8sKubeconfig != "/path/to/kubeconfig" {
+			t.Fatalf("K8sKubeconfig = %q, want /path/to/kubeconfig", cfg.K8sKubeconfig)
+		}
+	})
 }
 
 func TestLoad_ClickHouseValidation(t *testing.T) {
