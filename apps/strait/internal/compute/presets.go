@@ -1,6 +1,11 @@
 package compute
 
-import "fmt"
+import (
+	"fmt"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+)
 
 // Per-second compute costs in micro-USD ($0.000001) for each machine preset.
 const (
@@ -77,4 +82,37 @@ func PresetIndex(name string) int {
 		}
 	}
 	return -1
+}
+
+// K8sResources returns Kubernetes resource requests and limits for this preset.
+// Micro/small presets use burstable QoS (CPU request < limit) to match Fly's shared-cpu behavior.
+// Medium/large presets use guaranteed QoS (request = limit) to match Fly's performance tier.
+func (p Preset) K8sResources() (requests, limits corev1.ResourceList) {
+	memQuantity := resource.MustParse(fmt.Sprintf("%dMi", p.MemoryMB))
+
+	if p.CPUs < 2 || p.MemoryMB < 4096 {
+		// Burstable: low CPU request, high limit (like Fly shared-cpu).
+		cpuRequest := resource.MustParse(fmt.Sprintf("%dm", max(p.CPUs*100, 100)))
+		cpuLimit := resource.MustParse(fmt.Sprintf("%dm", p.CPUs*1000))
+		requests = corev1.ResourceList{
+			corev1.ResourceCPU:    cpuRequest,
+			corev1.ResourceMemory: memQuantity,
+		}
+		limits = corev1.ResourceList{
+			corev1.ResourceCPU:    cpuLimit,
+			corev1.ResourceMemory: memQuantity,
+		}
+	} else {
+		// Guaranteed: request = limit (like Fly performance tier).
+		cpuQuantity := resource.MustParse(fmt.Sprintf("%dm", p.CPUs*1000))
+		requests = corev1.ResourceList{
+			corev1.ResourceCPU:    cpuQuantity,
+			corev1.ResourceMemory: memQuantity,
+		}
+		limits = corev1.ResourceList{
+			corev1.ResourceCPU:    cpuQuantity,
+			corev1.ResourceMemory: memQuantity,
+		}
+	}
+	return requests, limits
 }
