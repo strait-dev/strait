@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy to Cloudflare Pages
+    name: Deploy to Cloudflare Workers
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     if: >
@@ -35,9 +35,10 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_STRAIT_WEBSITE_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy apps/website/dist/client --project-name=strait-website --branch=main
+          workingDirectory: apps/website
+          command: deploy

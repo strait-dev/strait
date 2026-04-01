@@ -1,5 +1,5 @@
 import { OAUTH_API_CORS_HEADERS } from "@/lib/oauth-scopes";
-import { auth } from "./auth.server";
+import { getAuth } from "./auth.server";
 
 const OAUTH_CORS_PATHS = [
   "/api/auth/oauth2/token",
@@ -19,7 +19,7 @@ export const handler = async (request: Request): Promise<Response> => {
     return new Response(null, { status: 204, headers: OAUTH_API_CORS_HEADERS });
   }
 
-  const response = await auth.handler(request);
+  const response = await (await getAuth()).handler(request);
 
   if (needsCors(request)) {
     const headers = new Headers(response.headers);

@@ -6,7 +6,7 @@ import { z } from "zod";
 import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
-import { auth } from "@/lib/auth.server";
+import { getAuth } from "@/lib/auth.server";
 import {
   OAUTH_LOGIN_PAGE,
   OIDC_STANDARD_SCOPES,
@@ -99,18 +99,16 @@ const fetchClientInfo = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     try {
-      const client = await auth.api.getOAuthClient({
-        query: { client_id: data.clientId },
+      const client = await ((await getAuth()).api as any).getOAuthClient({
+        body: { client_id: data.clientId },
       });
       if (!client) {
         return null;
       }
       return {
-        name: String(client.name || "Unknown Application"),
-        clientId: String(client.clientId || data.clientId),
-        redirectUrls: Array.isArray(client.redirectURLs)
-          ? (client.redirectURLs as string[])
-          : [],
+        name: (client as any).name ?? "Unknown Application",
+        clientId: (client as any).clientId ?? data.clientId,
+        redirectUrls: (client as any).redirectURLs ?? [],
       } satisfies ClientInfo;
     } catch (err) {
       captureException(err, {
@@ -139,7 +137,7 @@ const submitConsent = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const result = await auth.api.oauth2Consent({
+    const result = await (await getAuth()).api.oauth2Consent({
       body: {
         accept: data.accept,
         scope: data.scope,
@@ -361,7 +359,7 @@ function OAuthConsentPage() {
           >
             {status === "authorizing" ? (
               <span className="flex items-center justify-center gap-2">
-                <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
                 Authorizing...
               </span>
             ) : (
@@ -456,7 +454,7 @@ function ConsentLoading() {
       title="Authorize Application"
     >
       <div className="flex items-center justify-center py-8">
-        <div className="size-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
       </div>
     </AuthLayout>
   );

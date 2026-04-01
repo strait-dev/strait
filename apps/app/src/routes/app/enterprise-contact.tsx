@@ -27,7 +27,7 @@ import { z } from "zod/v4";
 import ErrorComponent from "@/components/common/error-component";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { ChevronLeftIcon, LoadingIcon } from "@/lib/icons";
-import { resend } from "@/lib/resend.server";
+import { getResend } from "@/lib/resend.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 const TEAM_SIZES = ["1-10", "11-50", "51-200", "201-500", "500+"] as const;
@@ -44,6 +44,7 @@ const submitEnterpriseContact = createServerFn({ method: "POST" })
   .inputValidator(enterpriseContactSchema)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
+    const resend = getResend();
     await resend.emails.send({
       from: "Enterprise <hello@usestrait.com>",
       to: "leo@usestrait.com",

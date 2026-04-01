@@ -15,8 +15,7 @@
   "paths": {
     "@/*": ["./src/*"],
     "@strait/ui/*": ["../../packages/ui/src/*"],
-    "@strait/transactional": ["../../packages/transactional/src/index.ts"],
-    "@strait/utils": ["../../packages/utils/src/index"]
+    "@strait/transactional": ["../../packages/transactional/src/index.ts"]
   },
   "ignoreDependencies": [],
   "ignoreBinaries": ["biome"],

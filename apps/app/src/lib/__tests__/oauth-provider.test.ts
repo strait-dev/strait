@@ -30,7 +30,7 @@ vi.mock("@strait/transactional", () => ({
 }));
 
 vi.mock("@/lib/resend.server", () => ({
-  resend: { emails: { send: vi.fn() } },
+  getResend: () => ({ emails: { send: vi.fn() } }),
 }));
 
 vi.mock("@polar-sh/sdk", () => ({
@@ -52,13 +52,15 @@ vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-chars-long");
 
 describe("OAuth provider configuration", () => {
   it("auth module exports auth instance", { timeout: 15_000 }, async () => {
-    const { auth } = await import("@/lib/auth.server");
+    const { getAuth } = await import("@/lib/auth.server");
+    const auth = await getAuth();
     expect(auth).toBeDefined();
     expect(auth.handler).toBeDefined();
   });
 
   it("auth instance has OAuth provider API methods", async () => {
-    const { auth } = await import("@/lib/auth.server");
+    const { getAuth } = await import("@/lib/auth.server");
+    const auth = await getAuth();
     // The oauthProvider plugin adds these API methods
     expect(auth.api).toBeDefined();
     expect(typeof auth.api.oauth2Consent).toBe("function");
@@ -67,7 +69,8 @@ describe("OAuth provider configuration", () => {
   });
 
   it("auth instance has JWT plugin API methods", async () => {
-    const { auth } = await import("@/lib/auth.server");
+    const { getAuth } = await import("@/lib/auth.server");
+    const auth = await getAuth();
     // The jwt plugin adds the JWKS endpoint
     expect(auth.api).toBeDefined();
   });

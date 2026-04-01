@@ -42,7 +42,6 @@ const Hero = () => {
               </Button>
               <Button
                 render={
-                  // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
                   <a
                     aria-label="View on GitHub"
                     href={siteConfig.links.github}

@@ -93,24 +93,6 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-:root[data-accent="blue"] {
-  --primary: oklch(0.67 0.15 255);
-  --primary-foreground: oklch(0.985 0 0);
-  --ring: oklch(0.67 0.15 255);
-}
-
-:root[data-accent="violet"] {
-  --primary: oklch(0.69 0.16 300);
-  --primary-foreground: oklch(0.985 0 0);
-  --ring: oklch(0.69 0.16 300);
-}
-
-:root[data-accent="emerald"] {
-  --primary: oklch(0.73 0.12 160);
-  --primary-foreground: oklch(0.985 0 0);
-  --ring: oklch(0.73 0.12 160);
-}
-
 @theme inline {
   --font-sans: var(--font-sans);
   --color-background: var(--background);

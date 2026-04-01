@@ -1,9 +1,6 @@
 # Dependencies
 node_modules/
 
-# Next.js
-.next/
-
 # Fumadocs generated
 .source/
 
