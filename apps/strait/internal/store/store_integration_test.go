@@ -4821,10 +4821,10 @@ func TestNotificationDeliveryClaimLifecycle(t *testing.T) {
 		t.Fatal("UpdateClaimedNotificationDelivery(stale) = true, want false")
 	}
 
-	reclaimed[0].Status = "delivered"
+	reclaimedDelivery.Status = "delivered"
 	now := time.Now().UTC()
-	reclaimed[0].DeliveredAt = &now
-	updated, err = q.UpdateClaimedNotificationDelivery(ctx, &reclaimed[0])
+	reclaimedDelivery.DeliveredAt = &now
+	updated, err = q.UpdateClaimedNotificationDelivery(ctx, reclaimedDelivery)
 	if err != nil {
 		t.Fatalf("UpdateClaimedNotificationDelivery(reclaimed) error = %v", err)
 	}

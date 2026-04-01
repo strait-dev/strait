@@ -4,6 +4,7 @@ package compute_test
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -450,6 +451,8 @@ func TestPool_EvictionCallback(t *testing.T) {
 	if len(evicted) != 2 {
 		t.Fatalf("evicted count = %d, want 2", len(evicted))
 	}
+	// Eviction callbacks fire from goroutines so order is non-deterministic.
+	sort.Strings(evicted)
 	if evicted[0] != "m-1" {
 		t.Errorf("evicted[0] = %q, want %q", evicted[0], "m-1")
 	}
