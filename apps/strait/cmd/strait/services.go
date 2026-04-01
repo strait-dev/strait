@@ -386,6 +386,13 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		apiContainerRuntime = compute.NewFlyRuntime(cfg.FlyAPIToken, cfg.FlyAppName)
 	case "docker":
 		apiContainerRuntime = compute.NewDockerRuntime()
+	case "k8s":
+		rt, err := compute.NewK8sRuntime(cfg.K8sKubeconfig, cfg.K8sNamespace, cfg.K8sPriorityClass)
+		if err != nil {
+			slog.Error("failed to init k8s runtime for API", "error", err)
+		} else {
+			apiContainerRuntime = rt
+		}
 	}
 
 	billingStore := billing.NewPgStore(dbPool)
@@ -530,6 +537,14 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	case "docker":
 		containerRuntime = compute.NewDockerRuntime()
 		slog.Info("container runtime enabled", "runtime", "docker")
+	case "k8s":
+		rt, err := compute.NewK8sRuntime(cfg.K8sKubeconfig, cfg.K8sNamespace, cfg.K8sPriorityClass)
+		if err != nil {
+			slog.Error("failed to init k8s runtime", "error", err)
+		} else {
+			containerRuntime = rt
+			slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace)
+		}
 	default:
 		// No container runtime ("none" or empty).
 	}
