@@ -133,6 +133,29 @@ function getOIDCPrivateKey(): Promise<CryptoKey> {
 }
 
 /**
+ * Create a Stripe customer for a newly signed-up user.
+ * Links the org_id in metadata so the Go webhook handler can resolve orgs.
+ * Best-effort: errors are logged but never fail signup.
+ */
+async function createStripeCustomer(
+  user: { id: string; email: string; name: string },
+  orgId: string
+): Promise<void> {
+  if (!process.env.STRIPE_SECRET_KEY) return;
+  try {
+    const { default: Stripe } = await import("stripe");
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    await stripe.customers.create({
+      email: user.email,
+      name: user.name || undefined,
+      metadata: { org_id: orgId, user_id: user.id },
+    });
+  } catch (err) {
+    console.error("Failed to create Stripe customer for user", user.id, err);
+  }
+}
+
+/**
  * Build the Better Auth configuration.
  *
  * This is called lazily on the first request via {@link getAuth} because
@@ -326,6 +349,9 @@ function createAuth() {
                   `UPDATE "user" SET "defaultOrganizationId" = $1 WHERE id = $2`,
                   [org.id, user.id]
                 );
+
+                // Create a Stripe customer (best-effort, don't fail signup).
+                await createStripeCustomer(user, org.id);
 
                 // Auto-create a default project so the user lands on a
                 // ready-to-use dashboard instead of an empty "Create project" screen.
