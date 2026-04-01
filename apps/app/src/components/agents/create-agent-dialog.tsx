@@ -189,26 +189,68 @@ const CreateAgentDialog = ({ open, onOpenChange, projectId }: Props) => {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-wrap gap-1.5 py-2">
-            {AGENT_TEMPLATES.map((template) => (
-              <button
-                className="rounded border px-2 py-1 text-xs hover:bg-muted"
-                key={template.slug}
-                onClick={() => {
-                  form.setFieldValue("name", template.name);
-                  form.setFieldValue("slug", template.slug);
-                  form.setFieldValue("description", template.description);
-                  form.setFieldValue("model", template.model);
-                  form.setFieldValue(
-                    "configText",
-                    JSON.stringify(template.config, null, 2)
-                  );
-                }}
-                type="button"
-              >
-                {template.name}
-              </button>
-            ))}
+          <div className="space-y-2 py-2">
+            {(["operations", "content", "engineering"] as const).map(
+              (category) => {
+                const categoryTemplates = AGENT_TEMPLATES.filter(
+                  (t) => t.category === category
+                );
+                if (categoryTemplates.length === 0) {
+                  return null;
+                }
+                return (
+                  <div key={category}>
+                    <p className="mb-1 font-medium text-muted-foreground text-xs capitalize">
+                      {category}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {categoryTemplates.map((template) => {
+                        const isSelected =
+                          form.getFieldValue("slug") === template.slug;
+                        return (
+                          <button
+                            className={`flex flex-col items-start gap-0.5 rounded border px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted ${isSelected ? "border-primary bg-primary/5" : ""}`}
+                            key={template.slug}
+                            onClick={() => {
+                              form.setFieldValue("name", template.name);
+                              form.setFieldValue("slug", template.slug);
+                              form.setFieldValue(
+                                "description",
+                                template.description
+                              );
+                              form.setFieldValue("model", template.model);
+                              form.setFieldValue(
+                                "configText",
+                                JSON.stringify(template.config, null, 2)
+                              );
+                            }}
+                            type="button"
+                          >
+                            <span className="font-medium">{template.name}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {template.model}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              }
+            )}
+            <button
+              className="rounded border px-2.5 py-1.5 text-muted-foreground text-xs hover:bg-muted"
+              onClick={() => {
+                form.setFieldValue("name", "");
+                form.setFieldValue("slug", "");
+                form.setFieldValue("description", "");
+                form.setFieldValue("model", "gpt-5.4");
+                form.setFieldValue("configText", '{\n  "temperature": 0.2\n}');
+              }}
+              type="button"
+            >
+              Start from scratch
+            </button>
           </div>
 
           <div className="flex flex-col gap-4 py-4">
