@@ -7,9 +7,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { nanoid } from "nanoid";
 import z from "zod/v4";
-import { auth } from "@/lib/auth.server";
+import { getAuth } from "@/lib/auth.server";
 import { kvGet, kvSet } from "@/lib/kv.server";
-import { resend } from "@/lib/resend.server";
+import { getResend } from "@/lib/resend.server";
 import type {
   ResendOrganizationDeletionCodeResponseSchema,
   VerifyOrganizationDeletionResponseSchema,
@@ -43,7 +43,7 @@ export const createOrganizationServerFn = createServerFn({ method: "POST" })
           .toLowerCase()
           .replace(/\s+/g, "-")
           .replace(/[^a-z0-9-]/g, "");
-      const org = await auth.api.createOrganization({
+      const org = await (await getAuth()).api.createOrganization({
         body: {
           name,
           slug,
@@ -81,7 +81,7 @@ const getFullOrganizationAuth = createServerFn({ method: "GET" })
     try {
       const headers = getRequestHeaders();
 
-      const org = await auth.api.getFullOrganization({
+      const org = await (await getAuth()).api.getFullOrganization({
         query: { organizationId: data.organizationId },
         headers,
       });
@@ -109,13 +109,13 @@ export const setActiveOrganizationAuth = createServerFn({ method: "POST" })
     try {
       const headers = getRequestHeaders();
 
-      const result = await auth.api.setActiveOrganization({
+      const result = await (await getAuth()).api.setActiveOrganization({
         body: { organizationId: data.organizationId },
         headers,
       });
 
       // Also update the user's defaultOrganizationId
-      await auth.api.updateUser({
+      await (await getAuth()).api.updateUser({
         body: { defaultOrganizationId: data.organizationId },
         headers,
       });
@@ -135,7 +135,7 @@ const listOrganizationsAuth = createServerFn({ method: "GET" }).handler(
     try {
       const headers = getRequestHeaders();
 
-      const organizations = await auth.api.listOrganizations({
+      const organizations = await (await getAuth()).api.listOrganizations({
         headers,
       });
 
@@ -208,7 +208,7 @@ export const requestOrganizationDeletionServerFn = createServerFn({
     await kvSet(key, verificationCode, { ex: FIVE_MINUTES_S });
     await kvSet(cooldownKey, now.toString(), { ex: COOLDOWN_TIME_S });
 
-    await resend.emails.send({
+    await getResend().emails.send({
       from: "Strait <noreply@strait.dev>",
       to: context.user.email,
       subject: `Verification code for organization deletion of ${organization.name}`,
@@ -298,7 +298,7 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
     const headers = getRequestHeaders();
 
     // Check if this is the user's default organization
-    const session = await auth.api.getSession({ headers });
+    const session = await (await getAuth()).api.getSession({ headers });
     const defaultOrgId = (session?.user as Record<string, unknown> | undefined)
       ?.defaultOrganizationId as string | undefined;
     const isDefaultOrganization = defaultOrgId === organizationId;
@@ -311,7 +311,7 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
       }
 
       try {
-        await auth.api.updateUser({
+        await (await getAuth()).api.updateUser({
           body: { activeProjectId: null },
           headers,
         });
@@ -321,12 +321,12 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
     }
 
     // Delete the organization via Better Auth
-    await auth.api.deleteOrganization({
+    await (await getAuth()).api.deleteOrganization({
       body: { organizationId },
       headers,
     });
 
-    await resend.emails.send({
+    await getResend().emails.send({
       from: "Strait <hello@usestrait.com>",
       to: context.user.email,
       subject: "Organization deleted successfully",
@@ -394,7 +394,7 @@ export const purgeOrganizationWithTokenServerFn = createServerFn({
     }
 
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from: "Strait <hello@usestrait.com>",
         to: context.user.email,
         subject: "Organization data purged successfully",
@@ -471,7 +471,7 @@ export const resendOrganizationDeletionCodeServerFn = createServerFn({
     await kvSet(key, verificationCode, { ex: FIVE_MINUTES_S });
     await kvSet(cooldownKey, now.toString(), { ex: COOLDOWN_TIME_S });
 
-    await resend.emails.send({
+    await getResend().emails.send({
       from: "Strait <hello@usestrait.com>",
       to: context.user.email,
       subject: `Verification code for organization deletion of ${organization.name}`,
@@ -524,13 +524,13 @@ export const deleteLastOrganizationWithTokenServerFn = createServerFn({
     const headers = getRequestHeaders();
 
     // Delete the organization via Better Auth
-    await auth.api.deleteOrganization({
+    await (await getAuth()).api.deleteOrganization({
       body: { organizationId },
       headers,
     });
 
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from: "Strait <hello@usestrait.com>",
         to: context.user.email,
         subject: "Organization deleted successfully",

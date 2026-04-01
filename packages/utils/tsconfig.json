@@ -1,9 +1,0 @@
-{
-  "extends": "../config/base.json",
-  "display": "@strait/utils",
-  "compilerOptions": {
-    "types": ["node"]
-  },
-  "include": ["."],
-  "exclude": ["node_modules", "dist"]
-}

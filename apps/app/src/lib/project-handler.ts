@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import z from "zod/v4";
 import type { Project } from "@/hooks/api/types";
-import { auth, authPool } from "@/lib/auth.server";
+import { getAuth, getAuthPool } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import {
@@ -19,7 +19,7 @@ async function ensureProjectTable() {
   if (tableEnsured) {
     return;
   }
-  await authPool.query(`
+  await getAuthPool().query(`
     CREATE TABLE IF NOT EXISTS project (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       organization_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
@@ -57,7 +57,7 @@ export const createProjectServerFn = createServerFn({ method: "POST" })
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9-]/g, "");
 
-    const result = await authPool.query<Project>(
+    const result = await getAuthPool().query<Project>(
       `INSERT INTO project (organization_id, name, slug, description, created_by)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text`,
@@ -98,7 +98,7 @@ export const listProjectsServerFn = createServerFn({ method: "GET" })
     await requireOrgAccess(context.user.id, data.organizationId);
     await ensureProjectTable();
 
-    const result = await authPool.query<Project>(
+    const result = await getAuthPool().query<Project>(
       `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
        FROM project
        WHERE organization_id = $1
@@ -125,7 +125,7 @@ export const getProjectServerFn = createServerFn({ method: "GET" })
       return null;
     }
 
-    const result = await authPool.query<Project>(
+    const result = await getAuthPool().query<Project>(
       `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
        FROM project
        WHERE id = $1 AND organization_id = $2`,
@@ -149,7 +149,7 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
     await requireOrgAccess(context.user.id, activeOrgId);
     await ensureProjectTable();
 
-    const result = await authPool.query(
+    const result = await getAuthPool().query(
       "DELETE FROM project WHERE id = $1 AND created_by = $2 RETURNING id",
       [data.id, context.user.id]
     );
@@ -179,7 +179,7 @@ export const setActiveProjectServerFn = createServerFn({ method: "POST" })
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
     const headers = getRequestHeaders();
-    await auth.api.updateUser({
+    await (await getAuth()).api.updateUser({
       body: { activeProjectId: data.projectId },
       headers,
     });

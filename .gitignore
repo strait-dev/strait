@@ -99,8 +99,6 @@ typings/
 /bin/
 dist/
 dist-ssr/
-.next/
-.nuxt/
 .output/
 .vinxi/
 .tanstack/
@@ -126,9 +124,6 @@ dist-ssr/
 
 # TernJS port file
 .tern-port
-
-# Vercel
-.vercel
 
 # ==============================================================================
 # DATABASES & SERVICES
@@ -162,22 +157,11 @@ apps/strait/report
 # EXTERNAL SERVICES & TOOLS
 # ==============================================================================
 
-# Sanity
-.sanity
-
 # Sentry
 .sentryclirc
-next.config.original.js
 
 # BaseHub
 .basehub
-
-# Trigger.dev
-.trigger
-
-# Infisical
-.infisical
-.infisical.json
 
 # ==============================================================================
 # GO

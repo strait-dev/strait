@@ -10,10 +10,10 @@ import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
 import { cn } from "@strait/ui/utils/index";
-import { formatCurrency } from "@strait/utils/money";
 import { useCallback } from "react";
 import PricingCalculator from "@/components/upgrade/pricing-calculator";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
+import { formatCurrency } from "@/lib/format";
 import { CheckIcon, StarIcon } from "@/lib/icons";
 import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
 

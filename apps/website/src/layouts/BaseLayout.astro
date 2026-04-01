@@ -7,14 +7,12 @@ interface Props {
   title?: string;
 }
 
-const accent = import.meta.env.PUBLIC_WEBSITE_ACCENT ?? "teal";
 const gtmId = import.meta.env.PUBLIC_GTM_ID;
 ---
 
 <!doctype html>
 <html
 	class="dark min-h-screen bg-background antialiased"
-	data-accent={accent}
 	lang="en-US"
 >
 	<head>

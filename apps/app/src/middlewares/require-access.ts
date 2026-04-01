@@ -1,4 +1,4 @@
-import { authPool } from "@/lib/auth.server";
+import { getAuthPool } from "@/lib/auth.server";
 
 /**
  * Validates that the user is a member of the given organization.
@@ -12,7 +12,7 @@ export async function requireOrgAccess(
     throw new Error("Forbidden");
   }
 
-  const result = await authPool.query(
+  const result = await getAuthPool().query(
     'SELECT 1 FROM member WHERE "userId" = $1 AND "organizationId" = $2',
     [userId, organizationId]
   );
@@ -39,7 +39,7 @@ export async function requireProjectAccess(
 
   await requireOrgAccess(userId, activeOrganizationId);
 
-  const result = await authPool.query(
+  const result = await getAuthPool().query(
     "SELECT 1 FROM project WHERE id = $1 AND organization_id = $2",
     [projectId, activeOrganizationId]
   );

@@ -1,12 +1,26 @@
 import { Redis } from "@upstash/redis";
 
-const kv =
-  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-    ? new Redis({
-        url: process.env.UPSTASH_REDIS_REST_URL,
-        token: process.env.UPSTASH_REDIS_REST_TOKEN,
-      })
-    : null;
+/**
+ * Lazily initialized Upstash Redis client singleton.
+ *
+ * Initialization is deferred because Cloudflare Workers only populate
+ * `process.env` during request handling, not at module load time.
+ * Returns `null` if the Upstash env vars are not configured.
+ */
+let _kv: Redis | null | undefined;
+
+function getKv(): Redis | null {
+  if (_kv === undefined) {
+    _kv =
+      process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+        ? new Redis({
+            url: process.env.UPSTASH_REDIS_REST_URL,
+            token: process.env.UPSTASH_REDIS_REST_TOKEN,
+          })
+        : null;
+  }
+  return _kv;
+}
 
 /**
  * In-memory fallback store for when Redis is unavailable or read-only.
@@ -41,6 +55,7 @@ let useMemoryFallback = false;
  * Get a value from the KV store. Tries Redis first, falls back to memory.
  */
 export async function kvGet(key: string): Promise<string | null> {
+  const kv = getKv();
   if (!useMemoryFallback && kv) {
     try {
       const value = await kv.get(key);
@@ -64,6 +79,7 @@ export async function kvSet(
   opts?: { ex: number }
 ): Promise<void> {
   const ttl = opts?.ex ?? 300;
+  const kv = getKv();
 
   if (!useMemoryFallback && kv) {
     try {

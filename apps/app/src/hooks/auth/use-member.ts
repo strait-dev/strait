@@ -9,7 +9,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
-import { auth } from "@/lib/auth.server";
+import { getAuth } from "@/lib/auth.server";
 
 export type MemberData = {
   id: string;
@@ -30,7 +30,7 @@ const listMembersServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: { organizationId: string }) => data)
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    const organization = await auth.api.getFullOrganization({
+    const organization = await (await getAuth()).api.getFullOrganization({
       query: { organizationId: data.organizationId },
       headers,
     });
@@ -65,7 +65,7 @@ const updateMemberRoleServerFn = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    await auth.api.updateMemberRole({
+    await (await getAuth()).api.updateMemberRole({
       body: {
         memberId: data.memberId,
         role: data.role,
@@ -81,7 +81,7 @@ const removeMemberServerFn = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    await auth.api.removeMember({
+    await (await getAuth()).api.removeMember({
       body: {
         memberIdOrEmail: data.memberIdOrEmail,
         organizationId: data.organizationId,
