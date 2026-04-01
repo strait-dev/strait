@@ -26,7 +26,7 @@ import {
 } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { importPKCS8, SignJWT } from "jose";
-import { Pool } from "pg";
+import { Client, type Pool } from "pg";
 import {
   ALL_OAUTH_SCOPES,
   DEFAULT_REGISTRATION_SCOPES,
@@ -80,18 +80,43 @@ function getAuthConnectionString(): string {
  * Uses Hyperdrive in production for proxied TCP connections, falling
  * back to `AUTH_DATABASE_URL` for local development.
  */
-let _authPool: Pool | null = null;
-
+/**
+ * Returns a pg-compatible object that creates a fresh Client per query.
+ *
+ * Cloudflare Hyperdrive docs recommend `new Client()` per request —
+ * Pool maintains persistent connections that conflict with Hyperdrive's
+ * per-request proxy model and cause queries to hang indefinitely.
+ *
+ * The returned object implements the `query()` and `connect()` methods
+ * that Better Auth's Kysely adapter requires.
+ */
 export function getAuthPool(): Pool {
-  if (!_authPool) {
-    _authPool = new Pool({
-      connectionString: getAuthConnectionString(),
-      max: 1,
-      idleTimeoutMillis: 0,
-      connectionTimeoutMillis: 10_000,
-    });
-  }
-  return _authPool;
+  const connectionString = getAuthConnectionString();
+  return {
+    async query(text: string, values?: unknown[]) {
+      const client = new Client({ connectionString });
+      try {
+        await client.connect();
+        return await client.query(text, values);
+      } finally {
+        client.end().catch(() => {
+          // Swallow disconnect errors — the query already completed
+        });
+      }
+    },
+    async connect() {
+      const client = new Client({ connectionString });
+      await client.connect();
+      return {
+        query: client.query.bind(client),
+        release: () => {
+          client.end().catch(() => {
+            // Swallow disconnect errors
+          });
+        },
+      };
+    },
+  } as unknown as Pool;
 }
 
 /**
