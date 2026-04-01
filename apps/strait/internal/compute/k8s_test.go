@@ -277,7 +277,7 @@ func TestK8sRuntime_Destroy_DeletesJob(t *testing.T) {
 
 func TestK8sRuntime_Destroy_NotFound(t *testing.T) {
 	rt, _ := newTestK8sRuntime()
-	err := rt.Destroy(context.Background(), "nonexistent-job")
+	err := rt.Destroy(context.Background(), "strait-aaaaaaaaaaaa")
 	if !errors.Is(err, ErrMachineGone) {
 		t.Errorf("Destroy(nonexistent) error = %v, want ErrMachineGone", err)
 	}
@@ -321,7 +321,7 @@ func TestK8sRuntime_Stop_DeletesJob(t *testing.T) {
 
 func TestK8sRuntime_Stop_NotFound(t *testing.T) {
 	rt, _ := newTestK8sRuntime()
-	err := rt.Stop(context.Background(), "nonexistent-job")
+	err := rt.Stop(context.Background(), "strait-aaaaaaaaaaaa")
 	if !errors.Is(err, ErrMachineGone) {
 		t.Errorf("Stop(nonexistent) error = %v, want ErrMachineGone", err)
 	}
@@ -384,9 +384,20 @@ func TestK8sRuntime_Status_Failed(t *testing.T) {
 
 func TestK8sRuntime_Status_NoPod(t *testing.T) {
 	rt, _ := newTestK8sRuntime()
-	status, _ := rt.Status(context.Background(), "no-such-job")
+	status, _ := rt.Status(context.Background(), "strait-aaaaaaaaaaaa")
 	if status != MachineStatusUnknown {
 		t.Errorf("Status() = %v, want Unknown", status)
+	}
+}
+
+func TestK8sRuntime_Status_InvalidID(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	_, err := rt.Status(context.Background(), "malicious,app!=x")
+	if err == nil {
+		t.Error("expected error for invalid machineID")
+	}
+	if !IsFatal(err) {
+		t.Errorf("expected fatal error, got: %v", err)
 	}
 }
 
@@ -454,6 +465,156 @@ func createPodForJob(t *testing.T, cs *fake.Clientset, ns, jobName string, phase
 	_, err := cs.CoreV1().Pods(ns).Create(context.Background(), pod, metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("create test pod: %v", err)
+	}
+}
+
+// Security tests.
+
+func TestValidateMachineID(t *testing.T) {
+	valid := []string{
+		"strait-abcdef012345",
+		"strait-000000000000",
+		"strait-abcdef123456",
+	}
+	for _, id := range valid {
+		if err := validateMachineID(id); err != nil {
+			t.Errorf("validateMachineID(%q) = %v, want nil", id, err)
+		}
+	}
+
+	invalid := []string{
+		"",
+		"bad-id",
+		"strait-short",                          // too short
+		"strait-abcdef0123456",                  // too long (13 chars)
+		"strait-ABCDEF012345",                   // uppercase
+		"strait-abcdef01234g",                   // non-hex
+		"other-abcdef012345",                    // wrong prefix
+		"strait-abc,app!=x",                     // injection attempt
+		"strait-abc\njob-name=x",                // newline injection
+		"strait-abcdef012345,job-name=other-id", // comma injection
+	}
+	for _, id := range invalid {
+		if err := validateMachineID(id); err == nil {
+			t.Errorf("validateMachineID(%q) = nil, want error", id)
+		}
+	}
+}
+
+func TestSanitizeUserLabels(t *testing.T) {
+	input := map[string]string{
+		"project":  "my-project",
+		"app":      "malicious-override",
+		"job-name": "fake-job",
+		"custom":   "ok",
+	}
+	got := sanitizeUserLabels(input)
+
+	if _, ok := got["app"]; ok {
+		t.Error("sanitizeUserLabels did not remove reserved key 'app'")
+	}
+	if _, ok := got["job-name"]; ok {
+		t.Error("sanitizeUserLabels did not remove reserved key 'job-name'")
+	}
+	if got["project"] != "my-project" {
+		t.Errorf("sanitizeUserLabels removed non-reserved key 'project'")
+	}
+	if got["custom"] != "ok" {
+		t.Errorf("sanitizeUserLabels removed non-reserved key 'custom'")
+	}
+}
+
+func TestSanitizeUserLabels_Nil(t *testing.T) {
+	got := sanitizeUserLabels(nil)
+	if got != nil {
+		t.Errorf("sanitizeUserLabels(nil) = %v, want nil", got)
+	}
+}
+
+func TestK8sRuntime_Create_SecurityContext(t *testing.T) {
+	rt, cs := newTestK8sRuntime()
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.19",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, _ := cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
+	c := job.Spec.Template.Spec.Containers[0]
+
+	if c.SecurityContext == nil {
+		t.Fatal("SecurityContext is nil")
+	}
+	if c.SecurityContext.AllowPrivilegeEscalation == nil || *c.SecurityContext.AllowPrivilegeEscalation {
+		t.Error("AllowPrivilegeEscalation should be false")
+	}
+	if c.SecurityContext.Capabilities == nil || len(c.SecurityContext.Capabilities.Drop) == 0 {
+		t.Error("Capabilities.Drop should contain ALL")
+	}
+}
+
+func TestK8sRuntime_Create_ServiceAccount(t *testing.T) {
+	rt, cs := newTestK8sRuntime()
+	ctx := context.Background()
+
+	id, _ := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.19",
+		MachinePreset: "micro",
+	})
+
+	job, _ := cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
+	spec := job.Spec.Template.Spec
+
+	if spec.ServiceAccountName != "strait-job-runner" {
+		t.Errorf("ServiceAccountName = %q, want strait-job-runner", spec.ServiceAccountName)
+	}
+	if spec.AutomountServiceAccountToken == nil || *spec.AutomountServiceAccountToken {
+		t.Error("AutomountServiceAccountToken should be false")
+	}
+}
+
+func TestK8sRuntime_Create_ReservedLabelsStripped(t *testing.T) {
+	rt, cs := newTestK8sRuntime()
+	ctx := context.Background()
+
+	id, _ := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.19",
+		MachinePreset: "micro",
+		Labels:        map[string]string{"app": "evil", "job-name": "evil", "custom": "ok"},
+	})
+
+	job, _ := cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
+
+	if job.Labels["app"] != "strait-job" {
+		t.Errorf("job label app = %q, want strait-job (internal override)", job.Labels["app"])
+	}
+	if job.Labels["custom"] != "ok" {
+		t.Errorf("job label custom = %q, want ok", job.Labels["custom"])
+	}
+}
+
+func TestK8sRuntime_Create_JobNameLength(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.19",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	// Should be strait- + 12 hex chars = 19 chars total.
+	if len(id) != 19 {
+		t.Errorf("machineID length = %d, want 19 (strait- + 12 hex)", len(id))
+	}
+	if err := validateMachineID(id); err != nil {
+		t.Errorf("Create() returned invalid machineID: %v", err)
 	}
 }
 

@@ -118,6 +118,7 @@ K8S_DEV_ENV = \
 dev-k8s:
 	kind create cluster --name strait-dev 2>/dev/null || true
 	kubectl apply -f k8s/priority-classes.yaml --context kind-strait-dev
+	kubectl apply -f k8s/service-account.yaml --context kind-strait-dev
 	@echo ""
 	@echo "K8s dev cluster ready."
 	@echo "  Run managed mode:  make dev-k8s-managed"

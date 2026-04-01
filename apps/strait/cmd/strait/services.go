@@ -389,7 +389,10 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	case "k8s":
 		rt, err := compute.NewK8sRuntime(cfg.K8sKubeconfig, cfg.K8sNamespace, cfg.K8sPriorityClass)
 		if err != nil {
-			slog.Error("failed to init k8s runtime for API", "error", err)
+			slog.Error("CRITICAL: k8s runtime init failed, managed jobs will not execute", "error", err)
+			healthReg.Register(health.NewCriticalChecker("k8s-runtime", true, func(_ context.Context) error {
+				return fmt.Errorf("k8s runtime failed to initialize: %w", err)
+			}))
 		} else {
 			apiContainerRuntime = rt
 		}
@@ -540,7 +543,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	case "k8s":
 		rt, err := compute.NewK8sRuntime(cfg.K8sKubeconfig, cfg.K8sNamespace, cfg.K8sPriorityClass)
 		if err != nil {
-			slog.Error("failed to init k8s runtime", "error", err)
+			slog.Error("CRITICAL: k8s runtime init failed, managed jobs will not execute", "error", err)
 		} else {
 			containerRuntime = rt
 			slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace)

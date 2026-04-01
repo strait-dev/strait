@@ -58,13 +58,18 @@ func (r *RuntimeRouter) Create(ctx context.Context, req RunRequest) (string, err
 }
 
 // Wait routes to the runtime that owns the machineID.
+// Cleans up the owner tracking after the job completes.
 func (r *RuntimeRouter) Wait(ctx context.Context, machineID string, timeoutSecs int) (*RunResult, error) {
-	return r.owner(machineID).Wait(ctx, machineID, timeoutSecs)
+	result, err := r.owner(machineID).Wait(ctx, machineID, timeoutSecs)
+	r.owners.Delete(machineID)
+	return result, err
 }
 
 // Stop routes to the runtime that owns the machineID.
 func (r *RuntimeRouter) Stop(ctx context.Context, machineID string) error {
-	return r.owner(machineID).Stop(ctx, machineID)
+	err := r.owner(machineID).Stop(ctx, machineID)
+	r.owners.Delete(machineID)
+	return err
 }
 
 // Start routes to the runtime that owns the machineID.
