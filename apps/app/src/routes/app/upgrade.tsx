@@ -1,8 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  findOrCreateCustomer,
-  getStripeClient,
-} from "@/lib/stripe.server";
 import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -38,6 +34,7 @@ import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscrip
 import { getPostHog } from "@/lib/analytics";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
 import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";
+import { findOrCreateCustomer, getStripeClient } from "@/lib/stripe.server";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import { authMiddleware } from "@/middlewares/auth";
 import type { AppRouteContext } from "@/routes/app/layout";

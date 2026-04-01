@@ -34,8 +34,7 @@ export const getCustomerPortalUrlServerFn = createServerFn({
     }
 
     const stripe = getStripeClient();
-    const baseUrl =
-      process.env.BETTER_AUTH_URL ?? "http://localhost:5173";
+    const baseUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:5173";
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: customerId,

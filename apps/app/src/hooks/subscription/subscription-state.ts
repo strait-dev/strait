@@ -193,7 +193,9 @@ export const deriveSubscriptionState = ({
   now = Date.now(),
 }: DeriveSubscriptionStateInput): SubscriptionStateData => {
   const rawStatus = subscription?.status ?? "none";
-  const status = (rawStatus === "cancelled" ? "canceled" : rawStatus) as SubscriptionStatus;
+  const status = (
+    rawStatus === "cancelled" ? "canceled" : rawStatus
+  ) as SubscriptionStatus;
   const currentPlan = planFromProduct ?? backendPlan ?? "free";
 
   const isTrialing = status === "trialing";

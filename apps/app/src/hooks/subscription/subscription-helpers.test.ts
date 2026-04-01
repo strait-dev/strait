@@ -4,8 +4,8 @@ import {
   DEFAULT_RANK,
   fromUnix,
   getFirstItem,
-  selectBestSubscription,
   SUBSCRIPTION_RANK,
+  selectBestSubscription,
   toNormalizedSubscription,
 } from "./subscription-helpers";
 
@@ -36,17 +36,19 @@ const makeSub = (
     cancel_at_period_end: overrides.cancel_at_period_end ?? false,
     trial_end: overrides.trial_end ?? 0,
     items: {
-      data: (overrides.items ?? [
-        {
-          id: "si_test",
-          current_period_end: 1735689600, // 2025-01-01
-          current_period_start: 1733011200, // 2024-12-01
-          price: {
-            id: "price_starter_monthly",
-            recurring: { interval: "month" },
+      data: (
+        overrides.items ?? [
+          {
+            id: "si_test",
+            current_period_end: 1_735_689_600, // 2025-01-01
+            current_period_start: 1_733_011_200, // 2024-12-01
+            price: {
+              id: "price_starter_monthly",
+              recurring: { interval: "month" },
+            },
           },
-        },
-      ]).map((item) => ({
+        ]
+      ).map((item) => ({
         id: item.id ?? "si_test",
         current_period_end: item.current_period_end ?? 0,
         current_period_start: item.current_period_start ?? 0,
@@ -60,7 +62,7 @@ const makeSub = (
 // ---------------------------------------------------------------------------
 describe("fromUnix", () => {
   it("converts a Unix timestamp to a Date", () => {
-    const date = fromUnix(1735689600);
+    const date = fromUnix(1_735_689_600);
     expect(date).toBeInstanceOf(Date);
     expect(date?.toISOString()).toBe("2025-01-01T00:00:00.000Z");
   });
@@ -129,7 +131,7 @@ describe("toNormalizedSubscription", () => {
       trial_end: 0,
       items: [
         {
-          current_period_end: 1735689600,
+          current_period_end: 1_735_689_600,
           price: {
             id: "price_pro_monthly",
             recurring: { interval: "month" },
@@ -156,7 +158,7 @@ describe("toNormalizedSubscription", () => {
     const sub = makeSub({
       items: [
         {
-          current_period_end: 1735689600,
+          current_period_end: 1_735_689_600,
           price: {
             id: "price_starter_yearly",
             recurring: { interval: "year" },
@@ -171,7 +173,7 @@ describe("toNormalizedSubscription", () => {
   });
 
   it("handles trialing subscription with trial end", () => {
-    const trialEnd = 1738368000; // 2025-02-01
+    const trialEnd = 1_738_368_000; // 2025-02-01
     const sub = makeSub({
       status: "trialing",
       trial_end: trialEnd,
@@ -204,7 +206,7 @@ describe("toNormalizedSubscription", () => {
 
   it("handles subscription item with no price", () => {
     const sub = makeSub({
-      items: [{ current_period_end: 1735689600 }],
+      items: [{ current_period_end: 1_735_689_600 }],
     });
     const result = toNormalizedSubscription(sub);
 
@@ -257,12 +259,12 @@ describe("selectBestSubscription", () => {
     const canceled = makeSub({
       id: "sub_canceled",
       status: "canceled",
-      items: [{ current_period_end: 1735689600 }],
+      items: [{ current_period_end: 1_735_689_600 }],
     });
     const active = makeSub({
       id: "sub_active",
       status: "active",
-      items: [{ current_period_end: 1733011200 }],
+      items: [{ current_period_end: 1_733_011_200 }],
     });
 
     // Active wins even with an earlier period end
@@ -301,12 +303,12 @@ describe("selectBestSubscription", () => {
     const older = makeSub({
       id: "sub_older",
       status: "active",
-      items: [{ current_period_end: 1733011200, price: { id: "price_a" } }],
+      items: [{ current_period_end: 1_733_011_200, price: { id: "price_a" } }],
     });
     const newer = makeSub({
       id: "sub_newer",
       status: "active",
-      items: [{ current_period_end: 1735689600, price: { id: "price_b" } }],
+      items: [{ current_period_end: 1_735_689_600, price: { id: "price_b" } }],
     });
 
     const result = selectBestSubscription([older, newer]);
@@ -317,12 +319,12 @@ describe("selectBestSubscription", () => {
     const olderCanceled = makeSub({
       id: "sub_old_cancel",
       status: "canceled",
-      items: [{ current_period_end: 1733011200 }],
+      items: [{ current_period_end: 1_733_011_200 }],
     });
     const newerCanceled = makeSub({
       id: "sub_new_cancel",
       status: "canceled",
-      items: [{ current_period_end: 1735689600 }],
+      items: [{ current_period_end: 1_735_689_600 }],
     });
 
     const result = selectBestSubscription([olderCanceled, newerCanceled]);
@@ -333,17 +335,17 @@ describe("selectBestSubscription", () => {
     const expired = makeSub({
       id: "sub_expired",
       status: "incomplete_expired",
-      items: [{ current_period_end: 1735689600 }],
+      items: [{ current_period_end: 1_735_689_600 }],
     });
     const canceled = makeSub({
       id: "sub_canceled",
       status: "canceled",
-      items: [{ current_period_end: 1735689600 }],
+      items: [{ current_period_end: 1_735_689_600 }],
     });
     const active = makeSub({
       id: "sub_active",
       status: "active",
-      items: [{ current_period_end: 1733011200 }],
+      items: [{ current_period_end: 1_733_011_200 }],
     });
 
     const result = selectBestSubscription([expired, canceled, active]);
@@ -355,10 +357,10 @@ describe("selectBestSubscription", () => {
       id: "sub_full",
       status: "active",
       cancel_at_period_end: true,
-      trial_end: 1738368000,
+      trial_end: 1_738_368_000,
       items: [
         {
-          current_period_end: 1735689600,
+          current_period_end: 1_735_689_600,
           price: {
             id: "price_pro_yearly",
             recurring: { interval: "year" },
@@ -390,7 +392,7 @@ describe("selectBestSubscription", () => {
     const withItems = makeSub({
       id: "sub_with_items",
       status: "canceled",
-      items: [{ current_period_end: 1735689600, price: { id: "price_a" } }],
+      items: [{ current_period_end: 1_735_689_600, price: { id: "price_a" } }],
     });
 
     // Active (rank 0) still wins over canceled (rank 1) even without items
@@ -402,12 +404,12 @@ describe("selectBestSubscription", () => {
     const sub1 = makeSub({
       id: "sub_first",
       status: "active",
-      items: [{ current_period_end: 1735689600 }],
+      items: [{ current_period_end: 1_735_689_600 }],
     });
     const sub2 = makeSub({
       id: "sub_second",
       status: "active",
-      items: [{ current_period_end: 1735689600 }],
+      items: [{ current_period_end: 1_735_689_600 }],
     });
 
     // When rank and period end are identical, the first one should win

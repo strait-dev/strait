@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveSubscriptionState,
-  nextPlanFor,
   type NormalizedSubscription,
+  nextPlanFor,
   normalizePlanSlug,
   type PlanSlug,
 } from "./subscription-state";
@@ -38,12 +38,16 @@ describe("normalizePlanSlug", () => {
     expect(normalizePlanSlug(input)).toBe(expected);
   });
 
-  it.each(["trial", "premium", "basic", "", "FREE", "Pro"])(
-    'rejects unknown value "%s"',
-    (input) => {
-      expect(normalizePlanSlug(input)).toBeNull();
-    }
-  );
+  it.each([
+    "trial",
+    "premium",
+    "basic",
+    "",
+    "FREE",
+    "Pro",
+  ])('rejects unknown value "%s"', (input) => {
+    expect(normalizePlanSlug(input)).toBeNull();
+  });
 
   it("returns null for null", () => {
     expect(normalizePlanSlug(null)).toBeNull();
@@ -128,29 +132,33 @@ describe("deriveSubscriptionState — plan resolution", () => {
 // deriveSubscriptionState -- active statuses
 // ---------------------------------------------------------------------------
 describe("deriveSubscriptionState — active statuses", () => {
-  it.each(["active", "trialing", "past_due", "incomplete", "unpaid"] as const)(
-    '"%s" is considered active',
-    (status) => {
-      const state = deriveSubscriptionState({
-        subscription: makeSub({ status }),
-        planFromProduct: "starter",
-        backendPlan: null,
-      });
-      expect(state.hasActiveSubscription).toBe(true);
-    }
-  );
+  it.each([
+    "active",
+    "trialing",
+    "past_due",
+    "incomplete",
+    "unpaid",
+  ] as const)('"%s" is considered active', (status) => {
+    const state = deriveSubscriptionState({
+      subscription: makeSub({ status }),
+      planFromProduct: "starter",
+      backendPlan: null,
+    });
+    expect(state.hasActiveSubscription).toBe(true);
+  });
 
-  it.each(["canceled", "incomplete_expired", "paused"] as const)(
-    '"%s" is not considered active',
-    (status) => {
-      const state = deriveSubscriptionState({
-        subscription: makeSub({ status }),
-        planFromProduct: "starter",
-        backendPlan: null,
-      });
-      expect(state.hasActiveSubscription).toBe(false);
-    }
-  );
+  it.each([
+    "canceled",
+    "incomplete_expired",
+    "paused",
+  ] as const)('"%s" is not considered active', (status) => {
+    const state = deriveSubscriptionState({
+      subscription: makeSub({ status }),
+      planFromProduct: "starter",
+      backendPlan: null,
+    });
+    expect(state.hasActiveSubscription).toBe(false);
+  });
 
   it('"none" (no subscription) is not active', () => {
     const state = deriveSubscriptionState({
@@ -200,18 +208,19 @@ describe("deriveSubscriptionState — isActive", () => {
 // deriveSubscriptionState — attention / payment
 // ---------------------------------------------------------------------------
 describe("deriveSubscriptionState — needsAttention", () => {
-  it.each(["past_due", "incomplete", "unpaid"] as const)(
-    '"%s" needs attention',
-    (status) => {
-      const state = deriveSubscriptionState({
-        subscription: makeSub({ status }),
-        planFromProduct: "pro",
-        backendPlan: null,
-      });
-      expect(state.needsAttention).toBe(true);
-      expect(state.hasPendingPayment).toBe(true);
-    }
-  );
+  it.each([
+    "past_due",
+    "incomplete",
+    "unpaid",
+  ] as const)('"%s" needs attention', (status) => {
+    const state = deriveSubscriptionState({
+      subscription: makeSub({ status }),
+      planFromProduct: "pro",
+      backendPlan: null,
+    });
+    expect(state.needsAttention).toBe(true);
+    expect(state.hasPendingPayment).toBe(true);
+  });
 
   it("active does not need attention", () => {
     const state = deriveSubscriptionState({
