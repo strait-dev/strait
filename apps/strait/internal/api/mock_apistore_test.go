@@ -670,6 +670,15 @@ var _ APIStore = &APIStoreMock{}
 //			StreamAuditEventsFunc: func(ctx context.Context, projectID string, actorID string, resourceType string, from time.Time, to time.Time, fn func(*domain.AuditEvent) error) error {
 //				panic("mock out the StreamAuditEvents method")
 //			},
+//			StreamJobsFunc: func(ctx context.Context, projectID string, fn func(*domain.Job) error) error {
+//				panic("mock out the StreamJobs method")
+//			},
+//			StreamRunsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time, fn func(*domain.JobRun) error) error {
+//				panic("mock out the StreamRuns method")
+//			},
+//			StreamWorkflowsFunc: func(ctx context.Context, projectID string, fn func(*domain.Workflow) error) error {
+//				panic("mock out the StreamWorkflows method")
+//			},
 //			SumJobMemorySizeBytesFunc: func(ctx context.Context, jobID string) (int, error) {
 //				panic("mock out the SumJobMemorySizeBytes method")
 //			},
@@ -1426,6 +1435,15 @@ type APIStoreMock struct {
 
 	// StreamAuditEventsFunc mocks the StreamAuditEvents method.
 	StreamAuditEventsFunc func(ctx context.Context, projectID string, actorID string, resourceType string, from time.Time, to time.Time, fn func(*domain.AuditEvent) error) error
+
+	// StreamJobsFunc mocks the StreamJobs method.
+	StreamJobsFunc func(ctx context.Context, projectID string, fn func(*domain.Job) error) error
+
+	// StreamRunsFunc mocks the StreamRuns method.
+	StreamRunsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time, fn func(*domain.JobRun) error) error
+
+	// StreamWorkflowsFunc mocks the StreamWorkflows method.
+	StreamWorkflowsFunc func(ctx context.Context, projectID string, fn func(*domain.Workflow) error) error
 
 	// SumJobMemorySizeBytesFunc mocks the SumJobMemorySizeBytes method.
 	SumJobMemorySizeBytesFunc func(ctx context.Context, jobID string) (int, error)
@@ -3499,6 +3517,37 @@ type APIStoreMock struct {
 			// Fn is the fn argument value.
 			Fn func(*domain.AuditEvent) error
 		}
+		// StreamJobs holds details about calls to the StreamJobs method.
+		StreamJobs []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Fn is the fn argument value.
+			Fn func(*domain.Job) error
+		}
+		// StreamRuns holds details about calls to the StreamRuns method.
+		StreamRuns []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// From is the from argument value.
+			From time.Time
+			// To is the to argument value.
+			To time.Time
+			// Fn is the fn argument value.
+			Fn func(*domain.JobRun) error
+		}
+		// StreamWorkflows holds details about calls to the StreamWorkflows method.
+		StreamWorkflows []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Fn is the fn argument value.
+			Fn func(*domain.Workflow) error
+		}
 		// SumJobMemorySizeBytes holds details about calls to the SumJobMemorySizeBytes method.
 		SumJobMemorySizeBytes []struct {
 			// Ctx is the ctx argument value.
@@ -4016,6 +4065,9 @@ type APIStoreMock struct {
 	lockSeedProjectSystemRoles             sync.RWMutex
 	lockSetEventTriggerSentBy              sync.RWMutex
 	lockStreamAuditEvents                  sync.RWMutex
+	lockStreamJobs                         sync.RWMutex
+	lockStreamRuns                         sync.RWMutex
+	lockStreamWorkflows                    sync.RWMutex
 	lockSumJobMemorySizeBytes              sync.RWMutex
 	lockSumProjectDailyCostMicrousd        sync.RWMutex
 	lockSumRunCostMicrousd                 sync.RWMutex
@@ -13534,6 +13586,143 @@ func (mock *APIStoreMock) StreamAuditEventsCalls() []struct {
 	mock.lockStreamAuditEvents.RLock()
 	calls = mock.calls.StreamAuditEvents
 	mock.lockStreamAuditEvents.RUnlock()
+	return calls
+}
+
+// StreamJobs calls StreamJobsFunc.
+func (mock *APIStoreMock) StreamJobs(ctx context.Context, projectID string, fn func(*domain.Job) error) error {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		Fn        func(*domain.Job) error
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		Fn:        fn,
+	}
+	mock.lockStreamJobs.Lock()
+	mock.calls.StreamJobs = append(mock.calls.StreamJobs, callInfo)
+	mock.lockStreamJobs.Unlock()
+	if mock.StreamJobsFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.StreamJobsFunc(ctx, projectID, fn)
+}
+
+// StreamJobsCalls gets all the calls that were made to StreamJobs.
+// Check the length with:
+//
+//	len(mockedAPIStore.StreamJobsCalls())
+func (mock *APIStoreMock) StreamJobsCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	Fn        func(*domain.Job) error
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		Fn        func(*domain.Job) error
+	}
+	mock.lockStreamJobs.RLock()
+	calls = mock.calls.StreamJobs
+	mock.lockStreamJobs.RUnlock()
+	return calls
+}
+
+// StreamRuns calls StreamRunsFunc.
+func (mock *APIStoreMock) StreamRuns(ctx context.Context, projectID string, from time.Time, to time.Time, fn func(*domain.JobRun) error) error {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		From      time.Time
+		To        time.Time
+		Fn        func(*domain.JobRun) error
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		From:      from,
+		To:        to,
+		Fn:        fn,
+	}
+	mock.lockStreamRuns.Lock()
+	mock.calls.StreamRuns = append(mock.calls.StreamRuns, callInfo)
+	mock.lockStreamRuns.Unlock()
+	if mock.StreamRunsFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.StreamRunsFunc(ctx, projectID, from, to, fn)
+}
+
+// StreamRunsCalls gets all the calls that were made to StreamRuns.
+// Check the length with:
+//
+//	len(mockedAPIStore.StreamRunsCalls())
+func (mock *APIStoreMock) StreamRunsCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	From      time.Time
+	To        time.Time
+	Fn        func(*domain.JobRun) error
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		From      time.Time
+		To        time.Time
+		Fn        func(*domain.JobRun) error
+	}
+	mock.lockStreamRuns.RLock()
+	calls = mock.calls.StreamRuns
+	mock.lockStreamRuns.RUnlock()
+	return calls
+}
+
+// StreamWorkflows calls StreamWorkflowsFunc.
+func (mock *APIStoreMock) StreamWorkflows(ctx context.Context, projectID string, fn func(*domain.Workflow) error) error {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		Fn        func(*domain.Workflow) error
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		Fn:        fn,
+	}
+	mock.lockStreamWorkflows.Lock()
+	mock.calls.StreamWorkflows = append(mock.calls.StreamWorkflows, callInfo)
+	mock.lockStreamWorkflows.Unlock()
+	if mock.StreamWorkflowsFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.StreamWorkflowsFunc(ctx, projectID, fn)
+}
+
+// StreamWorkflowsCalls gets all the calls that were made to StreamWorkflows.
+// Check the length with:
+//
+//	len(mockedAPIStore.StreamWorkflowsCalls())
+func (mock *APIStoreMock) StreamWorkflowsCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	Fn        func(*domain.Workflow) error
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		Fn        func(*domain.Workflow) error
+	}
+	mock.lockStreamWorkflows.RLock()
+	calls = mock.calls.StreamWorkflows
+	mock.lockStreamWorkflows.RUnlock()
 	return calls
 }
 
