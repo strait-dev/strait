@@ -16,16 +16,61 @@ spec:
       labels:
         app: strait-image-cache
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: cache-node20
           image: node:20-alpine
           command: ["sh", "-c", "exit 0"]
+          resources:
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
         - name: cache-python3
           image: python:3.12-alpine
           command: ["sh", "-c", "exit 0"]
+          resources:
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
         - name: cache-go
           image: golang:1.22-alpine
           command: ["sh", "-c", "exit 0"]
+          resources:
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
       containers:
         - name: pause
           image: registry.k8s.io/pause:3.9
+          resources:
+            limits:
+              cpu: "10m"
+              memory: "16Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

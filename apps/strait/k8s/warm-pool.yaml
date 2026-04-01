@@ -19,6 +19,11 @@ spec:
     spec:
       priorityClassName: warm-pool
       terminationGracePeriodSeconds: 0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: pause
           image: registry.k8s.io/pause:3.9
@@ -26,3 +31,12 @@ spec:
             requests:
               cpu: "900m"
               memory: "1.5Gi"
+            limits:
+              cpu: "900m"
+              memory: "1.5Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
