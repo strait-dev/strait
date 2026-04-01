@@ -23,7 +23,7 @@ The app runs at `http://localhost:5173`.
 | TanStack Router | File-based routing with loaders |
 | TanStack Query | Server state (5-minute staleTime) |
 | Better Auth | Authentication (PostgreSQL + organization plugin) |
-| Polar | Billing and subscriptions |
+| Stripe | Billing, subscriptions, and usage-based metering |
 | Effect | Typed error modeling in server functions |
 | Zustand | Client-side UI state |
 | Recharts | Dashboard and billing charts |
@@ -109,9 +109,10 @@ For local development: `doppler run -- bun dev`
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth |
 | `VITE_GOOGLE_CLIENT_ID` | Google One Tap (client-side) |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth |
-| `POLAR_ACCESS_TOKEN` | Polar billing API token |
-| `POLAR_SERVER` | `sandbox` or `production` |
-| `POLAR_WEBHOOK_SECRET` | Polar webhook validation |
+| `STRIPE_SECRET_KEY` | Stripe API secret key |
+| `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (client-side) |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification |
+| `STRIPE_*_PRICE_ID` | Stripe Price IDs for plan tiers and addons |
 | `RESEND_API_KEY` | Transactional email via Resend |
 | `VITE_SENTRY_DSN` | Sentry client-side DSN |
 | `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` | PostHog analytics |
@@ -129,7 +130,7 @@ The app never writes to the Go service DB directly. All mutations go through ser
 
 ### Authentication
 
-Better Auth with plugins: email/password, magic link, passkey (WebAuthn), Google OAuth, GitHub OAuth, Google One Tap, 2FA, organizations, and Polar billing.
+Better Auth with plugins: email/password, magic link, passkey (WebAuthn), Google OAuth, GitHub OAuth, Google One Tap, 2FA, and organizations. Stripe billing is handled via standalone server functions (Checkout Sessions, Customer Portal) and a Go backend webhook handler.
 
 The `authMiddleware` validates sessions and attaches `user`, `session`, and `activeOrganizationId` to server function context. IDOR protection is enforced via `requireOrgAccess` and `requireProjectAccess` middleware.
 
@@ -161,7 +162,7 @@ export const projectBudgetQueryOptions = (projectId: string) =>
 
 ### Billing
 
-Four plan tiers: `free < starter < pro < enterprise`. Billing is managed through Polar with webhook sync. The billing dashboard includes usage charts, spending limits, anomaly detection, project budgets, and referral tracking.
+Five plan tiers: `free < starter < pro < scale < enterprise`. Billing is managed through Stripe with webhook sync to the Go backend. Checkout uses Stripe-hosted pages (Checkout Sessions), subscription management uses the Stripe Customer Portal, and compute usage is tracked via Stripe Billing Meters. The billing dashboard includes usage charts, spending limits, anomaly detection, and project budgets.
 
 ### Code Conventions
 

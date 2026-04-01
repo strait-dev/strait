@@ -222,5 +222,5 @@ All secrets managed via Doppler (project: `strait`, configs: `dev`, `stg`, `prd`
 | ClickHouse Cloud | Traces (OTel), Custom analytics (12 tables) | `CLICKHOUSE_*` env vars |
 | Sentry | Error tracking (ERROR-level logs) | `SENTRY_DSN` |
 | Better Stack | Uptime monitoring, alert routing, on-call | Web UI config |
-| Polar | Billing/subscriptions | `POLAR_*` env vars |
+| Stripe | Billing, subscriptions, usage metering | `STRIPE_*` env vars |
 | Resend | Transactional email | `RESEND_*` env vars |

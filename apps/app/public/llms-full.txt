@@ -81,7 +81,7 @@ The Strait dashboard provides real-time monitoring and management:
 - Invitation system with email notifications via Resend
 - Organization switching from sidebar
 - API key management with granular scopes and expiration
-- Subscription management via Polar
+- Subscription management via Stripe (Checkout Sessions, Customer Portal, Billing Meters)
 
 ## SDK Architecture
 
