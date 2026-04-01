@@ -10,16 +10,15 @@
  *
  * @see https://docs.stripe.com/api/subscriptions — Stripe Subscriptions API
  */
-
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { Effect } from "effect";
-import type Stripe from "stripe";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getAuth } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
+import { selectBestSubscription } from "./subscription-helpers";
 import {
   deriveSubscriptionState,
   type NormalizedSubscription,
@@ -45,70 +44,10 @@ const PRICE_TO_PLAN = new Map<string, PlanSlug>([
 ]);
 
 /**
- * Subscription ranking priority for selecting the "best" subscription
- * when a customer has multiple (e.g. one active, one canceled).
- *
- * Lower rank = higher priority. Ties are broken by most recent period end.
- */
-const SUBSCRIPTION_RANK: Record<string, number> = {
-  active: 0,
-  trialing: 0,
-  past_due: 0,
-  incomplete: 0,
-  unpaid: 0,
-  canceled: 1,
-  paused: 1,
-  incomplete_expired: 2,
-};
-
-const DEFAULT_RANK = 3;
-
-/**
- * Extract the first subscription item's details from a Stripe subscription.
- * Returns `null` if the subscription has no items (shouldn't happen in practice).
- */
-const getFirstItem = (
-  sub: Stripe.Subscription
-): Stripe.SubscriptionItem | null => sub.items?.data?.[0] ?? null;
-
-/**
- * Convert a Unix timestamp (seconds) to a `Date`, or `null` if zero/undefined.
- */
-const fromUnix = (ts: number | null | undefined): Date | null =>
-  ts ? new Date(ts * 1000) : null;
-
-/**
- * Normalize a Stripe subscription into the app's {@link NormalizedSubscription} shape.
- */
-const toNormalizedSubscription = (
-  sub: Stripe.Subscription
-): NormalizedSubscription => {
-  const item = getFirstItem(sub);
-  const priceId = item?.price?.id ?? "";
-
-  return {
-    id: sub.id,
-    status: sub.status,
-    productId: priceId,
-    priceId,
-    currentPeriodEnd: fromUnix(item?.current_period_end),
-    cancelAtPeriodEnd: sub.cancel_at_period_end,
-    recurringInterval: item?.price?.recurring?.interval ?? null,
-    trialEnd: fromUnix(sub.trial_end),
-  };
-};
-
-/**
  * Fetch the most relevant subscription for a customer by email.
  *
- * When a customer has multiple subscriptions (e.g. after a cancellation
- * and re-subscribe), this selects the "best" one by ranking:
- * 1. Active/trialing/past_due subscriptions (rank 0)
- * 2. Canceled/paused subscriptions (rank 1)
- * 3. Expired subscriptions (rank 2)
- *
- * Within the same rank, the subscription with the latest billing period
- * end date wins.
+ * Looks up the Stripe customer, lists their subscriptions, and selects
+ * the best one using {@link selectBestSubscription}.
  *
  * @returns The normalized subscription, or `null` if the customer has none.
  */
@@ -131,28 +70,7 @@ const getSubscriptionByEmail = async (
     expand: ["data.items.data.price"],
   });
 
-  if (subscriptions.length === 0) {
-    return null;
-  }
-
-  // Single subscription fast path (most common case).
-  if (subscriptions.length === 1) {
-    return toNormalizedSubscription(subscriptions[0]);
-  }
-
-  // Multiple subscriptions: rank and pick the best one.
-  const best = subscriptions
-    .map((sub) => {
-      const item = getFirstItem(sub);
-      const periodEnd = fromUnix(item?.current_period_end)?.getTime() ?? 0;
-      const rank = SUBSCRIPTION_RANK[sub.status] ?? DEFAULT_RANK;
-      return { sub, rank, periodEnd };
-    })
-    .sort((a, b) =>
-      a.rank === b.rank ? b.periodEnd - a.periodEnd : a.rank - b.rank
-    )[0];
-
-  return best ? toNormalizedSubscription(best.sub) : null;
+  return selectBestSubscription(subscriptions);
 };
 
 /**
