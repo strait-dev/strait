@@ -291,3 +291,64 @@ export const agentTopologyQueryOptions = () =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
+
+export type AgentRunComparisonResponse = {
+  cost_diff_microusd: number;
+  duration_diff_secs: number;
+  model_match: boolean;
+  run_a: {
+    attempt: number;
+    cost_microusd: number;
+    duration_secs: number;
+    error_class?: string;
+    model: string;
+    run_id: string;
+    status: string;
+    tool_call_count: number;
+    total_tokens: number;
+  };
+  run_b: {
+    attempt: number;
+    cost_microusd: number;
+    duration_secs: number;
+    error_class?: string;
+    model: string;
+    run_id: string;
+    status: string;
+    tool_call_count: number;
+    total_tokens: number;
+  };
+  status_match: boolean;
+  token_diff: number;
+  tool_call_diffs?: Array<{
+    count_a: number;
+    count_b: number;
+    tool_name: string;
+  }>;
+};
+
+const fetchAgentRunComparison = createServerFn({ method: "GET" })
+  .inputValidator(
+    (data: { agentId: string; runA: string; runB: string }) => data
+  )
+  .middleware([authMiddleware])
+  .handler(({ data }): Promise<AgentRunComparisonResponse> => {
+    return runWithSentryReport(
+      apiEffect<AgentRunComparisonResponse>(
+        `/v1/agents/${data.agentId}/compare?run_a=${data.runA}&run_b=${data.runB}`
+      )
+    );
+  });
+
+export const agentRunComparisonQueryOptions = (
+  agentId: string,
+  runA: string,
+  runB: string
+) =>
+  queryOptions({
+    queryKey: [...queryKeys.agents._def, "comparison", agentId, runA, runB],
+    queryFn: () => fetchAgentRunComparison({ data: { agentId, runA, runB } }),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+    enabled: Boolean(agentId && runA && runB),
+  });
