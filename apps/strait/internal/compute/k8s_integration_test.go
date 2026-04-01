@@ -424,5 +424,53 @@ func TestK8sIntegration_E2E_RuntimeConstruction(t *testing.T) {
 	}
 }
 
+// Metrics recording test.
+
+type mockK8sMetrics struct {
+	createCalls   int
+	waitCalls     int
+	scheduleCalls int
+	activeDeltas  []int64
+}
+
+func (m *mockK8sMetrics) RecordJobCreate(string, string, float64) { m.createCalls++ }
+func (m *mockK8sMetrics) RecordJobWait(string, float64)           { m.waitCalls++ }
+func (m *mockK8sMetrics) RecordPodScheduling(float64)             { m.scheduleCalls++ }
+
+func (m *mockK8sMetrics) IncJobsActive(delta int64) {
+	m.activeDeltas = append(m.activeDeltas, delta)
+}
+
+func TestK8sIntegration_MetricsRecorded(t *testing.T) {
+	rt := requireKindCluster(t)
+	mock := &mockK8sMetrics{}
+	rt.SetMetrics(mock)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result, err := rt.Run(ctx, RunRequest{
+		ImageURI:      "alpine:3.19",
+		MachinePreset: "micro",
+		TimeoutSecs:   30,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	t.Cleanup(func() { _ = rt.Destroy(context.Background(), result.MachineID) })
+
+	if mock.createCalls != 1 {
+		t.Errorf("RecordJobCreate called %d times, want 1", mock.createCalls)
+	}
+	if mock.waitCalls != 1 {
+		t.Errorf("RecordJobWait called %d times, want 1", mock.waitCalls)
+	}
+	// Pod scheduling may or may not be recorded depending on whether we see Running before Succeeded.
+	// At minimum, active should have +1 and -1.
+	if len(mock.activeDeltas) < 2 {
+		t.Errorf("IncJobsActive called %d times, want at least 2 (+1, -1)", len(mock.activeDeltas))
+	}
+}
+
 // Suppress unused import for strings.
 var _ = strings.NewReader

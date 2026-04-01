@@ -394,6 +394,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 				return fmt.Errorf("k8s runtime failed to initialize: %w", err)
 			}))
 		} else {
+			rt.SetMetrics(telemetry.NewK8sMetricsAdapter(metrics))
 			apiContainerRuntime = rt
 		}
 	}
@@ -545,6 +546,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		if err != nil {
 			slog.Error("CRITICAL: k8s runtime init failed, managed jobs will not execute", "error", err)
 		} else {
+			rt.SetMetrics(telemetry.NewK8sMetricsAdapter(metrics))
 			containerRuntime = rt
 			slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace)
 		}
