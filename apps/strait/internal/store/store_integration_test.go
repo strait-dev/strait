@@ -4793,17 +4793,22 @@ func TestNotificationDeliveryClaimLifecycle(t *testing.T) {
 		t.Fatalf("expired claim len = %d, want 1", len(expiredClaim))
 	}
 
-	reclaimed, err := q.ClaimPendingNotificationDeliveries(ctx, 1, time.Minute)
+	reclaimed, err := q.ClaimPendingNotificationDeliveries(ctx, 10, time.Minute)
 	if err != nil {
 		t.Fatalf("ClaimPendingNotificationDeliveries(reclaimed) error = %v", err)
 	}
-	if len(reclaimed) != 1 {
-		t.Fatalf("reclaimed claim len = %d, want 1", len(reclaimed))
+	// Find our specific expired delivery in the reclaimed batch (other tests may have deliveries too).
+	var reclaimedDelivery *domain.NotificationDelivery
+	for i := range reclaimed {
+		if reclaimed[i].ID == expiringDelivery.ID {
+			reclaimedDelivery = &reclaimed[i]
+			break
+		}
 	}
-	if reclaimed[0].ID != expiringDelivery.ID {
-		t.Fatalf("reclaimed delivery ID = %q, want %q", reclaimed[0].ID, expiringDelivery.ID)
+	if reclaimedDelivery == nil {
+		t.Fatalf("expired delivery %s not found in reclaimed batch of %d", expiringDelivery.ID, len(reclaimed))
 	}
-	if reclaimed[0].ClaimToken == expiredClaim[0].ClaimToken {
+	if reclaimedDelivery.ClaimToken == expiredClaim[0].ClaimToken {
 		t.Fatal("reclaimed claim token was not rotated")
 	}
 
