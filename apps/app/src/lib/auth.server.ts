@@ -61,7 +61,10 @@ function getAuthConnectionString(): string {
     | { connectionString: string }
     | undefined;
   console.log("[auth] Hyperdrive binding present:", !!hyperdrive);
-  console.log("[auth] Hyperdrive connectionString present:", !!hyperdrive?.connectionString);
+  console.log(
+    "[auth] Hyperdrive connectionString present:",
+    !!hyperdrive?.connectionString
+  );
   if (hyperdrive?.connectionString) {
     console.log("[auth] Using Hyperdrive connection string");
     return hyperdrive.connectionString;
@@ -83,6 +86,9 @@ export function getAuthPool(): Pool {
   if (!_authPool) {
     _authPool = new Pool({
       connectionString: getAuthConnectionString(),
+      max: 1,
+      idleTimeoutMillis: 0,
+      connectionTimeoutMillis: 10000,
     });
   }
   return _authPool;
@@ -180,6 +186,11 @@ async function createAuth() {
       },
     },
     account: {
+      // Store OAuth state in an encrypted cookie instead of the database.
+      // This avoids database queries during the OAuth callback, which
+      // is more reliable on Cloudflare Workers where the database
+      // connection may not persist between the sign-in and callback requests.
+      storeStateStrategy: "cookie",
       accountLinking: {
         enabled: true,
         trustedProviders: ["google", "github"],
@@ -488,10 +499,7 @@ let _authPromise: Promise<AuthInstance> | null = null;
 
 /**
  * Returns the Better Auth singleton, initializing it on first call.
- *
- * The first call triggers an async initialization (to dynamically import
- * `@polar-sh/sdk`). Subsequent calls return the cached instance
- * synchronously. Callers must `await` the result.
+ * Callers must `await` the result.
  */
 export function getAuth(): Promise<AuthInstance> {
   if (_auth) {
