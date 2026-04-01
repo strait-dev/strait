@@ -60,18 +60,10 @@ const getAuthConnectionString = (): string => {
   const hyperdrive = (cfEnv as Record<string, unknown>).HYPERDRIVE as
     | { connectionString: string }
     | undefined;
-  console.log("[auth] Hyperdrive binding present:", !!hyperdrive);
-  console.log(
-    "[auth] Hyperdrive connectionString present:",
-    !!hyperdrive?.connectionString
-  );
   if (hyperdrive?.connectionString) {
-    console.log("[auth] Using Hyperdrive connection string");
     return hyperdrive.connectionString;
   }
-  const fallback = process.env.AUTH_DATABASE_URL ?? "";
-  console.log("[auth] Falling back to AUTH_DATABASE_URL, present:", !!fallback);
-  return fallback;
+  return process.env.AUTH_DATABASE_URL ?? "";
 };
 
 /**
