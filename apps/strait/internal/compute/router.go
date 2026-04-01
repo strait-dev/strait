@@ -58,11 +58,10 @@ func (r *RuntimeRouter) Create(ctx context.Context, req RunRequest) (string, err
 }
 
 // Wait routes to the runtime that owns the machineID.
-// Cleans up the owner tracking after the job completes.
+// Does NOT delete the owner -- Destroy or Stop handles cleanup so that
+// post-Wait calls (GetLogs, Status) still route to the correct runtime.
 func (r *RuntimeRouter) Wait(ctx context.Context, machineID string, timeoutSecs int) (*RunResult, error) {
-	result, err := r.owner(machineID).Wait(ctx, machineID, timeoutSecs)
-	r.owners.Delete(machineID)
-	return result, err
+	return r.owner(machineID).Wait(ctx, machineID, timeoutSecs)
 }
 
 // Stop routes to the runtime that owns the machineID.

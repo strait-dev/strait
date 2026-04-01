@@ -32,6 +32,14 @@ var reservedLabels = map[string]bool{
 // maxCreateRetries is the number of times Create retries on name collision.
 const maxCreateRetries = 3
 
+// defaultMaxDeadlineSecs is the hard upper bound for job execution when no timeout is specified.
+// Prevents jobs from running indefinitely if the caller doesn't set a timeout.
+const defaultMaxDeadlineSecs = 3600
+
+// jobTTLAfterFinished is how long completed/failed jobs persist before K8s garbage-collects them.
+// Acts as a safety net for jobs where Destroy is not called (crashes, bugs).
+const jobTTLAfterFinished = 600 // 10 minutes
+
 // K8sRuntime implements ContainerRuntime using Kubernetes Jobs via client-go.
 type K8sRuntime struct {
 	clientset     kubernetes.Interface
@@ -87,6 +95,10 @@ func (k *K8sRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, error
 // Create provisions a Kubernetes Job and returns the job name as machineID.
 // Retries up to maxCreateRetries times on name collision.
 func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error) {
+	if err := validateImageURI(req.ImageURI); err != nil {
+		return "", NewFatalError(422, "invalid image URI", err)
+	}
+
 	preset, err := PresetFromName(req.MachinePreset)
 	if err != nil {
 		return "", NewFatalError(422, "invalid machine preset", err)
@@ -107,7 +119,8 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 				Labels:    mergeLabels(userLabels, map[string]string{"app": "strait-job"}),
 			},
 			Spec: batchv1.JobSpec{
-				BackoffLimit: &backoffLimit,
+				BackoffLimit:            &backoffLimit,
+				TTLSecondsAfterFinished: newInt32(jobTTLAfterFinished),
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Labels: mergeLabels(userLabels, map[string]string{"app": "strait-job", "job-name": jobName}),
@@ -116,6 +129,13 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 						RestartPolicy:                corev1.RestartPolicyNever,
 						ServiceAccountName:           "strait-job-runner",
 						AutomountServiceAccountToken: new(bool),
+						SecurityContext: &corev1.PodSecurityContext{
+							RunAsNonRoot: newTrue(),
+							RunAsUser:    newInt64(65534), // nobody
+							SeccompProfile: &corev1.SeccompProfile{
+								Type: corev1.SeccompProfileTypeRuntimeDefault,
+							},
+						},
 						Containers: []corev1.Container{
 							{
 								Name:  "job",
@@ -127,6 +147,7 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 								},
 								SecurityContext: &corev1.SecurityContext{
 									AllowPrivilegeEscalation: new(bool),
+									ReadOnlyRootFilesystem:   newTrue(),
 									Capabilities: &corev1.Capabilities{
 										Drop: []corev1.Capability{"ALL"},
 									},
@@ -142,10 +163,11 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 			job.Spec.Template.Spec.PriorityClassName = k.priorityClass
 		}
 
+		deadline := int64(defaultMaxDeadlineSecs)
 		if req.TimeoutSecs > 0 {
-			deadline := int64(req.TimeoutSecs)
-			job.Spec.ActiveDeadlineSeconds = &deadline
+			deadline = int64(req.TimeoutSecs)
 		}
+		job.Spec.ActiveDeadlineSeconds = &deadline
 
 		_, err = k.clientset.BatchV1().Jobs(k.namespace).Create(ctx, job, metav1.CreateOptions{})
 		if err == nil {
@@ -439,6 +461,19 @@ func mergeLabels(base, overrides map[string]string) map[string]string {
 	maps.Copy(merged, overrides)
 	return merged
 }
+
+// newTrue returns a pointer to true. Cannot use new(bool) for true values.
+func newTrue() *bool { v := true; return &v }
+
+// newInt32 returns a pointer to an int32 value.
+//
+//nolint:modernize // Cannot use new(int32) for non-zero values.
+func newInt32(v int32) *int32 { return &v }
+
+// newInt64 returns a pointer to an int64 value.
+//
+//nolint:modernize // Cannot use new(int64) for non-zero values.
+func newInt64(v int64) *int64 { return &v }
 
 // Ensure K8sRuntime implements ContainerRuntime.
 var _ ContainerRuntime = (*K8sRuntime)(nil)

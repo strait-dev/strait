@@ -165,7 +165,7 @@ func TestK8sRuntime_Create_InvalidPreset(t *testing.T) {
 	}
 }
 
-func TestK8sRuntime_Create_NoTimeout(t *testing.T) {
+func TestK8sRuntime_Create_NoTimeout_UsesDefault(t *testing.T) {
 	rt, cs := newTestK8sRuntime()
 	ctx := context.Background()
 
@@ -176,8 +176,11 @@ func TestK8sRuntime_Create_NoTimeout(t *testing.T) {
 	})
 
 	job, _ := cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
-	if job.Spec.ActiveDeadlineSeconds != nil {
-		t.Errorf("ActiveDeadlineSeconds = %v, want nil for no timeout", job.Spec.ActiveDeadlineSeconds)
+	if job.Spec.ActiveDeadlineSeconds == nil {
+		t.Fatal("ActiveDeadlineSeconds is nil, want default max deadline")
+	}
+	if *job.Spec.ActiveDeadlineSeconds != defaultMaxDeadlineSecs {
+		t.Errorf("ActiveDeadlineSeconds = %d, want %d (default max)", *job.Spec.ActiveDeadlineSeconds, defaultMaxDeadlineSecs)
 	}
 }
 
@@ -544,16 +547,40 @@ func TestK8sRuntime_Create_SecurityContext(t *testing.T) {
 	}
 
 	job, _ := cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
-	c := job.Spec.Template.Spec.Containers[0]
+	podSpec := job.Spec.Template.Spec
+	c := podSpec.Containers[0]
 
+	// Container-level security.
 	if c.SecurityContext == nil {
-		t.Fatal("SecurityContext is nil")
+		t.Fatal("container SecurityContext is nil")
 	}
 	if c.SecurityContext.AllowPrivilegeEscalation == nil || *c.SecurityContext.AllowPrivilegeEscalation {
 		t.Error("AllowPrivilegeEscalation should be false")
 	}
+	if c.SecurityContext.ReadOnlyRootFilesystem == nil || !*c.SecurityContext.ReadOnlyRootFilesystem {
+		t.Error("ReadOnlyRootFilesystem should be true")
+	}
 	if c.SecurityContext.Capabilities == nil || len(c.SecurityContext.Capabilities.Drop) == 0 {
 		t.Error("Capabilities.Drop should contain ALL")
+	}
+
+	// Pod-level security.
+	if podSpec.SecurityContext == nil {
+		t.Fatal("pod SecurityContext is nil")
+	}
+	if podSpec.SecurityContext.RunAsNonRoot == nil || !*podSpec.SecurityContext.RunAsNonRoot {
+		t.Error("RunAsNonRoot should be true")
+	}
+	if podSpec.SecurityContext.RunAsUser == nil || *podSpec.SecurityContext.RunAsUser != 65534 {
+		t.Errorf("RunAsUser = %v, want 65534 (nobody)", podSpec.SecurityContext.RunAsUser)
+	}
+	if podSpec.SecurityContext.SeccompProfile == nil || podSpec.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
+		t.Error("SeccompProfile should be RuntimeDefault")
+	}
+
+	// TTL safety net.
+	if job.Spec.TTLSecondsAfterFinished == nil {
+		t.Error("TTLSecondsAfterFinished should be set")
 	}
 }
 
@@ -615,6 +642,38 @@ func TestK8sRuntime_Create_JobNameLength(t *testing.T) {
 	}
 	if err := validateMachineID(id); err != nil {
 		t.Errorf("Create() returned invalid machineID: %v", err)
+	}
+}
+
+func TestK8sRuntime_Create_InvalidImageURI(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	_, err := rt.Create(context.Background(), RunRequest{
+		ImageURI:      "image;rm -rf /",
+		MachinePreset: "micro",
+	})
+	if err == nil {
+		t.Fatal("expected error for malicious image URI")
+	}
+	if !IsFatal(err) {
+		t.Errorf("expected fatal error, got: %v", err)
+	}
+}
+
+func TestK8sRuntime_Create_TTLSecondsAfterFinished(t *testing.T) {
+	rt, cs := newTestK8sRuntime()
+	ctx := context.Background()
+
+	id, _ := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.19",
+		MachinePreset: "micro",
+	})
+
+	job, _ := cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
+	if job.Spec.TTLSecondsAfterFinished == nil {
+		t.Fatal("TTLSecondsAfterFinished is nil")
+	}
+	if *job.Spec.TTLSecondsAfterFinished != jobTTLAfterFinished {
+		t.Errorf("TTLSecondsAfterFinished = %d, want %d", *job.Spec.TTLSecondsAfterFinished, jobTTLAfterFinished)
 	}
 }
 
