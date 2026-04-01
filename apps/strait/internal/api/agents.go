@@ -864,17 +864,17 @@ func (s *Server) handleGetWebhookSecret(ctx context.Context, input *GetWebhookSe
 	return out, nil
 }
 
-type RotateWebhookSecretInput struct {
+type RotateAgentWebhookSecretInput struct {
 	AgentID string `path:"agentID"`
 }
 
-type RotateWebhookSecretOutput struct {
+type RotateAgentWebhookSecretOutput struct {
 	Body struct {
 		WebhookSecret string `json:"webhook_secret"`
 	}
 }
 
-func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWebhookSecretInput) (*RotateWebhookSecretOutput, error) {
+func (s *Server) handleRotateAgentWebhookSecret(ctx context.Context, input *RotateAgentWebhookSecretInput) (*RotateAgentWebhookSecretOutput, error) {
 	svc, err := s.requireAgentService()
 	if err != nil {
 		return nil, err
@@ -906,7 +906,7 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWeb
 		return nil, mapAgentServiceError(updateErr)
 	}
 
-	out := &RotateWebhookSecretOutput{}
+	out := &RotateAgentWebhookSecretOutput{}
 	out.Body.WebhookSecret = newSecret
 	return out, nil
 }
