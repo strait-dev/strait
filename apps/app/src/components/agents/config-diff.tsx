@@ -58,6 +58,7 @@ const STATUS_BG = {
   unchanged: "",
 };
 
+/** Renders a line-by-line diff between two JSON config objects. */
 export default function ConfigDiff({
   left,
   right,

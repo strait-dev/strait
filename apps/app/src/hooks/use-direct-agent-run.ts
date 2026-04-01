@@ -39,6 +39,7 @@ async function readNDJSONStream(
   }
 }
 
+/** Runs an agent directly via Cloudflare Worker, streaming NDJSON responses. */
 export function useDirectAgentRun() {
   const [state, setState] = useState<DirectRunState>({
     chunks: [],

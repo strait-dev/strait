@@ -1,4 +1,5 @@
 import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
@@ -88,13 +89,13 @@ function VersionEntry({
           {version.created_by && <span>By: {version.created_by}</span>}
         </div>
         {!isFirst && (
-          <button
-            className="mt-2 text-primary text-xs underline underline-offset-2"
+          <Button
+            className="mt-2 h-auto p-0 text-xs"
             onClick={() => setExpanded((prev) => !prev)}
-            type="button"
+            variant="link"
           >
             {expanded ? "Hide diff" : "Show config diff"}
-          </button>
+          </Button>
         )}
         {expanded && !isFirst && (
           <div className="mt-2 rounded-md border bg-card p-3">
@@ -188,6 +189,7 @@ function VersionCompare({ versions }: { versions: AgentVersion[] }) {
   );
 }
 
+/** Renders a vertical deployment history timeline with expandable config diffs. */
 export default function AgentVersionTimeline({
   versions,
 }: AgentVersionTimelineProps) {

@@ -6,6 +6,7 @@ type StreamState = {
   error: string | null;
 };
 
+/** Subscribes to raw LLM text chunk stream for an agent run via SSE. */
 export function useAgentStream(
   runId: string,
   enabled: boolean,

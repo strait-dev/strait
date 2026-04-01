@@ -1,3 +1,4 @@
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
@@ -112,18 +113,15 @@ function AgentAnalyticsPage() {
         </h1>
         <div className="flex gap-1">
           {dayOptions.map((d) => (
-            <button
-              className={`rounded px-3 py-1.5 text-sm ${
-                days === d
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
+            <Button
+              className="px-3 py-1.5 text-sm"
               key={d}
               onClick={() => navigate({ search: { days: d } })}
-              type="button"
+              size="sm"
+              variant={days === d ? "default" : "secondary"}
             >
               {d}d
-            </button>
+            </Button>
           ))}
         </div>
       </div>

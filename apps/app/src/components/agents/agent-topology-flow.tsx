@@ -125,6 +125,7 @@ function layoutNodes(
   return { flowEdges, flowNodes };
 }
 
+/** ReactFlow-based graph visualization of agent-to-agent message topology. */
 export default function AgentTopologyFlow({
   nodes: topologyNodes,
   edges: topologyEdges,

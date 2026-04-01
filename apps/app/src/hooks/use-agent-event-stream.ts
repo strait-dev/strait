@@ -53,6 +53,7 @@ function parseEvent(eventType: string, data: string): AgentStreamEvent {
   };
 }
 
+/** Subscribes to typed SSE events for an agent run (tool calls, usage, checkpoints). */
 export function useAgentEventStream(
   agentId: string,
   runId: string,

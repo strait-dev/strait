@@ -78,6 +78,7 @@ function MetricRow({
   );
 }
 
+/** Side-by-side comparison of two agent runs with color-coded metric diffs. */
 export default function AgentRunComparisonView({
   comparison,
 }: {

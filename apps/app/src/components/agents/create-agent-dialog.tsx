@@ -208,8 +208,8 @@ const CreateAgentDialog = ({ open, onOpenChange, projectId }: Props) => {
                         const isSelected =
                           form.getFieldValue("slug") === template.slug;
                         return (
-                          <button
-                            className={`flex flex-col items-start gap-0.5 rounded border px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted ${isSelected ? "border-primary bg-primary/5" : ""}`}
+                          <Button
+                            className={`flex h-auto flex-col items-start gap-0.5 px-2.5 py-1.5 text-left text-xs ${isSelected ? "border-primary bg-primary/5" : ""}`}
                             key={template.slug}
                             onClick={() => {
                               form.setFieldValue("name", template.name);
@@ -224,13 +224,13 @@ const CreateAgentDialog = ({ open, onOpenChange, projectId }: Props) => {
                                 JSON.stringify(template.config, null, 2)
                               );
                             }}
-                            type="button"
+                            variant="outline"
                           >
                             <span className="font-medium">{template.name}</span>
                             <span className="text-[10px] text-muted-foreground">
                               {template.model}
                             </span>
-                          </button>
+                          </Button>
                         );
                       })}
                     </div>
@@ -238,8 +238,8 @@ const CreateAgentDialog = ({ open, onOpenChange, projectId }: Props) => {
                 );
               }
             )}
-            <button
-              className="rounded border px-2.5 py-1.5 text-muted-foreground text-xs hover:bg-muted"
+            <Button
+              className="h-auto px-2.5 py-1.5 text-xs"
               onClick={() => {
                 form.setFieldValue("name", "");
                 form.setFieldValue("slug", "");
@@ -247,10 +247,10 @@ const CreateAgentDialog = ({ open, onOpenChange, projectId }: Props) => {
                 form.setFieldValue("model", "gpt-5.4");
                 form.setFieldValue("configText", '{\n  "temperature": 0.2\n}');
               }}
-              type="button"
+              variant="ghost"
             >
               Start from scratch
-            </button>
+            </Button>
           </div>
 
           <div className="flex flex-col gap-4 py-4">
