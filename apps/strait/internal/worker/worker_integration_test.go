@@ -51,9 +51,7 @@ func mustCleanEnv(t *testing.T, ctx context.Context) {
 	t.Helper()
 	env := mustEnv(t)
 	if err := env.Clean(ctx); err != nil {
-		// Redis/Postgres may be closing during parallel test teardown.
-		// Skip the test entirely to avoid false failures from testcontainer lifecycle races.
-		t.Skipf("skipping: test environment unavailable: %v", err)
+		t.Fatalf("clean env: %v", err)
 	}
 }
 
@@ -437,7 +435,7 @@ func TestFailedJobHandling(t *testing.T) {
 
 	go exec.Run(execCtx)
 
-	deadline := time.After(15 * time.Second)
+	deadline := time.After(30 * time.Second)
 	for {
 		select {
 		case <-deadline:

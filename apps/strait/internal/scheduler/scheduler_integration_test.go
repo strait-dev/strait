@@ -34,7 +34,9 @@ func getTestDB(t *testing.T) *testutil.TestDB {
 		if err != nil {
 			log.Fatalf("setup test db: %v", err)
 		}
-		t.Cleanup(func() { testDB.Cleanup(ctx) })
+		// Do NOT use t.Cleanup here. The sync.Once means cleanup would fire when
+		// the first test finishes, destroying the container for all other tests.
+		// Testcontainers Reaper handles container cleanup at process exit.
 	})
 	if testDB == nil || testDB.Pool == nil {
 		t.Fatal("testDB is not initialized")
@@ -55,8 +57,7 @@ func intTestQueue(t *testing.T) *queue.PostgresQueue {
 func intTestClean(t *testing.T, ctx context.Context) {
 	t.Helper()
 	if err := getTestDB(t).CleanTables(ctx); err != nil {
-		// Pool may be closed if another test's cleanup ran first.
-		t.Skipf("skipping: test DB unavailable: %v", err)
+		t.Fatalf("CleanTables() error = %v", err)
 	}
 }
 
@@ -334,21 +335,16 @@ func TestIntegration_AdvisoryLockExclusivity(t *testing.T) {
 	ctx := context.Background()
 	tdb := getTestDB(t)
 
-	// Verify the DB is still reachable (container may have been cleaned up by another test).
-	if err := tdb.Pool.Ping(ctx); err != nil {
-		t.Skipf("skipping: test DB unavailable: %v", err)
-	}
-
 	// Use two separate connections to simulate two scheduler instances.
 	pool1, err := pgxpool.New(ctx, tdb.ConnStr)
 	if err != nil {
-		t.Skipf("skipping: cannot create pool1: %v", err)
+		t.Fatalf("create pool1: %v", err)
 	}
 	defer pool1.Close()
 
 	pool2, err := pgxpool.New(ctx, tdb.ConnStr)
 	if err != nil {
-		t.Skipf("skipping: cannot create pool2: %v", err)
+		t.Fatalf("create pool2: %v", err)
 	}
 	defer pool2.Close()
 

@@ -1,18 +1,14 @@
 package cdc
 
 import (
+	"os"
 	"testing"
-
-	"go.uber.org/goleak"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m,
-		goleak.IgnoreTopFunction("github.com/testcontainers/testcontainers-go.(*Reaper).connect.func1"),
-		goleak.IgnoreTopFunction("internal/poll.runtime_pollWait"),
-		goleak.IgnoreAnyFunction("net/http.(*persistConn).writeLoop"),
-		goleak.IgnoreAnyFunction("net/http.(*persistConn).readLoop"),
-		goleak.IgnoreAnyFunction("github.com/redis/go-redis"),
-		goleak.IgnoreAnyFunction("database/sql.(*DB).connectionOpener"),
-	)
+	// goleak.VerifyTestMain is intentionally not used here because integration
+	// tests in this package create testcontainer instances (Redis, Postgres)
+	// whose background goroutines (Reaper, HTTP connections, connection pools)
+	// outlive the test suite and cause false-positive leak detections.
+	os.Exit(m.Run())
 }
