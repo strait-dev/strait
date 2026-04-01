@@ -873,6 +873,114 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 	})
 }
 
+func TestLoad_FallbackProviderValidation(t *testing.T) {
+	t.Run("fly primary k8s fallback", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "fly")
+		t.Setenv("FLY_API_TOKEN", "fly-token")
+		t.Setenv("FLY_APP_NAME", "my-app")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "k8s")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeFallbackProvider != "k8s" {
+			t.Fatalf("ComputeFallbackProvider = %q, want k8s", cfg.ComputeFallbackProvider)
+		}
+	})
+
+	t.Run("k8s primary fly fallback", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "fly")
+		t.Setenv("FLY_API_TOKEN", "fly-token")
+		t.Setenv("FLY_APP_NAME", "my-app")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeFallbackProvider != "fly" {
+			t.Fatalf("ComputeFallbackProvider = %q, want fly", cfg.ComputeFallbackProvider)
+		}
+	})
+
+	t.Run("empty fallback is valid", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "fly")
+		t.Setenv("FLY_API_TOKEN", "fly-token")
+		t.Setenv("FLY_APP_NAME", "my-app")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeFallbackProvider != "" {
+			t.Fatalf("ComputeFallbackProvider = %q, want empty", cfg.ComputeFallbackProvider)
+		}
+	})
+
+	t.Run("same as primary rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "fly")
+		t.Setenv("FLY_API_TOKEN", "fly-token")
+		t.Setenv("FLY_APP_NAME", "my-app")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "fly")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for same primary and fallback")
+		}
+		if !strings.Contains(err.Error(), "COMPUTE_FALLBACK_PROVIDER") {
+			t.Fatalf("error = %q, want substring COMPUTE_FALLBACK_PROVIDER", err.Error())
+		}
+	})
+
+	t.Run("invalid provider rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "fly")
+		t.Setenv("FLY_API_TOKEN", "fly-token")
+		t.Setenv("FLY_APP_NAME", "my-app")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "lambda")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid fallback provider")
+		}
+	})
+
+	t.Run("fallback without primary rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "none")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "k8s")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for fallback without primary")
+		}
+	})
+
+	t.Run("fly fallback requires fly config", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "fly")
+		// Missing FLY_API_TOKEN and FLY_APP_NAME.
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for fly fallback without token")
+		}
+	})
+}
+
 func TestLoad_ClickHouseValidation(t *testing.T) {
 	t.Run("enabled without URL fails", func(t *testing.T) {
 		setRequiredEnv(t)

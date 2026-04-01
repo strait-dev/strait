@@ -145,6 +145,7 @@ type Config struct {
 	AllowedImageRegistries  []string      `env:"ALLOWED_IMAGE_REGISTRIES" envSeparator:"," envDefault:""`
 	RequireImageDigest      bool          `env:"REQUIRE_IMAGE_DIGEST" envDefault:"false"`
 	ComputeRuntime          string        `env:"COMPUTE_RUNTIME" default:"none"`
+	ComputeFallbackProvider string        `env:"COMPUTE_FALLBACK_PROVIDER"`
 	FlyAPIToken             string        `env:"FLY_API_TOKEN"`
 	FlyAppName              string        `env:"FLY_APP_NAME"`
 	FlyRegion               string        `env:"FLY_REGION" default:"iad"`
@@ -220,7 +221,7 @@ type Config struct {
 
 // Load reads configuration from environment variables.
 //
-//nolint:gocyclo,cyclop,gocognit
+//nolint:gocyclo,cyclop,gocognit,funlen
 func Load() (*Config, error) {
 	var cfg Config
 
@@ -321,9 +322,31 @@ func Load() (*Config, error) {
 			return nil, &domain.ConfigError{Field: "FLY_APP_NAME", Message: "is required when COMPUTE_RUNTIME=fly"}
 		}
 	}
-	if cfg.ComputeRuntime == "k8s" {
+	if cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s" {
 		if cfg.K8sNamespace == "" {
-			return nil, &domain.ConfigError{Field: "K8S_NAMESPACE", Message: "is required when COMPUTE_RUNTIME=k8s"}
+			return nil, &domain.ConfigError{Field: "K8S_NAMESPACE", Message: "is required when using k8s compute runtime"}
+		}
+	}
+	if cfg.ComputeFallbackProvider != "" {
+		switch cfg.ComputeFallbackProvider {
+		case "fly", "docker", "k8s":
+			// valid
+		default:
+			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must be fly, docker, or k8s"}
+		}
+		if cfg.ComputeFallbackProvider == cfg.ComputeRuntime {
+			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must differ from COMPUTE_RUNTIME"}
+		}
+		if cfg.ComputeRuntime == "none" || cfg.ComputeRuntime == "" {
+			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "requires a primary COMPUTE_RUNTIME"}
+		}
+		if cfg.ComputeFallbackProvider == "fly" {
+			if cfg.FlyAPIToken == "" {
+				return nil, &domain.ConfigError{Field: "FLY_API_TOKEN", Message: "is required when COMPUTE_FALLBACK_PROVIDER=fly"}
+			}
+			if cfg.FlyAppName == "" {
+				return nil, &domain.ConfigError{Field: "FLY_APP_NAME", Message: "is required when COMPUTE_FALLBACK_PROVIDER=fly"}
+			}
 		}
 	}
 	if cfg.Edition == string(domain.EditionCommunity) && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
