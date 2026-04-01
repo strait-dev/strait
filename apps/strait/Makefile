@@ -2,6 +2,8 @@
 .PHONY: loadtest-up loadtest-down loadtest-server loadtest-quick loadtest-throughput
 .PHONY: loadtest-concurrency loadtest-endurance loadtest-chaos loadtest-errors
 .PHONY: loadtest-all loadtest-report loadtest-unit loadtest-flush
+.PHONY: dev-k8s dev-k8s-down dev-k8s-managed dev-k8s-http dev-k8s-status
+.PHONY: dev-k8s-logs dev-k8s-clean test-k8s-unit test-k8s-integration
 
 build:
 	go build ./...
@@ -100,3 +102,59 @@ loadtest-report:
 
 loadtest-unit:
 	go test -tags=loadtest -run "TestReport|TestMetrics|TestLatency" -timeout 30s -v ./internal/loadtest/...
+
+# ──────────────────────────────────────────────
+# K8s Local Development (kind)
+# ──────────────────────────────────────────────
+
+K8S_DEV_ENV = \
+	COMPUTE_RUNTIME=k8s \
+	K8S_NAMESPACE=default \
+	DATABASE_URL="postgres://strait:strait@localhost:5432/strait?sslmode=disable" \
+	REDIS_URL="redis://localhost:6379" \
+	INTERNAL_SECRET="dev-secret-that-is-long-enough-32chars" \
+	JWT_SIGNING_KEY="dev-jwt-signing-key-at-least-32-chars"
+
+dev-k8s:
+	kind create cluster --name strait-dev 2>/dev/null || true
+	kubectl apply -f k8s/priority-classes.yaml --context kind-strait-dev
+	@echo ""
+	@echo "K8s dev cluster ready."
+	@echo "  Run managed mode:  make dev-k8s-managed"
+	@echo "  Run HTTP mode:     make dev-k8s-http"
+	@echo "  Check status:      make dev-k8s-status"
+	@echo "  View latest logs:  make dev-k8s-logs"
+	@echo "  Clean up jobs:     make dev-k8s-clean"
+
+dev-k8s-down:
+	kind delete cluster --name strait-dev
+
+dev-k8s-managed:
+	$(K8S_DEV_ENV) go run ./cmd/strait
+
+dev-k8s-http:
+	$(K8S_DEV_ENV) ALLOW_PRIVATE_ENDPOINTS=true go run ./cmd/strait
+
+dev-k8s-status:
+	@echo "=== Kind Cluster ==="
+	@kubectl cluster-info --context kind-strait-dev 2>/dev/null || echo "No kind cluster running. Run: make dev-k8s"
+	@echo ""
+	@echo "=== K8s Jobs ==="
+	@kubectl get jobs --context kind-strait-dev -n default 2>/dev/null || true
+	@echo ""
+	@echo "=== K8s Pods ==="
+	@kubectl get pods --context kind-strait-dev -n default 2>/dev/null || true
+
+dev-k8s-logs:
+	@kubectl get pods --context kind-strait-dev -n default --sort-by=.metadata.creationTimestamp -o name 2>/dev/null | tail -1 | xargs -I{} kubectl logs --context kind-strait-dev -n default {} 2>/dev/null || echo "No pods found."
+
+dev-k8s-clean:
+	@kubectl delete jobs --all --context kind-strait-dev -n default 2>/dev/null || true
+	@kubectl delete pods --all --context kind-strait-dev -n default 2>/dev/null || true
+	@echo "All jobs and pods cleaned up."
+
+test-k8s-unit:
+	go test -race -short ./internal/compute/... -v
+
+test-k8s-integration:
+	go test -race ./internal/compute/ -run Integration -v -timeout 5m

@@ -1,0 +1,16 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: strait-job
+value: 100
+globalDefault: false
+description: "Priority class for Strait managed job pods. Preempts warm pool placeholders."
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: warm-pool
+value: -1
+globalDefault: false
+preemptionPolicy: Never
+description: "Lowest priority for warm pool placeholder pods. Evicted when real jobs arrive."

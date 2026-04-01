@@ -1,0 +1,31 @@
+# Image cache DaemonSet for EKS. Pre-pulls job runtime images on every node.
+# Not used in kind (local dev) -- kind uses `kind load docker-image` instead.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: image-cache
+  namespace: default
+  labels:
+    app: strait-image-cache
+spec:
+  selector:
+    matchLabels:
+      app: strait-image-cache
+  template:
+    metadata:
+      labels:
+        app: strait-image-cache
+    spec:
+      initContainers:
+        - name: cache-node20
+          image: node:20-alpine
+          command: ["sh", "-c", "exit 0"]
+        - name: cache-python3
+          image: python:3.12-alpine
+          command: ["sh", "-c", "exit 0"]
+        - name: cache-go
+          image: golang:1.22-alpine
+          command: ["sh", "-c", "exit 0"]
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.9
