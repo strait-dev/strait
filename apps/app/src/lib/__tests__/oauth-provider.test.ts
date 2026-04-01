@@ -33,18 +33,6 @@ vi.mock("@/lib/resend.server", () => ({
   getResend: () => ({ emails: { send: vi.fn() } }),
 }));
 
-vi.mock("@polar-sh/sdk", () => ({
-  Polar: vi.fn(),
-}));
-
-vi.mock("@polar-sh/better-auth", () => ({
-  checkout: vi.fn(() => ({})),
-  polar: vi.fn(() => ({})),
-  usage: vi.fn(() => ({})),
-  portal: vi.fn(() => ({})),
-  webhooks: vi.fn(() => ({})),
-}));
-
 // Set required env vars before importing auth.server
 vi.stubEnv("AUTH_DATABASE_URL", "postgresql://test:test@localhost/test");
 vi.stubEnv("BETTER_AUTH_URL", "http://localhost:5173");

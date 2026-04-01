@@ -7,10 +7,66 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { toast } from "@strait/ui/components/toast/index";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { createServerFn } from "@tanstack/react-start";
+import { useState } from "react";
 import { ADDON_CATALOG, getActivePackCount } from "@/hooks/billing/use-addons";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
+import { authMiddleware } from "@/middlewares/auth";
+
+const ADDON_PRICE_MAP: Record<string, string | undefined> = {
+  "addon-concurrent-runs": process.env.STRIPE_ADDON_CONCURRENT_RUNS_PRICE_ID,
+  "addon-members": process.env.STRIPE_ADDON_MEMBERS_PRICE_ID,
+  "addon-cron-schedules": process.env.STRIPE_ADDON_CRON_SCHEDULES_PRICE_ID,
+  "addon-data-retention": process.env.STRIPE_ADDON_DATA_RETENTION_PRICE_ID,
+  "addon-webhook-endpoints":
+    process.env.STRIPE_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID,
+};
+
+const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { checkoutSlug: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data, context }) => {
+    const { default: Stripe } = await import("stripe");
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "");
+
+    const priceId = ADDON_PRICE_MAP[data.checkoutSlug];
+    if (!priceId) {
+      throw new Error(`Invalid addon: ${data.checkoutSlug}`);
+    }
+
+    const baseUrl =
+      process.env.BETTER_AUTH_URL ??
+      process.env.VITE_BASE_URL ??
+      "http://localhost:5173";
+
+    const ctx = context as unknown as {
+      session?: {
+        user: { email: string };
+        session: { activeOrganizationId?: string };
+      };
+    };
+    const email = ctx?.session?.user?.email;
+    const orgId = ctx?.session?.session?.activeOrganizationId;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${baseUrl}/app/billing?addon_success=true`,
+      cancel_url: `${baseUrl}/app/billing`,
+      customer_email: email,
+      subscription_data: {
+        metadata: orgId ? { org_id: orgId } : {},
+      },
+    });
+
+    return {
+      checkoutUrl:
+        session.url ?? `${baseUrl}/app/billing?error=checkout_failed`,
+    };
+  });
 
 /** Plans that can purchase add-ons. Enterprise has custom terms. */
 const ADDON_ELIGIBLE_PLANS = new Set(["starter", "pro", "scale"]);
@@ -18,6 +74,7 @@ const ADDON_ELIGIBLE_PLANS = new Set(["starter", "pro", "scale"]);
 const AddonsTab = () => {
   const { data: usage } = useQuery(orgUsageQueryOptions());
   const navigate = useNavigate();
+  const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
 
   const plan = usage?.plan ?? "free";
   const isEligible = ADDON_ELIGIBLE_PLANS.has(plan);
@@ -92,11 +149,30 @@ const AddonsTab = () => {
                       {addon.price} per pack
                     </p>
                   </div>
-                  <a href={`/api/auth/checkout/${addon.checkoutSlug}`}>
-                    <Button size="sm" variant="outline">
-                      Add pack
-                    </Button>
-                  </a>
+                  <Button
+                    disabled={loadingSlug === addon.checkoutSlug}
+                    onClick={async () => {
+                      setLoadingSlug(addon.checkoutSlug);
+                      try {
+                        const result = await startAddonCheckoutServerFn({
+                          data: { checkoutSlug: addon.checkoutSlug },
+                        });
+                        if (result.checkoutUrl) {
+                          window.location.assign(result.checkoutUrl);
+                        }
+                      } catch {
+                        toast.error("Failed to start addon checkout");
+                      } finally {
+                        setLoadingSlug(null);
+                      }
+                    }}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {loadingSlug === addon.checkoutSlug
+                      ? "Loading..."
+                      : "Add pack"}
+                  </Button>
                 </div>
               </CardContent>
             </Card>

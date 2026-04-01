@@ -138,9 +138,9 @@ func (s *Server) routes() chi.Router {
 		})
 	}
 
-	// Polar billing webhook (HMAC-verified, no API key auth).
-	if s.polarWebhook != nil {
-		r.Post("/api/webhooks/polar", s.polarWebhook.ServeHTTP)
+	// Stripe billing webhook (signature-verified, no API key auth).
+	if s.stripeWebhook != nil {
+		r.Post("/api/webhooks/stripe", s.stripeWebhook.ServeHTTP)
 	}
 
 	// CDC webhook (Sequin push delivery, internal secret auth).

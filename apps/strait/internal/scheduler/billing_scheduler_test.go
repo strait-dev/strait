@@ -761,13 +761,13 @@ func TestStaleSubscriptionChecker_StaleSubsDetected_Logs(t *testing.T) {
 	pastEnd := time.Now().Add(-48 * time.Hour)
 	s := &mockStaleSubStore{
 		listFn: func(context.Context) ([]billing.OrgSubscription, error) {
-			subID := "polar-sub-1"
+			subID := "stripe-sub-1"
 			return []billing.OrgSubscription{
 				{
-					OrgID:               "org-stale",
-					PlanTier:            "pro",
-					PolarSubscriptionID: &subID,
-					CurrentPeriodEnd:    &pastEnd,
+					OrgID:                "org-stale",
+					PlanTier:             "pro",
+					StripeSubscriptionID: &subID,
+					CurrentPeriodEnd:     &pastEnd,
 				},
 			}, nil
 		},
@@ -860,8 +860,8 @@ func TestStaleSubscriptionChecker_MultipleStale_ProcessesAll(t *testing.T) {
 			sub1 := "sub-1"
 			sub2 := "sub-2"
 			return []billing.OrgSubscription{
-				{OrgID: "org-1", PlanTier: "pro", PolarSubscriptionID: &sub1, CurrentPeriodEnd: &pastEnd},
-				{OrgID: "org-2", PlanTier: "starter", PolarSubscriptionID: &sub2, CurrentPeriodEnd: &pastEnd},
+				{OrgID: "org-1", PlanTier: "pro", StripeSubscriptionID: &sub1, CurrentPeriodEnd: &pastEnd},
+				{OrgID: "org-2", PlanTier: "starter", StripeSubscriptionID: &sub2, CurrentPeriodEnd: &pastEnd},
 			}, nil
 		},
 	}

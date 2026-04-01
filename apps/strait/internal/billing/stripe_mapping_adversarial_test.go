@@ -7,17 +7,17 @@ import (
 	"strait/internal/domain"
 )
 
-// TestPolarMapping_EmptyProductIDs verifies that empty string product IDs are silently skipped.
-func TestPolarMapping_EmptyProductIDs(t *testing.T) {
+// TestStripeMapping_EmptyProductIDs verifies that empty string product IDs are silently skipped.
+func TestStripeMapping_EmptyProductIDs(t *testing.T) {
 	t.Parallel()
 
-	m := NewPolarMapping("", "", "", "")
+	m := NewStripeMapping("", "", "", "")
 
-	if m.ProductCount() != 0 {
-		t.Fatalf("expected empty mapping when all product IDs are empty, got %d entries", m.ProductCount())
+	if m.PriceCount() != 0 {
+		t.Fatalf("expected empty mapping when all product IDs are empty, got %d entries", m.PriceCount())
 	}
 
-	tier, ok := m.TierForProduct("")
+	tier, ok := m.TierForPrice("")
 	if ok {
 		t.Fatal("expected false for empty product ID lookup on empty mapping")
 	}
@@ -26,16 +26,16 @@ func TestPolarMapping_EmptyProductIDs(t *testing.T) {
 	}
 }
 
-// TestPolarMapping_DuplicateProductIDs verifies that the same product ID used
+// TestStripeMapping_DuplicateProductIDs verifies that the same product ID used
 // for multiple tiers results in last-write-wins behavior.
-func TestPolarMapping_DuplicateProductIDs(t *testing.T) {
+func TestStripeMapping_DuplicateProductIDs(t *testing.T) {
 	t.Parallel()
 
 	// "dup-id" is used for both starter monthly and pro monthly.
 	// Since pro monthly is assigned after starter monthly, it wins.
-	m := NewPolarMapping("dup-id", "starter-yearly", "dup-id", "pro-yearly")
+	m := NewStripeMapping("dup-id", "starter-yearly", "dup-id", "pro-yearly")
 
-	tier, ok := m.TierForProduct("dup-id")
+	tier, ok := m.TierForPrice("dup-id")
 	if !ok {
 		t.Fatal("expected true for duplicate product ID lookup")
 	}
@@ -44,13 +44,13 @@ func TestPolarMapping_DuplicateProductIDs(t *testing.T) {
 	}
 }
 
-// TestTierForProduct_UnknownProduct verifies that an unknown product ID returns PlanFree and false.
-func TestTierForProduct_UnknownProduct(t *testing.T) {
+// TestTierForPrice_UnknownProduct verifies that an unknown product ID returns PlanFree and false.
+func TestTierForPrice_UnknownProduct(t *testing.T) {
 	t.Parallel()
 
-	m := NewPolarMapping("starter-m", "starter-y", "pro-m", "pro-y")
+	m := NewStripeMapping("starter-m", "starter-y", "pro-m", "pro-y")
 
-	tier, ok := m.TierForProduct("nonexistent-product-id")
+	tier, ok := m.TierForPrice("nonexistent-product-id")
 	if ok {
 		t.Fatal("expected false for unknown product ID")
 	}
@@ -59,13 +59,13 @@ func TestTierForProduct_UnknownProduct(t *testing.T) {
 	}
 }
 
-// TestTierForProduct_EmptyString verifies that an empty string product ID returns PlanFree and false.
-func TestTierForProduct_EmptyString(t *testing.T) {
+// TestTierForPrice_EmptyString verifies that an empty string product ID returns PlanFree and false.
+func TestTierForPrice_EmptyString(t *testing.T) {
 	t.Parallel()
 
-	m := NewPolarMapping("starter-m", "starter-y", "pro-m", "pro-y")
+	m := NewStripeMapping("starter-m", "starter-y", "pro-m", "pro-y")
 
-	tier, ok := m.TierForProduct("")
+	tier, ok := m.TierForPrice("")
 	if ok {
 		t.Fatal("expected false for empty product ID")
 	}
@@ -74,13 +74,13 @@ func TestTierForProduct_EmptyString(t *testing.T) {
 	}
 }
 
-// TestTierForProduct_NullBytes verifies that null bytes in a product ID do not cause panics.
-func TestTierForProduct_NullBytes(t *testing.T) {
+// TestTierForPrice_NullBytes verifies that null bytes in a product ID do not cause panics.
+func TestTierForPrice_NullBytes(t *testing.T) {
 	t.Parallel()
 
-	m := NewPolarMapping("starter-m", "starter-y", "pro-m", "pro-y")
+	m := NewStripeMapping("starter-m", "starter-y", "pro-m", "pro-y")
 
-	tier, ok := m.TierForProduct("product\x00id")
+	tier, ok := m.TierForPrice("product\x00id")
 	if ok {
 		t.Fatal("expected false for product ID containing null bytes")
 	}
@@ -89,11 +89,11 @@ func TestTierForProduct_NullBytes(t *testing.T) {
 	}
 }
 
-// TestTierForProduct_AllTiers verifies that each tier product resolves correctly.
-func TestTierForProduct_AllTiers(t *testing.T) {
+// TestTierForPrice_AllTiers verifies that each tier product resolves correctly.
+func TestTierForPrice_AllTiers(t *testing.T) {
 	t.Parallel()
 
-	m := NewPolarMapping("starter-m", "starter-y", "pro-m", "pro-y")
+	m := NewStripeMapping("starter-m", "starter-y", "pro-m", "pro-y")
 
 	cases := []struct {
 		productID string
@@ -106,7 +106,7 @@ func TestTierForProduct_AllTiers(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tier, ok := m.TierForProduct(tc.productID)
+		tier, ok := m.TierForPrice(tc.productID)
 		if !ok {
 			t.Errorf("expected true for product %q", tc.productID)
 			continue
@@ -117,17 +117,17 @@ func TestTierForProduct_AllTiers(t *testing.T) {
 	}
 }
 
-// FuzzTierForProduct fuzzes product ID strings to ensure no panics.
-func FuzzTierForProduct(f *testing.F) {
+// FuzzTierForPrice fuzzes product ID strings to ensure no panics.
+func FuzzTierForPrice(f *testing.F) {
 	f.Add("starter-m")
 	f.Add("")
 	f.Add("product\x00id")
 	f.Add(strings.Repeat("a", 10000))
 
-	m := NewPolarMapping("starter-m", "starter-y", "pro-m", "pro-y")
+	m := NewStripeMapping("starter-m", "starter-y", "pro-m", "pro-y")
 
 	f.Fuzz(func(t *testing.T, productID string) {
-		tier, ok := m.TierForProduct(productID)
+		tier, ok := m.TierForPrice(productID)
 		if !ok && tier != domain.PlanFree {
 			t.Errorf("unknown product should return PlanFree, got %s", tier)
 		}
@@ -137,14 +137,14 @@ func FuzzTierForProduct(f *testing.F) {
 	})
 }
 
-// TestPolarMapping_CaseSensitivity verifies that product ID lookups are case-sensitive.
-func TestPolarMapping_CaseSensitivity(t *testing.T) {
+// TestStripeMapping_CaseSensitivity verifies that product ID lookups are case-sensitive.
+func TestStripeMapping_CaseSensitivity(t *testing.T) {
 	t.Parallel()
 
-	m := NewPolarMapping("Starter-M", "starter-y", "pro-m", "pro-y")
+	m := NewStripeMapping("Starter-M", "starter-y", "pro-m", "pro-y")
 
 	// Exact case should match.
-	tier, ok := m.TierForProduct("Starter-M")
+	tier, ok := m.TierForPrice("Starter-M")
 	if !ok {
 		t.Fatal("expected true for exact-case product ID")
 	}
@@ -153,12 +153,12 @@ func TestPolarMapping_CaseSensitivity(t *testing.T) {
 	}
 
 	// Different case should not match.
-	_, ok = m.TierForProduct("starter-m")
+	_, ok = m.TierForPrice("starter-m")
 	if ok {
 		t.Fatal("expected false for different-case product ID (case-sensitive)")
 	}
 
-	_, ok = m.TierForProduct("STARTER-M")
+	_, ok = m.TierForPrice("STARTER-M")
 	if ok {
 		t.Fatal("expected false for uppercase product ID (case-sensitive)")
 	}

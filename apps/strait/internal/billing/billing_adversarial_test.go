@@ -131,7 +131,7 @@ func buildSignedWebhookRequest(t *testing.T, secret string, payload []byte) *htt
 	mac.Write([]byte(signedContent))
 	sig := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(payload))
 	req.Header.Set("webhook-id", msgID)
 	req.Header.Set("webhook-timestamp", ts)
 	req.Header.Set("webhook-signature", sig)
@@ -144,7 +144,7 @@ func webhookPayload(t *testing.T, eventType string, data any) []byte {
 	if err != nil {
 		t.Fatalf("marshal data: %v", err)
 	}
-	payload, err := json.Marshal(PolarWebhookPayload{Type: eventType, Data: raw})
+	payload, err := json.Marshal(StripeWebhookPayload{Type: eventType, Data: raw})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
@@ -159,11 +159,11 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	secret := testSecret
 	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_dup_1",
 		Status:     "active",
 		CustomerID: "cust_1",
@@ -228,10 +228,10 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 			},
 		},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:                 "sub_upd_dup",
 		Status:             "active",
 		CustomerID:         "cust_2",
@@ -468,11 +468,11 @@ func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
 			},
 		},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	// Downgrade from pro -> starter.
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:                 "sub_defer_1",
 		Status:             "active",
 		CustomerID:         "cust_defer",
@@ -511,10 +511,10 @@ func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
 			},
 		},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_cancel_free",
 		ProductID:  "starter-id",
 		CustomerID: "cust_cancel_free",
@@ -552,10 +552,10 @@ func TestWebhook_RevokeSubscription(t *testing.T) {
 			},
 		},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_revoke_1",
 		ProductID:  "starter-id",
 		CustomerID: "cust_revoke",
@@ -629,10 +629,10 @@ func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_no_org",
 		ProductID:  "starter-id",
 		CustomerID: "cust_no_org",
@@ -655,15 +655,15 @@ func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_cust_meta",
 		ProductID:  "starter-id",
 		CustomerID: "cust_meta_1",
 		Metadata:   map[string]string{}, // no org_id in sub metadata
-		Customer: &PolarCustomerData{
+		Customer: &testCustomerData{
 			ID:       "cust_meta_1",
 			Email:    "user@example.com",
 			Metadata: map[string]string{"org_id": "00000000-0000-0000-0000-000000000025"},
@@ -686,11 +686,11 @@ func TestWebhook_EmptyPayload(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	// No secret = signature check skipped.
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader([]byte("")))
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader([]byte("")))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
@@ -702,10 +702,10 @@ func TestWebhook_MalformedJSON(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader([]byte("{not json")))
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader([]byte("{not json")))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
@@ -717,11 +717,11 @@ func TestWebhook_UnknownEventType(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	body := []byte(`{"type":"invoice.unknown","data":{}}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -733,10 +733,10 @@ func TestWebhook_UnknownProductID(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_unknown_prod",
 		ProductID:  "unknown-product-xyz",
 		CustomerID: "cust_unknown",
@@ -746,7 +746,7 @@ func TestWebhook_UnknownProductID(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
-	// Should return 500 because ErrUnknownProduct is returned.
+	// Should return 500 because ErrUnknownPrice is returned.
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 for unknown product, got %d", rr.Code)
 	}
@@ -756,15 +756,15 @@ func TestWebhook_ProductFromNestedObject(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	// ProductID is empty but Product.ID is set.
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_nested_prod",
 		ProductID:  "",
 		CustomerID: "cust_nested",
-		Product:    &PolarProductData{ID: "pro-id", Name: "Pro"},
+		Product:    &testProductData{ID: "pro-id", Name: "Pro"},
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000027"},
 	}
 	body := webhookPayload(t, "subscription.created", data)
@@ -841,10 +841,10 @@ func TestWebhook_ConcurrentCreatedEvents(t *testing.T) {
 	store := &syncMockBillingStore{
 		mockBillingStore: mockBillingStore{subscriptions: make(map[string]*OrgSubscription)},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_conc_1",
 		Status:     "active",
 		CustomerID: "cust_conc",
@@ -959,10 +959,10 @@ func TestWebhook_UpsertErrorOnCreate(t *testing.T) {
 	store := &errStore{
 		upsertErr: errors.New("db connection lost"),
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_err_create",
 		ProductID:  "starter-id",
 		CustomerID: "cust_err",
@@ -983,10 +983,10 @@ func TestWebhook_GetSubErrorOnUpdated(t *testing.T) {
 	store := &errStore{
 		getSubErr: errors.New("timeout connecting to database"),
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_err_update",
 		ProductID:  "starter-id",
 		CustomerID: "cust_err_upd",
@@ -1018,10 +1018,10 @@ func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
 		// Return ErrSubscriptionNotFound from UpdateFull to trigger fallback path.
 		updateFullErr: ErrSubscriptionNotFound,
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_fallback",
 		ProductID:  "pro-id",
 		Status:     "active",
@@ -1047,10 +1047,10 @@ func TestWebhook_AuditStoreError(t *testing.T) {
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	auditStore := &advMockAuditStore{err: errors.New("audit table locked")}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, auditStore)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_audit_err",
 		ProductID:  "starter-id",
 		CustomerID: "cust_audit_err",
@@ -1350,10 +1350,10 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 			},
 		},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:                 "sub_pastdue",
 		ProductID:          "starter-id",
 		CustomerID:         "cust_pastdue",
@@ -1397,10 +1397,10 @@ func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
 			},
 		},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:                 "sub_recover",
 		ProductID:          "starter-id",
 		CustomerID:         "cust_recover",
@@ -1437,10 +1437,10 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 			},
 		},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_paid",
 		ProductID:  "starter-id",
 		CustomerID: "cust_paid",
@@ -1472,10 +1472,10 @@ func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
 			},
 		},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_ok",
 		ProductID:  "starter-id",
 		CustomerID: "cust_ok",
@@ -1502,10 +1502,10 @@ func TestWebhook_MultipleSignaturesInHeader(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_multisig",
 		ProductID:  "starter-id",
 		CustomerID: "cust_multisig",
@@ -1526,7 +1526,7 @@ func TestWebhook_MultipleSignaturesInHeader(t *testing.T) {
 	// Put invalid sig first, valid sig second.
 	sigHeader := "v1,invalidsig v1," + validSig
 
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	req.Header.Set("webhook-id", msgID)
 	req.Header.Set("webhook-timestamp", ts)
 	req.Header.Set("webhook-signature", sigHeader)
@@ -1542,7 +1542,7 @@ func TestWebhook_FutureTimestamp(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	body := []byte(`{"type":"subscription.created","data":{}}`)
@@ -1555,7 +1555,7 @@ func TestWebhook_FutureTimestamp(t *testing.T) {
 	mac.Write([]byte(signedContent))
 	sig := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	req.Header.Set("webhook-id", "msg_future")
 	req.Header.Set("webhook-timestamp", futureTS)
 	req.Header.Set("webhook-signature", sig)
@@ -1571,11 +1571,11 @@ func TestWebhook_NonNumericTimestamp(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	body := []byte(`{"type":"subscription.created","data":{}}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/polar", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	req.Header.Set("webhook-id", "msg_badts")
 	req.Header.Set("webhook-timestamp", "not-a-number")
 	req.Header.Set("webhook-signature", "v1,anything")
@@ -1805,7 +1805,7 @@ func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 
 	var emailSent atomic.Bool
 	welcomeFn := func(_ context.Context, orgID string, tier domain.PlanTier, email string) error {
@@ -1816,12 +1816,12 @@ func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil,
 		WithWelcomeEmail(welcomeFn))
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_welcome",
 		ProductID:  "starter-id",
 		CustomerID: "cust_welcome",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000032"},
-		Customer:   &PolarCustomerData{ID: "cust_welcome", Email: "welcome@example.com"},
+		Customer:   &testCustomerData{ID: "cust_welcome", Email: "welcome@example.com"},
 	}
 	body := webhookPayload(t, "subscription.created", data)
 	rr := httptest.NewRecorder()
@@ -1849,7 +1849,7 @@ func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
 	// We cannot easily map a product to free tier in the mapping, so we test the
 	// no-customer-email path instead.
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 
 	var emailSent atomic.Bool
 	welcomeFn := func(_ context.Context, orgID string, tier domain.PlanTier, email string) error {
@@ -1861,7 +1861,7 @@ func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
 		WithWelcomeEmail(welcomeFn))
 
 	// No customer email set => welcome email should not be sent.
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_no_email",
 		ProductID:  "starter-id",
 		CustomerID: "cust_no_email",
@@ -2286,10 +2286,10 @@ func TestWebhook_CancelNonExistentOrg(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{} // no subscriptions
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_cancel_noexist",
 		ProductID:  "starter-id",
 		CustomerID: "cust_noexist",
@@ -2311,10 +2311,10 @@ func TestWebhook_RevokeNonExistentOrg(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{} // no subscriptions
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_revoke_noexist",
 		ProductID:  "starter-id",
 		CustomerID: "cust_revoke",
@@ -2336,10 +2336,10 @@ func TestWebhook_PaymentSucceededNonExistentOrg(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_pay_noexist",
 		ProductID:  "starter-id",
 		CustomerID: "cust_pay",
@@ -2369,10 +2369,10 @@ func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
 			},
 		},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:         "sub_unk_prod_upd",
 		ProductID:  "unknown-product",
 		CustomerID: "cust_unk_prod",
@@ -2410,10 +2410,10 @@ func TestWebhook_UpdatedEmptyStatusDefaultsActive(t *testing.T) {
 			},
 		},
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := PolarSubscriptionData{
+	data := testSubscriptionData{
 		ID:                 "sub_empty_status",
 		ProductID:          "starter-id",
 		CustomerID:         "cust_empty_status",

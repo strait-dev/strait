@@ -373,9 +373,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 
 	// Create a shared billing enforcer (used by both API webhook handler and worker executor).
-	// Only created when billing enforcement is enabled or Polar webhook secret is set.
+	// Only created when billing enforcement is enabled or Stripe webhook secret is set.
 	var billingEnforcer *billing.Enforcer
-	if rdb != nil && (cfg.BillingEnforcementEnabled || cfg.PolarWebhookSecret != "") {
+	if rdb != nil && (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") {
 		billingStore := billing.NewPgStore(dbPool)
 		var enforcerOpts []billing.EnforcerOption
 		billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
@@ -386,8 +386,8 @@ func runServe(ctx context.Context, modeOverride string) error {
 		billingEnforcer.StartCleanup(ctx)
 	}
 
-	if (cfg.BillingEnforcementEnabled || cfg.PolarWebhookSecret != "") && cfg.PolarWebhookSecret == "" {
-		slog.Warn("POLAR_API_WEBHOOK_SECRET is empty -- Polar webhook signature verification is DISABLED")
+	if (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") && cfg.StripeWebhookSecret == "" {
+		slog.Warn("STRIPE_WEBHOOK_SECRET is empty -- Stripe webhook signature verification is DISABLED")
 	}
 
 	cdcWebhookReceiver := startCDCConsumer(g, cfg, pub, queries, chExporter)

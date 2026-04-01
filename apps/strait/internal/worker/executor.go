@@ -117,8 +117,8 @@ type Executor struct {
 	externalAPIURL           string
 	defaultFlyRegion         string
 	billingEnforcer          *billing.Enforcer
-	polarIngester            *billing.PolarEventIngester
-	polarWG                  sync.WaitGroup // tracks in-flight Polar event ingestion goroutines
+	stripeUsageReporter      *billing.StripeUsageReporter
+	stripeUsageWG            sync.WaitGroup // tracks in-flight Stripe usage event goroutines
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -169,8 +169,8 @@ type ExecutorConfig struct {
 	WorkflowTriggerer          WorkflowTriggerer
 	JobLookup                  JobLookup
 	JobEnqueuer                JobEnqueuer
-	BillingEnforcer            *billing.Enforcer           // Optional: org-level billing enforcement (cloud only).
-	PolarIngester              *billing.PolarEventIngester // Optional: Polar usage event ingestion (cloud only).
+	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
+	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
 }
 
 const (
@@ -272,7 +272,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		externalAPIURL:           cfg.ExternalAPIURL,
 		defaultFlyRegion:         cfg.DefaultFlyRegion,
 		billingEnforcer:          cfg.BillingEnforcer,
-		polarIngester:            cfg.PolarIngester,
+		stripeUsageReporter:      cfg.StripeUsageReporter,
 		healthScorer:             NewHealthScorer(cfg.Store),
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
 		stop:                     make(chan struct{}),
@@ -501,19 +501,19 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	// Wait for any in-flight Polar billing event ingestion goroutines.
-	polarDone := make(chan struct{})
+	// Wait for any in-flight Stripe usage event goroutines.
+	stripeDone := make(chan struct{})
 	go func() {
-		e.polarWG.Wait()
-		close(polarDone)
+		e.stripeUsageWG.Wait()
+		close(stripeDone)
 	}()
 
-	polarTimeout := time.NewTimer(10 * time.Second)
-	defer polarTimeout.Stop()
+	stripeTimeout := time.NewTimer(10 * time.Second)
+	defer stripeTimeout.Stop()
 	select {
-	case <-polarDone:
-	case <-polarTimeout.C:
-		e.logger.Warn("timed out waiting for in-flight polar billing events")
+	case <-stripeDone:
+	case <-stripeTimeout.C:
+		e.logger.Warn("timed out waiting for in-flight stripe usage events")
 	case <-ctx.Done():
 		return ctx.Err()
 	}

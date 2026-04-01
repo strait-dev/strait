@@ -84,14 +84,14 @@ var AddonPacks = map[AddonType]AddonPackDefinition{
 
 // Addon represents an active add-on for an organization.
 type Addon struct {
-	ID                  string
-	OrgID               string
-	AddonType           AddonType
-	Quantity            int
-	PolarSubscriptionID *string
-	Active              bool
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                   string
+	OrgID                string
+	AddonType            AddonType
+	Quantity             int
+	StripeSubscriptionID *string
+	Active               bool
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // EffectiveLimits applies active add-ons to a base plan's limits and returns

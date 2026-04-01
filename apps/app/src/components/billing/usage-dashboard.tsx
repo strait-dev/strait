@@ -520,7 +520,7 @@ const UsageDashboard = () => {
             size="sm"
             variant="link"
           >
-            Manage Billing in Polar
+            Manage Billing
           </Button>
           <Button
             disabled={isRedirecting}

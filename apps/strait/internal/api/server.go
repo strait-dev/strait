@@ -511,7 +511,7 @@ type Server struct {
 	authLimiter        *ratelimit.AuthLimiter
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
-	polarWebhook       http.Handler
+	stripeWebhook      http.Handler
 	billingEnforcer    BillingEnforcer
 	usageService       UsageService
 	chExporter         *clickhouse.Exporter
@@ -600,7 +600,7 @@ type ServerDeps struct {
 	RedisClient        *redis.Client            // Optional: enables per-project/key rate limiting.
 	Encryptor          Encryptor                // Optional: enables event source signature encryption.
 	ContainerRuntime   compute.ContainerRuntime // Optional: enables managed container stop on cancel.
-	PolarWebhook       http.Handler             // Optional: Polar billing webhook handler.
+	StripeWebhook      http.Handler             // Optional: Stripe billing webhook handler.
 	BillingEnforcer    BillingEnforcer          // Optional: enables billing limit checks on project create.
 	UsageService       UsageService             // Optional: enables usage endpoint.
 	CHExporter         *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
@@ -652,7 +652,7 @@ func NewServer(deps ServerDeps) *Server {
 		authLimiter:        ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
-		polarWebhook:       deps.PolarWebhook,
+		stripeWebhook:      deps.StripeWebhook,
 		billingEnforcer:    deps.BillingEnforcer,
 		usageService:       deps.UsageService,
 		chExporter:         deps.CHExporter,

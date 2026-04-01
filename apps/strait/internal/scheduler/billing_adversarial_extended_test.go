@@ -449,10 +449,10 @@ func TestAdv_StaleSubChecker_MassiveOrgCount(t *testing.T) {
 			for i := range subs {
 				subID := fmt.Sprintf("sub-%d", i)
 				subs[i] = billing.OrgSubscription{
-					OrgID:               fmt.Sprintf("org-%d", i),
-					PlanTier:            "pro",
-					PolarSubscriptionID: &subID,
-					CurrentPeriodEnd:    &pastEnd,
+					OrgID:                fmt.Sprintf("org-%d", i),
+					PlanTier:             "pro",
+					StripeSubscriptionID: &subID,
+					CurrentPeriodEnd:     &pastEnd,
 				}
 			}
 			return subs, nil

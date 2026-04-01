@@ -284,14 +284,14 @@ func TestAdaptiveConcurrency_NegativeInterval_DefaultsGracefully(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// executor_dispatch.go:ingestPolarUsageEvent -- Polar usage event ingestion
+// executor_dispatch.go:ingestStripeUsageEvent -- Stripe usage event ingestion
 // ---------------------------------------------------------------------------.
 
-// mockBillingEnforcerForPolar wraps billing.Enforcer methods needed by ingestPolarUsageEvent.
-// Since billing.Enforcer is a concrete type, we test ingestPolarUsageEvent via the
+// mockBillingEnforcerForStripeUsage wraps billing.Enforcer methods needed by ingestStripeUsageEvent.
+// Since billing.Enforcer is a concrete type, we test ingestStripeUsageEvent via the
 // Executor struct directly, relying on nil checks for early returns.
 
-func TestIngestPolarUsageEvent_NilPolarIngester(t *testing.T) {
+func TestIngestStripeUsageEvent_NilStripeUsageReporter(t *testing.T) {
 	t.Parallel()
 
 	pool := NewPool(1)
@@ -302,71 +302,71 @@ func TestIngestPolarUsageEvent_NilPolarIngester(t *testing.T) {
 		Queue:        &mockExecQueue{},
 		Store:        &mockExecutorStore{},
 		PollInterval: time.Millisecond,
-		// PolarIngester is nil, BillingEnforcer is nil
+		// StripeUsageReporter is nil, BillingEnforcer is nil
 	})
 
 	// Should return immediately without panic.
-	exec.ingestPolarUsageEvent(context.Background(), "proj-1", "run-1", 5000)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 5000)
 }
 
-func TestIngestPolarUsageEvent_NilBillingEnforcer(t *testing.T) {
+func TestIngestStripeUsageEvent_NilBillingEnforcer(t *testing.T) {
 	t.Parallel()
 
 	pool := NewPool(1)
 	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
 
 	exec := NewExecutor(ExecutorConfig{
-		Pool:          pool,
-		Queue:         &mockExecQueue{},
-		Store:         &mockExecutorStore{},
-		PollInterval:  time.Millisecond,
-		PolarIngester: billing.NewPolarEventIngester("http://localhost", "test-token", nil),
+		Pool:                pool,
+		Queue:               &mockExecQueue{},
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Millisecond,
+		StripeUsageReporter: billing.NewStripeUsageReporter("sk_test_key", nil),
 		// BillingEnforcer is nil
 	})
 
 	// Should return immediately without panic.
-	exec.ingestPolarUsageEvent(context.Background(), "proj-1", "run-1", 5000)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 5000)
 }
 
-func TestIngestPolarUsageEvent_ZeroCost(t *testing.T) {
+func TestIngestStripeUsageEvent_ZeroCost(t *testing.T) {
 	t.Parallel()
 
 	pool := NewPool(1)
 	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
 
 	exec := NewExecutor(ExecutorConfig{
-		Pool:          pool,
-		Queue:         &mockExecQueue{},
-		Store:         &mockExecutorStore{},
-		PollInterval:  time.Millisecond,
-		PolarIngester: billing.NewPolarEventIngester("http://localhost", "test-token", nil),
+		Pool:                pool,
+		Queue:               &mockExecQueue{},
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Millisecond,
+		StripeUsageReporter: billing.NewStripeUsageReporter("sk_test_key", nil),
 		// BillingEnforcer is nil -- triggers early return even before cost check
 	})
 
 	// Zero cost should early return.
-	exec.ingestPolarUsageEvent(context.Background(), "proj-1", "run-1", 0)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 0)
 }
 
-func TestIngestPolarUsageEvent_NegativeCost(t *testing.T) {
+func TestIngestStripeUsageEvent_NegativeCost(t *testing.T) {
 	t.Parallel()
 
 	pool := NewPool(1)
 	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
 
 	exec := NewExecutor(ExecutorConfig{
-		Pool:          pool,
-		Queue:         &mockExecQueue{},
-		Store:         &mockExecutorStore{},
-		PollInterval:  time.Millisecond,
-		PolarIngester: billing.NewPolarEventIngester("http://localhost", "test-token", nil),
+		Pool:                pool,
+		Queue:               &mockExecQueue{},
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Millisecond,
+		StripeUsageReporter: billing.NewStripeUsageReporter("sk_test_key", nil),
 		// BillingEnforcer is nil
 	})
 
 	// Negative cost should early return.
-	exec.ingestPolarUsageEvent(context.Background(), "proj-1", "run-1", -100)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", -100)
 }
 
-func TestIngestPolarUsageEvent_BothNil(t *testing.T) {
+func TestIngestStripeUsageEvent_BothNil(t *testing.T) {
 	t.Parallel()
 
 	pool := NewPool(1)
@@ -380,7 +380,7 @@ func TestIngestPolarUsageEvent_BothNil(t *testing.T) {
 	})
 
 	// Both nil: should silently return.
-	exec.ingestPolarUsageEvent(context.Background(), "proj-1", "run-1", 10000)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 10000)
 }
 
 // ---------------------------------------------------------------------------.

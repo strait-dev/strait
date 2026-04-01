@@ -1,8 +1,8 @@
-import { Polar } from "@polar-sh/sdk";
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { Effect } from "effect";
+import Stripe from "stripe";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getAuth } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
@@ -15,132 +15,104 @@ import {
   type SubscriptionStateData,
 } from "./subscription-state";
 
-const polarAccessToken = process.env.POLAR_ACCESS_TOKEN;
+let _stripe: Stripe | null = null;
 
-const polarClient = polarAccessToken
-  ? new Polar({
-      accessToken: polarAccessToken,
-      server:
-        (process.env.POLAR_SERVER as "sandbox" | "production") ?? "production",
-    })
-  : null;
-
-const PRODUCT_PLAN_MAP: Record<string, string> = {
-  [process.env.POLAR_STARTER_MONTHLY_ID ?? ""]: "starter",
-  [process.env.POLAR_STARTER_YEARLY_ID ?? ""]: "starter",
-  [process.env.POLAR_PRO_MONTHLY_ID ?? ""]: "pro",
-  [process.env.POLAR_PRO_YEARLY_ID ?? ""]: "pro",
-};
-
-const toRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : null;
-
-const toDate = (value: unknown): Date | null => {
-  if (!value) {
+function getStripeClient(): Stripe | null {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) {
     return null;
   }
-
-  if (value instanceof Date) {
-    return value;
+  if (!_stripe) {
+    _stripe = new Stripe(key, { apiVersion: "2025-08-27.basil" });
   }
+  return _stripe;
+}
 
-  const date = new Date(String(value));
-  return Number.isNaN(date.getTime()) ? null : date;
+const PRICE_PLAN_MAP: Record<string, string> = {
+  [process.env.STRIPE_STARTER_MONTHLY_PRICE_ID ?? ""]: "starter",
+  [process.env.STRIPE_STARTER_YEARLY_PRICE_ID ?? ""]: "starter",
+  [process.env.STRIPE_PRO_MONTHLY_PRICE_ID ?? ""]: "pro",
+  [process.env.STRIPE_PRO_YEARLY_PRICE_ID ?? ""]: "pro",
+  [process.env.STRIPE_SCALE_MONTHLY_PRICE_ID ?? ""]: "scale",
+  [process.env.STRIPE_SCALE_YEARLY_PRICE_ID ?? ""]: "scale",
 };
 
-const asString = (value: unknown): string =>
-  typeof value === "string" ? value : "";
-
-const asBoolean = (value: unknown): boolean =>
-  typeof value === "boolean" ? value : false;
+const ACTIVE_STATUSES = new Set([
+  "active",
+  "trialing",
+  "past_due",
+  "incomplete",
+  "unpaid",
+]);
 
 const getSubscriptionByEmail = async (
   email: string
 ): Promise<NormalizedSubscription | null> => {
-  if (!polarClient) {
+  const stripe = getStripeClient();
+  if (!stripe) {
     return null;
   }
 
-  const { result: customersResult } = await polarClient.customers.list({
-    email,
-    limit: 1,
-  });
-
-  const customers = customersResult.items;
-  const customer = Array.isArray(customers) ? customers[0] : null;
-
+  const customers = await stripe.customers.list({ email, limit: 1 });
+  const customer = customers.data[0];
   if (!customer) {
     return null;
   }
 
-  const { result: subscriptionsResult } = await polarClient.subscriptions.list({
-    customerId: customer.id,
+  const subscriptions = await stripe.subscriptions.list({
+    customer: customer.id,
     limit: 20,
+    expand: ["data.items.data.price"],
   });
 
-  const items = Array.isArray(subscriptionsResult.items)
-    ? subscriptionsResult.items
-    : [];
+  if (subscriptions.data.length === 0) {
+    return null;
+  }
 
-  const ranked = items
-    .map((item) => {
-      const status = asString(toRecord(item)?.status);
+  // Rank subscriptions: active > canceled > other
+  const ranked = subscriptions.data
+    .map((sub) => {
       let rank = 2;
-
-      if (
-        status === "active" ||
-        status === "trialing" ||
-        status === "past_due" ||
-        status === "incomplete" ||
-        status === "unpaid"
-      ) {
+      if (ACTIVE_STATUSES.has(sub.status)) {
         rank = 0;
-      } else if (status === "canceled" || status === "cancelled") {
+      } else if (sub.status === "canceled") {
         rank = 1;
       }
 
-      return {
-        item,
-        rank,
-        periodEnd:
-          toDate(toRecord(item)?.currentPeriodEnd) ??
-          toDate(toRecord(item)?.currentPeriodEndAt) ??
-          new Date(0),
-      };
+      const item = sub.items?.data?.[0];
+      const periodEnd = item?.current_period_end
+        ? new Date(item.current_period_end * 1000)
+        : new Date(0);
+
+      return { sub, rank, periodEnd };
     })
     .sort((a, b) => {
       if (a.rank !== b.rank) {
         return a.rank - b.rank;
       }
-
       return b.periodEnd.getTime() - a.periodEnd.getTime();
     });
 
-  const selected = ranked[0]?.item;
-  const record = toRecord(selected);
-
-  if (!record) {
+  const selected = ranked[0]?.sub;
+  if (!selected) {
     return null;
   }
 
-  const product = toRecord(record.product);
-  const price = toRecord(record.price);
+  const item = selected.items?.data?.[0];
+  const priceId = item?.price?.id ?? "";
+  const recurringInterval = item?.price?.recurring?.interval ?? null;
 
   return {
-    id: asString(record.id),
-    status: asString(record.status),
-    productId: asString(record.productId || product?.id),
-    priceId: asString(record.priceId || price?.id),
-    currentPeriodEnd:
-      toDate(record.currentPeriodEnd) ?? toDate(record.currentPeriodEndAt),
-    cancelAtPeriodEnd: asBoolean(record.cancelAtPeriodEnd),
-    recurringInterval:
-      asString(
-        record.recurringInterval || record.interval || price?.recurringInterval
-      ) || null,
-    trialEnd: toDate(record.trialEnd) ?? toDate(record.trialEndsAt),
+    id: selected.id,
+    status: selected.status,
+    productId: priceId, // We use price ID as the product identifier
+    priceId,
+    currentPeriodEnd: item?.current_period_end
+      ? new Date(item.current_period_end * 1000)
+      : null,
+    cancelAtPeriodEnd: selected.cancel_at_period_end,
+    recurringInterval,
+    trialEnd: selected.trial_end ? new Date(selected.trial_end * 1000) : null,
   };
 };
 
@@ -204,7 +176,7 @@ const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
     const subscription = await getSubscriptionByEmail(email);
     const backendPlan = await getBackendPlanTier(session);
     const planFromProduct = normalizePlanSlug(
-      subscription?.productId ? PRODUCT_PLAN_MAP[subscription.productId] : null
+      subscription?.productId ? PRICE_PLAN_MAP[subscription.productId] : null
     );
 
     return deriveSubscriptionState({

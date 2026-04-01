@@ -392,17 +392,17 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 
 	posthogClient := billing.NewPostHogClient(cfg.PostHogAPIKey, cfg.PostHogHost, slog.Default())
 
-	var polarWebhook http.Handler
-	if cfg.PolarWebhookSecret != "" {
-		polarMapping := billing.NewPolarMappingFromOptions(
-			billing.WithStarterProducts(cfg.PolarStarterMonthlyID, cfg.PolarStarterYearlyID),
-			billing.WithProProducts(cfg.PolarProMonthlyID, cfg.PolarProYearlyID),
-			billing.WithScaleProducts(cfg.PolarScaleMonthlyID, cfg.PolarScaleYearlyID),
-			billing.WithAddonProduct(cfg.PolarAddonConcurrentRuns, billing.AddonConcurrentRuns),
-			billing.WithAddonProduct(cfg.PolarAddonMembers, billing.AddonMembers),
-			billing.WithAddonProduct(cfg.PolarAddonCronSchedules, billing.AddonCronSchedules),
-			billing.WithAddonProduct(cfg.PolarAddonDataRetention, billing.AddonDataRetention),
-			billing.WithAddonProduct(cfg.PolarAddonWebhookEndpoints, billing.AddonWebhookEndpoints),
+	var stripeWebhook http.Handler
+	if cfg.StripeWebhookSecret != "" {
+		stripeMapping := billing.NewStripeMappingFromOptions(
+			billing.WithStarterPrices(cfg.StripeStarterMonthlyPriceID, cfg.StripeStarterYearlyPriceID),
+			billing.WithProPrices(cfg.StripeProMonthlyPriceID, cfg.StripeProYearlyPriceID),
+			billing.WithScalePrices(cfg.StripeScaleMonthlyPriceID, cfg.StripeScaleYearlyPriceID),
+			billing.WithAddonPrice(cfg.StripeAddonConcurrentRunsID, billing.AddonConcurrentRuns),
+			billing.WithAddonPrice(cfg.StripeAddonMembersID, billing.AddonMembers),
+			billing.WithAddonPrice(cfg.StripeAddonCronSchedulesID, billing.AddonCronSchedules),
+			billing.WithAddonPrice(cfg.StripeAddonDataRetentionID, billing.AddonDataRetention),
+			billing.WithAddonPrice(cfg.StripeAddonWebhookEndpointsID, billing.AddonWebhookEndpoints),
 		)
 		var webhookOpts []billing.WebhookOption
 		if posthogClient != nil {
@@ -417,14 +417,14 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			webhookOpts = append(webhookOpts, billing.WithBillingEmails(billingEmailSender))
 		}
 		webhookOpts = append(webhookOpts, billing.WithEdition(cfg.Edition))
-		wh := billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
+		wh := billing.NewWebhookHandler(billingStore, stripeMapping, cfg.StripeWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
 		g.Go(func(ctx context.Context) error {
 			wh.StartReplayCleanup(ctx)
 			<-ctx.Done()
 			return nil
 		})
-		polarWebhook = wh
-		slog.Info("polar webhook handler enabled")
+		stripeWebhook = wh
+		slog.Info("stripe webhook handler enabled")
 	}
 
 	var usageSvc *billing.UsageService
@@ -448,7 +448,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		RedisClient:        rdb,
 		Encryptor:          encryptor,
 		ContainerRuntime:   apiContainerRuntime,
-		PolarWebhook:       polarWebhook,
+		StripeWebhook:      stripeWebhook,
 		BillingEnforcer:    nilSafeBillingEnforcer(billingEnforcer),
 		UsageService:       usageSvc,
 		CHExporter:         chExporter,
@@ -564,13 +564,13 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		slog.Info("billing enforcement enabled")
 	}
 
-	// Wire Polar usage event ingestion for metered billing (cloud only).
-	if cfg.PolarAccessToken != "" && cfg.PolarServer != "" {
-		execCfg.PolarIngester = billing.NewPolarEventIngester(
-			cfg.PolarServer, cfg.PolarAccessToken, slog.Default(),
-			billing.WithIngesterMetrics(metrics),
+	// Wire Stripe usage event reporting for metered billing (cloud only).
+	if cfg.StripeSecretKey != "" {
+		execCfg.StripeUsageReporter = billing.NewStripeUsageReporter(
+			cfg.StripeSecretKey, slog.Default(),
+			billing.WithUsageReporterMetrics(metrics),
 		)
-		slog.Info("polar event ingestion enabled", "server", cfg.PolarServer)
+		slog.Info("stripe usage reporting enabled")
 	}
 
 	exec := worker.NewExecutor(execCfg)

@@ -79,20 +79,20 @@ func TestMaskEmail_NoLeak(t *testing.T) {
 func TestWebhookReplayProtection_DuplicateRejected(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
 		WithEdition("community"))
 
 	body := `{"type":"subscription.created","data":{"id":"sub_1","product_id":"starter-id","customer_id":"cust_1","status":"active","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}`
 
 	// First request
-	req1 := httptest.NewRequest(http.MethodPost, "/webhooks/polar", strings.NewReader(body))
+	req1 := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
 	req1.Header.Set("webhook-id", "msg_unique_123")
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, req1)
 
 	// Second request with same msg ID
-	req2 := httptest.NewRequest(http.MethodPost, "/webhooks/polar", strings.NewReader(body))
+	req2 := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
 	req2.Header.Set("webhook-id", "msg_unique_123")
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, req2)
@@ -105,18 +105,18 @@ func TestWebhookReplayProtection_DuplicateRejected(t *testing.T) {
 func TestWebhookReplayProtection_DifferentIDsAllowed(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
 		WithEdition("community"))
 
 	body := `{"type":"subscription.created","data":{"id":"sub_1","product_id":"starter-id","customer_id":"cust_1","status":"active","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}`
 
-	req1 := httptest.NewRequest(http.MethodPost, "/webhooks/polar", strings.NewReader(body))
+	req1 := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
 	req1.Header.Set("webhook-id", "msg_aaa")
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, req1)
 
-	req2 := httptest.NewRequest(http.MethodPost, "/webhooks/polar", strings.NewReader(body))
+	req2 := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
 	req2.Header.Set("webhook-id", "msg_bbb")
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, req2)
@@ -131,7 +131,7 @@ func TestWebhookReplayProtection_DifferentIDsAllowed(t *testing.T) {
 func TestWebhookReplayCleanup(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	// Manually add old entries

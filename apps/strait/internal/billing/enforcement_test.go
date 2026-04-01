@@ -1046,7 +1046,7 @@ func TestOrgCache_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-func TestEnforcer_GetPolarCustomerID(t *testing.T) {
+func TestEnforcer_GetStripeCustomerID(t *testing.T) {
 	t.Parallel()
 
 	t.Run("returns_customer_id", func(t *testing.T) {
@@ -1054,10 +1054,10 @@ func TestEnforcer_GetPolarCustomerID(t *testing.T) {
 		enforcer, store, _ := setupEnforcer(t)
 		custID := "cust_abc123"
 		store.subscriptions = map[string]*OrgSubscription{
-			"org-polar": {OrgID: "org-polar", PlanTier: "pro", Status: "active", PolarCustomerID: &custID},
+			"org-stripe": {OrgID: "org-stripe", PlanTier: "pro", Status: "active", StripeCustomerID: &custID},
 		}
 
-		got, err := enforcer.GetPolarCustomerID(context.Background(), "org-polar")
+		got, err := enforcer.GetStripeCustomerID(context.Background(), "org-stripe")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1070,10 +1070,10 @@ func TestEnforcer_GetPolarCustomerID(t *testing.T) {
 		t.Parallel()
 		enforcer, store, _ := setupEnforcer(t)
 		store.subscriptions = map[string]*OrgSubscription{
-			"org-nil": {OrgID: "org-nil", PlanTier: "starter", Status: "active", PolarCustomerID: nil},
+			"org-nil": {OrgID: "org-nil", PlanTier: "starter", Status: "active", StripeCustomerID: nil},
 		}
 
-		got, err := enforcer.GetPolarCustomerID(context.Background(), "org-nil")
+		got, err := enforcer.GetStripeCustomerID(context.Background(), "org-nil")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1087,10 +1087,10 @@ func TestEnforcer_GetPolarCustomerID(t *testing.T) {
 		enforcer, store, _ := setupEnforcer(t)
 		empty := ""
 		store.subscriptions = map[string]*OrgSubscription{
-			"org-empty": {OrgID: "org-empty", PlanTier: "starter", Status: "active", PolarCustomerID: &empty},
+			"org-empty": {OrgID: "org-empty", PlanTier: "starter", Status: "active", StripeCustomerID: &empty},
 		}
 
-		got, err := enforcer.GetPolarCustomerID(context.Background(), "org-empty")
+		got, err := enforcer.GetStripeCustomerID(context.Background(), "org-empty")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1103,7 +1103,7 @@ func TestEnforcer_GetPolarCustomerID(t *testing.T) {
 		t.Parallel()
 		enforcer, _, _ := setupEnforcer(t)
 
-		_, err := enforcer.GetPolarCustomerID(context.Background(), "org-nonexistent")
+		_, err := enforcer.GetStripeCustomerID(context.Background(), "org-nonexistent")
 		if err == nil {
 			t.Fatal("expected error for missing subscription")
 		}

@@ -33,7 +33,7 @@ describe("normalizePlanSlug", () => {
 });
 
 describe("deriveSubscriptionState", () => {
-  it("uses free when backend reports free and Polar has no subscription", () => {
+  it("uses free when backend reports free and Stripe has no subscription", () => {
     const state = deriveSubscriptionState({
       subscription: null,
       planFromProduct: null,
@@ -45,7 +45,7 @@ describe("deriveSubscriptionState", () => {
     expect(state.nextPlan).toEqual({ plan: "starter", name: "Starter" });
   });
 
-  it("uses backend plan when Polar has no subscription", () => {
+  it("uses backend plan when Stripe has no subscription", () => {
     const state = deriveSubscriptionState({
       subscription: null,
       planFromProduct: null,
@@ -57,7 +57,7 @@ describe("deriveSubscriptionState", () => {
     expect(state.nextPlan).toEqual({ plan: "scale", name: "Scale" });
   });
 
-  it("defaults to free when both Polar and backend plans are missing", () => {
+  it("defaults to free when both Stripe and backend plans are missing", () => {
     const state = deriveSubscriptionState({
       subscription: null,
       planFromProduct: null,
@@ -69,7 +69,7 @@ describe("deriveSubscriptionState", () => {
     expect(state.nextPlan).toEqual({ plan: "starter", name: "Starter" });
   });
 
-  it("prefers the Polar-mapped plan over the backend fallback", () => {
+  it("prefers the Stripe-mapped plan over the backend fallback", () => {
     const state = deriveSubscriptionState({
       subscription: baseSubscription,
       planFromProduct: "starter",

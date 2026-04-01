@@ -156,12 +156,12 @@ func TestWebhook_RecordProcessedWebhookError_StillReturns200(t *testing.T) {
 	store := &mockBillingStore{
 		recordWebhookErr: fmt.Errorf("simulated DB write error"),
 	}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
 		WithEdition("community"))
 
 	body := `{"type":"subscription.created","data":{"id":"sub_record_err","product_id":"starter-id","customer_id":"cust_1","status":"active","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}`
-	req := httptest.NewRequest(http.MethodPost, "/webhooks/polar", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
 	req.Header.Set("webhook-id", "msg_record_err_test")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -186,13 +186,13 @@ func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
 		WithEdition("community"))
 
-	payload := PolarWebhookPayload{
+	payload := StripeWebhookPayload{
 		Type: "subscription.created",
-		Data: mustJSON(t, PolarSubscriptionData{
+		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_record_ok",
 			ProductID:  "starter-id",
 			CustomerID: "cust_1",
@@ -201,7 +201,7 @@ func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
 		}),
 	}
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/webhooks/polar", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", bytes.NewReader(body))
 	req.Header.Set("webhook-id", "msg_success_test")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -220,14 +220,14 @@ func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("starter-id", "", "pro-id", "")
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
 		WithEdition("community"))
 
 	// Send a webhook with unknown product ID -- handler will return error.
-	payload := PolarWebhookPayload{
+	payload := StripeWebhookPayload{
 		Type: "subscription.created",
-		Data: mustJSON(t, PolarSubscriptionData{
+		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_err",
 			ProductID:  "unknown-product-id",
 			CustomerID: "cust_1",
@@ -236,7 +236,7 @@ func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
 		}),
 	}
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/webhooks/polar", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", bytes.NewReader(body))
 	req.Header.Set("webhook-id", "msg_handler_err")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

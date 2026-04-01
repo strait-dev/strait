@@ -213,15 +213,15 @@ func FuzzStaleSubscription_DateComparison(f *testing.F) {
 		}
 
 		ts := time.Unix(unixSec, 0)
-		subID := "polar-sub-fuzz"
+		subID := "stripe-sub-fuzz"
 		s := &mockStaleSubStore{
 			listFn: func(context.Context) ([]billing.OrgSubscription, error) {
 				return []billing.OrgSubscription{
 					{
-						OrgID:               "org-fuzz",
-						PlanTier:            "pro",
-						PolarSubscriptionID: &subID,
-						CurrentPeriodEnd:    &ts,
+						OrgID:                "org-fuzz",
+						PlanTier:             "pro",
+						StripeSubscriptionID: &subID,
+						CurrentPeriodEnd:     &ts,
 					},
 				}, nil
 			},

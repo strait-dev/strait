@@ -10,8 +10,8 @@ type OrgSubscription struct {
 	ID                         string
 	OrgID                      string
 	PlanTier                   string
-	PolarSubscriptionID        *string
-	PolarCustomerID            *string
+	StripeSubscriptionID       *string
+	StripeCustomerID           *string
 	Status                     string
 	CurrentPeriodStart         *time.Time
 	CurrentPeriodEnd           *time.Time

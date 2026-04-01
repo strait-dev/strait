@@ -24,7 +24,7 @@ func NewPgStore(pool *pgxpool.Pool) *PgStore {
 
 // EnsureOrgSubscription creates a free-tier subscription row for an org if one
 // does not already exist. Used for lazy initialization when a project is first
-// created under an org that has no Polar subscription yet.
+// created under an org that has no Stripe subscription yet.
 func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status)
@@ -40,7 +40,7 @@ func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error
 func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
 	var sub OrgSubscription
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
@@ -54,7 +54,7 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 		WHERE org_id = $1
 	`, orgID).Scan(
 		&sub.ID, &sub.OrgID, &sub.PlanTier,
-		&sub.PolarSubscriptionID, &sub.PolarCustomerID,
+		&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 		&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 		&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 		&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
@@ -76,15 +76,15 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO organization_subscriptions (
-			id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+			id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, canceled_at,
 			created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (org_id) DO UPDATE SET
 			plan_tier = EXCLUDED.plan_tier,
-			polar_subscription_id = EXCLUDED.polar_subscription_id,
-			polar_customer_id = EXCLUDED.polar_customer_id,
+			stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+			stripe_customer_id = EXCLUDED.stripe_customer_id,
 			status = EXCLUDED.status,
 			current_period_start = EXCLUDED.current_period_start,
 			current_period_end = EXCLUDED.current_period_end,
@@ -94,7 +94,7 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 			canceled_at = EXCLUDED.canceled_at,
 			updated_at = NOW()
 	`, sub.ID, sub.OrgID, sub.PlanTier,
-		sub.PolarSubscriptionID, sub.PolarCustomerID,
+		sub.StripeSubscriptionID, sub.StripeCustomerID,
 		sub.Status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
 		sub.SpendingLimitMicrousd, sub.LimitAction, sub.CanceledAt,
 		sub.CreatedAt, sub.UpdatedAt,
@@ -211,7 +211,7 @@ func (s *PgStore) ApplyPendingDowngrade(ctx context.Context, orgID string) error
 
 func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscription, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
@@ -236,7 +236,7 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 		var sub OrgSubscription
 		if err := rows.Scan(
 			&sub.ID, &sub.OrgID, &sub.PlanTier,
-			&sub.PolarSubscriptionID, &sub.PolarCustomerID,
+			&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
@@ -817,7 +817,7 @@ func (s *PgStore) UpdatePaymentStatus(ctx context.Context, orgID string, status 
 
 func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
@@ -841,7 +841,7 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 		var sub OrgSubscription
 		if err := rows.Scan(
 			&sub.ID, &sub.OrgID, &sub.PlanTier,
-			&sub.PolarSubscriptionID, &sub.PolarCustomerID,
+			&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
@@ -859,10 +859,10 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 
 // ListStaleSubscriptions returns subscriptions that are marked active but whose
 // current_period_end has passed by more than 1 day without a pending downgrade.
-// These may indicate missed cancellation webhooks from Polar.
+// These may indicate missed cancellation webhooks from Stripe.
 func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
@@ -888,7 +888,7 @@ func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription
 		var sub OrgSubscription
 		if err := rows.Scan(
 			&sub.ID, &sub.OrgID, &sub.PlanTier,
-			&sub.PolarSubscriptionID, &sub.PolarCustomerID,
+			&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
@@ -1083,7 +1083,7 @@ func (s *PgStore) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgI
 // ListActiveAddons returns all active add-ons for an organization.
 func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, addon_type, quantity, polar_subscription_id, active, created_at, updated_at
+		SELECT id, org_id, addon_type, quantity, stripe_subscription_id, active, created_at, updated_at
 		FROM organization_addons
 		WHERE org_id = $1 AND active = true
 		ORDER BY created_at
@@ -1096,7 +1096,7 @@ func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, 
 	var addons []Addon
 	for rows.Next() {
 		var a Addon
-		if err := rows.Scan(&a.ID, &a.OrgID, &a.AddonType, &a.Quantity, &a.PolarSubscriptionID, &a.Active, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.OrgID, &a.AddonType, &a.Quantity, &a.StripeSubscriptionID, &a.Active, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning addon row: %w", err)
 		}
 		addons = append(addons, a)
@@ -1107,9 +1107,9 @@ func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, 
 // CreateAddon inserts a new add-on record.
 func (s *PgStore) CreateAddon(ctx context.Context, addon *Addon) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO organization_addons (id, org_id, addon_type, quantity, polar_subscription_id, active, created_at, updated_at)
+		INSERT INTO organization_addons (id, org_id, addon_type, quantity, stripe_subscription_id, active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-	`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.PolarSubscriptionID, addon.Active)
+	`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.StripeSubscriptionID, addon.Active)
 	if err != nil {
 		return fmt.Errorf("creating addon: %w", err)
 	}

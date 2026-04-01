@@ -1,29 +1,20 @@
-import type { Polar } from "@polar-sh/sdk";
 import { createServerFn } from "@tanstack/react-start";
+import Stripe from "stripe";
 
 /**
- * Lazily initialized Polar SDK client singleton.
- *
- * Uses a dynamic import for `@polar-sh/sdk` because that package depends
- * on `tsyringe`, which checks for `Reflect.getMetadata` at module
- * evaluation time. A top-level import would crash the Cloudflare Worker
- * before any request handling code runs.
- *
- * Initialization is also deferred because Cloudflare Workers only
- * populate `process.env` during request handling, not at module load time.
+ * Lazily initialized Stripe client singleton.
+ * Deferred because Cloudflare Workers only populate `process.env` during
+ * request handling, not at module load time.
  */
-let _polarClient: Polar | null = null;
+let _stripeClient: Stripe | null = null;
 
-async function getPolarClient(): Promise<Polar> {
-  if (!_polarClient) {
-    const { Polar: PolarClient } = await import("@polar-sh/sdk");
-    _polarClient = new PolarClient({
-      accessToken: process.env.POLAR_ACCESS_TOKEN ?? "",
-      server:
-        (process.env.POLAR_SERVER as "sandbox" | "production") ?? "production",
+function getStripeClient(): Stripe {
+  if (!_stripeClient) {
+    _stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
+      apiVersion: "2025-08-27.basil",
     });
   }
-  return _polarClient;
+  return _stripeClient;
 }
 
 type CustomerPortalResponse = {
@@ -32,8 +23,8 @@ type CustomerPortalResponse = {
 };
 
 /**
- * Server function to get customer portal URL using email lookup.
- * This works around the limitation where customers don't have externalId set.
+ * Server function to get the Stripe Customer Portal URL.
+ * Looks up the customer by email and creates a portal session.
  */
 export const getCustomerPortalUrlServerFn = createServerFn({
   method: "GET",
@@ -49,32 +40,31 @@ export const getCustomerPortalUrlServerFn = createServerFn({
   }
 
   try {
-    const client = await getPolarClient();
+    const stripe = getStripeClient();
 
-    // Look up the Polar customer by email
-    const { result: customersResult } = await client.customers.list({
+    // Look up the Stripe customer by email
+    const customers = await stripe.customers.list({
       email: session.user.email,
       limit: 1,
     });
 
-    const customers = customersResult.items;
-
-    if (!Array.isArray(customers) || customers.length === 0) {
+    if (customers.data.length === 0) {
       return {
         url: null,
         error: "Customer not found",
       };
     }
 
-    const polarCustomerId = customers[0].id;
+    const customerId = customers.data[0].id;
 
-    // Create a customer session using the Polar customer ID
-    const customerSession = await client.customerSessions.create({
-      customerId: polarCustomerId,
+    // Create a Stripe Billing Portal session
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: process.env.BETTER_AUTH_URL ?? "http://localhost:5173",
     });
 
     return {
-      url: customerSession.customerPortalUrl,
+      url: portalSession.url,
       error: null,
     };
   } catch (error) {

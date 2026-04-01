@@ -267,7 +267,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 
 	// Guard against nil orgCache or uninitialized otter internals that can
 	// panic (observed when the billing enforcer is created without a fully
-	// functional backing store, e.g. missing Polar configuration).
+	// functional backing store, e.g. missing Stripe configuration).
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("recovered panic in GetOrgPlanLimits, returning free-tier defaults",
@@ -434,7 +434,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 
 	if allowed == 0 {
 		// Paid plans (Starter/Pro/Enterprise) allow overage — log but don't reject.
-		// Overage is tracked via Polar metered billing.
+		// Overage is tracked via Stripe metered billing.
 		if limits.PlanTier != domain.PlanFree {
 			e.logger.Info("daily run limit exceeded on paid plan (overage allowed)",
 				"org_id", orgID,
@@ -861,17 +861,17 @@ func (e *Enforcer) GetActiveProjectOrgID(ctx context.Context, projectID string) 
 	return e.store.GetActiveProjectOrgID(ctx, projectID)
 }
 
-// GetPolarCustomerID returns the Polar customer ID for an org's subscription.
-// Returns empty string if the org has no subscription or no Polar customer.
-func (e *Enforcer) GetPolarCustomerID(ctx context.Context, orgID string) (string, error) {
+// GetStripeCustomerID returns the Stripe customer ID for an org's subscription.
+// Returns empty string if the org has no subscription or no Stripe customer.
+func (e *Enforcer) GetStripeCustomerID(ctx context.Context, orgID string) (string, error) {
 	sub, err := e.store.GetOrgSubscription(ctx, orgID)
 	if err != nil {
 		return "", err
 	}
-	if sub.PolarCustomerID == nil || *sub.PolarCustomerID == "" {
+	if sub.StripeCustomerID == nil || *sub.StripeCustomerID == "" {
 		return "", nil
 	}
-	return *sub.PolarCustomerID, nil
+	return *sub.StripeCustomerID, nil
 }
 
 // ExecutingRunCounter provides ground-truth executing run counts from the database.

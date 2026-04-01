@@ -1,14 +1,6 @@
 import { env as cfEnv } from "cloudflare:workers";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
-import {
-  checkout,
-  polar,
-  usage as polarUsage,
-  portal,
-  webhooks,
-} from "@polar-sh/better-auth";
-import type { Polar } from "@polar-sh/sdk";
 import { render } from "@react-email/render";
 import {
   ConfirmAccount,
@@ -141,32 +133,13 @@ function getOIDCPrivateKey(): Promise<CryptoKey> {
 }
 
 /**
- * Create a Polar SDK client if the access token is configured.
- * Called once during `createAuth()`.
- */
-async function createPolarClient(): Promise<Polar | null> {
-  if (!process.env.POLAR_ACCESS_TOKEN) {
-    return null;
-  }
-  // Dynamic import: @polar-sh/sdk depends on tsyringe, which checks for
-  // Reflect.getMetadata at module evaluation time. A top-level import
-  // would crash the Worker before any request handling code runs.
-  const { Polar: PolarClient } = await import("@polar-sh/sdk");
-  return new PolarClient({
-    accessToken: process.env.POLAR_ACCESS_TOKEN,
-    server:
-      (process.env.POLAR_SERVER as "sandbox" | "production") ?? "production",
-  });
-}
-
-/**
  * Build the Better Auth configuration.
  *
  * This is called lazily on the first request via {@link getAuth} because
  * the entire config tree reads from `process.env`, which is empty at
  * module load time in Cloudflare Workers.
  *
- * Handles: authentication, sessions, organizations, Polar billing.
+ * Handles: authentication, sessions, organizations.
  *
  * Supported auth methods:
  * - Email/password
@@ -176,9 +149,8 @@ async function createPolarClient(): Promise<Polar | null> {
  * - Google OAuth
  * - GitHub OAuth
  */
-async function createAuth() {
+function createAuth() {
   const pool = getAuthPool();
-  const polarClient = await createPolarClient();
   const resend = getResend();
   return betterAuth({
     database: pool,
@@ -328,49 +300,8 @@ async function createAuth() {
       // SSO disabled: @better-auth/sso has a known ESM incompatibility
       // (samlify requires camelcase@9 ESM-only from CJS). Re-enable when
       // https://github.com/better-auth/better-auth/issues/8620 is fixed.
-      ...(polarClient
-        ? [
-            polar({
-              client: polarClient,
-              createCustomerOnSignUp: true,
-              use: [
-                checkout({
-                  products: [
-                    {
-                      productId: process.env.POLAR_STARTER_MONTHLY_ID ?? "",
-                      slug: "starter-monthly",
-                    },
-                    {
-                      productId: process.env.POLAR_STARTER_YEARLY_ID ?? "",
-                      slug: "starter-yearly",
-                    },
-                    {
-                      productId: process.env.POLAR_PRO_MONTHLY_ID ?? "",
-                      slug: "pro-monthly",
-                    },
-                    {
-                      productId: process.env.POLAR_PRO_YEARLY_ID ?? "",
-                      slug: "pro-yearly",
-                    },
-                  ],
-                  successUrl: "/app?checkout_success=true",
-                  authenticatedUsersOnly: true,
-                }),
-                portal({
-                  returnUrl: process.env.BETTER_AUTH_URL,
-                }),
-                polarUsage(),
-                ...(process.env.POLAR_APP_WEBHOOK_SECRET
-                  ? [
-                      webhooks({
-                        secret: process.env.POLAR_APP_WEBHOOK_SECRET,
-                      }),
-                    ]
-                  : []),
-              ] as any,
-            }),
-          ]
-        : []),
+      // Stripe billing is handled via standalone server functions (checkout,
+      // portal) and a Go backend webhook handler, not through Better Auth plugins.
     ],
     databaseHooks: {
       user: {
@@ -517,24 +448,17 @@ async function createAuth() {
  * In Cloudflare Workers these are only available during request handling,
  * so we defer the entire construction to the first call.
  */
-type AuthInstance = Awaited<ReturnType<typeof createAuth>>;
+type AuthInstance = ReturnType<typeof createAuth>;
 
 let _auth: AuthInstance | null = null;
-let _authPromise: Promise<AuthInstance> | null = null;
 
 /**
  * Returns the Better Auth singleton, initializing it on first call.
- * Callers must `await` the result.
+ * Callers must `await` the result for backwards compatibility.
  */
 export function getAuth(): Promise<AuthInstance> {
-  if (_auth) {
-    return Promise.resolve(_auth);
+  if (!_auth) {
+    _auth = createAuth();
   }
-  if (!_authPromise) {
-    _authPromise = createAuth().then((instance) => {
-      _auth = instance;
-      return instance;
-    });
-  }
-  return _authPromise;
+  return Promise.resolve(_auth);
 }

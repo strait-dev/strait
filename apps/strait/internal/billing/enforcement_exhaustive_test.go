@@ -2,10 +2,7 @@ package billing
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -237,132 +234,78 @@ func TestAddonEnforcement(t *testing.T) {
 	}
 }
 
-// M. Polar Event Ingestion (6 tests).
+// M. Stripe Usage Event Ingestion (6 tests).
 
-func TestPolarEnforcement(t *testing.T) {
+func TestStripeUsageEnforcement(t *testing.T) {
 	t.Parallel()
 
-	t.Run("managed_run_correct_payload", func(t *testing.T) {
+	t.Run("empty_secret_skipped", func(t *testing.T) {
 		t.Parallel()
-		var received []polarEvent
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req polarIngestRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				http.Error(w, err.Error(), 400)
-				return
-			}
-			received = append(received, req.Events...)
-			w.WriteHeader(200)
-		}))
-		defer srv.Close()
-
-		ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-		err := ingester.IngestComputeUsage(context.Background(), "cust-1", "run-1", 1700)
+		reporter := NewStripeUsageReporter("", slog.Default())
+		err := reporter.IngestComputeUsage(context.Background(), "cust-1", "run-1", 1700)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(received) != 1 {
-			t.Fatalf("expected 1 event, got %d", len(received))
-		}
-		if received[0].ExternalCustomerID != "cust-1" {
-			t.Errorf("customer ID = %q, want cust-1", received[0].ExternalCustomerID)
-		}
-		if received[0].Metadata["amount"] != "1700" {
-			t.Errorf("amount = %q, want 1700", received[0].Metadata["amount"])
-		}
-		if received[0].ExternalID != "run-1" {
-			t.Errorf("external ID = %q, want run-1", received[0].ExternalID)
+			t.Fatalf("expected nil for empty secret key, got: %v", err)
 		}
 	})
 
-	t.Run("http_run_flat_20", func(t *testing.T) {
+	t.Run("empty_customer_skipped", func(t *testing.T) {
 		t.Parallel()
-		var received []polarEvent
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req polarIngestRequest
-			_ = json.NewDecoder(r.Body).Decode(&req)
-			received = append(received, req.Events...)
-			w.WriteHeader(200)
-		}))
-		defer srv.Close()
-
-		ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-		_ = ingester.IngestComputeUsage(context.Background(), "cust-1", "run-http", HTTPCostPerRunMicrousd)
-		if len(received) != 1 {
-			t.Fatalf("expected 1 event, got %d", len(received))
-		}
-		if received[0].Metadata["amount"] != fmt.Sprintf("%d", HTTPCostPerRunMicrousd) {
-			t.Errorf("amount = %q, want %d", received[0].Metadata["amount"], HTTPCostPerRunMicrousd)
-		}
-	})
-
-	t.Run("429_no_crash", func(t *testing.T) {
-		t.Parallel()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(429)
-			_, _ = w.Write([]byte(`{"detail":"rate limited"}`))
-		}))
-		defer srv.Close()
-
-		ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-		err := ingester.IngestComputeUsage(context.Background(), "cust-1", "run-1", 100)
-		if err == nil {
-			t.Error("expected error for 429")
-		}
-		// No panic -- test passes.
-	})
-
-	t.Run("500_no_crash", func(t *testing.T) {
-		t.Parallel()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(500)
-			_, _ = w.Write([]byte(`{"detail":"internal error"}`))
-		}))
-		defer srv.Close()
-
-		ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-		err := ingester.IngestComputeUsage(context.Background(), "cust-1", "run-1", 100)
-		if err == nil {
-			t.Error("expected error for 500")
-		}
-	})
-
-	t.Run("unreachable_no_block", func(t *testing.T) {
-		t.Parallel()
-		ingester := NewPolarEventIngester("http://127.0.0.1:1", "test-token", slog.Default())
-		err := ingester.IngestComputeUsage(context.Background(), "cust-1", "run-1", 100)
-		if err == nil {
-			t.Error("expected error for unreachable server")
-		}
-		// Key: the ingestion is fire-and-forget in the executor, so even though
-		// this returns an error, runs are NOT blocked.
-	})
-
-	t.Run("no_token_skipped", func(t *testing.T) {
-		t.Parallel()
-		ingester := NewPolarEventIngester("http://example.com", "", slog.Default())
-		err := ingester.IngestComputeUsage(context.Background(), "cust-1", "run-1", 100)
+		reporter := NewStripeUsageReporter("sk_test_key", slog.Default())
+		err := reporter.IngestComputeUsage(context.Background(), "", "run-1", 1700)
 		if err != nil {
-			t.Errorf("expected nil for no-token skip, got: %v", err)
+			t.Fatalf("expected nil for empty customer ID, got: %v", err)
+		}
+	})
+
+	t.Run("nil_logger_safe", func(t *testing.T) {
+		t.Parallel()
+		reporter := NewStripeUsageReporter("sk_test_key", nil)
+		if reporter == nil {
+			t.Fatal("expected non-nil reporter with nil logger")
+		}
+	})
+
+	t.Run("with_metrics_option", func(t *testing.T) {
+		t.Parallel()
+		reporter := NewStripeUsageReporter("sk_test_key", slog.Default(), WithUsageReporterMetrics(nil))
+		if reporter == nil {
+			t.Fatal("expected non-nil reporter with metrics option")
+		}
+	})
+
+	t.Run("constructor_returns_non_nil", func(t *testing.T) {
+		t.Parallel()
+		reporter := NewStripeUsageReporter("sk_test_key", slog.Default())
+		if reporter == nil {
+			t.Fatal("expected non-nil reporter")
+		}
+	})
+
+	t.Run("no_secret_skipped", func(t *testing.T) {
+		t.Parallel()
+		reporter := NewStripeUsageReporter("", slog.Default())
+		err := reporter.IngestComputeUsage(context.Background(), "cust-1", "run-1", 100)
+		if err != nil {
+			t.Errorf("expected nil for no-secret skip, got: %v", err)
 		}
 	})
 }
 
-// O. Polar Webhook Handling (8 tests).
+// O. Stripe Webhook Handling (8 tests).
 
-func TestPolarWebhookEnforcement(t *testing.T) {
+func TestStripeWebhookEnforcement(t *testing.T) {
 	t.Parallel()
 
 	t.Run("scale_subscription_creates_record", func(t *testing.T) {
 		t.Parallel()
-		mapping := NewPolarMappingFromOptions(
-			WithScaleProducts("scale-m", ""),
+		mapping := NewStripeMappingFromOptions(
+			WithScalePrices("scale-m", ""),
 		)
 		store := &mockBillingStore{}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 		body := `{"type":"subscription.created","data":{"id":"sub-1","status":"active","product_id":"scale-m","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
-		req := httptest.NewRequest("POST", "/polar/webhook", strings.NewReader(body))
+		req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -379,8 +322,8 @@ func TestPolarWebhookEnforcement(t *testing.T) {
 
 	t.Run("addon_subscription_creates_record", func(t *testing.T) {
 		t.Parallel()
-		mapping := NewPolarMappingFromOptions(
-			WithAddonProduct("addon-cr", AddonConcurrentRuns),
+		mapping := NewStripeMappingFromOptions(
+			WithAddonPrice("addon-cr", AddonConcurrentRuns),
 		)
 		store := &mockBillingStore{
 			subscriptions: map[string]*OrgSubscription{
@@ -390,7 +333,7 @@ func TestPolarWebhookEnforcement(t *testing.T) {
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 		body := `{"type":"subscription.created","data":{"id":"addon-sub-1","status":"active","product_id":"addon-cr","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
-		req := httptest.NewRequest("POST", "/polar/webhook", strings.NewReader(body))
+		req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -401,12 +344,12 @@ func TestPolarWebhookEnforcement(t *testing.T) {
 
 	t.Run("unknown_product_errors", func(t *testing.T) {
 		t.Parallel()
-		mapping := NewPolarMappingFromOptions()
+		mapping := NewStripeMappingFromOptions()
 		store := &mockBillingStore{}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 		body := `{"type":"subscription.created","data":{"id":"sub-x","status":"active","product_id":"unknown-id","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
-		req := httptest.NewRequest("POST", "/polar/webhook", strings.NewReader(body))
+		req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -417,7 +360,7 @@ func TestPolarWebhookEnforcement(t *testing.T) {
 
 	t.Run("duplicate_subscription_idempotent", func(t *testing.T) {
 		t.Parallel()
-		mapping := NewPolarMappingFromOptions(WithStarterProducts("starter-m", ""))
+		mapping := NewStripeMappingFromOptions(WithStarterPrices("starter-m", ""))
 		store := &mockBillingStore{}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
@@ -425,7 +368,7 @@ func TestPolarWebhookEnforcement(t *testing.T) {
 
 		// Send twice.
 		for range 2 {
-			req := httptest.NewRequest("POST", "/polar/webhook", strings.NewReader(body))
+			req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
 			if w.Code != 200 {

@@ -7,11 +7,11 @@ import (
 
 func TestValidateSubscriptionData_Valid(t *testing.T) {
 	t.Parallel()
-	err := validateSubscriptionData(PolarSubscriptionData{
+	err := validateStripeSubscription(testSubscriptionData{
 		ID:         "sub_1",
 		ProductID:  "prod_1",
 		CustomerID: "cust_1",
-	})
+	}.ToStripe())
 	if err != nil {
 		t.Fatalf("expected nil, got: %v", err)
 	}
@@ -19,11 +19,11 @@ func TestValidateSubscriptionData_Valid(t *testing.T) {
 
 func TestValidateSubscriptionData_EmptyID(t *testing.T) {
 	t.Parallel()
-	err := validateSubscriptionData(PolarSubscriptionData{
+	err := validateStripeSubscription(testSubscriptionData{
 		ID:         "",
 		ProductID:  "prod_1",
 		CustomerID: "cust_1",
-	})
+	}.ToStripe())
 	if err == nil {
 		t.Fatal("expected error for empty ID")
 	}
@@ -31,11 +31,11 @@ func TestValidateSubscriptionData_EmptyID(t *testing.T) {
 
 func TestValidateSubscriptionData_EmptyProductID(t *testing.T) {
 	t.Parallel()
-	err := validateSubscriptionData(PolarSubscriptionData{
+	err := validateStripeSubscription(testSubscriptionData{
 		ID:         "sub_1",
 		ProductID:  "",
 		CustomerID: "cust_1",
-	})
+	}.ToStripe())
 	if err == nil {
 		t.Fatal("expected error for empty product ID")
 	}
@@ -43,12 +43,12 @@ func TestValidateSubscriptionData_EmptyProductID(t *testing.T) {
 
 func TestValidateSubscriptionData_ProductFromNested(t *testing.T) {
 	t.Parallel()
-	err := validateSubscriptionData(PolarSubscriptionData{
+	err := validateStripeSubscription(testSubscriptionData{
 		ID:         "sub_1",
 		ProductID:  "",
-		Product:    &PolarProductData{ID: "prod_nested"},
+		Product:    &testProductData{ID: "prod_nested"},
 		CustomerID: "cust_1",
-	})
+	}.ToStripe())
 	if err != nil {
 		t.Fatalf("expected nil with nested product, got: %v", err)
 	}
@@ -56,11 +56,11 @@ func TestValidateSubscriptionData_ProductFromNested(t *testing.T) {
 
 func TestValidateSubscriptionData_EmptyCustomerID(t *testing.T) {
 	t.Parallel()
-	err := validateSubscriptionData(PolarSubscriptionData{
+	err := validateStripeSubscription(testSubscriptionData{
 		ID:         "sub_1",
 		ProductID:  "prod_1",
 		CustomerID: "",
-	})
+	}.ToStripe())
 	if err == nil {
 		t.Fatal("expected error for empty customer ID")
 	}
@@ -93,12 +93,12 @@ func TestIsValidUUID_Invalid(t *testing.T) {
 func TestResolveOrgID_ValidUUID(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("s", "", "p", "")
+	mapping := NewStripeMapping("s", "", "p", "")
 	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-	orgID := h.resolveOrgID(PolarSubscriptionData{
+	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "550e8400-e29b-41d4-a716-446655440000"},
-	})
+	}.ToStripe())
 	if orgID != "550e8400-e29b-41d4-a716-446655440000" {
 		t.Fatalf("expected valid UUID, got %q", orgID)
 	}
@@ -107,12 +107,12 @@ func TestResolveOrgID_ValidUUID(t *testing.T) {
 func TestResolveOrgID_InvalidUUID_ReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("s", "", "p", "")
+	mapping := NewStripeMapping("s", "", "p", "")
 	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-	orgID := h.resolveOrgID(PolarSubscriptionData{
+	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "not-a-uuid"},
-	})
+	}.ToStripe())
 	if orgID != "" {
 		t.Fatalf("expected empty for invalid UUID, got %q", orgID)
 	}
@@ -121,12 +121,12 @@ func TestResolveOrgID_InvalidUUID_ReturnsEmpty(t *testing.T) {
 func TestResolveOrgID_SQLInjection_ReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("s", "", "p", "")
+	mapping := NewStripeMapping("s", "", "p", "")
 	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-	orgID := h.resolveOrgID(PolarSubscriptionData{
+	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "'; DROP TABLE organizations; --"},
-	})
+	}.ToStripe())
 	if orgID != "" {
 		t.Fatalf("expected empty for SQL injection attempt, got %q", orgID)
 	}
@@ -167,13 +167,13 @@ func FuzzResolveOrgID(f *testing.F) {
 	f.Add("'; DROP TABLE orgs; --")
 
 	store := &mockBillingStore{}
-	mapping := NewPolarMapping("s", "", "p", "")
+	mapping := NewStripeMapping("s", "", "p", "")
 	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	f.Fuzz(func(t *testing.T, orgID string) {
-		result := h.resolveOrgID(PolarSubscriptionData{
+		result := h.resolveOrgID(testSubscriptionData{
 			Metadata: map[string]string{"org_id": orgID},
-		})
+		}.ToStripe())
 		if result != "" && !isValidUUID(result) {
 			t.Errorf("resolveOrgID returned non-UUID: %q", result)
 		}

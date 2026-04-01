@@ -58,37 +58,11 @@ function wellKnownOAuthPlugin(): Plugin {
   };
 }
 
-/**
- * Patches tsyringe's Reflect.metadata runtime check out of the bundle.
- *
- * `@polar-sh/sdk` depends on `tsyringe`, which asserts that `Reflect.getMetadata`
- * exists at module evaluation time. In Cloudflare Workers, `reflect-metadata`'s
- * side effects don't execute before tsyringe's check due to Rolldown's chunk
- * splitting. This plugin removes the check at build time since the polyfill
- * IS present in the bundle — just not yet executed when tsyringe runs.
- */
-function patchTsyringeReflectCheck(): Plugin {
-  return {
-    name: "patch-tsyringe-reflect-check",
-    enforce: "pre" as const,
-    transform(code) {
-      if (code.includes("tsyringe requires a reflect polyfill")) {
-        return code.replace(
-          /if\s*\(\s*typeof Reflect\s*===\s*"undefined"\s*\|\|\s*!Reflect\.getMetadata\s*\)\s*\{?\s*throw\s+new\s+Error\s*\([^)]*\)\s*;?\s*\}?/g,
-          "/* tsyringe reflect check removed for Cloudflare Workers */",
-        );
-      }
-      return null;
-    },
-  };
-}
-
 export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
   plugins: [
-    patchTsyringeReflectCheck(),
     cloudflare({ viteEnvironment: { name: "ssr" } }),
     wellKnownOAuthPlugin(),
     devtools(),

@@ -170,22 +170,22 @@ type Config struct {
 	OTLPMetricEndpoint string `env:"OTLP_METRIC_ENDPOINT"`
 	OTLPMetricEnabled  bool   `env:"OTLP_METRIC_ENABLED" default:"false"`
 
-	// Polar billing integration
-	PolarAccessToken           string `env:"POLAR_ACCESS_TOKEN"`
-	PolarWebhookSecret         string `env:"POLAR_API_WEBHOOK_SECRET"`
-	PolarServer                string `env:"POLAR_SERVER"`
-	PolarStarterMonthlyID      string `env:"POLAR_STARTER_MONTHLY_ID"`
-	PolarStarterYearlyID       string `env:"POLAR_STARTER_YEARLY_ID"`
-	PolarProMonthlyID          string `env:"POLAR_PRO_MONTHLY_ID"`
-	PolarProYearlyID           string `env:"POLAR_PRO_YEARLY_ID"`
-	PolarScaleMonthlyID        string `env:"POLAR_SCALE_MONTHLY_ID"`
-	PolarScaleYearlyID         string `env:"POLAR_SCALE_YEARLY_ID"`
-	PolarAddonConcurrentRuns   string `env:"POLAR_ADDON_CONCURRENT_RUNS_ID"`
-	PolarAddonMembers          string `env:"POLAR_ADDON_MEMBERS_ID"`
-	PolarAddonCronSchedules    string `env:"POLAR_ADDON_CRON_SCHEDULES_ID"`
-	PolarAddonDataRetention    string `env:"POLAR_ADDON_DATA_RETENTION_ID"`
-	PolarAddonWebhookEndpoints string `env:"POLAR_ADDON_WEBHOOK_ENDPOINTS_ID"`
-	BillingEnforcementEnabled  bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
+	// Stripe billing integration
+	StripeSecretKey               string `env:"STRIPE_SECRET_KEY"`
+	StripeWebhookSecret           string `env:"STRIPE_WEBHOOK_SECRET"`
+	StripeStarterMonthlyPriceID   string `env:"STRIPE_STARTER_MONTHLY_PRICE_ID"`
+	StripeStarterYearlyPriceID    string `env:"STRIPE_STARTER_YEARLY_PRICE_ID"`
+	StripeProMonthlyPriceID       string `env:"STRIPE_PRO_MONTHLY_PRICE_ID"`
+	StripeProYearlyPriceID        string `env:"STRIPE_PRO_YEARLY_PRICE_ID"`
+	StripeScaleMonthlyPriceID     string `env:"STRIPE_SCALE_MONTHLY_PRICE_ID"`
+	StripeScaleYearlyPriceID      string `env:"STRIPE_SCALE_YEARLY_PRICE_ID"`
+	StripeAddonConcurrentRunsID   string `env:"STRIPE_ADDON_CONCURRENT_RUNS_PRICE_ID"`
+	StripeAddonMembersID          string `env:"STRIPE_ADDON_MEMBERS_PRICE_ID"`
+	StripeAddonCronSchedulesID    string `env:"STRIPE_ADDON_CRON_SCHEDULES_PRICE_ID"`
+	StripeAddonDataRetentionID    string `env:"STRIPE_ADDON_DATA_RETENTION_PRICE_ID"`
+	StripeAddonWebhookEndpointsID string `env:"STRIPE_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID"`
+	StripeMeterID                 string `env:"STRIPE_METER_ID"`
+	BillingEnforcementEnabled     bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
 
 	// Resend email integration
 	ResendAPIKey    string `env:"RESEND_API_KEY"`
@@ -374,8 +374,8 @@ func (c *Config) Redacted() map[string]any {
 		"InternalSecret":         "[REDACTED]",
 		"JWTSigningKey":          "[REDACTED]",
 		"EncryptionKey":          "[REDACTED]",
-		"PolarAccessToken":       "[REDACTED]",
-		"PolarWebhookSecret":     "[REDACTED]",
+		"StripeSecretKey":        "[REDACTED]",
+		"StripeWebhookSecret":    "[REDACTED]",
 		"ResendAPIKey":           "[REDACTED]",
 		"PostHogAPIKey":          "[REDACTED]",
 		"SentryDSN":              "[REDACTED]",

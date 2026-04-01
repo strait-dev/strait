@@ -363,7 +363,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		return
 	}
 
-	// Record HTTP run cost for Polar billing (cloud only).
+	// Record HTTP run cost for Stripe billing (cloud only).
 	if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
 		e.recordHTTPRunCost(ctx, run, job)
 	}
@@ -372,7 +372,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 }
 
 // recordHTTPRunCost records the flat orchestration cost for an HTTP-mode run
-// and ingests a Polar event for metered billing.
+// and ingests a Stripe event for metered billing.
 func (e *Executor) recordHTTPRunCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
 	cost := billing.HTTPCostPerRunMicrousd
 
@@ -400,7 +400,7 @@ func (e *Executor) recordHTTPRunCost(ctx context.Context, run *domain.JobRun, jo
 		e.metrics.HTTPModeRunsCompleted.Add(ctx, 1)
 	}
 
-	e.ingestPolarUsageEvent(ctx, job.ProjectID, run.ID, cost)
+	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, cost)
 }
 
 // managedDispatch dispatches a job run to a container runtime (Fly Machines, Docker).
@@ -1069,7 +1069,7 @@ func (e *Executor) handleManagedFailure(ctx context.Context, run *domain.JobRun,
 }
 
 // recordComputeUsage records wall-clock time and cost for a managed run,
-// and ingests a usage event to Polar for metered billing.
+// and ingests a usage event to Stripe for metered billing.
 func (e *Executor) recordComputeUsage(ctx context.Context, run *domain.JobRun, job *domain.Job, result *compute.RunResult) {
 	var durationSecs float64
 	if result.StartedAt != nil && result.FinishedAt != nil {
@@ -1092,8 +1092,8 @@ func (e *Executor) recordComputeUsage(ctx context.Context, run *domain.JobRun, j
 		e.logger.Warn("failed to record compute usage", "run_id", run.ID, "error", err)
 	}
 
-	// Ingest usage event to Polar for metered billing (fire-and-forget).
-	e.ingestPolarUsageEvent(ctx, job.ProjectID, run.ID, cost)
+	// Ingest usage event to Stripe for metered billing (fire-and-forget).
+	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, cost)
 }
 
 // emitBudgetWarning inserts a run event warning that compute budget is nearing the limit.
@@ -1418,34 +1418,34 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 	return fallback, nil
 }
 
-// ingestPolarUsageEvent sends a usage event to Polar for metered billing.
+// ingestStripeUsageEvent sends a usage event to Stripe for metered billing.
 // Runs asynchronously to avoid blocking the run completion path.
-// Silently skips if no Polar ingester is configured (self-hosted / dev).
-func (e *Executor) ingestPolarUsageEvent(ctx context.Context, projectID, runID string, costMicroUSD int64) {
-	if e.polarIngester == nil || e.billingEnforcer == nil || costMicroUSD <= 0 {
+// Silently skips if no Stripe usage reporter is configured (self-hosted / dev).
+func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID string, costMicroUSD int64) {
+	if e.stripeUsageReporter == nil || e.billingEnforcer == nil || costMicroUSD <= 0 {
 		return
 	}
 
-	// Look up the org's Polar customer ID via the billing enforcer's store.
+	// Look up the org's Stripe customer ID via the billing enforcer's store.
 	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
 		return
 	}
 
-	polarCustomerID, err := e.billingEnforcer.GetPolarCustomerID(ctx, orgID)
-	if err != nil || polarCustomerID == "" {
+	stripeCustomerID, err := e.billingEnforcer.GetStripeCustomerID(ctx, orgID)
+	if err != nil || stripeCustomerID == "" {
 		return
 	}
 
-	// Fire-and-forget: don't block the run on Polar API latency.
+	// Fire-and-forget: don't block the run on Stripe API latency.
 	// Uses Background() intentionally — the parent request context may be canceled
-	// before the Polar API call completes, and we still want to record the usage.
-	// Tracked via polarWG for graceful shutdown.
-	e.polarWG.Go(func() {
+	// before the Stripe API call completes, and we still want to record the usage.
+	// Tracked via stripeUsageWG for graceful shutdown.
+	e.stripeUsageWG.Go(func() {
 		ingestCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := e.polarIngester.IngestComputeUsage(ingestCtx, polarCustomerID, runID, costMicroUSD); err != nil {
-			e.logger.Warn("failed to ingest polar usage event",
+		if err := e.stripeUsageReporter.IngestComputeUsage(ingestCtx, stripeCustomerID, runID, costMicroUSD); err != nil {
+			e.logger.Warn("failed to ingest stripe usage event",
 				"run_id", runID,
 				"cost_microusd", costMicroUSD,
 				"error", err,

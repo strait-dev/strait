@@ -795,10 +795,10 @@ func TestRunPoolPruner_NilRuntime_PanicFree(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// ingestPolarUsageEvent: with compute usage metadata (realistic data)
+// ingestStripeUsageEvent: with compute usage metadata (realistic data)
 // ---------------------------------------------------------------------------.
 
-func TestIngestPolarUsageEvent_PositiveCost_NoBillingEnforcer_NoOp(t *testing.T) {
+func TestIngestStripeUsageEvent_PositiveCost_NoBillingEnforcer_NoOp(t *testing.T) {
 	t.Parallel()
 
 	pool := NewPool(1)
@@ -809,11 +809,11 @@ func TestIngestPolarUsageEvent_PositiveCost_NoBillingEnforcer_NoOp(t *testing.T)
 		Queue:        &mockExecQueue{},
 		Store:        &mockExecutorStore{},
 		PollInterval: time.Millisecond,
-		// No BillingEnforcer, no PolarIngester
+		// No BillingEnforcer, no StripeUsageReporter
 	})
 
 	// Positive cost but no enforcer/ingester: silent no-op.
-	exec.ingestPolarUsageEvent(context.Background(), "proj-1", "run-1", 42000)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 42000)
 }
 
 // ---------------------------------------------------------------------------.

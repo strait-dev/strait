@@ -306,8 +306,8 @@ func TestPgStore_GetOrgSubscription(t *testing.T) {
 	_, err := testDB.Pool.Exec(ctx, `
 		UPDATE organization_subscriptions SET
 			plan_tier = 'pro',
-			polar_subscription_id = 'polar-sub-123',
-			polar_customer_id = 'polar-cust-456',
+			stripe_subscription_id = 'stripe-sub-123',
+			stripe_customer_id = 'stripe-cust-456',
 			status = 'active',
 			current_period_start = $2,
 			current_period_end = $3,
@@ -347,13 +347,13 @@ func TestPgStore_GetOrgSubscription(t *testing.T) {
 	if sub.PlanTier != "pro" {
 		t.Errorf("PlanTier = %q, want %q", sub.PlanTier, "pro")
 	}
-	// Field 4: PolarSubscriptionID
-	if sub.PolarSubscriptionID == nil || *sub.PolarSubscriptionID != "polar-sub-123" {
-		t.Errorf("PolarSubscriptionID = %v, want %q", sub.PolarSubscriptionID, "polar-sub-123")
+	// Field 4: StripeSubscriptionID
+	if sub.StripeSubscriptionID == nil || *sub.StripeSubscriptionID != "stripe-sub-123" {
+		t.Errorf("StripeSubscriptionID = %v, want %q", sub.StripeSubscriptionID, "stripe-sub-123")
 	}
-	// Field 5: PolarCustomerID
-	if sub.PolarCustomerID == nil || *sub.PolarCustomerID != "polar-cust-456" {
-		t.Errorf("PolarCustomerID = %v, want %q", sub.PolarCustomerID, "polar-cust-456")
+	// Field 5: StripeCustomerID
+	if sub.StripeCustomerID == nil || *sub.StripeCustomerID != "stripe-cust-456" {
+		t.Errorf("StripeCustomerID = %v, want %q", sub.StripeCustomerID, "stripe-cust-456")
 	}
 	// Field 6: Status
 	if sub.Status != "active" {
@@ -484,8 +484,8 @@ func TestPgStore_UpsertOrgSubscription(t *testing.T) {
 		ID:                    newID(),
 		OrgID:                 orgID,
 		PlanTier:              "pro",
-		PolarSubscriptionID:   ptr("polar-sub"),  //nolint:modernize
-		PolarCustomerID:       ptr("polar-cust"), //nolint:modernize
+		StripeSubscriptionID:   ptr("stripe-sub"),  //nolint:modernize
+		StripeCustomerID:       ptr("stripe-cust"), //nolint:modernize
 		Status:                "active",
 		CurrentPeriodStart:    &ps,
 		CurrentPeriodEnd:      &pe,
