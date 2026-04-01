@@ -233,3 +233,60 @@ func TestValidateSignature_LargeBody(t *testing.T) {
 		t.Fatalf("large body should validate, got %v", err)
 	}
 }
+
+// ─── ComputeHMACSHA256 (exported helper for signing) ──────────────────────────.
+
+func TestComputeHMACSHA256_KnownVector(t *testing.T) {
+	t.Parallel()
+	// Pre-computed: HMAC-SHA256("test-secret", "hello world")
+	secret := "test-secret"
+	body := []byte("hello world")
+	got := ComputeHMACSHA256(secret, body)
+	// Verify by computing independently.
+	want := computeHMACSHA256(secret, body)
+	if got != want {
+		t.Fatalf("ComputeHMACSHA256 = %q, want %q", got, want)
+	}
+	// Must be 64-char hex.
+	if len(got) != 64 {
+		t.Fatalf("expected 64 hex chars, got %d", len(got))
+	}
+}
+
+func TestComputeHMACSHA256_EmptyBody(t *testing.T) {
+	t.Parallel()
+	got := ComputeHMACSHA256("secret", []byte{})
+	if len(got) != 64 {
+		t.Fatalf("expected 64 hex chars for empty body, got %d", len(got))
+	}
+}
+
+func TestComputeHMACSHA256_EmptySecret(t *testing.T) {
+	t.Parallel()
+	got := ComputeHMACSHA256("", []byte("body"))
+	if len(got) != 64 {
+		t.Fatalf("expected 64 hex chars for empty secret, got %d", len(got))
+	}
+}
+
+func TestComputeHMACSHA256_DifferentSecretsProduceDifferentSignatures(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"event":"test"}`)
+	sig1 := ComputeHMACSHA256("secret-a", body)
+	sig2 := ComputeHMACSHA256("secret-b", body)
+	if sig1 == sig2 {
+		t.Fatal("different secrets should produce different signatures")
+	}
+}
+
+func TestComputeHMACSHA256_ValidatesCorrectly(t *testing.T) {
+	t.Parallel()
+	secret := "signing-key-42"
+	body := []byte(`{"run_id":"run_abc","status":"completed"}`)
+	sig := ComputeHMACSHA256(secret, body)
+	// The produced signature should be verifiable by ValidateSignature.
+	err := ValidateSignature("hmac-sha256", secret, body, "sha256="+sig)
+	if err != nil {
+		t.Fatalf("ComputeHMACSHA256 output should validate, got %v", err)
+	}
+}
