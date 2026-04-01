@@ -1249,7 +1249,7 @@ func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent
 	if agent == nil {
 		return
 	}
-	webhookURL := extractWebhookURL(agent.Config)
+	webhookURL := ExtractWebhookURL(agent.Config)
 	if webhookURL == "" {
 		return
 	}
@@ -1327,7 +1327,8 @@ func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent
 	}
 }
 
-func extractWebhookURL(config json.RawMessage) string {
+// ExtractWebhookURL reads the webhook_url from agent config after SSRF validation.
+func ExtractWebhookURL(config json.RawMessage) string {
 	if len(config) == 0 {
 		return ""
 	}

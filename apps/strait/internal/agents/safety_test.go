@@ -196,24 +196,24 @@ func TestSendMessageStoreErrorNotMasked(t *testing.T) {
 	}
 }
 
-// Tests: Fix 7: extractWebhookURL with various inputs.
+// Tests: Fix 7: ExtractWebhookURL with various inputs.
 
 func TestExtractWebhookURLEmpty(t *testing.T) {
 	t.Parallel()
-	if got := extractWebhookURL(nil); got != "" {
-		t.Fatalf("extractWebhookURL(nil) = %q", got)
+	if got := ExtractWebhookURL(nil); got != "" {
+		t.Fatalf("ExtractWebhookURL(nil) = %q", got)
 	}
-	if got := extractWebhookURL(json.RawMessage(`{}`)); got != "" {
-		t.Fatalf("extractWebhookURL({}) = %q", got)
+	if got := ExtractWebhookURL(json.RawMessage(`{}`)); got != "" {
+		t.Fatalf("ExtractWebhookURL({}) = %q", got)
 	}
-	if got := extractWebhookURL(json.RawMessage(`invalid`)); got != "" {
-		t.Fatalf("extractWebhookURL(invalid) = %q", got)
+	if got := ExtractWebhookURL(json.RawMessage(`invalid`)); got != "" {
+		t.Fatalf("ExtractWebhookURL(invalid) = %q", got)
 	}
 }
 
 func TestExtractWebhookURLValid(t *testing.T) {
 	t.Parallel()
-	got := extractWebhookURL(json.RawMessage(`{"webhook_url":"https://example.com/hook"}`))
+	got := ExtractWebhookURL(json.RawMessage(`{"webhook_url":"https://example.com/hook"}`))
 	if got != "https://example.com/hook" {
 		t.Fatalf("got %q, want https://example.com/hook", got)
 	}
@@ -221,7 +221,7 @@ func TestExtractWebhookURLValid(t *testing.T) {
 
 func TestExtractWebhookURLTrimsWhitespace(t *testing.T) {
 	t.Parallel()
-	got := extractWebhookURL(json.RawMessage(`{"webhook_url":"  https://example.com/hook  "}`))
+	got := ExtractWebhookURL(json.RawMessage(`{"webhook_url":"  https://example.com/hook  "}`))
 	if got != "https://example.com/hook" {
 		t.Fatalf("got %q, want trimmed URL", got)
 	}
@@ -276,7 +276,7 @@ func TestIsSafeWebhookURLBlocksSSRF(t *testing.T) {
 
 func TestExtractWebhookURLRejectsHTTP(t *testing.T) {
 	t.Parallel()
-	got := extractWebhookURL(json.RawMessage(`{"webhook_url":"http://example.com/hook"}`))
+	got := ExtractWebhookURL(json.RawMessage(`{"webhook_url":"http://example.com/hook"}`))
 	if got != "" {
 		t.Fatalf("http webhook should be rejected, got %q", got)
 	}
@@ -284,7 +284,7 @@ func TestExtractWebhookURLRejectsHTTP(t *testing.T) {
 
 func TestExtractWebhookURLRejectsInternalHosts(t *testing.T) {
 	t.Parallel()
-	got := extractWebhookURL(json.RawMessage(`{"webhook_url":"https://169.254.169.254/latest/"}`))
+	got := ExtractWebhookURL(json.RawMessage(`{"webhook_url":"https://169.254.169.254/latest/"}`))
 	if got != "" {
 		t.Fatalf("metadata endpoint should be rejected, got %q", got)
 	}

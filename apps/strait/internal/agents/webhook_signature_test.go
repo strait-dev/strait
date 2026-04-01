@@ -143,6 +143,73 @@ func TestExtractWebhookSecret_InvalidJSON(t *testing.T) {
 	}
 }
 
+// -- GenerateWebhookSecret tests.
+
+func TestGenerateWebhookSecret_Format(t *testing.T) {
+	t.Parallel()
+	secret := GenerateWebhookSecret()
+	if !strings.HasPrefix(secret, "whsec_") {
+		t.Fatalf("secret should start with whsec_, got %q", secret)
+	}
+	if len(secret) != 6+64 { // "whsec_" + 32 bytes hex.
+		t.Fatalf("secret length = %d, want 70", len(secret))
+	}
+}
+
+func TestGenerateWebhookSecret_Unique(t *testing.T) {
+	t.Parallel()
+	s1 := GenerateWebhookSecret()
+	s2 := GenerateWebhookSecret()
+	if s1 == s2 {
+		t.Fatal("two generated secrets should be different")
+	}
+}
+
+// -- SetWebhookSecret tests.
+
+func TestSetWebhookSecret_MergesIntoConfig(t *testing.T) {
+	t.Parallel()
+	config := json.RawMessage(`{"webhook_url":"https://example.com","temperature":0.2}`)
+	updated := SetWebhookSecret(config, "whsec_new123")
+
+	var cfg map[string]any
+	if err := json.Unmarshal(updated, &cfg); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if cfg["webhook_secret"] != "whsec_new123" {
+		t.Fatalf("webhook_secret = %v", cfg["webhook_secret"])
+	}
+	if cfg["webhook_url"] != "https://example.com" {
+		t.Fatal("existing webhook_url should be preserved")
+	}
+	if cfg["temperature"] != 0.2 {
+		t.Fatal("existing temperature should be preserved")
+	}
+}
+
+func TestSetWebhookSecret_EmptyConfig(t *testing.T) {
+	t.Parallel()
+	updated := SetWebhookSecret(nil, "whsec_abc")
+	var cfg map[string]any
+	if err := json.Unmarshal(updated, &cfg); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if cfg["webhook_secret"] != "whsec_abc" {
+		t.Fatalf("webhook_secret = %v", cfg["webhook_secret"])
+	}
+}
+
+func TestSetWebhookSecret_OverwritesExisting(t *testing.T) {
+	t.Parallel()
+	config := json.RawMessage(`{"webhook_secret":"old_secret"}`)
+	updated := SetWebhookSecret(config, "whsec_new")
+	var cfg map[string]any
+	_ = json.Unmarshal(updated, &cfg)
+	if cfg["webhook_secret"] != "whsec_new" {
+		t.Fatalf("webhook_secret = %v, want whsec_new", cfg["webhook_secret"])
+	}
+}
+
 // -- Fuzz test.
 
 func FuzzSignWebhookPayload(f *testing.F) {

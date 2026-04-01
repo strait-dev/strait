@@ -2,6 +2,7 @@ package agents
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -28,6 +29,30 @@ func SignWebhookPayload(secret string, body []byte, timestamp time.Time) string 
 	sig := hex.EncodeToString(mac.Sum(nil))
 
 	return fmt.Sprintf("t=%s,v1=%s", ts, sig)
+}
+
+// GenerateWebhookSecret creates a new webhook secret with the "whsec_" prefix.
+func GenerateWebhookSecret() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return "whsec_" + hex.EncodeToString(b)
+}
+
+// SetWebhookSecret merges a webhook secret into the agent config JSON.
+// Returns the updated config. Creates a new object if config is nil/empty.
+func SetWebhookSecret(config json.RawMessage, secret string) json.RawMessage {
+	var cfg map[string]any
+	if len(config) > 0 {
+		_ = json.Unmarshal(config, &cfg)
+	}
+	if cfg == nil {
+		cfg = make(map[string]any)
+	}
+	cfg["webhook_secret"] = secret
+	raw, _ := json.Marshal(cfg)
+	return raw
 }
 
 // ExtractWebhookSecret reads the webhook_secret from agent config.

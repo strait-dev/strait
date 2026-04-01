@@ -294,6 +294,8 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/recommendations/dismiss", TypedHandler(s, http.StatusNoContent, s.handleDismissRecommendation))
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", TypedHandler(s, http.StatusOK, s.handleGetAgentHealth))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/compare", TypedHandler(s, http.StatusOK, s.handleCompareAgentRuns))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Get("/webhook-secret", TypedHandler(s, http.StatusOK, s.handleGetWebhookSecret))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/webhook-secret/rotate", TypedHandler(s, http.StatusOK, s.handleRotateWebhookSecret))
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/runs/{runID}/replay", TypedHandler(s, http.StatusCreated, s.handleReplayAgentRun))
 			})
 		})

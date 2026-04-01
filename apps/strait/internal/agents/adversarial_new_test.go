@@ -189,7 +189,7 @@ func TestSendMessageCrossProjectRejected(t *testing.T) {
 func TestExtractWebhookURLWithNumericValue(t *testing.T) {
 	t.Parallel()
 	// webhook_url is a number, not a string.
-	got := extractWebhookURL(json.RawMessage(`{"webhook_url": 123}`))
+	got := ExtractWebhookURL(json.RawMessage(`{"webhook_url": 123}`))
 	if got != "" {
 		t.Fatalf("numeric webhook_url should return empty, got %q", got)
 	}
@@ -198,7 +198,7 @@ func TestExtractWebhookURLWithNumericValue(t *testing.T) {
 func TestExtractWebhookURLWithArrayConfig(t *testing.T) {
 	t.Parallel()
 	// Config is an array, not an object.
-	got := extractWebhookURL(json.RawMessage(`[1, 2, 3]`))
+	got := ExtractWebhookURL(json.RawMessage(`[1, 2, 3]`))
 	if got != "" {
 		t.Fatalf("array config should return empty, got %q", got)
 	}

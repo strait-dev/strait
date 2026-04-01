@@ -826,3 +826,87 @@ func (s *Server) handleGetAgentHealth(ctx context.Context, input *GetAgentHealth
 
 	return &GetAgentHealthOutput{Body: stats}, nil
 }
+
+type GetWebhookSecretInput struct {
+	AgentID string `path:"agentID"`
+}
+
+type GetWebhookSecretOutput struct {
+	Body struct {
+		WebhookURL    string `json:"webhook_url"`
+		WebhookSecret string `json:"webhook_secret"`
+		HasSecret     bool   `json:"has_secret"`
+	}
+}
+
+func (s *Server) handleGetWebhookSecret(ctx context.Context, input *GetWebhookSecretInput) (*GetWebhookSecretOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+
+	agent, agentErr := svc.GetAgent(ctx, projectID, input.AgentID)
+	if agentErr != nil {
+		return nil, mapAgentServiceError(agentErr)
+	}
+
+	webhookURL := agents.ExtractWebhookURL(agent.Config)
+	webhookSecret := agents.ExtractWebhookSecret(agent.Config)
+
+	out := &GetWebhookSecretOutput{}
+	out.Body.WebhookURL = webhookURL
+	out.Body.WebhookSecret = webhookSecret
+	out.Body.HasSecret = webhookSecret != ""
+	return out, nil
+}
+
+type RotateWebhookSecretInput struct {
+	AgentID string `path:"agentID"`
+}
+
+type RotateWebhookSecretOutput struct {
+	Body struct {
+		WebhookSecret string `json:"webhook_secret"`
+	}
+}
+
+func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWebhookSecretInput) (*RotateWebhookSecretOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+
+	agent, agentErr := svc.GetAgent(ctx, projectID, input.AgentID)
+	if agentErr != nil {
+		return nil, mapAgentServiceError(agentErr)
+	}
+
+	newSecret := agents.GenerateWebhookSecret()
+	updatedConfig := agents.SetWebhookSecret(agent.Config, newSecret)
+
+	_, updateErr := svc.UpdateAgent(ctx, agents.UpdateAgentRequest{
+		ProjectID:   projectID,
+		AgentID:     agent.ID,
+		Name:        agent.Name,
+		Slug:        agent.Slug,
+		Description: agent.Description,
+		Model:       agent.Model,
+		Config:      updatedConfig,
+		Actor:       actorFromContext(ctx),
+	})
+	if updateErr != nil {
+		return nil, mapAgentServiceError(updateErr)
+	}
+
+	out := &RotateWebhookSecretOutput{}
+	out.Body.WebhookSecret = newSecret
+	return out, nil
+}
