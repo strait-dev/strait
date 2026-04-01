@@ -311,7 +311,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Record successful webhook processing in DB for cross-restart idempotency.
 	if msgID != "" {
-		_ = h.store.RecordProcessedWebhook(r.Context(), msgID)
+		if recordErr := h.store.RecordProcessedWebhook(r.Context(), msgID); recordErr != nil {
+			h.logger.Warn("failed to record processed webhook", "msg_id", msgID, "error", recordErr)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

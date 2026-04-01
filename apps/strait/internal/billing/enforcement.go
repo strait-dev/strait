@@ -732,7 +732,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {
 		e.logger.Warn("failed to sum org period spend", "org_id", orgID, "error", err)
-		return nil
+		return e.boundedFailOpen(ctx, orgID, "spending_limit", "db_spend_error")
 	}
 
 	overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
