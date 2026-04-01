@@ -1099,6 +1099,25 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleExportAuditEvents)
 
+	// -- Data Export --
+	RegisterTypedOp(api, OpMeta{
+		ID: "export-jobs", Method: http.MethodGet, Path: "/v1/export/jobs",
+		Summary: "Export jobs", Description: "Streams all job definitions for the current project as JSON or NDJSON.",
+		Tags: []string{"Export"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
+	}, s.handleExportJobs)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "export-runs", Method: http.MethodGet, Path: "/v1/export/runs",
+		Summary: "Export runs", Description: "Streams run history for the current project within a time window as JSON, NDJSON, or CSV.",
+		Tags: []string{"Export"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
+	}, s.handleExportRuns)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "export-workflows", Method: http.MethodGet, Path: "/v1/export/workflows",
+		Summary: "Export workflows", Description: "Streams all workflow definitions for the current project as JSON or NDJSON.",
+		Tags: []string{"Export"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
+	}, s.handleExportWorkflows)
+
 	RegisterTypedOp(api, OpMeta{
 		ID: "verify-audit-chain", Method: http.MethodGet, Path: "/v1/audit-events/verify",
 		Summary: "Verify audit chain", Description: "Verifies the integrity of the audit event hash chain.",

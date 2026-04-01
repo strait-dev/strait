@@ -469,6 +469,12 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/verify", TypedHandler(s, http.StatusOK, s.handleVerifyAuditChain))
 		})
 
+		r.Route("/export", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", TypedHandler(s, http.StatusOK, s.handleExportJobs))
+			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/runs", TypedHandler(s, http.StatusOK, s.handleExportRuns))
+			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/workflows", TypedHandler(s, http.StatusOK, s.handleExportWorkflows))
+		})
+
 		r.Route("/resource-policies", func(r chi.Router) {
 			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeRBACManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateResourcePolicy))
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListResourcePolicies))
