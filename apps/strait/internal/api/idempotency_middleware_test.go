@@ -48,12 +48,16 @@ func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
 
 	ms := &APIStoreMock{
 		TryAcquireIdempotencyKeyFunc: func(_ context.Context, projectID, key string, _ time.Duration) (string, int, []byte, error) {
-			if projectID != "proj-1" || key != "my-key" {
-				t.Fatalf("unexpected args: %s %s", projectID, key)
+			if projectID != "proj-1" {
+				t.Fatalf("unexpected project: %s", projectID)
+			}
+			// Key should be composite: path:key
+			if !strings.Contains(key, "my-key") {
+				t.Fatalf("expected key to contain 'my-key', got %s", key)
 			}
 			return "acquired", 0, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, projectID, key string, status int, body []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, status int, body []byte) error {
 			if status != http.StatusCreated {
 				t.Fatalf("expected status 201, got %d", status)
 			}
@@ -179,8 +183,8 @@ func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
-			if key != "x-header-key" {
-				t.Fatalf("expected x-header-key, got %s", key)
+			if !strings.Contains(key, "x-header-key") {
+				t.Fatalf("expected key to contain x-header-key, got %s", key)
 			}
 			return "acquired", 0, nil, nil
 		},
@@ -204,5 +208,74 @@ func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", w.Code)
+	}
+}
+
+func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
+	t.Parallel()
+	var deleteCalled bool
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
+			return "acquired", 0, nil, nil
+		},
+		DeleteIdempotencyKeyFunc: func(_ context.Context, _, _ string) (int64, error) {
+			deleteCalled = true
+			return 1, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"something broke"}`))
+	})
+	wrapped := srv.idempotencyMiddleware(handler)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
+	r.Header.Set("Idempotency-Key", "fail-key")
+	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	w := httptest.NewRecorder()
+
+	wrapped.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+	if !deleteCalled {
+		t.Fatal("expected DeleteIdempotencyKey to be called for error response")
+	}
+	if len(ms.CompleteIdempotencyKeyCalls()) != 0 {
+		t.Fatal("CompleteIdempotencyKey should NOT be called for error response")
+	}
+}
+
+func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
+	t.Parallel()
+	var capturedKey string
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
+			capturedKey = key
+			return "acquired", 0, nil, nil
+		},
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ []byte) error {
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	})
+	wrapped := srv.idempotencyMiddleware(handler)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
+	r.Header.Set("Idempotency-Key", "same-key")
+	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	w := httptest.NewRecorder()
+
+	wrapped.ServeHTTP(w, r)
+
+	if capturedKey != "/v1/jobs:same-key" {
+		t.Fatalf("expected composite key '/v1/jobs:same-key', got %q", capturedKey)
 	}
 }

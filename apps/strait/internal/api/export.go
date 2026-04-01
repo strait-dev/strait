@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -42,12 +43,18 @@ func (s *Server) handleExportJobs(ctx context.Context, input *ExportJobsInput) (
 
 	flusher, canFlush := w.(http.Flusher)
 
+	// sanitizeJob strips secrets before export serialization.
+	sanitizeJob := func(job *domain.Job) {
+		job.WebhookSecret = ""
+	}
+
 	switch format {
 	case "ndjson":
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Content-Disposition", "attachment; filename=jobs.ndjson")
 		enc := json.NewEncoder(w)
-		_ = s.store.StreamJobs(ctx, projectID, func(job *domain.Job) error {
+		if err := s.store.StreamJobs(ctx, projectID, func(job *domain.Job) error {
+			sanitizeJob(job)
 			if err := enc.Encode(job); err != nil {
 				return err
 			}
@@ -55,12 +62,15 @@ func (s *Server) handleExportJobs(ctx context.Context, input *ExportJobsInput) (
 				flusher.Flush()
 			}
 			return nil
-		})
+		}); err != nil {
+			slog.Error("export stream interrupted", "type", "jobs", "project_id", projectID, "error", err)
+		}
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Disposition", "attachment; filename=jobs.json")
 		streamJSON(w, flusher, canFlush, func(write func(any) error) error {
 			return s.store.StreamJobs(ctx, projectID, func(job *domain.Job) error {
+				sanitizeJob(job)
 				return write(job)
 			})
 		})
@@ -122,7 +132,7 @@ func (s *Server) handleExportRuns(ctx context.Context, input *ExportRunsInput) (
 		w.Header().Set("Content-Disposition", "attachment; filename=runs.csv")
 		cw := csv.NewWriter(w)
 		_ = cw.Write([]string{"id", "job_id", "status", "attempt", "triggered_by", "created_at", "started_at", "finished_at", "error"})
-		_ = s.store.StreamRuns(ctx, projectID, from, to, func(run *domain.JobRun) error {
+		if err := s.store.StreamRuns(ctx, projectID, from, to, func(run *domain.JobRun) error {
 			startedAt := ""
 			if run.StartedAt != nil {
 				startedAt = run.StartedAt.Format(time.RFC3339Nano)
@@ -136,7 +146,9 @@ func (s *Server) handleExportRuns(ctx context.Context, input *ExportRunsInput) (
 				run.TriggeredBy, run.CreatedAt.Format(time.RFC3339Nano),
 				startedAt, finishedAt, run.Error,
 			})
-		})
+		}); err != nil {
+			slog.Error("export stream interrupted", "type", "runs", "format", "csv", "project_id", projectID, "error", err)
+		}
 		cw.Flush()
 		if canFlush {
 			flusher.Flush()
@@ -145,7 +157,7 @@ func (s *Server) handleExportRuns(ctx context.Context, input *ExportRunsInput) (
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Content-Disposition", "attachment; filename=runs.ndjson")
 		enc := json.NewEncoder(w)
-		_ = s.store.StreamRuns(ctx, projectID, from, to, func(run *domain.JobRun) error {
+		if err := s.store.StreamRuns(ctx, projectID, from, to, func(run *domain.JobRun) error {
 			if err := enc.Encode(run); err != nil {
 				return err
 			}
@@ -153,7 +165,9 @@ func (s *Server) handleExportRuns(ctx context.Context, input *ExportRunsInput) (
 				flusher.Flush()
 			}
 			return nil
-		})
+		}); err != nil {
+			slog.Error("export stream interrupted", "type", "runs", "format", "ndjson", "project_id", projectID, "error", err)
+		}
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Disposition", "attachment; filename=runs.json")
@@ -198,7 +212,7 @@ func (s *Server) handleExportWorkflows(ctx context.Context, input *ExportWorkflo
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Content-Disposition", "attachment; filename=workflows.ndjson")
 		enc := json.NewEncoder(w)
-		_ = s.store.StreamWorkflows(ctx, projectID, func(wf *domain.Workflow) error {
+		if err := s.store.StreamWorkflows(ctx, projectID, func(wf *domain.Workflow) error {
 			if err := enc.Encode(wf); err != nil {
 				return err
 			}
@@ -206,7 +220,9 @@ func (s *Server) handleExportWorkflows(ctx context.Context, input *ExportWorkflo
 				flusher.Flush()
 			}
 			return nil
-		})
+		}); err != nil {
+			slog.Error("export stream interrupted", "type", "workflows", "project_id", projectID, "error", err)
+		}
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Disposition", "attachment; filename=workflows.json")

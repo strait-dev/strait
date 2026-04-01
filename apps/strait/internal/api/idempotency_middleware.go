@@ -16,10 +16,14 @@ const idempotencyKeyTTL = 24 * time.Hour
 // idempotencyMiddleware intercepts POST requests that carry an Idempotency-Key
 // (or X-Idempotency-Key) header. It implements the insert-pending-first pattern:
 //
-//  1. Try to INSERT a pending row for the (project_id, key) pair.
+//  1. Try to INSERT a pending row for the (project_id, compositeKey) pair.
 //  2. If acquired, execute the handler, capture the response, and UPDATE the row.
 //  3. If completed, replay the cached response with an Idempotency-Replayed header.
 //  4. If pending (another request is processing), return 409 Conflict.
+//
+// The composite key includes the request path to prevent cross-endpoint replay.
+// Only 2xx responses are cached; error responses delete the pending row so
+// the key can be retried.
 func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("Idempotency-Key")
@@ -43,7 +47,10 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		status, respStatus, respBody, err := s.store.TryAcquireIdempotencyKey(r.Context(), projectID, key, idempotencyKeyTTL)
+		// Scope the key to the request path to prevent cross-endpoint replay.
+		compositeKey := r.URL.Path + ":" + key
+
+		status, respStatus, respBody, err := s.store.TryAcquireIdempotencyKey(r.Context(), projectID, compositeKey, idempotencyKeyTTL)
 		if err != nil {
 			slog.Error("idempotency key acquire failed", "key", key, "project_id", projectID, "error", err)
 			next.ServeHTTP(w, r)
@@ -65,10 +72,27 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 
 		case store.IdempotencyAcquired:
 			cw := &captureWriter{ResponseWriter: w}
-			next.ServeHTTP(cw, r)
 
-			if err := s.store.CompleteIdempotencyKey(r.Context(), projectID, key, cw.statusCode, cw.body.Bytes()); err != nil {
-				slog.Error("idempotency key complete failed", "key", key, "project_id", projectID, "error", err)
+			// If the handler panics, clean up the pending row so the key
+			// can be retried instead of being stuck for the full TTL.
+			panicked := true
+			defer func() {
+				if panicked {
+					_, _ = s.store.DeleteIdempotencyKey(r.Context(), projectID, compositeKey)
+				}
+			}()
+
+			next.ServeHTTP(cw, r)
+			panicked = false
+
+			// Only cache 2xx responses. Error responses delete the pending
+			// row so the client can retry with the same key.
+			if cw.statusCode >= 200 && cw.statusCode < 300 {
+				if completeErr := s.store.CompleteIdempotencyKey(r.Context(), projectID, compositeKey, cw.statusCode, cw.body.Bytes()); completeErr != nil {
+					slog.Error("idempotency key complete failed", "key", key, "project_id", projectID, "error", completeErr)
+				}
+			} else {
+				_, _ = s.store.DeleteIdempotencyKey(r.Context(), projectID, compositeKey)
 			}
 			return
 
@@ -82,18 +106,22 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 // while still writing to the original writer.
 type captureWriter struct {
 	http.ResponseWriter
-	statusCode int
-	body       bytes.Buffer
+	statusCode  int
+	body        bytes.Buffer
+	wroteHeader bool
 }
 
 func (cw *captureWriter) WriteHeader(code int) {
-	cw.statusCode = code
-	cw.ResponseWriter.WriteHeader(code)
+	if !cw.wroteHeader {
+		cw.statusCode = code
+		cw.wroteHeader = true
+		cw.ResponseWriter.WriteHeader(code)
+	}
 }
 
 func (cw *captureWriter) Write(b []byte) (int, error) {
-	if cw.statusCode == 0 {
-		cw.statusCode = http.StatusOK
+	if !cw.wroteHeader {
+		cw.WriteHeader(http.StatusOK)
 	}
 	cw.body.Write(b)
 	return cw.ResponseWriter.Write(b)

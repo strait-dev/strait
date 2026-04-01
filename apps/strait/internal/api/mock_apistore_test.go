@@ -217,6 +217,9 @@ var _ APIStore = &APIStoreMock{}
 //			DeleteEventTriggersFinishedBeforeFunc: func(ctx context.Context, before time.Time, limit int) (int64, error) {
 //				panic("mock out the DeleteEventTriggersFinishedBefore method")
 //			},
+//			DeleteIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string) (int64, error) {
+//				panic("mock out the DeleteIdempotencyKey method")
+//			},
 //			DeleteJobFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the DeleteJob method")
 //			},
@@ -982,6 +985,9 @@ type APIStoreMock struct {
 
 	// DeleteEventTriggersFinishedBeforeFunc mocks the DeleteEventTriggersFinishedBefore method.
 	DeleteEventTriggersFinishedBeforeFunc func(ctx context.Context, before time.Time, limit int) (int64, error)
+
+	// DeleteIdempotencyKeyFunc mocks the DeleteIdempotencyKey method.
+	DeleteIdempotencyKeyFunc func(ctx context.Context, projectID string, key string) (int64, error)
 
 	// DeleteJobFunc mocks the DeleteJob method.
 	DeleteJobFunc func(ctx context.Context, id string) error
@@ -2073,6 +2079,15 @@ type APIStoreMock struct {
 			Before time.Time
 			// Limit is the limit argument value.
 			Limit int
+		}
+		// DeleteIdempotencyKey holds details about calls to the DeleteIdempotencyKey method.
+		DeleteIdempotencyKey []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Key is the key argument value.
+			Key string
 		}
 		// DeleteJob holds details about calls to the DeleteJob method.
 		DeleteJob []struct {
@@ -3914,6 +3929,7 @@ type APIStoreMock struct {
 	lockDeleteEventSource                  sync.RWMutex
 	lockDeleteEventSubscription            sync.RWMutex
 	lockDeleteEventTriggersFinishedBefore  sync.RWMutex
+	lockDeleteIdempotencyKey               sync.RWMutex
 	lockDeleteJob                          sync.RWMutex
 	lockDeleteJobDependency                sync.RWMutex
 	lockDeleteJobGroup                     sync.RWMutex
@@ -6800,6 +6816,50 @@ func (mock *APIStoreMock) DeleteEventTriggersFinishedBeforeCalls() []struct {
 	mock.lockDeleteEventTriggersFinishedBefore.RLock()
 	calls = mock.calls.DeleteEventTriggersFinishedBefore
 	mock.lockDeleteEventTriggersFinishedBefore.RUnlock()
+	return calls
+}
+
+// DeleteIdempotencyKey calls DeleteIdempotencyKeyFunc.
+func (mock *APIStoreMock) DeleteIdempotencyKey(ctx context.Context, projectID string, key string) (int64, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		Key       string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		Key:       key,
+	}
+	mock.lockDeleteIdempotencyKey.Lock()
+	mock.calls.DeleteIdempotencyKey = append(mock.calls.DeleteIdempotencyKey, callInfo)
+	mock.lockDeleteIdempotencyKey.Unlock()
+	if mock.DeleteIdempotencyKeyFunc == nil {
+		var (
+			nOut   int64
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.DeleteIdempotencyKeyFunc(ctx, projectID, key)
+}
+
+// DeleteIdempotencyKeyCalls gets all the calls that were made to DeleteIdempotencyKey.
+// Check the length with:
+//
+//	len(mockedAPIStore.DeleteIdempotencyKeyCalls())
+func (mock *APIStoreMock) DeleteIdempotencyKeyCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	Key       string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		Key       string
+	}
+	mock.lockDeleteIdempotencyKey.RLock()
+	calls = mock.calls.DeleteIdempotencyKey
+	mock.lockDeleteIdempotencyKey.RUnlock()
 	return calls
 }
 

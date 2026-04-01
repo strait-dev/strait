@@ -182,6 +182,7 @@ type RunStore interface {
 	// General-purpose idempotency keys (not run-specific).
 	TryAcquireIdempotencyKey(ctx context.Context, projectID, key string, ttl time.Duration) (string, int, []byte, error)
 	CompleteIdempotencyKey(ctx context.Context, projectID, key string, responseStatus int, responseBody []byte) error
+	DeleteIdempotencyKey(ctx context.Context, projectID, key string) (int64, error)
 
 	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
 	CreateBatchOperation(ctx context.Context, op *domain.BatchOperation) error

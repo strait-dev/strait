@@ -31,7 +31,8 @@ func (q *Queries) StreamJobs(ctx context.Context, projectID string, fn func(*dom
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE project_id = $1
-		ORDER BY created_at ASC`
+		ORDER BY created_at ASC
+		LIMIT 1000000`
 
 	rows, err := q.db.Query(ctx, query, projectID)
 	if err != nil {
@@ -61,7 +62,8 @@ func (q *Queries) StreamWorkflows(ctx context.Context, projectID string, fn func
 		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE project_id = $1
-		ORDER BY created_at ASC`
+		ORDER BY created_at ASC
+		LIMIT 1000000`
 
 	rows, err := q.db.Query(ctx, query, projectID)
 	if err != nil {
@@ -96,7 +98,8 @@ func (q *Queries) StreamRuns(ctx context.Context, projectID string, from, to tim
 		WHERE project_id = $1
 		  AND created_at >= $2
 		  AND created_at <= $3
-		ORDER BY created_at ASC`
+		ORDER BY created_at ASC
+		LIMIT 1000000`
 
 	rows, err := q.db.Query(ctx, query, projectID, from, to)
 	if err != nil {

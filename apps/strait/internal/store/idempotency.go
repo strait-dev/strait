@@ -110,14 +110,39 @@ func (q *Queries) CompleteIdempotencyKey(ctx context.Context, projectID, key str
 	return nil
 }
 
+// DeleteIdempotencyKey removes a single idempotency key. Used to clean up
+// pending rows after handler errors or panics.
+func (q *Queries) DeleteIdempotencyKey(ctx context.Context, projectID, key string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteIdempotencyKey")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `DELETE FROM idempotency_keys WHERE project_id = $1 AND key = $2`, projectID, key)
+	if err != nil {
+		return 0, fmt.Errorf("delete idempotency key: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // CleanExpiredIdempotencyKeys removes idempotency keys that have passed their TTL.
+// Deletes in batches of 10000 to avoid holding table-level locks for extended periods.
 func (q *Queries) CleanExpiredIdempotencyKeys(ctx context.Context) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CleanExpiredIdempotencyKeys")
 	defer span.End()
 
-	tag, err := q.db.Exec(ctx, `DELETE FROM idempotency_keys WHERE expires_at < NOW()`)
-	if err != nil {
-		return 0, fmt.Errorf("clean expired idempotency keys: %w", err)
+	var total int64
+	for {
+		tag, err := q.db.Exec(ctx, `
+			DELETE FROM idempotency_keys WHERE ctid IN (
+				SELECT ctid FROM idempotency_keys WHERE expires_at < NOW() LIMIT 10000
+			)`)
+		if err != nil {
+			return total, fmt.Errorf("clean expired idempotency keys: %w", err)
+		}
+		n := tag.RowsAffected()
+		total += n
+		if n < 10000 {
+			break
+		}
 	}
-	return tag.RowsAffected(), nil
+	return total, nil
 }
