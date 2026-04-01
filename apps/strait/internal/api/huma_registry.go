@@ -704,6 +704,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Webhooks"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleDeleteWebhookSubscription)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "rotate-webhook-secret", Method: http.MethodPost, Path: "/v1/webhooks/subscriptions/{id}/rotate-secret",
+		Summary: "Rotate webhook signing secret", Description: "Rotates the HMAC signing secret for a webhook subscription with a grace period during which both old and new signatures are sent.",
+		Tags: []string{"Webhooks"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleRotateWebhookSecret)
+
 	// -- Notifications --
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-notification-channel", Method: http.MethodPost, Path: "/v1/notification-channels",
