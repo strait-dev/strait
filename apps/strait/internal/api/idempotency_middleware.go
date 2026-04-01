@@ -62,7 +62,7 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Idempotency-Replayed", "true")
 			w.WriteHeader(respStatus)
-			_, _ = w.Write(respBody)
+			_, _ = w.Write(respBody) // #nosec G705 -- respBody is our own cached JSON response, not user-controlled
 			return
 
 		case store.IdempotencyPending:
