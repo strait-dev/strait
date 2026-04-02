@@ -360,6 +360,22 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		h.enforcer.InvalidateOrgCache(orgID)
 	}
 
+	// Detect plan transitions (e.g. Scale -> Enterprise) for audit logging.
+	if tier == domain.PlanEnterprise {
+		existing, existErr := h.store.GetOrgSubscription(ctx, orgID)
+		if existErr == nil && existing != nil && existing.PlanTier != string(tier) {
+			h.logAuditEvent(ctx, "subscription.upgraded_to_enterprise", orgID, map[string]string{
+				"previous_plan":          existing.PlanTier,
+				"new_plan":               string(tier),
+				"stripe_subscription_id": sub.ID,
+			})
+			h.logger.Info("plan upgraded to enterprise",
+				"org_id", orgID,
+				"previous_plan", existing.PlanTier,
+			)
+		}
+	}
+
 	// For enterprise plans, create the enterprise contract based on the price's sub-tier.
 	if tier == domain.PlanEnterprise {
 		if entTier, ok := EnterpriseTierForPrice(priceID); ok {
