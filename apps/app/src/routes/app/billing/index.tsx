@@ -6,10 +6,12 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
 import AddonsTab from "@/components/billing/addons-tab";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
+import { EnterpriseOverview } from "@/components/billing/enterprise-overview";
 import ProjectCostsTab from "@/components/billing/project-costs-tab";
 import SpendingLimitSetupBanner from "@/components/billing/spending-limit-setup-banner";
 import SpendingLimitsTab from "@/components/billing/spending-limits-tab";
@@ -57,6 +59,8 @@ export const Route = createFileRoute("/app/billing/")({
 
 function RouteComponent() {
   usePageEvent("billing_viewed");
+  const { data: orgUsage } = useQuery(orgUsageQueryOptions());
+  const isEnterprise = orgUsage?.plan === "enterprise";
 
   return (
     <Shell>
@@ -69,6 +73,18 @@ function RouteComponent() {
             Monitor usage, costs, and spending across your organization.
           </p>
         </div>
+
+        {isEnterprise && orgUsage?.enterprise_tier ? (
+          <EnterpriseOverview
+            computeDiscountPct={orgUsage.compute_discount_pct ?? 0}
+            contractEndDate={orgUsage.contract_end_date ?? ""}
+            creditUsedPercent={orgUsage.credit_used_percent}
+            enterpriseTier={orgUsage.enterprise_tier}
+            includedCreditMicro={orgUsage.included_credit_microusd}
+            periodSpendMicro={orgUsage.period_spend_microusd}
+            slaUptimePct={orgUsage.sla_uptime_pct ?? 0}
+          />
+        ) : null}
 
         <SpendingLimitSetupBanner />
 
