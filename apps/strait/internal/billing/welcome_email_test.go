@@ -68,3 +68,92 @@ func FuzzWelcomeEmailHTML(f *testing.F) {
 		}
 	})
 }
+
+func TestEnterpriseWelcomeEmailHTML_ContainsCSM(t *testing.T) {
+	t.Parallel()
+	output := enterpriseWelcomeEmailHTML()
+	if !strings.Contains(output, "Customer Success Manager") {
+		t.Fatal("enterprise welcome email should mention CSM")
+	}
+}
+
+func TestEnterpriseWelcomeEmailHTML_ContainsOnboarding(t *testing.T) {
+	t.Parallel()
+	output := enterpriseWelcomeEmailHTML()
+	if !strings.Contains(output, "onboarding") {
+		t.Fatal("enterprise welcome email should mention onboarding")
+	}
+}
+
+func TestEnterpriseWelcomeEmailHTML_ContainsSSO(t *testing.T) {
+	t.Parallel()
+	output := enterpriseWelcomeEmailHTML()
+	if !strings.Contains(output, "SSO") {
+		t.Fatal("enterprise welcome email should mention SSO")
+	}
+}
+
+func TestEnterpriseWelcomeEmailHTML_ContainsSCIM(t *testing.T) {
+	t.Parallel()
+	output := enterpriseWelcomeEmailHTML()
+	if !strings.Contains(output, "SCIM") {
+		t.Fatal("enterprise welcome email should mention SCIM")
+	}
+}
+
+func TestEnterpriseWelcomeEmailHTML_ContainsSLA(t *testing.T) {
+	t.Parallel()
+	output := enterpriseWelcomeEmailHTML()
+	if !strings.Contains(output, "SLA") {
+		t.Fatal("enterprise welcome email should mention SLA")
+	}
+}
+
+func TestEnterpriseWelcomeEmailHTML_ContainsDedicatedCompute(t *testing.T) {
+	t.Parallel()
+	output := enterpriseWelcomeEmailHTML()
+	if !strings.Contains(output, "Dedicated compute") {
+		t.Fatal("enterprise welcome email should mention dedicated compute")
+	}
+}
+
+func TestCreditDisplayUSD_Enterprise(t *testing.T) {
+	t.Parallel()
+	got := creditDisplayUSD("enterprise")
+	if got != "Custom (per contract)" {
+		t.Errorf("creditDisplayUSD(enterprise) = %q, want %q", got, "Custom (per contract)")
+	}
+}
+
+func TestCreditDisplayUSD_StarterUnchanged(t *testing.T) {
+	t.Parallel()
+	got := creditDisplayUSD("starter")
+	if got != "$19.99" {
+		t.Errorf("creditDisplayUSD(starter) = %q, want %q", got, "$19.99")
+	}
+}
+
+func TestContractRenewalHTML_ContainsDate(t *testing.T) {
+	t.Parallel()
+	output := contractRenewalHTML("April 1, 2027", 30)
+	if !strings.Contains(output, "April 1, 2027") {
+		t.Fatal("contract renewal email should contain the end date")
+	}
+	if !strings.Contains(output, "auto-renew") {
+		t.Fatal("contract renewal email should mention auto-renew")
+	}
+}
+
+func TestContractExpiryHTML_ContainsDate(t *testing.T) {
+	t.Parallel()
+	output := contractExpiryHTML("April 1, 2027", 7)
+	if !strings.Contains(output, "April 1, 2027") {
+		t.Fatal("contract expiry email should contain the end date")
+	}
+	if !strings.Contains(output, "expires") {
+		t.Fatal("contract expiry email should mention expiration")
+	}
+	if !strings.Contains(output, "Scale") {
+		t.Fatal("contract expiry email should mention fallback to Scale plan")
+	}
+}

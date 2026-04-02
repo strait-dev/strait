@@ -19,6 +19,8 @@ func creditDisplayUSD(tier domain.PlanTier) string {
 		return "$49.99"
 	case domain.PlanScale:
 		return "$99.00"
+	case domain.PlanEnterprise:
+		return "Custom (per contract)"
 	default:
 		return "$0.00"
 	}
@@ -56,7 +58,12 @@ func NewResendWelcomeEmailFunc(apiKey, fromEmail string) WelcomeEmailFunc {
 		credit := creditDisplayUSD(tier)
 		subject := fmt.Sprintf("Welcome to Strait %s!", name)
 
-		body := welcomeEmailHTML(name, credit)
+		var body string
+		if tier == domain.PlanEnterprise {
+			body = enterpriseWelcomeEmailHTML()
+		} else {
+			body = welcomeEmailHTML(name, credit)
+		}
 
 		_, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
 			From:    fromEmail,
@@ -111,4 +118,46 @@ func welcomeEmailHTML(planName, includedCredit string) string {
       </td>
     </tr>`, safePlan, safeCredit)
 	return billingEmailWrapper(fmt.Sprintf("Welcome to Strait %s!", safePlan), body)
+}
+
+// enterpriseWelcomeEmailHTML returns the HTML body for the enterprise plan welcome email.
+// Mentions dedicated CSM, onboarding, SSO/SCIM setup, and enterprise features.
+func enterpriseWelcomeEmailHTML() string {
+	body := `<tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        Welcome to Strait Enterprise. Your dedicated Customer Success Manager will reach out within 1 business day to schedule your onboarding session.
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        Your Enterprise plan includes:
+      </td>
+    </tr>
+    <tr><td style="height:8px;"></td></tr>
+    <tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.8;">
+        &bull; <strong style="color:#252525;">Dedicated compute</strong> &mdash; isolated infrastructure for your workloads<br/>
+        &bull; <strong style="color:#252525;">SSO/SAML + SCIM</strong> &mdash; your CSM will assist with IdP configuration<br/>
+        &bull; <strong style="color:#252525;">99.9%+ SLA</strong> with automatic service credits<br/>
+        &bull; <strong style="color:#252525;">Priority support</strong> &mdash; P1: 1h, P2: 4h, P3: 24h response<br/>
+        &bull; <strong style="color:#252525;">Static IPs, VPC peering, data residency</strong><br/>
+        &bull; <strong style="color:#252525;">Dedicated Slack channel</strong> for direct engineering support
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td>
+        <a href="https://app.usestrait.com/app/billing" style="display:inline-block;padding:10px 24px;background-color:#171717;color:#FFFFFF;font-size:14px;font-weight:500;text-decoration:none;border-radius:4px;">
+          View billing dashboard
+        </a>
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        If you have any questions before your onboarding session, reply to this email or contact us at <a href="mailto:leo@strait.dev" style="color:#171717;text-decoration:underline;">leo@strait.dev</a>.
+      </td>
+    </tr>`
+	return billingEmailWrapper("Welcome to Strait Enterprise!", body)
 }

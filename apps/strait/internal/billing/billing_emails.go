@@ -75,6 +75,63 @@ func (s *BillingEmailSender) SendPlanChanged(ctx context.Context, to []string, p
 	s.send(ctx, to, subject, body)
 }
 
+// SendEnterpriseContractReminder sends a contract renewal or expiry reminder email.
+// If autoRenew is true, the email is a renewal notice. Otherwise it is an expiry warning.
+func (s *BillingEmailSender) SendEnterpriseContractReminder(ctx context.Context, to []string, contractEndDate string, autoRenew bool, daysRemaining int) {
+	if s == nil || len(to) == 0 {
+		return
+	}
+	var subject, body string
+	if autoRenew {
+		subject = fmt.Sprintf("Enterprise contract renewing in %d days", daysRemaining)
+		body = contractRenewalHTML(contractEndDate, daysRemaining)
+	} else {
+		subject = fmt.Sprintf("Enterprise contract expiring in %d days", daysRemaining)
+		body = contractExpiryHTML(contractEndDate, daysRemaining)
+	}
+	s.send(ctx, to, subject, body)
+}
+
+func contractRenewalHTML(endDate string, daysRemaining int) string {
+	safeDate := html.EscapeString(endDate)
+	body := fmt.Sprintf(`<tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        Your Enterprise contract is set to auto-renew on <strong style="color:#252525;">%s</strong> (%d days from now).
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        No action is required. Your contract terms will continue unchanged. If you need to modify your contract, contact your Customer Success Manager or email <a href="mailto:leo@strait.dev" style="color:#171717;text-decoration:underline;">leo@strait.dev</a>.
+      </td>
+    </tr>`, safeDate, daysRemaining)
+	return billingEmailWrapper("Contract renewal notice", body)
+}
+
+func contractExpiryHTML(endDate string, daysRemaining int) string {
+	safeDate := html.EscapeString(endDate)
+	body := fmt.Sprintf(`<tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        Your Enterprise contract expires on <strong style="color:#252525;">%s</strong> (%d days from now).
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        After expiry, your organization will be moved to the Scale plan. To renew your Enterprise contract, contact your Customer Success Manager or email <a href="mailto:leo@strait.dev" style="color:#171717;text-decoration:underline;">leo@strait.dev</a>.
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td>
+        <a href="mailto:leo@strait.dev" style="display:inline-block;padding:10px 24px;background-color:#171717;color:#FFFFFF;font-size:14px;font-weight:500;text-decoration:none;border-radius:4px;">
+          Contact sales
+        </a>
+      </td>
+    </tr>`, safeDate, daysRemaining)
+	return billingEmailWrapper("Enterprise contract expiring soon", body)
+}
+
 func (s *BillingEmailSender) send(ctx context.Context, to []string, subject, htmlBody string) {
 	_, err := s.client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
 		From:    s.fromEmail,
