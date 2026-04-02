@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http/httptest"
 	"strings"
@@ -304,7 +305,7 @@ func TestStripeWebhookEnforcement(t *testing.T) {
 		store := &mockBillingStore{}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-		body := `{"type":"subscription.created","data":{"id":"sub-1","status":"active","product_id":"scale-m","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
+		body := `{"id":"evt-scale","type":"customer.subscription.created","data":{"object":{"id":"sub-1","status":"active","items":{"data":[{"price":{"id":"scale-m"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}}`
 		req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -332,7 +333,7 @@ func TestStripeWebhookEnforcement(t *testing.T) {
 		}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-		body := `{"type":"subscription.created","data":{"id":"addon-sub-1","status":"active","product_id":"addon-cr","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
+		body := `{"id":"evt-addon","type":"customer.subscription.created","data":{"object":{"id":"addon-sub-1","status":"active","items":{"data":[{"price":{"id":"addon-cr"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}}`
 		req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -348,7 +349,7 @@ func TestStripeWebhookEnforcement(t *testing.T) {
 		store := &mockBillingStore{}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-		body := `{"type":"subscription.created","data":{"id":"sub-x","status":"active","product_id":"unknown-id","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
+		body := `{"id":"evt-unknown","type":"customer.subscription.created","data":{"object":{"id":"sub-x","status":"active","items":{"data":[{"price":{"id":"unknown-id"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}}`
 		req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -364,10 +365,11 @@ func TestStripeWebhookEnforcement(t *testing.T) {
 		store := &mockBillingStore{}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-		body := `{"type":"subscription.created","data":{"id":"sub-dup","status":"active","product_id":"starter-m","customer_id":"cust-1","customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}`
+		bodyTpl := `{"id":"evt-dup-%d","type":"customer.subscription.created","data":{"object":{"id":"sub-dup","status":"active","items":{"data":[{"price":{"id":"starter-m"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}}`
 
-		// Send twice.
-		for range 2 {
+		// Send twice with unique event IDs to avoid replay dedup.
+		for i := range 2 {
+			body := fmt.Sprintf(bodyTpl, i)
 			req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)

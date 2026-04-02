@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -114,27 +114,16 @@ func (m *advMockAuditStore) CreateAuditEvent(_ context.Context, ev *domain.Audit
 
 func buildSignedWebhookRequest(t *testing.T, secret string, payload []byte) *http.Request {
 	t.Helper()
-	msgID := "msg_adversarial"
 	ts := fmt.Sprintf("%d", time.Now().Unix())
 
-	secretStr := secret
-	if len(secretStr) > 6 && secretStr[:6] == "whsec_" {
-		secretStr = secretStr[6:]
-	}
-	key, err := base64.StdEncoding.DecodeString(secretStr)
-	if err != nil {
-		t.Fatalf("decode secret: %v", err)
-	}
-
-	signedContent := fmt.Sprintf("%s.%s.%s", msgID, ts, string(payload))
-	mac := hmac.New(sha256.New, key)
+	// Stripe webhook signature: HMAC-SHA256(timestamp + "." + payload, secret).
+	signedContent := ts + "." + string(payload)
+	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(signedContent))
-	sig := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	sig := hex.EncodeToString(mac.Sum(nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(payload))
-	req.Header.Set("webhook-id", msgID)
-	req.Header.Set("webhook-timestamp", ts)
-	req.Header.Set("webhook-signature", sig)
+	req.Header.Set("Stripe-Signature", fmt.Sprintf("t=%s,v1=%s", ts, sig))
 	return req
 }
 
@@ -171,7 +160,7 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000020"},
 	}
 
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 
 	// First delivery.
 	rr := httptest.NewRecorder()
@@ -241,7 +230,7 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-000000000021"},
 	}
 
-	body := webhookPayload(t, "subscription.updated", data)
+	body := webhookPayload(t, "customer.subscription.updated", data)
 
 	// First delivery: upgrade starter -> pro.
 	rr1 := httptest.NewRecorder()
@@ -481,7 +470,7 @@ func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
 		CurrentPeriodEnd:   &periodEnd,
 		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-000000000022"},
 	}
-	body := webhookPayload(t, "subscription.updated", data)
+	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -521,7 +510,7 @@ func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
 		CanceledAt: &canceledAt,
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000023"},
 	}
-	body := webhookPayload(t, "subscription.canceled", data)
+	body := webhookPayload(t, "customer.subscription.deleted", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -638,7 +627,7 @@ func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
 		CustomerID: "cust_no_org",
 		Metadata:   map[string]string{}, // no org_id
 	}
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
@@ -669,7 +658,7 @@ func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
 			Metadata: map[string]string{"org_id": "00000000-0000-0000-0000-000000000025"},
 		},
 	}
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
@@ -742,7 +731,7 @@ func TestWebhook_UnknownProductID(t *testing.T) {
 		CustomerID: "cust_unknown",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000026"},
 	}
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
@@ -767,7 +756,7 @@ func TestWebhook_ProductFromNestedObject(t *testing.T) {
 		Product:    &testProductData{ID: "pro-id", Name: "Pro"},
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000027"},
 	}
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -851,7 +840,7 @@ func TestWebhook_ConcurrentCreatedEvents(t *testing.T) {
 		ProductID:  "starter-id",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000028"},
 	}
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 
 	var wg sync.WaitGroup
 	var errCount atomic.Int64
@@ -968,7 +957,7 @@ func TestWebhook_UpsertErrorOnCreate(t *testing.T) {
 		CustomerID: "cust_err",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000029"},
 	}
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
@@ -993,7 +982,7 @@ func TestWebhook_GetSubErrorOnUpdated(t *testing.T) {
 		Status:     "active",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002a"},
 	}
-	body := webhookPayload(t, "subscription.updated", data)
+	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
@@ -1028,7 +1017,7 @@ func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
 		CustomerID: "cust_fall",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002b"},
 	}
-	body := webhookPayload(t, "subscription.updated", data)
+	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
@@ -1056,7 +1045,7 @@ func TestWebhook_AuditStoreError(t *testing.T) {
 		CustomerID: "cust_audit_err",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002c"},
 	}
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
@@ -1362,7 +1351,7 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 		CurrentPeriodEnd:   &periodEnd,
 		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-00000000002d"},
 	}
-	body := webhookPayload(t, "subscription.updated", data)
+	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -1409,7 +1398,7 @@ func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
 		CurrentPeriodEnd:   &periodEnd,
 		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-00000000002e"},
 	}
-	body := webhookPayload(t, "subscription.updated", data)
+	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -1511,25 +1500,20 @@ func TestWebhook_MultipleSignaturesInHeader(t *testing.T) {
 		CustomerID: "cust_multisig",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000031"},
 	}
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 
-	// Build a valid signature.
-	msgID := "msg_multi"
+	// Build a valid Stripe signature.
 	ts := fmt.Sprintf("%d", time.Now().Unix())
-	rawSecret := base64.StdEncoding.EncodeToString([]byte("test-webhook-secret-key-1234567"))
-	key, _ := base64.StdEncoding.DecodeString(rawSecret)
-	signedContent := fmt.Sprintf("%s.%s.%s", msgID, ts, string(body))
-	mac := hmac.New(sha256.New, key)
+	signedContent := ts + "." + string(body)
+	mac := hmac.New(sha256.New, []byte(testSecret))
 	mac.Write([]byte(signedContent))
-	validSig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	validSig := hex.EncodeToString(mac.Sum(nil))
 
-	// Put invalid sig first, valid sig second.
-	sigHeader := "v1,invalidsig v1," + validSig
+	// Stripe supports multiple v1 signatures separated by commas.
+	sigHeader := fmt.Sprintf("t=%s,v1=invalidsig,v1=%s", ts, validSig)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
-	req.Header.Set("webhook-id", msgID)
-	req.Header.Set("webhook-timestamp", ts)
-	req.Header.Set("webhook-signature", sigHeader)
+	req.Header.Set("Stripe-Signature", sigHeader)
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -1545,20 +1529,16 @@ func TestWebhook_FutureTimestamp(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	body := []byte(`{"type":"subscription.created","data":{}}`)
+	body := []byte(`{"type":"customer.subscription.created","data":{}}`)
 	futureTS := fmt.Sprintf("%d", time.Now().Add(10*time.Minute).Unix())
 
-	rawSecret := base64.StdEncoding.EncodeToString([]byte("test-webhook-secret-key-1234567"))
-	key, _ := base64.StdEncoding.DecodeString(rawSecret)
-	signedContent := fmt.Sprintf("msg_future.%s.%s", futureTS, string(body))
-	mac := hmac.New(sha256.New, key)
+	signedContent := futureTS + "." + string(body)
+	mac := hmac.New(sha256.New, []byte(testSecret))
 	mac.Write([]byte(signedContent))
-	sig := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	sig := fmt.Sprintf("t=%s,v1=%s", futureTS, hex.EncodeToString(mac.Sum(nil)))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
-	req.Header.Set("webhook-id", "msg_future")
-	req.Header.Set("webhook-timestamp", futureTS)
-	req.Header.Set("webhook-signature", sig)
+	req.Header.Set("Stripe-Signature", sig)
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -1574,10 +1554,9 @@ func TestWebhook_NonNumericTimestamp(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	body := []byte(`{"type":"subscription.created","data":{}}`)
+	body := []byte(`{"type":"customer.subscription.created","data":{}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
-	req.Header.Set("webhook-id", "msg_badts")
-	req.Header.Set("webhook-timestamp", "not-a-number")
+	req.Header.Set("Stripe-Signature", "t=not-a-number,v1=invalidsig")
 	req.Header.Set("webhook-signature", "v1,anything")
 
 	rr := httptest.NewRecorder()
@@ -1823,7 +1802,7 @@ func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000032"},
 		Customer:   &testCustomerData{ID: "cust_welcome", Email: "welcome@example.com"},
 	}
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -1868,7 +1847,7 @@ func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000033"},
 		// Customer is nil, so email is empty.
 	}
-	body := webhookPayload(t, "subscription.created", data)
+	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -2295,7 +2274,7 @@ func TestWebhook_CancelNonExistentOrg(t *testing.T) {
 		CustomerID: "cust_noexist",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000034"},
 	}
-	body := webhookPayload(t, "subscription.canceled", data)
+	body := webhookPayload(t, "customer.subscription.deleted", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -2379,7 +2358,7 @@ func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
 		Status:     "active",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000035"},
 	}
-	body := webhookPayload(t, "subscription.updated", data)
+	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
@@ -2422,7 +2401,7 @@ func TestWebhook_UpdatedEmptyStatusDefaultsActive(t *testing.T) {
 		CurrentPeriodEnd:   &pe,
 		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-000000000036"},
 	}
-	body := webhookPayload(t, "subscription.updated", data)
+	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {

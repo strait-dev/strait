@@ -213,7 +213,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Verify Stripe webhook signature.
 	sigHeader := r.Header.Get("Stripe-Signature")
 	if h.secret != "" {
-		if _, err := stripeWebhook.ConstructEvent(body, sigHeader, h.secret); err != nil {
+		if _, err := stripeWebhook.ConstructEventWithOptions(body, sigHeader, h.secret, stripeWebhook.ConstructEventOptions{
+			IgnoreAPIVersionMismatch: true,
+		}); err != nil {
 			h.logger.Warn("invalid stripe webhook signature", "error", err)
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
 			return

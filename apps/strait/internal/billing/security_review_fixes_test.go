@@ -160,7 +160,7 @@ func TestWebhook_RecordProcessedWebhookError_StillReturns200(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
 		WithEdition("community"))
 
-	body := `{"type":"subscription.created","data":{"id":"sub_record_err","product_id":"starter-id","customer_id":"cust_1","status":"active","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}`
+	body := `{"id":"evt-record-err","type":"customer.subscription.created","data":{"object":{"id":"sub_record_err","status":"active","items":{"data":[{"price":{"id":"starter-id"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust_1","email":"test@example.com","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
 	req.Header.Set("webhook-id", "msg_record_err_test")
 	rec := httptest.NewRecorder()
@@ -191,7 +191,7 @@ func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
 		WithEdition("community"))
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_record_ok",
 			ProductID:  "starter-id",
@@ -226,7 +226,7 @@ func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
 
 	// Send a webhook with unknown product ID -- handler will return error.
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_err",
 			ProductID:  "unknown-product-id",

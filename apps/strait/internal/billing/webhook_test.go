@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -19,29 +20,19 @@ import (
 	"strait/internal/domain"
 )
 
-// signStandardWebhook creates Standard Webhooks headers for a test request.
-func signStandardWebhook(t *testing.T, secret string, body []byte) (msgID, timestamp, signature string) {
+// signStripeWebhook creates a Stripe-Signature header value for a test request.
+func signStripeWebhook(t *testing.T, secret string, body []byte) string {
 	t.Helper()
-	msgID = "msg_test123"
-	ts := time.Now().Unix()
-	timestamp = fmt.Sprintf("%d", ts)
-
-	// Decode secret (strip whsec_ prefix, base64-decode).
-	key, err := base64.StdEncoding.DecodeString(secret)
-	if err != nil {
-		t.Fatalf("failed to decode secret: %v", err)
-	}
-
-	signedContent := fmt.Sprintf("%s.%s.%s", msgID, timestamp, string(body))
-	mac := hmac.New(sha256.New, key)
+	ts := fmt.Sprintf("%d", time.Now().Unix())
+	signedContent := ts + "." + string(body)
+	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(signedContent))
-	sig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
-	signature = "v1," + sig
-	return msgID, timestamp, signature
+	sig := hex.EncodeToString(mac.Sum(nil))
+	return fmt.Sprintf("t=%s,v1=%s", ts, sig)
 }
 
-// testSecret is a base64-encoded HMAC key with whsec_ prefix for tests.
-var testSecret = "whsec_" + base64.StdEncoding.EncodeToString([]byte("test-webhook-secret-key-1234567"))
+// testSecret is the webhook signing secret used in tests.
+var testSecret = "whsec_test_secret_for_unit_tests_only"
 
 func TestWebhookHandler_VerifySignature(t *testing.T) {
 	t.Parallel()
@@ -50,15 +41,13 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	body := []byte(`{"type":"subscription.created","data":{}}`)
+	body := []byte(`{"type":"customer.subscription.created","data":{}}`)
 
 	t.Run("valid_signature", func(t *testing.T) {
 		t.Parallel()
-		msgID, ts, sig := signStandardWebhook(t, base64.StdEncoding.EncodeToString([]byte("test-webhook-secret-key-1234567")), body)
+		sig := signStripeWebhook(t, testSecret, body)
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
-		req.Header.Set("webhook-id", msgID)
-		req.Header.Set("webhook-timestamp", ts)
-		req.Header.Set("webhook-signature", sig)
+		req.Header.Set("Stripe-Signature", sig)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		if rr.Code == http.StatusUnauthorized {
@@ -69,9 +58,7 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 	t.Run("invalid_signature", func(t *testing.T) {
 		t.Parallel()
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
-		req.Header.Set("webhook-id", "msg_test")
-		req.Header.Set("webhook-timestamp", fmt.Sprintf("%d", time.Now().Unix()))
-		req.Header.Set("webhook-signature", "v1,invalidsig")
+		req.Header.Set("Stripe-Signature", "t=1234567890,v1=invalidsig")
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		if rr.Code != http.StatusUnauthorized {
@@ -92,16 +79,13 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 	t.Run("expired_timestamp", func(t *testing.T) {
 		t.Parallel()
 		oldTS := fmt.Sprintf("%d", time.Now().Add(-10*time.Minute).Unix())
-		key, _ := base64.StdEncoding.DecodeString(base64.StdEncoding.EncodeToString([]byte("test-webhook-secret-key-1234567")))
-		signedContent := fmt.Sprintf("msg_old.%s.%s", oldTS, string(body))
-		mac := hmac.New(sha256.New, key)
+		signedContent := oldTS + "." + string(body)
+		mac := hmac.New(sha256.New, []byte(testSecret))
 		mac.Write([]byte(signedContent))
-		sig := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+		sig := fmt.Sprintf("t=%s,v1=%s", oldTS, hex.EncodeToString(mac.Sum(nil)))
 
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
-		req.Header.Set("webhook-id", "msg_old")
-		req.Header.Set("webhook-timestamp", oldTS)
-		req.Header.Set("webhook-signature", sig)
+		req.Header.Set("Stripe-Signature", sig)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		if rr.Code != http.StatusUnauthorized {
@@ -118,7 +102,7 @@ func TestWebhookHandler_SubscriptionCreated(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_123",
 			ProductID:  "pro-id",
@@ -242,7 +226,7 @@ func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_idem",
 			ProductID:  "starter-id",
@@ -292,7 +276,7 @@ func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 
 	// Re-deliver the same subscription.created webhook.
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_dup",
 			ProductID:  "starter-id",
@@ -350,7 +334,7 @@ func TestWebhook_UpdatedRefreshesPeriodDates(t *testing.T) {
 	newEnd := time.Date(2025, 2, 28, 0, 0, 0, 0, time.UTC)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.updated",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:                 "sub_period",
 			ProductID:          "starter-id",
@@ -402,7 +386,7 @@ func TestWebhook_DowngradeDeferred(t *testing.T) {
 
 	// Update from pro to starter (downgrade).
 	payload := StripeWebhookPayload{
-		Type: "subscription.updated",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_down",
 			ProductID:  "starter-id",
@@ -454,7 +438,7 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 
 	// Update from starter to pro (upgrade).
 	payload := StripeWebhookPayload{
-		Type: "subscription.updated",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_up",
 			ProductID:  "pro-id",
@@ -513,7 +497,7 @@ func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.updated",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_reactivate",
 			ProductID:  "pro-id",
@@ -560,7 +544,7 @@ func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
 
 	now := time.Now()
 	payload := StripeWebhookPayload{
-		Type: "subscription.canceled",
+		Type: "customer.subscription.deleted",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_cancel",
 			ProductID:  "pro-id",
@@ -606,7 +590,7 @@ func TestWebhook_CanceledWithNoPriorSubscription(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.canceled",
+		Type: "customer.subscription.deleted",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_noexist",
 			ProductID:  "pro-id",
@@ -645,7 +629,7 @@ func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) 
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 		payload := StripeWebhookPayload{
-			Type: "subscription.created",
+			Type: "customer.subscription.created",
 			Data: mustJSON(t, testSubscriptionData{
 				ID:         "sub_starter",
 				ProductID:  "starter-id",
@@ -683,7 +667,7 @@ func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) 
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 		payload := StripeWebhookPayload{
-			Type: "subscription.created",
+			Type: "customer.subscription.created",
 			Data: mustJSON(t, testSubscriptionData{
 				ID:         "sub_pro",
 				ProductID:  "pro-id",
@@ -741,7 +725,7 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 			WithWelcomeEmail(welcomeFn))
 
 		payload := StripeWebhookPayload{
-			Type: "subscription.created",
+			Type: "customer.subscription.created",
 			Data: mustJSON(t, testSubscriptionData{
 				ID:         "sub_welcome",
 				ProductID:  "starter-id",
@@ -804,7 +788,7 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 			WithWelcomeEmail(welcomeFn))
 
 		payload := StripeWebhookPayload{
-			Type: "subscription.created",
+			Type: "customer.subscription.created",
 			Data: mustJSON(t, testSubscriptionData{
 				ID:         "sub_noemail",
 				ProductID:  "starter-id",
@@ -844,7 +828,7 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 		payload := StripeWebhookPayload{
-			Type: "subscription.created",
+			Type: "customer.subscription.created",
 			Data: mustJSON(t, testSubscriptionData{
 				ID:         "sub_nofn",
 				ProductID:  "starter-id",
@@ -900,7 +884,7 @@ func TestWebhook_SubscriptionCreated_CreatesAuditEvent(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_audit",
 			ProductID:  "pro-id",
@@ -924,7 +908,7 @@ func TestWebhook_SubscriptionCreated_CreatesAuditEvent(t *testing.T) {
 	if len(audit.events) != 1 {
 		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
 	}
-	if audit.events[0].Action != "subscription.created" {
+	if audit.events[0].Action != "customer.subscription.created" {
 		t.Errorf("action = %q, want subscription.created", audit.events[0].Action)
 	}
 }
@@ -938,7 +922,7 @@ func TestWebhook_SubscriptionCreated_AuditDetails_ContainsPlanTier(t *testing.T)
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_details",
 			ProductID:  "pro-id",
@@ -992,7 +976,7 @@ func TestWebhook_SubscriptionUpdated_Upgrade_AuditHasPreviousTier(t *testing.T) 
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.updated",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_upgrade_audit",
 			ProductID:  "pro-id",
@@ -1046,7 +1030,7 @@ func TestWebhook_SubscriptionUpdated_Downgrade_AuditHasPendingTier(t *testing.T)
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.updated",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_down_audit",
 			ProductID:  "starter-id",
@@ -1101,7 +1085,7 @@ func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
 
 	now := time.Now()
 	payload := StripeWebhookPayload{
-		Type: "subscription.canceled",
+		Type: "customer.subscription.deleted",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_cancel_audit",
 			ProductID:  "pro-id",
@@ -1126,7 +1110,7 @@ func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
 	if len(audit.events) != 1 {
 		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
 	}
-	if audit.events[0].Action != "subscription.canceled" {
+	if audit.events[0].Action != "customer.subscription.deleted" {
 		t.Errorf("action = %q, want subscription.canceled", audit.events[0].Action)
 	}
 }
@@ -1186,7 +1170,7 @@ func TestWebhook_AuditStore_Nil_DoesNotPanic(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_nil_audit",
 			ProductID:  "pro-id",
@@ -1218,7 +1202,7 @@ func TestWebhook_AuditEvent_HasCorrectResourceType(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_restype",
 			ProductID:  "pro-id",
@@ -1275,7 +1259,7 @@ func TestWebhook_PaymentFailed_SetsGracePeriod72h(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.updated",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_pastdue",
 			ProductID:  "pro-id",
@@ -1331,7 +1315,7 @@ func TestWebhook_PaymentFailed_StatusBecomesGrace(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.updated",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_grace",
 			ProductID:  "starter-id",
@@ -1431,7 +1415,7 @@ func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.updated",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_extend",
 			ProductID:  "pro-id",
@@ -1484,7 +1468,7 @@ func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.updated",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_free_pay",
 			ProductID:  "starter-id",
@@ -1524,7 +1508,7 @@ func TestWebhook_EmptySecretCloudMode_Rejects(t *testing.T) {
 		WithEdition("cloud"))
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_1",
 			ProductID:  "starter-id",
@@ -1555,7 +1539,7 @@ func TestWebhook_EmptySecretCommunityMode_Allows(t *testing.T) {
 		WithEdition("community"))
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_1",
 			ProductID:  "starter-id",
@@ -1586,7 +1570,7 @@ func TestWebhook_EmptySecretDefaultEdition_Allows(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
-		Type: "subscription.created",
+		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_1",
 			ProductID:  "starter-id",
@@ -1621,7 +1605,7 @@ func FuzzWebhookSignatureHeader(f *testing.F) {
 	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil, nil)
 
 	f.Fuzz(func(t *testing.T, sigHeader string) {
-		payload := `{"type":"subscription.created","data":{"id":"sub_1","product_id":"starter-id","customer_id":"cust_1","status":"active","metadata":{"org_id":"00000000-0000-0000-0000-00000000001d"}}}`
+		payload := `{"type":"customer.subscription.created","data":{"id":"sub_1","product_id":"starter-id","customer_id":"cust_1","status":"active","metadata":{"org_id":"00000000-0000-0000-0000-00000000001d"}}}`
 		req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(payload))
 		req.Header.Set("webhook-id", "msg_test")
 		req.Header.Set("webhook-timestamp", strconv.FormatInt(time.Now().Unix(), 10))
