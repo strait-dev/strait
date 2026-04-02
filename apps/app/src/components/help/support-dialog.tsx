@@ -49,7 +49,7 @@ const supportAction = createServerFn({ method: "POST" })
     async ({ data, context }) =>
       await getResend().emails.send({
         from: "Support <hello@usestrait.com>",
-        to: "leo@usestrait.com",
+        to: "leo@strait.dev",
         subject: `Support — ${data.email}`,
         react: Support({
           ...data,

@@ -89,6 +89,7 @@ func (s *Server) handleGetPlans(_ context.Context, _ *struct{}) (*GetPlansOutput
 		domain.PlanFree,
 		domain.PlanStarter,
 		domain.PlanPro,
+		domain.PlanScale,
 		domain.PlanEnterprise,
 	}
 

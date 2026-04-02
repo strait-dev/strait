@@ -171,21 +171,24 @@ type Config struct {
 	OTLPMetricEnabled  bool   `env:"OTLP_METRIC_ENABLED" default:"false"`
 
 	// Stripe billing integration
-	StripeSecretKey               string `env:"STRIPE_SECRET_KEY"`
-	StripeWebhookSecret           string `env:"STRIPE_WEBHOOK_SECRET"`
-	StripeStarterMonthlyPriceID   string `env:"STRIPE_STARTER_MONTHLY_PRICE_ID"`
-	StripeStarterYearlyPriceID    string `env:"STRIPE_STARTER_YEARLY_PRICE_ID"`
-	StripeProMonthlyPriceID       string `env:"STRIPE_PRO_MONTHLY_PRICE_ID"`
-	StripeProYearlyPriceID        string `env:"STRIPE_PRO_YEARLY_PRICE_ID"`
-	StripeScaleMonthlyPriceID     string `env:"STRIPE_SCALE_MONTHLY_PRICE_ID"`
-	StripeScaleYearlyPriceID      string `env:"STRIPE_SCALE_YEARLY_PRICE_ID"`
-	StripeAddonConcurrentRunsID   string `env:"STRIPE_ADDON_CONCURRENT_RUNS_PRICE_ID"`
-	StripeAddonMembersID          string `env:"STRIPE_ADDON_MEMBERS_PRICE_ID"`
-	StripeAddonCronSchedulesID    string `env:"STRIPE_ADDON_CRON_SCHEDULES_PRICE_ID"`
-	StripeAddonDataRetentionID    string `env:"STRIPE_ADDON_DATA_RETENTION_PRICE_ID"`
-	StripeAddonWebhookEndpointsID string `env:"STRIPE_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID"`
-	StripeMeterID                 string `env:"STRIPE_METER_ID"`
-	BillingEnforcementEnabled     bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
+	StripeSecretKey                      string `env:"STRIPE_SECRET_KEY"`
+	StripeWebhookSecret                  string `env:"STRIPE_WEBHOOK_SECRET"`
+	StripeStarterMonthlyPriceID          string `env:"STRIPE_STARTER_MONTHLY_PRICE_ID"`
+	StripeStarterYearlyPriceID           string `env:"STRIPE_STARTER_YEARLY_PRICE_ID"`
+	StripeProMonthlyPriceID              string `env:"STRIPE_PRO_MONTHLY_PRICE_ID"`
+	StripeProYearlyPriceID               string `env:"STRIPE_PRO_YEARLY_PRICE_ID"`
+	StripeScaleMonthlyPriceID            string `env:"STRIPE_SCALE_MONTHLY_PRICE_ID"`
+	StripeScaleYearlyPriceID             string `env:"STRIPE_SCALE_YEARLY_PRICE_ID"`
+	StripeEnterpriseStarterYearlyPriceID string `env:"STRIPE_ENTERPRISE_STARTER_YEARLY_PRICE_ID"`
+	StripeEnterpriseGrowthYearlyPriceID  string `env:"STRIPE_ENTERPRISE_GROWTH_YEARLY_PRICE_ID"`
+	StripeEnterpriseLargeYearlyPriceID   string `env:"STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID"`
+	StripeAddonConcurrentRunsID          string `env:"STRIPE_ADDON_CONCURRENT_RUNS_PRICE_ID"`
+	StripeAddonMembersID                 string `env:"STRIPE_ADDON_MEMBERS_PRICE_ID"`
+	StripeAddonCronSchedulesID           string `env:"STRIPE_ADDON_CRON_SCHEDULES_PRICE_ID"`
+	StripeAddonDataRetentionID           string `env:"STRIPE_ADDON_DATA_RETENTION_PRICE_ID"`
+	StripeAddonWebhookEndpointsID        string `env:"STRIPE_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID"`
+	StripeMeterID                        string `env:"STRIPE_METER_ID"`
+	BillingEnforcementEnabled            bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
 
 	// Resend email integration
 	ResendAPIKey    string `env:"RESEND_API_KEY"`

@@ -47,7 +47,7 @@ const submitEnterpriseContact = createServerFn({ method: "POST" })
     const resend = getResend();
     await resend.emails.send({
       from: "Enterprise <hello@usestrait.com>",
-      to: "leo@usestrait.com",
+      to: "leo@strait.dev",
       subject: `Enterprise inquiry from ${data.company}`,
       text: [
         `Name: ${data.name}`,

@@ -49,7 +49,7 @@ const feedbackAction = createServerFn({ method: "POST" })
     async ({ data, context }) =>
       await getResend().emails.send({
         from: "Feedback <hello@usestrait.com>",
-        to: "leo@usestrait.com",
+        to: "leo@strait.dev",
         subject: `Feedback — ${data.email}`,
         react: Feedback({
           ...data,
