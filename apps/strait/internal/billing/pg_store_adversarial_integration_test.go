@@ -387,3 +387,201 @@ func TestAdversarial_MemberDedupAcrossProjects(t *testing.T) {
 		t.Errorf("CountMembersByOrg = %d, want 1 (deduped)", count)
 	}
 }
+
+// --------------------------------------------------------------------------
+// A11: Concurrent enterprise contract upserts must not lose data
+// --------------------------------------------------------------------------
+
+func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-conc-contract-" + newID()
+	subID := "sub_conc"
+	base := &billing.EnterpriseContract{
+		ID:                     "contract_conc",
+		OrgID:                  orgID,
+		EnterpriseTier:         billing.EnterpriseTierStarter,
+		AnnualCommitmentCents:  1800000,
+		IncludedCreditMicrousd: 1000000000,
+		ComputeDiscountPct:     10,
+		ContractStartDate:      time.Now().Add(-30 * 24 * time.Hour),
+		ContractEndDate:        time.Now().Add(335 * 24 * time.Hour),
+		AutoRenew:              true,
+		BillingCadence:         "annual",
+		StripeSubscriptionID:   &subID,
+		CreatedAt:              time.Now(),
+		UpdatedAt:              time.Now(),
+	}
+
+	// First insert so conflict path is exercised.
+	if err := pgStore.UpsertEnterpriseContract(ctx, base); err != nil {
+		t.Fatalf("seed upsert: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 10)
+	for i := range 10 {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			c := *base
+			c.ID = fmt.Sprintf("contract_conc_%d", idx)
+			c.ComputeDiscountPct = idx
+			c.Notes = fmt.Sprintf("writer_%d", idx)
+			errs[idx] = pgStore.UpsertEnterpriseContract(ctx, &c)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("writer %d error: %v", i, err)
+		}
+	}
+
+	got, err := pgStore.GetEnterpriseContract(ctx, orgID)
+	if err != nil {
+		t.Fatalf("get after concurrent upserts: %v", err)
+	}
+	// One writer must have won; the contract must be valid.
+	if got.OrgID != orgID {
+		t.Errorf("OrgID = %q, want %q", got.OrgID, orgID)
+	}
+	if got.EnterpriseTier != billing.EnterpriseTierStarter {
+		t.Errorf("tier mutated to %q", got.EnterpriseTier)
+	}
+}
+
+// --------------------------------------------------------------------------
+// A12: Enterprise contract UNIQUE(org_id) enforced -- only one per org
+// --------------------------------------------------------------------------
+
+func TestAdversarial_OneContractPerOrg(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-unique-" + newID()
+	subID := "sub_u1"
+	c1 := &billing.EnterpriseContract{
+		ID: "contract_u1", OrgID: orgID,
+		EnterpriseTier: billing.EnterpriseTierStarter,
+		AnnualCommitmentCents: 1800000, IncludedCreditMicrousd: 1000000000,
+		ComputeDiscountPct: 10,
+		ContractStartDate: time.Now(), ContractEndDate: time.Now().Add(365 * 24 * time.Hour),
+		AutoRenew: true, BillingCadence: "annual",
+		StripeSubscriptionID: &subID,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+
+	if err := pgStore.UpsertEnterpriseContract(ctx, c1); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second upsert with different ID for same org -- should update, not create second row.
+	c2 := *c1
+	c2.ID = "contract_u2"
+	c2.EnterpriseTier = billing.EnterpriseTierGrowth
+	c2.AnnualCommitmentCents = 4800000
+	if err := pgStore.UpsertEnterpriseContract(ctx, &c2); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := pgStore.GetEnterpriseContract(ctx, orgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should reflect the second upsert's values.
+	if got.EnterpriseTier != billing.EnterpriseTierGrowth {
+		t.Errorf("tier = %q after second upsert, want growth", got.EnterpriseTier)
+	}
+	if got.AnnualCommitmentCents != 4800000 {
+		t.Errorf("commitment = %d, want 4800000", got.AnnualCommitmentCents)
+	}
+}
+
+// --------------------------------------------------------------------------
+// A13: ListExpiringContracts excludes already-expired and far-future
+// --------------------------------------------------------------------------
+
+func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	subID := "sub_boundary"
+
+	mkContract := func(orgSuffix string, endOffset time.Duration) {
+		orgID := "org-boundary-" + orgSuffix + "-" + newID()
+		c := &billing.EnterpriseContract{
+			ID: "contract_" + orgSuffix, OrgID: orgID,
+			EnterpriseTier: billing.EnterpriseTierStarter,
+			AnnualCommitmentCents: 1800000, IncludedCreditMicrousd: 1000000000,
+			ComputeDiscountPct: 10,
+			ContractStartDate: time.Now().Add(-365 * 24 * time.Hour),
+			ContractEndDate:   time.Now().Add(endOffset),
+			AutoRenew: true, BillingCadence: "annual",
+			StripeSubscriptionID: &subID,
+			CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		}
+		if err := pgStore.UpsertEnterpriseContract(ctx, c); err != nil {
+			t.Fatalf("create %s: %v", orgSuffix, err)
+		}
+	}
+
+	mkContract("expired-1h", -1*time.Hour)         // already expired
+	mkContract("expired-30d", -30*24*time.Hour)     // long expired
+	mkContract("expiring-1h", 1*time.Hour)          // about to expire
+	mkContract("expiring-6d", 6*24*time.Hour)       // 6 days out
+	mkContract("expiring-29d", 29*24*time.Hour)     // 29 days out
+	mkContract("expiring-31d", 31*24*time.Hour)     // 31 days out
+	mkContract("future-365d", 365*24*time.Hour)     // way out
+
+	within30, err := pgStore.ListExpiringContracts(ctx, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should include: 1h, 6d, 29d (3 contracts). NOT expired or 31d+.
+	if len(within30) != 3 {
+		t.Errorf("expected 3 contracts within 30 days, got %d", len(within30))
+		for _, c := range within30 {
+			t.Logf("  org=%s end=%v", c.OrgID, c.ContractEndDate)
+		}
+	}
+
+	// Within 1 day should only get the 1h one.
+	within1, err := pgStore.ListExpiringContracts(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(within1) != 1 {
+		t.Errorf("expected 1 contract within 1 day, got %d", len(within1))
+	}
+
+	// Negative days should return nothing.
+	withinNeg, err := pgStore.ListExpiringContracts(ctx, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(withinNeg) != 0 {
+		t.Errorf("expected 0 contracts for negative days, got %d", len(withinNeg))
+	}
+}
+
+// --------------------------------------------------------------------------
+// A14: Empty org ID returns not-found, not a cross-org leak
+// --------------------------------------------------------------------------
+
+func TestAdversarial_EmptyOrgIDContract(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	_, err := pgStore.GetEnterpriseContract(ctx, "")
+	if err == nil {
+		t.Fatal("expected error for empty org ID")
+	}
+}

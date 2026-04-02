@@ -2289,3 +2289,257 @@ func TestPgStore_CountMembersAndExecutingRunsByOrg(t *testing.T) {
 		t.Fatalf("CountExecutingRunsByOrg() = %d, want 2", executing)
 	}
 }
+
+// ============================================================
+// Enterprise contract integration tests
+// ============================================================
+
+func makeContract(orgID string, tier billing.EnterpriseTier, endDate time.Time) *billing.EnterpriseContract {
+	subID := "sub_" + orgID
+	return &billing.EnterpriseContract{
+		ID:                     "contract_" + orgID,
+		OrgID:                  orgID,
+		EnterpriseTier:         tier,
+		AnnualCommitmentCents:  1800000,
+		IncludedCreditMicrousd: 1000000000,
+		ComputeDiscountPct:     10,
+		ContractStartDate:      time.Now().Add(-180 * 24 * time.Hour),
+		ContractEndDate:        endDate,
+		AutoRenew:              true,
+		BillingCadence:         "annual",
+		StripeSubscriptionID:   &subID,
+		Notes:                  "test contract",
+		CreatedAt:              time.Now(),
+		UpdatedAt:              time.Now(),
+	}
+}
+
+func TestPgStore_UpsertAndGetEnterpriseContract(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-ent-" + newID()
+	c := makeContract(orgID, billing.EnterpriseTierStarter, time.Now().Add(180*24*time.Hour))
+
+	if err := pgStore.UpsertEnterpriseContract(ctx, c); err != nil {
+		t.Fatalf("UpsertEnterpriseContract() error = %v", err)
+	}
+
+	got, err := pgStore.GetEnterpriseContract(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetEnterpriseContract() error = %v", err)
+	}
+
+	if got.OrgID != orgID {
+		t.Errorf("OrgID = %q, want %q", got.OrgID, orgID)
+	}
+	if got.EnterpriseTier != billing.EnterpriseTierStarter {
+		t.Errorf("EnterpriseTier = %q, want %q", got.EnterpriseTier, billing.EnterpriseTierStarter)
+	}
+	if got.AnnualCommitmentCents != 1800000 {
+		t.Errorf("AnnualCommitmentCents = %d, want 1800000", got.AnnualCommitmentCents)
+	}
+	if got.IncludedCreditMicrousd != 1000000000 {
+		t.Errorf("IncludedCreditMicrousd = %d, want 1000000000", got.IncludedCreditMicrousd)
+	}
+	if got.ComputeDiscountPct != 10 {
+		t.Errorf("ComputeDiscountPct = %d, want 10", got.ComputeDiscountPct)
+	}
+	if !got.AutoRenew {
+		t.Error("AutoRenew = false, want true")
+	}
+	if got.BillingCadence != "annual" {
+		t.Errorf("BillingCadence = %q, want annual", got.BillingCadence)
+	}
+	if got.StripeSubscriptionID == nil || *got.StripeSubscriptionID != "sub_"+orgID {
+		t.Errorf("StripeSubscriptionID mismatch")
+	}
+	if got.Notes != "test contract" {
+		t.Errorf("Notes = %q, want test contract", got.Notes)
+	}
+}
+
+func TestPgStore_GetEnterpriseContract_NotFound(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	_, err := pgStore.GetEnterpriseContract(ctx, "org-nonexistent-"+newID())
+	if !errors.Is(err, billing.ErrContractNotFound) {
+		t.Fatalf("expected ErrContractNotFound, got %v", err)
+	}
+}
+
+func TestPgStore_UpsertEnterpriseContract_UpdatesExisting(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-upsert-" + newID()
+	c1 := makeContract(orgID, billing.EnterpriseTierStarter, time.Now().Add(180*24*time.Hour))
+
+	if err := pgStore.UpsertEnterpriseContract(ctx, c1); err != nil {
+		t.Fatalf("first upsert error = %v", err)
+	}
+
+	// Upsert again with different tier and discount.
+	c2 := makeContract(orgID, billing.EnterpriseTierGrowth, time.Now().Add(365*24*time.Hour))
+	c2.ComputeDiscountPct = 15
+	c2.AnnualCommitmentCents = 4800000
+	c2.Notes = "upgraded"
+
+	if err := pgStore.UpsertEnterpriseContract(ctx, c2); err != nil {
+		t.Fatalf("second upsert error = %v", err)
+	}
+
+	got, err := pgStore.GetEnterpriseContract(ctx, orgID)
+	if err != nil {
+		t.Fatalf("get after upsert error = %v", err)
+	}
+	if got.EnterpriseTier != billing.EnterpriseTierGrowth {
+		t.Errorf("EnterpriseTier = %q, want %q", got.EnterpriseTier, billing.EnterpriseTierGrowth)
+	}
+	if got.ComputeDiscountPct != 15 {
+		t.Errorf("ComputeDiscountPct = %d, want 15", got.ComputeDiscountPct)
+	}
+	if got.AnnualCommitmentCents != 4800000 {
+		t.Errorf("AnnualCommitmentCents = %d, want 4800000", got.AnnualCommitmentCents)
+	}
+	if got.Notes != "upgraded" {
+		t.Errorf("Notes = %q, want upgraded", got.Notes)
+	}
+}
+
+func TestPgStore_ListExpiringContracts(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	// Contract expiring in 5 days.
+	org5d := "org-5d-" + newID()
+	c5 := makeContract(org5d, billing.EnterpriseTierStarter, time.Now().Add(5*24*time.Hour))
+	if err := pgStore.UpsertEnterpriseContract(ctx, c5); err != nil {
+		t.Fatal(err)
+	}
+
+	// Contract expiring in 25 days.
+	org25d := "org-25d-" + newID()
+	c25 := makeContract(org25d, billing.EnterpriseTierGrowth, time.Now().Add(25*24*time.Hour))
+	if err := pgStore.UpsertEnterpriseContract(ctx, c25); err != nil {
+		t.Fatal(err)
+	}
+
+	// Contract expiring in 60 days (should not be in 30-day list).
+	org60d := "org-60d-" + newID()
+	c60 := makeContract(org60d, billing.EnterpriseTierLarge, time.Now().Add(60*24*time.Hour))
+	if err := pgStore.UpsertEnterpriseContract(ctx, c60); err != nil {
+		t.Fatal(err)
+	}
+
+	// Already expired (should not appear).
+	orgExpired := "org-expired-" + newID()
+	cExpired := makeContract(orgExpired, billing.EnterpriseTierStarter, time.Now().Add(-1*24*time.Hour))
+	if err := pgStore.UpsertEnterpriseContract(ctx, cExpired); err != nil {
+		t.Fatal(err)
+	}
+
+	// List contracts expiring within 7 days.
+	within7, err := pgStore.ListExpiringContracts(ctx, 7)
+	if err != nil {
+		t.Fatalf("ListExpiringContracts(7) error = %v", err)
+	}
+	if len(within7) != 1 {
+		t.Fatalf("expected 1 contract expiring within 7 days, got %d", len(within7))
+	}
+	if within7[0].OrgID != org5d {
+		t.Errorf("expected org %q, got %q", org5d, within7[0].OrgID)
+	}
+
+	// List contracts expiring within 30 days.
+	within30, err := pgStore.ListExpiringContracts(ctx, 30)
+	if err != nil {
+		t.Fatalf("ListExpiringContracts(30) error = %v", err)
+	}
+	if len(within30) != 2 {
+		t.Fatalf("expected 2 contracts expiring within 30 days, got %d", len(within30))
+	}
+	// Should be ordered by end date ASC.
+	if within30[0].OrgID != org5d {
+		t.Errorf("first contract should be 5-day, got %q", within30[0].OrgID)
+	}
+	if within30[1].OrgID != org25d {
+		t.Errorf("second contract should be 25-day, got %q", within30[1].OrgID)
+	}
+
+	// List within 0 days (edge: nothing expiring today or before since already-expired excluded).
+	within0, err := pgStore.ListExpiringContracts(ctx, 0)
+	if err != nil {
+		t.Fatalf("ListExpiringContracts(0) error = %v", err)
+	}
+	if len(within0) != 0 {
+		t.Fatalf("expected 0 contracts expiring within 0 days, got %d", len(within0))
+	}
+}
+
+func TestPgStore_EnterpriseContract_CrossOrgIsolation(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgA := "org-iso-a-" + newID()
+	orgB := "org-iso-b-" + newID()
+
+	cA := makeContract(orgA, billing.EnterpriseTierStarter, time.Now().Add(365*24*time.Hour))
+	cA.Notes = "org A contract"
+	cB := makeContract(orgB, billing.EnterpriseTierLarge, time.Now().Add(365*24*time.Hour))
+	cB.Notes = "org B contract"
+
+	if err := pgStore.UpsertEnterpriseContract(ctx, cA); err != nil {
+		t.Fatal(err)
+	}
+	if err := pgStore.UpsertEnterpriseContract(ctx, cB); err != nil {
+		t.Fatal(err)
+	}
+
+	gotA, err := pgStore.GetEnterpriseContract(ctx, orgA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotA.EnterpriseTier != billing.EnterpriseTierStarter {
+		t.Errorf("org A tier = %q, want starter", gotA.EnterpriseTier)
+	}
+	if gotA.Notes != "org A contract" {
+		t.Errorf("org A notes leaked org B data: %q", gotA.Notes)
+	}
+
+	gotB, err := pgStore.GetEnterpriseContract(ctx, orgB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotB.EnterpriseTier != billing.EnterpriseTierLarge {
+		t.Errorf("org B tier = %q, want large", gotB.EnterpriseTier)
+	}
+}
+
+func TestPgStore_UpsertEnterpriseContract_NilStripeSubscriptionID(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-nilsub-" + newID()
+	c := makeContract(orgID, billing.EnterpriseTierStarter, time.Now().Add(365*24*time.Hour))
+	c.StripeSubscriptionID = nil
+
+	if err := pgStore.UpsertEnterpriseContract(ctx, c); err != nil {
+		t.Fatalf("upsert with nil StripeSubscriptionID error = %v", err)
+	}
+
+	got, err := pgStore.GetEnterpriseContract(ctx, orgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.StripeSubscriptionID != nil {
+		t.Errorf("expected nil StripeSubscriptionID, got %v", *got.StripeSubscriptionID)
+	}
+}
