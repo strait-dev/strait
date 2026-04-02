@@ -8,6 +8,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { apiRequest } from "@/lib/api-client.server";
+
 export {
   formatBoolean,
   formatComputeCredit,
@@ -17,6 +18,7 @@ export {
   formatRetention,
   formatSupportLevel,
 } from "./plan-formatters";
+
 import {
   formatBoolean,
   formatComputeCredit,
@@ -88,7 +90,6 @@ export const getPlansServerFn = createServerFn({ method: "GET" }).handler(
   }
 );
 
-
 /** A single feature listed on a pricing card. */
 export type PricingFeature = {
   /** Feature name for display. */
@@ -133,7 +134,6 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
   scale: "For high-volume teams that need audit logs and canary deploys.",
   enterprise: "Custom everything for large organizations.",
 };
-
 
 /**
  * Transform API plan data into pricing plan objects for the upgrade page.

@@ -8,10 +8,7 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { Progress } from "@strait/ui/components/progress";
-import {
-  ENTERPRISE_TIERS,
-  type EnterpriseTier,
-} from "@/lib/billing-constants";
+import { ENTERPRISE_TIERS, type EnterpriseTier } from "@/lib/billing-constants";
 import { CheckCircleIcon, CheckIcon } from "@/lib/icons";
 
 type EnterpriseOverviewProps = {
@@ -52,8 +49,7 @@ export const EnterpriseOverview = ({
   periodSpendMicro,
   creditUsedPercent,
 }: EnterpriseOverviewProps) => {
-  const tierConfig =
-    ENTERPRISE_TIERS[enterpriseTier as EnterpriseTier] ?? null;
+  const tierConfig = ENTERPRISE_TIERS[enterpriseTier as EnterpriseTier] ?? null;
   const tierName = tierConfig?.name ?? "Enterprise";
 
   return (
@@ -79,7 +75,10 @@ export const EnterpriseOverview = ({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Progress className="h-2" value={Math.min(creditUsedPercent, 100)} />
+            <Progress
+              className="h-2"
+              value={Math.min(creditUsedPercent, 100)}
+            />
             <p className="mt-1 text-muted-foreground text-xs">
               {formatUsd(periodSpendMicro)} used ({creditUsedPercent.toFixed(1)}
               %)

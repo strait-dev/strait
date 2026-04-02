@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  type AddonTypeSlug,
   ALL_ADDON_TYPES,
   ALL_PLAN_TIERS,
-  REFETCH_10M,
-  REFETCH_5M,
-  STALE_30S,
-  type AddonTypeSlug,
   type LimitAction,
   type PlanTierSlug,
+  REFETCH_5M,
+  REFETCH_10M,
+  STALE_30S,
 } from "../types";
 
 describe("PlanTierSlug", () => {

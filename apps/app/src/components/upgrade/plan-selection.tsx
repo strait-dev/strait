@@ -331,7 +331,7 @@ const PricingCard = ({
           {getCardButtonText()}
         </Button>
         {isEnterprise && currentPlanSlug === "scale" ? (
-          <p className="mt-2 text-center text-muted-foreground/70 text-[11px]">
+          <p className="mt-2 text-center text-[11px] text-muted-foreground/70">
             Your Scale subscription will be credited toward your Enterprise
             contract.
           </p>

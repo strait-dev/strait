@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { type AddonTypeSlug, ALL_ADDON_TYPES } from "../types";
 import { ADDON_CATALOG, getActivePackCount } from "../use-addons";
-import { ALL_ADDON_TYPES, type AddonTypeSlug } from "../types";
 
 describe("getActivePackCount", () => {
   it("returns 0 for undefined addons", () => {
@@ -31,10 +31,7 @@ describe("getActivePackCount", () => {
 
   it("returns 0 when no addons match the type", () => {
     expect(
-      getActivePackCount(
-        [{ type: "concurrent_runs", quantity: 5 }],
-        "members"
-      )
+      getActivePackCount([{ type: "concurrent_runs", quantity: 5 }], "members")
     ).toBe(0);
   });
 

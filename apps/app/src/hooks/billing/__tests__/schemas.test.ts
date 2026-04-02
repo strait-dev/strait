@@ -13,17 +13,17 @@ const validOrgUsage = {
   usage: {
     runs_today: { used: 10, limit: 100, percent: 10 },
     concurrent_runs: { used: 1, limit: 5, percent: 20 },
-    compute_credit: { used: 0, limit: 1000000, percent: 0 },
+    compute_credit: { used: 0, limit: 1_000_000, percent: 0 },
     projects: { used: 1, limit: 5, percent: 20 },
     members: { used: 2, limit: 10, percent: 20 },
     retention_days: 7,
     regions_available: 6,
   },
-  included_credit_microusd: 19990000,
+  included_credit_microusd: 19_990_000,
   period_spend_microusd: 0,
   overage_microusd: 0,
   credit_used_percent: 0,
-  credit_remaining_microusd: 19990000,
+  credit_remaining_microusd: 19_990_000,
   alerts: [],
 };
 
@@ -144,13 +144,13 @@ describe("UsageForecastSchema", () => {
 
   it("decodes a valid payload", () => {
     const result = decode({
-      projected_monthly_runs: 50000,
+      projected_monthly_runs: 50_000,
       projected_monthly_compute_usd: 25.5,
       projected_monthly_ai_cost_usd: 0.5,
       recommended_plan: "pro",
       days_until_limit: 15,
-      projected_overage_microusd: 5000000,
-      addon_spend_microusd: 100000,
+      projected_overage_microusd: 5_000_000,
+      addon_spend_microusd: 100_000,
       scale_breakeven: false,
     });
     expect(Either.isRight(result)).toBe(true);
@@ -158,7 +158,7 @@ describe("UsageForecastSchema", () => {
 
   it("fails when required field is missing", () => {
     const result = decode({
-      projected_monthly_runs: 50000,
+      projected_monthly_runs: 50_000,
       // missing other fields
     });
     expect(Either.isLeft(result)).toBe(true);

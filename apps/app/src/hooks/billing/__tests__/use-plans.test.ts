@@ -25,8 +25,8 @@ describe("formatLimit", () => {
 
   it("formats values >= 1000 with locale separators", () => {
     expect(formatLimit(1000)).toBe("1,000");
-    expect(formatLimit(100000)).toBe("100,000");
-    expect(formatLimit(1000000)).toBe("1,000,000");
+    expect(formatLimit(100_000)).toBe("100,000");
+    expect(formatLimit(1_000_000)).toBe("1,000,000");
   });
 });
 
