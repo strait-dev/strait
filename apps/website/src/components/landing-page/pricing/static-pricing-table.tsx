@@ -148,6 +148,11 @@ export function StaticPricingTable() {
                           Free forever
                         </p>
                       )}
+                      {isEnterprise && (
+                        <p className="mt-1 text-muted-foreground/60 text-xs">
+                          Starting at $1,500/mo
+                        </p>
+                      )}
                     </>
                   )}
                 </div>

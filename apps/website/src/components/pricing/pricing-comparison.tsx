@@ -254,6 +254,47 @@ function buildSections(): PricingSection[] {
         ),
       ],
     },
+    {
+      name: "Enterprise",
+      rows: [
+        row(
+          "Dedicated compute",
+          "boolean",
+          (k) => k === "enterprise",
+          "Isolated Fly organization for your workloads with no resource contention."
+        ),
+        row(
+          "Static IPs",
+          "boolean",
+          (k) => k === "enterprise",
+          "Fixed egress IP addresses for connecting to databases behind IP allowlists."
+        ),
+        row(
+          "VPC peering",
+          "boolean",
+          (k) => k === "enterprise",
+          "Private network access to your services without traversing the public internet."
+        ),
+        row(
+          "SCIM directory sync",
+          "boolean",
+          (k) => k === "enterprise",
+          "Automated user provisioning and deprovisioning from your identity provider."
+        ),
+        row(
+          "SLA with credits",
+          "boolean",
+          (k) => k === "enterprise",
+          "99.9%+ uptime SLA with automatic service credits for downtime."
+        ),
+        row(
+          "SIEM export",
+          "boolean",
+          (k) => k === "enterprise",
+          "Forward audit logs to Splunk, Datadog, Elastic, or custom HTTP endpoints."
+        ),
+      ],
+    },
   ];
 }
 
