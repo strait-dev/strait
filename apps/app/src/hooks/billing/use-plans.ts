@@ -8,6 +8,24 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { apiRequest } from "@/lib/api-client.server";
+export {
+  formatBoolean,
+  formatComputeCredit,
+  formatLimit,
+  formatRBAC,
+  formatRegionCount,
+  formatRetention,
+  formatSupportLevel,
+} from "./plan-formatters";
+import {
+  formatBoolean,
+  formatComputeCredit,
+  formatLimit,
+  formatRBAC,
+  formatRegionCount,
+  formatRetention,
+  formatSupportLevel,
+} from "./plan-formatters";
 
 /** Raw plan data from the `GET /v1/plans` API response. */
 export type APIPlan = {
@@ -70,86 +88,6 @@ export const getPlansServerFn = createServerFn({ method: "GET" }).handler(
   }
 );
 
-const MICRO_TO_DOLLARS = 1_000_000;
-
-/**
- * Format a numeric limit value for display.
- * Returns "Unlimited" for `-1`, formatted number for >= 1000.
- *
- * @param value - The limit value. `-1` means unlimited.
- * @returns Formatted string (e.g. "Unlimited", "1,000", "50").
- */
-export const formatLimit = (value: number): string => {
-  if (value === -1) {
-    return "Unlimited";
-  }
-  if (value >= 1000) {
-    return value.toLocaleString("en-US");
-  }
-  return String(value);
-};
-
-/**
- * Format a micro-USD compute credit amount for display.
- *
- * @param microusd - Credit amount in micro-USD (1,000,000 = $1.00).
- * @returns Formatted string (e.g. "$19.99") or "-" for zero/negative.
- */
-export const formatComputeCredit = (microusd: number): string => {
-  if (microusd <= 0) {
-    return "-";
-  }
-  return `$${(microusd / MICRO_TO_DOLLARS).toFixed(2)}`;
-};
-
-/**
- * Format a region list into a count string.
- *
- * @param regions - Array of allowed region codes. Empty means all regions.
- * @returns "All" for empty array, otherwise the count as a string.
- */
-export const formatRegionCount = (regions: string[]): string => {
-  if (regions.length === 0) {
-    return "All";
-  }
-  return String(regions.length);
-};
-
-/**
- * Format a retention days value for display.
- *
- * @param days - Number of retention days.
- * @returns Formatted string (e.g. "1 day", "30 days").
- */
-export const formatRetention = (days: number): string => {
-  if (days === 1) {
-    return "1 day";
-  }
-  return `${days} days`;
-};
-
-/**
- * Format an RBAC level string for display.
- *
- * @param level - RBAC level ("", "basic", "full").
- * @returns Capitalized level or "-" for empty string.
- */
-export const formatRBAC = (level: string): string => {
-  if (!level) {
-    return "-";
-  }
-  return level.charAt(0).toUpperCase() + level.slice(1);
-};
-
-/**
- * Format a boolean feature flag for display.
- *
- * @param value - Whether the feature is available.
- * @returns "Yes" for true, "-" for false.
- */
-export const formatBoolean = (value: boolean): string => {
-  return value ? "Yes" : "-";
-};
 
 /** A single feature listed on a pricing card. */
 export type PricingFeature = {
@@ -196,24 +134,6 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
   enterprise: "Custom everything for large organizations.",
 };
 
-/** Human-readable support level labels. */
-const SUPPORT_LABELS: Record<string, string> = {
-  community: "Community support",
-  email_72h: "Email support (72h)",
-  priority_24h: "Priority support (24h)",
-  priority_slack_8h: "Priority support + Slack (8h)",
-  dedicated: "Dedicated support + CSM",
-};
-
-/**
- * Format a support level identifier into a human-readable label.
- *
- * @param level - Support level identifier (e.g. "community", "dedicated").
- * @returns Human-readable label, or the raw level if not recognized.
- */
-export const formatSupportLevel = (level: string): string => {
-  return SUPPORT_LABELS[level] ?? level;
-};
 
 /**
  * Transform API plan data into pricing plan objects for the upgrade page.

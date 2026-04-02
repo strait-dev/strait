@@ -66,4 +66,59 @@ describe("normalizeOrgUsageData", () => {
       EMPTY_ORG_USAGE.usage.ai_assistant_messages_today
     );
   });
+
+  it("preserves enterprise fields when present", () => {
+    const data = normalizeOrgUsageData({
+      ...baseUsage(),
+      plan: "enterprise",
+      enterprise_tier: "enterprise_starter",
+      contract_end_date: "2027-03-31",
+      compute_discount_pct: 10,
+      sla_uptime_pct: 99.9,
+    });
+
+    expect(data.enterprise_tier).toBe("enterprise_starter");
+    expect(data.contract_end_date).toBe("2027-03-31");
+    expect(data.compute_discount_pct).toBe(10);
+    expect(data.sla_uptime_pct).toBe(99.9);
+  });
+
+  it("omits enterprise fields when absent", () => {
+    const data = normalizeOrgUsageData(baseUsage());
+
+    expect(data.enterprise_tier).toBeUndefined();
+    expect(data.contract_end_date).toBeUndefined();
+    expect(data.compute_discount_pct).toBeUndefined();
+    expect(data.sla_uptime_pct).toBeUndefined();
+  });
+});
+
+describe("EMPTY_ORG_USAGE", () => {
+  it("has plan set to 'free'", () => {
+    expect(EMPTY_ORG_USAGE.plan).toBe("free");
+  });
+
+  it("has empty org_id", () => {
+    expect(EMPTY_ORG_USAGE.org_id).toBe("");
+  });
+
+  it("has 1-day retention", () => {
+    expect(EMPTY_ORG_USAGE.usage.retention_days).toBe(1);
+  });
+
+  it("has 1 available region", () => {
+    expect(EMPTY_ORG_USAGE.usage.regions_available).toBe(1);
+  });
+
+  it("has empty alerts array", () => {
+    expect(EMPTY_ORG_USAGE.alerts).toEqual([]);
+  });
+
+  it("has zero credit values", () => {
+    expect(EMPTY_ORG_USAGE.included_credit_microusd).toBe(0);
+    expect(EMPTY_ORG_USAGE.period_spend_microusd).toBe(0);
+    expect(EMPTY_ORG_USAGE.overage_microusd).toBe(0);
+    expect(EMPTY_ORG_USAGE.credit_used_percent).toBe(0);
+    expect(EMPTY_ORG_USAGE.credit_remaining_microusd).toBe(0);
+  });
 });
