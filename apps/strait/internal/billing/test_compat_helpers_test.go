@@ -21,6 +21,7 @@ type testSubscriptionData struct {
 	CurrentPeriodStart *time.Time        `json:"-"`
 	CurrentPeriodEnd   *time.Time        `json:"-"`
 	CanceledAt         *time.Time        `json:"-"`
+	CancelAtPeriodEnd  bool              `json:"-"`
 }
 
 // testCustomerData is a test-only compatibility type for customer data.
@@ -102,6 +103,7 @@ func (p testSubscriptionData) ToStripe() *stripe.Subscription {
 	if p.CanceledAt != nil {
 		sub.CanceledAt = p.CanceledAt.Unix()
 	}
+	sub.CancelAtPeriodEnd = p.CancelAtPeriodEnd
 
 	return sub
 }
@@ -112,6 +114,46 @@ type StripeWebhookPayload struct {
 	ID   string          `json:"id,omitempty"`
 	Type string          `json:"type"`
 	Data json.RawMessage `json:"-"`
+}
+
+// testInvoiceData is a test-only type that produces JSON compatible with stripe.Invoice.
+// It uses the Stripe v2025+ nested parent.subscription_details structure.
+type testInvoiceData struct {
+	ID         string            `json:"-"`
+	CustomerID string            `json:"-"`
+	SubID      string            `json:"-"`
+	Metadata   map[string]string `json:"-"`
+}
+
+// MarshalJSON produces JSON compatible with stripe.Invoice including parent.subscription_details.
+func (d testInvoiceData) MarshalJSON() ([]byte, error) {
+	type subDetail struct {
+		Subscription *stripe.Subscription `json:"subscription"`
+		Metadata     map[string]string    `json:"metadata,omitempty"`
+	}
+	type parent struct {
+		SubscriptionDetails *subDetail `json:"subscription_details"`
+	}
+	type invoiceJSON struct {
+		ID       string           `json:"id"`
+		Customer *stripe.Customer `json:"customer,omitempty"`
+		Parent   *parent          `json:"parent,omitempty"`
+	}
+
+	inv := invoiceJSON{ID: d.ID}
+	if d.CustomerID != "" {
+		inv.Customer = &stripe.Customer{ID: d.CustomerID}
+	}
+	if d.SubID != "" || d.Metadata != nil {
+		sub := &stripe.Subscription{ID: d.SubID, Metadata: d.Metadata}
+		inv.Parent = &parent{
+			SubscriptionDetails: &subDetail{
+				Subscription: sub,
+				Metadata:     d.Metadata,
+			},
+		}
+	}
+	return json.Marshal(inv)
 }
 
 // MarshalJSON produces JSON compatible with stripe.Event.

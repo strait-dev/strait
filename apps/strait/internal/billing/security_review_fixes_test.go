@@ -162,7 +162,6 @@ func TestWebhook_RecordProcessedWebhookError_StillReturns200(t *testing.T) {
 
 	body := `{"id":"evt-record-err","type":"customer.subscription.created","data":{"object":{"id":"sub_record_err","status":"active","items":{"data":[{"price":{"id":"starter-id"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust_1","email":"test@example.com","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
-	req.Header.Set("webhook-id", "msg_record_err_test")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -176,8 +175,8 @@ func TestWebhook_RecordProcessedWebhookError_StillReturns200(t *testing.T) {
 		t.Fatal("expected subscription to be upserted despite record error")
 	}
 
-	// Verify the record was attempted.
-	if !slices.Contains(store.recordedWebhookIDs, "msg_record_err_test") {
+	// Verify the record was attempted using the Stripe event ID.
+	if !slices.Contains(store.recordedWebhookIDs, "evt-record-err") {
 		t.Fatal("RecordProcessedWebhook was not called")
 	}
 }
@@ -191,6 +190,7 @@ func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
 		WithEdition("community"))
 
 	payload := StripeWebhookPayload{
+		ID:   "evt-record-ok",
 		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_record_ok",
@@ -202,7 +202,6 @@ func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
 	}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", bytes.NewReader(body))
-	req.Header.Set("webhook-id", "msg_success_test")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -210,8 +209,8 @@ func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 
-	// Verify the msg ID was recorded.
-	if !slices.Contains(store.recordedWebhookIDs, "msg_success_test") {
+	// Verify the Stripe event ID was recorded.
+	if !slices.Contains(store.recordedWebhookIDs, "evt-record-ok") {
 		t.Fatal("RecordProcessedWebhook was not called on success")
 	}
 }
@@ -226,6 +225,7 @@ func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
 
 	// Send a webhook with unknown product ID -- handler will return error.
 	payload := StripeWebhookPayload{
+		ID:   "evt-handler-err",
 		Type: "customer.subscription.created",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_err",
@@ -237,7 +237,6 @@ func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
 	}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", bytes.NewReader(body))
-	req.Header.Set("webhook-id", "msg_handler_err")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -248,7 +247,7 @@ func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
 
 	// RecordProcessedWebhook should NOT be called when handler errors.
 	for _, id := range store.recordedWebhookIDs {
-		if id == "msg_handler_err" {
+		if id == "evt-handler-err" {
 			t.Fatal("RecordProcessedWebhook should not be called when handler returns error")
 		}
 	}

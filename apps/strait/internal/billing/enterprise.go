@@ -2,6 +2,7 @@ package billing
 
 import (
 	"errors"
+	"sync"
 	"time"
 )
 
@@ -145,11 +146,16 @@ func GetEnterpriseConfig(tier EnterpriseTier) EnterpriseConfig {
 
 // enterprisePriceToTier maps Stripe price IDs to enterprise sub-tiers.
 // Populated by WithEnterprise*Price options on StripeMapping.
-var enterprisePriceToTier = make(map[string]EnterpriseTier)
+var (
+	enterprisePriceToTier   = make(map[string]EnterpriseTier)
+	enterprisePriceToTierMu sync.RWMutex
+)
 
 // EnterpriseTierForPrice returns the enterprise sub-tier for a Stripe price ID.
 // Returns empty string and false if the price is not an enterprise price.
 func EnterpriseTierForPrice(priceID string) (EnterpriseTier, bool) {
+	enterprisePriceToTierMu.RLock()
+	defer enterprisePriceToTierMu.RUnlock()
 	tier, ok := enterprisePriceToTier[priceID]
 	return tier, ok
 }
@@ -158,7 +164,9 @@ func EnterpriseTierForPrice(priceID string) (EnterpriseTier, bool) {
 // Called by the WithEnterprise*Price stripe mapping options.
 func RegisterEnterprisePriceTier(priceID string, tier EnterpriseTier) {
 	if priceID != "" {
+		enterprisePriceToTierMu.Lock()
 		enterprisePriceToTier[priceID] = tier
+		enterprisePriceToTierMu.Unlock()
 	}
 }
 

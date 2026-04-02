@@ -41,7 +41,7 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	body := []byte(`{"type":"customer.subscription.created","data":{}}`)
+	body := []byte(`{"type":"customer.subscription.created","data":{"object":{"id":"sub_sig","status":"active","items":{"data":[{"price":{"id":"starter-id"}}]},"customer":{"id":"cust_sig","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}}}`)
 
 	t.Run("valid_signature", func(t *testing.T) {
 		t.Parallel()
@@ -152,13 +152,15 @@ func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
+	// Stripe fires customer.subscription.deleted with CancelAtPeriodEnd=false for immediate revocation.
 	payload := StripeWebhookPayload{
-		Type: "subscription.revoked",
+		Type: "customer.subscription.deleted",
 		Data: mustJSON(t, testSubscriptionData{
-			ID:         "sub_123",
-			ProductID:  "pro-id",
-			CustomerID: "cust_456",
-			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000002"},
+			ID:                "sub_123",
+			ProductID:         "pro-id",
+			CustomerID:        "cust_456",
+			CancelAtPeriodEnd: false,
+			Metadata:          map[string]string{"org_id": "00000000-0000-0000-0000-000000000002"},
 		}),
 	}
 
@@ -543,14 +545,16 @@ func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	now := time.Now()
+	// Stripe fires customer.subscription.deleted with CancelAtPeriodEnd=true for deferred cancellation.
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.deleted",
 		Data: mustJSON(t, testSubscriptionData{
-			ID:         "sub_cancel",
-			ProductID:  "pro-id",
-			CustomerID: "cust_cancel",
-			CanceledAt: &now,
-			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000009"},
+			ID:                "sub_cancel",
+			ProductID:         "pro-id",
+			CustomerID:        "cust_cancel",
+			CanceledAt:        &now,
+			CancelAtPeriodEnd: true,
+			Metadata:          map[string]string{"org_id": "00000000-0000-0000-0000-000000000009"},
 		}),
 	}
 
@@ -908,7 +912,7 @@ func TestWebhook_SubscriptionCreated_CreatesAuditEvent(t *testing.T) {
 	if len(audit.events) != 1 {
 		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
 	}
-	if audit.events[0].Action != "customer.subscription.created" {
+	if audit.events[0].Action != "subscription.created" {
 		t.Errorf("action = %q, want subscription.created", audit.events[0].Action)
 	}
 }
@@ -1087,11 +1091,12 @@ func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.deleted",
 		Data: mustJSON(t, testSubscriptionData{
-			ID:         "sub_cancel_audit",
-			ProductID:  "pro-id",
-			CustomerID: "cust_cancel_audit",
-			CanceledAt: &now,
-			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000014"},
+			ID:                "sub_cancel_audit",
+			ProductID:         "pro-id",
+			CustomerID:        "cust_cancel_audit",
+			CanceledAt:        &now,
+			CancelAtPeriodEnd: true,
+			Metadata:          map[string]string{"org_id": "00000000-0000-0000-0000-000000000014"},
 		}),
 	}
 
@@ -1110,7 +1115,7 @@ func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
 	if len(audit.events) != 1 {
 		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
 	}
-	if audit.events[0].Action != "customer.subscription.deleted" {
+	if audit.events[0].Action != "subscription.canceled" {
 		t.Errorf("action = %q, want subscription.canceled", audit.events[0].Action)
 	}
 }
@@ -1131,13 +1136,15 @@ func TestWebhook_SubscriptionRevoked_CreatesAuditEvent(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
 
+	// Stripe fires customer.subscription.deleted with CancelAtPeriodEnd=false for immediate revocation.
 	payload := StripeWebhookPayload{
-		Type: "subscription.revoked",
+		Type: "customer.subscription.deleted",
 		Data: mustJSON(t, testSubscriptionData{
-			ID:         "sub_revoke_audit",
-			ProductID:  "pro-id",
-			CustomerID: "cust_revoke_audit",
-			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000015"},
+			ID:                "sub_revoke_audit",
+			ProductID:         "pro-id",
+			CustomerID:        "cust_revoke_audit",
+			CancelAtPeriodEnd: false,
+			Metadata:          map[string]string{"org_id": "00000000-0000-0000-0000-000000000015"},
 		}),
 	}
 
@@ -1258,13 +1265,13 @@ func TestWebhook_PaymentFailed_SetsGracePeriod72h(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
+	// Stripe fires invoice.payment_failed when a payment attempt fails.
 	payload := StripeWebhookPayload{
-		Type: "customer.subscription.updated",
-		Data: mustJSON(t, testSubscriptionData{
-			ID:         "sub_pastdue",
-			ProductID:  "pro-id",
+		Type: "invoice.payment_failed",
+		Data: mustJSON(t, testInvoiceData{
+			ID:         "inv_pastdue",
 			CustomerID: "cust_pastdue",
-			Status:     "past_due",
+			SubID:      "sub_pastdue",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000018"},
 		}),
 	}
@@ -1314,13 +1321,13 @@ func TestWebhook_PaymentFailed_StatusBecomesGrace(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
+	// Stripe fires invoice.payment_failed when a payment attempt fails.
 	payload := StripeWebhookPayload{
-		Type: "customer.subscription.updated",
-		Data: mustJSON(t, testSubscriptionData{
-			ID:         "sub_grace",
-			ProductID:  "starter-id",
+		Type: "invoice.payment_failed",
+		Data: mustJSON(t, testInvoiceData{
+			ID:         "inv_grace",
 			CustomerID: "cust_grace",
-			Status:     "past_due",
+			SubID:      "sub_grace",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000019"},
 		}),
 	}
@@ -1364,12 +1371,14 @@ func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
+	// Stripe fires customer.subscription.updated with active status when payment recovers.
 	payload := StripeWebhookPayload{
-		Type: "subscription.active",
+		Type: "customer.subscription.updated",
 		Data: mustJSON(t, testSubscriptionData{
 			ID:         "sub_recover",
 			ProductID:  "pro-id",
 			CustomerID: "cust_recover",
+			Status:     "active",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001a"},
 		}),
 	}
@@ -1414,13 +1423,13 @@ func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
+	// Stripe fires invoice.payment_failed for each failed payment attempt.
 	payload := StripeWebhookPayload{
-		Type: "customer.subscription.updated",
-		Data: mustJSON(t, testSubscriptionData{
-			ID:         "sub_extend",
-			ProductID:  "pro-id",
+		Type: "invoice.payment_failed",
+		Data: mustJSON(t, testInvoiceData{
+			ID:         "inv_extend",
 			CustomerID: "cust_extend",
-			Status:     "past_due",
+			SubID:      "sub_extend",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001b"},
 		}),
 	}
@@ -1467,13 +1476,13 @@ func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
+	// Stripe fires invoice.payment_failed for each failed payment attempt.
 	payload := StripeWebhookPayload{
-		Type: "customer.subscription.updated",
-		Data: mustJSON(t, testSubscriptionData{
-			ID:         "sub_free_pay",
-			ProductID:  "starter-id",
+		Type: "invoice.payment_failed",
+		Data: mustJSON(t, testInvoiceData{
+			ID:         "inv_free_pay",
 			CustomerID: "cust_free_pay",
-			Status:     "past_due",
+			SubID:      "sub_free_pay",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001c"},
 		}),
 	}

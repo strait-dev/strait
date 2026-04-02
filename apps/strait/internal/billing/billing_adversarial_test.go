@@ -160,7 +160,15 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000020"},
 	}
 
-	body := webhookPayload(t, "customer.subscription.created", data)
+	raw, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Include an event ID so the replay cache can detect duplicates.
+	body, err := json.Marshal(StripeWebhookPayload{ID: "evt_dup_test_1", Type: "customer.subscription.created", Data: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// First delivery.
 	rr := httptest.NewRecorder()
@@ -504,11 +512,12 @@ func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := testSubscriptionData{
-		ID:         "sub_cancel_free",
-		ProductID:  "starter-id",
-		CustomerID: "cust_cancel_free",
-		CanceledAt: &canceledAt,
-		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000023"},
+		ID:                "sub_cancel_free",
+		ProductID:         "starter-id",
+		CustomerID:        "cust_cancel_free",
+		CanceledAt:        &canceledAt,
+		CancelAtPeriodEnd: true,
+		Metadata:          map[string]string{"org_id": "00000000-0000-0000-0000-000000000023"},
 	}
 	body := webhookPayload(t, "customer.subscription.deleted", data)
 	rr := httptest.NewRecorder()
@@ -544,13 +553,15 @@ func TestWebhook_RevokeSubscription(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
+	// Stripe fires customer.subscription.deleted with CancelAtPeriodEnd=false for immediate revocation.
 	data := testSubscriptionData{
-		ID:         "sub_revoke_1",
-		ProductID:  "starter-id",
-		CustomerID: "cust_revoke",
-		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000024"},
+		ID:                "sub_revoke_1",
+		ProductID:         "starter-id",
+		CustomerID:        "cust_revoke",
+		CancelAtPeriodEnd: false,
+		Metadata:          map[string]string{"org_id": "00000000-0000-0000-0000-000000000024"},
 	}
-	body := webhookPayload(t, "subscription.revoked", data)
+	body := webhookPayload(t, "customer.subscription.deleted", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -709,7 +720,7 @@ func TestWebhook_UnknownEventType(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
-	body := []byte(`{"type":"invoice.unknown","data":{}}`)
+	body := []byte(`{"type":"invoice.unknown","data":{"object":{}}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -1342,16 +1353,14 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	data := testSubscriptionData{
-		ID:                 "sub_pastdue",
-		ProductID:          "starter-id",
-		CustomerID:         "cust_pastdue",
-		Status:             "past_due",
-		CurrentPeriodStart: &periodStart,
-		CurrentPeriodEnd:   &periodEnd,
-		Metadata:           map[string]string{"org_id": "00000000-0000-0000-0000-00000000002d"},
+	// Stripe fires invoice.payment_failed when a payment attempt fails.
+	invData := testInvoiceData{
+		ID:         "inv_pastdue",
+		CustomerID: "cust_pastdue",
+		SubID:      "sub_pastdue",
+		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002d"},
 	}
-	body := webhookPayload(t, "customer.subscription.updated", data)
+	body := webhookPayload(t, "invoice.payment_failed", invData)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -1429,13 +1438,15 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
+	// Stripe fires customer.subscription.updated with active status when payment recovers.
 	data := testSubscriptionData{
 		ID:         "sub_paid",
 		ProductID:  "starter-id",
 		CustomerID: "cust_paid",
+		Status:     "active",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002f"},
 	}
-	body := webhookPayload(t, "subscription.active", data)
+	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -1468,9 +1479,10 @@ func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
 		ID:         "sub_ok",
 		ProductID:  "starter-id",
 		CustomerID: "cust_ok",
+		Status:     "active",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000030"},
 	}
-	body := webhookPayload(t, "subscription.active", data)
+	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
