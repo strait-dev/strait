@@ -224,3 +224,31 @@ All secrets managed via Doppler (project: `strait`, configs: `dev`, `stg`, `prd`
 | Better Stack | Uptime monitoring, alert routing, on-call | Web UI config |
 | Stripe | Billing, subscriptions, usage metering | `STRIPE_*` env vars |
 | Resend | Transactional email | `RESEND_*` env vars |
+
+### Enterprise Billing
+
+Enterprise is not self-serve. It requires a sales conversation and annual contract.
+
+**Sub-tiers**: Three commercial tiers share the same feature set (`domain.PlanEnterprise`) but differ in commitment, credits, SLA, and compute discount:
+
+| Tier | Annual | Monthly Credit | Discount | SLA |
+|------|--------|----------------|----------|-----|
+| Starter Enterprise | $18,000 | $1,000 | 10% | 99.9% |
+| Growth Enterprise | $48,000 | $2,500 | 15% | 99.95% |
+| Large Enterprise | $96,000+ | Custom | 20%+ | 99.95% |
+
+**Data model**: `enterprise_contracts` table (migration 000166) stores per-org contract terms. One-to-one with `organization_subscriptions` via `org_id`. Fields: tier, commitment, credit pool, discount, contract dates, auto-renew, billing cadence, Stripe subscription ID.
+
+**Feature flags**: 12 enterprise-only features on `OrgPlanLimits`: `HasDedicatedCompute`, `HasStaticIPs`, `HasVPCPeering`, `HasSCIM`, `HasDataResidency`, `HasCustomRBAC`, `HasReservedCapacity`, `HasPriorityQueue`, `HasIPAllowlisting`, `HasSessionManagement`, `HasSecretRotation`, `HasSIEMExport`. All `false` for Free/Starter/Pro/Scale.
+
+**Credit pool**: Enterprise orgs get their compute credit from `EnterpriseContract.IncludedCreditMicrousd` instead of the plan default (which is 0). Overage is reduced by `ComputeDiscountPct` before billing.
+
+**Contract lifecycle**:
+1. Sales creates Stripe invoice subscription with enterprise price ID
+2. Webhook handler creates `enterprise_contracts` row with tier defaults
+3. `ContractExpiryChecker` scheduler job sends 30-day and 7-day renewal/expiry reminders
+4. On contract renewal, Stripe subscription continues; contract row persists
+
+**SLA credits**: Automatic credit remedies per monthly uptime: 99.0-99.9% = 10%, 95.0-99.0% = 20%, 90.0-95.0% = 30%, <90.0% = 50% of monthly base fee.
+
+**API fields**: `/v1/usage/current` returns `enterprise_tier`, `contract_end_date`, `compute_discount_pct`, `sla_uptime_pct` for enterprise orgs. `/v1/plans` returns 12 `has_*` enterprise feature fields.
