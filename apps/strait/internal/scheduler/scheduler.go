@@ -48,6 +48,7 @@ type Scheduler struct {
 	gracePeriodEnforcer      *GracePeriodEnforcer
 	staleSubscriptionChecker *StaleSubscriptionChecker
 	webhookMessageCleanup    *WebhookMessageCleanup
+	contractExpiryChecker    *ContractExpiryChecker
 	wg                       conc.WaitGroup
 }
 
@@ -159,6 +160,13 @@ func WithWebhookMessageCleanup(cleanup *WebhookMessageCleanup) SchedulerOption {
 	}
 }
 
+// WithContractExpiryChecker enables periodic enterprise contract expiry reminders.
+func WithContractExpiryChecker(checker *ContractExpiryChecker) SchedulerOption {
+	return func(s *Scheduler) {
+		s.contractExpiryChecker = checker
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
@@ -194,6 +202,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.webhookMessageCleanup != nil {
 		safeGo(&s.wg, "webhook_message_cleanup", func() { s.webhookMessageCleanup.Run(ctx) })
+	}
+	if s.contractExpiryChecker != nil {
+		safeGo(&s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

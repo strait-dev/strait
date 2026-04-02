@@ -1,0 +1,175 @@
+package scheduler
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"strait/internal/billing"
+)
+
+type mockContractExpiryStore struct {
+	contracts30 []billing.EnterpriseContract
+	contracts7  []billing.EnterpriseContract
+	adminEmails map[string][]string
+	listErr     error
+}
+
+func (m *mockContractExpiryStore) ListExpiringContracts(_ context.Context, withinDays int) ([]billing.EnterpriseContract, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	if withinDays <= 7 {
+		return m.contracts7, nil
+	}
+	return m.contracts30, nil
+}
+
+func (m *mockContractExpiryStore) ListOrgAdminEmails(_ context.Context, orgID string) ([]string, error) {
+	return m.adminEmails[orgID], nil
+}
+
+type mockContractEmailSender struct {
+	sent []contractReminderCall
+}
+
+type contractReminderCall struct {
+	to            []string
+	endDate       string
+	autoRenew     bool
+	daysRemaining int
+}
+
+func (m *mockContractEmailSender) SendEnterpriseContractReminder(_ context.Context, to []string, endDate string, autoRenew bool, daysRemaining int) {
+	m.sent = append(m.sent, contractReminderCall{
+		to:            to,
+		endDate:       endDate,
+		autoRenew:     autoRenew,
+		daysRemaining: daysRemaining,
+	})
+}
+
+func TestContractExpiryChecker_SendsReminderForExpiringContract(t *testing.T) {
+	t.Parallel()
+
+	endDate := time.Now().Add(25 * 24 * time.Hour)
+	store := &mockContractExpiryStore{
+		contracts30: []billing.EnterpriseContract{
+			{OrgID: "org-1", EnterpriseTier: "enterprise_starter", ContractEndDate: endDate, AutoRenew: true},
+		},
+		adminEmails: map[string][]string{
+			"org-1": {"admin@example.com"},
+		},
+	}
+	emails := &mockContractEmailSender{}
+	checker := NewContractExpiryChecker(store, emails, time.Hour)
+	checker.check(context.Background())
+
+	if len(emails.sent) == 0 {
+		t.Fatal("expected at least one reminder to be sent")
+	}
+	if !emails.sent[0].autoRenew {
+		t.Error("expected auto-renew reminder, got expiry warning")
+	}
+}
+
+func TestContractExpiryChecker_Sends7DayReminder(t *testing.T) {
+	t.Parallel()
+
+	endDate := time.Now().Add(5 * 24 * time.Hour)
+	store := &mockContractExpiryStore{
+		contracts7: []billing.EnterpriseContract{
+			{OrgID: "org-1", EnterpriseTier: "enterprise_growth", ContractEndDate: endDate, AutoRenew: false},
+		},
+		adminEmails: map[string][]string{
+			"org-1": {"admin@example.com"},
+		},
+	}
+	emails := &mockContractEmailSender{}
+	checker := NewContractExpiryChecker(store, emails, time.Hour)
+	checker.check(context.Background())
+
+	found := false
+	for _, call := range emails.sent {
+		if !call.autoRenew {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected 7-day expiry warning to be sent")
+	}
+}
+
+func TestContractExpiryChecker_AutoRenewGetsRenewalNotice(t *testing.T) {
+	t.Parallel()
+
+	endDate := time.Now().Add(20 * 24 * time.Hour)
+	store := &mockContractExpiryStore{
+		contracts30: []billing.EnterpriseContract{
+			{OrgID: "org-1", ContractEndDate: endDate, AutoRenew: true},
+		},
+		adminEmails: map[string][]string{
+			"org-1": {"admin@example.com"},
+		},
+	}
+	emails := &mockContractEmailSender{}
+	checker := NewContractExpiryChecker(store, emails, time.Hour)
+	checker.check(context.Background())
+
+	for _, call := range emails.sent {
+		if !call.autoRenew {
+			t.Error("auto-renew contract should get renewal notice, not expiry warning")
+		}
+	}
+}
+
+func TestContractExpiryChecker_NoContracts(t *testing.T) {
+	t.Parallel()
+
+	store := &mockContractExpiryStore{}
+	emails := &mockContractEmailSender{}
+	checker := NewContractExpiryChecker(store, emails, time.Hour)
+	checker.check(context.Background())
+
+	if len(emails.sent) != 0 {
+		t.Fatalf("expected 0 emails, got %d", len(emails.sent))
+	}
+}
+
+func TestContractExpiryChecker_NilEmailSender(t *testing.T) {
+	t.Parallel()
+
+	endDate := time.Now().Add(20 * 24 * time.Hour)
+	store := &mockContractExpiryStore{
+		contracts30: []billing.EnterpriseContract{
+			{OrgID: "org-1", ContractEndDate: endDate, AutoRenew: true},
+		},
+		adminEmails: map[string][]string{
+			"org-1": {"admin@example.com"},
+		},
+	}
+	checker := NewContractExpiryChecker(store, nil, time.Hour)
+	// Should not panic.
+	checker.check(context.Background())
+}
+
+func TestContractExpiryChecker_NoAdminEmails(t *testing.T) {
+	t.Parallel()
+
+	endDate := time.Now().Add(20 * 24 * time.Hour)
+	store := &mockContractExpiryStore{
+		contracts30: []billing.EnterpriseContract{
+			{OrgID: "org-no-admins", ContractEndDate: endDate, AutoRenew: true},
+		},
+		adminEmails: map[string][]string{
+			"org-no-admins": {},
+		},
+	}
+	emails := &mockContractEmailSender{}
+	checker := NewContractExpiryChecker(store, emails, time.Hour)
+	checker.check(context.Background())
+
+	if len(emails.sent) != 0 {
+		t.Fatalf("expected 0 emails for org with no admin emails, got %d", len(emails.sent))
+	}
+}
