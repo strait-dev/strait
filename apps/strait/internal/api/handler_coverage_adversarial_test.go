@@ -451,7 +451,7 @@ func TestHandlerGetPlans_ContainsAllTiers(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	expectedTiers := []string{"free", "starter", "pro", "enterprise"}
+	expectedTiers := []string{"free", "starter", "pro", "scale", "enterprise"}
 	if len(resp.Plans) != len(expectedTiers) {
 		t.Fatalf("expected %d plans, got %d", len(expectedTiers), len(resp.Plans))
 	}
