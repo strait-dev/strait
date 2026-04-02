@@ -154,6 +154,9 @@ func TestEnforcer_FailOpen_AllCheckTypes(t *testing.T) {
 		{"spending_limit", "spending_limit"},
 		{"project_budget", "project_budget"},
 		{"project_suspended", "project_suspended"},
+		{"project_limit", "project_limit"},
+		{"member_limit", "member_limit"},
+		{"org_creation_limit", "org_creation_limit"},
 	}
 
 	for _, tt := range checkTypes {

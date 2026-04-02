@@ -238,10 +238,10 @@ func TestAddonEnforcement(t *testing.T) {
 // M. Stripe Usage Event Ingestion (6 tests).
 
 func TestStripeUsageEnforcement(t *testing.T) {
-	t.Parallel()
+	// Not parallel: NewStripeUsageReporter writes to the global stripe.Key,
+	// which cannot be safely accessed from concurrent goroutines.
 
 	t.Run("empty_secret_skipped", func(t *testing.T) {
-		t.Parallel()
 		reporter := NewStripeUsageReporter("", slog.Default())
 		err := reporter.IngestComputeUsage(context.Background(), "cust-1", "run-1", 1700)
 		if err != nil {
@@ -250,7 +250,6 @@ func TestStripeUsageEnforcement(t *testing.T) {
 	})
 
 	t.Run("empty_customer_skipped", func(t *testing.T) {
-		t.Parallel()
 		reporter := NewStripeUsageReporter("sk_test_key", slog.Default())
 		err := reporter.IngestComputeUsage(context.Background(), "", "run-1", 1700)
 		if err != nil {
@@ -259,7 +258,6 @@ func TestStripeUsageEnforcement(t *testing.T) {
 	})
 
 	t.Run("nil_logger_safe", func(t *testing.T) {
-		t.Parallel()
 		reporter := NewStripeUsageReporter("sk_test_key", nil)
 		if reporter == nil {
 			t.Fatal("expected non-nil reporter with nil logger")
@@ -267,7 +265,6 @@ func TestStripeUsageEnforcement(t *testing.T) {
 	})
 
 	t.Run("with_metrics_option", func(t *testing.T) {
-		t.Parallel()
 		reporter := NewStripeUsageReporter("sk_test_key", slog.Default(), WithUsageReporterMetrics(nil))
 		if reporter == nil {
 			t.Fatal("expected non-nil reporter with metrics option")
@@ -275,7 +272,6 @@ func TestStripeUsageEnforcement(t *testing.T) {
 	})
 
 	t.Run("constructor_returns_non_nil", func(t *testing.T) {
-		t.Parallel()
 		reporter := NewStripeUsageReporter("sk_test_key", slog.Default())
 		if reporter == nil {
 			t.Fatal("expected non-nil reporter")
@@ -283,7 +279,6 @@ func TestStripeUsageEnforcement(t *testing.T) {
 	})
 
 	t.Run("no_secret_skipped", func(t *testing.T) {
-		t.Parallel()
 		reporter := NewStripeUsageReporter("", slog.Default())
 		err := reporter.IngestComputeUsage(context.Background(), "cust-1", "run-1", 100)
 		if err != nil {
