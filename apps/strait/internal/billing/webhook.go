@@ -283,6 +283,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		err = h.handleChargeDisputeCreated(ctx, event.Data.Raw)
 	case stripe.EventTypeInvoiceUpcoming:
 		err = h.handleInvoiceUpcoming(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceMarkedUncollectible:
+		err = h.handleInvoiceUncollectible(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceFinalizationFailed:
+		err = h.handleInvoiceFinalizationFailed(ctx, event.Data.Raw)
 	default:
 		h.logger.Debug("ignoring unhandled stripe event", "type", event.Type)
 		w.WriteHeader(http.StatusOK)
@@ -1086,6 +1090,70 @@ func (h *WebhookHandler) handleInvoiceUpcoming(ctx context.Context, data json.Ra
 	}
 
 	h.logger.Info("invoice upcoming", "org_id", orgID, "amount_due", amountDue)
+	return nil
+}
+
+// handleInvoiceUncollectible fires when Stripe marks an invoice as uncollectible
+// (all payment retries exhausted). Restricts the org similar to payment failure.
+func (h *WebhookHandler) handleInvoiceUncollectible(ctx context.Context, data json.RawMessage) error {
+	var invoice stripe.Invoice
+	if err := json.Unmarshal(data, &invoice); err != nil {
+		return fmt.Errorf("parsing invoice data: %w", err)
+	}
+
+	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	if orgID == "" {
+		return nil
+	}
+
+	existing, err := h.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return nil
+		}
+		return fmt.Errorf("getting subscription for uncollectible: %w", err)
+	}
+
+	if existing.PlanTier == string(domain.PlanFree) {
+		return nil
+	}
+
+	if err := h.store.UpdatePaymentStatus(ctx, orgID, "restricted", nil); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+		return fmt.Errorf("setting restricted on uncollectible: %w", err)
+	}
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(orgID)
+	}
+
+	h.logAuditEvent(ctx, "invoice.uncollectible", orgID, map[string]string{
+		"invoice_id": invoice.ID,
+	})
+
+	h.logger.Warn("invoice marked uncollectible, org restricted",
+		"org_id", orgID,
+		"invoice_id", invoice.ID,
+	)
+	return nil
+}
+
+// handleInvoiceFinalizationFailed fires when Stripe cannot finalize an invoice.
+// This is unusual and indicates a billing configuration issue.
+func (h *WebhookHandler) handleInvoiceFinalizationFailed(ctx context.Context, data json.RawMessage) error {
+	var invoice stripe.Invoice
+	if err := json.Unmarshal(data, &invoice); err != nil {
+		return fmt.Errorf("parsing invoice data: %w", err)
+	}
+
+	orgID := h.resolveOrgIDFromInvoice(&invoice)
+
+	h.logAuditEvent(ctx, "invoice.finalization_failed", orgID, map[string]string{
+		"invoice_id": invoice.ID,
+	})
+
+	h.logger.Error("invoice finalization failed",
+		"org_id", orgID,
+		"invoice_id", invoice.ID,
+	)
 	return nil
 }
 
