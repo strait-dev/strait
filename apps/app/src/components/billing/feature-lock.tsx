@@ -17,6 +17,16 @@ const FEATURE_LABELS: Record<PlanFeature, { name: string; minPlan: string }> = {
   audit_logs: { name: "Audit Logs", minPlan: "Scale" },
   sso: { name: "SSO / SAML", minPlan: "Enterprise" },
   sla: { name: "SLA", minPlan: "Enterprise" },
+  dedicated_compute: { name: "Dedicated Compute", minPlan: "Enterprise" },
+  static_ips: { name: "Static IPs", minPlan: "Enterprise" },
+  vpc_peering: { name: "VPC Peering", minPlan: "Enterprise" },
+  scim: { name: "SCIM Directory Sync", minPlan: "Enterprise" },
+  data_residency: { name: "Data Residency", minPlan: "Enterprise" },
+  custom_rbac: { name: "Custom RBAC", minPlan: "Enterprise" },
+  ip_allowlisting: { name: "IP Allowlisting", minPlan: "Enterprise" },
+  session_management: { name: "Session Management", minPlan: "Enterprise" },
+  secret_rotation: { name: "Secret Rotation", minPlan: "Enterprise" },
+  siem_export: { name: "SIEM Export", minPlan: "Enterprise" },
 };
 
 type FeatureLockProps = {

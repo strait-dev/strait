@@ -32,11 +32,29 @@ import { authMiddleware } from "@/middlewares/auth";
 
 const TEAM_SIZES = ["1-10", "11-50", "51-200", "201-500", "500+"] as const;
 
+const USE_CASES = [
+  "SSO / compliance requirements",
+  "High volume workloads",
+  "Dedicated infrastructure",
+  "Data residency",
+  "Other",
+] as const;
+
+const MONTHLY_SPEND_RANGES = [
+  "Under $500/mo",
+  "$500 - $1,500/mo",
+  "$1,500 - $4,000/mo",
+  "$4,000 - $8,000/mo",
+  "Over $8,000/mo",
+] as const;
+
 const enterpriseContactSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.email("Must be a valid email address"),
   company: z.string().min(1, "Company name is required"),
   teamSize: z.string().min(1, "Team size is required"),
+  useCase: z.string(),
+  expectedSpend: z.string(),
   message: z.string().min(10, "Message must be at least 10 characters"),
 });
 
@@ -54,6 +72,10 @@ const submitEnterpriseContact = createServerFn({ method: "POST" })
         `Email: ${data.email}`,
         `Company: ${data.company}`,
         `Team Size: ${data.teamSize}`,
+        ...(data.useCase ? [`Use Case: ${data.useCase}`] : []),
+        ...(data.expectedSpend
+          ? [`Expected Spend: ${data.expectedSpend}`]
+          : []),
         `Message: ${data.message}`,
       ].join("\n"),
     });
@@ -74,6 +96,8 @@ function EnterpriseContactPage() {
       email: "",
       company: "",
       teamSize: "",
+      useCase: "",
+      expectedSpend: "",
       message: "",
     }),
     []
@@ -212,6 +236,55 @@ function EnterpriseContactPage() {
                       {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
+                </Field>
+              )}
+            </form.Field>
+            <form.Field name="useCase">
+              {(field) => (
+                <Field>
+                  <FieldLabel htmlFor={field.name}>
+                    Primary use case (optional)
+                  </FieldLabel>
+                  <Select
+                    onValueChange={(val) => field.handleChange(val as string)}
+                    value={field.state.value}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select use case" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {USE_CASES.map((uc) => (
+                        <SelectItem key={uc} value={uc}>
+                          {uc}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
+            </form.Field>
+
+            <form.Field name="expectedSpend">
+              {(field) => (
+                <Field>
+                  <FieldLabel htmlFor={field.name}>
+                    Expected monthly spend (optional)
+                  </FieldLabel>
+                  <Select
+                    onValueChange={(val) => field.handleChange(val as string)}
+                    value={field.state.value}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select range" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONTHLY_SPEND_RANGES.map((range) => (
+                        <SelectItem key={range} value={range}>
+                          {range}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </Field>
               )}
             </form.Field>

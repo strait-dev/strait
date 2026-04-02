@@ -30,6 +30,18 @@ export type APIPlan = {
   requires_credit_card: boolean;
   overage_per_k_runs_microusd: number;
   support_level: string;
+  has_dedicated_compute: boolean;
+  has_static_ips: boolean;
+  has_vpc_peering: boolean;
+  has_scim: boolean;
+  has_data_residency: boolean;
+  has_custom_rbac: boolean;
+  has_reserved_capacity: boolean;
+  has_priority_queue: boolean;
+  has_ip_allowlisting: boolean;
+  has_session_management: boolean;
+  has_secret_rotation: boolean;
+  has_siem_export: boolean;
 };
 
 type PlansResponse = {
@@ -290,5 +302,10 @@ export function apiPlansToComparisonFeatures(
     ),
     row("Log drains", (p) => formatLimit(p.max_log_drains_per_org)),
     row("Alert rules", (p) => formatLimit(p.max_alert_rules_per_project)),
+    row("Dedicated compute", (p) => formatBoolean(p.has_dedicated_compute)),
+    row("Static IPs", (p) => formatBoolean(p.has_static_ips)),
+    row("VPC peering", (p) => formatBoolean(p.has_vpc_peering)),
+    row("SCIM", (p) => formatBoolean(p.has_scim)),
+    row("SIEM export", (p) => formatBoolean(p.has_siem_export)),
   ];
 }

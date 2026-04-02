@@ -38,7 +38,17 @@ export type PlanFeature =
   | "canary_deployments"
   | "audit_logs"
   | "sso"
-  | "sla";
+  | "sla"
+  | "dedicated_compute"
+  | "static_ips"
+  | "vpc_peering"
+  | "scim"
+  | "data_residency"
+  | "custom_rbac"
+  | "ip_allowlisting"
+  | "session_management"
+  | "secret_rotation"
+  | "siem_export";
 
 /** Minimum tier required for each feature. */
 const FEATURE_MIN_TIER: Record<PlanFeature, string> = {
@@ -51,6 +61,16 @@ const FEATURE_MIN_TIER: Record<PlanFeature, string> = {
   audit_logs: "scale",
   sso: "enterprise",
   sla: "enterprise",
+  dedicated_compute: "enterprise",
+  static_ips: "enterprise",
+  vpc_peering: "enterprise",
+  scim: "enterprise",
+  data_residency: "enterprise",
+  custom_rbac: "enterprise",
+  ip_allowlisting: "enterprise",
+  session_management: "enterprise",
+  secret_rotation: "enterprise",
+  siem_export: "enterprise",
 };
 
 /** Returns true if `tier` has access to the given feature. */

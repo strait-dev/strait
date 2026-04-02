@@ -134,6 +134,19 @@ describe("canUseFeature", () => {
 
   const enterpriseFeatures: PlanFeature[] = ["sso", "sla"];
 
+  const enterpriseOnlyFeatures: PlanFeature[] = [
+    "dedicated_compute",
+    "static_ips",
+    "vpc_peering",
+    "scim",
+    "data_residency",
+    "custom_rbac",
+    "ip_allowlisting",
+    "session_management",
+    "secret_rotation",
+    "siem_export",
+  ];
+
   it("blocks pro features on free and starter", () => {
     for (const feature of proFeatures) {
       expect(canUseFeature("free", feature)).toBe(false);
@@ -175,6 +188,21 @@ describe("canUseFeature", () => {
 
   it("allows enterprise features on enterprise", () => {
     for (const feature of enterpriseFeatures) {
+      expect(canUseFeature("enterprise", feature)).toBe(true);
+    }
+  });
+
+  it("blocks enterprise-only features below enterprise", () => {
+    for (const feature of enterpriseOnlyFeatures) {
+      expect(canUseFeature("free", feature)).toBe(false);
+      expect(canUseFeature("starter", feature)).toBe(false);
+      expect(canUseFeature("pro", feature)).toBe(false);
+      expect(canUseFeature("scale", feature)).toBe(false);
+    }
+  });
+
+  it("allows enterprise-only features on enterprise", () => {
+    for (const feature of enterpriseOnlyFeatures) {
       expect(canUseFeature("enterprise", feature)).toBe(true);
     }
   });

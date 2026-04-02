@@ -41,6 +41,18 @@ const PRICE_TO_PLAN = new Map<string, PlanSlug>([
   [process.env.STRIPE_PRO_YEARLY_PRICE_ID ?? "", "pro"],
   [process.env.STRIPE_SCALE_MONTHLY_PRICE_ID ?? "", "scale"],
   [process.env.STRIPE_SCALE_YEARLY_PRICE_ID ?? "", "scale"],
+  [
+    process.env.STRIPE_ENTERPRISE_STARTER_YEARLY_PRICE_ID ?? "",
+    "enterprise",
+  ],
+  [
+    process.env.STRIPE_ENTERPRISE_GROWTH_YEARLY_PRICE_ID ?? "",
+    "enterprise",
+  ],
+  [
+    process.env.STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID ?? "",
+    "enterprise",
+  ],
 ]);
 
 /**

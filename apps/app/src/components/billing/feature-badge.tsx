@@ -12,6 +12,16 @@ const MIN_PLAN_LABEL: Record<PlanFeature, string> = {
   audit_logs: "Scale",
   sso: "Enterprise",
   sla: "Enterprise",
+  dedicated_compute: "Enterprise",
+  static_ips: "Enterprise",
+  vpc_peering: "Enterprise",
+  scim: "Enterprise",
+  data_residency: "Enterprise",
+  custom_rbac: "Enterprise",
+  ip_allowlisting: "Enterprise",
+  session_management: "Enterprise",
+  secret_rotation: "Enterprise",
+  siem_export: "Enterprise",
 };
 
 type FeatureBadgeProps = {
