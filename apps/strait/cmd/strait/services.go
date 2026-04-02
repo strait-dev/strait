@@ -721,6 +721,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 			webhookCleanup := scheduler.NewWebhookMessageCleanup(billingStore, slog.Default())
 			schedOpts = append(schedOpts, scheduler.WithWebhookMessageCleanup(webhookCleanup))
+
+			billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
+			contractExpiryChecker := scheduler.NewContractExpiryChecker(billingStore, billingEmailSender, 24*time.Hour)
+			schedOpts = append(schedOpts, scheduler.WithContractExpiryChecker(contractExpiryChecker))
+			slog.Info("contract expiry checker enabled")
 		}
 		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
 			schedOpts...,

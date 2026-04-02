@@ -24,6 +24,8 @@ func MaxSpendingLimit(tier domain.PlanTier) int64 {
 		return MaxSpendingStarter
 	case domain.PlanPro:
 		return MaxSpendingPro
+	case domain.PlanScale:
+		return MaxSpendingScale
 	case domain.PlanEnterprise:
 		return -1 // custom
 	default:
