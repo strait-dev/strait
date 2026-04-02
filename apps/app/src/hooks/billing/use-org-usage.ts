@@ -10,11 +10,14 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   EMPTY_ORG_USAGE,
   normalizeOrgUsageData,
-  type RawOrgUsageData,
 } from "@/hooks/billing/org-usage";
 import { queryKeys } from "@/hooks/query-keys";
-import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
+import {
+  apiEffectWithSchema,
+  runWithSentryReport,
+} from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { OrgUsageResponseSchema } from "./schemas";
 import { getOrgIdFromSession } from "./session";
 import { REFETCH_5M } from "./types";
 
@@ -36,7 +39,7 @@ const getOrgUsageServerFn = createServerFn({ method: "GET" })
     }
 
     const usage = await runWithSentryReport(
-      apiEffect<RawOrgUsageData>("/v1/usage/current", {
+      apiEffectWithSchema("/v1/usage/current", OrgUsageResponseSchema, {
         params: { org_id: orgId },
       })
     );

@@ -15,8 +15,13 @@ import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { getPostHog } from "@/lib/analytics";
-import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
+import {
+  apiEffect,
+  apiEffectWithSchema,
+  runWithSentryReport,
+} from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { SpendingLimitSchema } from "./schemas";
 import { getOrgIdFromSession } from "./session";
 import { type LimitAction, type PlanTierSlug, REFETCH_5M } from "./types";
 
@@ -53,7 +58,7 @@ const getSpendingLimitServerFn = createServerFn({ method: "GET" })
     }
 
     return await runWithSentryReport(
-      apiEffect<SpendingLimitData>("/v1/spending-limit", {
+      apiEffectWithSchema("/v1/spending-limit", SpendingLimitSchema, {
         params: { org_id: orgId },
       })
     );

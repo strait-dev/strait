@@ -6,7 +6,8 @@
  * with deprecated field names.
  */
 
-import type { PaymentStatus } from "./types";
+// PaymentStatus is imported as a type but the API returns plain strings,
+// so we keep `string` here for compatibility with Schema.decodeUnknown output.
 
 /** A single usage quota dimension with current value, limit, and percentage. */
 export type UsageDimension = {
@@ -68,7 +69,7 @@ export type RawOrgUsageData = {
   credit_used_percent: number;
   credit_remaining_microusd: number;
   alerts: UsageAlert[];
-  payment_status?: PaymentStatus;
+  payment_status?: string;
   grace_period_end?: string;
   active_addons?: AddonSummary[];
 

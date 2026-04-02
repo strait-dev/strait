@@ -1,4 +1,4 @@
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { apiRequest, type RequestOptions } from "@/lib/api-client.server";
 import { captureException } from "@/lib/sentry";
 
@@ -36,6 +36,38 @@ export function apiEffect<T>(
       new ApiError({ path, method: options.method ?? "GET", cause }),
   });
 }
+
+/**
+ * Lifts an `apiRequest` call into an Effect and validates the response
+ * against an Effect Schema, converting parse failures into typed `ApiError` values.
+ *
+ * Use this when you want runtime validation that the Go API response
+ * matches the expected shape. Parse errors are wrapped as `ApiError`
+ * so they flow through the same error channel as network failures.
+ *
+ * @param path    - API path, e.g. `"/v1/usage/current"`.
+ * @param schema  - Effect Schema to validate the response against.
+ * @param options - Optional method, body, and query params.
+ */
+export const apiEffectWithSchema = <A, I>(
+  path: string,
+  schema: Schema.Schema<A, I>,
+  options: RequestOptions = {}
+): Effect.Effect<A, ApiError> =>
+  apiEffect<unknown>(path, options).pipe(
+    Effect.flatMap((data) =>
+      Schema.decodeUnknown(schema)(data).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new ApiError({
+              path,
+              method: options.method ?? "GET",
+              cause: parseError,
+            })
+        )
+      )
+    )
+  );
 
 /**
  * Runs an Effect pipeline, reports any error to Sentry, and returns

@@ -9,8 +9,9 @@
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { queryKeys } from "@/hooks/query-keys";
-import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
+import { apiEffectWithSchema, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { UsageForecastSchema } from "./schemas";
 import { getOrgIdFromSession } from "./session";
 import { type PlanTierSlug, REFETCH_10M } from "./types";
 
@@ -47,7 +48,7 @@ const getUsageForecastServerFn = createServerFn({ method: "GET" })
     }
 
     return await runWithSentryReport(
-      apiEffect<UsageForecastData>("/v1/usage/forecast", {
+      apiEffectWithSchema("/v1/usage/forecast", UsageForecastSchema, {
         params: { org_id: orgId },
       })
     );
