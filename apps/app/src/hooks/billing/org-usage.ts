@@ -1,3 +1,14 @@
+/**
+ * Organization usage data types and normalization.
+ *
+ * Defines the shape of the `/v1/usage/current` API response and provides
+ * normalization logic to handle optional fields and backward compatibility
+ * with deprecated field names.
+ */
+
+import type { PaymentStatus } from "./types";
+
+/** A single usage quota dimension with current value, limit, and percentage. */
 export type UsageDimension = {
   used: number;
   limit: number;
@@ -5,6 +16,7 @@ export type UsageDimension = {
   display?: string;
 };
 
+/** A usage alert indicating the org is approaching or has exceeded a limit. */
 export type UsageAlert = {
   type: string;
   dimension: string;
@@ -12,6 +24,7 @@ export type UsageAlert = {
   message: string;
 };
 
+/** Base usage dimensions shared between raw and normalized representations. */
 type BaseUsageDimensions = {
   runs_today: UsageDimension;
   concurrent_runs: UsageDimension;
@@ -22,21 +35,25 @@ type BaseUsageDimensions = {
   regions_available: number;
 };
 
+/** Raw usage dimensions as returned by the API (AI fields may be absent). */
 export type RawOrgUsageDimensions = BaseUsageDimensions & {
   ai_model_calls_today?: UsageDimension;
   ai_assistant_messages_today?: UsageDimension;
 };
 
+/** Normalized usage dimensions with guaranteed AI fields. */
 export type OrgUsageDimensions = BaseUsageDimensions & {
   ai_model_calls_today: UsageDimension;
   ai_assistant_messages_today: UsageDimension;
 };
 
+/** Summary of an active addon pack for display in the billing dashboard. */
 export type AddonSummary = {
   type: string;
   quantity: number;
 };
 
+/** Raw response from `GET /v1/usage/current` before normalization. */
 export type RawOrgUsageData = {
   org_id: string;
   plan: string;
@@ -51,15 +68,26 @@ export type RawOrgUsageData = {
   credit_used_percent: number;
   credit_remaining_microusd: number;
   alerts: UsageAlert[];
-  payment_status?: string;
+  payment_status?: PaymentStatus;
   grace_period_end?: string;
   active_addons?: AddonSummary[];
+
+  /** Enterprise sub-tier identifier (only present for enterprise plans). */
+  enterprise_tier?: string;
+  /** Enterprise contract end date in "YYYY-MM-DD" format. */
+  contract_end_date?: string;
+  /** Compute overage discount percentage from the enterprise contract. */
+  compute_discount_pct?: number;
+  /** SLA uptime percentage from the enterprise contract tier. */
+  sla_uptime_pct?: number;
 };
 
+/** Normalized org usage data with guaranteed AI fields and enterprise fields carried through. */
 export type OrgUsageData = Omit<RawOrgUsageData, "usage"> & {
   usage: OrgUsageDimensions;
 };
 
+/** Default empty AI model calls dimension for free tier fallback. */
 const EMPTY_AI_MODEL_CALLS: UsageDimension = {
   used: 0,
   limit: 20,
@@ -96,7 +124,17 @@ export const EMPTY_ORG_USAGE: OrgUsageData = {
   alerts: [],
 };
 
-export function normalizeOrgUsageData(raw: RawOrgUsageData): OrgUsageData {
+/**
+ * Normalize raw API usage data into a consistent shape.
+ *
+ * Handles the `ai_model_calls_today` / `ai_assistant_messages_today` field
+ * migration and ensures both fields are always present. Enterprise-specific
+ * fields are passed through unchanged.
+ *
+ * @param raw - The raw response from `/v1/usage/current`.
+ * @returns Normalized usage data with guaranteed AI fields.
+ */
+export const normalizeOrgUsageData = (raw: RawOrgUsageData): OrgUsageData => {
   const aiModelCalls =
     raw.usage.ai_model_calls_today ??
     raw.usage.ai_assistant_messages_today ??
@@ -111,4 +149,4 @@ export function normalizeOrgUsageData(raw: RawOrgUsageData): OrgUsageData {
         raw.usage.ai_assistant_messages_today ?? aiModelCalls,
     },
   };
-}
+};

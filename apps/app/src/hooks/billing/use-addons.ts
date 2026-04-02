@@ -1,15 +1,32 @@
-import type { AddonSummary } from "@/hooks/billing/org-usage";
+/**
+ * Addon catalog and active addon utilities.
+ *
+ * Provides the static addon product catalog and helpers for computing
+ * active addon quantities from the usage API response.
+ */
 
+import type { AddonSummary } from "@/hooks/billing/org-usage";
+import type { AddonTypeSlug } from "./types";
+
+/** A single addon product in the catalog with pricing and checkout info. */
 export type AddonCatalogItem = {
-  type: string;
+  /** Addon type identifier matching the Go backend. */
+  type: AddonTypeSlug;
+  /** Human-readable addon name. */
   name: string;
+  /** Short description of what the addon provides. */
   description: string;
+  /** Number of units per pack (e.g. 50 concurrent runs). */
   packSize: number;
+  /** Unit label for display (e.g. "concurrent runs", "seat"). */
   packUnit: string;
+  /** Formatted monthly price string (e.g. "$10/mo"). */
   price: string;
+  /** Stripe checkout slug for addon purchase. */
   checkoutSlug: string;
 };
 
+/** The complete addon product catalog with pricing and checkout slugs. */
 export const ADDON_CATALOG: AddonCatalogItem[] = [
   {
     type: "concurrent_runs",
@@ -58,15 +75,24 @@ export const ADDON_CATALOG: AddonCatalogItem[] = [
   },
 ];
 
-/** Returns the active pack count for an addon type from the API data. */
-export function getActivePackCount(
+/**
+ * Returns the total active pack count for a specific addon type.
+ *
+ * Sums the quantities of all active addons matching the given type.
+ * Returns `0` when no addons are active or the list is undefined.
+ *
+ * @param activeAddons - The active addons from the usage API response.
+ * @param addonType - The addon type to filter by.
+ * @returns Total quantity of active packs for the given type.
+ */
+export const getActivePackCount = (
   activeAddons: AddonSummary[] | undefined,
   addonType: string
-): number {
+): number => {
   if (!activeAddons) {
     return 0;
   }
   return activeAddons
     .filter((a) => a.type === addonType)
     .reduce((sum, a) => sum + a.quantity, 0);
-}
+};

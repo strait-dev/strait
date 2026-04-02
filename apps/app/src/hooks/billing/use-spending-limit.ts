@@ -1,3 +1,11 @@
+/**
+ * Spending limit query and mutation hooks.
+ *
+ * Fetches and updates the organization-level spending limit from
+ * `GET/PUT /v1/spending-limit`. Spending limits control whether
+ * overage is rejected or the org is just notified.
+ */
+
 import {
   queryOptions,
   useMutation,
@@ -10,19 +18,29 @@ import { getPostHog } from "@/lib/analytics";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
+import { type LimitAction, type PlanTierSlug, REFETCH_5M } from "./types";
 
 /** Spending limit and current spend data for the organization. */
 export type SpendingLimitData = {
+  /** Organization ID. */
   org_id: string;
-  plan_tier: string;
+  /** Current plan tier. */
+  plan_tier: PlanTierSlug;
+  /** Configured spending limit in USD. */
   spending_limit_usd: number;
-  limit_action: string;
+  /** Action taken when the limit is reached. */
+  limit_action: LimitAction;
+  /** Current period spend in USD. */
   current_spend_usd: number;
+  /** Included compute credit in USD. */
   included_credit_usd: number;
+  /** Overage spend above the included credit in USD. */
   overage_spend_usd: number;
+  /** Whether the org is hard-capped (no overage allowed). */
   is_hard_capped: boolean;
 };
 
+/** Server function to fetch the organization's spending limit. */
 const getSpendingLimitServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
@@ -41,20 +59,28 @@ const getSpendingLimitServerFn = createServerFn({ method: "GET" })
     );
   });
 
-/** Query options for the organization's spending limit and current spend. Refetches every 5 minutes. */
+/**
+ * Query options for the organization's spending limit and current spend.
+ *
+ * Refetches every 5 minutes.
+ *
+ * @returns TanStack Query options for `["billing", "spendingLimit"]`.
+ */
 export const spendingLimitQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.spendingLimit.queryKey,
     queryFn: () => getSpendingLimitServerFn(),
-    refetchInterval: 300_000,
+    refetchInterval: REFETCH_5M,
     refetchIntervalInBackground: false,
   });
 
+/** Input shape for the spending limit update mutation. */
 type UpdateSpendingLimitInput = {
   limitMicrousd: number;
   action: string;
 };
 
+/** Server function to update the organization's spending limit. */
 const updateSpendingLimitServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: UpdateSpendingLimitInput) =>
     z
@@ -86,6 +112,14 @@ const updateSpendingLimitServerFn = createServerFn({ method: "POST" })
     );
   });
 
+/**
+ * Mutation hook for updating the organization's spending limit.
+ *
+ * Invalidates the spending limit query on settlement and tracks
+ * the update event via PostHog.
+ *
+ * @returns A TanStack Query mutation for spending limit updates.
+ */
 export const useUpdateSpendingLimit = () => {
   const queryClient = useQueryClient();
   return useMutation({

@@ -1,6 +1,15 @@
+/**
+ * Plan definitions and formatting utilities.
+ *
+ * Fetches plan tier data from the Go backend via `GET /v1/plans` and
+ * transforms it into UI-friendly structures for the pricing page,
+ * plan comparison table, and upgrade flow.
+ */
+
 import { createServerFn } from "@tanstack/react-start";
 import { apiRequest } from "@/lib/api-client.server";
 
+/** Raw plan data from the `GET /v1/plans` API response. */
 export type APIPlan = {
   tier: string;
   display_name: string;
@@ -44,10 +53,16 @@ export type APIPlan = {
   has_siem_export: boolean;
 };
 
+/** API response wrapper for the plans endpoint. */
 type PlansResponse = {
   plans: APIPlan[];
 };
 
+/**
+ * Server function to fetch all plan tier definitions from the Go backend.
+ *
+ * @returns Array of plan definitions ordered by tier rank.
+ */
 export const getPlansServerFn = createServerFn({ method: "GET" }).handler(
   async () => {
     const data = await apiRequest<PlansResponse>("/v1/plans");
@@ -57,7 +72,14 @@ export const getPlansServerFn = createServerFn({ method: "GET" }).handler(
 
 const MICRO_TO_DOLLARS = 1_000_000;
 
-function formatLimit(value: number): string {
+/**
+ * Format a numeric limit value for display.
+ * Returns "Unlimited" for `-1`, formatted number for >= 1000.
+ *
+ * @param value - The limit value. `-1` means unlimited.
+ * @returns Formatted string (e.g. "Unlimited", "1,000", "50").
+ */
+export const formatLimit = (value: number): string => {
   if (value === -1) {
     return "Unlimited";
   }
@@ -65,62 +87,107 @@ function formatLimit(value: number): string {
     return value.toLocaleString("en-US");
   }
   return String(value);
-}
+};
 
-function formatComputeCredit(microusd: number): string {
+/**
+ * Format a micro-USD compute credit amount for display.
+ *
+ * @param microusd - Credit amount in micro-USD (1,000,000 = $1.00).
+ * @returns Formatted string (e.g. "$19.99") or "-" for zero/negative.
+ */
+export const formatComputeCredit = (microusd: number): string => {
   if (microusd <= 0) {
     return "-";
   }
   return `$${(microusd / MICRO_TO_DOLLARS).toFixed(2)}`;
-}
+};
 
-function formatRegionCount(regions: string[]): string {
+/**
+ * Format a region list into a count string.
+ *
+ * @param regions - Array of allowed region codes. Empty means all regions.
+ * @returns "All" for empty array, otherwise the count as a string.
+ */
+export const formatRegionCount = (regions: string[]): string => {
   if (regions.length === 0) {
     return "All";
   }
   return String(regions.length);
-}
+};
 
-function formatRetention(days: number): string {
+/**
+ * Format a retention days value for display.
+ *
+ * @param days - Number of retention days.
+ * @returns Formatted string (e.g. "1 day", "30 days").
+ */
+export const formatRetention = (days: number): string => {
   if (days === 1) {
     return "1 day";
   }
   return `${days} days`;
-}
+};
 
-function formatRBAC(level: string): string {
+/**
+ * Format an RBAC level string for display.
+ *
+ * @param level - RBAC level ("", "basic", "full").
+ * @returns Capitalized level or "-" for empty string.
+ */
+export const formatRBAC = (level: string): string => {
   if (!level) {
     return "-";
   }
   return level.charAt(0).toUpperCase() + level.slice(1);
-}
+};
 
-function formatBoolean(value: boolean): string {
+/**
+ * Format a boolean feature flag for display.
+ *
+ * @param value - Whether the feature is available.
+ * @returns "Yes" for true, "-" for false.
+ */
+export const formatBoolean = (value: boolean): string => {
   return value ? "Yes" : "-";
-}
+};
 
+/** A single feature listed on a pricing card. */
 export type PricingFeature = {
+  /** Feature name for display. */
   name: string;
+  /** Optional longer description. */
   description?: string;
+  /** Whether the feature is included in the plan. */
   included: boolean;
 };
 
+/** Pricing plan data shaped for the upgrade page plan cards. */
 export type PricingPlan = {
+  /** Display name (e.g. "Pro", "Scale"). */
   name: string;
+  /** Plan tier slug. */
   slug: "free" | "starter" | "pro" | "scale" | "enterprise";
+  /** Short description of the plan's target audience. */
   description: string;
+  /** Plan prices in cents. */
   prices: {
     monthly: number;
     yearly: number;
     monthlyInYearly?: number;
   };
+  /** Features listed on the pricing card. */
   features: PricingFeature[];
+  /** Whether this plan card should be visually highlighted. */
   highlight?: boolean;
+  /** Optional badge text (e.g. "Most popular"). */
   badge?: string;
+  /** Badge visual variant. */
   badgeVariant?: "success-light" | "info-light" | "default";
+  /** Whether the plan uses custom pricing (Enterprise). */
   isCustomPricing?: boolean;
 };
 
+/** Plan descriptions for the pricing cards. */
 const PLAN_DESCRIPTIONS: Record<string, string> = {
   free: "For side projects and evaluation. All features included.",
   starter: "For growing teams with production workloads.",
@@ -129,6 +196,7 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
   enterprise: "Custom everything for large organizations.",
 };
 
+/** Human-readable support level labels. */
 const SUPPORT_LABELS: Record<string, string> = {
   community: "Community support",
   email_72h: "Email support (72h)",
@@ -137,11 +205,26 @@ const SUPPORT_LABELS: Record<string, string> = {
   dedicated: "Dedicated support + CSM",
 };
 
-function formatSupportLevel(level: string): string {
+/**
+ * Format a support level identifier into a human-readable label.
+ *
+ * @param level - Support level identifier (e.g. "community", "dedicated").
+ * @returns Human-readable label, or the raw level if not recognized.
+ */
+export const formatSupportLevel = (level: string): string => {
   return SUPPORT_LABELS[level] ?? level;
-}
+};
 
-export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
+/**
+ * Transform API plan data into pricing plan objects for the upgrade page.
+ *
+ * Enterprise plans receive a special feature list and custom pricing flag.
+ * Other plans get their features derived from the API response fields.
+ *
+ * @param plans - Array of raw API plan data.
+ * @returns Array of pricing plans shaped for the plan selection UI.
+ */
+export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: feature mapping requires many branches per plan tier
   return plans.map((p) => {
     const slug = p.tier as PricingPlan["slug"];
@@ -246,20 +329,35 @@ export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
       isCustomPricing: isEnterprise,
     };
   });
-}
+};
 
+/** A single row in the plan comparison table. */
 export type ComparisonFeature = {
+  /** Feature name. */
   name: string;
+  /** Value for the free tier. */
   free: string;
+  /** Value for the starter tier. */
   starter: string;
+  /** Value for the pro tier. */
   pro: string;
+  /** Value for the scale tier. */
   scale: string;
+  /** Value for the enterprise tier. */
   enterprise: string;
 };
 
-export function apiPlansToComparisonFeatures(
+/**
+ * Transform API plan data into comparison table rows.
+ *
+ * Each row shows how a feature varies across all five tiers.
+ *
+ * @param plans - Array of raw API plan data.
+ * @returns Array of comparison feature rows for the plan comparison table.
+ */
+export const apiPlansToComparisonFeatures = (
   plans: APIPlan[]
-): ComparisonFeature[] {
+): ComparisonFeature[] => {
   const byTier = Object.fromEntries(plans.map((p) => [p.tier, p])) as Record<
     string,
     APIPlan
@@ -308,4 +406,4 @@ export function apiPlansToComparisonFeatures(
     row("SCIM", (p) => formatBoolean(p.has_scim)),
     row("SIEM export", (p) => formatBoolean(p.has_siem_export)),
   ];
-}
+};

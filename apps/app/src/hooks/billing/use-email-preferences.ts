@@ -1,3 +1,11 @@
+/**
+ * Email preferences query and mutation hooks.
+ *
+ * Fetches and updates the organization's billing email preferences from
+ * `GET/PUT /v1/usage/email-preferences`. Controls opt-in for monthly
+ * usage report PDF emails.
+ */
+
 import {
   queryOptions,
   useMutation,
@@ -9,11 +17,15 @@ import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
+import { REFETCH_5M } from "./types";
 
+/** Organization email notification preferences. */
 export type EmailPreferences = {
+  /** Whether monthly usage report emails are enabled. */
   monthly_usage_email: boolean;
 };
 
+/** Server function to fetch email preferences. */
 const getEmailPreferencesServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
@@ -32,18 +44,27 @@ const getEmailPreferencesServerFn = createServerFn({ method: "GET" })
     );
   });
 
+/**
+ * Query options for the organization's email notification preferences.
+ *
+ * Refetches every 5 minutes.
+ *
+ * @returns TanStack Query options for `["billing", "emailPreferences"]`.
+ */
 export const emailPreferencesQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.emailPreferences.queryKey,
     queryFn: () => getEmailPreferencesServerFn(),
-    refetchInterval: 300_000,
+    refetchInterval: REFETCH_5M,
     refetchIntervalInBackground: false,
   });
 
+/** Input for the email preferences update mutation. */
 type UpdateEmailPreferencesInput = {
   monthlyUsageEmail: boolean;
 };
 
+/** Server function to update email preferences. */
 const updateEmailPreferencesServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: UpdateEmailPreferencesInput) =>
     z
@@ -73,6 +94,13 @@ const updateEmailPreferencesServerFn = createServerFn({ method: "POST" })
     );
   });
 
+/**
+ * Mutation hook for updating email notification preferences.
+ *
+ * Invalidates the email preferences query on settlement.
+ *
+ * @returns A TanStack Query mutation for email preference updates.
+ */
 export const useUpdateEmailPreferences = () => {
   const queryClient = useQueryClient();
   return useMutation({

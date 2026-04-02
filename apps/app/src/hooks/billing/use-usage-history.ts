@@ -1,19 +1,33 @@
+/**
+ * Usage history query hook.
+ *
+ * Fetches daily usage history for the current billing period from
+ * `GET /v1/usage/history`. Used by the usage chart in the billing dashboard.
+ */
+
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
+import { REFETCH_10M } from "./types";
 
 /** A single day's usage entry with run counts, compute costs, and AI token usage. */
 export type UsageHistoryEntry = {
+  /** Date in "YYYY-MM-DD" format. */
   date: string;
+  /** Total runs executed on this day. */
   runs_count: number;
+  /** Compute cost for the day in micro-USD. */
   compute_cost_microusd: number;
+  /** Total AI tokens consumed on this day. */
   ai_tokens: number;
+  /** AI cost for the day in micro-USD. */
   ai_cost_microusd: number;
 };
 
+/** Server function to fetch daily usage history for the current period. */
 const getUsageHistoryServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
@@ -40,11 +54,17 @@ const getUsageHistoryServerFn = createServerFn({ method: "GET" })
     );
   });
 
-/** Query options for daily usage history in the current billing period. Refetches every 10 minutes. */
+/**
+ * Query options for daily usage history in the current billing period.
+ *
+ * Refetches every 10 minutes.
+ *
+ * @returns TanStack Query options for `["billing", "usageHistory"]`.
+ */
 export const usageHistoryQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.usageHistory.queryKey,
     queryFn: () => getUsageHistoryServerFn(),
-    refetchInterval: 600_000,
+    refetchInterval: REFETCH_10M,
     refetchIntervalInBackground: false,
   });

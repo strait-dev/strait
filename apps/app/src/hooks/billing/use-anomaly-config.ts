@@ -1,3 +1,10 @@
+/**
+ * Anomaly detection configuration query and mutation hooks.
+ *
+ * Fetches and updates the organization's spending anomaly detection
+ * thresholds from `GET/PUT /v1/anomaly-config`.
+ */
+
 import {
   queryOptions,
   useMutation,
@@ -9,12 +16,17 @@ import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
+import { REFETCH_10M } from "./types";
 
+/** Anomaly detection threshold configuration for the organization. */
 export type AnomalyConfigData = {
+  /** Spend-to-average ratio that triggers a warning alert. */
   warning_threshold: number;
+  /** Spend-to-average ratio that triggers a critical alert. */
   critical_threshold: number;
 };
 
+/** Server function to fetch the anomaly detection configuration. */
 const getAnomalyConfigServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
@@ -33,19 +45,28 @@ const getAnomalyConfigServerFn = createServerFn({ method: "GET" })
     );
   });
 
+/**
+ * Query options for the organization's anomaly detection thresholds.
+ *
+ * Refetches every 10 minutes.
+ *
+ * @returns TanStack Query options for `["billing", "anomalyConfig"]`.
+ */
 export const anomalyConfigQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.anomalyConfig.queryKey,
     queryFn: () => getAnomalyConfigServerFn(),
-    refetchInterval: 600_000,
+    refetchInterval: REFETCH_10M,
     refetchIntervalInBackground: false,
   });
 
+/** Input for the anomaly config update mutation. */
 type SetConfigInput = {
   warningThreshold: number;
   criticalThreshold: number;
 };
 
+/** Server function to update the anomaly detection thresholds. */
 const setAnomalyConfigServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: SetConfigInput) =>
     z
@@ -80,7 +101,14 @@ const setAnomalyConfigServerFn = createServerFn({ method: "POST" })
     );
   });
 
-export function useSetAnomalyConfig() {
+/**
+ * Mutation hook for updating the anomaly detection thresholds.
+ *
+ * Invalidates both the anomaly config and anomaly alerts queries on settlement.
+ *
+ * @returns A TanStack Query mutation for anomaly config updates.
+ */
+export const useSetAnomalyConfig = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (params: SetConfigInput) =>
@@ -94,4 +122,4 @@ export function useSetAnomalyConfig() {
       });
     },
   });
-}
+};
