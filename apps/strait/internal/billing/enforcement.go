@@ -667,9 +667,9 @@ func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 
 	count, err := e.store.CountProjectsByOrg(ctx, orgID)
 	if err != nil {
-		e.logger.Warn("failed to count projects by org", "org_id", orgID, "error", err)
-		return nil
+		return e.boundedFailOpen(ctx, orgID, "project_limit", "db_error")
 	}
+	e.resetFailOpen(orgID, "project_limit")
 
 	if count >= limits.MaxProjectsPerOrg {
 		e.recordRejection(ctx, "project_limit", limits.PlanTier)
@@ -1087,9 +1087,9 @@ func (e *Enforcer) CheckMemberLimit(ctx context.Context, orgID string) error {
 
 	count, err := e.store.CountMembersByOrg(ctx, orgID)
 	if err != nil {
-		e.logger.Warn("failed to count members by org", "org_id", orgID, "error", err)
-		return nil
+		return e.boundedFailOpen(ctx, orgID, "member_limit", "db_error")
 	}
+	e.resetFailOpen(orgID, "member_limit")
 
 	if count >= limits.MaxMembersPerOrg {
 		e.recordRejection(ctx, "member_limit", limits.PlanTier)
@@ -1120,9 +1120,9 @@ func (e *Enforcer) CheckOrgCreationLimit(ctx context.Context, userID string, pla
 
 	count, err := e.store.CountOrgsByUser(ctx, userID)
 	if err != nil {
-		e.logger.Warn("failed to count orgs by user", "user_id", userID, "error", err)
-		return nil
+		return e.boundedFailOpen(ctx, userID, "org_creation_limit", "db_error")
 	}
+	e.resetFailOpen(userID, "org_creation_limit")
 
 	if count >= limits.MaxOrgsPerUser {
 		e.recordRejection(ctx, "org_limit", limits.PlanTier)

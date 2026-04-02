@@ -277,6 +277,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		err = h.handleSubscriptionPaused(ctx, event.Data.Raw)
 	case stripe.EventTypeCustomerSubscriptionResumed:
 		err = h.handleSubscriptionResumed(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionTrialWillEnd:
+		err = h.handleTrialWillEnd(ctx, event.Data.Raw)
+	case stripe.EventTypeChargeDisputeCreated:
+		err = h.handleChargeDisputeCreated(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceUpcoming:
+		err = h.handleInvoiceUpcoming(ctx, event.Data.Raw)
 	default:
 		h.logger.Debug("ignoring unhandled stripe event", "type", event.Type)
 		w.WriteHeader(http.StatusOK)
@@ -951,6 +957,135 @@ func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data jso
 	})
 
 	h.logger.Info("subscription resumed", "org_id", orgID, "plan_tier", tier)
+	return nil
+}
+
+// handleTrialWillEnd fires 3 days before a subscription trial expires.
+// Sends a reminder email so the org can add a payment method.
+func (h *WebhookHandler) handleTrialWillEnd(ctx context.Context, data json.RawMessage) error {
+	var sub stripe.Subscription
+	if err := json.Unmarshal(data, &sub); err != nil {
+		return fmt.Errorf("parsing subscription data: %w", err)
+	}
+
+	orgID := h.resolveOrgID(&sub)
+	if orgID == "" {
+		return nil
+	}
+
+	trialEnd := timeFromUnix(sub.TrialEnd)
+	daysRemaining := 3
+	trialEndStr := "soon"
+	if trialEnd != nil {
+		daysRemaining = max(0, int(time.Until(*trialEnd).Hours()/24))
+		trialEndStr = trialEnd.Format("January 2, 2006")
+	}
+
+	h.logAuditEvent(ctx, "subscription.trial_will_end", orgID, map[string]string{
+		"stripe_subscription_id": sub.ID,
+		"trial_end":              trialEndStr,
+	})
+
+	if h.billingEmails != nil {
+		adminEmails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
+		localEnd := trialEndStr
+		localDays := daysRemaining
+		go func() { //nolint:gosec // async email with own timeout
+			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			h.billingEmails.SendTrialEndingSoon(emailCtx, adminEmails, localEnd, localDays)
+		}()
+	}
+
+	h.logger.Info("trial ending soon", "org_id", orgID, "days_remaining", daysRemaining)
+	return nil
+}
+
+// handleChargeDisputeCreated fires when a customer disputes a charge (chargeback).
+// Records an audit event and notifies admins.
+func (h *WebhookHandler) handleChargeDisputeCreated(ctx context.Context, data json.RawMessage) error {
+	var dispute stripe.Dispute
+	if err := json.Unmarshal(data, &dispute); err != nil {
+		return fmt.Errorf("parsing dispute data: %w", err)
+	}
+
+	// Resolve org from the charge's customer metadata.
+	orgID := ""
+	if dispute.Charge != nil && dispute.Charge.Customer != nil && dispute.Charge.Customer.Metadata != nil {
+		if id, ok := dispute.Charge.Customer.Metadata["org_id"]; ok && isValidUUID(id) {
+			orgID = id
+		}
+	}
+	if orgID == "" {
+		h.logger.Warn("cannot resolve org_id from dispute", "dispute_id", dispute.ID)
+		return nil
+	}
+
+	amountStr := fmt.Sprintf("$%.2f", float64(dispute.Amount)/100)
+
+	h.logAuditEvent(ctx, "charge.dispute.created", orgID, map[string]string{
+		"dispute_id": dispute.ID,
+		"amount":     amountStr,
+		"reason":     string(dispute.Reason),
+	})
+
+	if h.billingEmails != nil {
+		adminEmails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
+		localAmount := amountStr
+		go func() { //nolint:gosec // async email with own timeout
+			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			h.billingEmails.SendDisputeAlert(emailCtx, adminEmails, localAmount)
+		}()
+	}
+
+	h.logger.Warn("charge disputed",
+		"org_id", orgID,
+		"dispute_id", dispute.ID,
+		"amount", amountStr,
+		"reason", dispute.Reason,
+	)
+	return nil
+}
+
+// handleInvoiceUpcoming fires ~72 hours before an invoice is finalized.
+// Sends a heads-up email so the org knows about the upcoming charge.
+func (h *WebhookHandler) handleInvoiceUpcoming(ctx context.Context, data json.RawMessage) error {
+	var invoice stripe.Invoice
+	if err := json.Unmarshal(data, &invoice); err != nil {
+		return fmt.Errorf("parsing invoice data: %w", err)
+	}
+
+	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	if orgID == "" {
+		return nil
+	}
+
+	amountDue := fmt.Sprintf("$%.2f", float64(invoice.AmountDue)/100)
+	dueDate := "upcoming"
+	if invoice.DueDate > 0 {
+		dueDate = time.Unix(invoice.DueDate, 0).Format("January 2, 2006")
+	} else if invoice.NextPaymentAttempt > 0 {
+		dueDate = time.Unix(invoice.NextPaymentAttempt, 0).Format("January 2, 2006")
+	}
+
+	h.logAuditEvent(ctx, "invoice.upcoming", orgID, map[string]string{
+		"amount_due": amountDue,
+		"due_date":   dueDate,
+	})
+
+	if h.billingEmails != nil {
+		adminEmails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
+		localAmount := amountDue
+		localDate := dueDate
+		go func() { //nolint:gosec // async email with own timeout
+			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			h.billingEmails.SendInvoiceUpcoming(emailCtx, adminEmails, localAmount, localDate)
+		}()
+	}
+
+	h.logger.Info("invoice upcoming", "org_id", orgID, "amount_due", amountDue)
 	return nil
 }
 

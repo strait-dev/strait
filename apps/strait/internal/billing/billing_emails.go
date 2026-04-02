@@ -92,6 +92,87 @@ func (s *BillingEmailSender) SendEnterpriseContractReminder(ctx context.Context,
 	s.send(ctx, to, subject, body)
 }
 
+// SendTrialEndingSoon notifies org admins that their trial period is ending.
+func (s *BillingEmailSender) SendTrialEndingSoon(ctx context.Context, to []string, trialEndDate string, daysRemaining int) {
+	if s == nil || len(to) == 0 {
+		return
+	}
+	subject := fmt.Sprintf("Your trial ends in %d days", daysRemaining)
+	body := trialEndingHTML(trialEndDate, daysRemaining)
+	s.send(ctx, to, subject, body)
+}
+
+// SendDisputeAlert notifies org admins that a charge has been disputed.
+func (s *BillingEmailSender) SendDisputeAlert(ctx context.Context, to []string, disputeAmount string) {
+	if s == nil || len(to) == 0 {
+		return
+	}
+	body := disputeAlertHTML(disputeAmount)
+	s.send(ctx, to, "Payment dispute received", body)
+}
+
+// SendInvoiceUpcoming notifies org admins about an upcoming invoice.
+func (s *BillingEmailSender) SendInvoiceUpcoming(ctx context.Context, to []string, amountDue, dueDate string) {
+	if s == nil || len(to) == 0 {
+		return
+	}
+	body := invoiceUpcomingHTML(amountDue, dueDate)
+	s.send(ctx, to, "Upcoming invoice", body)
+}
+
+func trialEndingHTML(endDate string, daysRemaining int) string {
+	safeDate := html.EscapeString(endDate)
+	body := fmt.Sprintf(`<tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        Your Strait trial ends on <strong style="color:#252525;">%s</strong> (%d days from now). Add a payment method to continue using paid features after your trial.
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td>
+        <a href="https://app.strait.dev/app/billing" style="display:inline-block;padding:10px 24px;background-color:#171717;color:#FFFFFF;font-size:14px;font-weight:500;text-decoration:none;border-radius:4px;">
+          Manage billing
+        </a>
+      </td>
+    </tr>`, safeDate, daysRemaining)
+	return billingEmailWrapper("Trial ending soon", body)
+}
+
+func disputeAlertHTML(amount string) string {
+	safeAmount := html.EscapeString(amount)
+	body := fmt.Sprintf(`<tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        A payment dispute of <strong style="color:#252525;">%s</strong> has been opened on your account. Your service will continue while the dispute is under review.
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        If this dispute is not resolved, your account may be restricted. Please check your email for details from your payment provider.
+      </td>
+    </tr>`, safeAmount)
+	return billingEmailWrapper("Payment dispute received", body)
+}
+
+func invoiceUpcomingHTML(amountDue, dueDate string) string {
+	safeAmount := html.EscapeString(amountDue)
+	safeDate := html.EscapeString(dueDate)
+	body := fmt.Sprintf(`<tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        Your next Strait invoice of <strong style="color:#252525;">%s</strong> will be charged on <strong style="color:#252525;">%s</strong>.
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td>
+        <a href="https://app.strait.dev/app/billing" style="display:inline-block;padding:10px 24px;background-color:#171717;color:#FFFFFF;font-size:14px;font-weight:500;text-decoration:none;border-radius:4px;">
+          View billing
+        </a>
+      </td>
+    </tr>`, safeAmount, safeDate)
+	return billingEmailWrapper("Upcoming invoice", body)
+}
+
 func contractRenewalHTML(endDate string, daysRemaining int) string {
 	safeDate := html.EscapeString(endDate)
 	body := fmt.Sprintf(`<tr>
