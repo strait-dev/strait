@@ -47,6 +47,20 @@ type OrgPlanLimits struct {
 	HasCompensatingTxns  bool // compensating transactions / saga pattern (Pro+)
 	HasCanaryDeployments bool // canary deployment support (Scale+)
 
+	// Enterprise-only feature gates.
+	HasDedicatedCompute  bool // isolated Fly org for workloads
+	HasStaticIPs         bool // fixed egress IP addresses
+	HasVPCPeering        bool // private network access
+	HasSCIM              bool // directory sync (user provisioning)
+	HasDataResidency     bool // regional data isolation
+	HasCustomRBAC        bool // org-level role definitions beyond standard
+	HasReservedCapacity  bool // pre-provisioned machine pool
+	HasPriorityQueue     bool // enterprise jobs dequeued first
+	HasIPAllowlisting    bool // restrict API access to known CIDRs
+	HasSessionManagement bool // view/revoke OIDC sessions, bulk key revocation
+	HasSecretRotation    bool // zero-downtime secret rotation with grace period
+	HasSIEMExport        bool // forward audit logs to external SIEM
+
 	// Resource limits.
 	MaxScheduledJobs       int               // max cron schedules; -1 = unlimited
 	AllCronOverlapPolicies bool              // false = "allow" only; true = all policies
@@ -367,7 +381,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxMembersPerOrg:        -1,
 		MaxRunsPerDay:           -1,
 		MaxConcurrentRuns:       -1,
-		ComputeCreditMicrousd:   0,
+		ComputeCreditMicrousd:   0, // set per-contract via EnterpriseContract.IncludedCreditMicrousd
 		FreeManagedRunsPerMonth: 0,
 		FreeManagedPreset:       "",
 		FreeManagedMaxTimeout:   0,
@@ -394,6 +408,18 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxJobChainDepth:        -1,
 		HasCompensatingTxns:     true,
 		HasCanaryDeployments:    true,
+		HasDedicatedCompute:     true,
+		HasStaticIPs:            true,
+		HasVPCPeering:           true,
+		HasSCIM:                 true,
+		HasDataResidency:        true,
+		HasCustomRBAC:           true,
+		HasReservedCapacity:     true,
+		HasPriorityQueue:        true,
+		HasIPAllowlisting:       true,
+		HasSessionManagement:    true,
+		HasSecretRotation:       true,
+		HasSIEMExport:           true,
 		MaxScheduledJobs:        -1,
 		AllCronOverlapPolicies:  true,
 		MaxEnvironments:         3,

@@ -212,6 +212,18 @@ func (m *mockEnforcerStore) DeleteOldWebhookMessages(_ context.Context, _ time.T
 	return 0, nil
 }
 
+func (m *mockEnforcerStore) GetEnterpriseContract(_ context.Context, _ string) (*billing.EnterpriseContract, error) {
+	return nil, billing.ErrContractNotFound
+}
+
+func (m *mockEnforcerStore) UpsertEnterpriseContract(_ context.Context, _ *billing.EnterpriseContract) error {
+	return nil
+}
+
+func (m *mockEnforcerStore) ListExpiringContracts(_ context.Context, _ int) ([]billing.EnterpriseContract, error) {
+	return nil, nil
+}
+
 func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 	t.Parallel()
 

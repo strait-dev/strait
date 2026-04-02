@@ -18,6 +18,18 @@ const (
 	FeatureRBAC              Feature = "rbac"
 	FeatureAllCronOverlap    Feature = "all_cron_overlap_policies"
 	FeatureAIAssistantBYOK   Feature = "ai_assistant_byok"
+	FeatureDedicatedCompute  Feature = "dedicated_compute"
+	FeatureStaticIPs         Feature = "static_ips"
+	FeatureVPCPeering        Feature = "vpc_peering"
+	FeatureSCIM              Feature = "scim"
+	FeatureDataResidency     Feature = "data_residency"
+	FeatureCustomRBAC        Feature = "custom_rbac"
+	FeatureReservedCapacity  Feature = "reserved_capacity"
+	FeaturePriorityQueue     Feature = "priority_queue"
+	FeatureIPAllowlisting    Feature = "ip_allowlisting"
+	FeatureSessionManagement Feature = "session_management"
+	FeatureSecretRotation    Feature = "secret_rotation"
+	FeatureSIEMExport        Feature = "siem_export"
 )
 
 // LimitKey represents a numeric plan limit that can be queried via the registry.
@@ -109,6 +121,30 @@ func (r *StaticRegistry) AllowsFeature(tier domain.PlanTier, feature Feature) bo
 		return limits.AllCronOverlapPolicies
 	case FeatureAIAssistantBYOK:
 		return limits.AIAssistantBYOK
+	case FeatureDedicatedCompute:
+		return limits.HasDedicatedCompute
+	case FeatureStaticIPs:
+		return limits.HasStaticIPs
+	case FeatureVPCPeering:
+		return limits.HasVPCPeering
+	case FeatureSCIM:
+		return limits.HasSCIM
+	case FeatureDataResidency:
+		return limits.HasDataResidency
+	case FeatureCustomRBAC:
+		return limits.HasCustomRBAC
+	case FeatureReservedCapacity:
+		return limits.HasReservedCapacity
+	case FeaturePriorityQueue:
+		return limits.HasPriorityQueue
+	case FeatureIPAllowlisting:
+		return limits.HasIPAllowlisting
+	case FeatureSessionManagement:
+		return limits.HasSessionManagement
+	case FeatureSecretRotation:
+		return limits.HasSecretRotation
+	case FeatureSIEMExport:
+		return limits.HasSIEMExport
 	default:
 		return false
 	}

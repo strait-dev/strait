@@ -46,6 +46,7 @@ type mockBillingStore struct {
 	recordWebhookErr        error
 	recordedWebhookIDs      []string
 	getOrgSubscriptionFn    func(ctx context.Context, orgID string) (*OrgSubscription, error)
+	enterpriseContracts     map[string]*EnterpriseContract
 }
 
 func (m *mockBillingStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
@@ -360,4 +361,25 @@ func (m *mockBillingStore) IsWebhookProcessed(_ context.Context, _ string) (bool
 
 func (m *mockBillingStore) DeleteOldWebhookMessages(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
+}
+
+func (m *mockBillingStore) GetEnterpriseContract(_ context.Context, orgID string) (*EnterpriseContract, error) {
+	if m.enterpriseContracts != nil {
+		if c, ok := m.enterpriseContracts[orgID]; ok {
+			return c, nil
+		}
+	}
+	return nil, ErrContractNotFound
+}
+
+func (m *mockBillingStore) UpsertEnterpriseContract(_ context.Context, c *EnterpriseContract) error {
+	if m.enterpriseContracts == nil {
+		m.enterpriseContracts = make(map[string]*EnterpriseContract)
+	}
+	m.enterpriseContracts[c.OrgID] = c
+	return nil
+}
+
+func (m *mockBillingStore) ListExpiringContracts(_ context.Context, _ int) ([]EnterpriseContract, error) {
+	return nil, nil
 }

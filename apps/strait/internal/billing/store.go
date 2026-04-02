@@ -123,4 +123,9 @@ type Store interface {
 
 	// Webhook message cleanup
 	DeleteOldWebhookMessages(ctx context.Context, olderThan time.Time) (int64, error)
+
+	// Enterprise contracts
+	GetEnterpriseContract(ctx context.Context, orgID string) (*EnterpriseContract, error)
+	UpsertEnterpriseContract(ctx context.Context, contract *EnterpriseContract) error
+	ListExpiringContracts(ctx context.Context, withinDays int) ([]EnterpriseContract, error)
 }

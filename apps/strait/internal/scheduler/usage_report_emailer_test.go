@@ -173,6 +173,18 @@ func (m *mockReportStore) DeleteOldWebhookMessages(context.Context, time.Time) (
 	return 0, nil
 }
 
+func (m *mockReportStore) GetEnterpriseContract(context.Context, string) (*billing.EnterpriseContract, error) {
+	return nil, billing.ErrContractNotFound
+}
+
+func (m *mockReportStore) UpsertEnterpriseContract(context.Context, *billing.EnterpriseContract) error {
+	return nil
+}
+
+func (m *mockReportStore) ListExpiringContracts(context.Context, int) ([]billing.EnterpriseContract, error) {
+	return nil, nil
+}
+
 type mockResendAPI struct {
 	sent []*resend.SendEmailRequest
 }

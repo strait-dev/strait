@@ -47,6 +47,36 @@ func WithScalePrices(monthlyID, yearlyID string) StripeMappingOption {
 	}
 }
 
+// WithEnterpriseStarterPrice registers the Enterprise Starter plan yearly Price ID.
+func WithEnterpriseStarterPrice(yearlyID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if yearlyID != "" {
+			m.priceToTier[yearlyID] = domain.PlanEnterprise
+			RegisterEnterprisePriceTier(yearlyID, EnterpriseTierStarter)
+		}
+	}
+}
+
+// WithEnterpriseGrowthPrice registers the Enterprise Growth plan yearly Price ID.
+func WithEnterpriseGrowthPrice(yearlyID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if yearlyID != "" {
+			m.priceToTier[yearlyID] = domain.PlanEnterprise
+			RegisterEnterprisePriceTier(yearlyID, EnterpriseTierGrowth)
+		}
+	}
+}
+
+// WithEnterpriseLargePrice registers the Enterprise Large plan yearly Price ID.
+func WithEnterpriseLargePrice(yearlyID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if yearlyID != "" {
+			m.priceToTier[yearlyID] = domain.PlanEnterprise
+			RegisterEnterprisePriceTier(yearlyID, EnterpriseTierLarge)
+		}
+	}
+}
+
 // WithAddonPrice registers an addon Price ID to addon type mapping.
 func WithAddonPrice(priceID string, addonType AddonType) StripeMappingOption {
 	return func(m *StripeMapping) {

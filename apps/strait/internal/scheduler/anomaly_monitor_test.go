@@ -217,6 +217,18 @@ func (m *mockAnomalyMonitorStore) DeleteOldWebhookMessages(context.Context, time
 	return 0, nil
 }
 
+func (m *mockAnomalyMonitorStore) GetEnterpriseContract(context.Context, string) (*billing.EnterpriseContract, error) {
+	return nil, billing.ErrContractNotFound
+}
+
+func (m *mockAnomalyMonitorStore) UpsertEnterpriseContract(context.Context, *billing.EnterpriseContract) error {
+	return nil
+}
+
+func (m *mockAnomalyMonitorStore) ListExpiringContracts(context.Context, int) ([]billing.EnterpriseContract, error) {
+	return nil, nil
+}
+
 // mockCooldown implements AnomalyCooldown for testing.
 type mockCooldown struct {
 	cooled map[string]bool

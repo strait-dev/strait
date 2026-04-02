@@ -1172,3 +1172,99 @@ func (s *PgStore) DeleteOldWebhookMessages(ctx context.Context, olderThan time.T
 	}
 	return tag.RowsAffected(), nil
 }
+
+// GetEnterpriseContract returns the enterprise contract for an org.
+func (s *PgStore) GetEnterpriseContract(ctx context.Context, orgID string) (*EnterpriseContract, error) {
+	var c EnterpriseContract
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
+			included_credit_microusd, compute_discount_pct,
+			contract_start_date, contract_end_date,
+			auto_renew, billing_cadence, stripe_subscription_id,
+			notes, created_at, updated_at
+		FROM enterprise_contracts
+		WHERE org_id = $1
+	`, orgID).Scan(
+		&c.ID, &c.OrgID, &c.EnterpriseTier,
+		&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+		&c.ContractStartDate, &c.ContractEndDate,
+		&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
+		&c.Notes, &c.CreatedAt, &c.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrContractNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting enterprise contract: %w", err)
+	}
+	return &c, nil
+}
+
+// UpsertEnterpriseContract creates or updates an enterprise contract for an org.
+func (s *PgStore) UpsertEnterpriseContract(ctx context.Context, c *EnterpriseContract) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO enterprise_contracts (
+			id, org_id, enterprise_tier, annual_commitment_cents,
+			included_credit_microusd, compute_discount_pct,
+			contract_start_date, contract_end_date,
+			auto_renew, billing_cadence, stripe_subscription_id,
+			notes, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		ON CONFLICT (org_id) DO UPDATE SET
+			enterprise_tier = EXCLUDED.enterprise_tier,
+			annual_commitment_cents = EXCLUDED.annual_commitment_cents,
+			included_credit_microusd = EXCLUDED.included_credit_microusd,
+			compute_discount_pct = EXCLUDED.compute_discount_pct,
+			contract_start_date = EXCLUDED.contract_start_date,
+			contract_end_date = EXCLUDED.contract_end_date,
+			auto_renew = EXCLUDED.auto_renew,
+			billing_cadence = EXCLUDED.billing_cadence,
+			stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+			notes = EXCLUDED.notes,
+			updated_at = NOW()
+	`, c.ID, c.OrgID, c.EnterpriseTier,
+		c.AnnualCommitmentCents, c.IncludedCreditMicrousd, c.ComputeDiscountPct,
+		c.ContractStartDate, c.ContractEndDate,
+		c.AutoRenew, c.BillingCadence, c.StripeSubscriptionID,
+		c.Notes, c.CreatedAt, c.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("upserting enterprise contract: %w", err)
+	}
+	return nil
+}
+
+// ListExpiringContracts returns enterprise contracts expiring within the given number of days.
+func (s *PgStore) ListExpiringContracts(ctx context.Context, withinDays int) ([]EnterpriseContract, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
+			included_credit_microusd, compute_discount_pct,
+			contract_start_date, contract_end_date,
+			auto_renew, billing_cadence, stripe_subscription_id,
+			notes, created_at, updated_at
+		FROM enterprise_contracts
+		WHERE contract_end_date <= NOW() + make_interval(days => $1)
+		  AND contract_end_date > NOW()
+		ORDER BY contract_end_date ASC
+	`, withinDays)
+	if err != nil {
+		return nil, fmt.Errorf("listing expiring contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var contracts []EnterpriseContract
+	for rows.Next() {
+		var c EnterpriseContract
+		if err := rows.Scan(
+			&c.ID, &c.OrgID, &c.EnterpriseTier,
+			&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+			&c.ContractStartDate, &c.ContractEndDate,
+			&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
+			&c.Notes, &c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning enterprise contract: %w", err)
+		}
+		contracts = append(contracts, c)
+	}
+	return contracts, rows.Err()
+}
