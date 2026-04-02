@@ -360,6 +360,36 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		h.enforcer.InvalidateOrgCache(orgID)
 	}
 
+	// For enterprise plans, create the enterprise contract based on the price's sub-tier.
+	if tier == domain.PlanEnterprise {
+		if entTier, ok := EnterpriseTierForPrice(priceID); ok {
+			cfg := GetEnterpriseConfig(entTier)
+			now := time.Now()
+			contract := &EnterpriseContract{
+				ID:                     sub.ID + "-contract",
+				OrgID:                  orgID,
+				EnterpriseTier:         entTier,
+				AnnualCommitmentCents:  cfg.AnnualCommitmentCents,
+				IncludedCreditMicrousd: cfg.IncludedCreditMicrousd,
+				ComputeDiscountPct:     cfg.ComputeDiscountPct,
+				ContractStartDate:      now,
+				ContractEndDate:        now.AddDate(1, 0, 0),
+				AutoRenew:              true,
+				BillingCadence:         "annual",
+				StripeSubscriptionID:   &sub.ID,
+				CreatedAt:              now,
+				UpdatedAt:              now,
+			}
+			if err := h.store.UpsertEnterpriseContract(ctx, contract); err != nil {
+				h.logger.Warn("failed to create enterprise contract",
+					"org_id", orgID, "enterprise_tier", entTier, "error", err)
+			} else {
+				h.logger.Info("enterprise contract created",
+					"org_id", orgID, "enterprise_tier", entTier)
+			}
+		}
+	}
+
 	h.logAuditEvent(ctx, "subscription.created", orgID, map[string]string{
 		"plan_tier":              string(tier),
 		"stripe_subscription_id": sub.ID,

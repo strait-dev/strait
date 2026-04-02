@@ -24,6 +24,12 @@ type CurrentUsageResponse struct {
 	PaymentStatus        string          `json:"payment_status,omitempty"`
 	GracePeriodEnd       *string         `json:"grace_period_end,omitempty"`
 	ActiveAddons         []AddonSummary  `json:"active_addons,omitempty"`
+
+	// Enterprise-specific fields (only populated for enterprise plans).
+	EnterpriseTier     string  `json:"enterprise_tier,omitempty"`
+	ContractEndDate    string  `json:"contract_end_date,omitempty"`
+	ComputeDiscountPct int     `json:"compute_discount_pct,omitempty"`
+	SLAUptimePct       float64 `json:"sla_uptime_pct,omitempty"`
 }
 
 // AddonSummary represents an active add-on in the usage response.
@@ -151,6 +157,18 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	computeUsed := periodSpend
 	computeLimit := limits.ComputeCreditMicrousd
 
+	// For enterprise plans, load contract for credit pool and discount.
+	var enterpriseContract *EnterpriseContract
+	if limits.PlanTier == domain.PlanEnterprise && orgID != "" {
+		contract, contractErr := s.store.GetEnterpriseContract(ctx, orgID)
+		if contractErr == nil && contract != nil {
+			enterpriseContract = contract
+			if contract.IncludedCreditMicrousd > 0 {
+				computeLimit = contract.IncludedCreditMicrousd
+			}
+		}
+	}
+
 	// Region count
 	regionCount := len(limits.AllowedRegions)
 	if regionCount == 0 {
@@ -246,6 +264,20 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		if sub.GracePeriodEnd != nil {
 			formatted := sub.GracePeriodEnd.Format(time.RFC3339)
 			resp.GracePeriodEnd = &formatted
+		}
+	}
+
+	// Populate enterprise-specific fields.
+	if enterpriseContract != nil {
+		resp.EnterpriseTier = string(enterpriseContract.EnterpriseTier)
+		resp.ContractEndDate = enterpriseContract.ContractEndDate.Format("2006-01-02")
+		resp.ComputeDiscountPct = enterpriseContract.ComputeDiscountPct
+		cfg := GetEnterpriseConfig(enterpriseContract.EnterpriseTier)
+		resp.SLAUptimePct = cfg.UptimeSLAPct
+
+		// Apply compute discount to overage.
+		if enterpriseContract.ComputeDiscountPct > 0 && resp.OverageMicro > 0 {
+			resp.OverageMicro = ApplyComputeDiscount(resp.OverageMicro, enterpriseContract.ComputeDiscountPct)
 		}
 	}
 
