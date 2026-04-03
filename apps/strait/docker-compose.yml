@@ -1,5 +1,6 @@
 services:
   postgres:
+    container_name: strait-postgres
     image: postgres:18-alpine
     ports:
       - "5432:5432"
@@ -21,6 +22,7 @@ services:
           cpus: "2.0"
 
   redis:
+    container_name: strait-redis
     image: redis:8-alpine
     ports:
       - "6379:6379"
@@ -36,6 +38,7 @@ services:
           cpus: "1.0"
 
   sequin:
+    container_name: strait-sequin
     image: sequin/sequin:latest
     ports:
       - "7376:7376"
@@ -45,6 +48,7 @@ services:
       PG_USERNAME: strait
       PG_PASSWORD: strait
       PG_DATABASE: strait
+      REDIS_URL: redis://redis:6379
       SECRET_KEY_BASE: "tONJRnB3NMPNPSbvLsKzE/r6lklVO+04MfFNWPBzBtBt2G5H0rrn8bwdHcRXiSQ3"
       VAULT_KEY: "Gw1VfMPCshBaUeXrOvIPFTVtW/d5xlv93F7BPfVo7Ys="
     depends_on:
