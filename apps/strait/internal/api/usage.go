@@ -563,3 +563,34 @@ func (s *Server) handleCheckOrgLimit(ctx context.Context, input *CheckOrgLimitIn
 	}
 	return &CheckOrgLimitOutput{Body: map[string]string{"status": "allowed"}}, nil
 }
+
+type WhatIfCostInput struct {
+	Body struct {
+		Preset      string `json:"preset"`
+		TimeoutSecs int    `json:"timeout_secs"`
+		Cron        string `json:"cron,omitempty"`
+		Count       int    `json:"count,omitempty"`
+	}
+}
+type WhatIfCostOutput struct{ Body any }
+
+func (s *Server) handleWhatIfCostEstimate(_ context.Context, input *WhatIfCostInput) (*WhatIfCostOutput, error) {
+	if input.Body.Preset == "" {
+		return nil, huma.Error400BadRequest("preset is required")
+	}
+	if input.Body.TimeoutSecs <= 0 {
+		return nil, huma.Error400BadRequest("timeout_secs must be a positive integer")
+	}
+
+	estimate, err := billing.EstimateWhatIf(
+		input.Body.Preset,
+		input.Body.TimeoutSecs,
+		input.Body.Cron,
+		input.Body.Count,
+	)
+	if err != nil {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("invalid input: %v", err))
+	}
+
+	return &WhatIfCostOutput{Body: estimate}, nil
+}

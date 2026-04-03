@@ -3,8 +3,11 @@ package billing
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"strait/internal/compute"
+
+	"github.com/robfig/cron/v3"
 )
 
 // CheaperAlternative describes a less expensive preset option.
@@ -98,4 +101,71 @@ func findCheaperAlternative(currentPreset string, timeoutSecs int, currentCost i
 		CostMicro:  best.cost,
 		SavingsPct: savingsPct,
 	}
+}
+
+// CronRunsPerDay estimates how many times a cron expression fires in 24 hours.
+// Returns 0 for empty expressions. Returns error for invalid expressions.
+func CronRunsPerDay(cronExpr string) (float64, error) {
+	if cronExpr == "" {
+		return 0, nil
+	}
+
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	sched, err := parser.Parse(cronExpr)
+	if err != nil {
+		return 0, fmt.Errorf("parsing cron expression: %w", err)
+	}
+
+	// Count firings in a 24-hour window starting from a fixed reference point.
+	start := time.Date(2025, 1, 6, 0, 0, 0, 0, time.UTC) // Monday
+	end := start.Add(24 * time.Hour)
+
+	count := 0
+	t := sched.Next(start)
+	for !t.IsZero() && t.Before(end) {
+		count++
+		t = sched.Next(t)
+	}
+
+	return float64(count), nil
+}
+
+// WhatIfEstimate describes the projected cost of a hypothetical job configuration.
+type WhatIfEstimate struct {
+	MonthlyCostUsd float64 `json:"monthly_cost_usd"`
+	DailyCostUsd   float64 `json:"daily_cost_usd"`
+	CostPerRunUsd  float64 `json:"cost_per_run_usd"`
+	RunsPerDay     float64 `json:"runs_per_day"`
+}
+
+// EstimateWhatIf estimates the monthly cost of a hypothetical job configuration.
+func EstimateWhatIf(preset string, timeoutSecs int, cronExpr string, count int) (*WhatIfEstimate, error) {
+	if count <= 0 {
+		count = 1
+	}
+
+	costMicro, err := compute.EstimateCost(preset, timeoutSecs)
+	if err != nil {
+		return nil, fmt.Errorf("estimating cost: %w", err)
+	}
+
+	runsPerDay := float64(count) // default: 1 run per day per job
+	if cronExpr != "" {
+		rpd, cronErr := CronRunsPerDay(cronExpr)
+		if cronErr != nil {
+			return nil, cronErr
+		}
+		runsPerDay = rpd * float64(count)
+	}
+
+	costPerRunUsd := float64(costMicro) / 1_000_000
+	dailyCostUsd := costPerRunUsd * runsPerDay
+	monthlyCostUsd := dailyCostUsd * 30
+
+	return &WhatIfEstimate{
+		MonthlyCostUsd: monthlyCostUsd,
+		DailyCostUsd:   dailyCostUsd,
+		CostPerRunUsd:  costPerRunUsd,
+		RunsPerDay:     runsPerDay,
+	}, nil
 }
