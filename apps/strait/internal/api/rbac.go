@@ -17,8 +17,8 @@ import (
 // Roles.
 
 type createRoleRequest struct {
-	Name         string   `json:"name" validate:"required"`
-	Description  string   `json:"description"`
+	Name         string   `json:"name" validate:"required,max=255"`
+	Description  string   `json:"description" validate:"max=2000"`
 	Permissions  []string `json:"permissions" validate:"required,min=1"`
 	ParentRoleID string   `json:"parent_role_id,omitempty"`
 }
@@ -114,8 +114,8 @@ func (s *Server) handleGetRole(ctx context.Context, input *GetRoleInput) (*GetRo
 }
 
 type updateRoleRequest struct {
-	Name         string   `json:"name" validate:"required"`
-	Description  string   `json:"description"`
+	Name         string   `json:"name" validate:"required,max=255"`
+	Description  string   `json:"description" validate:"max=2000"`
 	Permissions  []string `json:"permissions" validate:"required,min=1"`
 	ParentRoleID string   `json:"parent_role_id,omitempty"`
 }

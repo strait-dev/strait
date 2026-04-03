@@ -23,9 +23,9 @@ import (
 type CreateJobRequest struct {
 	ProjectID                 string            `json:"project_id" validate:"required"`
 	GroupID                   string            `json:"group_id,omitempty"`
-	Name                      string            `json:"name" validate:"required"`
-	Slug                      string            `json:"slug" validate:"required"`
-	Description               string            `json:"description,omitempty"`
+	Name                      string            `json:"name" validate:"required,max=255"`
+	Slug                      string            `json:"slug" validate:"required,max=255"`
+	Description               string            `json:"description,omitempty" validate:"max=2000"`
 	Cron                      string            `json:"cron,omitempty"`
 	PayloadSchema             json.RawMessage   `json:"payload_schema,omitempty"`
 	Tags                      map[string]string `json:"tags,omitempty"`

@@ -16,8 +16,8 @@ import (
 
 type CreateEventSourceRequest struct {
 	ProjectID          string          `json:"project_id" validate:"required"`
-	Name               string          `json:"name" validate:"required"`
-	Description        string          `json:"description,omitempty"`
+	Name               string          `json:"name" validate:"required,max=255"`
+	Description        string          `json:"description,omitempty" validate:"max=2000"`
 	Schema             json.RawMessage `json:"schema,omitempty"`
 	Enabled            *bool           `json:"enabled,omitempty"`
 	SignatureHeader    string          `json:"signature_header,omitempty"`
