@@ -37,6 +37,8 @@ import { Route as AppEventsIndexRouteImport } from './routes/app/events/index'
 import { Route as AppDlqIndexRouteImport } from './routes/app/dlq/index'
 import { Route as AppBillingIndexRouteImport } from './routes/app/billing/index'
 import { Route as AppWorkflowsIdRouteImport } from './routes/app/workflows/$id'
+import { Route as AppWebhooksNewRouteImport } from './routes/app/webhooks/new'
+import { Route as AppWebhooksIdRouteImport } from './routes/app/webhooks/$id'
 import { Route as AppSchedulesIdRouteImport } from './routes/app/schedules/$id'
 import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
 import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/compare'
@@ -45,8 +47,6 @@ import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthJwksRouteImport } from './routes/api/auth/jwks'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as authOauthConsentRouteImport } from './routes/(auth)/oauth/consent'
-import { Route as AppWebhooksIdRouteImport } from './routes/app/webhooks/$id'
-import { Route as AppWebhooksNewRouteImport } from './routes/app/webhooks/new'
 import { Route as AppProjectsProjectIdSettingsRouteImport } from './routes/app/projects/$projectId/settings'
 
 const AppLayoutRoute = AppLayoutRouteImport.update({
@@ -184,9 +184,9 @@ const AppBillingIndexRoute = AppBillingIndexRouteImport.update({
   path: '/billing/',
   getParentRoute: () => AppLayoutRoute,
 } as any)
-const AppWebhooksIdRoute = AppWebhooksIdRouteImport.update({
-  id: '/webhooks/$id',
-  path: '/webhooks/$id',
+const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
+  id: '/workflows/$id',
+  path: '/workflows/$id',
   getParentRoute: () => AppLayoutRoute,
 } as any)
 const AppWebhooksNewRoute = AppWebhooksNewRouteImport.update({
@@ -194,9 +194,9 @@ const AppWebhooksNewRoute = AppWebhooksNewRouteImport.update({
   path: '/webhooks/new',
   getParentRoute: () => AppLayoutRoute,
 } as any)
-const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
-  id: '/workflows/$id',
-  path: '/workflows/$id',
+const AppWebhooksIdRoute = AppWebhooksIdRouteImport.update({
+  id: '/webhooks/$id',
+  path: '/webhooks/$id',
   getParentRoute: () => AppLayoutRoute,
 } as any)
 const AppSchedulesIdRoute = AppSchedulesIdRouteImport.update({
@@ -272,6 +272,8 @@ export interface FileRoutesByFullPath {
   '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
+  '/app/webhooks/$id': typeof AppWebhooksIdRoute
+  '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
   '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
@@ -282,8 +284,6 @@ export interface FileRoutesByFullPath {
   '/app/schedules/': typeof AppSchedulesIndexRoute
   '/app/settings/': typeof AppSettingsIndexRoute
   '/app/webhooks/': typeof AppWebhooksIndexRoute
-  '/app/webhooks/$id': typeof AppWebhooksIdRoute
-  '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/': typeof AppWorkflowsIndexRoute
   '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
@@ -312,6 +312,8 @@ export interface FileRoutesByTo {
   '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
+  '/app/webhooks/$id': typeof AppWebhooksIdRoute
+  '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
   '/app/billing': typeof AppBillingIndexRoute
   '/app/dlq': typeof AppDlqIndexRoute
@@ -322,8 +324,6 @@ export interface FileRoutesByTo {
   '/app/schedules': typeof AppSchedulesIndexRoute
   '/app/settings': typeof AppSettingsIndexRoute
   '/app/webhooks': typeof AppWebhooksIndexRoute
-  '/app/webhooks/$id': typeof AppWebhooksIdRoute
-  '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows': typeof AppWorkflowsIndexRoute
   '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
@@ -354,6 +354,8 @@ export interface FileRoutesById {
   '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
+  '/app/webhooks/$id': typeof AppWebhooksIdRoute
+  '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
   '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
@@ -364,8 +366,6 @@ export interface FileRoutesById {
   '/app/schedules/': typeof AppSchedulesIndexRoute
   '/app/settings/': typeof AppSettingsIndexRoute
   '/app/webhooks/': typeof AppWebhooksIndexRoute
-  '/app/webhooks/$id': typeof AppWebhooksIdRoute
-  '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/': typeof AppWorkflowsIndexRoute
   '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
 }
@@ -397,6 +397,8 @@ export interface FileRouteTypes {
     | '/app/pricing/compare'
     | '/app/runs/$id'
     | '/app/schedules/$id'
+    | '/app/webhooks/$id'
+    | '/app/webhooks/new'
     | '/app/workflows/$id'
     | '/app/billing/'
     | '/app/dlq/'
@@ -407,8 +409,6 @@ export interface FileRouteTypes {
     | '/app/schedules/'
     | '/app/settings/'
     | '/app/webhooks/'
-    | '/app/webhooks/$id'
-    | '/app/webhooks/new'
     | '/app/workflows/'
     | '/app/projects/$projectId/settings'
   fileRoutesByTo: FileRoutesByTo
@@ -437,6 +437,8 @@ export interface FileRouteTypes {
     | '/app/pricing/compare'
     | '/app/runs/$id'
     | '/app/schedules/$id'
+    | '/app/webhooks/$id'
+    | '/app/webhooks/new'
     | '/app/workflows/$id'
     | '/app/billing'
     | '/app/dlq'
@@ -447,8 +449,6 @@ export interface FileRouteTypes {
     | '/app/schedules'
     | '/app/settings'
     | '/app/webhooks'
-    | '/app/webhooks/$id'
-    | '/app/webhooks/new'
     | '/app/workflows'
     | '/app/projects/$projectId/settings'
   id:
@@ -478,6 +478,8 @@ export interface FileRouteTypes {
     | '/app/pricing/compare'
     | '/app/runs/$id'
     | '/app/schedules/$id'
+    | '/app/webhooks/$id'
+    | '/app/webhooks/new'
     | '/app/workflows/$id'
     | '/app/billing/'
     | '/app/dlq/'
@@ -488,8 +490,6 @@ export interface FileRouteTypes {
     | '/app/schedules/'
     | '/app/settings/'
     | '/app/webhooks/'
-    | '/app/webhooks/$id'
-    | '/app/webhooks/new'
     | '/app/workflows/'
     | '/app/projects/$projectId/settings'
   fileRoutesById: FileRoutesById
@@ -647,20 +647,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWebhooksIndexRouteImport
       parentRoute: typeof AppLayoutRoute
     }
-    '/app/webhooks/$id': {
-      id: '/app/webhooks/$id'
-      path: '/webhooks/$id'
-      fullPath: '/app/webhooks/$id'
-      preLoaderRoute: typeof AppWebhooksIdRouteImport
-      parentRoute: typeof AppLayoutRoute
-    }
-    '/app/webhooks/new': {
-      id: '/app/webhooks/new'
-      path: '/webhooks/new'
-      fullPath: '/app/webhooks/new'
-      preLoaderRoute: typeof AppWebhooksNewRouteImport
-      parentRoute: typeof AppLayoutRoute
-    }
     '/app/settings/': {
       id: '/app/settings/'
       path: '/settings'
@@ -722,6 +708,20 @@ declare module '@tanstack/react-router' {
       path: '/workflows/$id'
       fullPath: '/app/workflows/$id'
       preLoaderRoute: typeof AppWorkflowsIdRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/webhooks/new': {
+      id: '/app/webhooks/new'
+      path: '/webhooks/new'
+      fullPath: '/app/webhooks/new'
+      preLoaderRoute: typeof AppWebhooksNewRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/webhooks/$id': {
+      id: '/app/webhooks/$id'
+      path: '/webhooks/$id'
+      fullPath: '/app/webhooks/$id'
+      preLoaderRoute: typeof AppWebhooksIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
     '/app/schedules/$id': {
@@ -801,6 +801,8 @@ interface AppLayoutRouteChildren {
   AppPricingCompareRoute: typeof AppPricingCompareRoute
   AppRunsIdRoute: typeof AppRunsIdRoute
   AppSchedulesIdRoute: typeof AppSchedulesIdRoute
+  AppWebhooksIdRoute: typeof AppWebhooksIdRoute
+  AppWebhooksNewRoute: typeof AppWebhooksNewRoute
   AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
   AppBillingIndexRoute: typeof AppBillingIndexRoute
   AppDlqIndexRoute: typeof AppDlqIndexRoute
@@ -810,8 +812,6 @@ interface AppLayoutRouteChildren {
   AppRunsIndexRoute: typeof AppRunsIndexRoute
   AppSchedulesIndexRoute: typeof AppSchedulesIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
-  AppWebhooksIdRoute: typeof AppWebhooksIdRoute
-  AppWebhooksNewRoute: typeof AppWebhooksNewRoute
   AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
   AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
   AppProjectsProjectIdSettingsRoute: typeof AppProjectsProjectIdSettingsRoute
@@ -828,6 +828,8 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppPricingCompareRoute: AppPricingCompareRoute,
   AppRunsIdRoute: AppRunsIdRoute,
   AppSchedulesIdRoute: AppSchedulesIdRoute,
+  AppWebhooksIdRoute: AppWebhooksIdRoute,
+  AppWebhooksNewRoute: AppWebhooksNewRoute,
   AppWorkflowsIdRoute: AppWorkflowsIdRoute,
   AppBillingIndexRoute: AppBillingIndexRoute,
   AppDlqIndexRoute: AppDlqIndexRoute,
@@ -837,8 +839,6 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppRunsIndexRoute: AppRunsIndexRoute,
   AppSchedulesIndexRoute: AppSchedulesIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
-  AppWebhooksIdRoute: AppWebhooksIdRoute,
-  AppWebhooksNewRoute: AppWebhooksNewRoute,
   AppWebhooksIndexRoute: AppWebhooksIndexRoute,
   AppWorkflowsIndexRoute: AppWorkflowsIndexRoute,
   AppProjectsProjectIdSettingsRoute: AppProjectsProjectIdSettingsRoute,

@@ -23,8 +23,8 @@
     "knip": "knip",
     "knip:fix": "knip --fix",
     "run-all": "bun run biome:fix:unsafe && bun run biome:format && bun run biome:write && bun run biome:lint && bun run typecheck",
-    "db:migrate": "tsx scripts/migrate.ts",
-    "db:migrate:dry": "tsx scripts/migrate.ts --dry",
+    "db:migrate": "node --import tsx --loader ./scripts/cloudflare-shim.mjs scripts/migrate.ts",
+    "db:migrate:dry": "node --import tsx --loader ./scripts/cloudflare-shim.mjs scripts/migrate.ts --dry",
     "clean": "git clean -xdf dist .turbo node_modules"
   },
   "dependencies": {
