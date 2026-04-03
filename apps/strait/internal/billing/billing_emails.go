@@ -92,6 +92,41 @@ func (s *BillingEmailSender) SendEnterpriseContractReminder(ctx context.Context,
 	s.send(ctx, to, subject, body)
 }
 
+// SendDowngradeHTTPJobsWarning notifies org admins that HTTP-mode jobs will be paused
+// when the pending downgrade takes effect at the end of the billing period.
+func (s *BillingEmailSender) SendDowngradeHTTPJobsWarning(ctx context.Context, to []string, periodEnd string, jobCount int) {
+	if s == nil || len(to) == 0 {
+		return
+	}
+	subject := fmt.Sprintf("Your %d HTTP-mode jobs will be paused on %s", jobCount, periodEnd)
+	body := downgradeHTTPJobsWarningHTML(periodEnd, jobCount)
+	s.send(ctx, to, subject, body)
+}
+
+func downgradeHTTPJobsWarningHTML(periodEnd string, jobCount int) string {
+	safeDate := html.EscapeString(periodEnd)
+	body := fmt.Sprintf(`<tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        Your plan downgrade takes effect on <strong style="color:#252525;">%s</strong>. At that time, your <strong style="color:#252525;">%d HTTP-mode job(s)</strong> will be automatically paused because the new plan does not support HTTP execution mode.
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        Your job configurations and run history will be fully preserved. To keep your HTTP jobs running, upgrade back to Pro or higher before the period ends. Alternatively, you can convert them to managed execution mode.
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td>
+        <a href="https://app.strait.dev/app/upgrade" style="display:inline-block;padding:10px 24px;background-color:#171717;color:#FFFFFF;font-size:14px;font-weight:500;text-decoration:none;border-radius:4px;">
+          Upgrade plan
+        </a>
+      </td>
+    </tr>`, safeDate, jobCount)
+	return billingEmailWrapper("HTTP jobs will be paused", body)
+}
+
 // SendTrialEndingSoon notifies org admins that their trial period is ending.
 func (s *BillingEmailSender) SendTrialEndingSoon(ctx context.Context, to []string, trialEndDate string, daysRemaining int) {
 	if s == nil || len(to) == 0 {

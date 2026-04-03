@@ -559,6 +559,9 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 			"current_tier", existing.PlanTier,
 			"pending_tier", tier,
 		)
+
+		h.maybeSendHTTPJobsDowngradeWarning(ctx, orgID, tier, periodEnd)
+
 		return nil
 	}
 
@@ -1172,6 +1175,34 @@ func (h *WebhookHandler) handleInvoiceFinalizationFailed(ctx context.Context, da
 		"invoice_id", invoice.ID,
 	)
 	return nil
+}
+
+// maybeSendHTTPJobsDowngradeWarning sends an email warning if the pending
+// downgrade will cause HTTP-mode jobs to be paused.
+func (h *WebhookHandler) maybeSendHTTPJobsDowngradeWarning(ctx context.Context, orgID string, pendingTier domain.PlanTier, periodEnd *time.Time) {
+	targetLimits := GetPlanLimits(pendingTier)
+	if targetLimits.AllowsHTTPMode || h.billingEmails == nil {
+		return
+	}
+
+	httpCount, _ := h.store.CountHTTPJobsByOrg(ctx, orgID)
+	if httpCount == 0 {
+		return
+	}
+
+	adminEmails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
+	periodEndStr := "your next billing date"
+	if periodEnd != nil {
+		periodEndStr = periodEnd.Format("January 2, 2006")
+	}
+
+	localEnd := periodEndStr
+	localCount := httpCount
+	go func() { //nolint:gosec // async email with own timeout
+		emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		h.billingEmails.SendDowngradeHTTPJobsWarning(emailCtx, adminEmails, localEnd, localCount)
+	}()
 }
 
 // resolveOrgID extracts the org_id from Stripe subscription metadata or customer metadata.
