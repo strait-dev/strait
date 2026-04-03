@@ -1083,7 +1083,7 @@ func (s *PgStore) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgI
 // ListActiveAddons returns all active add-ons for an organization.
 func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, addon_type, quantity, stripe_subscription_id, active, created_at, updated_at
+		SELECT id, org_id, addon_type, quantity, stripe_subscription_id, active, expires_at, created_at, updated_at
 		FROM organization_addons
 		WHERE org_id = $1 AND active = true
 		ORDER BY created_at
@@ -1096,7 +1096,7 @@ func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, 
 	var addons []Addon
 	for rows.Next() {
 		var a Addon
-		if err := rows.Scan(&a.ID, &a.OrgID, &a.AddonType, &a.Quantity, &a.StripeSubscriptionID, &a.Active, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.OrgID, &a.AddonType, &a.Quantity, &a.StripeSubscriptionID, &a.Active, &a.ExpiresAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning addon row: %w", err)
 		}
 		addons = append(addons, a)
@@ -1107,9 +1107,9 @@ func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, 
 // CreateAddon inserts a new add-on record.
 func (s *PgStore) CreateAddon(ctx context.Context, addon *Addon) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO organization_addons (id, org_id, addon_type, quantity, stripe_subscription_id, active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-	`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.StripeSubscriptionID, addon.Active)
+		INSERT INTO organization_addons (id, org_id, addon_type, quantity, stripe_subscription_id, active, expires_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+	`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.StripeSubscriptionID, addon.Active, addon.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("creating addon: %w", err)
 	}

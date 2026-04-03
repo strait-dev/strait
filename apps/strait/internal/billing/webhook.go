@@ -1278,6 +1278,7 @@ func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub
 		}
 	}
 
+	_, periodEnd := extractPeriod(sub)
 	addon := &Addon{
 		ID:                   sub.ID,
 		OrgID:                orgID,
@@ -1285,6 +1286,7 @@ func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub
 		Quantity:             1,
 		StripeSubscriptionID: &sub.ID,
 		Active:               true,
+		ExpiresAt:            periodEnd,
 	}
 
 	if err := h.store.CreateAddon(ctx, addon); err != nil {

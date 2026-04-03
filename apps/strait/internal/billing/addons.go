@@ -90,6 +90,7 @@ type Addon struct {
 	Quantity             int
 	StripeSubscriptionID *string
 	Active               bool
+	ExpiresAt            *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
