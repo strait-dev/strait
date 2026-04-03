@@ -71,6 +71,7 @@ type UsageAlert struct {
 	Type      string `json:"type"`
 	Dimension string `json:"dimension"`
 	Threshold int    `json:"threshold"`
+	Severity  string `json:"severity"`
 	Message   string `json:"message"`
 }
 
@@ -658,32 +659,47 @@ func (s *UsageService) SetAnomalyConfig(ctx context.Context, orgID string, warni
 	return s.store.UpdateAnomalyThresholds(ctx, orgID, warning, critical)
 }
 
+// usageThreshold defines a percentage threshold with its severity.
+type usageThreshold struct {
+	Percent  float64
+	Severity string
+	Type     string
+}
+
+// thresholds in descending order so the highest triggered one wins.
+var alertThresholds = []usageThreshold{
+	{100, "limit_reached", "limit_reached"},
+	{95, "critical", "approaching_limit"},
+	{85, "warning", "approaching_limit"},
+	{70, "info", "approaching_limit"},
+}
+
 func (s *UsageService) buildAlerts(usage UsageDimensions) []UsageAlert {
 	var alerts []UsageAlert
 
-	if usage.RunsToday.Percent >= 80 {
-		alerts = append(alerts, UsageAlert{
-			Type:      "approaching_limit",
-			Dimension: "runs_today",
-			Threshold: 80,
-			Message:   fmt.Sprintf("You've used %.1f%% of daily runs", usage.RunsToday.Percent),
-		})
+	dimensions := []struct {
+		name    string
+		percent float64
+		label   string
+	}{
+		{"runs_today", usage.RunsToday.Percent, "daily runs"},
+		{"compute_credit", usage.ComputeCredit.Percent, "compute credit"},
+		{"projects", usage.Projects.Percent, "project slots"},
 	}
-	if usage.ComputeCredit.Percent >= 80 {
-		alerts = append(alerts, UsageAlert{
-			Type:      "approaching_limit",
-			Dimension: "compute_credit",
-			Threshold: 80,
-			Message:   fmt.Sprintf("You've used %.1f%% of compute credit", usage.ComputeCredit.Percent),
-		})
-	}
-	if usage.Projects.Percent >= 80 {
-		alerts = append(alerts, UsageAlert{
-			Type:      "approaching_limit",
-			Dimension: "projects",
-			Threshold: 80,
-			Message:   fmt.Sprintf("You've used %.1f%% of project slots", usage.Projects.Percent),
-		})
+
+	for _, dim := range dimensions {
+		for _, t := range alertThresholds {
+			if dim.percent >= t.Percent {
+				alerts = append(alerts, UsageAlert{
+					Type:      t.Type,
+					Dimension: dim.name,
+					Threshold: int(t.Percent),
+					Severity:  t.Severity,
+					Message:   fmt.Sprintf("You've used %.1f%% of %s", dim.percent, dim.label),
+				})
+				break // only report highest triggered threshold per dimension
+			}
+		}
 	}
 
 	return alerts
