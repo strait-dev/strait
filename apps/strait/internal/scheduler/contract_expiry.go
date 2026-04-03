@@ -12,6 +12,12 @@ import (
 type ContractExpiryStore interface {
 	ListExpiringContracts(ctx context.Context, withinDays int) ([]billing.EnterpriseContract, error)
 	ListOrgAdminEmails(ctx context.Context, orgID string) ([]string, error)
+	UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error
+}
+
+// ContractExpiredEmailSender sends contract expired notifications.
+type ContractExpiredEmailSender interface {
+	SendContractExpired(ctx context.Context, to []string, contractEndDate string)
 }
 
 // ContractExpiryEmailSender sends contract-related reminder emails.
@@ -56,6 +62,37 @@ func (c *ContractExpiryChecker) check(ctx context.Context) {
 	c.sendReminders(ctx, 30)
 	// Check 7-day window for final reminders.
 	c.sendReminders(ctx, 7)
+	// Restrict orgs whose non-renewing contracts have expired.
+	c.restrictExpiredContracts(ctx)
+}
+
+// restrictExpiredContracts finds contracts that have already expired (end_date in the past)
+// with AutoRenew=false and sets the org's payment_status to "restricted".
+func (c *ContractExpiryChecker) restrictExpiredContracts(ctx context.Context) {
+	// ListExpiringContracts with withinDays=0 returns nothing (filters end_date > NOW()).
+	// Use withinDays=1 and filter locally for contracts already past their end date.
+	contracts, err := c.store.ListExpiringContracts(ctx, 1)
+	if err != nil {
+		return
+	}
+
+	now := time.Now()
+	for _, contract := range contracts {
+		if contract.AutoRenew || contract.ContractEndDate.After(now) {
+			continue
+		}
+
+		if err := c.store.UpdatePaymentStatus(ctx, contract.OrgID, "restricted", nil); err != nil {
+			slog.Warn("contract expiry: failed to restrict org",
+				"org_id", contract.OrgID, "error", err)
+			continue
+		}
+
+		slog.Warn("contract expired, org restricted",
+			"org_id", contract.OrgID,
+			"contract_end", contract.ContractEndDate,
+		)
+	}
 }
 
 func (c *ContractExpiryChecker) sendReminders(ctx context.Context, withinDays int) {

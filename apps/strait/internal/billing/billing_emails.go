@@ -127,6 +127,28 @@ func downgradeHTTPJobsWarningHTML(periodEnd string, jobCount int) string {
 	return billingEmailWrapper("HTTP jobs will be paused", body)
 }
 
+// SendContractExpired notifies org admins that their enterprise contract has expired.
+func (s *BillingEmailSender) SendContractExpired(ctx context.Context, to []string, contractEndDate string) {
+	if s == nil || len(to) == 0 {
+		return
+	}
+	safeDate := html.EscapeString(contractEndDate)
+	body := fmt.Sprintf(`<tr>
+      <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
+        Your Enterprise contract expired on <strong style="color:#252525;">%s</strong>. Your organization has been placed in restricted mode. New job runs will be blocked until your contract is renewed.
+      </td>
+    </tr>
+    <tr><td style="height:16px;"></td></tr>
+    <tr>
+      <td>
+        <a href="mailto:leo@strait.dev" style="display:inline-block;padding:10px 24px;background-color:#171717;color:#FFFFFF;font-size:14px;font-weight:500;text-decoration:none;border-radius:4px;">
+          Contact sales to renew
+        </a>
+      </td>
+    </tr>`, safeDate)
+	s.send(ctx, to, "Your enterprise contract has expired", billingEmailWrapper("Enterprise contract expired", body))
+}
+
 // SendTrialEndingSoon notifies org admins that their trial period is ending.
 func (s *BillingEmailSender) SendTrialEndingSoon(ctx context.Context, to []string, trialEndDate string, daysRemaining int) {
 	if s == nil || len(to) == 0 {

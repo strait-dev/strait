@@ -29,6 +29,10 @@ func (m *mockContractExpiryStore) ListOrgAdminEmails(_ context.Context, orgID st
 	return m.adminEmails[orgID], nil
 }
 
+func (m *mockContractExpiryStore) UpdatePaymentStatus(_ context.Context, _ string, _ string, _ *time.Time) error {
+	return nil
+}
+
 type mockContractEmailSender struct {
 	sent []contractReminderCall
 }
