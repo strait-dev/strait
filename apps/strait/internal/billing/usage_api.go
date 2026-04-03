@@ -546,7 +546,23 @@ func (s *UsageService) DetectAnomalies(ctx context.Context, orgID string) ([]Ano
 		}
 	}
 	detector := NewAnomalyDetectorWithConfig(s.store, cfg)
-	return detector.DetectAnomalies(ctx, []string{orgID})
+	alerts, detectErr := detector.DetectAnomalies(ctx, []string{orgID})
+
+	// Add projected budget exceeded alert if spending limit is set.
+	if sub != nil && sub.SpendingLimitMicrousd > 0 {
+		forecast, forecastErr := s.GetUsageForecast(ctx, orgID)
+		if forecastErr == nil && forecast != nil {
+			projectedSpendMicro := int64(forecast.ProjectedMonthlyComputeUsd * 1_000_000)
+			if projectedSpendMicro > sub.SpendingLimitMicrousd {
+				alerts = append(alerts, AnomalyAlert{
+					OrgID:    orgID,
+					Severity: AnomalySeverityWarning,
+				})
+			}
+		}
+	}
+
+	return alerts, detectErr
 }
 
 // ProjectBudgetResponse is the API response for project budget queries.
