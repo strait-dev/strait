@@ -726,6 +726,10 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			contractExpiryChecker := scheduler.NewContractExpiryChecker(billingStore, billingEmailSender, 24*time.Hour)
 			schedOpts = append(schedOpts, scheduler.WithContractExpiryChecker(contractExpiryChecker))
 			slog.Info("contract expiry checker enabled")
+
+			retentionResolver := billing.NewPlanRetentionResolver(billingStore)
+			schedOpts = append(schedOpts, scheduler.WithOrgRetentionResolver(retentionResolver))
+			slog.Info("per-org plan retention enabled")
 		}
 		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
 			schedOpts...,

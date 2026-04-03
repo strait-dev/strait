@@ -160,6 +160,13 @@ func WithWebhookMessageCleanup(cleanup *WebhookMessageCleanup) SchedulerOption {
 	}
 }
 
+// WithOrgRetentionResolver enables per-org plan-based data retention in the reaper.
+func WithOrgRetentionResolver(resolver OrgRetentionResolver) SchedulerOption {
+	return func(s *Scheduler) {
+		s.reaper = s.reaper.WithOrgRetention(resolver)
+	}
+}
+
 // WithContractExpiryChecker enables periodic enterprise contract expiry reminders.
 func WithContractExpiryChecker(checker *ContractExpiryChecker) SchedulerOption {
 	return func(s *Scheduler) {
