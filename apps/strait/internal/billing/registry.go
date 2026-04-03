@@ -70,6 +70,9 @@ type PlanRegistry interface {
 	// MaxForLimit returns the numeric limit value for a tier and limit key.
 	// Returns 0 for unknown limit keys, -1 for unlimited.
 	MaxForLimit(tier domain.PlanTier, limit LimitKey) int
+
+	// RequiredPlanForFeature returns the minimum plan tier that includes a feature.
+	RequiredPlanForFeature(feature Feature) domain.PlanTier
 }
 
 // StaticRegistry implements PlanRegistry backed by the in-memory Plans map.
@@ -148,6 +151,17 @@ func (r *StaticRegistry) AllowsFeature(tier domain.PlanTier, feature Feature) bo
 	default:
 		return false
 	}
+}
+
+// RequiredPlanForFeature returns the minimum plan tier that includes the given feature.
+// Returns PlanEnterprise for unknown features as a safe default.
+func (r *StaticRegistry) RequiredPlanForFeature(feature Feature) domain.PlanTier {
+	for _, tier := range domain.AllPlanTiers() {
+		if r.AllowsFeature(tier, feature) {
+			return tier
+		}
+	}
+	return domain.PlanEnterprise
 }
 
 func (r *StaticRegistry) MaxForLimit(tier domain.PlanTier, limit LimitKey) int {

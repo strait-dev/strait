@@ -60,7 +60,7 @@ func (s *Server) getOrgPlanLimits(ctx context.Context, projectID string) *billin
 
 // checkFeatureAllowed checks whether a plan-gated feature is available for
 // the given project's org. Returns nil if allowed or if billing is unavailable
-// (fail open). Returns a 400 error with an upgrade prompt if blocked.
+// (fail open). Returns a 403 error with structured metadata if blocked.
 func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feature billing.Feature, featureName string) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
@@ -73,8 +73,20 @@ func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feat
 
 	s.recordBillingEvent(ctx, projectID, "gate_rejected", string(feature), string(limits.PlanTier))
 
-	return huma.Error400BadRequest(
-		fmt.Sprintf("%s requires a higher plan. Upgrade at /settings/billing", featureName),
+	requiredPlan := staticRegistry.RequiredPlanForFeature(feature)
+
+	return huma.Error403Forbidden(
+		fmt.Sprintf("%s is not available on the %s plan. Upgrade to %s or higher.",
+			featureName, limits.DisplayName, requiredPlan),
+		&huma.ErrorDetail{
+			Location: "billing",
+			Message:  "feature_not_available",
+			Value: map[string]string{
+				"feature":       string(feature),
+				"current_plan":  string(limits.PlanTier),
+				"required_plan": string(requiredPlan),
+			},
+		},
 	)
 }
 

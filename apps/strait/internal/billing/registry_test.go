@@ -265,5 +265,45 @@ func TestStaticRegistry_LimitsMonotonicallyIncrease(t *testing.T) {
 	}
 }
 
+func TestStaticRegistry_RequiredPlanForFeature(t *testing.T) {
+	t.Parallel()
+	reg := NewStaticRegistry()
+
+	tests := []struct {
+		feature Feature
+		want    domain.PlanTier
+	}{
+		// Starter features.
+		{FeatureRBAC, domain.PlanStarter},
+		{FeatureAllCronOverlap, domain.PlanStarter},
+		// Pro features.
+		{FeatureHTTPMode, domain.PlanPro},
+		{FeatureApprovalGates, domain.PlanPro},
+		{FeatureSubWorkflows, domain.PlanPro},
+		{FeatureJobChaining, domain.PlanPro},
+		{FeatureCompensatingTxns, domain.PlanPro},
+		// Scale features.
+		{FeatureAuditLogs, domain.PlanScale},
+		{FeatureCanaryDeployments, domain.PlanScale},
+		// Enterprise features.
+		{FeatureSSO, domain.PlanEnterprise},
+		{FeatureSLA, domain.PlanEnterprise},
+		{FeatureDedicatedCompute, domain.PlanEnterprise},
+		{FeatureSCIM, domain.PlanEnterprise},
+		// Unknown feature defaults to enterprise.
+		{Feature("nonexistent"), domain.PlanEnterprise},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.feature), func(t *testing.T) {
+			t.Parallel()
+			got := reg.RequiredPlanForFeature(tt.feature)
+			if got != tt.want {
+				t.Errorf("RequiredPlanForFeature(%q) = %q, want %q", tt.feature, got, tt.want)
+			}
+		})
+	}
+}
+
 // Verify the registry satisfies the interface at compile time.
 var _ PlanRegistry = (*StaticRegistry)(nil)
