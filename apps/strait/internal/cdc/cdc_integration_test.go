@@ -679,6 +679,11 @@ func TestIntegration_ConsumerBatchCollectPublish(t *testing.T) {
 		}
 	}
 
+	// Allow the consumer time to ack messages after publishing to Redis.
+	// The ack HTTP call happens asynchronously after the publish, so
+	// canceling immediately can race with the ack request.
+	time.Sleep(500 * time.Millisecond)
+
 	cancel()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()

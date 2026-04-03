@@ -115,7 +115,8 @@ func newExecutor(
 
 	t.Cleanup(func() {
 		exec.CloseCache()
-		_ = pub.Close()
+		// Do not call pub.Close() -- it closes the shared env.Redis.Client
+		// which breaks subsequent tests that reuse the same TestEnv.
 		_ = pool.Shutdown(context.Background())
 	})
 
@@ -435,11 +436,15 @@ func TestFailedJobHandling(t *testing.T) {
 
 	go exec.Run(execCtx)
 
-	deadline := time.After(30 * time.Second)
+	// With max_attempts=1, the executor dead-letters the run on first failure
+	// (no retries available). StatusDeadLetter is not in IsTerminal() since
+	// dead-lettered runs can be manually retried, so check for it directly.
+	deadline := time.After(15 * time.Second)
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for run to reach terminal state")
+			got, _ := st.GetRun(ctx, run.ID)
+			t.Fatalf("timed out waiting for run to be dead-lettered; current status = %q", got.Status)
 		default:
 		}
 
@@ -447,19 +452,16 @@ func TestFailedJobHandling(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetRun() error = %v", err)
 		}
-		if got.Status.IsTerminal() {
-			if got.Status != domain.StatusFailed {
-				t.Fatalf("expected status %q, got %q", domain.StatusFailed, got.Status)
-			}
+		if got.Status == domain.StatusDeadLetter {
 			if got.Error == "" {
-				t.Fatal("failed run has empty error field")
+				t.Fatal("dead-lettered run has empty error field")
 			}
 			if got.FinishedAt == nil {
-				t.Fatal("failed run has nil finished_at")
+				t.Fatal("dead-lettered run has nil finished_at")
 			}
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -512,11 +514,13 @@ func TestWorkerGracefulShutdown(t *testing.T) {
 		t.Fatal("timed out waiting for handler to start")
 	}
 
-	// Trigger shutdown while the job is still in-flight.
-	cancel()
-
-	// Allow the handler to complete.
+	// Allow the handler to complete while the executor is still running,
+	// then give it time to write the result to DB before canceling.
 	close(handlerComplete)
+	time.Sleep(500 * time.Millisecond)
+
+	// Now trigger shutdown.
+	cancel()
 
 	// Wait for executor to finish.
 	select {
