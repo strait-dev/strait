@@ -18,6 +18,16 @@ type mockDowngradeStore struct {
 	appliedOrgIDs []string
 	applyErrors   map[string]error
 	listErr       error
+
+	// HTTP pause tracking.
+	pauseHTTPCalls []pauseHTTPCall
+	pauseHTTPCount int64
+	pauseHTTPErr   error
+}
+
+type pauseHTTPCall struct {
+	orgID  string
+	reason string
 }
 
 func (m *mockDowngradeStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]billing.OrgSubscription, error) {
@@ -57,8 +67,12 @@ func (m *mockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) ([]s
 	return nil, nil
 }
 
-func (m *mockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
-	return 0, nil
+func (m *mockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, orgID string, reason string) (int64, error) {
+	m.pauseHTTPCalls = append(m.pauseHTTPCalls, pauseHTTPCall{orgID: orgID, reason: reason})
+	if m.pauseHTTPErr != nil {
+		return 0, m.pauseHTTPErr
+	}
+	return m.pauseHTTPCount, nil
 }
 
 func newTestEnforcer(t *testing.T) *billing.Enforcer {
@@ -321,5 +335,114 @@ func TestDowngradeApplier_NilEnforcer(t *testing.T) {
 
 	if len(store.appliedOrgIDs) != 1 {
 		t.Fatalf("expected 1 downgrade, got %d", len(store.appliedOrgIDs))
+	}
+}
+
+func TestDowngradeApplier_PausesHTTPJobsWhenNewPlanDisallows(t *testing.T) {
+	t.Parallel()
+
+	// Pro -> Starter: Starter disallows HTTP mode, so HTTP jobs must be paused.
+	starter := "starter"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-http", PlanTier: "pro", PendingPlanTier: &starter, CurrentPeriodEnd: &pastEnd},
+		},
+		pauseHTTPCount: 3,
+	}
+
+	enforcer := newTestEnforcer(t)
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.appliedOrgIDs) != 1 {
+		t.Fatalf("expected 1 downgrade applied, got %d", len(store.appliedOrgIDs))
+	}
+	if len(store.pauseHTTPCalls) != 1 {
+		t.Fatalf("expected 1 PauseHTTPJobsByOrg call, got %d", len(store.pauseHTTPCalls))
+	}
+	call := store.pauseHTTPCalls[0]
+	if call.orgID != "org-http" {
+		t.Errorf("expected orgID %q, got %q", "org-http", call.orgID)
+	}
+	if call.reason != "plan_downgrade" {
+		t.Errorf("expected reason %q, got %q", "plan_downgrade", call.reason)
+	}
+}
+
+func TestDowngradeApplier_SkipsHTTPPauseWhenNewPlanAllows(t *testing.T) {
+	t.Parallel()
+
+	// Enterprise -> Pro: both allow HTTP mode, so no pause should happen.
+	pro := "pro"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-keep", PlanTier: "enterprise", PendingPlanTier: &pro, CurrentPeriodEnd: &pastEnd},
+		},
+	}
+
+	enforcer := newTestEnforcer(t)
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.appliedOrgIDs) != 1 {
+		t.Fatalf("expected 1 downgrade applied, got %d", len(store.appliedOrgIDs))
+	}
+	if len(store.pauseHTTPCalls) != 0 {
+		t.Errorf("expected 0 PauseHTTPJobsByOrg calls, got %d", len(store.pauseHTTPCalls))
+	}
+}
+
+func TestDowngradeApplier_HTTPPauseErrorDoesNotBlockDowngrade(t *testing.T) {
+	t.Parallel()
+
+	// Even if PauseHTTPJobsByOrg fails, the downgrade should still complete.
+	free := "free"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-err", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+			{OrgID: "org-ok", PlanTier: "starter", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		pauseHTTPErr: fmt.Errorf("database connection lost"),
+	}
+
+	enforcer := newTestEnforcer(t)
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.appliedOrgIDs) != 2 {
+		t.Fatalf("expected 2 downgrades applied despite pause error, got %d", len(store.appliedOrgIDs))
+	}
+	// Both orgs should have attempted pause (both downgrading to free which disallows HTTP).
+	if len(store.pauseHTTPCalls) != 2 {
+		t.Errorf("expected 2 PauseHTTPJobsByOrg calls, got %d", len(store.pauseHTTPCalls))
+	}
+}
+
+func TestDowngradeApplier_NoHTTPJobsToPause(t *testing.T) {
+	t.Parallel()
+
+	// Downgrade to a tier that disallows HTTP, but no HTTP jobs exist (count=0).
+	free := "free"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-clean", PlanTier: "starter", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		pauseHTTPCount: 0,
+	}
+
+	enforcer := newTestEnforcer(t)
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.appliedOrgIDs) != 1 {
+		t.Fatalf("expected 1 downgrade applied, got %d", len(store.appliedOrgIDs))
+	}
+	// Pause should still be called (the store returns 0 rows affected).
+	if len(store.pauseHTTPCalls) != 1 {
+		t.Errorf("expected 1 PauseHTTPJobsByOrg call, got %d", len(store.pauseHTTPCalls))
 	}
 }

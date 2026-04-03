@@ -36,7 +36,7 @@ func (s *Server) routes() chi.Router {
 		AllowedOrigins:   s.config.CORSAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Internal-Secret", "X-Idempotency-Key", "Idempotency-Key"},
-		ExposedHeaders:   []string{"Link", "X-Request-Id", "X-API-Version", "X-Strait-Plan", "X-Strait-Usage-Limit"},
+		ExposedHeaders:   []string{"Link", "X-Request-Id", "X-API-Version", "X-Strait-Plan", "X-Strait-Usage-Limit", "X-Strait-Usage-Remaining"},
 		AllowCredentials: s.config.CORSAllowCredentials,
 		MaxAge:           300,
 	}))

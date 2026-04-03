@@ -558,6 +558,7 @@ type BillingEnforcer interface {
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetOrgPlanLimits(ctx context.Context, orgID string) (billing.OrgPlanLimits, error)
+	GetDailyRunCount(ctx context.Context, orgID string) (int64, error)
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
 }
 

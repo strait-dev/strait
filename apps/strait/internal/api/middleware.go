@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/ratelimit"
 
@@ -636,15 +637,35 @@ func (s *Server) planUsageHeaders(next http.Handler) http.Handler {
 		limits := s.getOrgPlanLimits(ctx, projectID)
 		if limits != nil {
 			w.Header().Set("X-Strait-Plan", string(limits.PlanTier))
-			if limits.MaxRunsPerDay == -1 {
-				w.Header().Set("X-Strait-Usage-Limit", "unlimited")
-			} else {
-				w.Header().Set("X-Strait-Usage-Limit", strconv.FormatInt(limits.MaxRunsPerDay, 10))
-			}
+			s.setUsageHeaders(ctx, w, limits, projectID)
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// setUsageHeaders writes X-Strait-Usage-Limit and X-Strait-Usage-Remaining.
+func (s *Server) setUsageHeaders(ctx context.Context, w http.ResponseWriter, limits *billing.OrgPlanLimits, projectID string) {
+	if limits.MaxRunsPerDay == -1 {
+		w.Header().Set("X-Strait-Usage-Limit", "unlimited")
+		w.Header().Set("X-Strait-Usage-Remaining", "unlimited")
+		return
+	}
+
+	w.Header().Set("X-Strait-Usage-Limit", strconv.FormatInt(limits.MaxRunsPerDay, 10))
+
+	orgID, _ := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if orgID == "" {
+		return
+	}
+
+	used, err := s.billingEnforcer.GetDailyRunCount(ctx, orgID)
+	if err != nil {
+		return
+	}
+
+	remaining := max(limits.MaxRunsPerDay-used, 0)
+	w.Header().Set("X-Strait-Usage-Remaining", strconv.FormatInt(remaining, 10))
 }
 
 type resolvedRateLimit struct {
