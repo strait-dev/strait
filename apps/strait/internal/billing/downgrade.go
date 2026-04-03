@@ -122,6 +122,19 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 		int64(targetRegions),
 	))
 
+	// HTTP-mode jobs (losing HTTP mode on downgrade = jobs auto-paused).
+	if currentLimits.AllowsHTTPMode && !targetLimits.AllowsHTTPMode {
+		httpJobs, _ := store.CountHTTPJobsByOrg(ctx, orgID)
+		if httpJobs > 0 {
+			impact.Impacts = append(impact.Impacts, ResourceImpact{
+				Resource: "http_mode_jobs",
+				Current:  int64(httpJobs),
+				Limit:    0,
+				Action:   ResourceActionRemove,
+			})
+		}
+	}
+
 	// Separate impacts into manual actions vs auto-disabled.
 	impact.ManualActions, impact.AutoDisabled = AutoDisableResources(impact.Impacts)
 
