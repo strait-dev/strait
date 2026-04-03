@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"strait/internal/domain"
@@ -84,14 +85,17 @@ type UsageHistoryEntry struct {
 
 // UsageForecastResponse is the response for GET /v1/usage/forecast.
 type UsageForecastResponse struct {
-	ProjectedMonthlyRuns       int64   `json:"projected_monthly_runs"`
-	ProjectedMonthlyComputeUsd float64 `json:"projected_monthly_compute_usd"`
-	ProjectedMonthlyAICostUsd  float64 `json:"projected_monthly_ai_cost_usd"`
-	RecommendedPlan            string  `json:"recommended_plan"`
-	DaysUntilLimit             int     `json:"days_until_limit"`
-	ProjectedOverageMicro      int64   `json:"projected_overage_microusd"`
-	AddonSpendMicro            int64   `json:"addon_spend_microusd"`
-	ScaleBreakeven             bool    `json:"scale_breakeven"`
+	ProjectedMonthlyRuns           int64   `json:"projected_monthly_runs"`
+	ProjectedMonthlyComputeUsd     float64 `json:"projected_monthly_compute_usd"`
+	ProjectedMonthlyComputeLowUsd  float64 `json:"projected_monthly_compute_low_usd"`
+	ProjectedMonthlyComputeHighUsd float64 `json:"projected_monthly_compute_high_usd"`
+	ConfidencePct                  int     `json:"confidence_pct"`
+	ProjectedMonthlyAICostUsd      float64 `json:"projected_monthly_ai_cost_usd"`
+	RecommendedPlan                string  `json:"recommended_plan"`
+	DaysUntilLimit                 int     `json:"days_until_limit"`
+	ProjectedOverageMicro          int64   `json:"projected_overage_microusd"`
+	AddonSpendMicro                int64   `json:"addon_spend_microusd"`
+	ScaleBreakeven                 bool    `json:"scale_breakeven"`
 }
 
 // UsageService provides usage data aggregation.
@@ -337,6 +341,7 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	var totalAI int64
 	days := 0
 	daysSeen := make(map[string]bool)
+	dailyComputeByDay := make(map[string]int64)
 	for _, r := range records {
 		dateStr := r.PeriodDate.Format("2006-01-02")
 		if !daysSeen[dateStr] {
@@ -346,6 +351,7 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 		totalRuns += r.RunsCount
 		totalCompute += r.ComputeCostMicro
 		totalAI += r.AICostMicro
+		dailyComputeByDay[dateStr] += r.ComputeCostMicro
 	}
 
 	if days == 0 {
@@ -355,6 +361,13 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	avgDailyRuns := totalRuns / int64(days)
 	avgDailyCompute := totalCompute / int64(days)
 	avgDailyAI := totalAI / int64(days)
+
+	// Compute standard deviation of daily compute costs for confidence intervals.
+	dailyComputeValues := make([]float64, 0, len(dailyComputeByDay))
+	for _, v := range dailyComputeByDay {
+		dailyComputeValues = append(dailyComputeValues, float64(v))
+	}
+	computeStddev := stddev(dailyComputeValues)
 
 	daysInMonth := 30
 	projectedRuns := avgDailyRuns * int64(daysInMonth)
@@ -391,15 +404,23 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	totalProSpend := int64(PriceProMonthlyCents)*10000 + addonSpendMicro + projectedOverage
 	scaleBreakeven := limits.PlanTier == domain.PlanPro && totalProSpend >= CreditScaleMicrousd
 
+	// Confidence interval: avg +/- 1.5 * stddev (~87% of data).
+	avgDailyComputeF := float64(avgDailyCompute)
+	lowDailyCompute := max(0, avgDailyComputeF-1.5*computeStddev)
+	highDailyCompute := avgDailyComputeF + 1.5*computeStddev
+
 	return &UsageForecastResponse{
-		ProjectedMonthlyRuns:       projectedRuns,
-		ProjectedMonthlyComputeUsd: projectedCompute,
-		ProjectedMonthlyAICostUsd:  projectedAI,
-		RecommendedPlan:            recommended,
-		DaysUntilLimit:             daysUntilLimit,
-		ProjectedOverageMicro:      projectedOverage,
-		AddonSpendMicro:            addonSpendMicro,
-		ScaleBreakeven:             scaleBreakeven,
+		ProjectedMonthlyRuns:           projectedRuns,
+		ProjectedMonthlyComputeUsd:     projectedCompute,
+		ProjectedMonthlyComputeLowUsd:  lowDailyCompute * float64(daysInMonth) / 1_000_000,
+		ProjectedMonthlyComputeHighUsd: highDailyCompute * float64(daysInMonth) / 1_000_000,
+		ConfidencePct:                  87,
+		ProjectedMonthlyAICostUsd:      projectedAI,
+		RecommendedPlan:                recommended,
+		DaysUntilLimit:                 daysUntilLimit,
+		ProjectedOverageMicro:          projectedOverage,
+		AddonSpendMicro:                addonSpendMicro,
+		ScaleBreakeven:                 scaleBreakeven,
 	}, nil
 }
 
@@ -679,6 +700,30 @@ func safePercent(used, limit int64) float64 {
 		return 0
 	}
 	return float64(used) / float64(limit) * 100
+}
+
+// stddev computes the population standard deviation of a slice of float64 values.
+// Returns 0 for empty or single-element slices.
+func stddev(values []float64) float64 {
+	n := len(values)
+	if n <= 1 {
+		return 0
+	}
+
+	var sum float64
+	for _, v := range values {
+		sum += v
+	}
+	mean := sum / float64(n)
+
+	var variance float64
+	for _, v := range values {
+		d := v - mean
+		variance += d * d
+	}
+	variance /= float64(n)
+
+	return math.Sqrt(variance)
 }
 
 func recommendPlan(_ int64, monthlyComputeMicro int64) string {
