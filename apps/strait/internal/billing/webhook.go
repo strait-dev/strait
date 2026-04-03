@@ -615,6 +615,23 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		h.enforcer.InvalidateOrgCache(orgID)
 	}
 
+	// Auto-unpause HTTP jobs that were paused due to a previous plan downgrade.
+	newAllowsHTTP := GetPlanLimits(tier).AllowsHTTPMode
+	oldAllowsHTTP := previousTier != "" && GetPlanLimits(domain.PlanTier(previousTier)).AllowsHTTPMode
+	if newAllowsHTTP && !oldAllowsHTTP {
+		unpaused, unpauseErr := h.store.UnpauseJobsByPauseReason(ctx, orgID, "plan_downgrade")
+		if unpauseErr != nil {
+			h.logger.Warn("failed to unpause HTTP jobs on upgrade", "org_id", orgID, "error", unpauseErr)
+		} else if unpaused > 0 {
+			h.logAuditEvent(ctx, "jobs.auto_unpaused", orgID, map[string]string{
+				"count":  fmt.Sprintf("%d", unpaused),
+				"reason": "plan_upgrade",
+			})
+			h.logger.Info("auto-unpaused HTTP jobs on upgrade",
+				"org_id", orgID, "count", unpaused)
+		}
+	}
+
 	auditDetails := map[string]string{
 		"plan_tier":              string(tier),
 		"stripe_subscription_id": sub.ID,
