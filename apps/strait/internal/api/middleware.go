@@ -612,6 +612,41 @@ func apiVersionHeader(next http.Handler) http.Handler {
 	})
 }
 
+// planUsageHeaders injects X-Strait-Plan and X-Strait-Usage-Limit into
+// responses for authenticated API key requests. Uses cached plan limits
+// from the billing enforcer, so no additional latency is added.
+func (s *Server) planUsageHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Only for authenticated API key requests with a resolved project.
+		scopes := scopesFromContext(ctx)
+		projectID := projectIDFromContext(ctx)
+		if len(scopes) == 0 || projectID == "" || s.billingEnforcer == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Skip for internal secret requests.
+		if actorType, _ := ctx.Value(ctxActorTypeKey).(string); actorType == "internal" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		limits := s.getOrgPlanLimits(ctx, projectID)
+		if limits != nil {
+			w.Header().Set("X-Strait-Plan", string(limits.PlanTier))
+			if limits.MaxRunsPerDay == -1 {
+				w.Header().Set("X-Strait-Usage-Limit", "unlimited")
+			} else {
+				w.Header().Set("X-Strait-Usage-Limit", strconv.FormatInt(limits.MaxRunsPerDay, 10))
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 type resolvedRateLimit struct {
 	limit      int
 	windowSecs int
