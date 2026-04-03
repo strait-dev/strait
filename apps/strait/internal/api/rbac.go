@@ -487,6 +487,11 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
+
+	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
+		return nil, err
+	}
+
 	ascending := input.Order == "asc"
 	if input.Order != "" && input.Order != "asc" && input.Order != "desc" {
 		return nil, huma.Error400BadRequest("order must be one of: asc, desc")
@@ -529,6 +534,10 @@ func (s *Server) handleVerifyAuditChain(ctx context.Context, _ *VerifyAuditChain
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
+		return nil, err
 	}
 
 	result, err := s.store.VerifyAuditChain(ctx, projectID)
