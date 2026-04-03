@@ -117,8 +117,9 @@ func CronRunsPerDay(cronExpr string) (float64, error) {
 	}
 
 	// Count firings in a 24-hour window starting from a fixed reference point.
-	start := time.Date(2025, 1, 6, 0, 0, 0, 0, time.UTC) // Monday
-	end := start.Add(24 * time.Hour)
+	// Use 1 second before midnight so that sched.Next() includes 00:00 firings.
+	start := time.Date(2025, 1, 5, 23, 59, 59, 0, time.UTC) // Sunday 23:59:59
+	end := start.Add(24 * time.Hour)                        // Monday 23:59:59
 
 	count := 0
 	t := sched.Next(start)
