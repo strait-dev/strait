@@ -1600,6 +1600,51 @@ func TestWebhook_EmptySecretDefaultEdition_Allows(t *testing.T) {
 	}
 }
 
+func TestWebhook_InvoiceUncollectible_SetsRestricted(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"00000000-0000-0000-0000-000000000050": {
+				OrgID:         "00000000-0000-0000-0000-000000000050",
+				PlanTier:      "pro",
+				Status:        "active",
+				PaymentStatus: "ok",
+			},
+		},
+	}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+
+	payload := StripeWebhookPayload{
+		Type: "invoice.marked_uncollectible",
+		Data: mustJSON(t, testInvoiceData{
+			ID:         "inv_uncoll",
+			CustomerID: "cust_uncoll",
+			SubID:      "sub_uncoll",
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000050"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	sub := store.subscriptions["00000000-0000-0000-0000-000000000050"]
+	if sub.PaymentStatus != "restricted" {
+		t.Errorf("payment_status = %q, want restricted", sub.PaymentStatus)
+	}
+}
+
 func FuzzWebhookSignatureHeader(f *testing.F) {
 	f.Add("v1,abc123")
 	f.Add("")
