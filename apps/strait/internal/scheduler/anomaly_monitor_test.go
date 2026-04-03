@@ -229,6 +229,18 @@ func (m *mockAnomalyMonitorStore) ListExpiringContracts(context.Context, int) ([
 	return nil, nil
 }
 
+func (m *mockAnomalyMonitorStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAnomalyMonitorStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAnomalyMonitorStore) CountHTTPJobsByOrg(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 // mockCooldown implements AnomalyCooldown for testing.
 type mockCooldown struct {
 	cooled map[string]bool

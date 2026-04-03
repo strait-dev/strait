@@ -1268,3 +1268,59 @@ func (s *PgStore) ListExpiringContracts(ctx context.Context, withinDays int) ([]
 	}
 	return contracts, rows.Err()
 }
+
+// PauseHTTPJobsByOrg pauses all active HTTP-mode jobs for an org.
+// Sets the pause reason so they can be selectively unpaused on upgrade.
+// Returns the number of jobs paused.
+func (s *PgStore) PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET
+			paused = true,
+			paused_at = NOW(),
+			pause_reason = $2,
+			updated_at = NOW()
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND execution_mode = 'http'
+		  AND paused = false
+		  AND deleted_at IS NULL
+	`, orgID, reason)
+	if err != nil {
+		return 0, fmt.Errorf("pausing HTTP jobs for org: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// UnpauseJobsByPauseReason unpauses jobs that were paused for a specific reason.
+// Only affects jobs matching the exact reason; manually paused jobs are preserved.
+// Returns the number of jobs unpaused.
+func (s *PgStore) UnpauseJobsByPauseReason(ctx context.Context, orgID, reason string) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET
+			paused = false,
+			paused_at = NULL,
+			pause_reason = NULL,
+			updated_at = NOW()
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND pause_reason = $2
+		  AND paused = true
+	`, orgID, reason)
+	if err != nil {
+		return 0, fmt.Errorf("unpausing jobs by reason: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CountHTTPJobsByOrg returns the number of HTTP-mode jobs (not deleted) for an org.
+func (s *PgStore) CountHTTPJobsByOrg(ctx context.Context, orgID string) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND execution_mode = 'http'
+		  AND deleted_at IS NULL
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting HTTP jobs for org: %w", err)
+	}
+	return count, nil
+}

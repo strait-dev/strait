@@ -383,3 +383,15 @@ func (m *mockBillingStore) UpsertEnterpriseContract(_ context.Context, c *Enterp
 func (m *mockBillingStore) ListExpiringContracts(_ context.Context, _ int) ([]EnterpriseContract, error) {
 	return nil, nil
 }
+
+func (m *mockBillingStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockBillingStore) UnpauseJobsByPauseReason(_ context.Context, _ string, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockBillingStore) CountHTTPJobsByOrg(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}

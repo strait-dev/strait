@@ -224,6 +224,18 @@ func (m *mockEnforcerStore) ListExpiringContracts(_ context.Context, _ int) ([]b
 	return nil, nil
 }
 
+func (m *mockEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockEnforcerStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockEnforcerStore) CountHTTPJobsByOrg(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 	t.Parallel()
 
