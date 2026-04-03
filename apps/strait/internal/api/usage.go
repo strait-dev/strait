@@ -594,3 +594,39 @@ func (s *Server) handleWhatIfCostEstimate(_ context.Context, input *WhatIfCostIn
 
 	return &WhatIfCostOutput{Body: estimate}, nil
 }
+
+type DeploymentDeltaInput struct {
+	Body struct {
+		Changes []billing.DeploymentChange `json:"changes"`
+	}
+}
+type DeploymentDeltaOutput struct{ Body any }
+
+func (s *Server) handleEstimateDeploymentDelta(ctx context.Context, input *DeploymentDeltaInput) (*DeploymentDeltaOutput, error) {
+	if len(input.Body.Changes) == 0 {
+		return &DeploymentDeltaOutput{Body: &billing.DeploymentDeltaResponse{}}, nil
+	}
+
+	// Fetch current job configs from store.
+	var jobs []billing.JobConfig
+	for _, change := range input.Body.Changes {
+		job, err := s.store.GetJob(ctx, change.JobID)
+		if err != nil {
+			return nil, huma.Error404NotFound(fmt.Sprintf("job %q not found", change.JobID))
+		}
+		jobs = append(jobs, billing.JobConfig{
+			ID:          job.ID,
+			Name:        job.Name,
+			Preset:      string(job.MachinePreset),
+			TimeoutSecs: job.TimeoutSecs,
+			Cron:        job.Cron,
+		})
+	}
+
+	result, err := billing.EstimateDeploymentDelta(jobs, input.Body.Changes)
+	if err != nil {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("estimation error: %v", err))
+	}
+
+	return &DeploymentDeltaOutput{Body: result}, nil
+}
