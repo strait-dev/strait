@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"sync"
 	"time"
 
 	"strait/internal/telemetry"
@@ -14,6 +15,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
+
+// stripeKeyOnce ensures the global stripe.Key is set exactly once,
+// preventing data races when multiple StripeUsageReporters are created
+// concurrently (e.g. in parallel tests).
+var stripeKeyOnce sync.Once
 
 // StripeUsageReporter sends usage events to the Stripe Billing Meter.
 // Safe for concurrent use from multiple goroutines.
@@ -40,8 +46,12 @@ func NewStripeUsageReporter(secretKey string, logger *slog.Logger, opts ...Strip
 	if logger == nil {
 		logger = slog.Default()
 	}
-	// Set the global Stripe API key. This is the standard stripe-go pattern.
-	stripe.Key = secretKey //nolint:reassign // stripe-go uses a global key by design
+	// Set the global Stripe API key exactly once. The stripe-go library uses
+	// a package-level global, so concurrent writes race. In production this
+	// is called once at startup; sync.Once guards against parallel test init.
+	stripeKeyOnce.Do(func() {
+		stripe.Key = secretKey //nolint:reassign // stripe-go uses a global key by design
+	})
 	r := &StripeUsageReporter{
 		secretKey:      secretKey,
 		meterEventName: "compute_overage",
