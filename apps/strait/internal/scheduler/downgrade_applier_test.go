@@ -57,6 +57,10 @@ func (m *mockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) ([]s
 	return nil, nil
 }
 
+func (m *mockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
+	return 0, nil
+}
+
 func newTestEnforcer(t *testing.T) *billing.Enforcer {
 	t.Helper()
 	mr := miniredis.RunT(t)

@@ -1926,3 +1926,7 @@ func (m *advMockDowngradeStore) DeactivateExcessEnvironments(_ context.Context, 
 func (m *advMockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
+
+func (m *advMockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
+	return 0, nil
+}

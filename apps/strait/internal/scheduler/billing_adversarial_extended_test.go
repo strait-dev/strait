@@ -439,6 +439,10 @@ func (m *billingAdvMockDowngradeStore) ListProjectsByOrg(_ context.Context, _ st
 	return nil, nil
 }
 
+func (m *billingAdvMockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
+	return 0, nil
+}
+
 func TestAdv_StaleSubChecker_MassiveOrgCount(t *testing.T) {
 	t.Parallel()
 

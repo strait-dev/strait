@@ -18,6 +18,7 @@ type DowngradeApplierStore interface {
 	DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error)
 	DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error)
 	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
+	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error)
 }
 
 // Advisory lock ID for the downgrade applier (arbitrary unique constant).
@@ -150,6 +151,15 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 			slog.Warn("failed to deactivate excess environments", "org_id", orgID, "error", err)
 		} else if n > 0 {
 			slog.Info("deactivated excess environments after downgrade", "org_id", orgID, "count", n)
+		}
+	}
+
+	// Auto-pause HTTP-mode jobs when downgrading to a tier that doesn't support HTTP mode.
+	if !newLimits.AllowsHTTPMode {
+		if n, err := d.store.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade"); err != nil {
+			slog.Error("failed to pause HTTP jobs on downgrade", "org_id", orgID, "error", err)
+		} else if n > 0 {
+			slog.Info("paused HTTP jobs on downgrade", "org_id", orgID, "count", n)
 		}
 	}
 }
