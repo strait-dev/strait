@@ -1282,7 +1282,7 @@ func (s *PgStore) PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) 
 		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 		  AND execution_mode = 'http'
 		  AND paused = false
-		  AND deleted_at IS NULL
+		  AND enabled = true
 	`, orgID, reason)
 	if err != nil {
 		return 0, fmt.Errorf("pausing HTTP jobs for org: %w", err)
@@ -1317,7 +1317,6 @@ func (s *PgStore) CountHTTPJobsByOrg(ctx context.Context, orgID string) (int, er
 		SELECT COUNT(*) FROM jobs
 		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 		  AND execution_mode = 'http'
-		  AND deleted_at IS NULL
 	`, orgID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("counting HTTP jobs for org: %w", err)

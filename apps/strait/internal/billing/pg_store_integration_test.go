@@ -2543,3 +2543,242 @@ func TestPgStore_UpsertEnterpriseContract_NilStripeSubscriptionID(t *testing.T) 
 		t.Errorf("expected nil StripeSubscriptionID, got %v", *got.StripeSubscriptionID)
 	}
 }
+
+// ============================================================
+// HTTP job downgrade lifecycle integration tests
+// ============================================================
+
+func createHTTPJob(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {
+	t.Helper()
+	job := &domain.Job{
+		ID:            newID(),
+		ProjectID:     projectID,
+		Name:          "http-job-" + newID(),
+		Slug:          "http-slug-" + newID(),
+		EndpointURL:   "https://example.com/http",
+		MaxAttempts:   3,
+		TimeoutSecs:   60,
+		Enabled:       true,
+		ExecutionMode: domain.ExecutionModeHTTP,
+	}
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob(http) error = %v", err)
+	}
+	return job
+}
+
+func createManagedJob(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {
+	t.Helper()
+	job := &domain.Job{
+		ID:            newID(),
+		ProjectID:     projectID,
+		Name:          "managed-job-" + newID(),
+		Slug:          "managed-slug-" + newID(),
+		EndpointURL:   "https://example.com/managed",
+		MaxAttempts:   3,
+		TimeoutSecs:   60,
+		Enabled:       true,
+		ExecutionMode: domain.ExecutionModeManaged,
+	}
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob(managed) error = %v", err)
+	}
+	return job
+}
+
+func TestPgStore_PauseHTTPJobsByOrg(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-http-pause-" + newID()
+	p := createProject(t, ctx, q, orgID, "P1")
+
+	// Create 3 HTTP + 2 managed jobs.
+	createHTTPJob(t, ctx, q, p.ID)
+	createHTTPJob(t, ctx, q, p.ID)
+	createHTTPJob(t, ctx, q, p.ID)
+	createManagedJob(t, ctx, q, p.ID)
+	createManagedJob(t, ctx, q, p.ID)
+
+	paused, err := pgStore.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade")
+	if err != nil {
+		t.Fatalf("PauseHTTPJobsByOrg() error = %v", err)
+	}
+	if paused != 3 {
+		t.Fatalf("expected 3 paused, got %d", paused)
+	}
+
+	// Count HTTP jobs (should still be 3 -- paused but not deleted).
+	count, err := pgStore.CountHTTPJobsByOrg(ctx, orgID)
+	if err != nil {
+		t.Fatalf("CountHTTPJobsByOrg() error = %v", err)
+	}
+	if count != 3 {
+		t.Errorf("expected 3 HTTP jobs, got %d", count)
+	}
+}
+
+func TestPgStore_PauseHTTPJobsByOrg_AlreadyPaused(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-already-paused-" + newID()
+	p := createProject(t, ctx, q, orgID, "P1")
+
+	// Create 3 HTTP jobs, manually pause one.
+	createHTTPJob(t, ctx, q, p.ID)
+	manualPaused := createHTTPJob(t, ctx, q, p.ID)
+	createHTTPJob(t, ctx, q, p.ID)
+
+	if err := q.PauseJob(ctx, manualPaused.ID, "user_request"); err != nil {
+		t.Fatalf("PauseJob() error = %v", err)
+	}
+
+	// Bulk pause should only affect 2 (skip already-paused).
+	paused, err := pgStore.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade")
+	if err != nil {
+		t.Fatalf("PauseHTTPJobsByOrg() error = %v", err)
+	}
+	if paused != 2 {
+		t.Fatalf("expected 2 paused (1 already paused), got %d", paused)
+	}
+}
+
+func TestPgStore_UnpauseJobsByPauseReason(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-unpause-" + newID()
+	p := createProject(t, ctx, q, orgID, "P1")
+
+	// Create 3 HTTP jobs, pause all with "plan_downgrade".
+	createHTTPJob(t, ctx, q, p.ID)
+	createHTTPJob(t, ctx, q, p.ID)
+	manualJob := createHTTPJob(t, ctx, q, p.ID)
+
+	// Pause 2 with plan_downgrade via bulk.
+	paused, err := pgStore.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused != 3 {
+		t.Fatalf("expected 3 paused, got %d", paused)
+	}
+
+	// Manually change one job's pause reason to simulate user-initiated pause.
+	if _, err := testDB.Pool.Exec(ctx, "UPDATE jobs SET pause_reason = 'user_request' WHERE id = $1", manualJob.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Unpause only "plan_downgrade" jobs.
+	unpaused, err := pgStore.UnpauseJobsByPauseReason(ctx, orgID, "plan_downgrade")
+	if err != nil {
+		t.Fatalf("UnpauseJobsByPauseReason() error = %v", err)
+	}
+	if unpaused != 2 {
+		t.Fatalf("expected 2 unpaused, got %d", unpaused)
+	}
+
+	// The user-paused job should still be paused.
+	got, err := q.GetJob(ctx, manualJob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Paused {
+		t.Error("expected manually-paused job to remain paused")
+	}
+	if got.PauseReason != "user_request" {
+		t.Errorf("expected pause_reason 'user_request', got %q", got.PauseReason)
+	}
+}
+
+func TestPgStore_CountHTTPJobsByOrg_CrossOrgIsolation(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgA := "org-iso-a-" + newID()
+	orgB := "org-iso-b-" + newID()
+	pA := createProject(t, ctx, q, orgA, "PA")
+	pB := createProject(t, ctx, q, orgB, "PB")
+
+	createHTTPJob(t, ctx, q, pA.ID)
+	createHTTPJob(t, ctx, q, pA.ID)
+	createHTTPJob(t, ctx, q, pB.ID)
+
+	countA, _ := pgStore.CountHTTPJobsByOrg(ctx, orgA)
+	countB, _ := pgStore.CountHTTPJobsByOrg(ctx, orgB)
+
+	if countA != 2 {
+		t.Errorf("org A count = %d, want 2", countA)
+	}
+	if countB != 1 {
+		t.Errorf("org B count = %d, want 1", countB)
+	}
+}
+
+func TestPgStore_HTTPDowngradeLifecycle_FullCycle(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-lifecycle-" + newID()
+	p := createProject(t, ctx, q, orgID, "P1")
+
+	// Create 3 HTTP + 2 managed jobs.
+	h1 := createHTTPJob(t, ctx, q, p.ID)
+	createHTTPJob(t, ctx, q, p.ID)
+	createHTTPJob(t, ctx, q, p.ID)
+	m1 := createManagedJob(t, ctx, q, p.ID)
+	createManagedJob(t, ctx, q, p.ID)
+
+	// Step 1: Pause HTTP jobs (simulate downgrade).
+	paused, err := pgStore.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused != 3 {
+		t.Fatalf("step 1: expected 3 paused, got %d", paused)
+	}
+
+	// Verify HTTP job is paused with correct reason.
+	got, _ := q.GetJob(ctx, h1.ID)
+	if !got.Paused {
+		t.Error("step 1: HTTP job should be paused")
+	}
+	if got.PauseReason != "plan_downgrade" {
+		t.Errorf("step 1: pause_reason = %q, want plan_downgrade", got.PauseReason)
+	}
+
+	// Verify managed job is NOT paused.
+	gotM, _ := q.GetJob(ctx, m1.ID)
+	if gotM.Paused {
+		t.Error("step 1: managed job should NOT be paused")
+	}
+
+	// Step 2: Unpause (simulate upgrade back to Pro).
+	unpaused, err := pgStore.UnpauseJobsByPauseReason(ctx, orgID, "plan_downgrade")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unpaused != 3 {
+		t.Fatalf("step 2: expected 3 unpaused, got %d", unpaused)
+	}
+
+	// Verify HTTP job is unpaused.
+	got2, _ := q.GetJob(ctx, h1.ID)
+	if got2.Paused {
+		t.Error("step 2: HTTP job should be unpaused after upgrade")
+	}
+	if got2.PauseReason != "" {
+		t.Errorf("step 2: pause_reason should be empty, got %q", got2.PauseReason)
+	}
+}
