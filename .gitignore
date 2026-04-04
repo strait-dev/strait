@@ -301,3 +301,14 @@ apps/cli/out/
 e2e_stress_report_*
 apps/strait/e2e_stress
 apps/strait/echoserver
+
+# ==============================================================================
+# TERRAFORM / INFRASTRUCTURE
+# ==============================================================================
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+apps/infra/kubeconfig*

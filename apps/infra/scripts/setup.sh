@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INFRA_DIR="$(dirname "$SCRIPT_DIR")"
 TF_DIR="$INFRA_DIR/terraform"
-K8S_DIR="$INFRA_DIR/../apps/strait/k8s"
+K8S_DIR="$INFRA_DIR/../strait/k8s"
 
 echo "=== Strait Infrastructure Setup ==="
 echo ""

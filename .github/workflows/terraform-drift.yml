@@ -21,7 +21,7 @@ jobs:
     if: ${{ secrets.HCLOUD_TOKEN != '' }}
     defaults:
       run:
-        working-directory: infra/terraform
+        working-directory: apps/infra/terraform
     env:
       TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
       TF_VAR_ssh_key_path: "/dev/null"
