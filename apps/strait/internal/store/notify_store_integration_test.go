@@ -4,6 +4,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -250,6 +251,54 @@ func TestNotificationMessageAndProviderLifecycle(t *testing.T) {
 	}
 	if len(providers) != 1 {
 		t.Fatalf("ListNotificationProviders() len = %d, want 1", len(providers))
+	}
+}
+
+func TestNotifyDedupAndUnsubscribeToken(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	allowed, err := q.TryNotifyDedupKey(ctx, "project-dedup", "key-1", time.Hour)
+	if err != nil {
+		t.Fatalf("TryNotifyDedupKey(first) error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("TryNotifyDedupKey(first) = false, want true")
+	}
+
+	allowed, err = q.TryNotifyDedupKey(ctx, "project-dedup", "key-1", time.Hour)
+	if err != nil {
+		t.Fatalf("TryNotifyDedupKey(second) error = %v", err)
+	}
+	if allowed {
+		t.Fatal("TryNotifyDedupKey(second) = true, want false")
+	}
+
+	tok := &domain.UnsubscribeToken{
+		ProjectID:    "project-dedup",
+		SubscriberID: "sub_1",
+		Scope:        "global",
+		Token:        "tok_test_1",
+		ExpiresAt:    time.Now().UTC().Add(time.Hour),
+	}
+	if err := q.CreateUnsubscribeToken(ctx, tok); err != nil {
+		t.Fatalf("CreateUnsubscribeToken() error = %v", err)
+	}
+
+	loaded, err := q.GetUnsubscribeToken(ctx, tok.Token)
+	if err != nil {
+		t.Fatalf("GetUnsubscribeToken() error = %v", err)
+	}
+	if loaded.Token != tok.Token {
+		t.Fatalf("Token = %q, want %q", loaded.Token, tok.Token)
+	}
+
+	if err := q.UseUnsubscribeToken(ctx, tok.Token, time.Now().UTC()); err != nil {
+		t.Fatalf("UseUnsubscribeToken() error = %v", err)
+	}
+	if _, err := q.GetUnsubscribeToken(ctx, tok.Token); !errors.Is(err, store.ErrUnsubscribeTokenNotFound) {
+		t.Fatalf("GetUnsubscribeToken(after use) error = %v, want ErrUnsubscribeTokenNotFound", err)
 	}
 }
 
