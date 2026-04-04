@@ -30,6 +30,28 @@ data:
       forward_to = [prometheus.remote_write.grafana_cloud.receiver]
     }
 
+    // Scrape Kyverno policy engine metrics (violations, admission requests).
+    prometheus.scrape "kyverno" {
+      metrics_path = "/metrics"
+      scheme = "http"
+
+      static_configs {
+        targets = ["kyverno-svc-metrics.kyverno.svc:8000"]
+      }
+
+      forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+    }
+
+    // Ship K8s API audit logs to Loki (security events, RBAC changes, secret access).
+    local.file_match "audit_logs" {
+      path_targets = [{ "__path__" = "/var/log/k3s-audit.log", "job" = "k3s-audit" }]
+    }
+
+    loki.source.file "audit" {
+      targets    = local.file_match.audit_logs.targets
+      forward_to = [loki.write.grafana_cloud.receiver]
+    }
+
     // Scrape kube-state-metrics (pod/job/node/deployment state).
     prometheus.scrape "kube_state_metrics" {
       metrics_path = "/metrics"

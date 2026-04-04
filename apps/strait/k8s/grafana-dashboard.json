@@ -467,6 +467,89 @@
         "dataFormat": "tsbuckets",
         "yAxis": { "format": "s" },
         "options": { "calculate": false, "color": { "mode": "scheme", "scheme": "Spectral", "steps": 64 } }
+      },
+
+      {
+        "title": "Kyverno Policy Violations",
+        "description": "Admission policy violations by policy name. Non-zero = pods rejected or audited by Kyverno.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 71 },
+        "targets": [
+          { "expr": "sum(increase(kyverno_policy_results_total{rule_result=\"fail\"}[$interval])) by (policy_name)", "legendFormat": "{{policy_name}}" }
+        ]
+      },
+      {
+        "title": "Kyverno Admission Rate",
+        "description": "Rate of admission requests processed by Kyverno by operation type (CREATE, UPDATE, DELETE).",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 71 },
+        "targets": [
+          { "expr": "sum(rate(kyverno_admission_requests_total[$interval])) by (resource_request_operation)", "legendFormat": "{{resource_request_operation}}" }
+        ]
+      },
+      {
+        "title": "Falco Security Alerts",
+        "description": "Runtime security alerts from Falco. WARNING = suspicious activity. CRITICAL = active attack detected.",
+        "type": "logs",
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 71 },
+        "targets": [
+          { "expr": "{namespace=\"falco\"} | json | priority=~\"WARNING|CRITICAL\"", "datasource": "Loki" }
+        ],
+        "options": { "showTime": true, "sortOrder": "Descending", "enableLogDetails": true }
+      },
+      {
+        "title": "K8s Audit Log (Write Operations)",
+        "description": "Non-read K8s API operations from audit log. Shows secrets access, RBAC changes, pod create/delete.",
+        "type": "logs",
+        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 71 },
+        "targets": [
+          { "expr": "{job=\"k3s-audit\"} | json | verb!=\"get\" | verb!=\"list\" | verb!=\"watch\"", "datasource": "Loki" }
+        ],
+        "options": { "showTime": true, "sortOrder": "Descending", "enableLogDetails": true }
+      },
+
+      {
+        "title": "Estimated Monthly Cost",
+        "description": "Infrastructure cost estimate based on node count and pricing. Master=$7, General=$7, Perf=$14, Heavy=$27.",
+        "type": "stat",
+        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 79 },
+        "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+        "targets": [
+          { "expr": "(count(kube_node_info{node=~\".*general.*\"}) or vector(0)) * 7 + (count(kube_node_info{node=~\".*perf.*\"}) or vector(0)) * 14 + (count(kube_node_info{node=~\".*heavy.*\"}) or vector(0)) * 27 + 7", "legendFormat": "$/month" }
+        ]
+      },
+      {
+        "title": "Node Count by Pool",
+        "description": "Current number of nodes per worker pool (general, performance, heavy) plus master.",
+        "type": "bargauge",
+        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 79 },
+        "targets": [
+          { "expr": "count(kube_node_info{node=~\".*general.*\"}) or vector(0)", "legendFormat": "General" },
+          { "expr": "count(kube_node_info{node=~\".*perf.*\"}) or vector(0)", "legendFormat": "Performance" },
+          { "expr": "count(kube_node_info{node=~\".*heavy.*\"}) or vector(0)", "legendFormat": "Heavy" },
+          { "expr": "count(kube_node_info{node=~\".*master.*\"}) or vector(0)", "legendFormat": "Master" }
+        ]
+      },
+      {
+        "title": "Compute Cost Rate",
+        "description": "Real-time job compute cost from the strait application metering system.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 79 },
+        "targets": [
+          { "expr": "sum(rate(strait_compute_usage_cost_microcents[$interval])) / 100000", "legendFormat": "$/min" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "currencyUSD" } }
+      },
+      {
+        "title": "Resource Utilization Efficiency",
+        "description": "CPU and memory request vs actual usage. Low ratio = over-provisioned (wasting money).",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 79 },
+        "targets": [
+          { "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"strait\"}[$interval])) / sum(kube_pod_container_resource_requests{namespace=\"strait\",resource=\"cpu\"})", "legendFormat": "CPU %" },
+          { "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"strait\"}) / sum(kube_pod_container_resource_requests{namespace=\"strait\",resource=\"memory\"})", "legendFormat": "Memory %" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "percent" } }
       }
     ],
     "time": { "from": "now-1h", "to": "now" },
