@@ -13,12 +13,22 @@ import (
 	"github.com/resend/resend-go/v2"
 )
 
+const (
+	notifyEscalationDefaultInterval = 15 * time.Minute
+)
+
 type notifyDispatcherStore interface {
 	ClaimDueScheduledNotificationMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error)
 	ClaimDueNotificationBatches(ctx context.Context, limit int) ([]domain.NotificationBatch, error)
 	MarkNotificationBatchSent(ctx context.Context, id, projectID string, sentAt time.Time) error
 	RequeueNotificationBatch(ctx context.Context, id, projectID string, windowEnd time.Time) error
 	MarkNotificationBatchFailed(ctx context.Context, id, projectID string) error
+	ClaimDueEscalationStates(ctx context.Context, limit int) ([]domain.EscalationState, error)
+	AdvanceEscalationState(ctx context.Context, id, projectID string, currentTier int, nextEscalationAt *time.Time, status string) error
+	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
+	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 	CreateNotificationMessage(ctx context.Context, msg *domain.NotificationMessage) error
 	UpdateNotificationMessageStatus(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error
 	GetNotifySubscriber(ctx context.Context, id, projectID string) (*domain.NotifySubscriber, error)
@@ -68,6 +78,7 @@ func (d *NotifyDispatcher) Run(ctx context.Context) {
 }
 
 func (d *NotifyDispatcher) poll(ctx context.Context) {
+	d.pollDueEscalations(ctx)
 	d.pollDueBatches(ctx)
 	d.pollDueMessages(ctx)
 }
@@ -98,6 +109,93 @@ func (d *NotifyDispatcher) pollDueMessages(ctx context.Context) {
 			d.logger.Warn("notify dispatcher: process message failed", "message_id", msg.ID, "project_id", msg.ProjectID, "error", err)
 		}
 	}
+}
+
+func (d *NotifyDispatcher) pollDueEscalations(ctx context.Context) {
+	states, err := d.store.ClaimDueEscalationStates(ctx, d.batchSize)
+	if err != nil {
+		d.logger.Error("notify dispatcher: claim due escalations", "error", err)
+		return
+	}
+
+	for _, state := range states {
+		if err := d.processEscalation(ctx, state); err != nil {
+			d.logger.Warn("notify dispatcher: process escalation failed", "escalation_id", state.ID, "project_id", state.ProjectID, "error", err)
+		}
+	}
+}
+
+func (d *NotifyDispatcher) processEscalation(ctx context.Context, state domain.EscalationState) error {
+	approval, err := d.store.GetWorkflowStepApprovalByStepRunID(ctx, state.StepRunID)
+	if err != nil {
+		d.requeueEscalation(ctx, state)
+		return fmt.Errorf("resolve workflow step approval: %w", err)
+	}
+	if approval == nil || approval.Status != domain.ApprovalStatusPending {
+		if err := d.store.AdvanceEscalationState(ctx, state.ID, state.ProjectID, state.CurrentTier, nil, domain.NotifyEscalationStatusCompleted); err != nil {
+			return fmt.Errorf("complete escalation state: %w", err)
+		}
+		return nil
+	}
+
+	wfRun, err := d.store.GetWorkflowRun(ctx, state.WorkflowRunID)
+	if err != nil || wfRun == nil {
+		d.requeueEscalation(ctx, state)
+		if err != nil {
+			return fmt.Errorf("resolve workflow run: %w", err)
+		}
+		return fmt.Errorf("resolve workflow run: not found")
+	}
+
+	channels, err := d.store.ListEnabledNotificationChannels(ctx, state.ProjectID)
+	if err != nil {
+		d.requeueEscalation(ctx, state)
+		return fmt.Errorf("list notification channels: %w", err)
+	}
+
+	nextTier := state.CurrentTier + 1
+	payload, err := json.Marshal(map[string]any{
+		"workflow_run_id": state.WorkflowRunID,
+		"workflow_id":     wfRun.WorkflowID,
+		"step_run_id":     state.StepRunID,
+		"escalation_tier": nextTier,
+		"total_tiers":     state.TotalTiers,
+		"approval_id":     approval.ID,
+	})
+	if err != nil {
+		d.requeueEscalation(ctx, state)
+		return fmt.Errorf("marshal escalation payload: %w", err)
+	}
+
+	for _, channel := range channels {
+		delivery := &domain.NotificationDelivery{
+			ChannelID:   channel.ID,
+			ProjectID:   state.ProjectID,
+			EventType:   domain.NotificationEventApprovalReminder,
+			Payload:     payload,
+			Status:      "pending",
+			MaxAttempts: 3,
+		}
+		if err := d.store.CreateNotificationDelivery(ctx, delivery); err != nil {
+			d.requeueEscalation(ctx, state)
+			return fmt.Errorf("create escalation delivery: %w", err)
+		}
+	}
+
+	status := domain.NotifyEscalationStatusActive
+	var nextAt *time.Time
+	if nextTier >= state.TotalTiers {
+		status = domain.NotifyEscalationStatusCompleted
+	} else {
+		t := time.Now().UTC().Add(notifyEscalationDefaultInterval)
+		nextAt = &t
+	}
+
+	if err := d.store.AdvanceEscalationState(ctx, state.ID, state.ProjectID, nextTier, nextAt, status); err != nil {
+		return fmt.Errorf("advance escalation state: %w", err)
+	}
+
+	return nil
 }
 
 func (d *NotifyDispatcher) processBatch(ctx context.Context, batch domain.NotificationBatch) error {
@@ -302,6 +400,13 @@ func (d *NotifyDispatcher) requeueBatch(ctx context.Context, batch domain.Notifi
 		if markErr := d.store.MarkNotificationBatchFailed(ctx, batch.ID, batch.ProjectID); markErr != nil {
 			d.logger.Warn("notify dispatcher: mark batch failed", "batch_id", batch.ID, "error", markErr)
 		}
+	}
+}
+
+func (d *NotifyDispatcher) requeueEscalation(ctx context.Context, state domain.EscalationState) {
+	nextAt := time.Now().UTC().Add(5 * time.Minute)
+	if err := d.store.AdvanceEscalationState(ctx, state.ID, state.ProjectID, state.CurrentTier, &nextAt, domain.NotifyEscalationStatusActive); err != nil {
+		d.logger.Warn("notify dispatcher: requeue escalation failed", "escalation_id", state.ID, "error", err)
 	}
 }
 

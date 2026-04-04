@@ -537,6 +537,11 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 		return
 	}
 
+	type escalationStateSeeder interface {
+		UpsertEscalationState(ctx context.Context, state *domain.EscalationState) error
+	}
+	escalationStore, hasEscalation := r.store.(escalationStateSeeder)
+
 	for _, approval := range approvals {
 		if _, sent := r.reminderSent[approval.ID]; sent {
 			continue
@@ -581,6 +586,22 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 			}
 			if err := ns.CreateNotificationDelivery(ctx, d); err != nil {
 				slog.Warn("failed to create approval reminder delivery", "channel_id", ch.ID, "error", err)
+			}
+		}
+
+		if hasEscalation {
+			nextAt := now.Add(notifyEscalationDefaultInterval)
+			state := &domain.EscalationState{
+				ProjectID:        wfRun.ProjectID,
+				StepRunID:        approval.WorkflowStepRunID,
+				WorkflowRunID:    approval.WorkflowRunID,
+				CurrentTier:      1,
+				TotalTiers:       3,
+				NextEscalationAt: &nextAt,
+				Status:           domain.NotifyEscalationStatusActive,
+			}
+			if err := escalationStore.UpsertEscalationState(ctx, state); err != nil {
+				slog.Warn("failed to seed escalation state", "approval_id", approval.ID, "error", err)
 			}
 		}
 

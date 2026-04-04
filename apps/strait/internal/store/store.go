@@ -38,6 +38,7 @@ var (
 	ErrNotificationPreferenceNotFound = errors.New("notification preference not found")
 	ErrNotificationMessageNotFound    = errors.New("notification message not found")
 	ErrNotificationBatchNotFound      = errors.New("notification batch not found")
+	ErrEscalationStateNotFound        = errors.New("escalation state not found")
 	ErrNotificationProviderNotFound   = errors.New("notification provider not found")
 	ErrInboxItemNotFound              = errors.New("inbox item not found")
 	ErrUnsubscribeTokenNotFound       = errors.New("unsubscribe token not found")
@@ -441,6 +442,11 @@ type NotifyStore interface {
 	MarkNotificationBatchSent(ctx context.Context, id, projectID string, sentAt time.Time) error
 	RequeueNotificationBatch(ctx context.Context, id, projectID string, windowEnd time.Time) error
 	MarkNotificationBatchFailed(ctx context.Context, id, projectID string) error
+	UpsertEscalationState(ctx context.Context, state *domain.EscalationState) error
+	GetActiveEscalationStateByStepRun(ctx context.Context, projectID, stepRunID string) (*domain.EscalationState, error)
+	ClaimDueEscalationStates(ctx context.Context, limit int) ([]domain.EscalationState, error)
+	AdvanceEscalationState(ctx context.Context, id, projectID string, currentTier int, nextEscalationAt *time.Time, status string) error
+	AcknowledgeEscalationState(ctx context.Context, id, projectID, acknowledgedBy string, acknowledgedAt time.Time) error
 }
 
 type Store interface {

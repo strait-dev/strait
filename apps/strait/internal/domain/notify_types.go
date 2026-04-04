@@ -41,6 +41,14 @@ const (
 )
 
 const (
+	NotifyEscalationStatusActive       = "active"
+	NotifyEscalationStatusProcessing   = "processing"
+	NotifyEscalationStatusCompleted    = "completed"
+	NotifyEscalationStatusAcknowledged = "acknowledged"
+	NotifyEscalationStatusFailed       = "failed"
+)
+
+const (
 	NotifyInboxStateUnread   = "unread"
 	NotifyInboxStateRead     = "read"
 	NotifyInboxStateArchived = "archived"
@@ -182,6 +190,23 @@ type NotificationProvider struct {
 	RateLimit  *int      `json:"rate_limit,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// EscalationState tracks approval reminder escalation progression.
+type EscalationState struct {
+	ID               string     `json:"id"`
+	ProjectID        string     `json:"project_id"`
+	StepRunID        string     `json:"step_run_id"`
+	WorkflowRunID    string     `json:"workflow_run_id"`
+	CurrentTier      int        `json:"current_tier"`
+	TotalTiers       int        `json:"total_tiers"`
+	Acknowledged     bool       `json:"acknowledged"`
+	AcknowledgedBy   string     `json:"acknowledged_by,omitempty"`
+	AcknowledgedAt   *time.Time `json:"acknowledged_at,omitempty"`
+	NextEscalationAt *time.Time `json:"next_escalation_at,omitempty"`
+	Status           string     `json:"status"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 // NotificationBatch groups events for digest delivery windows.
