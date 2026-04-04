@@ -17,9 +17,6 @@ func TestPresetFromName_AllValid(t *testing.T) {
 		if p.MemoryMB == 0 {
 			t.Errorf("preset %q MemoryMB = 0", name)
 		}
-		if p.FlyGuestSize == "" {
-			t.Errorf("preset %q FlyGuestSize empty", name)
-		}
 		if p.CostPerSecond == 0 {
 			t.Errorf("preset %q CostPerSecond = 0", name)
 		}
@@ -56,24 +53,6 @@ func TestPresetFromName_CostRates(t *testing.T) {
 	}
 }
 
-func TestPresetFromName_FlyMapping(t *testing.T) {
-	t.Parallel()
-	expected := map[string]string{
-		"micro":     "shared-cpu-1x",
-		"small-1x":  "shared-cpu-1x",
-		"small-2x":  "shared-cpu-2x",
-		"medium-1x": "performance-1x",
-		"medium-2x": "performance-2x",
-		"large-1x":  "performance-4x",
-		"large-2x":  "performance-8x",
-	}
-	for name, size := range expected {
-		p, _ := PresetFromName(name)
-		if p.FlyGuestSize != size {
-			t.Errorf("preset %q FlyGuestSize = %q, want %q", name, p.FlyGuestSize, size)
-		}
-	}
-}
 
 func TestNextPreset(t *testing.T) {
 	t.Parallel()

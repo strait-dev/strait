@@ -83,8 +83,8 @@ func TestLoad_Defaults(t *testing.T) {
 		{"DebouncePollerInterval", cfg.DebouncePollerInterval, time.Second},
 		{"BatchFlushInterval", cfg.BatchFlushInterval, time.Second},
 		{"DequeueStrategy", cfg.DequeueStrategy, "priority"},
-		{"ComputeRuntime", cfg.ComputeRuntime, "none"},
-		{"FlyRegion", cfg.FlyRegion, "iad"},
+		{"ComputeRuntime", cfg.ComputeRuntime, "none"}, // community edition overrides k8s default to none
+		{"DefaultRegion", cfg.DefaultRegion, "iad"},
 		{"MaxConcurrentMachines", cfg.MaxConcurrentMachines, 10},
 		{"ClickHouseDatabase", cfg.ClickHouseDatabase, "strait"},
 		{"ClickHouseBatchSize", cfg.ClickHouseBatchSize, 1000},
@@ -732,36 +732,6 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("fly requires API token and app name", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "fly")
-		t.Setenv("STRAIT_EDITION", "cloud")
-
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for fly without FLY_API_TOKEN, got nil")
-		}
-		if !strings.Contains(err.Error(), "FLY_API_TOKEN") {
-			t.Fatalf("error = %q, want substring FLY_API_TOKEN", err.Error())
-		}
-	})
-
-	t.Run("fly with all required fields", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "fly")
-		t.Setenv("FLY_API_TOKEN", "fly-token")
-		t.Setenv("FLY_APP_NAME", "my-app")
-		t.Setenv("STRAIT_EDITION", "cloud")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.ComputeRuntime != "fly" {
-			t.Fatalf("ComputeRuntime = %q, want fly", cfg.ComputeRuntime)
-		}
-	})
-
 	t.Run("invalid runtime", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("COMPUTE_RUNTIME", "kubernetes")
@@ -874,46 +844,27 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 }
 
 func TestLoad_FallbackProviderValidation(t *testing.T) {
-	t.Run("fly primary k8s fallback", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("COMPUTE_RUNTIME", "fly")
-		t.Setenv("FLY_API_TOKEN", "fly-token")
-		t.Setenv("FLY_APP_NAME", "my-app")
-		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "k8s")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.ComputeFallbackProvider != "k8s" {
-			t.Fatalf("ComputeFallbackProvider = %q, want k8s", cfg.ComputeFallbackProvider)
-		}
-	})
-
-	t.Run("k8s primary fly fallback", func(t *testing.T) {
+	t.Run("k8s primary docker fallback", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 		t.Setenv("COMPUTE_RUNTIME", "k8s")
-		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "fly")
-		t.Setenv("FLY_API_TOKEN", "fly-token")
-		t.Setenv("FLY_APP_NAME", "my-app")
+		t.Setenv("K8S_NAMESPACE", "default")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "docker")
 
 		cfg, err := Load()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if cfg.ComputeFallbackProvider != "fly" {
-			t.Fatalf("ComputeFallbackProvider = %q, want fly", cfg.ComputeFallbackProvider)
+		if cfg.ComputeFallbackProvider != "docker" {
+			t.Fatalf("ComputeFallbackProvider = %q, want docker", cfg.ComputeFallbackProvider)
 		}
 	})
 
 	t.Run("empty fallback is valid", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("COMPUTE_RUNTIME", "fly")
-		t.Setenv("FLY_API_TOKEN", "fly-token")
-		t.Setenv("FLY_APP_NAME", "my-app")
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("K8S_NAMESPACE", "default")
 
 		cfg, err := Load()
 		if err != nil {
@@ -927,10 +878,9 @@ func TestLoad_FallbackProviderValidation(t *testing.T) {
 	t.Run("same as primary rejected", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("COMPUTE_RUNTIME", "fly")
-		t.Setenv("FLY_API_TOKEN", "fly-token")
-		t.Setenv("FLY_APP_NAME", "my-app")
-		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "fly")
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("K8S_NAMESPACE", "default")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "k8s")
 
 		_, err := Load()
 		if err == nil {
@@ -1123,10 +1073,9 @@ func TestLoad_StripeBillingFields(t *testing.T) {
 
 func TestLoad_ManagedExecutionFields(t *testing.T) {
 	setRequiredEnv(t)
-	t.Setenv("COMPUTE_RUNTIME", "fly")
-	t.Setenv("FLY_API_TOKEN", "fly-token")
-	t.Setenv("FLY_APP_NAME", "my-app")
-	t.Setenv("FLY_REGION", "lax")
+	t.Setenv("COMPUTE_RUNTIME", "k8s")
+	t.Setenv("K8S_NAMESPACE", "default")
+	t.Setenv("DEFAULT_REGION", "lax")
 	t.Setenv("EXTERNAL_API_URL", "https://api.strait.dev")
 	t.Setenv("MAX_CONCURRENT_MACHINES", "25")
 	t.Setenv("WARM_POOL_ENABLED", "true")
@@ -1139,8 +1088,8 @@ func TestLoad_ManagedExecutionFields(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.FlyRegion != "lax" {
-		t.Fatalf("FlyRegion = %q, want lax", cfg.FlyRegion)
+	if cfg.DefaultRegion != "lax" {
+		t.Fatalf("DefaultRegion = %q, want lax", cfg.DefaultRegion)
 	}
 	if cfg.ExternalAPIURL != "https://api.strait.dev" {
 		t.Fatalf("ExternalAPIURL = %q, want https://api.strait.dev", cfg.ExternalAPIURL)
@@ -1198,21 +1147,7 @@ func TestParseCSVEnv(t *testing.T) {
 	}
 }
 
-func TestLoad_FlyMissingAppName(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("COMPUTE_RUNTIME", "fly")
-	t.Setenv("FLY_API_TOKEN", "fly-token")
-	t.Setenv("STRAIT_EDITION", "cloud")
-	// FLY_APP_NAME intentionally not set.
 
-	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for fly without FLY_APP_NAME, got nil")
-	}
-	if !strings.Contains(err.Error(), "FLY_APP_NAME") {
-		t.Fatalf("error = %q, want substring FLY_APP_NAME", err.Error())
-	}
-}
 
 func TestLoad_InvalidRedisURL(t *testing.T) {
 	setRequiredEnv(t)
