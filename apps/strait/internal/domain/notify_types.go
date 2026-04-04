@@ -34,6 +34,13 @@ const (
 )
 
 const (
+	NotifyBatchStatusCollecting = "collecting"
+	NotifyBatchStatusProcessing = "processing"
+	NotifyBatchStatusSent       = "sent"
+	NotifyBatchStatusFailed     = "failed"
+)
+
+const (
 	NotifyInboxStateUnread   = "unread"
 	NotifyInboxStateRead     = "read"
 	NotifyInboxStateArchived = "archived"
@@ -175,6 +182,23 @@ type NotificationProvider struct {
 	RateLimit  *int      `json:"rate_limit,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// NotificationBatch groups events for digest delivery windows.
+type NotificationBatch struct {
+	ID            string          `json:"id"`
+	ProjectID     string          `json:"project_id"`
+	RecipientType string          `json:"recipient_type"`
+	RecipientID   string          `json:"recipient_id"`
+	BatchKey      string          `json:"batch_key"`
+	Channel       string          `json:"channel"`
+	Status        string          `json:"status"`
+	Events        json.RawMessage `json:"events"`
+	EventCount    int             `json:"event_count"`
+	WindowStart   time.Time       `json:"window_start"`
+	WindowEnd     time.Time       `json:"window_end"`
+	SentAt        *time.Time      `json:"sent_at,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
 }
 
 // InboxItem is a recipient-facing notification shown in in-app inboxes.

@@ -26,6 +26,9 @@ import (
 
 const (
 	notifyDefaultRateLimitPerHour = 20
+	notifyDigestPolicyInstant     = "instant"
+	notifyDigestPolicyHourly      = "hourly"
+	notifyDigestPolicyDaily       = "daily"
 )
 
 type notifyStore interface {
@@ -207,6 +210,18 @@ func (s *Server) handleNotifyTrigger(ctx context.Context, input *NotifyTriggerIn
 			rawChannelPayload, ok := rendered.Channels[channel]
 			if !ok {
 				continue
+			}
+
+			if categoryType != domain.NotifyCategoryTypeCritical && scheduledAt == nil {
+				digestPolicy := s.resolveNotifyDigestPolicy(ctx, ns, recipient, channel)
+				if digestPolicy != notifyDigestPolicyInstant {
+					batch, batchErr := s.enqueueNotifyDigestBatch(ctx, ns, projectID, recipient, channel, req.TemplateKey, req.CategoryKey, digestPolicy, rawChannelPayload)
+					if batchErr != nil {
+						return nil, huma.Error500InternalServerError("failed to enqueue digest")
+					}
+					result.MessageIDs = append(result.MessageIDs, batch.ID)
+					continue
+				}
 			}
 			channelPayload, marshalErr := json.Marshal(rawChannelPayload)
 			if marshalErr != nil {
@@ -546,6 +561,80 @@ func (s *Server) allowNotifyRate(ctx context.Context, ns notifyStore, sub domain
 		}
 	}
 	return int(val) <= limit
+}
+
+func (s *Server) resolveNotifyDigestPolicy(ctx context.Context, ns notifyStore, sub domain.NotifySubscriber, channel string) string {
+	if channel != "inbox" && channel != "email" {
+		return notifyDigestPolicyInstant
+	}
+
+	pref, err := ns.GetNotificationPreference(ctx, domain.NotifyRecipientTypeSubscriber, sub.ID, "global")
+	if err != nil {
+		return notifyDigestPolicyInstant
+	}
+
+	policy := strings.ToLower(strings.TrimSpace(pref.DigestPolicy))
+	switch policy {
+	case notifyDigestPolicyHourly, notifyDigestPolicyDaily:
+		return policy
+	default:
+		return notifyDigestPolicyInstant
+	}
+}
+
+func resolveNotifyDigestWindow(policy string, now time.Time) (time.Time, bool) {
+	now = now.UTC()
+	switch policy {
+	case notifyDigestPolicyHourly:
+		return now.Truncate(time.Hour).Add(time.Hour), true
+	case notifyDigestPolicyDaily:
+		return now.Truncate(24 * time.Hour).Add(24 * time.Hour), true
+	default:
+		return time.Time{}, false
+	}
+}
+
+func (s *Server) enqueueNotifyDigestBatch(
+	ctx context.Context,
+	ns notifyStore,
+	projectID string,
+	recipient domain.NotifySubscriber,
+	channel, templateKey, categoryKey, digestPolicy string,
+	rawChannelPayload any,
+) (*domain.NotificationBatch, error) {
+	windowEnd, ok := resolveNotifyDigestWindow(digestPolicy, time.Now())
+	if !ok {
+		return nil, fmt.Errorf("unsupported digest policy: %s", digestPolicy)
+	}
+
+	eventPayload, err := json.Marshal(map[string]any{
+		"template_key":    templateKey,
+		"category_key":    categoryKey,
+		"channel_payload": rawChannelPayload,
+		"created_at":      time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal digest event: %w", err)
+	}
+
+	keyCategory := categoryKey
+	if keyCategory == "" {
+		keyCategory = "_"
+	}
+
+	batch := &domain.NotificationBatch{
+		ProjectID:     projectID,
+		RecipientType: domain.NotifyRecipientTypeSubscriber,
+		RecipientID:   recipient.ID,
+		BatchKey:      fmt.Sprintf("%s:%s:%s:%s", digestPolicy, channel, templateKey, keyCategory),
+		Channel:       channel,
+		Status:        domain.NotifyBatchStatusCollecting,
+		WindowEnd:     windowEnd,
+	}
+	if err := ns.AppendNotificationBatchEvent(ctx, batch, eventPayload); err != nil {
+		return nil, fmt.Errorf("append digest batch event: %w", err)
+	}
+	return batch, nil
 }
 
 func (s *Server) tryNotifyDedup(ctx context.Context, ns notifyStore, projectID, dedupKey string, ttl time.Duration) (bool, error) {

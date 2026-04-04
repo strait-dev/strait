@@ -37,6 +37,7 @@ var (
 	ErrNotificationCategoryNotFound   = errors.New("notification category not found")
 	ErrNotificationPreferenceNotFound = errors.New("notification preference not found")
 	ErrNotificationMessageNotFound    = errors.New("notification message not found")
+	ErrNotificationBatchNotFound      = errors.New("notification batch not found")
 	ErrNotificationProviderNotFound   = errors.New("notification provider not found")
 	ErrInboxItemNotFound              = errors.New("inbox item not found")
 	ErrUnsubscribeTokenNotFound       = errors.New("unsubscribe token not found")
@@ -435,6 +436,11 @@ type NotifyStore interface {
 	GetUnsubscribeToken(ctx context.Context, token string) (*domain.UnsubscribeToken, error)
 	UseUnsubscribeToken(ctx context.Context, token string, usedAt time.Time) error
 	TryNotifyDedupKey(ctx context.Context, projectID, dedupKey string, ttl time.Duration) (bool, error)
+	AppendNotificationBatchEvent(ctx context.Context, batch *domain.NotificationBatch, event json.RawMessage) error
+	ClaimDueNotificationBatches(ctx context.Context, limit int) ([]domain.NotificationBatch, error)
+	MarkNotificationBatchSent(ctx context.Context, id, projectID string, sentAt time.Time) error
+	RequeueNotificationBatch(ctx context.Context, id, projectID string, windowEnd time.Time) error
+	MarkNotificationBatchFailed(ctx context.Context, id, projectID string) error
 }
 
 type Store interface {
