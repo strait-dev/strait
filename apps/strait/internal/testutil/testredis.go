@@ -5,6 +5,8 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -12,6 +14,8 @@ import (
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+const testRedisURLEnvKey = "STRAIT_TEST_REDIS_URL"
 
 // TestRedis wraps a testcontainers Redis instance for integration tests.
 type TestRedis struct {
@@ -22,6 +26,18 @@ type TestRedis struct {
 
 // SetupTestRedis starts a Redis container and returns a connected client.
 func SetupTestRedis(ctx context.Context) (*TestRedis, error) {
+	if externalRedisURL := strings.TrimSpace(os.Getenv(testRedisURLEnvKey)); externalRedisURL != "" {
+		opts, err := parseRedisOptions(externalRedisURL)
+		if err != nil {
+			return nil, err
+		}
+		client, err := connectTestRedis(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		return &TestRedis{Client: client, Addr: opts.Addr}, nil
+	}
+
 	container, err := tcredis.Run(ctx, "redis:8-alpine",
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("Ready to accept connections").
@@ -38,16 +54,16 @@ func SetupTestRedis(ctx context.Context) (*TestRedis, error) {
 		return nil, fmt.Errorf("get redis connection string: %w", err)
 	}
 
-	opts, err := redis.ParseURL(connStr)
+	opts, err := parseRedisOptions(connStr)
 	if err != nil {
 		_ = container.Terminate(ctx)
-		return nil, fmt.Errorf("parse redis url: %w", err)
+		return nil, err
 	}
 
-	client := redis.NewClient(opts)
-	if err := client.Ping(ctx).Err(); err != nil {
+	client, err := connectTestRedis(ctx, opts)
+	if err != nil {
 		_ = container.Terminate(ctx)
-		return nil, fmt.Errorf("ping redis: %w", err)
+		return nil, err
 	}
 
 	return &TestRedis{
@@ -55,6 +71,26 @@ func SetupTestRedis(ctx context.Context) (*TestRedis, error) {
 		Container: container,
 		Addr:      opts.Addr,
 	}, nil
+}
+
+func parseRedisOptions(value string) (*redis.Options, error) {
+	opts, err := redis.ParseURL(value)
+	if err == nil {
+		return opts, nil
+	}
+	if strings.Contains(value, "://") {
+		return nil, fmt.Errorf("parse redis url: %w", err)
+	}
+	return &redis.Options{Addr: value}, nil
+}
+
+func connectTestRedis(ctx context.Context, opts *redis.Options) (*redis.Client, error) {
+	client := redis.NewClient(opts)
+	if err := client.Ping(ctx).Err(); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("ping redis: %w", err)
+	}
+	return client, nil
 }
 
 // Cleanup closes the Redis client and terminates the container.

@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -19,6 +21,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+const testDatabaseURLEnvKey = "STRAIT_TEST_DATABASE_URL"
+
 type TestDB struct {
 	Pool      *pgxpool.Pool
 	Container *postgres.PostgresContainer
@@ -26,6 +30,14 @@ type TestDB struct {
 }
 
 func SetupTestDB(ctx context.Context, migrationsPath string) (*TestDB, error) {
+	if externalConnStr := strings.TrimSpace(os.Getenv(testDatabaseURLEnvKey)); externalConnStr != "" {
+		pool, err := setupTestDBPool(ctx, externalConnStr, migrationsPath)
+		if err != nil {
+			return nil, err
+		}
+		return &TestDB{Pool: pool, ConnStr: externalConnStr}, nil
+	}
+
 	pgContainer, err := postgres.Run(ctx, "postgres:18-alpine",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
@@ -46,24 +58,10 @@ func SetupTestDB(ctx context.Context, migrationsPath string) (*TestDB, error) {
 		return nil, fmt.Errorf("get connection string: %w", err)
 	}
 
-	m, err := migrate.New("file://"+migrationsPath, connStr)
+	pool, err := setupTestDBPool(ctx, connStr, migrationsPath)
 	if err != nil {
 		_ = pgContainer.Terminate(ctx)
-		return nil, fmt.Errorf("create migrator: %w", err)
-	}
-	defer func() {
-		_, _ = m.Close()
-	}()
-
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		_ = pgContainer.Terminate(ctx)
-		return nil, fmt.Errorf("run migrations: %w", err)
-	}
-
-	pool, err := pgxpool.New(ctx, connStr)
-	if err != nil {
-		_ = pgContainer.Terminate(ctx)
-		return nil, fmt.Errorf("create pool: %w", err)
+		return nil, err
 	}
 
 	return &TestDB{
@@ -71,6 +69,26 @@ func SetupTestDB(ctx context.Context, migrationsPath string) (*TestDB, error) {
 		Container: pgContainer,
 		ConnStr:   connStr,
 	}, nil
+}
+
+func setupTestDBPool(ctx context.Context, connStr, migrationsPath string) (*pgxpool.Pool, error) {
+	m, err := migrate.New("file://"+migrationsPath, connStr)
+	if err != nil {
+		return nil, fmt.Errorf("create migrator: %w", err)
+	}
+	defer func() {
+		_, _ = m.Close()
+	}()
+
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return nil, fmt.Errorf("run migrations: %w", err)
+	}
+
+	pool, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		return nil, fmt.Errorf("create pool: %w", err)
+	}
+	return pool, nil
 }
 
 func (tdb *TestDB) CleanTables(ctx context.Context) error {
