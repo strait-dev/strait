@@ -1,0 +1,106 @@
+# In-cluster container image registry cache (pull-through proxy).
+# Caches images from ghcr.io to reduce pull latency and avoid rate limits.
+# Accessible only within the cluster at registry.kube-system.svc:5000.
+#
+# k3s nodes must be configured to use this mirror. See registries.yaml template.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-config
+  namespace: kube-system
+data:
+  config.yml: |
+    version: 0.1
+    log:
+      level: warn
+    storage:
+      filesystem:
+        rootdirectory: /var/lib/registry
+      delete:
+        enabled: true
+    http:
+      addr: :5000
+    proxy:
+      remoteurl: https://ghcr.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: kube-system
+  labels:
+    app: registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: registry
+  template:
+    metadata:
+      labels:
+        app: registry
+    spec:
+      containers:
+        - name: registry
+          image: distribution/distribution:2
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config
+              mountPath: /etc/distribution
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/registry
+      volumes:
+        - name: config
+          configMap:
+            name: registry-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: registry-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+  namespace: kube-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: kube-system
+  labels:
+    app: registry
+spec:
+  type: ClusterIP
+  selector:
+    app: registry
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+      protocol: TCP

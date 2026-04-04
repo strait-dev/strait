@@ -1,0 +1,12 @@
+# k3s registry mirror configuration.
+# Place this file at /etc/rancher/k3s/registries.yaml on each node
+# to route ghcr.io pulls through the in-cluster registry cache.
+#
+# The registry cache must be deployed first (registry-cache.yaml).
+# After placing this file, restart k3s on the node:
+#   systemctl restart k3s       # master
+#   systemctl restart k3s-agent # workers
+mirrors:
+  ghcr.io:
+    endpoint:
+      - "http://registry.kube-system.svc:5000"
