@@ -1,0 +1,25 @@
+# Chaos experiment: Kill strait pods.
+# Expected: PDB keeps minAvailable=1, traffic continues during recovery.
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: strait-pod-kill
+  namespace: strait
+spec:
+  appinfo:
+    appns: strait
+    applabel: app=strait
+    appkind: deployment
+  engineState: active
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            - name: CHAOS_INTERVAL
+              value: "15"
+            - name: FORCE
+              value: "false"
