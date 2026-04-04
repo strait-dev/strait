@@ -447,6 +447,8 @@ type NotifyStore interface {
 	ClaimDueEscalationStates(ctx context.Context, limit int) ([]domain.EscalationState, error)
 	AdvanceEscalationState(ctx context.Context, id, projectID string, currentTier int, nextEscalationAt *time.Time, status string) error
 	AcknowledgeEscalationState(ctx context.Context, id, projectID, acknowledgedBy string, acknowledgedAt time.Time) error
+	AcknowledgeActiveEscalationStateByStepRun(ctx context.Context, stepRunID, acknowledgedBy string, acknowledgedAt time.Time) error
+	CompleteActiveEscalationStateByStepRun(ctx context.Context, stepRunID, status string) error
 }
 
 type Store interface {

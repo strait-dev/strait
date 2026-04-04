@@ -465,6 +465,11 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 	}
 
 	now := time.Now()
+	type escalationCompleter interface {
+		CompleteActiveEscalationStateByStepRun(ctx context.Context, stepRunID, status string) error
+	}
+	escalationStore, hasEscalation := r.store.(escalationCompleter)
+
 	for _, approval := range approvals {
 		// Cost gate approvals with default_action=approve should auto-approve on timeout.
 		if strings.HasPrefix(approval.ID, "costgate:") {
@@ -483,6 +488,11 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 			"error":       "approval timed out",
 		}); err != nil {
 			slog.Error("failed to mark approval step failed", "approval_id", approval.ID, "error", err)
+		}
+		if hasEscalation {
+			if escErr := escalationStore.CompleteActiveEscalationStateByStepRun(ctx, approval.WorkflowStepRunID, domain.NotifyEscalationStatusCompleted); escErr != nil {
+				slog.Warn("failed to complete escalation state on approval timeout", "approval_id", approval.ID, "error", escErr)
+			}
 		}
 
 		r.sendApprovalNotification(ctx, approval.WorkflowRunID, domain.NotificationEventApprovalExpired, map[string]any{

@@ -441,12 +441,26 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 				"approved_at":     now,
 			})
 	}
+	if escErr := s.acknowledgeEscalationForStepRun(ctx, stepRun.ID, approver, now); escErr != nil {
+		s.logger.Warn("failed to acknowledge escalation state on approval", "step_run_id", stepRun.ID, "error", escErr)
+	}
 
 	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 		return fmt.Errorf("fan-in after approval for step %s: %w", stepRef, err)
 	}
 
 	return s.checkWorkflowCompletion(ctx, workflowRunID, wc)
+}
+
+func (s *StepCallback) acknowledgeEscalationForStepRun(ctx context.Context, stepRunID, actor string, at time.Time) error {
+	type escalationAcknowledger interface {
+		AcknowledgeActiveEscalationStateByStepRun(ctx context.Context, stepRunID, acknowledgedBy string, acknowledgedAt time.Time) error
+	}
+	store, ok := s.store.(escalationAcknowledger)
+	if !ok {
+		return nil
+	}
+	return store.AcknowledgeActiveEscalationStateByStepRun(ctx, stepRunID, actor, at)
 }
 
 func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, reason, actor string) error {
@@ -496,6 +510,9 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 					"rejected_at":     now,
 					"reason":          reason,
 				})
+		}
+		if escErr := s.acknowledgeEscalationForStepRun(ctx, stepRun.ID, rejectedBy, now); escErr != nil {
+			s.logger.Warn("failed to acknowledge escalation state on rejection", "step_run_id", stepRun.ID, "error", escErr)
 		}
 	}
 

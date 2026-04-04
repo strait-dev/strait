@@ -193,6 +193,59 @@ func (q *Queries) AcknowledgeEscalationState(ctx context.Context, id, projectID,
 	return nil
 }
 
+func (q *Queries) AcknowledgeActiveEscalationStateByStepRun(ctx context.Context, stepRunID, acknowledgedBy string, acknowledgedAt time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.AcknowledgeActiveEscalationStateByStepRun")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx,
+		`UPDATE escalation_states
+		 SET acknowledged = TRUE,
+		     acknowledged_by = $2,
+		     acknowledged_at = $3,
+		     status = $4,
+		     updated_at = NOW()
+		 WHERE step_run_id = $1
+		   AND status IN ($5, $6)`,
+		stepRunID,
+		dbscan.NilIfEmptyString(acknowledgedBy),
+		acknowledgedAt,
+		domain.NotifyEscalationStatusAcknowledged,
+		domain.NotifyEscalationStatusActive,
+		domain.NotifyEscalationStatusProcessing,
+	)
+	if err != nil {
+		return fmt.Errorf("acknowledge active escalation state by step run: %w", err)
+	}
+
+	return nil
+}
+
+func (q *Queries) CompleteActiveEscalationStateByStepRun(ctx context.Context, stepRunID, status string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompleteActiveEscalationStateByStepRun")
+	defer span.End()
+
+	if status == "" {
+		status = domain.NotifyEscalationStatusCompleted
+	}
+
+	_, err := q.db.Exec(ctx,
+		`UPDATE escalation_states
+		 SET status = $2,
+		     updated_at = NOW()
+		 WHERE step_run_id = $1
+		   AND status IN ($3, $4)`,
+		stepRunID,
+		status,
+		domain.NotifyEscalationStatusActive,
+		domain.NotifyEscalationStatusProcessing,
+	)
+	if err != nil {
+		return fmt.Errorf("complete active escalation state by step run: %w", err)
+	}
+
+	return nil
+}
+
 func scanEscalationState(scanner scanTarget) (*domain.EscalationState, error) {
 	var state domain.EscalationState
 	var acknowledgedBy *string
