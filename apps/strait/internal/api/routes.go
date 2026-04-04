@@ -191,6 +191,36 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", TypedHandler(s, http.StatusOK, s.handleListOrgJobs))
 	})
 
+	// Subscriber-authenticated inbox and preference endpoints.
+	r.Route("/v1/inbox", func(r chi.Router) {
+		r.Use(s.notifySubscriberAuth)
+		r.Use(s.projectContextMiddleware)
+		r.Use(s.projectRateLimit)
+		r.Get("/feed", s.handleInboxFeed)
+		r.Get("/", TypedHandler(s, http.StatusOK, s.handleListInbox))
+		r.Get("/unread-count", TypedHandler(s, http.StatusOK, s.handleInboxUnreadCount))
+		r.Patch("/{itemID}", TypedHandler(s, http.StatusOK, s.handleUpdateInboxItem))
+		r.Post("/{itemID}/action", TypedHandler(s, http.StatusOK, s.handleInboxAction))
+		r.Post("/mark-all-read", TypedHandler(s, http.StatusOK, s.handleInboxMarkAllRead))
+	})
+
+	r.Route("/v1/preferences", func(r chi.Router) {
+		r.Use(s.notifySubscriberAuth)
+		r.Use(s.projectContextMiddleware)
+		r.Use(s.projectRateLimit)
+		r.Get("/", TypedHandler(s, http.StatusOK, s.handleGetNotifyPreferences))
+		r.Put("/", TypedHandler(s, http.StatusOK, s.handleUpdateNotifyPreferences))
+		r.Put("/{scope}", TypedHandler(s, http.StatusOK, s.handleUpdateNotifyPreferencesScope))
+	})
+
+	r.Get("/v1/unsubscribe/{token}", TypedHandler(s, http.StatusOK, s.handleGetUnsubscribe))
+	r.Post("/v1/unsubscribe/{token}", TypedHandler(s, http.StatusOK, s.handleProcessUnsubscribe))
+	r.Post("/v1/unsubscribe/{token}/one-click", TypedHandler(s, http.StatusOK, s.handleUnsubscribeOneClick))
+
+	// Email tracking endpoints are public by design.
+	r.Get("/t/{messageID}/open.gif", s.handleNotifyOpenPixel)
+	r.Get("/t/{messageID}/click", s.handleNotifyClickRedirect)
+
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(requireJSONAccept)
@@ -359,6 +389,47 @@ func (s *Server) routes() chi.Router {
 			})
 		})
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/notification-deliveries", TypedHandler(s, http.StatusOK, s.handleListNotificationDeliveries))
+
+		// Strait Notify APIs.
+		r.Route("/subscribers", func(r chi.Router) {
+			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleUpsertNotifySubscriber))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListNotifySubscribers))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/{subscriberID}", TypedHandler(s, http.StatusOK, s.handleGetNotifySubscriber))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/{subscriberID}", TypedHandler(s, http.StatusOK, s.handleUpdateNotifySubscriber))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/{subscriberID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteNotifySubscriber))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/{subscriberID}/token", TypedHandler(s, http.StatusOK, s.handleCreateNotifySubscriberToken))
+		})
+
+		r.Route("/topics", func(r chi.Router) {
+			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateNotifyTopic))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListNotifyTopics))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/{topicKey}/subscribers", TypedHandler(s, http.StatusNoContent, s.handleAddNotifyTopicSubscriber))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/{topicKey}/subscribers/{subscriberID}", TypedHandler(s, http.StatusNoContent, s.handleRemoveNotifyTopicSubscriber))
+		})
+
+		r.Route("/templates", func(r chi.Router) {
+			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateNotificationTemplate))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListNotificationTemplates))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/{templateKey}", TypedHandler(s, http.StatusOK, s.handleGetNotificationTemplate))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/{templateKey}", TypedHandler(s, http.StatusOK, s.handleUpdateNotificationTemplate))
+		})
+
+		r.Route("/categories", func(r chi.Router) {
+			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateNotificationCategory))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListNotificationCategories))
+		})
+
+		r.Route("/providers", func(r chi.Router) {
+			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleConfigureNotificationProvider))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListNotificationProviders))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/{providerID}", TypedHandler(s, http.StatusOK, s.handleUpdateNotificationProvider))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/{providerID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteNotificationProvider))
+		})
+
+		r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/notify", TypedHandler(s, http.StatusCreated, s.handleNotifyTrigger))
+		r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/notify/test", TypedHandler(s, http.StatusCreated, s.handleNotifyTest))
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Post("/notify/preview", TypedHandler(s, http.StatusOK, s.handleNotifyPreview))
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/notify/deliveries", TypedHandler(s, http.StatusOK, s.handleListNotifyDeliveries))
 
 		r.Route("/log-drains", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListLogDrains))

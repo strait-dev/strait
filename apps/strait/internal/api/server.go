@@ -509,6 +509,7 @@ type Server struct {
 	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
 	rateLimiter        *ratelimit.RedisRateLimiter
 	authLimiter        *ratelimit.AuthLimiter
+	redisClient        *redis.Client
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
 	stripeWebhook      http.Handler
@@ -651,6 +652,7 @@ func NewServer(deps ServerDeps) *Server {
 		bgPool:             pond.NewPool(4),
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
 		authLimiter:        ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
+		redisClient:        deps.RedisClient,
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
 		stripeWebhook:      deps.StripeWebhook,

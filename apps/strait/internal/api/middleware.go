@@ -27,6 +27,9 @@ const ctxAPIKeyIDKey contextKey = "api_key_id"
 const ctxActorIDKey contextKey = "actor_id"
 const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
 const ctxAuthKeyObjKey contextKey = "api_key_obj"
+const ctxNotifyRecipientTypeKey contextKey = "notify_recipient_type"
+const ctxNotifyRecipientIDKey contextKey = "notify_recipient_id"
+const ctxNotifyTenantIDKey contextKey = "notify_tenant_id"
 
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
@@ -148,6 +151,20 @@ func requireProjectMatch(ctx context.Context, resourceProjectID string) error {
 
 func orgIDFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(ctxOrgIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func notifyRecipientTypeFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxNotifyRecipientTypeKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func notifyRecipientIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxNotifyRecipientIDKey).(string); ok {
 		return v
 	}
 	return ""
