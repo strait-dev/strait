@@ -322,6 +322,59 @@ func TestClaimDueScheduledNotificationMessages(t *testing.T) {
 	}
 }
 
+func TestEscalationStateLifecycle(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	next := time.Now().UTC().Add(-1 * time.Minute)
+	state := &domain.EscalationState{
+		ProjectID:        "project-notify-escalation",
+		StepRunID:        "step_1",
+		WorkflowRunID:    "wf_run_1",
+		CurrentTier:      1,
+		TotalTiers:       3,
+		NextEscalationAt: &next,
+		Status:           domain.NotifyEscalationStatusActive,
+	}
+	if err := q.UpsertEscalationState(ctx, state); err != nil {
+		t.Fatalf("UpsertEscalationState() error = %v", err)
+	}
+
+	loaded, err := q.GetActiveEscalationStateByStepRun(ctx, state.ProjectID, state.StepRunID)
+	if err != nil {
+		t.Fatalf("GetActiveEscalationStateByStepRun() error = %v", err)
+	}
+	if loaded.ID != state.ID {
+		t.Fatalf("loaded ID = %q, want %q", loaded.ID, state.ID)
+	}
+
+	claimed, err := q.ClaimDueEscalationStates(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimDueEscalationStates() error = %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("ClaimDueEscalationStates() len = %d, want 1", len(claimed))
+	}
+	if claimed[0].Status != domain.NotifyEscalationStatusProcessing {
+		t.Fatalf("claimed status = %q, want %q", claimed[0].Status, domain.NotifyEscalationStatusProcessing)
+	}
+
+	nextActive := time.Now().UTC().Add(15 * time.Minute)
+	if err := q.AdvanceEscalationState(ctx, state.ID, state.ProjectID, 2, &nextActive, domain.NotifyEscalationStatusActive); err != nil {
+		t.Fatalf("AdvanceEscalationState() error = %v", err)
+	}
+
+	ackAt := time.Now().UTC()
+	if err := q.AcknowledgeEscalationState(ctx, state.ID, state.ProjectID, "user_1", ackAt); err != nil {
+		t.Fatalf("AcknowledgeEscalationState() error = %v", err)
+	}
+
+	if _, err := q.GetActiveEscalationStateByStepRun(ctx, state.ProjectID, state.StepRunID); !errors.Is(err, store.ErrEscalationStateNotFound) {
+		t.Fatalf("GetActiveEscalationStateByStepRun() after ack error = %v, want ErrEscalationStateNotFound", err)
+	}
+}
+
 func TestNotificationBatchLifecycle(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -427,6 +480,7 @@ func TestNotifyStoreSentinelErrors(t *testing.T) {
 		{name: "ErrNotificationPreferenceNotFound", err: store.ErrNotificationPreferenceNotFound, msg: "notification preference not found"},
 		{name: "ErrNotificationMessageNotFound", err: store.ErrNotificationMessageNotFound, msg: "notification message not found"},
 		{name: "ErrNotificationBatchNotFound", err: store.ErrNotificationBatchNotFound, msg: "notification batch not found"},
+		{name: "ErrEscalationStateNotFound", err: store.ErrEscalationStateNotFound, msg: "escalation state not found"},
 		{name: "ErrNotificationProviderNotFound", err: store.ErrNotificationProviderNotFound, msg: "notification provider not found"},
 		{name: "ErrInboxItemNotFound", err: store.ErrInboxItemNotFound, msg: "inbox item not found"},
 	}

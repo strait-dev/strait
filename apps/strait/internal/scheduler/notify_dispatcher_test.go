@@ -10,16 +10,22 @@ import (
 )
 
 type notifyDispatcherStoreMock struct {
-	claimFunc           func(context.Context, int) ([]domain.NotificationMessage, error)
-	claimBatchFunc      func(context.Context, int) ([]domain.NotificationBatch, error)
-	markBatchSentFunc   func(context.Context, string, string, time.Time) error
-	requeueBatchFunc    func(context.Context, string, string, time.Time) error
-	markBatchFailedFunc func(context.Context, string, string) error
-	createMessageFunc   func(context.Context, *domain.NotificationMessage) error
-	updateStatusFunc    func(context.Context, string, string, string, string, map[string]any) error
-	getSubFunc          func(context.Context, string, string) (*domain.NotifySubscriber, error)
-	createInboxFunc     func(context.Context, *domain.InboxItem) error
-	getProviderFunc     func(context.Context, string, string) (*domain.NotificationProvider, error)
+	claimFunc              func(context.Context, int) ([]domain.NotificationMessage, error)
+	claimBatchFunc         func(context.Context, int) ([]domain.NotificationBatch, error)
+	markBatchSentFunc      func(context.Context, string, string, time.Time) error
+	requeueBatchFunc       func(context.Context, string, string, time.Time) error
+	markBatchFailedFunc    func(context.Context, string, string) error
+	claimEscalationFunc    func(context.Context, int) ([]domain.EscalationState, error)
+	advanceEscalationFunc  func(context.Context, string, string, int, *time.Time, string) error
+	getApprovalByStepRunFn func(context.Context, string) (*domain.WorkflowStepApproval, error)
+	getWorkflowRunFunc     func(context.Context, string) (*domain.WorkflowRun, error)
+	listChannelsFunc       func(context.Context, string) ([]domain.NotificationChannel, error)
+	createDeliveryFunc     func(context.Context, *domain.NotificationDelivery) error
+	createMessageFunc      func(context.Context, *domain.NotificationMessage) error
+	updateStatusFunc       func(context.Context, string, string, string, string, map[string]any) error
+	getSubFunc             func(context.Context, string, string) (*domain.NotifySubscriber, error)
+	createInboxFunc        func(context.Context, *domain.InboxItem) error
+	getProviderFunc        func(context.Context, string, string) (*domain.NotificationProvider, error)
 }
 
 func (m *notifyDispatcherStoreMock) ClaimDueScheduledNotificationMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error) {
@@ -55,6 +61,48 @@ func (m *notifyDispatcherStoreMock) MarkNotificationBatchFailed(ctx context.Cont
 		return nil
 	}
 	return m.markBatchFailedFunc(ctx, id, projectID)
+}
+
+func (m *notifyDispatcherStoreMock) ClaimDueEscalationStates(ctx context.Context, limit int) ([]domain.EscalationState, error) {
+	if m.claimEscalationFunc == nil {
+		return nil, nil
+	}
+	return m.claimEscalationFunc(ctx, limit)
+}
+
+func (m *notifyDispatcherStoreMock) AdvanceEscalationState(ctx context.Context, id, projectID string, currentTier int, nextEscalationAt *time.Time, status string) error {
+	if m.advanceEscalationFunc == nil {
+		return nil
+	}
+	return m.advanceEscalationFunc(ctx, id, projectID, currentTier, nextEscalationAt, status)
+}
+
+func (m *notifyDispatcherStoreMock) GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error) {
+	if m.getApprovalByStepRunFn == nil {
+		return nil, nil
+	}
+	return m.getApprovalByStepRunFn(ctx, stepRunID)
+}
+
+func (m *notifyDispatcherStoreMock) GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error) {
+	if m.getWorkflowRunFunc == nil {
+		return nil, nil
+	}
+	return m.getWorkflowRunFunc(ctx, id)
+}
+
+func (m *notifyDispatcherStoreMock) ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
+	if m.listChannelsFunc == nil {
+		return nil, nil
+	}
+	return m.listChannelsFunc(ctx, projectID)
+}
+
+func (m *notifyDispatcherStoreMock) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
+	if m.createDeliveryFunc == nil {
+		return nil
+	}
+	return m.createDeliveryFunc(ctx, d)
 }
 
 func (m *notifyDispatcherStoreMock) CreateNotificationMessage(ctx context.Context, msg *domain.NotificationMessage) error {
@@ -200,6 +248,67 @@ func TestNotifyDispatcherPoll_DigestBatchDelivered(t *testing.T) {
 	}
 	if !batchSent {
 		t.Fatal("expected batch sent status update")
+	}
+}
+
+func TestNotifyDispatcherPoll_EscalationDeliveredAndAdvanced(t *testing.T) {
+	t.Parallel()
+
+	state := domain.EscalationState{
+		ID:            "esc_1",
+		ProjectID:     "proj_1",
+		StepRunID:     "step_1",
+		WorkflowRunID: "wf_run_1",
+		CurrentTier:   1,
+		TotalTiers:    3,
+		Status:        domain.NotifyEscalationStatusProcessing,
+	}
+
+	var deliveryCreated bool
+	var advanced bool
+	st := &notifyDispatcherStoreMock{
+		claimEscalationFunc: func(context.Context, int) ([]domain.EscalationState, error) {
+			return []domain.EscalationState{state}, nil
+		},
+		getApprovalByStepRunFn: func(context.Context, string) (*domain.WorkflowStepApproval, error) {
+			return &domain.WorkflowStepApproval{ID: "apr_1", Status: domain.ApprovalStatusPending}, nil
+		},
+		getWorkflowRunFunc: func(context.Context, string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wf_run_1", WorkflowID: "wf_1", ProjectID: "proj_1"}, nil
+		},
+		listChannelsFunc: func(context.Context, string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch_1", ProjectID: "proj_1"}}, nil
+		},
+		createDeliveryFunc: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveryCreated = true
+			if d.EventType != domain.NotificationEventApprovalReminder {
+				t.Fatalf("EventType = %s, want %s", d.EventType, domain.NotificationEventApprovalReminder)
+			}
+			return nil
+		},
+		advanceEscalationFunc: func(_ context.Context, id, projectID string, currentTier int, _ *time.Time, status string) error {
+			if id != "esc_1" || projectID != "proj_1" {
+				t.Fatalf("AdvanceEscalationState args = (%s,%s), want (esc_1,proj_1)", id, projectID)
+			}
+			if currentTier != 2 {
+				t.Fatalf("currentTier = %d, want 2", currentTier)
+			}
+			if status != domain.NotifyEscalationStatusActive {
+				t.Fatalf("status = %s, want %s", status, domain.NotifyEscalationStatusActive)
+			}
+			advanced = true
+			return nil
+		},
+	}
+
+	d := NewNotifyDispatcher(st, 0, "", "")
+	d.poll(context.Background())
+
+	if !deliveryCreated {
+		t.Fatal("expected escalation delivery creation")
+	}
+	if !advanced {
+		t.Fatal("expected escalation advancement")
 	}
 }
 
