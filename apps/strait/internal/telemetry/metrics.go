@@ -80,6 +80,14 @@ type Metrics struct {
 	ManagedDispatchDuration metric.Float64Histogram
 	ManagedMachinesActive   metric.Int64UpDownCounter
 
+	// K8s compute metrics.
+	K8sJobCreateTotal        metric.Int64Counter
+	K8sJobCreateDuration     metric.Float64Histogram
+	K8sJobWaitDuration       metric.Float64Histogram
+	K8sPodSchedulingDuration metric.Float64Histogram
+	K8sJobsActive            metric.Int64UpDownCounter
+	ComputeFallbackTotal     metric.Int64Counter
+
 	// DB connection pool metrics.
 	DBPoolTotalConns    metric.Int64ObservableGauge
 	DBPoolIdleConns     metric.Int64ObservableGauge
@@ -597,6 +605,45 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		return nil, nil, nil, fmt.Errorf("create managed machines active counter: %w", err)
 	}
 
+	k8sJobCreateTotal, _ := meter.Int64Counter(
+		"strait_k8s_job_create_total",
+		metric.WithDescription("Total K8s job creates by status"),
+		metric.WithUnit("1"),
+	)
+
+	k8sJobCreateDuration, _ := meter.Float64Histogram(
+		"strait_k8s_job_create_duration_seconds",
+		metric.WithDescription("Duration of K8s job create API calls"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5),
+	)
+
+	k8sJobWaitDuration, _ := meter.Float64Histogram(
+		"strait_k8s_job_wait_duration_seconds",
+		metric.WithDescription("Duration from job create to completion"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(1, 5, 10, 30, 60, 120, 300, 600),
+	)
+
+	k8sPodSchedulingDuration, _ := meter.Float64Histogram(
+		"strait_k8s_pod_scheduling_duration_seconds",
+		metric.WithDescription("Duration from job create to pod running (cold start metric)"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2, 5, 10, 30, 60, 90),
+	)
+
+	k8sJobsActive, _ := meter.Int64UpDownCounter(
+		"strait_k8s_jobs_active",
+		metric.WithDescription("Number of K8s jobs currently running"),
+		metric.WithUnit("1"),
+	)
+
+	computeFallbackTotal, _ := meter.Int64Counter(
+		"strait_compute_fallback_total",
+		metric.WithDescription("Total compute provider fallback events"),
+		metric.WithUnit("1"),
+	)
+
 	dbPoolTotal, _ := meter.Int64ObservableGauge("strait_db_pool_total_conns", metric.WithDescription("Total DB pool connections"))
 	dbPoolIdle, _ := meter.Int64ObservableGauge("strait_db_pool_idle_conns", metric.WithDescription("Idle DB pool connections"))
 	dbPoolAcquired, _ := meter.Int64ObservableGauge("strait_db_pool_acquired_conns", metric.WithDescription("Acquired DB pool connections"))
@@ -738,6 +785,12 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		ManagedDispatchTotal:         managedDispatchTotal,
 		ManagedDispatchDuration:      managedDispatchDuration,
 		ManagedMachinesActive:        managedMachinesActive,
+		K8sJobCreateTotal:            k8sJobCreateTotal,
+		K8sJobCreateDuration:         k8sJobCreateDuration,
+		K8sJobWaitDuration:           k8sJobWaitDuration,
+		K8sPodSchedulingDuration:     k8sPodSchedulingDuration,
+		K8sJobsActive:                k8sJobsActive,
+		ComputeFallbackTotal:         computeFallbackTotal,
 		DBPoolTotalConns:             dbPoolTotal,
 		DBPoolIdleConns:              dbPoolIdle,
 		DBPoolAcquiredConns:          dbPoolAcquired,

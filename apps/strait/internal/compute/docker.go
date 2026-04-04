@@ -12,10 +12,35 @@ import (
 	"github.com/google/uuid"
 )
 
-// validateImageURI rejects image URIs with shell metacharacters.
+// validateImageURI rejects image URIs with shell metacharacters, path traversal,
+// URL schemes, and other injection vectors.
 func validateImageURI(uri string) error {
-	if uri == "" {
+	if uri == "" || strings.TrimSpace(uri) == "" {
 		return fmt.Errorf("image URI is required")
+	}
+	if len(uri) > 255 {
+		return fmt.Errorf("image URI exceeds maximum length of 255 characters")
+	}
+	// Reject URL schemes (https://, file://, etc.).
+	if strings.Contains(uri, "://") {
+		return fmt.Errorf("image URI must not contain URL scheme")
+	}
+	// Reject path traversal.
+	if strings.Contains(uri, "..") {
+		return fmt.Errorf("image URI must not contain path traversal")
+	}
+	// Reject uppercase-only image names (must be lowercase per OCI spec).
+	namePart := uri
+	if idx := strings.LastIndex(uri, ":"); idx >= 0 {
+		namePart = uri[:idx]
+	}
+	if namePart != strings.ToLower(namePart) {
+		return fmt.Errorf("image name must be lowercase")
+	}
+	// Only allow one colon (image:tag) or colon in registry port (registry:5000/image:tag).
+	colonCount := strings.Count(uri, ":")
+	if colonCount > 2 {
+		return fmt.Errorf("image URI has too many colons")
 	}
 	for _, c := range uri {
 		if !isDockerSafeChar(c) {

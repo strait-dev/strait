@@ -112,7 +112,7 @@ func FuzzContainerSpecParsing(f *testing.F) {
 		// Must not panic.
 		_, _ = PresetFromName(presetName)
 		_ = IsValidRegion(region)
-		_ = NearestFlyRegion(region)
+		_ = NearestRegion(region)
 		_ = RegionFallbackChain(region)
 		_ = PresetMemoryMB(presetName)
 		_ = PresetIndex(presetName)

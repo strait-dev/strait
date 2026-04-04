@@ -20,7 +20,7 @@ If instructions conflict, use this priority order:
   - job definitions and triggering (HTTP dispatch + managed container execution)
   - run lifecycle management (13-state FSM with pause/resume)
   - workflow DAG orchestration (steps, approvals, sub-workflows, wait-for-event)
-  - managed execution on Fly Machines (warm pool, pause/resume reuse, cost tracking)
+  - managed execution (K8s containers, warm pool, cost tracking)
   - SDK endpoints for in-run operations (progress, checkpoint, completion)
   - ClickHouse analytics (optional, for run metrics and cost reporting)
   - webhook delivery with retry, circuit breaker, and HMAC signing
@@ -53,7 +53,7 @@ Top-level directories you will use most:
   - `apps/strait/internal/api/sdk_resources.go` — in-container resource monitoring endpoint (`/sdk/v1/runs/{runID}/resources`)
 - `apps/strait/internal/worker/` — execution worker pool and dispatch behavior
 - `apps/strait/internal/workflow/` — DAG orchestration engine and step progression
-- `apps/strait/internal/compute/` — container runtime abstraction (Fly Machines, Docker), warm machine pool, machine lifecycle, cost estimation
+- `apps/strait/internal/compute/` — container runtime abstraction (K8s, Docker), warm machine pool, machine lifecycle, cost estimation
   - `apps/strait/internal/compute/signals.go` — exit code classification (OOM, SIGTERM, SIGSEGV), crash log fetch, OOM preset upgrade logic
 - `apps/strait/internal/scheduler/` — cron/poller/reaper/retention/pool-pruner background loops
 - `apps/strait/internal/queue/` — dequeue/queue logic and concurrency-safe claiming
@@ -115,7 +115,7 @@ Before implementation, read docs intentionally instead of guessing.
   - `docs/guides/authentication.mdx`
   - `docs/guides/security.mdx`
 
-- **Managed execution / Fly Machines / compute**:
+- **Managed execution / compute**:
   - `docs/concepts/managed-execution.mdx`
   - `apps/strait/internal/compute/*`
   - `apps/strait/internal/worker/executor_dispatch.go` (managedDispatch function)

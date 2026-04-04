@@ -74,11 +74,9 @@ func TestImageURI_LocalFileImage(t *testing.T) {
 	uri := "file:///etc/shadow"
 	err := validateImageURI(uri)
 
-	// All characters in "file:///etc/shadow" are in the safe set (a-z, :, /),
-	// so validateImageURI accepts it. Docker itself would reject this as an
-	// invalid image reference at runtime.
-	if err != nil {
-		t.Fatalf("expected file URI to be accepted by char validator (all chars safe), got: %v", err)
+	// URL scheme (file://) is now rejected by validateImageURI.
+	if err == nil {
+		t.Fatal("expected file:// URI to be rejected (contains URL scheme)")
 	}
 }
 
@@ -99,13 +97,12 @@ func TestImageURI_DataURIScheme(t *testing.T) {
 func TestImageURI_ExtremelyLongURI(t *testing.T) {
 	t.Parallel()
 
-	// 100KB URI composed of safe characters.
+	// 100KB URI composed of safe characters — now rejected by 255-char limit.
 	uri := "registry.example.com/" + strings.Repeat("a", 100*1024) + ":latest"
 	err := validateImageURI(uri)
 
-	// No length limit is enforced -- only character safety is checked.
-	if err != nil {
-		t.Fatalf("expected extremely long URI to be accepted (no length limit), got: %v", err)
+	if err == nil {
+		t.Fatal("expected extremely long URI to be rejected (255 char limit)")
 	}
 }
 

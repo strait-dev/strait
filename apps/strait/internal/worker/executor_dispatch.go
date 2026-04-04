@@ -634,13 +634,13 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	}
 	if region == "" {
 		if hint, ok := run.Metadata["_region_hint"]; ok && hint != "" {
-			if validated := compute.NearestFlyRegion(hint); validated != "" {
+			if validated := compute.NearestRegion(hint); validated != "" {
 				region = validated
 			}
 		}
 	}
 	if region == "" {
-		region = e.defaultFlyRegion
+		region = e.defaultRegion
 	}
 
 	// 9. Create the container using the preset resolved in step 4a.
@@ -718,16 +718,6 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		}
 	}
 	if createErr != nil {
-		// Fly-specific error classification for observability.
-		var re *compute.RuntimeError
-		if errors.As(createErr, &re) && re.StatusCode > 0 {
-			retryable, fatal, backoffSecs := compute.ClassifyFlyError(re.StatusCode)
-			e.logger.Warn("fly error classified",
-				"run_id", run.ID, "status_code", re.StatusCode,
-				"retryable", retryable, "fatal", fatal, "backoff_secs", backoffSecs,
-			)
-		}
-
 		if compute.IsRetryable(createErr) {
 			backoff := compute.BackoffHint(createErr)
 			retryAt := time.Now().Add(backoff)

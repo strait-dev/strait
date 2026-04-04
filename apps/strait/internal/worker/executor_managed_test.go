@@ -925,7 +925,7 @@ func TestManagedDispatch_RegionFallback_ConfigDefault(t *testing.T) {
 	}
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	job := newTestManagedJob()
@@ -960,7 +960,7 @@ func TestManagedDispatch_RegionFallback_JobRegionUsed(t *testing.T) {
 	}
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	job := newTestManagedJob()
@@ -995,7 +995,7 @@ func TestManagedDispatch_RegionFallback_MetadataHint(t *testing.T) {
 	}
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	run.Metadata = map[string]string{"_region_hint": "lhr"}
@@ -1031,7 +1031,7 @@ func TestManagedDispatch_RegionChain_JobWins(t *testing.T) {
 	}
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	run.Metadata = map[string]string{"_region_hint": "lhr"}
@@ -1185,7 +1185,7 @@ func TestManagedDispatch_PoolAcquireHit(t *testing.T) {
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	job := newTestManagedJob()
@@ -1221,7 +1221,7 @@ func TestManagedDispatch_PoolRelease(t *testing.T) {
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	job := newTestManagedJob()
@@ -1288,7 +1288,7 @@ func TestManagedDispatch_InvalidRegionHint(t *testing.T) {
 	}
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	run.Metadata = map[string]string{"_region_hint": "xyzzy-bogus"} // invalid region
@@ -1549,7 +1549,7 @@ func TestManagedDispatch_PoolAcquire_CallsStart(t *testing.T) {
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
 
@@ -1589,7 +1589,7 @@ func TestManagedDispatch_PoolAcquire_StartFails_FallsToCreate(t *testing.T) {
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
 
@@ -1626,7 +1626,7 @@ func TestManagedDispatch_PoolAcquire_StartTransient_FallsToCreate(t *testing.T) 
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
 
@@ -1658,7 +1658,7 @@ func TestManagedDispatch_Reusable_SetsAutoDestroyFalse(t *testing.T) {
 	pool := compute.NewMachinePool(3)
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
 
@@ -1927,7 +1927,7 @@ func TestManagedDispatch_PoolTakesPriorityOverPausedMachine(t *testing.T) {
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	run.MachineID = "paused-m" // Both pool and paused available.
@@ -2139,7 +2139,7 @@ func TestManagedDispatch_ResumedRun_PoolAndPauseAndCreate_Cascade(t *testing.T) 
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	run.MachineID = "paused-m" // Paused machine set.
@@ -2191,7 +2191,7 @@ func TestManagedDispatch_NonZeroExit_MachineNotPooled(t *testing.T) {
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	run.Attempt = 1
@@ -2232,7 +2232,7 @@ func TestManagedDispatch_ExitZero_MachinePooled(t *testing.T) {
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	job := newTestManagedJob()
@@ -2299,7 +2299,7 @@ func TestManagedDispatch_MetricsRecordPoolHit(t *testing.T) {
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	// The pool metric is recorded as "pool" dispatch source.
 	// We verify indirectly that the dispatch completes successfully with pool path.
@@ -2951,7 +2951,7 @@ func TestManagedDispatch_PooledMachine_HasCleanStart(t *testing.T) {
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
 		e.machinePool = pool
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	job := newTestManagedJob()
@@ -3206,7 +3206,7 @@ func TestManagedDispatch_503Failover_SecondRegionSucceeds(t *testing.T) {
 	}
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	job := newTestManagedJob()
@@ -3240,7 +3240,7 @@ func TestManagedDispatch_PinnedRegion_NoFailover(t *testing.T) {
 	}
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	job := newTestManagedJob()
@@ -3267,7 +3267,7 @@ func TestManagedDispatch_500_NoFailover(t *testing.T) {
 	}
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	job := newTestManagedJob()
@@ -3292,7 +3292,7 @@ func TestManagedDispatch_All503_Snoozes(t *testing.T) {
 	}
 
 	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
-		e.defaultFlyRegion = "iad"
+		e.defaultRegion = "iad"
 	})
 	run := newTestRun()
 	job := newTestManagedJob()

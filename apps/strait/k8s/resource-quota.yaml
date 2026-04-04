@@ -1,0 +1,17 @@
+# ResourceQuota for the job namespace.
+# Provides aggregate limits as a second defense layer beyond per-job presets.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: strait-job-quota
+  namespace: default
+spec:
+  hard:
+    # Aggregate resource limits.
+    requests.cpu: "100"
+    requests.memory: "200Gi"
+    limits.cpu: "200"
+    limits.memory: "400Gi"
+    # Object count limits.
+    pods: "500"
+    count/jobs.batch: "500"

@@ -144,16 +144,23 @@ type Config struct {
 	// Managed execution (container runtime)
 	AllowedImageRegistries  []string      `env:"ALLOWED_IMAGE_REGISTRIES" envSeparator:"," envDefault:""`
 	RequireImageDigest      bool          `env:"REQUIRE_IMAGE_DIGEST" envDefault:"false"`
-	ComputeRuntime          string        `env:"COMPUTE_RUNTIME" default:"none"`
-	FlyAPIToken             string        `env:"FLY_API_TOKEN"`
-	FlyAppName              string        `env:"FLY_APP_NAME"`
-	FlyRegion               string        `env:"FLY_REGION" default:"iad"`
+	ComputeRuntime          string        `env:"COMPUTE_RUNTIME" default:"k8s"`
+	ComputeFallbackProvider string        `env:"COMPUTE_FALLBACK_PROVIDER"`
+	DefaultRegion           string        `env:"DEFAULT_REGION" default:"iad"`
 	ExternalAPIURL          string        `env:"EXTERNAL_API_URL"`
 	MaxConcurrentMachines   int           `env:"MAX_CONCURRENT_MACHINES" default:"10"`
 	WarmPoolEnabled         bool          `env:"WARM_POOL_ENABLED" default:"false"`
 	WarmPoolMaxPerJob       int           `env:"WARM_POOL_MAX_PER_JOB" default:"0"`
 	WarmPoolTTL             time.Duration `env:"WARM_POOL_TTL"`
 	DisableMachinePoolReuse bool          `env:"DISABLE_MACHINE_POOL_REUSE" default:"true"`
+
+	// Kubernetes runtime
+	K8sKubeconfig    string        `env:"K8S_KUBECONFIG"`
+	K8sNamespace     string        `env:"K8S_NAMESPACE" default:"default"`
+	K8sPriorityClass string        `env:"K8S_PRIORITY_CLASS" default:"strait-job"`
+	K8sGCEnabled     bool          `env:"K8S_GC_ENABLED" default:"true"`
+	K8sGCMaxAge      time.Duration `env:"K8S_GC_MAX_AGE" default:"30m"`
+	K8sGCInterval    time.Duration `env:"K8S_GC_INTERVAL" default:"5m"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
@@ -215,7 +222,7 @@ type Config struct {
 
 // Load reads configuration from environment variables.
 //
-//nolint:gocyclo,cyclop
+//nolint:gocyclo,cyclop,gocognit
 func Load() (*Config, error) {
 	var cfg Config
 
@@ -303,17 +310,28 @@ func Load() (*Config, error) {
 	}
 
 	switch cfg.ComputeRuntime {
-	case "none", "fly", "docker", "":
+	case "none", "docker", "k8s", "":
 		// valid
 	default:
-		return nil, &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, fly, or docker"}
+		return nil, &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, docker, or k8s"}
 	}
-	if cfg.ComputeRuntime == "fly" {
-		if cfg.FlyAPIToken == "" {
-			return nil, &domain.ConfigError{Field: "FLY_API_TOKEN", Message: "is required when COMPUTE_RUNTIME=fly"}
+	if cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s" {
+		if cfg.K8sNamespace == "" {
+			return nil, &domain.ConfigError{Field: "K8S_NAMESPACE", Message: "is required when using k8s compute runtime"}
 		}
-		if cfg.FlyAppName == "" {
-			return nil, &domain.ConfigError{Field: "FLY_APP_NAME", Message: "is required when COMPUTE_RUNTIME=fly"}
+	}
+	if cfg.ComputeFallbackProvider != "" {
+		switch cfg.ComputeFallbackProvider {
+		case "docker", "k8s":
+			// valid
+		default:
+			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must be docker or k8s"}
+		}
+		if cfg.ComputeFallbackProvider == cfg.ComputeRuntime {
+			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must differ from COMPUTE_RUNTIME"}
+		}
+		if cfg.ComputeRuntime == "none" || cfg.ComputeRuntime == "" {
+			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "requires a primary COMPUTE_RUNTIME"}
 		}
 	}
 	if cfg.Edition == string(domain.EditionCommunity) && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {

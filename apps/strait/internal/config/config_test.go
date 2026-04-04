@@ -83,8 +83,8 @@ func TestLoad_Defaults(t *testing.T) {
 		{"DebouncePollerInterval", cfg.DebouncePollerInterval, time.Second},
 		{"BatchFlushInterval", cfg.BatchFlushInterval, time.Second},
 		{"DequeueStrategy", cfg.DequeueStrategy, "priority"},
-		{"ComputeRuntime", cfg.ComputeRuntime, "none"},
-		{"FlyRegion", cfg.FlyRegion, "iad"},
+		{"ComputeRuntime", cfg.ComputeRuntime, "none"}, // community edition overrides k8s default to none
+		{"DefaultRegion", cfg.DefaultRegion, "iad"},
 		{"MaxConcurrentMachines", cfg.MaxConcurrentMachines, 10},
 		{"ClickHouseDatabase", cfg.ClickHouseDatabase, "strait"},
 		{"ClickHouseBatchSize", cfg.ClickHouseBatchSize, 1000},
@@ -732,36 +732,6 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("fly requires API token and app name", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "fly")
-		t.Setenv("STRAIT_EDITION", "cloud")
-
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for fly without FLY_API_TOKEN, got nil")
-		}
-		if !strings.Contains(err.Error(), "FLY_API_TOKEN") {
-			t.Fatalf("error = %q, want substring FLY_API_TOKEN", err.Error())
-		}
-	})
-
-	t.Run("fly with all required fields", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "fly")
-		t.Setenv("FLY_API_TOKEN", "fly-token")
-		t.Setenv("FLY_APP_NAME", "my-app")
-		t.Setenv("STRAIT_EDITION", "cloud")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.ComputeRuntime != "fly" {
-			t.Fatalf("ComputeRuntime = %q, want fly", cfg.ComputeRuntime)
-		}
-	})
-
 	t.Run("invalid runtime", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("COMPUTE_RUNTIME", "kubernetes")
@@ -786,6 +756,177 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 		}
 		if cfg.ComputeRuntime != "none" {
 			t.Fatalf("ComputeRuntime = %q, want none (community edition override)", cfg.ComputeRuntime)
+		}
+	})
+
+	t.Run("k8s valid with defaults", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("STRAIT_EDITION", "cloud")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeRuntime != "k8s" {
+			t.Fatalf("ComputeRuntime = %q, want k8s", cfg.ComputeRuntime)
+		}
+		if cfg.K8sNamespace != "default" {
+			t.Fatalf("K8sNamespace = %q, want default", cfg.K8sNamespace)
+		}
+		if cfg.K8sPriorityClass != "strait-job" {
+			t.Fatalf("K8sPriorityClass = %q, want strait-job", cfg.K8sPriorityClass)
+		}
+	})
+
+	t.Run("k8s with custom namespace", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("K8S_NAMESPACE", "strait-jobs")
+		t.Setenv("K8S_PRIORITY_CLASS", "high-priority")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.K8sNamespace != "strait-jobs" {
+			t.Fatalf("K8sNamespace = %q, want strait-jobs", cfg.K8sNamespace)
+		}
+		if cfg.K8sPriorityClass != "high-priority" {
+			t.Fatalf("K8sPriorityClass = %q, want high-priority", cfg.K8sPriorityClass)
+		}
+	})
+
+	t.Run("k8s namespace defaults to default when empty", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("K8S_NAMESPACE", "")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.K8sNamespace != "default" {
+			t.Fatalf("K8sNamespace = %q, want default (env default)", cfg.K8sNamespace)
+		}
+	})
+
+	t.Run("k8s kubeconfig optional", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("STRAIT_EDITION", "cloud")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.K8sKubeconfig != "" {
+			t.Fatalf("K8sKubeconfig = %q, want empty (in-cluster fallback)", cfg.K8sKubeconfig)
+		}
+	})
+
+	t.Run("k8s with kubeconfig", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("K8S_KUBECONFIG", "/path/to/kubeconfig")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.K8sKubeconfig != "/path/to/kubeconfig" {
+			t.Fatalf("K8sKubeconfig = %q, want /path/to/kubeconfig", cfg.K8sKubeconfig)
+		}
+	})
+}
+
+func TestLoad_FallbackProviderValidation(t *testing.T) {
+	t.Run("k8s primary docker fallback", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("K8S_NAMESPACE", "default")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "docker")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeFallbackProvider != "docker" {
+			t.Fatalf("ComputeFallbackProvider = %q, want docker", cfg.ComputeFallbackProvider)
+		}
+	})
+
+	t.Run("empty fallback is valid", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("K8S_NAMESPACE", "default")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.ComputeFallbackProvider != "" {
+			t.Fatalf("ComputeFallbackProvider = %q, want empty", cfg.ComputeFallbackProvider)
+		}
+	})
+
+	t.Run("same as primary rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("K8S_NAMESPACE", "default")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "k8s")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for same primary and fallback")
+		}
+		if !strings.Contains(err.Error(), "COMPUTE_FALLBACK_PROVIDER") {
+			t.Fatalf("error = %q, want substring COMPUTE_FALLBACK_PROVIDER", err.Error())
+		}
+	})
+
+	t.Run("invalid provider rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "fly")
+		t.Setenv("FLY_API_TOKEN", "fly-token")
+		t.Setenv("FLY_APP_NAME", "my-app")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "lambda")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid fallback provider")
+		}
+	})
+
+	t.Run("fallback without primary rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "none")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "k8s")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for fallback without primary")
+		}
+	})
+
+	t.Run("fly fallback requires fly config", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_EDITION", "cloud")
+		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "fly")
+		// Missing FLY_API_TOKEN and FLY_APP_NAME.
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for fly fallback without token")
 		}
 	})
 }
@@ -932,10 +1073,9 @@ func TestLoad_StripeBillingFields(t *testing.T) {
 
 func TestLoad_ManagedExecutionFields(t *testing.T) {
 	setRequiredEnv(t)
-	t.Setenv("COMPUTE_RUNTIME", "fly")
-	t.Setenv("FLY_API_TOKEN", "fly-token")
-	t.Setenv("FLY_APP_NAME", "my-app")
-	t.Setenv("FLY_REGION", "lax")
+	t.Setenv("COMPUTE_RUNTIME", "k8s")
+	t.Setenv("K8S_NAMESPACE", "default")
+	t.Setenv("DEFAULT_REGION", "lax")
 	t.Setenv("EXTERNAL_API_URL", "https://api.strait.dev")
 	t.Setenv("MAX_CONCURRENT_MACHINES", "25")
 	t.Setenv("WARM_POOL_ENABLED", "true")
@@ -948,8 +1088,8 @@ func TestLoad_ManagedExecutionFields(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.FlyRegion != "lax" {
-		t.Fatalf("FlyRegion = %q, want lax", cfg.FlyRegion)
+	if cfg.DefaultRegion != "lax" {
+		t.Fatalf("DefaultRegion = %q, want lax", cfg.DefaultRegion)
 	}
 	if cfg.ExternalAPIURL != "https://api.strait.dev" {
 		t.Fatalf("ExternalAPIURL = %q, want https://api.strait.dev", cfg.ExternalAPIURL)
@@ -1004,22 +1144,6 @@ func TestParseCSVEnv(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestLoad_FlyMissingAppName(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("COMPUTE_RUNTIME", "fly")
-	t.Setenv("FLY_API_TOKEN", "fly-token")
-	t.Setenv("STRAIT_EDITION", "cloud")
-	// FLY_APP_NAME intentionally not set.
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for fly without FLY_APP_NAME, got nil")
-	}
-	if !strings.Contains(err.Error(), "FLY_APP_NAME") {
-		t.Fatalf("error = %q, want substring FLY_APP_NAME", err.Error())
 	}
 }
 
