@@ -1,0 +1,86 @@
+name: Terraform Drift Detection
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # Daily at 6am UTC.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: terraform-drift
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: Detect Drift
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    if: ${{ secrets.HCLOUD_TOKEN != '' }}
+    defaults:
+      run:
+        working-directory: infra/terraform
+    env:
+      TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+      TF_VAR_ssh_key_path: "/dev/null"
+      TF_VAR_ssh_private_key_path: "/dev/null"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+
+      - name: Terraform Plan (detect drift)
+        id: plan
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -no-color -input=false 2>&1 | tee /tmp/plan.txt
+          echo "exitcode=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Create Issue on Drift
+        if: steps.plan.outputs.exitcode == '2'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('/tmp/plan.txt', 'utf8');
+            const truncated = plan.length > 60000 ? plan.substring(0, 60000) + '\n... (truncated)' : plan;
+
+            // Check if there's already an open drift issue.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'infrastructure-drift',
+              per_page: 1,
+            });
+
+            if (existing.data.length > 0) {
+              // Update existing issue.
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.data[0].number,
+                body: `### Drift still detected (${new Date().toISOString().split('T')[0]})\n\`\`\`\n${truncated}\n\`\`\``,
+              });
+            } else {
+              // Create new issue.
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'Infrastructure drift detected',
+                labels: ['infrastructure-drift'],
+                body: `Terraform detected changes between the desired state and the actual infrastructure.\n\nThis means someone modified Hetzner resources outside of Terraform (via console or API).\n\n### Plan output\n\`\`\`\n${truncated}\n\`\`\`\n\n### Resolution\n1. Review the drift above\n2. If intentional: run \`cd infra && make infra-up\` to update Terraform state\n3. If unintentional: run \`cd infra && make infra-up\` to revert to desired state`,
+              });
+            }
+
+      - name: Log clean state
+        if: steps.plan.outputs.exitcode == '0'
+        run: echo "No drift detected. Infrastructure matches Terraform state."

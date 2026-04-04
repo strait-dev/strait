@@ -1,4 +1,4 @@
-.PHONY: infra-up infra-down infra-kubeconfig infra-status infra-ssh infra-plan
+.PHONY: infra-up infra-down infra-kubeconfig infra-status infra-ssh infra-plan infra-test infra-upgrade
 
 # Full setup: provision servers + install k3s + apply K8s manifests.
 infra-up:
@@ -30,3 +30,13 @@ infra-ssh:
 # Preview changes without applying.
 infra-plan:
 	@cd terraform && terraform plan
+
+# Run infrastructure validation tests against the live cluster.
+infra-test:
+	@cd tests && KUBECONFIG=../kubeconfig go test -v -timeout 5m ./...
+
+# Apply k3s auto-upgrade controller and plans.
+infra-upgrade:
+	@kubectl --kubeconfig kubeconfig apply -f k8s/system-upgrade-controller.yaml
+	@kubectl --kubeconfig kubeconfig apply -f k8s/upgrade-plans.yaml
+	@echo "k3s auto-upgrade controller installed. Check: kubectl --kubeconfig kubeconfig get plans -A"
