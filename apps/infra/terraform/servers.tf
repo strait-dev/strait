@@ -3,6 +3,8 @@
 # ──────────────────────────────────────────────
 
 resource "hcloud_server" "master" {
+  depends_on = [hcloud_network_subnet.nodes]
+
   name         = "${var.cluster_name}-master"
   image        = "ubuntu-24.04"
   server_type  = var.master_type
@@ -11,7 +13,7 @@ resource "hcloud_server" "master" {
   firewall_ids = [hcloud_firewall.cluster.id]
 
   user_data = templatefile("${path.module}/cloud-init-master.yaml", {
-    master_public_ip = "" # Will be set after creation via null_resource
+    master_public_ip = ""
   })
 
   network {
@@ -19,15 +21,13 @@ resource "hcloud_server" "master" {
     ip         = "10.0.1.1"
   }
 
-  depends_on = [hcloud_network_subnet.nodes]
-
   labels = {
     role    = "master"
     cluster = var.cluster_name
   }
 }
 
-# Re-run cloud-init after we know the public IP (for TLS SAN).
+# Install k3s after the server is provisioned and we know the public IP (TLS SAN).
 resource "null_resource" "master_k3s" {
   depends_on = [hcloud_server.master]
 
@@ -63,7 +63,9 @@ data "external" "k3s_token" {
 # ──────────────────────────────────────────────
 
 resource "hcloud_server" "general" {
-  count        = var.general_count
+  count      = var.general_count
+  depends_on = [hcloud_network_subnet.nodes, null_resource.master_k3s]
+
   name         = "${var.cluster_name}-general-${count.index + 1}"
   image        = "ubuntu-24.04"
   server_type  = var.general_type
@@ -81,12 +83,14 @@ resource "hcloud_server" "general" {
     network_id = hcloud_network.cluster.id
   }
 
-  depends_on = [hcloud_network_subnet.nodes, null_resource.master_k3s]
-
   labels = {
     role    = "worker"
     pool    = "general"
     cluster = var.cluster_name
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
@@ -95,7 +99,9 @@ resource "hcloud_server" "general" {
 # ──────────────────────────────────────────────
 
 resource "hcloud_server" "performance" {
-  count        = var.perf_count
+  count      = var.perf_count
+  depends_on = [hcloud_network_subnet.nodes, null_resource.master_k3s]
+
   name         = "${var.cluster_name}-perf-${count.index + 1}"
   image        = "ubuntu-24.04"
   server_type  = var.perf_type
@@ -113,12 +119,14 @@ resource "hcloud_server" "performance" {
     network_id = hcloud_network.cluster.id
   }
 
-  depends_on = [hcloud_network_subnet.nodes, null_resource.master_k3s]
-
   labels = {
     role    = "worker"
     pool    = "performance"
     cluster = var.cluster_name
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
@@ -127,7 +135,9 @@ resource "hcloud_server" "performance" {
 # ──────────────────────────────────────────────
 
 resource "hcloud_server" "heavy" {
-  count        = var.heavy_count
+  count      = var.heavy_count
+  depends_on = [hcloud_network_subnet.nodes, null_resource.master_k3s]
+
   name         = "${var.cluster_name}-heavy-${count.index + 1}"
   image        = "ubuntu-24.04"
   server_type  = var.heavy_type
@@ -145,11 +155,13 @@ resource "hcloud_server" "heavy" {
     network_id = hcloud_network.cluster.id
   }
 
-  depends_on = [hcloud_network_subnet.nodes, null_resource.master_k3s]
-
   labels = {
     role    = "worker"
     pool    = "heavy"
     cluster = var.cluster_name
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
