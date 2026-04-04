@@ -86,6 +86,13 @@ spec:
               drop: ["ALL"]
             seccompProfile:
               type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: strait
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
