@@ -373,6 +373,44 @@ func TestEscalationStateLifecycle(t *testing.T) {
 	if _, err := q.GetActiveEscalationStateByStepRun(ctx, state.ProjectID, state.StepRunID); !errors.Is(err, store.ErrEscalationStateNotFound) {
 		t.Fatalf("GetActiveEscalationStateByStepRun() after ack error = %v, want ErrEscalationStateNotFound", err)
 	}
+
+	state2 := &domain.EscalationState{
+		ProjectID:        state.ProjectID,
+		StepRunID:        "step_2",
+		WorkflowRunID:    "wf_run_2",
+		CurrentTier:      1,
+		TotalTiers:       3,
+		NextEscalationAt: &next,
+		Status:           domain.NotifyEscalationStatusActive,
+	}
+	if err := q.UpsertEscalationState(ctx, state2); err != nil {
+		t.Fatalf("UpsertEscalationState(state2) error = %v", err)
+	}
+	if err := q.AcknowledgeActiveEscalationStateByStepRun(ctx, state2.StepRunID, "user_2", time.Now().UTC()); err != nil {
+		t.Fatalf("AcknowledgeActiveEscalationStateByStepRun() error = %v", err)
+	}
+	if _, err := q.GetActiveEscalationStateByStepRun(ctx, state2.ProjectID, state2.StepRunID); !errors.Is(err, store.ErrEscalationStateNotFound) {
+		t.Fatalf("GetActiveEscalationStateByStepRun() after ack by step error = %v, want ErrEscalationStateNotFound", err)
+	}
+
+	state3 := &domain.EscalationState{
+		ProjectID:        state.ProjectID,
+		StepRunID:        "step_3",
+		WorkflowRunID:    "wf_run_3",
+		CurrentTier:      1,
+		TotalTiers:       3,
+		NextEscalationAt: &next,
+		Status:           domain.NotifyEscalationStatusActive,
+	}
+	if err := q.UpsertEscalationState(ctx, state3); err != nil {
+		t.Fatalf("UpsertEscalationState(state3) error = %v", err)
+	}
+	if err := q.CompleteActiveEscalationStateByStepRun(ctx, state3.StepRunID, domain.NotifyEscalationStatusCompleted); err != nil {
+		t.Fatalf("CompleteActiveEscalationStateByStepRun() error = %v", err)
+	}
+	if _, err := q.GetActiveEscalationStateByStepRun(ctx, state3.ProjectID, state3.StepRunID); !errors.Is(err, store.ErrEscalationStateNotFound) {
+		t.Fatalf("GetActiveEscalationStateByStepRun() after complete by step error = %v, want ErrEscalationStateNotFound", err)
+	}
 }
 
 func TestNotificationBatchLifecycle(t *testing.T) {
