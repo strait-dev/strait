@@ -1,0 +1,76 @@
+# Doppler Kubernetes Operator — auto-syncs secrets from Doppler to K8s.
+# Watches DopplerSecret custom resources and creates/updates K8s Secrets
+# when Doppler values change. Restarts deployments on secret rotation.
+#
+# Prerequisites:
+#   1. Install the Doppler operator CRDs:
+#      kubectl apply -f https://github.com/DopplerHQ/kubernetes-operator/releases/latest/download/recommended.yaml
+#
+#   2. Create a Doppler service token for K8s access:
+#      doppler configs tokens create k8s-operator --project strait --config prd --max-age 0
+#
+#   3. Create the operator token secret:
+#      kubectl -n doppler-operator-system create secret generic doppler-token \
+#        --from-literal=serviceToken=<YOUR_TOKEN>
+#
+# After setup, secrets auto-sync from Doppler. Manual secrets.sh is no longer needed.
+# To verify: kubectl -n strait get secrets
+#
+# Note: The operator itself is installed via the CRD URL above (step 1).
+# This file only contains the DopplerSecret resources that tell the operator
+# which Doppler configs to sync to which K8s secrets.
+---
+apiVersion: secrets.doppler.com/v1alpha1
+kind: DopplerSecret
+metadata:
+  name: strait-env
+  namespace: strait
+spec:
+  tokenSecret:
+    name: doppler-token
+    namespace: doppler-operator-system
+  managedSecret:
+    name: strait-env
+    namespace: strait
+  resyncSeconds: 120
+  processors:
+    # Restart strait deployment when secrets change.
+    - type: deployment
+      name: strait
+      namespace: strait
+---
+apiVersion: secrets.doppler.com/v1alpha1
+kind: DopplerSecret
+metadata:
+  name: sequin-env
+  namespace: strait
+spec:
+  tokenSecret:
+    name: doppler-token
+    namespace: doppler-operator-system
+  managedSecret:
+    name: sequin-env
+    namespace: strait
+  resyncSeconds: 120
+  processors:
+    - type: deployment
+      name: sequin
+      namespace: strait
+---
+apiVersion: secrets.doppler.com/v1alpha1
+kind: DopplerSecret
+metadata:
+  name: otel-env
+  namespace: strait
+spec:
+  tokenSecret:
+    name: doppler-token
+    namespace: doppler-operator-system
+  managedSecret:
+    name: otel-env
+    namespace: strait
+  resyncSeconds: 120
+  processors:
+    - type: deployment
+      name: otel-collector
+      namespace: strait
