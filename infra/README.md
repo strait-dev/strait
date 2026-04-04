@@ -27,7 +27,22 @@ k3s Cluster (Hetzner Cloud)
 - SSH key pair (`ssh-keygen -t ed25519`)
 - `kubectl` installed locally
 
-## Quick Start
+## Quick Start (Doppler)
+
+```bash
+# 1. Add Hetzner token to Doppler.
+doppler secrets set HCLOUD_TOKEN --project strait --config dev
+
+# 2. Deploy (one command).
+cd infra
+doppler run --project strait --config dev -- make infra-up
+
+# 3. Connect Strait.
+cd ../apps/strait
+doppler run -- make dev  # K8S_KUBECONFIG injected via Doppler
+```
+
+## Quick Start (Manual)
 
 ```bash
 cd infra
