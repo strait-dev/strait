@@ -1,0 +1,36 @@
+# Horizontal Pod Autoscaler for the Strait API server.
+# Scales 2-8 replicas based on CPU utilization.
+# Scale up: fast (2 pods/min when CPU > 70%).
+# Scale down: slow (1 pod/2min, 5 min stabilization to avoid flapping).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: strait
+  namespace: strait
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: strait
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

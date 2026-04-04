@@ -78,3 +78,17 @@ jobs:
           kubectl -n "$NAMESPACE" rollout undo deployment/strait
           kubectl -n "$NAMESPACE" rollout status deployment/strait --timeout=120s
           echo "Rollback complete"
+
+      - name: Notify success
+        if: success() && secrets.SLACK_WEBHOOK_URL != ''
+        run: |
+          curl -sf -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\":\"Deployed strait v${{ steps.tag.outputs.tag }} to production\"}"
+
+      - name: Notify failure
+        if: failure() && secrets.SLACK_WEBHOOK_URL != ''
+        run: |
+          curl -sf -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\":\"Deploy FAILED for strait v${{ steps.tag.outputs.tag }} — rolled back automatically\"}"
