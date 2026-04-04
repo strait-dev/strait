@@ -4,16 +4,22 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 )
 
 type notifyDispatcherStoreMock struct {
-	claimFunc        func(context.Context, int) ([]domain.NotificationMessage, error)
-	updateStatusFunc func(context.Context, string, string, string, string, map[string]any) error
-	getSubFunc       func(context.Context, string, string) (*domain.NotifySubscriber, error)
-	createInboxFunc  func(context.Context, *domain.InboxItem) error
-	getProviderFunc  func(context.Context, string, string) (*domain.NotificationProvider, error)
+	claimFunc           func(context.Context, int) ([]domain.NotificationMessage, error)
+	claimBatchFunc      func(context.Context, int) ([]domain.NotificationBatch, error)
+	markBatchSentFunc   func(context.Context, string, string, time.Time) error
+	requeueBatchFunc    func(context.Context, string, string, time.Time) error
+	markBatchFailedFunc func(context.Context, string, string) error
+	createMessageFunc   func(context.Context, *domain.NotificationMessage) error
+	updateStatusFunc    func(context.Context, string, string, string, string, map[string]any) error
+	getSubFunc          func(context.Context, string, string) (*domain.NotifySubscriber, error)
+	createInboxFunc     func(context.Context, *domain.InboxItem) error
+	getProviderFunc     func(context.Context, string, string) (*domain.NotificationProvider, error)
 }
 
 func (m *notifyDispatcherStoreMock) ClaimDueScheduledNotificationMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error) {
@@ -21,6 +27,41 @@ func (m *notifyDispatcherStoreMock) ClaimDueScheduledNotificationMessages(ctx co
 		return nil, nil
 	}
 	return m.claimFunc(ctx, limit)
+}
+
+func (m *notifyDispatcherStoreMock) ClaimDueNotificationBatches(ctx context.Context, limit int) ([]domain.NotificationBatch, error) {
+	if m.claimBatchFunc == nil {
+		return nil, nil
+	}
+	return m.claimBatchFunc(ctx, limit)
+}
+
+func (m *notifyDispatcherStoreMock) MarkNotificationBatchSent(ctx context.Context, id, projectID string, sentAt time.Time) error {
+	if m.markBatchSentFunc == nil {
+		return nil
+	}
+	return m.markBatchSentFunc(ctx, id, projectID, sentAt)
+}
+
+func (m *notifyDispatcherStoreMock) RequeueNotificationBatch(ctx context.Context, id, projectID string, windowEnd time.Time) error {
+	if m.requeueBatchFunc == nil {
+		return nil
+	}
+	return m.requeueBatchFunc(ctx, id, projectID, windowEnd)
+}
+
+func (m *notifyDispatcherStoreMock) MarkNotificationBatchFailed(ctx context.Context, id, projectID string) error {
+	if m.markBatchFailedFunc == nil {
+		return nil
+	}
+	return m.markBatchFailedFunc(ctx, id, projectID)
+}
+
+func (m *notifyDispatcherStoreMock) CreateNotificationMessage(ctx context.Context, msg *domain.NotificationMessage) error {
+	if m.createMessageFunc == nil {
+		return nil
+	}
+	return m.createMessageFunc(ctx, msg)
 }
 
 func (m *notifyDispatcherStoreMock) UpdateNotificationMessageStatus(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error {
@@ -99,6 +140,66 @@ func TestNotifyDispatcherPoll_InboxDelivered(t *testing.T) {
 	}
 	if !delivered {
 		t.Fatal("expected delivered status update")
+	}
+}
+
+func TestNotifyDispatcherPoll_DigestBatchDelivered(t *testing.T) {
+	t.Parallel()
+
+	batch := domain.NotificationBatch{
+		ID:            "batch_1",
+		ProjectID:     "proj_1",
+		RecipientType: domain.NotifyRecipientTypeSubscriber,
+		RecipientID:   "sub_1",
+		Channel:       "inbox",
+		Status:        domain.NotifyBatchStatusProcessing,
+		EventCount:    2,
+		Events:        []byte(`[{"channel_payload":{"title":"Event A"}},{"channel_payload":{"title":"Event B"}}]`),
+	}
+
+	var messageCreated bool
+	var batchSent bool
+	st := &notifyDispatcherStoreMock{
+		claimBatchFunc: func(context.Context, int) ([]domain.NotificationBatch, error) {
+			return []domain.NotificationBatch{batch}, nil
+		},
+		getSubFunc: func(context.Context, string, string) (*domain.NotifySubscriber, error) {
+			return &domain.NotifySubscriber{ID: "sub_1", ProjectID: "proj_1", TenantID: "tenant_1"}, nil
+		},
+		createMessageFunc: func(_ context.Context, msg *domain.NotificationMessage) error {
+			messageCreated = true
+			msg.ID = "msg_digest_1"
+			return nil
+		},
+		createInboxFunc: func(_ context.Context, item *domain.InboxItem) error {
+			if item.Title == "" {
+				t.Fatal("expected digest inbox title")
+			}
+			return nil
+		},
+		updateStatusFunc: func(_ context.Context, _, _ string, fromStatus, toStatus string, _ map[string]any) error {
+			if fromStatus == domain.NotifyMessageStatusProcessing && toStatus == domain.NotifyMessageStatusDelivered {
+				return nil
+			}
+			return nil
+		},
+		markBatchSentFunc: func(_ context.Context, id, projectID string, _ time.Time) error {
+			if id != "batch_1" || projectID != "proj_1" {
+				t.Fatalf("MarkNotificationBatchSent args = (%s,%s), want (batch_1,proj_1)", id, projectID)
+			}
+			batchSent = true
+			return nil
+		},
+	}
+
+	d := NewNotifyDispatcher(st, 0, "", "")
+	d.poll(context.Background())
+
+	if !messageCreated {
+		t.Fatal("expected digest notification message creation")
+	}
+	if !batchSent {
+		t.Fatal("expected batch sent status update")
 	}
 }
 

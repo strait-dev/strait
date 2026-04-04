@@ -57,6 +57,32 @@ func TestResolveNotifySchedule(t *testing.T) {
 	}
 }
 
+func TestResolveNotifyDigestWindow(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 4, 5, 13, 34, 10, 0, time.UTC)
+
+	hourly, ok := resolveNotifyDigestWindow(notifyDigestPolicyHourly, now)
+	if !ok {
+		t.Fatal("resolveNotifyDigestWindow(hourly) ok = false, want true")
+	}
+	if hourly.Format(time.RFC3339) != "2026-04-05T14:00:00Z" {
+		t.Fatalf("hourly window = %s, want 2026-04-05T14:00:00Z", hourly.Format(time.RFC3339))
+	}
+
+	daily, ok := resolveNotifyDigestWindow(notifyDigestPolicyDaily, now)
+	if !ok {
+		t.Fatal("resolveNotifyDigestWindow(daily) ok = false, want true")
+	}
+	if daily.Format(time.RFC3339) != "2026-04-06T00:00:00Z" {
+		t.Fatalf("daily window = %s, want 2026-04-06T00:00:00Z", daily.Format(time.RFC3339))
+	}
+
+	if _, ok := resolveNotifyDigestWindow("weekly", now); ok {
+		t.Fatal("resolveNotifyDigestWindow(weekly) ok = true, want false")
+	}
+}
+
 func TestBuildNotifyRenderContext(t *testing.T) {
 	t.Parallel()
 

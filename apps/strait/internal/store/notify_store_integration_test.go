@@ -322,6 +322,49 @@ func TestClaimDueScheduledNotificationMessages(t *testing.T) {
 	}
 }
 
+func TestNotificationBatchLifecycle(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	batch := &domain.NotificationBatch{
+		ProjectID:     "project-notify-batch",
+		RecipientType: domain.NotifyRecipientTypeSubscriber,
+		RecipientID:   "sub_batch_1",
+		BatchKey:      "hourly:inbox:welcome:_",
+		Channel:       "inbox",
+		WindowEnd:     time.Now().UTC().Add(-1 * time.Minute),
+	}
+	if err := q.AppendNotificationBatchEvent(ctx, batch, []byte(`{"channel_payload":{"title":"A"}}`)); err != nil {
+		t.Fatalf("AppendNotificationBatchEvent(first) error = %v", err)
+	}
+	if batch.EventCount != 1 {
+		t.Fatalf("EventCount(first) = %d, want 1", batch.EventCount)
+	}
+
+	if err := q.AppendNotificationBatchEvent(ctx, batch, []byte(`{"channel_payload":{"title":"B"}}`)); err != nil {
+		t.Fatalf("AppendNotificationBatchEvent(second) error = %v", err)
+	}
+	if batch.EventCount != 2 {
+		t.Fatalf("EventCount(second) = %d, want 2", batch.EventCount)
+	}
+
+	claimed, err := q.ClaimDueNotificationBatches(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimDueNotificationBatches() error = %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("ClaimDueNotificationBatches() len = %d, want 1", len(claimed))
+	}
+	if claimed[0].Status != domain.NotifyBatchStatusProcessing {
+		t.Fatalf("claimed status = %q, want %q", claimed[0].Status, domain.NotifyBatchStatusProcessing)
+	}
+
+	if err := q.MarkNotificationBatchSent(ctx, claimed[0].ID, claimed[0].ProjectID, time.Now().UTC()); err != nil {
+		t.Fatalf("MarkNotificationBatchSent() error = %v", err)
+	}
+}
+
 func TestNotifyDedupAndUnsubscribeToken(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -383,6 +426,7 @@ func TestNotifyStoreSentinelErrors(t *testing.T) {
 		{name: "ErrNotificationCategoryNotFound", err: store.ErrNotificationCategoryNotFound, msg: "notification category not found"},
 		{name: "ErrNotificationPreferenceNotFound", err: store.ErrNotificationPreferenceNotFound, msg: "notification preference not found"},
 		{name: "ErrNotificationMessageNotFound", err: store.ErrNotificationMessageNotFound, msg: "notification message not found"},
+		{name: "ErrNotificationBatchNotFound", err: store.ErrNotificationBatchNotFound, msg: "notification batch not found"},
 		{name: "ErrNotificationProviderNotFound", err: store.ErrNotificationProviderNotFound, msg: "notification provider not found"},
 		{name: "ErrInboxItemNotFound", err: store.ErrInboxItemNotFound, msg: "inbox item not found"},
 	}
