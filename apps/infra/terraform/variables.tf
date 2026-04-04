@@ -185,3 +185,23 @@ variable "ssh_private_key_path" {
   type        = string
   default     = "~/.ssh/id_ed25519"
 }
+
+# Cloudflare integration (optional).
+variable "use_cloudflare" {
+  description = "Enable Cloudflare for DDoS protection, WAF, and DNS management."
+  type        = bool
+  default     = false
+}
+
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token with Zone:DNS:Edit permissions."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "cloudflare_zone_id" {
+  description = "Cloudflare zone ID for the domain."
+  type        = string
+  default     = ""
+}
