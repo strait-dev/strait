@@ -45,6 +45,38 @@ write_files:
         copytruncate
       }
 
+  # K8s API audit policy (controls what API operations are logged).
+  - path: /etc/rancher/k3s/audit-policy.yaml
+    content: |
+      apiVersion: audit.k8s.io/v1
+      kind: Policy
+      rules:
+        - level: None
+          nonResourceURLs: ["/healthz*", "/livez*", "/readyz*", "/metrics"]
+        - level: None
+          users: ["system:serviceaccount:kube-system:*"]
+          verbs: ["get", "list", "watch"]
+        - level: RequestResponse
+          resources:
+            - group: ""
+              resources: ["secrets", "configmaps"]
+          verbs: ["create", "update", "patch", "delete"]
+        - level: RequestResponse
+          resources:
+            - group: "rbac.authorization.k8s.io"
+              resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+        - level: RequestResponse
+          resources:
+            - group: ""
+              resources: ["pods"]
+            - group: "batch"
+              resources: ["jobs"]
+          verbs: ["create", "delete"]
+        - level: Metadata
+          verbs: ["create", "update", "patch", "delete", "deletecollection"]
+        - level: None
+          verbs: ["get", "list", "watch"]
+
   # Etcd snapshot backup to S3 (runs every 6 hours via systemd timer).
   - path: /usr/local/bin/etcd-backup.sh
     permissions: "0755"
@@ -98,7 +130,7 @@ runcmd:
   # Install k3s with Calico CNI (Flannel does NOT enforce NetworkPolicy).
   # --flannel-backend=none: disable built-in Flannel so Calico handles networking.
   # --disable-network-policy: disable k3s built-in network policy controller (Calico replaces it).
-  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik --disable servicelb --flannel-backend=none --disable-network-policy --node-label strait.dev/pool=general --secrets-encryption --protect-kernel-defaults --tls-san ${master_public_ip} --kube-apiserver-arg=audit-log-path=/var/log/k3s-audit.log --kube-apiserver-arg=audit-log-maxage=30 --etcd-snapshot-schedule-cron=0\ */6\ *\ *\ * --etcd-snapshot-retention=10" sh -
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik --disable servicelb --flannel-backend=none --disable-network-policy --node-label strait.dev/pool=general --secrets-encryption --protect-kernel-defaults --tls-san ${master_public_ip} --kube-apiserver-arg=audit-log-path=/var/log/k3s-audit.log --kube-apiserver-arg=audit-log-maxage=30 --kube-apiserver-arg=audit-policy-file=/etc/rancher/k3s/audit-policy.yaml --etcd-snapshot-schedule-cron=0\ */6\ *\ *\ * --etcd-snapshot-retention=10" sh -
 
   # Wait for k3s API to be ready (nodes will be NotReady until Calico is deployed).
   - while ! /usr/local/bin/kubectl get nodes 2>/dev/null; do sleep 2; done
