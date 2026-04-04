@@ -38,9 +38,8 @@ type Preset struct {
 	Name             string // e.g. "micro", "small-1x"
 	CPUs             int    // Number of vCPUs
 	MemoryMB         int    // Memory in megabytes
-	FlyGuestSize     string // Fly Machines guest size string
 	CostPerSecond    int64  // User-facing cost in micro-USD per second (what we charge).
-	K8sCostPerSecond int64  // Our cost on Hetzner K8s in micro-USD per second (internal margin tracking).
+	K8sCostPerSecond int64  // Infrastructure cost in micro-USD per second (internal margin tracking).
 	NodePool         string // K8s node pool for affinity scheduling (general, performance, heavy).
 }
 
@@ -70,13 +69,13 @@ func SetK8sCosts(costs map[string]int64) {
 // config at runtime for internal margin tracking (values stored in Doppler,
 // not in source code).
 var AllPresets = map[string]Preset{
-	"micro":     {Name: "micro", CPUs: 1, MemoryMB: 256, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostMicro, NodePool: NodePoolGeneral},
-	"small-1x":  {Name: "small-1x", CPUs: 1, MemoryMB: 512, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostSmall1x, NodePool: NodePoolGeneral},
-	"small-2x":  {Name: "small-2x", CPUs: 2, MemoryMB: 1024, FlyGuestSize: "shared-cpu-2x", CostPerSecond: CostSmall2x, NodePool: NodePoolGeneral},
-	"medium-1x": {Name: "medium-1x", CPUs: 2, MemoryMB: 4096, FlyGuestSize: "performance-1x", CostPerSecond: CostMedium1x, NodePool: NodePoolPerformance},
-	"medium-2x": {Name: "medium-2x", CPUs: 4, MemoryMB: 8192, FlyGuestSize: "performance-2x", CostPerSecond: CostMedium2x, NodePool: NodePoolPerformance},
-	"large-1x":  {Name: "large-1x", CPUs: 8, MemoryMB: 16384, FlyGuestSize: "performance-4x", CostPerSecond: CostLarge1x, NodePool: NodePoolHeavy},
-	"large-2x":  {Name: "large-2x", CPUs: 16, MemoryMB: 32768, FlyGuestSize: "performance-8x", CostPerSecond: CostLarge2x, NodePool: NodePoolHeavy},
+	"micro":     {Name: "micro", CPUs: 1, MemoryMB: 256, CostPerSecond: CostMicro, NodePool: NodePoolGeneral},
+	"small-1x":  {Name: "small-1x", CPUs: 1, MemoryMB: 512, CostPerSecond: CostSmall1x, NodePool: NodePoolGeneral},
+	"small-2x":  {Name: "small-2x", CPUs: 2, MemoryMB: 1024, CostPerSecond: CostSmall2x, NodePool: NodePoolGeneral},
+	"medium-1x": {Name: "medium-1x", CPUs: 2, MemoryMB: 4096, CostPerSecond: CostMedium1x, NodePool: NodePoolPerformance},
+	"medium-2x": {Name: "medium-2x", CPUs: 4, MemoryMB: 8192, CostPerSecond: CostMedium2x, NodePool: NodePoolPerformance},
+	"large-1x":  {Name: "large-1x", CPUs: 8, MemoryMB: 16384, CostPerSecond: CostLarge1x, NodePool: NodePoolHeavy},
+	"large-2x":  {Name: "large-2x", CPUs: 16, MemoryMB: 32768, CostPerSecond: CostLarge2x, NodePool: NodePoolHeavy},
 }
 
 // PresetOrder defines the canonical ordering of presets from smallest to largest.

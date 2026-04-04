@@ -634,13 +634,13 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	}
 	if region == "" {
 		if hint, ok := run.Metadata["_region_hint"]; ok && hint != "" {
-			if validated := compute.NearestFlyRegion(hint); validated != "" {
+			if validated := compute.NearestRegion(hint); validated != "" {
 				region = validated
 			}
 		}
 	}
 	if region == "" {
-		region = e.defaultFlyRegion
+		region = e.defaultRegion
 	}
 
 	// 9. Create the container using the preset resolved in step 4a.

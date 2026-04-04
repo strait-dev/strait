@@ -613,7 +613,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		ContainerRuntime:        containerRuntime,
 		ExternalAPIURL:          cfg.ExternalAPIURL,
 		MaxConcurrentMachines:   cfg.MaxConcurrentMachines,
-		DefaultFlyRegion:        cfg.FlyRegion,
+		DefaultRegion:           cfg.DefaultRegion,
 	}
 
 	// Only wire billing enforcement in the executor when explicitly enabled.

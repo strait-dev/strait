@@ -115,7 +115,7 @@ type Executor struct {
 	machinePool              *compute.MachinePool
 	disableMachinePoolReuse  bool
 	externalAPIURL           string
-	defaultFlyRegion         string
+	defaultRegion         string
 	billingEnforcer          *billing.Enforcer
 	stripeUsageReporter      *billing.StripeUsageReporter
 	stripeUsageWG            sync.WaitGroup // tracks in-flight Stripe usage event goroutines
@@ -161,7 +161,7 @@ type ExecutorConfig struct {
 	ContainerRuntime           compute.ContainerRuntime
 	ExternalAPIURL             string
 	MaxConcurrentMachines      int
-	DefaultFlyRegion           string
+	DefaultRegion           string
 	WarmPoolEnabled            bool
 	WarmPoolMaxPerJob          int
 	DisableMachinePoolReuse    bool
@@ -270,7 +270,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		machinePool:              machinePool,
 		disableMachinePoolReuse:  cfg.DisableMachinePoolReuse,
 		externalAPIURL:           cfg.ExternalAPIURL,
-		defaultFlyRegion:         cfg.DefaultFlyRegion,
+		defaultRegion:         cfg.DefaultRegion,
 		billingEnforcer:          cfg.BillingEnforcer,
 		stripeUsageReporter:      cfg.StripeUsageReporter,
 		healthScorer:             NewHealthScorer(cfg.Store),
