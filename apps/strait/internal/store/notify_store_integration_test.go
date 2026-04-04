@@ -254,6 +254,74 @@ func TestNotificationMessageAndProviderLifecycle(t *testing.T) {
 	}
 }
 
+func TestClaimDueScheduledNotificationMessages(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-notify-claim"
+	base := time.Now().UTC()
+	dueAt := base.Add(-1 * time.Minute)
+	futureAt := base.Add(10 * time.Minute)
+
+	due := &domain.NotificationMessage{
+		ProjectID:     projectID,
+		RecipientType: domain.NotifyRecipientTypeSubscriber,
+		RecipientID:   "sub_due",
+		Channel:       "inbox",
+		Status:        domain.NotifyMessageStatusScheduled,
+		ScheduledAt:   &dueAt,
+	}
+	if err := q.CreateNotificationMessage(ctx, due); err != nil {
+		t.Fatalf("CreateNotificationMessage(due) error = %v", err)
+	}
+
+	future := &domain.NotificationMessage{
+		ProjectID:     projectID,
+		RecipientType: domain.NotifyRecipientTypeSubscriber,
+		RecipientID:   "sub_future",
+		Channel:       "inbox",
+		Status:        domain.NotifyMessageStatusScheduled,
+		ScheduledAt:   &futureAt,
+	}
+	if err := q.CreateNotificationMessage(ctx, future); err != nil {
+		t.Fatalf("CreateNotificationMessage(future) error = %v", err)
+	}
+
+	claimed, err := q.ClaimDueScheduledNotificationMessages(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimDueScheduledNotificationMessages() error = %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("ClaimDueScheduledNotificationMessages() len = %d, want 1", len(claimed))
+	}
+	if claimed[0].ID != due.ID {
+		t.Fatalf("claimed ID = %q, want %q", claimed[0].ID, due.ID)
+	}
+	if claimed[0].Status != domain.NotifyMessageStatusProcessing {
+		t.Fatalf("claimed status = %q, want %q", claimed[0].Status, domain.NotifyMessageStatusProcessing)
+	}
+	if claimed[0].Attempts != 1 {
+		t.Fatalf("claimed attempts = %d, want 1", claimed[0].Attempts)
+	}
+
+	storedDue, err := q.GetNotificationMessage(ctx, due.ID, projectID)
+	if err != nil {
+		t.Fatalf("GetNotificationMessage(due) error = %v", err)
+	}
+	if storedDue.Status != domain.NotifyMessageStatusProcessing {
+		t.Fatalf("stored due status = %q, want %q", storedDue.Status, domain.NotifyMessageStatusProcessing)
+	}
+
+	storedFuture, err := q.GetNotificationMessage(ctx, future.ID, projectID)
+	if err != nil {
+		t.Fatalf("GetNotificationMessage(future) error = %v", err)
+	}
+	if storedFuture.Status != domain.NotifyMessageStatusScheduled {
+		t.Fatalf("stored future status = %q, want %q", storedFuture.Status, domain.NotifyMessageStatusScheduled)
+	}
+}
+
 func TestNotifyDedupAndUnsubscribeToken(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
