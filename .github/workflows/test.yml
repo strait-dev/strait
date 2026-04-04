@@ -182,6 +182,29 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: build
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: strait_integration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U test -d strait_integration"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -194,6 +217,9 @@ jobs:
 
       - name: Run integration tests (race + coverage)
         working-directory: apps/strait
+        env:
+          STRAIT_TEST_DATABASE_URL: postgres://test:test@localhost:5432/strait_integration?sslmode=disable
+          STRAIT_TEST_REDIS_URL: redis://localhost:6379/0
         run: |
           set -o pipefail
           go test -json -race -cover -tags=integration -timeout=20m \
