@@ -28,11 +28,11 @@ vulncheck:
 
 preflight: vet lint build test
 
-deploy: preflight
-	fly deploy -a strait
+deploy: preflight ## Deploy to K8s cluster
+	kubectl apply -f ../infra/k8s/services/
 
-deploy-staging: preflight
-	fly deploy -a strait -c fly.toml -e DOPPLER_CONFIG=stg
+deploy-secrets: ## Sync secrets from Doppler to K8s
+	../infra/k8s/services/secrets.sh prd
 
 # ──────────────────────────────────────────────
 # Local Development

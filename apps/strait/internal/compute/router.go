@@ -104,8 +104,6 @@ func (r *RuntimeRouter) owner(machineID string) ContainerRuntime {
 // runtimeName returns a human-readable name for logging.
 func runtimeName(rt ContainerRuntime) string {
 	switch rt.(type) {
-	case *FlyRuntime:
-		return "fly"
 	case *K8sRuntime:
 		return "k8s"
 	default:

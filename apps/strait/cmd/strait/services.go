@@ -124,9 +124,6 @@ func buildComputeRuntime(cfg *config.Config, metrics *telemetry.Metrics) compute
 
 func buildSingleRuntime(provider string, cfg *config.Config, metrics *telemetry.Metrics) compute.ContainerRuntime {
 	switch provider {
-	case "fly":
-		slog.Info("container runtime enabled", "runtime", "fly", "app", cfg.FlyAppName, "region", cfg.FlyRegion)
-		return compute.NewFlyRuntime(cfg.FlyAPIToken, cfg.FlyAppName)
 	case "docker":
 		slog.Info("container runtime enabled", "runtime", "docker")
 		return compute.NewDockerRuntime()
