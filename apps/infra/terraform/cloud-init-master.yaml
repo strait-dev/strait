@@ -39,17 +39,17 @@ write_files:
       #!/bin/bash
       set -euo pipefail
       SNAPSHOT_DIR="/var/lib/rancher/k3s/server/db/snapshots"
-      if [ -z "${BACKUP_S3_BUCKET:-}" ] || [ -z "${BACKUP_S3_ENDPOINT:-}" ]; then
+      if [ -z "$${BACKUP_S3_BUCKET:-}" ] || [ -z "$${BACKUP_S3_ENDPOINT:-}" ]; then
         echo "Backup S3 not configured, skipping"
         exit 0
       fi
-      export AWS_ACCESS_KEY_ID="${BACKUP_S3_ACCESS_KEY}"
-      export AWS_SECRET_ACCESS_KEY="${BACKUP_S3_SECRET_KEY}"
-      aws s3 sync "$SNAPSHOT_DIR" "s3://${BACKUP_S3_BUCKET}/etcd-snapshots/" \
-        --endpoint-url "${BACKUP_S3_ENDPOINT}" \
+      export AWS_ACCESS_KEY_ID="$${BACKUP_S3_ACCESS_KEY}"
+      export AWS_SECRET_ACCESS_KEY="$${BACKUP_S3_SECRET_KEY}"
+      aws s3 sync "$SNAPSHOT_DIR" "s3://$${BACKUP_S3_BUCKET}/etcd-snapshots/" \
+        --endpoint-url "$${BACKUP_S3_ENDPOINT}" \
         --delete \
         --quiet
-      echo "$(date): Backup synced to s3://${BACKUP_S3_BUCKET}/etcd-snapshots/"
+      echo "$$(date): Backup synced to s3://$${BACKUP_S3_BUCKET}/etcd-snapshots/"
 
   - path: /etc/systemd/system/etcd-backup.service
     content: |
