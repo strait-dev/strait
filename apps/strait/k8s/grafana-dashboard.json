@@ -5,6 +5,29 @@
     "timezone": "browser",
     "refresh": "30s",
     "tags": ["strait", "production"],
+    "templating": {
+      "list": [
+        {
+          "name": "namespace",
+          "type": "query",
+          "datasource": "Prometheus",
+          "query": "label_values(kube_pod_info, namespace)",
+          "refresh": 1,
+          "current": { "text": "strait", "value": "strait" }
+        },
+        {
+          "name": "interval",
+          "type": "interval",
+          "options": [
+            { "text": "1m", "value": "1m", "selected": false },
+            { "text": "5m", "value": "5m", "selected": true },
+            { "text": "15m", "value": "15m", "selected": false },
+            { "text": "1h", "value": "1h", "selected": false }
+          ],
+          "current": { "text": "5m", "value": "5m" }
+        }
+      ]
+    },
     "panels": [
       {
         "title": "Job Success Rate (North Star)",
@@ -35,6 +58,7 @@
       },
       {
         "title": "Active Jobs",
+        "description": "Number of K8s job pods currently running managed execution.",
         "type": "stat",
         "gridPos": { "h": 6, "w": 3, "x": 6, "y": 0 },
         "targets": [
@@ -43,6 +67,7 @@
       },
       {
         "title": "Queue Depth",
+        "description": "Number of jobs waiting to be dequeued and dispatched.",
         "type": "stat",
         "gridPos": { "h": 6, "w": 3, "x": 9, "y": 0 },
         "targets": [
@@ -51,6 +76,7 @@
       },
       {
         "title": "DLQ Depth",
+        "description": "Dead letter queue — jobs that failed all retries. Should be 0.",
         "type": "stat",
         "gridPos": { "h": 6, "w": 3, "x": 12, "y": 0 },
         "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
@@ -60,6 +86,7 @@
       },
       {
         "title": "HTTP Request Rate",
+        "description": "Total API requests per second across all endpoints.",
         "type": "stat",
         "gridPos": { "h": 6, "w": 3, "x": 15, "y": 0 },
         "targets": [
@@ -68,6 +95,7 @@
       },
       {
         "title": "Worker Pool Utilization",
+        "description": "Percentage of worker pool capacity in use. Above 90% = at risk of dropping tasks.",
         "type": "gauge",
         "gridPos": { "h": 6, "w": 3, "x": 18, "y": 0 },
         "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 90 }] } } },
@@ -248,6 +276,44 @@
           { "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)", "legendFormat": "{{instance}}" }
         ],
         "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+      },
+      {
+        "title": "HTTP Request Latency Heatmap",
+        "description": "Full latency distribution as a heatmap. Shows where most requests fall, not just P50/P99. Identify bimodal distributions and tail latency.",
+        "type": "heatmap",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 54 },
+        "targets": [
+          {
+            "expr": "sum(rate(strait_http_request_duration_bucket[$interval])) by (le)",
+            "format": "heatmap",
+            "legendFormat": "{{le}}"
+          }
+        ],
+        "dataFormat": "tsbuckets",
+        "yAxis": { "format": "s" },
+        "options": {
+          "calculate": false,
+          "color": { "mode": "scheme", "scheme": "Spectral", "steps": 64 }
+        }
+      },
+      {
+        "title": "Run Duration Heatmap",
+        "description": "Full job run duration distribution. Shows clustering of fast vs slow jobs. Useful for spotting preset misconfigurations.",
+        "type": "heatmap",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 54 },
+        "targets": [
+          {
+            "expr": "sum(rate(strait_run_duration_bucket[$interval])) by (le)",
+            "format": "heatmap",
+            "legendFormat": "{{le}}"
+          }
+        ],
+        "dataFormat": "tsbuckets",
+        "yAxis": { "format": "s" },
+        "options": {
+          "calculate": false,
+          "color": { "mode": "scheme", "scheme": "Spectral", "steps": 64 }
+        }
       }
     ],
     "time": { "from": "now-1h", "to": "now" },
