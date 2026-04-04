@@ -19,19 +19,6 @@ const (
 	CostLarge2x  int64 = 1050 // 16 vCPU / 32 GB  — $3.780/hr
 )
 
-// Per-second infrastructure cost on Hetzner K8s in micro-USD.
-// These are what it COSTS US (internal margin tracking).
-// Calculated as: monthly Hetzner cost / (30 * 24 * 3600) / avg concurrent jobs per node.
-const (
-	K8sCostMicro    int64 = 1 // CAX21 shared (~4 concurrent) — $0.0036/hr
-	K8sCostSmall1x  int64 = 1 // CAX21 shared — $0.0036/hr
-	K8sCostSmall2x  int64 = 2 // CAX21 shared — $0.0072/hr
-	K8sCostMedium1x int64 = 3 // CAX31 shared (~3 concurrent) — $0.011/hr
-	K8sCostMedium2x int64 = 5 // CAX31 shared — $0.018/hr
-	K8sCostLarge1x  int64 = 7 // CAX41 (~2 concurrent) — $0.025/hr
-	K8sCostLarge2x  int64 = 13 // CAX41 (~1 concurrent) — $0.047/hr
-)
-
 // NodePoolLabel is the K8s node label used for pool-based scheduling.
 const NodePoolLabel = "strait.dev/pool"
 
@@ -58,23 +45,37 @@ type Preset struct {
 }
 
 // InternalCostPerSecond returns the infrastructure cost based on the runtime.
-// K8s (Hetzner) is significantly cheaper than Fly.io.
+// When K8sCostPerSecond is configured (> 0) and runtime is "k8s", returns the
+// K8s-specific cost. Otherwise returns the user-facing cost (CostPerSecond).
+// K8s costs are loaded from Doppler at runtime, not hardcoded in source.
 func (p Preset) InternalCostPerSecond(runtime string) int64 {
 	if runtime == "k8s" && p.K8sCostPerSecond > 0 {
 		return p.K8sCostPerSecond
 	}
-	return p.CostPerSecond // Fly cost as default.
+	return p.CostPerSecond
 }
 
-// AllPresets is the canonical list of supported machine presets.
+// SetK8sCosts overrides K8s infrastructure costs for internal margin tracking.
+// Called at startup with values from Doppler/config. Not hardcoded in source.
+func SetK8sCosts(costs map[string]int64) {
+	for name, cost := range costs {
+		if p, ok := AllPresets[name]; ok {
+			p.K8sCostPerSecond = cost
+			AllPresets[name] = p
+		}
+	}
+}
+// K8sCostPerSecond defaults to 0 (same as user-facing cost). Override via
+// config at runtime for internal margin tracking (values stored in Doppler,
+// not in source code).
 var AllPresets = map[string]Preset{
-	"micro":     {Name: "micro", CPUs: 1, MemoryMB: 256, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostMicro, K8sCostPerSecond: K8sCostMicro, NodePool: NodePoolGeneral},
-	"small-1x":  {Name: "small-1x", CPUs: 1, MemoryMB: 512, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostSmall1x, K8sCostPerSecond: K8sCostSmall1x, NodePool: NodePoolGeneral},
-	"small-2x":  {Name: "small-2x", CPUs: 2, MemoryMB: 1024, FlyGuestSize: "shared-cpu-2x", CostPerSecond: CostSmall2x, K8sCostPerSecond: K8sCostSmall2x, NodePool: NodePoolGeneral},
-	"medium-1x": {Name: "medium-1x", CPUs: 2, MemoryMB: 4096, FlyGuestSize: "performance-1x", CostPerSecond: CostMedium1x, K8sCostPerSecond: K8sCostMedium1x, NodePool: NodePoolPerformance},
-	"medium-2x": {Name: "medium-2x", CPUs: 4, MemoryMB: 8192, FlyGuestSize: "performance-2x", CostPerSecond: CostMedium2x, K8sCostPerSecond: K8sCostMedium2x, NodePool: NodePoolPerformance},
-	"large-1x":  {Name: "large-1x", CPUs: 8, MemoryMB: 16384, FlyGuestSize: "performance-4x", CostPerSecond: CostLarge1x, K8sCostPerSecond: K8sCostLarge1x, NodePool: NodePoolHeavy},
-	"large-2x":  {Name: "large-2x", CPUs: 16, MemoryMB: 32768, FlyGuestSize: "performance-8x", CostPerSecond: CostLarge2x, K8sCostPerSecond: K8sCostLarge2x, NodePool: NodePoolHeavy},
+	"micro":     {Name: "micro", CPUs: 1, MemoryMB: 256, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostMicro, NodePool: NodePoolGeneral},
+	"small-1x":  {Name: "small-1x", CPUs: 1, MemoryMB: 512, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostSmall1x, NodePool: NodePoolGeneral},
+	"small-2x":  {Name: "small-2x", CPUs: 2, MemoryMB: 1024, FlyGuestSize: "shared-cpu-2x", CostPerSecond: CostSmall2x, NodePool: NodePoolGeneral},
+	"medium-1x": {Name: "medium-1x", CPUs: 2, MemoryMB: 4096, FlyGuestSize: "performance-1x", CostPerSecond: CostMedium1x, NodePool: NodePoolPerformance},
+	"medium-2x": {Name: "medium-2x", CPUs: 4, MemoryMB: 8192, FlyGuestSize: "performance-2x", CostPerSecond: CostMedium2x, NodePool: NodePoolPerformance},
+	"large-1x":  {Name: "large-1x", CPUs: 8, MemoryMB: 16384, FlyGuestSize: "performance-4x", CostPerSecond: CostLarge1x, NodePool: NodePoolHeavy},
+	"large-2x":  {Name: "large-2x", CPUs: 16, MemoryMB: 32768, FlyGuestSize: "performance-8x", CostPerSecond: CostLarge2x, NodePool: NodePoolHeavy},
 }
 
 // PresetOrder defines the canonical ordering of presets from smallest to largest.
