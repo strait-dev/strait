@@ -1,0 +1,210 @@
+# Grafana Alloy — unified agent for metrics scraping + log shipping.
+# Scrapes node-exporter, kube-state-metrics, and k3s metrics.
+# Ships pod logs to Grafana Cloud Loki.
+#
+# Requires Grafana Cloud credentials as K8s secrets:
+#   kubectl -n monitoring create secret generic grafana-cloud \
+#     --from-literal=remote-write-url=<GRAFANA_REMOTE_WRITE_URL> \
+#     --from-literal=remote-write-username=<GRAFANA_REMOTE_WRITE_USERNAME> \
+#     --from-literal=remote-write-password=<GRAFANA_CLOUD_TOKEN> \
+#     --from-literal=loki-url=<GRAFANA_LOKI_URL> \
+#     --from-literal=loki-username=<GRAFANA_LOKI_USERNAME> \
+#     --from-literal=loki-password=<GRAFANA_CLOUD_TOKEN>
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  namespace: monitoring
+data:
+  config.alloy: |
+    // Scrape node-exporter metrics.
+    prometheus.scrape "node_exporter" {
+      targets = discovery.kubernetes.nodes.targets
+      metrics_path = "/metrics"
+      scheme = "http"
+
+      static_configs {
+        targets = ["node-exporter.monitoring.svc:9100"]
+      }
+
+      forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+    }
+
+    // Ship metrics to Grafana Cloud.
+    prometheus.remote_write "grafana_cloud" {
+      endpoint {
+        url = env("GRAFANA_REMOTE_WRITE_URL")
+        basic_auth {
+          username = env("GRAFANA_REMOTE_WRITE_USERNAME")
+          password = env("GRAFANA_REMOTE_WRITE_PASSWORD")
+        }
+      }
+    }
+
+    // Collect pod logs.
+    loki.source.kubernetes "pod_logs" {
+      targets = discovery.kubernetes.pods.targets
+      forward_to = [loki.process.filter.receiver]
+    }
+
+    // Filter: only ship strait-job pod logs + add labels.
+    loki.process "filter" {
+      stage.match {
+        selector = "{app=\"strait-job\"}"
+        action = "keep"
+      }
+
+      // Strip env vars from logs to prevent PII leakage.
+      stage.replace {
+        expression = "(STRAIT_SECRET_[A-Z_]+=)[^\s]+"
+        replace = "${1}[REDACTED]"
+      }
+      stage.replace {
+        expression = "(STRAIT_SDK_TOKEN=)[^\s]+"
+        replace = "${1}[REDACTED]"
+      }
+
+      forward_to = [loki.write.grafana_cloud.receiver]
+    }
+
+    // Ship logs to Grafana Cloud Loki.
+    loki.write "grafana_cloud" {
+      endpoint {
+        url = env("GRAFANA_LOKI_URL")
+        basic_auth {
+          username = env("GRAFANA_LOKI_USERNAME")
+          password = env("GRAFANA_LOKI_PASSWORD")
+        }
+      }
+    }
+
+    // K8s service discovery.
+    discovery.kubernetes "nodes" {
+      role = "node"
+    }
+    discovery.kubernetes "pods" {
+      role = "pod"
+      namespaces {
+        names = ["default"]
+      }
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: grafana-alloy
+  namespace: monitoring
+  labels:
+    app: grafana-alloy
+spec:
+  selector:
+    matchLabels:
+      app: grafana-alloy
+  template:
+    metadata:
+      labels:
+        app: grafana-alloy
+    spec:
+      serviceAccountName: grafana-alloy
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.4.2
+          args:
+            - run
+            - /etc/alloy/config.alloy
+          env:
+            - name: GRAFANA_REMOTE_WRITE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-cloud
+                  key: remote-write-url
+            - name: GRAFANA_REMOTE_WRITE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-cloud
+                  key: remote-write-username
+            - name: GRAFANA_REMOTE_WRITE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-cloud
+                  key: remote-write-password
+            - name: GRAFANA_LOKI_URL
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-cloud
+                  key: loki-url
+            - name: GRAFANA_LOKI_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-cloud
+                  key: loki-username
+            - name: GRAFANA_LOKI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-cloud
+                  key: loki-password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-alloy
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: grafana-alloy
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "nodes/metrics", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: grafana-alloy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: grafana-alloy
+subjects:
+  - kind: ServiceAccount
+    name: grafana-alloy
+    namespace: monitoring

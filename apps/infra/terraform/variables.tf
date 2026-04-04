@@ -70,3 +70,76 @@ variable "heavy_count" {
   type        = number
   default     = 0
 }
+
+# HA configuration.
+variable "server_count" {
+  description = "Number of k3s server nodes. Set to 3 for HA (etcd quorum)."
+  type        = number
+  default     = 1
+}
+
+# Backup configuration (Hetzner Object Storage / S3-compatible).
+variable "backup_s3_endpoint" {
+  description = "S3 endpoint for etcd snapshot backups. Leave empty to disable."
+  type        = string
+  default     = ""
+}
+
+variable "backup_s3_bucket" {
+  description = "S3 bucket name for etcd snapshots."
+  type        = string
+  default     = "strait-backups"
+}
+
+variable "backup_s3_access_key" {
+  description = "S3 access key for backup storage."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "backup_s3_secret_key" {
+  description = "S3 secret key for backup storage."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+# Monitoring (Grafana Cloud).
+variable "grafana_remote_write_url" {
+  description = "Grafana Cloud Prometheus remote write URL."
+  type        = string
+  default     = ""
+}
+
+variable "grafana_remote_write_username" {
+  description = "Grafana Cloud Prometheus username."
+  type        = string
+  default     = ""
+}
+
+variable "grafana_remote_write_password" {
+  description = "Grafana Cloud Prometheus API key."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "grafana_loki_url" {
+  description = "Grafana Cloud Loki push URL."
+  type        = string
+  default     = ""
+}
+
+variable "grafana_loki_username" {
+  description = "Grafana Cloud Loki username."
+  type        = string
+  default     = ""
+}
+
+variable "grafana_loki_password" {
+  description = "Grafana Cloud Loki API key."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
