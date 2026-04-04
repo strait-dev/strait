@@ -40,9 +40,12 @@ resource "null_resource" "master_k3s" {
 
   provisioner "remote-exec" {
     inline = [
-      "curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='server --disable traefik --disable servicelb --flannel-iface eth1 --node-label strait.dev/pool=general --tls-san ${hcloud_server.master.ipv4_address}' sh -",
+      "curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='server --disable traefik --disable servicelb --flannel-backend=none --disable-network-policy --node-label strait.dev/pool=general --tls-san ${hcloud_server.master.ipv4_address}' sh -",
       "while ! /usr/local/bin/kubectl get nodes 2>/dev/null; do sleep 2; done",
-      "echo 'k3s master ready'",
+      "kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico-vxlan.yaml",
+      "kubectl -n kube-system set env daemonset/calico-node IP_AUTODETECTION_METHOD=interface=eth1",
+      "while ! kubectl -n kube-system rollout status daemonset/calico-node --timeout=120s 2>/dev/null; do sleep 5; done",
+      "echo 'k3s master ready with Calico CNI'",
     ]
   }
 }

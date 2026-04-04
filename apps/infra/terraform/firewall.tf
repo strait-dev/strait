@@ -33,11 +33,11 @@ resource "hcloud_firewall" "cluster" {
     source_ips = ["10.0.0.0/16"]
   }
 
-  # NodePort range (for services exposed via NodePort).
+  # Strait API NodePort (only expose the API, not the full NodePort range).
   rule {
     direction  = "in"
     protocol   = "tcp"
-    port       = "30000-32767"
+    port       = "30080"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
 

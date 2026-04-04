@@ -46,7 +46,7 @@ runcmd:
   - while ! curl -sf -o /dev/null --connect-timeout 2 https://${master_private_ip}:6443 -k 2>/dev/null; do echo "Waiting for master..."; sleep 5; done
 
   # Join the cluster with node pool label.
-  # --flannel-iface eth1: use private network for pod networking.
+  # CNI (Calico) is inherited from the server — no flannel flags needed.
   # --node-label: set the pool label for job scheduling affinity.
   # --protect-kernel-defaults: enforce sysctl security defaults.
-  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="agent --flannel-iface eth1 --node-label strait.dev/pool=${node_pool} --protect-kernel-defaults" K3S_URL="https://${master_private_ip}:6443" K3S_TOKEN="${k3s_token}" sh -
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="agent --node-label strait.dev/pool=${node_pool} --protect-kernel-defaults" K3S_URL="https://${master_private_ip}:6443" K3S_TOKEN="${k3s_token}" sh -

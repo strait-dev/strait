@@ -82,14 +82,25 @@ runcmd:
   # ──────────────────────────────────────────────
   # Install k3s Server
   # ──────────────────────────────────────────────
-  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik --disable servicelb --flannel-iface eth1 --node-label strait.dev/pool=general --secrets-encryption --protect-kernel-defaults --tls-san ${master_public_ip} --kube-apiserver-arg=audit-log-path=/var/log/k3s-audit.log --kube-apiserver-arg=audit-log-maxage=30 --etcd-snapshot-schedule-cron=0\ */6\ *\ *\ * --etcd-snapshot-retention=10" sh -
+  # Install k3s with Calico CNI (Flannel does NOT enforce NetworkPolicy).
+  # --flannel-backend=none: disable built-in Flannel so Calico handles networking.
+  # --disable-network-policy: disable k3s built-in network policy controller (Calico replaces it).
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik --disable servicelb --flannel-backend=none --disable-network-policy --node-label strait.dev/pool=general --secrets-encryption --protect-kernel-defaults --tls-san ${master_public_ip} --kube-apiserver-arg=audit-log-path=/var/log/k3s-audit.log --kube-apiserver-arg=audit-log-maxage=30 --etcd-snapshot-schedule-cron=0\ */6\ *\ *\ * --etcd-snapshot-retention=10" sh -
 
-  # Wait for k3s to be ready.
+  # Wait for k3s API to be ready (nodes will be NotReady until Calico is deployed).
   - while ! /usr/local/bin/kubectl get nodes 2>/dev/null; do sleep 2; done
+
+  # Deploy Calico CNI for networking + NetworkPolicy enforcement.
+  # Uses VXLAN backend (same as Flannel was using) over the private network interface (eth1).
+  - /usr/local/bin/kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico-vxlan.yaml
+  # Configure Calico to use the private network interface for VXLAN.
+  - /usr/local/bin/kubectl -n kube-system set env daemonset/calico-node IP_AUTODETECTION_METHOD=interface=eth1
+  # Wait for Calico to be ready.
+  - while ! /usr/local/bin/kubectl -n kube-system rollout status daemonset/calico-node --timeout=120s 2>/dev/null; do sleep 5; done
 
   # Enable etcd backup timer (runs even if S3 not configured — script exits cleanly).
   - systemctl daemon-reload
   - systemctl enable etcd-backup.timer
   - systemctl start etcd-backup.timer
 
-  - echo "k3s master ready"
+  - echo "k3s master ready with Calico CNI"
