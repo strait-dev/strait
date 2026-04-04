@@ -4,6 +4,23 @@ description: "Recent platform and API updates in Strait."
 icon: "clock-rotate-left"
 ---
 
+## 2026-04
+
+### Strait Notify Backend and Operations Documentation
+
+- Added Strait Notify backend foundation for subscribers, topics, templates, categories, preferences, inbox items, messages, providers, unsubscribe tokens, dedup keys, digest batches, and escalation states.
+- Added Notify trigger and management API surface, including template preview/test flows and delivery listing.
+- Added scheduler processing for due scheduled messages, digest batch flushes, and approval-reminder escalation tiers.
+- Added escalation lifecycle endpoints by step run:
+  - `GET /v1/notify/escalations/step-runs/{stepRunID}`
+  - `POST /v1/notify/escalations/step-runs/{stepRunID}/acknowledge`
+  - `POST /v1/notify/escalations/step-runs/{stepRunID}/complete`
+- Synced OpenAPI registration for new escalation endpoints.
+- Expanded docs for digest and escalation behavior:
+  - API Reference overview updates
+  - Workflow approval guide escalation section
+  - New operations runbook: `/operations/notify-digest-escalation-runbook`
+
 ## 2026-03
 
 ### Workflow Versioning and Breaking Change Detection
