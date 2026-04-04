@@ -65,6 +65,7 @@ func SetK8sCosts(costs map[string]int64) {
 		}
 	}
 }
+
 // K8sCostPerSecond defaults to 0 (same as user-facing cost). Override via
 // config at runtime for internal margin tracking (values stored in Doppler,
 // not in source code).

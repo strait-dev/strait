@@ -71,9 +71,9 @@ func burstTest(t *testing.T, n int) {
 	}
 }
 
-func TestStress_Burst_10(t *testing.T)  { burstTest(t, 10) }
-func TestStress_Burst_25(t *testing.T)  { burstTest(t, 25) }
-func TestStress_Burst_50(t *testing.T)  { burstTest(t, 50) }
+func TestStress_Burst_10(t *testing.T) { burstTest(t, 10) }
+func TestStress_Burst_25(t *testing.T) { burstTest(t, 25) }
+func TestStress_Burst_50(t *testing.T) { burstTest(t, 50) }
 
 func TestStress_Concurrent_Same_Preset(t *testing.T) {
 	rt := requireKindCluster(t)
