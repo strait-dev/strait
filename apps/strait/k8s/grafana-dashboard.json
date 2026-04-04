@@ -241,13 +241,15 @@
         "fieldConfig": { "defaults": { "unit": "s" } }
       },
       {
-        "title": "Job Wait Duration",
-        "description": "Total time from job creation to completion (includes scheduling + execution).",
+        "title": "Job Wait + Create Duration",
+        "description": "Total time from job creation to completion. Create duration = K8s API call time. Fallback rate = jobs routed to secondary runtime.",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 8, "x": 16, "y": 15 },
         "targets": [
           { "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "Wait P50" },
-          { "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "Wait P99" }
+          { "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "Wait P99" },
+          { "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_create_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "Create P99" },
+          { "expr": "sum(rate(strait_compute_fallback_total[$interval]))", "legendFormat": "Fallback/s" }
         ],
         "fieldConfig": { "defaults": { "unit": "s" } }
       },

@@ -1147,8 +1147,6 @@ func TestParseCSVEnv(t *testing.T) {
 	}
 }
 
-
-
 func TestLoad_InvalidRedisURL(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("REDIS_URL", "redis://loc%zz")

@@ -53,7 +53,6 @@ func TestPresetFromName_CostRates(t *testing.T) {
 	}
 }
 
-
 func TestNextPreset(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -187,20 +187,21 @@ func TestRegionLabel(t *testing.T) {
 func TestAllRegions(t *testing.T) {
 	t.Parallel()
 
-	regions := AllRegions()
-	if len(regions) != len(regions) {
-		t.Fatalf("AllRegions() returned %d regions, want %d", len(regions), len(regions))
+	allRegions := AllRegions()
+	codes := AllRegionCodes()
+	if len(allRegions) != len(codes) {
+		t.Fatalf("AllRegions() returned %d regions, AllRegionCodes() returned %d", len(allRegions), len(codes))
 	}
 
 	// Verify sorted by code.
-	for i := 1; i < len(regions); i++ {
-		if regions[i].Code <= regions[i-1].Code {
-			t.Fatalf("AllRegions() not sorted by code: %q <= %q", regions[i].Code, regions[i-1].Code)
+	for i := 1; i < len(allRegions); i++ {
+		if allRegions[i].Code <= allRegions[i-1].Code {
+			t.Fatalf("AllRegions() not sorted by code: %q <= %q", allRegions[i].Code, allRegions[i-1].Code)
 		}
 	}
 
 	// All entries must have required fields.
-	for _, r := range regions {
+	for _, r := range allRegions {
 		if r.Code == "" || r.Label == "" || r.City == "" || r.Country == "" || r.Continent == "" {
 			t.Errorf("region %q has empty required field", r.Code)
 		}

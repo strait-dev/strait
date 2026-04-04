@@ -193,7 +193,7 @@ func (f *failingRuntime) Wait(ctx context.Context, machineID string, timeoutSecs
 func (f *failingRuntime) Start(ctx context.Context, machineID string, env map[string]string) error {
 	return f.err
 }
-func (f *failingRuntime) Stop(ctx context.Context, machineID string) error  { return f.err }
+func (f *failingRuntime) Stop(ctx context.Context, machineID string) error { return f.err }
 func (f *failingRuntime) Destroy(ctx context.Context, machineID string) error {
 	return f.err
 }

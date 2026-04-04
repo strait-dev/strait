@@ -9,10 +9,10 @@ import (
 
 type grafanaDashboard struct {
 	Dashboard struct {
-		Title      string             `json:"title"`
-		UID        string             `json:"uid"`
-		Panels     []grafanaPanel     `json:"panels"`
-		Templating grafanaTemplating  `json:"templating"`
+		Title      string            `json:"title"`
+		UID        string            `json:"uid"`
+		Panels     []grafanaPanel    `json:"panels"`
+		Templating grafanaTemplating `json:"templating"`
 	} `json:"dashboard"`
 }
 
@@ -187,12 +187,12 @@ func TestDashboard_HasK8sClusterPanels(t *testing.T) {
 	d := loadDashboard(t)
 
 	k8sMetrics := map[string]bool{
-		"kube_pod_status_phase":                       false,
-		"kube_deployment_status_replicas":              false,
-		"kube_pod_container_status_restarts_total":     false,
-		"kube_node_status_condition":                   false,
-		"node_disk":                                    false,
-		"node_network":                                 false,
+		"kube_pod_status_phase":                    false,
+		"kube_deployment_status_replicas":          false,
+		"kube_pod_container_status_restarts_total": false,
+		"kube_node_status_condition":               false,
+		"node_disk":                                false,
+		"node_network":                             false,
 	}
 
 	for _, p := range d.Dashboard.Panels {
@@ -233,19 +233,45 @@ func TestDashboard_CoversAllCategories(t *testing.T) {
 		}
 		for _, tgt := range p.Targets {
 			expr := strings.ToLower(tgt.Expr)
-			if strings.Contains(expr, "webhook") { categories["webhook"] = true }
-			if strings.Contains(expr, "workflow") { categories["workflow"] = true }
-			if strings.Contains(expr, "queue") { categories["queue"] = true }
-			if strings.Contains(expr, "http") { categories["http"] = true }
-			if strings.Contains(expr, "pool_running") { categories["worker pool"] = true }
-			if strings.Contains(expr, "db_pool") { categories["db"] = true }
-			if strings.Contains(expr, "node_cpu") || strings.Contains(expr, "node_memory") { categories["node"] = true }
-			if strings.Contains(expr, "scheduling") { categories["scheduling"] = true }
-			if strings.Contains(expr, "node_disk") { categories["disk"] = true }
-			if strings.Contains(expr, "node_network") { categories["network"] = true }
-			if strings.Contains(expr, "kyverno") { categories["kyverno"] = true }
-			if strings.Contains(expr, "audit") || strings.Contains(expr, "k3s-audit") { categories["audit"] = true }
-			if strings.Contains(expr, "cost") || strings.Contains(expr, "currencyUSD") { categories["cost"] = true }
+			if strings.Contains(expr, "webhook") {
+				categories["webhook"] = true
+			}
+			if strings.Contains(expr, "workflow") {
+				categories["workflow"] = true
+			}
+			if strings.Contains(expr, "queue") {
+				categories["queue"] = true
+			}
+			if strings.Contains(expr, "http") {
+				categories["http"] = true
+			}
+			if strings.Contains(expr, "pool_running") {
+				categories["worker pool"] = true
+			}
+			if strings.Contains(expr, "db_pool") {
+				categories["db"] = true
+			}
+			if strings.Contains(expr, "node_cpu") || strings.Contains(expr, "node_memory") {
+				categories["node"] = true
+			}
+			if strings.Contains(expr, "scheduling") {
+				categories["scheduling"] = true
+			}
+			if strings.Contains(expr, "node_disk") {
+				categories["disk"] = true
+			}
+			if strings.Contains(expr, "node_network") {
+				categories["network"] = true
+			}
+			if strings.Contains(expr, "kyverno") {
+				categories["kyverno"] = true
+			}
+			if strings.Contains(expr, "audit") || strings.Contains(expr, "k3s-audit") {
+				categories["audit"] = true
+			}
+			if strings.Contains(expr, "cost") || strings.Contains(expr, "currencyUSD") {
+				categories["cost"] = true
+			}
 		}
 	}
 
@@ -261,10 +287,10 @@ func TestDashboard_HasSecurityPanels(t *testing.T) {
 	d := loadDashboard(t)
 
 	securityMetrics := map[string]bool{
-		"kyverno_policy_results_total":    false,
+		"kyverno_policy_results_total":     false,
 		"kyverno_admission_requests_total": false,
-		"falco":                           false,
-		"k3s-audit":                       false,
+		"falco":                            false,
+		"k3s-audit":                        false,
 	}
 
 	for _, p := range d.Dashboard.Panels {

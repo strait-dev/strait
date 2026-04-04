@@ -13,7 +13,7 @@ func TestValidateImageURI_Valid(t *testing.T) {
 		"registry.example.com:5000/path/image:tag",
 		"image@sha256:abcdef1234567890",
 		"my_image",
-		"UPPERCASE/Image:Tag",
+		"lowercase/image:tag",
 	}
 	for _, uri := range valid {
 		if err := validateImageURI(uri); err != nil {

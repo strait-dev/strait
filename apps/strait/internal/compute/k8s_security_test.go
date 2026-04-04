@@ -145,13 +145,13 @@ func TestK8s_ImageURIValidation_Adversarial(t *testing.T) {
 func TestK8s_LabelInjection_Adversarial(t *testing.T) {
 	t.Parallel()
 	adversarial := map[string]string{
-		"app":                           "malicious-override", // should not override system label
-		"'; DROP TABLE jobs; --":        "sqli",
-		"../../etc/passwd":              "path-traversal",
-		"key\x00null":                   "null-byte",
-		strings.Repeat("x", 100):        "long-key",
-		"valid-key":                     strings.Repeat("y", 100),
-		"kubernetes.io/managed-by":      "k8s-reserved",
+		"app":                      "malicious-override", // should not override system label
+		"'; DROP TABLE jobs; --":   "sqli",
+		"../../etc/passwd":         "path-traversal",
+		"key\x00null":              "null-byte",
+		strings.Repeat("x", 100):   "long-key",
+		"valid-key":                strings.Repeat("y", 100),
+		"kubernetes.io/managed-by": "k8s-reserved",
 	}
 
 	sanitized := sanitizeUserLabels(adversarial)
