@@ -154,8 +154,8 @@ go test -tags=loadtest -run TestChaosScenarios/worker_sigkill -timeout 30m -v ./
 # Error scenarios
 go test -tags=loadtest -run TestErrorScenarios -timeout 1h -v ./internal/loadtest/...
 
-# Fly.io validation (requires LOADTEST_STRAIT_URL pointing to Fly deployment)
-LOADTEST_STRAIT_URL=https://your-app.fly.dev go test -tags=loadtest -run TestFlyValidation -timeout 1h -v ./internal/loadtest/...
+# Production validation (requires LOADTEST_STRAIT_URL pointing to deployed instance)
+LOADTEST_STRAIT_URL=https://api.example.com go test -tags=loadtest -run TestProductionValidation -timeout 1h -v ./internal/loadtest/...
 ```
 
 ## Test Server Endpoints

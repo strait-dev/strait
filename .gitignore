@@ -301,3 +301,14 @@ apps/cli/out/
 e2e_stress_report_*
 apps/strait/e2e_stress
 apps/strait/echoserver
+
+# ==============================================================================
+# Infrastructure is in a separate private repo (strait-dev/infra).
+# These entries kept for local development if infra is cloned alongside.
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+backend.hcl
+.terraform.lock.hcl

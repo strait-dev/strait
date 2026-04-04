@@ -4,17 +4,17 @@ import (
 	"testing"
 )
 
-func TestNearestFlyRegion_DirectCode(t *testing.T) {
+func TestNearestRegion_DirectCode(t *testing.T) {
 	t.Parallel()
 	tests := []string{"iad", "lhr", "nrt", "syd", "gru", "lax"}
 	for _, code := range tests {
-		if got := NearestFlyRegion(code); got != code {
-			t.Errorf("NearestFlyRegion(%q) = %q, want %q", code, got, code)
+		if got := NearestRegion(code); got != code {
+			t.Errorf("NearestRegion(%q) = %q, want %q", code, got, code)
 		}
 	}
 }
 
-func TestNearestFlyRegion_ContinentHints(t *testing.T) {
+func TestNearestRegion_ContinentHints(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
 		"us-east": "iad",
@@ -27,23 +27,23 @@ func TestNearestFlyRegion_ContinentHints(t *testing.T) {
 		"africa":  "jnb",
 	}
 	for hint, want := range tests {
-		if got := NearestFlyRegion(hint); got != want {
-			t.Errorf("NearestFlyRegion(%q) = %q, want %q", hint, got, want)
+		if got := NearestRegion(hint); got != want {
+			t.Errorf("NearestRegion(%q) = %q, want %q", hint, got, want)
 		}
 	}
 }
 
-func TestNearestFlyRegion_Unknown(t *testing.T) {
+func TestNearestRegion_Unknown(t *testing.T) {
 	t.Parallel()
-	if got := NearestFlyRegion("mars"); got != "" {
-		t.Errorf("NearestFlyRegion(mars) = %q, want empty", got)
+	if got := NearestRegion("mars"); got != "" {
+		t.Errorf("NearestRegion(mars) = %q, want empty", got)
 	}
 }
 
-func TestNearestFlyRegion_Empty(t *testing.T) {
+func TestNearestRegion_Empty(t *testing.T) {
 	t.Parallel()
-	if got := NearestFlyRegion(""); got != "" {
-		t.Errorf("NearestFlyRegion('') = %q, want empty", got)
+	if got := NearestRegion(""); got != "" {
+		t.Errorf("NearestRegion('') = %q, want empty", got)
 	}
 }
 
@@ -79,7 +79,7 @@ func TestRegionFallbackChain_Unknown(t *testing.T) {
 
 func TestRegionFallbackChain_AllKnownRegionsHaveChains(t *testing.T) {
 	t.Parallel()
-	for region := range flyRegions {
+	for region := range regions {
 		chain := RegionFallbackChain(region)
 		if len(chain) == 0 {
 			t.Errorf("region %q has no fallback chain", region)
@@ -140,8 +140,8 @@ func TestAllRegionCodes(t *testing.T) {
 	t.Parallel()
 
 	codes := AllRegionCodes()
-	if len(codes) != len(flyRegions) {
-		t.Fatalf("AllRegionCodes() returned %d codes, want %d", len(codes), len(flyRegions))
+	if len(codes) != len(regions) {
+		t.Fatalf("AllRegionCodes() returned %d codes, want %d", len(codes), len(regions))
 	}
 
 	// Verify sorted order.
@@ -187,20 +187,21 @@ func TestRegionLabel(t *testing.T) {
 func TestAllRegions(t *testing.T) {
 	t.Parallel()
 
-	regions := AllRegions()
-	if len(regions) != len(flyRegions) {
-		t.Fatalf("AllRegions() returned %d regions, want %d", len(regions), len(flyRegions))
+	allRegions := AllRegions()
+	codes := AllRegionCodes()
+	if len(allRegions) != len(codes) {
+		t.Fatalf("AllRegions() returned %d regions, AllRegionCodes() returned %d", len(allRegions), len(codes))
 	}
 
 	// Verify sorted by code.
-	for i := 1; i < len(regions); i++ {
-		if regions[i].Code <= regions[i-1].Code {
-			t.Fatalf("AllRegions() not sorted by code: %q <= %q", regions[i].Code, regions[i-1].Code)
+	for i := 1; i < len(allRegions); i++ {
+		if allRegions[i].Code <= allRegions[i-1].Code {
+			t.Fatalf("AllRegions() not sorted by code: %q <= %q", allRegions[i].Code, allRegions[i-1].Code)
 		}
 	}
 
 	// All entries must have required fields.
-	for _, r := range regions {
+	for _, r := range allRegions {
 		if r.Code == "" || r.Label == "" || r.City == "" || r.Country == "" || r.Continent == "" {
 			t.Errorf("region %q has empty required field", r.Code)
 		}
@@ -210,14 +211,14 @@ func TestAllRegions(t *testing.T) {
 func TestAllRegions_MetadataConsistency(t *testing.T) {
 	t.Parallel()
 
-	for code := range flyRegions {
+	for code := range regions {
 		if _, ok := regionMetadata[code]; !ok {
-			t.Errorf("region %q in flyRegions but not in regionMetadata", code)
+			t.Errorf("region %q in regions but not in regionMetadata", code)
 		}
 	}
 	for code := range regionMetadata {
-		if _, ok := flyRegions[code]; !ok {
-			t.Errorf("region %q in regionMetadata but not in flyRegions", code)
+		if _, ok := regions[code]; !ok {
+			t.Errorf("region %q in regionMetadata but not in regions", code)
 		}
 	}
 }

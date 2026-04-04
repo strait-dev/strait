@@ -2,23 +2,23 @@ package compute
 
 import "sort"
 
-// IsValidRegion returns true if code is a known Fly region.
+// IsValidRegion returns true if code is a known region.
 func IsValidRegion(code string) bool {
-	_, ok := flyRegions[code]
+	_, ok := regions[code]
 	return ok
 }
 
-// AllRegionCodes returns all known Fly region codes in sorted order.
+// AllRegionCodes returns all known region codes in sorted order.
 func AllRegionCodes() []string {
-	codes := make([]string, 0, len(flyRegions))
-	for code := range flyRegions {
+	codes := make([]string, 0, len(regions))
+	for code := range regions {
 		codes = append(codes, code)
 	}
 	sort.Strings(codes)
 	return codes
 }
 
-// RegionInfo contains metadata about a Fly region.
+// RegionInfo contains metadata about a region.
 type RegionInfo struct {
 	Code      string `json:"code"`
 	Label     string `json:"label"`
@@ -27,7 +27,7 @@ type RegionInfo struct {
 	Continent string `json:"continent"`
 }
 
-// RegionLabel returns a human-readable label for a Fly region code.
+// RegionLabel returns a human-readable label for a region code.
 func RegionLabel(code string) string {
 	if info, ok := regionMetadata[code]; ok {
 		return info.Label
@@ -35,7 +35,7 @@ func RegionLabel(code string) string {
 	return code
 }
 
-// AllRegions returns metadata for all known Fly regions, sorted by code.
+// AllRegions returns metadata for all known regions, sorted by code.
 func AllRegions() []RegionInfo {
 	regions := make([]RegionInfo, 0, len(regionMetadata))
 	for _, info := range regionMetadata {
@@ -47,7 +47,7 @@ func AllRegions() []RegionInfo {
 	return regions
 }
 
-// regionMetadata contains human-readable labels and groupings for all Fly regions.
+// regionMetadata contains human-readable labels and groupings for all regions.
 var regionMetadata = map[string]RegionInfo{
 	"ams": {Code: "ams", Label: "Amsterdam, Netherlands", City: "Amsterdam", Country: "NL", Continent: "Europe"},
 	"arn": {Code: "arn", Label: "Stockholm, Sweden", City: "Stockholm", Country: "SE", Continent: "Europe"},
@@ -87,12 +87,12 @@ var regionMetadata = map[string]RegionInfo{
 	"yyz": {Code: "yyz", Label: "Toronto, Canada", City: "Toronto", Country: "CA", Continent: "North America"},
 }
 
-// NearestFlyRegion maps region hints (from Fly-Region header or continent
-// hints) to Fly region codes. If the input is already a valid Fly region
+// NearestRegion maps region hints (from request header or continent
+// hints) to region codes. If the input is already a valid region
 // code it is returned as-is.
-func NearestFlyRegion(hint string) string {
-	// Direct Fly region codes pass through.
-	if _, ok := flyRegions[hint]; ok {
+func NearestRegion(hint string) string {
+	// Direct region codes pass through.
+	if _, ok := regions[hint]; ok {
 		return hint
 	}
 
@@ -114,7 +114,7 @@ func RegionFallbackChain(primary string) []string {
 	return chain
 }
 
-// regionFallbacks maps each Fly region to geo-proximate alternatives.
+// regionFallbacks maps each region to geo-proximate alternatives.
 var regionFallbacks = map[string][]string{
 	// North America East
 	"iad": {"ewr", "ord", "atl"},
@@ -167,7 +167,7 @@ var regionFallbacks = map[string][]string{
 	"jnb": {"lhr", "cdg", "fra"},
 }
 
-// regionHints maps continent-level hints to a default Fly region.
+// regionHints maps continent-level hints to a default region.
 var regionHints = map[string]string{
 	"us-east": "iad",
 	"us-west": "lax",
@@ -179,8 +179,8 @@ var regionHints = map[string]string{
 	"africa":  "jnb",
 }
 
-// flyRegions is the set of known Fly region codes.
-var flyRegions = map[string]struct{}{
+// regions is the set of known region codes.
+var regions = map[string]struct{}{
 	"ams": {}, "arn": {}, "atl": {}, "bog": {}, "bom": {},
 	"bos": {}, "cdg": {}, "den": {}, "dfw": {}, "ewr": {},
 	"eze": {}, "fra": {}, "gdl": {}, "gig": {}, "gru": {},
