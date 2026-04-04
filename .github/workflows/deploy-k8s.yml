@@ -46,14 +46,40 @@ jobs:
           echo "${{ secrets.KUBECONFIG_BASE64 }}" | base64 -d > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
 
-      - name: Deploy strait
+      - name: Deploy strait (canary — 1 pod first)
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          echo "Deploying $IMAGE:$TAG to $NAMESPACE..."
+          echo "Deploying $IMAGE:$TAG to $NAMESPACE (canary)..."
           kubectl -n "$NAMESPACE" set image deployment/strait strait="$IMAGE:$TAG"
 
-      - name: Wait for rollout
+      - name: Canary validation (60s soak)
         run: |
+          echo "Waiting for canary pod to be ready..."
+          kubectl -n "$NAMESPACE" rollout status deployment/strait --timeout=120s
+
+          echo "Canary pod ready. Soaking for 60 seconds..."
+          sleep 60
+
+          # Check pod health — no crash loops in the last minute.
+          RESTARTS=$(kubectl -n "$NAMESPACE" get pods -l app=strait -o jsonpath='{.items[*].status.containerStatuses[0].restartCount}' | tr ' ' '\n' | sort -rn | head -1)
+          if [ "${RESTARTS:-0}" -gt 2 ]; then
+            echo "Canary FAILED: pod has $RESTARTS restarts"
+            exit 1
+          fi
+
+          # Check health endpoint if domain is configured.
+          if [ -n "${{ vars.STRAIT_DOMAIN }}" ]; then
+            if ! curl -sf --max-time 10 "https://${{ vars.STRAIT_DOMAIN }}/health"; then
+              echo "Canary FAILED: health check returned non-200"
+              exit 1
+            fi
+          fi
+
+          echo "Canary validation passed"
+
+      - name: Full rollout
+        run: |
+          echo "Canary passed — full rollout proceeding..."
           kubectl -n "$NAMESPACE" rollout status deployment/strait --timeout=300s
 
       - name: Health check
