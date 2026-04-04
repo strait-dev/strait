@@ -729,6 +729,216 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleListNotificationDeliveries)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "upsert-notify-subscriber", Method: http.MethodPost, Path: "/v1/subscribers",
+		Summary: "Upsert a notify subscriber", Description: "Creates or updates a notify subscriber by external identifier.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 429, 500},
+	}, s.handleUpsertNotifySubscriber)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-notify-subscribers", Method: http.MethodGet, Path: "/v1/subscribers",
+		Summary: "List notify subscribers", Description: "Returns notify subscribers for the current project.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListNotifySubscribers)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-notify-subscriber", Method: http.MethodGet, Path: "/v1/subscribers/{subscriberID}",
+		Summary: "Get a notify subscriber", Description: "Returns details for a specific notify subscriber.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleGetNotifySubscriber)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-notify-subscriber", Method: http.MethodPut, Path: "/v1/subscribers/{subscriberID}",
+		Summary: "Update a notify subscriber", Description: "Updates a notify subscriber by ID.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleUpdateNotifySubscriber)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "delete-notify-subscriber", Method: http.MethodDelete, Path: "/v1/subscribers/{subscriberID}",
+		Summary: "Delete a notify subscriber", Description: "Soft deletes or purges a notify subscriber.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleDeleteNotifySubscriber)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "create-notify-subscriber-token", Method: http.MethodPost, Path: "/v1/subscribers/{subscriberID}/token",
+		Summary: "Create subscriber token", Description: "Issues a subscriber auth token for inbox and preference APIs.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleCreateNotifySubscriberToken)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "create-notify-topic", Method: http.MethodPost, Path: "/v1/topics",
+		Summary: "Create a notify topic", Description: "Creates a notify topic for subscriber fanout.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 429, 500},
+	}, s.handleCreateNotifyTopic)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-notify-topics", Method: http.MethodGet, Path: "/v1/topics",
+		Summary: "List notify topics", Description: "Returns notify topics in the current project.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListNotifyTopics)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "add-notify-topic-subscriber", Method: http.MethodPost, Path: "/v1/topics/{topicKey}/subscribers",
+		Summary: "Add topic subscriber", Description: "Adds a subscriber to a notify topic.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleAddNotifyTopicSubscriber)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "remove-notify-topic-subscriber", Method: http.MethodDelete, Path: "/v1/topics/{topicKey}/subscribers/{subscriberID}",
+		Summary: "Remove topic subscriber", Description: "Removes a subscriber from a notify topic.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleRemoveNotifyTopicSubscriber)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "create-notification-template", Method: http.MethodPost, Path: "/v1/templates",
+		Summary: "Create notification template", Description: "Creates a notification template.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 429, 500},
+	}, s.handleCreateNotificationTemplate)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-notification-templates", Method: http.MethodGet, Path: "/v1/templates",
+		Summary: "List notification templates", Description: "Returns notification templates for the current project.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListNotificationTemplates)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-notification-template", Method: http.MethodGet, Path: "/v1/templates/{templateKey}",
+		Summary: "Get notification template", Description: "Returns the latest version of a template by key.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleGetNotificationTemplate)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-notification-template", Method: http.MethodPut, Path: "/v1/templates/{templateKey}",
+		Summary: "Update notification template", Description: "Creates a new template version from an existing key.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleUpdateNotificationTemplate)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "create-notification-category", Method: http.MethodPost, Path: "/v1/categories",
+		Summary: "Create notification category", Description: "Creates a notification category used for preference scoping.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 429, 500},
+	}, s.handleCreateNotificationCategory)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-notification-categories", Method: http.MethodGet, Path: "/v1/categories",
+		Summary: "List notification categories", Description: "Returns notification categories for the current project.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListNotificationCategories)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "configure-notification-provider", Method: http.MethodPost, Path: "/v1/providers",
+		Summary: "Configure notification provider", Description: "Creates a notification provider configuration.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 429, 500},
+	}, s.handleConfigureNotificationProvider)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-notification-providers", Method: http.MethodGet, Path: "/v1/providers",
+		Summary: "List notification providers", Description: "Returns configured notification providers.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListNotificationProviders)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-notification-provider", Method: http.MethodPut, Path: "/v1/providers/{providerID}",
+		Summary: "Update notification provider", Description: "Updates an existing notification provider.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleUpdateNotificationProvider)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "delete-notification-provider", Method: http.MethodDelete, Path: "/v1/providers/{providerID}",
+		Summary: "Delete notification provider", Description: "Deletes a notification provider.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleDeleteNotificationProvider)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "trigger-notify", Method: http.MethodPost, Path: "/v1/notify",
+		Summary: "Trigger notification", Description: "Triggers notifications to subscribers or topics using a template.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 429, 500},
+	}, s.handleNotifyTrigger)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "trigger-notify-test", Method: http.MethodPost, Path: "/v1/notify/test",
+		Summary: "Trigger test notification", Description: "Triggers a test notification through the normal notify pipeline.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 429, 500},
+	}, s.handleNotifyTest)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "preview-notify", Method: http.MethodPost, Path: "/v1/notify/preview",
+		Summary: "Preview notification template", Description: "Renders a template preview without sending notifications.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleNotifyPreview)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-notify-deliveries", Method: http.MethodGet, Path: "/v1/notify/deliveries",
+		Summary: "List notify deliveries", Description: "Returns notification message deliveries from the notify pipeline.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListNotifyDeliveries)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-inbox", Method: http.MethodGet, Path: "/v1/inbox",
+		Summary: "List inbox items", Description: "Returns inbox items for the authenticated subscriber.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListInbox)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-inbox-unread-count", Method: http.MethodGet, Path: "/v1/inbox/unread-count",
+		Summary: "Get inbox unread count", Description: "Returns unread inbox item count for the authenticated subscriber.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleInboxUnreadCount)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-inbox-item", Method: http.MethodPatch, Path: "/v1/inbox/{itemID}",
+		Summary: "Update inbox item", Description: "Updates inbox item state for the authenticated subscriber.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleUpdateInboxItem)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "inbox-item-action", Method: http.MethodPost, Path: "/v1/inbox/{itemID}/action",
+		Summary: "Execute inbox action", Description: "Executes an action on an inbox item and records the result.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleInboxAction)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "mark-all-inbox-read", Method: http.MethodPost, Path: "/v1/inbox/mark-all-read",
+		Summary: "Mark all inbox items read", Description: "Marks all inbox items as read for the authenticated subscriber.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleInboxMarkAllRead)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-notify-preferences", Method: http.MethodGet, Path: "/v1/preferences",
+		Summary: "Get notify preferences", Description: "Returns notification preferences for the authenticated subscriber.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleGetNotifyPreferences)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-notify-preferences", Method: http.MethodPut, Path: "/v1/preferences",
+		Summary: "Update notify preferences", Description: "Updates global notification preferences for the authenticated subscriber.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleUpdateNotifyPreferences)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-notify-preferences-scope", Method: http.MethodPut, Path: "/v1/preferences/{scope}",
+		Summary: "Update scoped notify preferences", Description: "Updates scoped notification preferences for the authenticated subscriber.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleUpdateNotifyPreferencesScope)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-unsubscribe-token", Method: http.MethodGet, Path: "/v1/unsubscribe/{token}",
+		Summary: "Resolve unsubscribe token", Description: "Returns unsubscribe token metadata.",
+		Tags: []string{"Notifications"}, Errors: []int{400, 404, 500},
+	}, s.handleGetUnsubscribe)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "process-unsubscribe", Method: http.MethodPost, Path: "/v1/unsubscribe/{token}",
+		Summary: "Process unsubscribe", Description: "Processes an unsubscribe request for the given token.",
+		Tags: []string{"Notifications"}, Errors: []int{400, 404, 500},
+	}, s.handleProcessUnsubscribe)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "process-unsubscribe-one-click", Method: http.MethodPost, Path: "/v1/unsubscribe/{token}/one-click",
+		Summary: "Process one-click unsubscribe", Description: "Processes an unsubscribe request without a request body.",
+		Tags: []string{"Notifications"}, Errors: []int{400, 404, 500},
+	}, s.handleUnsubscribeOneClick)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "get-notify-escalation-by-step-run", Method: http.MethodGet, Path: "/v1/notify/escalations/step-runs/{stepRunID}",
 		Summary: "Get active escalation state", Description: "Returns the active escalation state for a workflow approval step run.",
 		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},

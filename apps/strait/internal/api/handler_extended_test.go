@@ -711,3 +711,68 @@ func TestOpenAPISpec_MissingEndpoints_AreRegistered(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAPISpec_NotifyEndpoints_AreRegistered(t *testing.T) {
+	t.Parallel()
+	spec := fetchOpenAPISpec(t)
+
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("spec missing 'paths'")
+	}
+
+	required := []struct {
+		path   string
+		method string
+	}{
+		{"/v1/subscribers", "post"},
+		{"/v1/subscribers", "get"},
+		{"/v1/subscribers/{subscriberID}", "get"},
+		{"/v1/subscribers/{subscriberID}", "put"},
+		{"/v1/subscribers/{subscriberID}", "delete"},
+		{"/v1/subscribers/{subscriberID}/token", "post"},
+		{"/v1/topics", "post"},
+		{"/v1/topics", "get"},
+		{"/v1/topics/{topicKey}/subscribers", "post"},
+		{"/v1/topics/{topicKey}/subscribers/{subscriberID}", "delete"},
+		{"/v1/templates", "post"},
+		{"/v1/templates", "get"},
+		{"/v1/templates/{templateKey}", "get"},
+		{"/v1/templates/{templateKey}", "put"},
+		{"/v1/categories", "post"},
+		{"/v1/categories", "get"},
+		{"/v1/providers", "post"},
+		{"/v1/providers", "get"},
+		{"/v1/providers/{providerID}", "put"},
+		{"/v1/providers/{providerID}", "delete"},
+		{"/v1/notify", "post"},
+		{"/v1/notify/test", "post"},
+		{"/v1/notify/preview", "post"},
+		{"/v1/notify/deliveries", "get"},
+		{"/v1/notify/escalations/step-runs/{stepRunID}", "get"},
+		{"/v1/notify/escalations/step-runs/{stepRunID}/acknowledge", "post"},
+		{"/v1/notify/escalations/step-runs/{stepRunID}/complete", "post"},
+		{"/v1/inbox", "get"},
+		{"/v1/inbox/unread-count", "get"},
+		{"/v1/inbox/{itemID}", "patch"},
+		{"/v1/inbox/{itemID}/action", "post"},
+		{"/v1/inbox/mark-all-read", "post"},
+		{"/v1/preferences", "get"},
+		{"/v1/preferences", "put"},
+		{"/v1/preferences/{scope}", "put"},
+		{"/v1/unsubscribe/{token}", "get"},
+		{"/v1/unsubscribe/{token}", "post"},
+		{"/v1/unsubscribe/{token}/one-click", "post"},
+	}
+
+	for _, r := range required {
+		pathItem, ok := paths[r.path].(map[string]any)
+		if !ok {
+			t.Errorf("path %q not found in spec", r.path)
+			continue
+		}
+		if _, ok := pathItem[r.method]; !ok {
+			t.Errorf("method %q not found on path %q", r.method, r.path)
+		}
+	}
+}
