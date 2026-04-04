@@ -32,6 +32,19 @@ write_files:
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
 
+  # Log rotation for k3s audit logs (prevents unbounded disk growth).
+  - path: /etc/logrotate.d/k3s-audit
+    content: |
+      /var/log/k3s-audit.log {
+        daily
+        rotate 14
+        compress
+        delaycompress
+        missingok
+        notifempty
+        copytruncate
+      }
+
   # Etcd snapshot backup to S3 (runs every 6 hours via systemd timer).
   - path: /usr/local/bin/etcd-backup.sh
     permissions: "0755"

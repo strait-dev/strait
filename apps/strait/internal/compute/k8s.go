@@ -7,6 +7,7 @@ import (
 	"io"
 	"maps"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -597,18 +598,41 @@ func (k *K8sRuntime) podFailureReason(pod *corev1.Pod) string {
 	return ""
 }
 
-// sanitizeUserLabels removes reserved keys from user-supplied labels.
+// sanitizeUserLabels removes reserved keys and dangerous characters from user-supplied labels.
 func sanitizeUserLabels(userLabels map[string]string) map[string]string {
 	if len(userLabels) == 0 {
 		return nil
 	}
 	clean := make(map[string]string, len(userLabels))
 	for k, v := range userLabels {
-		if !reservedLabels[k] {
-			clean[k] = v
+		if reservedLabels[k] {
+			continue
 		}
+		// Strip null bytes, newlines, and control characters from keys and values.
+		k = stripControlChars(k)
+		v = stripControlChars(v)
+		if k == "" {
+			continue
+		}
+		// K8s label values must be <= 63 characters.
+		if len(v) > 63 {
+			v = v[:63]
+		}
+		clean[k] = v
 	}
 	return clean
+}
+
+// stripControlChars removes null bytes, newlines, and other control characters.
+func stripControlChars(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r >= 32 && r != 127 {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // mapToEnvVars converts a map to Kubernetes EnvVar slice.

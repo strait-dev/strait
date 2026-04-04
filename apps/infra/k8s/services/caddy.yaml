@@ -16,13 +16,28 @@ metadata:
   namespace: strait
 data:
   Caddyfile: |
+    {
+      order rate_limit before basicauth
+    }
+
     {$STRAIT_DOMAIN} {
+      # Rate limit: 100 requests/minute per client IP.
+      rate_limit {
+        zone api {
+          key {remote_host}
+          events 100
+          window 1m
+        }
+      }
+
       reverse_proxy strait.strait.svc:8080
 
       header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
         -Server
       }
 
