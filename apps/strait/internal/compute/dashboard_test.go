@@ -146,8 +146,8 @@ func TestDashboard_HealthScoreExists(t *testing.T) {
 func TestDashboard_HasMinimumPanelCount(t *testing.T) {
 	t.Parallel()
 	d := loadDashboard(t)
-	if len(d.Dashboard.Panels) < 30 {
-		t.Errorf("expected at least 30 panels for comprehensive coverage, got %d", len(d.Dashboard.Panels))
+	if len(d.Dashboard.Panels) < 40 {
+		t.Errorf("expected at least 40 panels for comprehensive coverage, got %d", len(d.Dashboard.Panels))
 	}
 }
 
@@ -221,6 +221,7 @@ func TestDashboard_CoversAllCategories(t *testing.T) {
 		"workflow": false, "http": false, "worker pool": false,
 		"db": false, "node": false, "scheduling": false,
 		"disk": false, "network": false, "health score": false,
+		"kyverno": false, "audit": false, "cost": false,
 	}
 
 	for _, p := range d.Dashboard.Panels {
@@ -242,6 +243,9 @@ func TestDashboard_CoversAllCategories(t *testing.T) {
 			if strings.Contains(expr, "scheduling") { categories["scheduling"] = true }
 			if strings.Contains(expr, "node_disk") { categories["disk"] = true }
 			if strings.Contains(expr, "node_network") { categories["network"] = true }
+			if strings.Contains(expr, "kyverno") { categories["kyverno"] = true }
+			if strings.Contains(expr, "audit") || strings.Contains(expr, "k3s-audit") { categories["audit"] = true }
+			if strings.Contains(expr, "cost") || strings.Contains(expr, "currencyUSD") { categories["cost"] = true }
 		}
 	}
 
@@ -249,5 +253,72 @@ func TestDashboard_CoversAllCategories(t *testing.T) {
 		if !found {
 			t.Errorf("dashboard missing category: %s", cat)
 		}
+	}
+}
+
+func TestDashboard_HasSecurityPanels(t *testing.T) {
+	t.Parallel()
+	d := loadDashboard(t)
+
+	securityMetrics := map[string]bool{
+		"kyverno_policy_results_total":    false,
+		"kyverno_admission_requests_total": false,
+		"falco":                           false,
+		"k3s-audit":                       false,
+	}
+
+	for _, p := range d.Dashboard.Panels {
+		for _, tgt := range p.Targets {
+			for metric := range securityMetrics {
+				if strings.Contains(tgt.Expr, metric) {
+					securityMetrics[metric] = true
+				}
+			}
+		}
+	}
+
+	for metric, found := range securityMetrics {
+		if !found {
+			t.Errorf("dashboard missing security metric: %s", metric)
+		}
+	}
+}
+
+func TestDashboard_HasCostPanels(t *testing.T) {
+	t.Parallel()
+	d := loadDashboard(t)
+
+	hasCost := false
+	hasNodeCount := false
+	for _, p := range d.Dashboard.Panels {
+		title := strings.ToLower(p.Title)
+		if strings.Contains(title, "cost") {
+			hasCost = true
+		}
+		if strings.Contains(title, "node count") {
+			hasNodeCount = true
+		}
+	}
+
+	if !hasCost {
+		t.Error("dashboard missing cost estimation panel")
+	}
+	if !hasNodeCount {
+		t.Error("dashboard missing node count panel")
+	}
+}
+
+func TestDashboard_HasLogPanels(t *testing.T) {
+	t.Parallel()
+	d := loadDashboard(t)
+
+	logPanels := 0
+	for _, p := range d.Dashboard.Panels {
+		if p.Type == "logs" {
+			logPanels++
+		}
+	}
+	if logPanels < 2 {
+		t.Errorf("expected at least 2 log panels (audit + falco), got %d", logPanels)
 	}
 }
