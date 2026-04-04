@@ -137,6 +137,30 @@ When an approval times out:
 - The step run transitions to `failed`
 - The workflow follows its normal failure handling (which may include step retry logic)
 
+## Reminder Escalation Tiers
+
+Approval reminders can escalate in tiers while the approval remains pending.
+
+- Escalation state is seeded when reminder processing first observes an overdue approval.
+- The notify dispatcher advances escalation tiers over time.
+- Escalation state is finalized when the approval is approved, rejected, or times out.
+
+You can inspect and manage escalation lifecycle via Notify endpoints:
+
+- `GET /v1/notify/escalations/step-runs/{stepRunID}`
+- `POST /v1/notify/escalations/step-runs/{stepRunID}/acknowledge`
+- `POST /v1/notify/escalations/step-runs/{stepRunID}/complete`
+
+`/complete` accepts optional body:
+
+```json
+{
+  "status": "completed"
+}
+```
+
+Allowed values: `completed`, `failed`.
+
 ## Multiple Approval Gates
 
 You can have multiple approval steps in a single workflow:

@@ -93,6 +93,35 @@ Rate limits are applied per IP address:
 - `GET /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}`: Added/removed step refs between versions.
 - `GET /v1/workflows/{workflowID}/versions/{versionID}/impact`: How many sampled runs currently match a version.
 
+## Strait Notify Endpoints
+
+Strait Notify currently supports `inbox` and `email` channels for delivery.
+
+### Trigger and Delivery
+
+- `POST /v1/notify`: Triggers notification delivery through the template pipeline.
+- `POST /v1/notify/test`: Triggers a test notification through the same pipeline.
+- `POST /v1/notify/preview`: Renders template output without creating delivery records.
+- `GET /v1/notify/deliveries`: Lists notification messages and statuses.
+
+### Digest Semantics
+
+Digest batching is controlled by subscriber preferences (`digest_policy`).
+
+- `instant`: immediate send (default)
+- `hourly`: batches non-critical unscheduled notifications into hourly windows
+- `daily`: batches non-critical unscheduled notifications into daily windows
+
+Critical notifications bypass digest deferral. Scheduled notifications (`schedule.delay` / `schedule.at`) are dispatched by the scheduler at due time.
+
+### Approval Escalation Lifecycle
+
+For workflow approval reminders, escalation states are tracked per `step_run_id`.
+
+- `GET /v1/notify/escalations/step-runs/{stepRunID}`: fetch active escalation state
+- `POST /v1/notify/escalations/step-runs/{stepRunID}/acknowledge`: acknowledge active escalation
+- `POST /v1/notify/escalations/step-runs/{stepRunID}/complete`: complete active escalation (`completed` or `failed`)
+
 ## Example Requests
 
 ```bash
