@@ -1,7 +1,9 @@
 # Alert Rules
 
-Configure these in Grafana Cloud Alerting (https://strait.grafana.net/alerting).
-Metrics are shipped by Grafana Alloy from node-exporter and kube-state-metrics.
+**Alerts are defined as code in `grafana-alerts.json`** in this directory.
+Import them via: `apps/infra/scripts/import-alerts.sh`
+
+Reference table below for quick lookup. Source of truth is the JSON file.
 
 ## Critical Alerts
 
