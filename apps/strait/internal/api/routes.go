@@ -61,7 +61,9 @@ func (s *Server) routes() chi.Router {
 	if requestTimeout <= 0 {
 		requestTimeout = 30 * time.Second
 	}
-	r.Use(s.ipRateLimit)
+	if s.config.RateLimitRequests > 0 {
+		r.Use(httprate.LimitByIP(s.config.RateLimitRequests, s.config.RateLimitWindow))
+	}
 
 	triggerRateLimitRequests := s.config.TriggerRateLimitRequests
 	if triggerRateLimitRequests <= 0 {
@@ -273,6 +275,20 @@ func (s *Server) routes() chi.Router {
 			})
 		})
 
+		r.Route("/job-groups", func(r chi.Router) {
+			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateJobGroup))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListJobGroups))
+			r.Route("/{groupID}", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetJobGroup))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateJobGroup))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteJobGroup))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", TypedHandler(s, http.StatusOK, s.handleListJobsByGroup))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause-all", TypedHandler(s, http.StatusOK, s.handlePauseAllJobsByGroup))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/resume-all", TypedHandler(s, http.StatusOK, s.handleResumeAllJobsByGroup))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/stats", TypedHandler(s, http.StatusOK, s.handleGetJobGroupStats))
+			})
+		})
+
 		r.Route("/agents", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(30, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateAgent))
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAgents))
@@ -297,20 +313,6 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Get("/webhook-secret", TypedHandler(s, http.StatusOK, s.handleGetWebhookSecret))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/webhook-secret/rotate", TypedHandler(s, http.StatusOK, s.handleRotateAgentWebhookSecret))
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/runs/{runID}/replay", TypedHandler(s, http.StatusCreated, s.handleReplayAgentRun))
-			})
-		})
-
-		r.Route("/job-groups", func(r chi.Router) {
-			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateJobGroup))
-			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListJobGroups))
-			r.Route("/{groupID}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetJobGroup))
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateJobGroup))
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteJobGroup))
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", TypedHandler(s, http.StatusOK, s.handleListJobsByGroup))
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause-all", TypedHandler(s, http.StatusOK, s.handlePauseAllJobsByGroup))
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/resume-all", TypedHandler(s, http.StatusOK, s.handleResumeAllJobsByGroup))
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/stats", TypedHandler(s, http.StatusOK, s.handleGetJobGroupStats))
 			})
 		})
 
@@ -469,13 +471,6 @@ func (s *Server) routes() chi.Router {
 				r.Route("/events", func(r chi.Router) {
 					r.Get("/volume", TypedHandler(s, http.StatusOK, s.handleEventVolume))
 					r.Get("/latency", TypedHandler(s, http.StatusOK, s.handleEventLatency))
-				})
-
-				r.Route("/agents", func(r chi.Router) {
-					r.Get("/timeline", TypedHandler(s, http.StatusOK, s.handleAgentRunTimeline))
-					r.Get("/costs", TypedHandler(s, http.StatusOK, s.handleAgentCostSummary))
-					r.Get("/model-breakdown", TypedHandler(s, http.StatusOK, s.handleAgentModelBreakdown))
-					r.Get("/top", TypedHandler(s, http.StatusOK, s.handleAgentTopAgents))
 				})
 
 				r.Get("/costs/forecast", TypedHandler(s, http.StatusOK, s.handleCostForecast))
@@ -648,16 +643,12 @@ func (s *Server) routes() chi.Router {
 			r.Get("/state", TypedHandler(s, http.StatusOK, s.handleSDKListState))
 			r.Get("/state/{key}", TypedHandler(s, http.StatusOK, s.handleSDKGetState))
 			r.Delete("/state/{key}", TypedHandler(s, http.StatusNoContent, s.handleSDKDeleteState))
-			r.Post("/workflow-state", TypedHandler(s, http.StatusCreated, s.handleSDKSetWorkflowState))
-			r.Get("/workflow-state", TypedHandler(s, http.StatusOK, s.handleSDKListWorkflowState))
-			r.Get("/workflow-state/{key}", TypedHandler(s, http.StatusOK, s.handleSDKGetWorkflowState))
-			r.Delete("/workflow-state/{key}", TypedHandler(s, http.StatusNoContent, s.handleSDKDeleteWorkflowState))
 			r.Post("/stream", TypedHandler(s, http.StatusOK, s.handleSDKStreamChunk))
-			r.Post("/message", TypedHandler(s, http.StatusCreated, s.handleSDKSendMessage))
-			r.Post("/workflow", TypedHandler(s, http.StatusCreated, s.handleSDKSubmitWorkflow))
 			r.Post("/resources", TypedHandler(s, http.StatusCreated, s.handleSDKResources))
 			r.Post("/resource-snapshot", TypedHandler(s, http.StatusCreated, s.handleSDKResourceSnapshot))
 			r.Post("/iteration", TypedHandler(s, http.StatusOK, s.handleSDKIteration))
+			r.Post("/message", TypedHandler(s, http.StatusCreated, s.handleSDKSendMessage))
+			r.Post("/workflow", TypedHandler(s, http.StatusCreated, s.handleSDKSubmitWorkflow))
 			r.Route("/platform", func(r chi.Router) {
 				r.Post("/trigger-job", TypedHandler(s, http.StatusCreated, s.handleSDKTriggerJob))
 				r.Post("/trigger-workflow", TypedHandler(s, http.StatusCreated, s.handleSDKTriggerWorkflow))

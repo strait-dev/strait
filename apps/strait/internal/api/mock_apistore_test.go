@@ -445,6 +445,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetWorkflowRunFunc: func(ctx context.Context, id string) (*domain.WorkflowRun, error) {
 //				panic("mock out the GetWorkflowRun method")
 //			},
+//			GetWorkflowSnapshotFunc: func(ctx context.Context, id string) (*domain.WorkflowSnapshot, error) {
+//				panic("mock out the GetWorkflowSnapshot method")
+//			},
 //			GetWorkflowStepApprovalByStepRunIDFunc: func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error) {
 //				panic("mock out the GetWorkflowStepApprovalByStepRunID method")
 //			},
@@ -486,6 +489,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			ListDeploymentVersionsFunc: func(ctx context.Context, projectID string, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error) {
 //				panic("mock out the ListDeploymentVersions method")
+//			},
+//			ListDynamicWorkflowStepsByWorkflowRunFunc: func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStep, error) {
+//				panic("mock out the ListDynamicWorkflowStepsByWorkflowRun method")
 //			},
 //			ListEnvironmentsFunc: func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error) {
 //				panic("mock out the ListEnvironments method")
@@ -1238,6 +1244,9 @@ type APIStoreMock struct {
 	// GetWorkflowRunFunc mocks the GetWorkflowRun method.
 	GetWorkflowRunFunc func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 
+	// GetWorkflowSnapshotFunc mocks the GetWorkflowSnapshot method.
+	GetWorkflowSnapshotFunc func(ctx context.Context, id string) (*domain.WorkflowSnapshot, error)
+
 	// GetWorkflowStepApprovalByStepRunIDFunc mocks the GetWorkflowStepApprovalByStepRunID method.
 	GetWorkflowStepApprovalByStepRunIDFunc func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 
@@ -1279,6 +1288,9 @@ type APIStoreMock struct {
 
 	// ListDeploymentVersionsFunc mocks the ListDeploymentVersions method.
 	ListDeploymentVersionsFunc func(ctx context.Context, projectID string, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error)
+
+	// ListDynamicWorkflowStepsByWorkflowRunFunc mocks the ListDynamicWorkflowStepsByWorkflowRun method.
+	ListDynamicWorkflowStepsByWorkflowRunFunc func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStep, error)
 
 	// ListEnvironmentsFunc mocks the ListEnvironments method.
 	ListEnvironmentsFunc func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
@@ -2754,6 +2766,13 @@ type APIStoreMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// GetWorkflowSnapshot holds details about calls to the GetWorkflowSnapshot method.
+		GetWorkflowSnapshot []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
 		// GetWorkflowStepApprovalByStepRunID holds details about calls to the GetWorkflowStepApprovalByStepRunID method.
 		GetWorkflowStepApprovalByStepRunID []struct {
 			// Ctx is the ctx argument value.
@@ -2899,6 +2918,13 @@ type APIStoreMock struct {
 			Limit int
 			// Cursor is the cursor argument value.
 			Cursor *time.Time
+		}
+		// ListDynamicWorkflowStepsByWorkflowRun holds details about calls to the ListDynamicWorkflowStepsByWorkflowRun method.
+		ListDynamicWorkflowStepsByWorkflowRun []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WorkflowRunID is the workflowRunID argument value.
+			WorkflowRunID string
 		}
 		// ListEnvironments holds details about calls to the ListEnvironments method.
 		ListEnvironments []struct {
@@ -3970,268 +3996,270 @@ type APIStoreMock struct {
 			ProjectID string
 		}
 	}
-	lockAggregateCostStatsHourly           sync.RWMutex
-	lockApproveDeviceCode                  sync.RWMutex
-	lockAreAllDescendantsTerminal          sync.RWMutex
-	lockAreJobDependenciesSatisfied        sync.RWMutex
-	lockAssignMemberRole                   sync.RWMutex
-	lockBatchReceiveEventTriggers          sync.RWMutex
-	lockBatchUpdateJobsEnabled             sync.RWMutex
-	lockBulkCancelByFilter                 sync.RWMutex
-	lockBulkCancelRuns                     sync.RWMutex
-	lockBulkCancelWorkflowRuns             sync.RWMutex
-	lockBulkReplayDeadLetterRuns           sync.RWMutex
-	lockCancelChildRunsByParentIDs         sync.RWMutex
-	lockCancelEventTriggersByWorkflowRun   sync.RWMutex
-	lockCancelJobRunsByWorkflowRun         sync.RWMutex
-	lockCancelNonTerminalStepRuns          sync.RWMutex
-	lockCleanupExpiredDeviceCodes          sync.RWMutex
-	lockCompleteCanaryDeployment           sync.RWMutex
-	lockCompleteIdempotencyKey             sync.RWMutex
-	lockCountActiveEventTriggersByProject  sync.RWMutex
-	lockCountActiveWorkflowRunsByVersion   sync.RWMutex
-	lockCountBatchBufferItems              sync.RWMutex
-	lockCountCronJobsByOrg                 sync.RWMutex
-	lockCountEnvironmentsByOrg             sync.RWMutex
-	lockCountEnvironmentsByProject         sync.RWMutex
-	lockCountEventTriggersFinishedBefore   sync.RWMutex
-	lockCountProjectActiveRuns             sync.RWMutex
-	lockCountProjectQueuedRuns             sync.RWMutex
-	lockCountRunIterations                 sync.RWMutex
-	lockCountRunToolCalls                  sync.RWMutex
-	lockCountRunningWorkflowRuns           sync.RWMutex
-	lockCountRunsForJobSince               sync.RWMutex
-	lockCountWebhookSubscriptionsByOrg     sync.RWMutex
-	lockCountWebhookSubscriptionsByProject sync.RWMutex
-	lockCreateAPIKey                       sync.RWMutex
-	lockCreateAuditEvent                   sync.RWMutex
-	lockCreateBatchOperation               sync.RWMutex
-	lockCreateCanaryDeployment             sync.RWMutex
-	lockCreateDeploymentVersion            sync.RWMutex
-	lockCreateDeviceCode                   sync.RWMutex
-	lockCreateEnvironment                  sync.RWMutex
-	lockCreateEventSource                  sync.RWMutex
-	lockCreateEventSubscription            sync.RWMutex
-	lockCreateEventTrigger                 sync.RWMutex
-	lockCreateJob                          sync.RWMutex
-	lockCreateJobDependency                sync.RWMutex
-	lockCreateJobGroup                     sync.RWMutex
-	lockCreateJobSecret                    sync.RWMutex
-	lockCreateLogDrain                     sync.RWMutex
-	lockCreateNotificationChannel          sync.RWMutex
-	lockCreateNotificationDelivery         sync.RWMutex
-	lockCreateProject                      sync.RWMutex
-	lockCreateProjectRole                  sync.RWMutex
-	lockCreateResourcePolicy               sync.RWMutex
-	lockCreateRun                          sync.RWMutex
-	lockCreateRunCheckpoint                sync.RWMutex
-	lockCreateRunIteration                 sync.RWMutex
-	lockCreateRunResourceSnapshot          sync.RWMutex
-	lockCreateRunToolCall                  sync.RWMutex
-	lockCreateRunUsage                     sync.RWMutex
-	lockCreateTagPolicy                    sync.RWMutex
-	lockCreateWebhookDelivery              sync.RWMutex
-	lockCreateWebhookSubscription          sync.RWMutex
-	lockCreateWorkflow                     sync.RWMutex
-	lockCreateWorkflowRunLabels            sync.RWMutex
-	lockCreateWorkflowStep                 sync.RWMutex
-	lockCreateWorkflowVersionSnapshot      sync.RWMutex
-	lockDeleteEnvironment                  sync.RWMutex
-	lockDeleteEventSource                  sync.RWMutex
-	lockDeleteEventSubscription            sync.RWMutex
-	lockDeleteEventTriggersFinishedBefore  sync.RWMutex
-	lockDeleteIdempotencyKey               sync.RWMutex
-	lockDeleteJob                          sync.RWMutex
-	lockDeleteJobDependency                sync.RWMutex
-	lockDeleteJobGroup                     sync.RWMutex
-	lockDeleteJobMemory                    sync.RWMutex
-	lockDeleteJobSecret                    sync.RWMutex
-	lockDeleteLogDrain                     sync.RWMutex
-	lockDeleteNotificationChannel          sync.RWMutex
-	lockDeleteProject                      sync.RWMutex
-	lockDeleteProjectRole                  sync.RWMutex
-	lockDeleteResourcePolicy               sync.RWMutex
-	lockDeleteRunState                     sync.RWMutex
-	lockDeleteStepsByWorkflow              sync.RWMutex
-	lockDeleteTagPolicy                    sync.RWMutex
-	lockDeleteWebhookSubscription          sync.RWMutex
-	lockDeleteWorkflow                     sync.RWMutex
-	lockDrainBatchBuffer                   sync.RWMutex
-	lockExchangeDeviceCode                 sync.RWMutex
-	lockFinalizeBatchOperation             sync.RWMutex
-	lockFinalizeDeploymentVersion          sync.RWMutex
-	lockFindRecentRunByPayload             sync.RWMutex
-	lockGetAPIKeyByHash                    sync.RWMutex
-	lockGetAPIKeyByID                      sync.RWMutex
-	lockGetActiveCanaryDeployment          sync.RWMutex
-	lockGetAgent                           sync.RWMutex
-	lockGetApprovalStats                   sync.RWMutex
-	lockGetBatchOperation                  sync.RWMutex
-	lockGetComputeCostAnalytics            sync.RWMutex
-	lockGetCostAnalytics                   sync.RWMutex
-	lockGetCostOutliers                    sync.RWMutex
-	lockGetCostTrends                      sync.RWMutex
-	lockGetDebugBundle                     sync.RWMutex
-	lockGetDeploymentVersion               sync.RWMutex
-	lockGetDeviceCodeByDeviceCode          sync.RWMutex
-	lockGetEnvironment                     sync.RWMutex
-	lockGetEventSource                     sync.RWMutex
-	lockGetEventSourceByName               sync.RWMutex
-	lockGetEventTriggerByEventKey          sync.RWMutex
-	lockGetEventTriggerStats               sync.RWMutex
-	lockGetJob                             sync.RWMutex
-	lockGetJobBySlug                       sync.RWMutex
-	lockGetJobGroup                        sync.RWMutex
-	lockGetJobGroupStats                   sync.RWMutex
-	lockGetJobHealthStats                  sync.RWMutex
-	lockGetJobMemory                       sync.RWMutex
-	lockGetJobVersionByVersionID           sync.RWMutex
-	lockGetLogDrain                        sync.RWMutex
-	lockGetMemberRole                      sync.RWMutex
-	lockGetNotificationChannel             sync.RWMutex
-	lockGetPerformanceAnalytics            sync.RWMutex
-	lockGetProject                         sync.RWMutex
-	lockGetProjectQuota                    sync.RWMutex
-	lockGetProjectRole                     sync.RWMutex
-	lockGetResolvedEnvironmentVariables    sync.RWMutex
-	lockGetResourcePolicies                sync.RWMutex
-	lockGetRun                             sync.RWMutex
-	lockGetRunByIdempotencyKey             sync.RWMutex
-	lockGetRunState                        sync.RWMutex
-	lockGetRunsByIDs                       sync.RWMutex
-	lockGetStepRunByJobRunID               sync.RWMutex
-	lockGetStepRunByWorkflowRunAndRef      sync.RWMutex
-	lockGetTagPolicyActions                sync.RWMutex
-	lockGetTopCosts                        sync.RWMutex
-	lockGetUserPermissions                 sync.RWMutex
-	lockGetWebhookDelivery                 sync.RWMutex
-	lockGetWebhookSubscription             sync.RWMutex
-	lockGetWebhookSubscriptionSecrets      sync.RWMutex
-	lockGetWorkflow                        sync.RWMutex
-	lockGetWorkflowBySlug                  sync.RWMutex
-	lockGetWorkflowPolicyByProject         sync.RWMutex
-	lockGetWorkflowRun                     sync.RWMutex
-	lockGetWorkflowStepApprovalByStepRunID sync.RWMutex
-	lockGetWorkflowVersionByVersionID      sync.RWMutex
-	lockInsertBatchBufferItem              sync.RWMutex
-	lockInsertEvent                        sync.RWMutex
-	lockListAPIKeysByOrg                   sync.RWMutex
-	lockListAPIKeysByProject               sync.RWMutex
-	lockListAPIKeysExpiringSoon            sync.RWMutex
-	lockListActiveWorkflowVersions         sync.RWMutex
-	lockListAgentsByJobIDs                 sync.RWMutex
-	lockListAuditEvents                    sync.RWMutex
-	lockListBatchOperations                sync.RWMutex
-	lockListChildRuns                      sync.RWMutex
-	lockListDeadLetterRuns                 sync.RWMutex
-	lockListDeploymentVersions             sync.RWMutex
-	lockListEnvironments                   sync.RWMutex
-	lockListEventSources                   sync.RWMutex
-	lockListEventSubscriptionsBySource     sync.RWMutex
-	lockListEventTriggersByKeyPrefix       sync.RWMutex
-	lockListEventTriggersByProject         sync.RWMutex
-	lockListEvents                         sync.RWMutex
-	lockListEventsByRunFiltered            sync.RWMutex
-	lockListJobDependencies                sync.RWMutex
-	lockListJobGroups                      sync.RWMutex
-	lockListJobMemory                      sync.RWMutex
-	lockListJobSecrets                     sync.RWMutex
-	lockListJobVersionsByJob               sync.RWMutex
-	lockListJobs                           sync.RWMutex
-	lockListJobsByGroup                    sync.RWMutex
-	lockListJobsByOrg                      sync.RWMutex
-	lockListJobsByTag                      sync.RWMutex
-	lockListLogDrains                      sync.RWMutex
-	lockListManagedMachineIDsByWorkflowRun sync.RWMutex
-	lockListNotificationChannels           sync.RWMutex
-	lockListNotificationDeliveries         sync.RWMutex
-	lockListProjectMembers                 sync.RWMutex
-	lockListProjectRoles                   sync.RWMutex
-	lockListProjectsByOrg                  sync.RWMutex
-	lockListResourcePolicies               sync.RWMutex
-	lockListRunCheckpoints                 sync.RWMutex
-	lockListRunLineage                     sync.RWMutex
-	lockListRunOutputs                     sync.RWMutex
-	lockListRunResourceSnapshots           sync.RWMutex
-	lockListRunState                       sync.RWMutex
-	lockListRunToolCalls                   sync.RWMutex
-	lockListRunUsage                       sync.RWMutex
-	lockListRunsByOrg                      sync.RWMutex
-	lockListRunsByProject                  sync.RWMutex
-	lockListRunsByTag                      sync.RWMutex
-	lockListStepRunsByWorkflowRun          sync.RWMutex
-	lockListStepsByWorkflow                sync.RWMutex
-	lockListStepsByWorkflowVersion         sync.RWMutex
-	lockListTagPolicies                    sync.RWMutex
-	lockListWebhookDeliveries              sync.RWMutex
-	lockListWebhookSubscriptions           sync.RWMutex
-	lockListWorkflowRunLabels              sync.RWMutex
-	lockListWorkflowRuns                   sync.RWMutex
-	lockListWorkflowRunsByProject          sync.RWMutex
-	lockListWorkflowRunsByTag              sync.RWMutex
-	lockListWorkflowStepDecisions          sync.RWMutex
-	lockListWorkflowVersions               sync.RWMutex
-	lockListWorkflows                      sync.RWMutex
-	lockListWorkflowsByTag                 sync.RWMutex
-	lockMarkAPIKeyRotated                  sync.RWMutex
-	lockMarkJobRunsPausedByWorkflowRun     sync.RWMutex
-	lockPauseJob                           sync.RWMutex
-	lockPauseJobsByGroup                   sync.RWMutex
-	lockPromoteDeploymentVersion           sync.RWMutex
-	lockQueueStats                         sync.RWMutex
-	lockReceiveEventAndRequeueRun          sync.RWMutex
-	lockRemoveMemberRole                   sync.RWMutex
-	lockReplayDeadLetterRun                sync.RWMutex
-	lockReplayWebhookDelivery              sync.RWMutex
-	lockRequeuePausedJobRuns               sync.RWMutex
-	lockRescheduleRun                      sync.RWMutex
-	lockResetRunIdempotencyKey             sync.RWMutex
-	lockResumeJob                          sync.RWMutex
-	lockResumeJobsByGroup                  sync.RWMutex
-	lockRetryWebhookDelivery               sync.RWMutex
-	lockRevokeAPIKey                       sync.RWMutex
-	lockRollbackDeploymentVersion          sync.RWMutex
-	lockRotateWebhookSecret                sync.RWMutex
-	lockSeedProjectSystemRoles             sync.RWMutex
-	lockSetEventTriggerSentBy              sync.RWMutex
-	lockStreamAuditEvents                  sync.RWMutex
-	lockStreamJobs                         sync.RWMutex
-	lockStreamRuns                         sync.RWMutex
-	lockStreamWorkflows                    sync.RWMutex
-	lockSumJobMemorySizeBytes              sync.RWMutex
-	lockSumProjectDailyCostMicrousd        sync.RWMutex
-	lockSumRunCostMicrousd                 sync.RWMutex
-	lockSumRunTotalTokens                  sync.RWMutex
-	lockTouchAPIKeyLastUsed                sync.RWMutex
-	lockTryAcquireIdempotencyKey           sync.RWMutex
-	lockUpdateCanaryDeploymentTraffic      sync.RWMutex
-	lockUpdateEnvironment                  sync.RWMutex
-	lockUpdateEventSource                  sync.RWMutex
-	lockUpdateEventTriggerStatus           sync.RWMutex
-	lockUpdateHeartbeat                    sync.RWMutex
-	lockUpdateJob                          sync.RWMutex
-	lockUpdateJobGroup                     sync.RWMutex
-	lockUpdateLogDrain                     sync.RWMutex
-	lockUpdateNotificationChannel          sync.RWMutex
-	lockUpdateProjectDefaultRegion         sync.RWMutex
-	lockUpdateProjectMaxKeyLifetimeDays    sync.RWMutex
-	lockUpdateProjectRole                  sync.RWMutex
-	lockUpdateRunDebugMode                 sync.RWMutex
-	lockUpdateRunMetadata                  sync.RWMutex
-	lockUpdateRunStatus                    sync.RWMutex
-	lockUpdateStepRunStatus                sync.RWMutex
-	lockUpdateWebhookDelivery              sync.RWMutex
-	lockUpdateWorkflow                     sync.RWMutex
-	lockUpdateWorkflowRunStatus            sync.RWMutex
-	lockUpdateWorkflowStepApproval         sync.RWMutex
-	lockUpsertDebouncePending              sync.RWMutex
-	lockUpsertJobMemory                    sync.RWMutex
-	lockUpsertJobMemoryWithQuota           sync.RWMutex
-	lockUpsertRunOutput                    sync.RWMutex
-	lockUpsertRunState                     sync.RWMutex
-	lockUpsertWorkflowPolicy               sync.RWMutex
-	lockUserHasProjectAccess               sync.RWMutex
-	lockVerifyAuditChain                   sync.RWMutex
+	lockAggregateCostStatsHourly              sync.RWMutex
+	lockApproveDeviceCode                     sync.RWMutex
+	lockAreAllDescendantsTerminal             sync.RWMutex
+	lockAreJobDependenciesSatisfied           sync.RWMutex
+	lockAssignMemberRole                      sync.RWMutex
+	lockBatchReceiveEventTriggers             sync.RWMutex
+	lockBatchUpdateJobsEnabled                sync.RWMutex
+	lockBulkCancelByFilter                    sync.RWMutex
+	lockBulkCancelRuns                        sync.RWMutex
+	lockBulkCancelWorkflowRuns                sync.RWMutex
+	lockBulkReplayDeadLetterRuns              sync.RWMutex
+	lockCancelChildRunsByParentIDs            sync.RWMutex
+	lockCancelEventTriggersByWorkflowRun      sync.RWMutex
+	lockCancelJobRunsByWorkflowRun            sync.RWMutex
+	lockCancelNonTerminalStepRuns             sync.RWMutex
+	lockCleanupExpiredDeviceCodes             sync.RWMutex
+	lockCompleteCanaryDeployment              sync.RWMutex
+	lockCompleteIdempotencyKey                sync.RWMutex
+	lockCountActiveEventTriggersByProject     sync.RWMutex
+	lockCountActiveWorkflowRunsByVersion      sync.RWMutex
+	lockCountBatchBufferItems                 sync.RWMutex
+	lockCountCronJobsByOrg                    sync.RWMutex
+	lockCountEnvironmentsByOrg                sync.RWMutex
+	lockCountEnvironmentsByProject            sync.RWMutex
+	lockCountEventTriggersFinishedBefore      sync.RWMutex
+	lockCountProjectActiveRuns                sync.RWMutex
+	lockCountProjectQueuedRuns                sync.RWMutex
+	lockCountRunIterations                    sync.RWMutex
+	lockCountRunToolCalls                     sync.RWMutex
+	lockCountRunningWorkflowRuns              sync.RWMutex
+	lockCountRunsForJobSince                  sync.RWMutex
+	lockCountWebhookSubscriptionsByOrg        sync.RWMutex
+	lockCountWebhookSubscriptionsByProject    sync.RWMutex
+	lockCreateAPIKey                          sync.RWMutex
+	lockCreateAuditEvent                      sync.RWMutex
+	lockCreateBatchOperation                  sync.RWMutex
+	lockCreateCanaryDeployment                sync.RWMutex
+	lockCreateDeploymentVersion               sync.RWMutex
+	lockCreateDeviceCode                      sync.RWMutex
+	lockCreateEnvironment                     sync.RWMutex
+	lockCreateEventSource                     sync.RWMutex
+	lockCreateEventSubscription               sync.RWMutex
+	lockCreateEventTrigger                    sync.RWMutex
+	lockCreateJob                             sync.RWMutex
+	lockCreateJobDependency                   sync.RWMutex
+	lockCreateJobGroup                        sync.RWMutex
+	lockCreateJobSecret                       sync.RWMutex
+	lockCreateLogDrain                        sync.RWMutex
+	lockCreateNotificationChannel             sync.RWMutex
+	lockCreateNotificationDelivery            sync.RWMutex
+	lockCreateProject                         sync.RWMutex
+	lockCreateProjectRole                     sync.RWMutex
+	lockCreateResourcePolicy                  sync.RWMutex
+	lockCreateRun                             sync.RWMutex
+	lockCreateRunCheckpoint                   sync.RWMutex
+	lockCreateRunIteration                    sync.RWMutex
+	lockCreateRunResourceSnapshot             sync.RWMutex
+	lockCreateRunToolCall                     sync.RWMutex
+	lockCreateRunUsage                        sync.RWMutex
+	lockCreateTagPolicy                       sync.RWMutex
+	lockCreateWebhookDelivery                 sync.RWMutex
+	lockCreateWebhookSubscription             sync.RWMutex
+	lockCreateWorkflow                        sync.RWMutex
+	lockCreateWorkflowRunLabels               sync.RWMutex
+	lockCreateWorkflowStep                    sync.RWMutex
+	lockCreateWorkflowVersionSnapshot         sync.RWMutex
+	lockDeleteEnvironment                     sync.RWMutex
+	lockDeleteEventSource                     sync.RWMutex
+	lockDeleteEventSubscription               sync.RWMutex
+	lockDeleteEventTriggersFinishedBefore     sync.RWMutex
+	lockDeleteIdempotencyKey                  sync.RWMutex
+	lockDeleteJob                             sync.RWMutex
+	lockDeleteJobDependency                   sync.RWMutex
+	lockDeleteJobGroup                        sync.RWMutex
+	lockDeleteJobMemory                       sync.RWMutex
+	lockDeleteJobSecret                       sync.RWMutex
+	lockDeleteLogDrain                        sync.RWMutex
+	lockDeleteNotificationChannel             sync.RWMutex
+	lockDeleteProject                         sync.RWMutex
+	lockDeleteProjectRole                     sync.RWMutex
+	lockDeleteResourcePolicy                  sync.RWMutex
+	lockDeleteRunState                        sync.RWMutex
+	lockDeleteStepsByWorkflow                 sync.RWMutex
+	lockDeleteTagPolicy                       sync.RWMutex
+	lockDeleteWebhookSubscription             sync.RWMutex
+	lockDeleteWorkflow                        sync.RWMutex
+	lockDrainBatchBuffer                      sync.RWMutex
+	lockExchangeDeviceCode                    sync.RWMutex
+	lockFinalizeBatchOperation                sync.RWMutex
+	lockFinalizeDeploymentVersion             sync.RWMutex
+	lockFindRecentRunByPayload                sync.RWMutex
+	lockGetAPIKeyByHash                       sync.RWMutex
+	lockGetAPIKeyByID                         sync.RWMutex
+	lockGetActiveCanaryDeployment             sync.RWMutex
+	lockGetAgent                              sync.RWMutex
+	lockGetApprovalStats                      sync.RWMutex
+	lockGetBatchOperation                     sync.RWMutex
+	lockGetComputeCostAnalytics               sync.RWMutex
+	lockGetCostAnalytics                      sync.RWMutex
+	lockGetCostOutliers                       sync.RWMutex
+	lockGetCostTrends                         sync.RWMutex
+	lockGetDebugBundle                        sync.RWMutex
+	lockGetDeploymentVersion                  sync.RWMutex
+	lockGetDeviceCodeByDeviceCode             sync.RWMutex
+	lockGetEnvironment                        sync.RWMutex
+	lockGetEventSource                        sync.RWMutex
+	lockGetEventSourceByName                  sync.RWMutex
+	lockGetEventTriggerByEventKey             sync.RWMutex
+	lockGetEventTriggerStats                  sync.RWMutex
+	lockGetJob                                sync.RWMutex
+	lockGetJobBySlug                          sync.RWMutex
+	lockGetJobGroup                           sync.RWMutex
+	lockGetJobGroupStats                      sync.RWMutex
+	lockGetJobHealthStats                     sync.RWMutex
+	lockGetJobMemory                          sync.RWMutex
+	lockGetJobVersionByVersionID              sync.RWMutex
+	lockGetLogDrain                           sync.RWMutex
+	lockGetMemberRole                         sync.RWMutex
+	lockGetNotificationChannel                sync.RWMutex
+	lockGetPerformanceAnalytics               sync.RWMutex
+	lockGetProject                            sync.RWMutex
+	lockGetProjectQuota                       sync.RWMutex
+	lockGetProjectRole                        sync.RWMutex
+	lockGetResolvedEnvironmentVariables       sync.RWMutex
+	lockGetResourcePolicies                   sync.RWMutex
+	lockGetRun                                sync.RWMutex
+	lockGetRunByIdempotencyKey                sync.RWMutex
+	lockGetRunState                           sync.RWMutex
+	lockGetRunsByIDs                          sync.RWMutex
+	lockGetStepRunByJobRunID                  sync.RWMutex
+	lockGetStepRunByWorkflowRunAndRef         sync.RWMutex
+	lockGetTagPolicyActions                   sync.RWMutex
+	lockGetTopCosts                           sync.RWMutex
+	lockGetUserPermissions                    sync.RWMutex
+	lockGetWebhookDelivery                    sync.RWMutex
+	lockGetWebhookSubscription                sync.RWMutex
+	lockGetWebhookSubscriptionSecrets         sync.RWMutex
+	lockGetWorkflow                           sync.RWMutex
+	lockGetWorkflowBySlug                     sync.RWMutex
+	lockGetWorkflowPolicyByProject            sync.RWMutex
+	lockGetWorkflowRun                        sync.RWMutex
+	lockGetWorkflowSnapshot                   sync.RWMutex
+	lockGetWorkflowStepApprovalByStepRunID    sync.RWMutex
+	lockGetWorkflowVersionByVersionID         sync.RWMutex
+	lockInsertBatchBufferItem                 sync.RWMutex
+	lockInsertEvent                           sync.RWMutex
+	lockListAPIKeysByOrg                      sync.RWMutex
+	lockListAPIKeysByProject                  sync.RWMutex
+	lockListAPIKeysExpiringSoon               sync.RWMutex
+	lockListActiveWorkflowVersions            sync.RWMutex
+	lockListAgentsByJobIDs                    sync.RWMutex
+	lockListAuditEvents                       sync.RWMutex
+	lockListBatchOperations                   sync.RWMutex
+	lockListChildRuns                         sync.RWMutex
+	lockListDeadLetterRuns                    sync.RWMutex
+	lockListDeploymentVersions                sync.RWMutex
+	lockListDynamicWorkflowStepsByWorkflowRun sync.RWMutex
+	lockListEnvironments                      sync.RWMutex
+	lockListEventSources                      sync.RWMutex
+	lockListEventSubscriptionsBySource        sync.RWMutex
+	lockListEventTriggersByKeyPrefix          sync.RWMutex
+	lockListEventTriggersByProject            sync.RWMutex
+	lockListEvents                            sync.RWMutex
+	lockListEventsByRunFiltered               sync.RWMutex
+	lockListJobDependencies                   sync.RWMutex
+	lockListJobGroups                         sync.RWMutex
+	lockListJobMemory                         sync.RWMutex
+	lockListJobSecrets                        sync.RWMutex
+	lockListJobVersionsByJob                  sync.RWMutex
+	lockListJobs                              sync.RWMutex
+	lockListJobsByGroup                       sync.RWMutex
+	lockListJobsByOrg                         sync.RWMutex
+	lockListJobsByTag                         sync.RWMutex
+	lockListLogDrains                         sync.RWMutex
+	lockListManagedMachineIDsByWorkflowRun    sync.RWMutex
+	lockListNotificationChannels              sync.RWMutex
+	lockListNotificationDeliveries            sync.RWMutex
+	lockListProjectMembers                    sync.RWMutex
+	lockListProjectRoles                      sync.RWMutex
+	lockListProjectsByOrg                     sync.RWMutex
+	lockListResourcePolicies                  sync.RWMutex
+	lockListRunCheckpoints                    sync.RWMutex
+	lockListRunLineage                        sync.RWMutex
+	lockListRunOutputs                        sync.RWMutex
+	lockListRunResourceSnapshots              sync.RWMutex
+	lockListRunState                          sync.RWMutex
+	lockListRunToolCalls                      sync.RWMutex
+	lockListRunUsage                          sync.RWMutex
+	lockListRunsByOrg                         sync.RWMutex
+	lockListRunsByProject                     sync.RWMutex
+	lockListRunsByTag                         sync.RWMutex
+	lockListStepRunsByWorkflowRun             sync.RWMutex
+	lockListStepsByWorkflow                   sync.RWMutex
+	lockListStepsByWorkflowVersion            sync.RWMutex
+	lockListTagPolicies                       sync.RWMutex
+	lockListWebhookDeliveries                 sync.RWMutex
+	lockListWebhookSubscriptions              sync.RWMutex
+	lockListWorkflowRunLabels                 sync.RWMutex
+	lockListWorkflowRuns                      sync.RWMutex
+	lockListWorkflowRunsByProject             sync.RWMutex
+	lockListWorkflowRunsByTag                 sync.RWMutex
+	lockListWorkflowStepDecisions             sync.RWMutex
+	lockListWorkflowVersions                  sync.RWMutex
+	lockListWorkflows                         sync.RWMutex
+	lockListWorkflowsByTag                    sync.RWMutex
+	lockMarkAPIKeyRotated                     sync.RWMutex
+	lockMarkJobRunsPausedByWorkflowRun        sync.RWMutex
+	lockPauseJob                              sync.RWMutex
+	lockPauseJobsByGroup                      sync.RWMutex
+	lockPromoteDeploymentVersion              sync.RWMutex
+	lockQueueStats                            sync.RWMutex
+	lockReceiveEventAndRequeueRun             sync.RWMutex
+	lockRemoveMemberRole                      sync.RWMutex
+	lockReplayDeadLetterRun                   sync.RWMutex
+	lockReplayWebhookDelivery                 sync.RWMutex
+	lockRequeuePausedJobRuns                  sync.RWMutex
+	lockRescheduleRun                         sync.RWMutex
+	lockResetRunIdempotencyKey                sync.RWMutex
+	lockResumeJob                             sync.RWMutex
+	lockResumeJobsByGroup                     sync.RWMutex
+	lockRetryWebhookDelivery                  sync.RWMutex
+	lockRevokeAPIKey                          sync.RWMutex
+	lockRollbackDeploymentVersion             sync.RWMutex
+	lockRotateWebhookSecret                   sync.RWMutex
+	lockSeedProjectSystemRoles                sync.RWMutex
+	lockSetEventTriggerSentBy                 sync.RWMutex
+	lockStreamAuditEvents                     sync.RWMutex
+	lockStreamJobs                            sync.RWMutex
+	lockStreamRuns                            sync.RWMutex
+	lockStreamWorkflows                       sync.RWMutex
+	lockSumJobMemorySizeBytes                 sync.RWMutex
+	lockSumProjectDailyCostMicrousd           sync.RWMutex
+	lockSumRunCostMicrousd                    sync.RWMutex
+	lockSumRunTotalTokens                     sync.RWMutex
+	lockTouchAPIKeyLastUsed                   sync.RWMutex
+	lockTryAcquireIdempotencyKey              sync.RWMutex
+	lockUpdateCanaryDeploymentTraffic         sync.RWMutex
+	lockUpdateEnvironment                     sync.RWMutex
+	lockUpdateEventSource                     sync.RWMutex
+	lockUpdateEventTriggerStatus              sync.RWMutex
+	lockUpdateHeartbeat                       sync.RWMutex
+	lockUpdateJob                             sync.RWMutex
+	lockUpdateJobGroup                        sync.RWMutex
+	lockUpdateLogDrain                        sync.RWMutex
+	lockUpdateNotificationChannel             sync.RWMutex
+	lockUpdateProjectDefaultRegion            sync.RWMutex
+	lockUpdateProjectMaxKeyLifetimeDays       sync.RWMutex
+	lockUpdateProjectRole                     sync.RWMutex
+	lockUpdateRunDebugMode                    sync.RWMutex
+	lockUpdateRunMetadata                     sync.RWMutex
+	lockUpdateRunStatus                       sync.RWMutex
+	lockUpdateStepRunStatus                   sync.RWMutex
+	lockUpdateWebhookDelivery                 sync.RWMutex
+	lockUpdateWorkflow                        sync.RWMutex
+	lockUpdateWorkflowRunStatus               sync.RWMutex
+	lockUpdateWorkflowStepApproval            sync.RWMutex
+	lockUpsertDebouncePending                 sync.RWMutex
+	lockUpsertJobMemory                       sync.RWMutex
+	lockUpsertJobMemoryWithQuota              sync.RWMutex
+	lockUpsertRunOutput                       sync.RWMutex
+	lockUpsertRunState                        sync.RWMutex
+	lockUpsertWorkflowPolicy                  sync.RWMutex
+	lockUserHasProjectAccess                  sync.RWMutex
+	lockVerifyAuditChain                      sync.RWMutex
 }
 
 // AggregateCostStatsHourly calls AggregateCostStatsHourlyFunc.
@@ -10151,6 +10179,46 @@ func (mock *APIStoreMock) GetWorkflowRunCalls() []struct {
 	return calls
 }
 
+// GetWorkflowSnapshot calls GetWorkflowSnapshotFunc.
+func (mock *APIStoreMock) GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error) {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockGetWorkflowSnapshot.Lock()
+	mock.calls.GetWorkflowSnapshot = append(mock.calls.GetWorkflowSnapshot, callInfo)
+	mock.lockGetWorkflowSnapshot.Unlock()
+	if mock.GetWorkflowSnapshotFunc == nil {
+		var (
+			workflowSnapshotOut *domain.WorkflowSnapshot
+			errOut              error
+		)
+		return workflowSnapshotOut, errOut
+	}
+	return mock.GetWorkflowSnapshotFunc(ctx, id)
+}
+
+// GetWorkflowSnapshotCalls gets all the calls that were made to GetWorkflowSnapshot.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetWorkflowSnapshotCalls())
+func (mock *APIStoreMock) GetWorkflowSnapshotCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockGetWorkflowSnapshot.RLock()
+	calls = mock.calls.GetWorkflowSnapshot
+	mock.lockGetWorkflowSnapshot.RUnlock()
+	return calls
+}
+
 // GetWorkflowStepApprovalByStepRunID calls GetWorkflowStepApprovalByStepRunIDFunc.
 func (mock *APIStoreMock) GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error) {
 	callInfo := struct {
@@ -10802,6 +10870,46 @@ func (mock *APIStoreMock) ListDeploymentVersionsCalls() []struct {
 	mock.lockListDeploymentVersions.RLock()
 	calls = mock.calls.ListDeploymentVersions
 	mock.lockListDeploymentVersions.RUnlock()
+	return calls
+}
+
+// ListDynamicWorkflowStepsByWorkflowRun calls ListDynamicWorkflowStepsByWorkflowRunFunc.
+func (mock *APIStoreMock) ListDynamicWorkflowStepsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStep, error) {
+	callInfo := struct {
+		Ctx           context.Context
+		WorkflowRunID string
+	}{
+		Ctx:           ctx,
+		WorkflowRunID: workflowRunID,
+	}
+	mock.lockListDynamicWorkflowStepsByWorkflowRun.Lock()
+	mock.calls.ListDynamicWorkflowStepsByWorkflowRun = append(mock.calls.ListDynamicWorkflowStepsByWorkflowRun, callInfo)
+	mock.lockListDynamicWorkflowStepsByWorkflowRun.Unlock()
+	if mock.ListDynamicWorkflowStepsByWorkflowRunFunc == nil {
+		var (
+			workflowStepsOut []domain.WorkflowStep
+			errOut           error
+		)
+		return workflowStepsOut, errOut
+	}
+	return mock.ListDynamicWorkflowStepsByWorkflowRunFunc(ctx, workflowRunID)
+}
+
+// ListDynamicWorkflowStepsByWorkflowRunCalls gets all the calls that were made to ListDynamicWorkflowStepsByWorkflowRun.
+// Check the length with:
+//
+//	len(mockedAPIStore.ListDynamicWorkflowStepsByWorkflowRunCalls())
+func (mock *APIStoreMock) ListDynamicWorkflowStepsByWorkflowRunCalls() []struct {
+	Ctx           context.Context
+	WorkflowRunID string
+} {
+	var calls []struct {
+		Ctx           context.Context
+		WorkflowRunID string
+	}
+	mock.lockListDynamicWorkflowStepsByWorkflowRun.RLock()
+	calls = mock.calls.ListDynamicWorkflowStepsByWorkflowRun
+	mock.lockListDynamicWorkflowStepsByWorkflowRun.RUnlock()
 	return calls
 }
 

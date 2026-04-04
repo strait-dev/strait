@@ -250,6 +250,13 @@ func runEventsFromDomain(run *domain.JobRun, events []domain.RunEvent) []clickho
 
 // enqueueAgentAnalytics checks if the run belongs to an agent and enqueues
 // an agent-specific analytics record when it does.
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
+}
+
 func enqueueAgentAnalytics(exporter *clickhouse.Exporter, event RunLifecycleEvent, run *domain.JobRun, durationMs uint64) {
 	if event.Job == nil || event.Job.Tags["strait_internal"] != "agent" {
 		return
@@ -262,7 +269,7 @@ func enqueueAgentAnalytics(exporter *clickhouse.Exporter, event RunLifecycleEven
 		Status:     string(run.Status),
 		DurationMs: durationMs,
 		CreatedAt:  time.Now(),
-		StartedAt:  run.StartedAt,
-		FinishedAt: run.FinishedAt,
+		StartedAt:  derefTime(run.StartedAt),
+		FinishedAt: derefTime(run.FinishedAt),
 	})
 }

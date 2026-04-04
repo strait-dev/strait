@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // RunEventsTable is the DDL for the run_events ClickHouse table.
@@ -354,4 +355,25 @@ func CreateSchema(ctx context.Context, c *Client) error {
 	}
 
 	return nil
+}
+
+// AgentRunAnalyticsRecord is the ClickHouse record for agent run analytics.
+type AgentRunAnalyticsRecord struct {
+	RunID            string `ch:"run_id"`
+	AgentSlug        string `ch:"agent_slug"`
+	AgentID          string `ch:"agent_id"`
+	ProjectID        string `ch:"project_id"`
+	Status           string `ch:"status"`
+	DurationMs       uint64 `ch:"duration_ms"`
+	Model            string `ch:"model"`
+	PromptTokens     uint64 `ch:"prompt_tokens"`
+	CompletionTokens uint64 `ch:"completion_tokens"`
+	TotalTokens      uint64 `ch:"total_tokens"`
+	CostMicrousd     int64  `ch:"cost_microusd"`
+	ToolCallCount    uint64 `ch:"tool_call_count"`
+	CheckpointCount  uint64 `ch:"checkpoint_count"`
+	ErrorClass       string    `ch:"error_class"`
+	CreatedAt        time.Time `ch:"created_at"`
+	StartedAt        time.Time `ch:"started_at"`
+	FinishedAt       time.Time `ch:"finished_at"`
 }

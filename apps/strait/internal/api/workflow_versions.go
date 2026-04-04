@@ -72,11 +72,7 @@ func (s *Server) handleListWorkflowVersionSteps(ctx context.Context, input *List
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list workflow version steps")
 	}
-	respSteps, err := s.workflowStepResponses(ctx, version.ProjectID, steps)
-	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to list workflow version steps")
-	}
-	return &ListWorkflowVersionStepsOutput{Body: respSteps}, nil
+	return &ListWorkflowVersionStepsOutput{Body: steps}, nil
 }
 
 type WorkflowVersionDiffInput struct {

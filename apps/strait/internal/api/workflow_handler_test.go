@@ -16,7 +16,6 @@ import (
 	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/domain"
-	"strait/internal/pubsub"
 	"strait/internal/store"
 )
 
@@ -101,15 +100,11 @@ func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPubl
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
-	var publisher pubsub.Publisher
-	if pub != nil {
-		publisher = pub
-	}
 	srv := NewServer(ServerDeps{
 		Config:         cfg,
 		Store:          s,
 		Queue:          q,
-		PubSub:         publisher,
+		PubSub:         pub,
 		WorkflowEngine: trigger,
 	})
 	t.Cleanup(srv.Close)
@@ -123,15 +118,11 @@ func newWorkflowTestServerWithCallback(t *testing.T, s APIStore, q *mockQueue, p
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
-	var publisher pubsub.Publisher
-	if pub != nil {
-		publisher = pub
-	}
 	srv := NewServer(ServerDeps{
 		Config:           cfg,
 		Store:            s,
 		Queue:            q,
-		PubSub:           publisher,
+		PubSub:           pub,
 		WorkflowCallback: wfCallback,
 		WorkflowEngine:   trigger,
 	})
@@ -170,90 +161,6 @@ func TestHandleCreateWorkflow_SuccessWithSteps(t *testing.T) {
 	}
 	if createStepCalls != 2 {
 		t.Fatalf("create step calls = %d, want 2", createStepCalls)
-	}
-}
-
-func TestHandleCreateWorkflow_ResolvesAgentStepToBackingJob(t *testing.T) {
-	t.Parallel()
-
-	ms := &APIStoreMock{
-		GetAgentFunc: func(_ context.Context, id string) (*domain.Agent, error) {
-			if id != "agent-1" {
-				t.Fatalf("agent id = %q, want agent-1", id)
-			}
-			return &domain.Agent{ID: id, ProjectID: "proj-1", JobID: "job-hidden"}, nil
-		},
-		ListAgentsByJobIDsFunc: func(_ context.Context, projectID string, jobIDs []string) ([]domain.Agent, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("projectID = %q, want proj-1", projectID)
-			}
-			if len(jobIDs) != 1 || jobIDs[0] != "job-hidden" {
-				t.Fatalf("jobIDs = %v, want [job-hidden]", jobIDs)
-			}
-			return []domain.Agent{{ID: "agent-1", ProjectID: projectID, JobID: "job-hidden"}}, nil
-		},
-		CreateWorkflowFunc: func(_ context.Context, wf *domain.Workflow) error {
-			wf.ID = "wf-1"
-			wf.Version = 1
-			return nil
-		},
-		CreateWorkflowStepFunc: func(_ context.Context, step *domain.WorkflowStep) error {
-			if step.JobID != "job-hidden" {
-				t.Fatalf("step.JobID = %q, want job-hidden", step.JobID)
-			}
-			return nil
-		},
-		CreateWorkflowVersionSnapshotFunc: func(_ context.Context, workflowID string, version int) error {
-			if workflowID != "wf-1" || version != 1 {
-				t.Fatalf("unexpected snapshot args: %s %d", workflowID, version)
-			}
-			return nil
-		},
-	}
-
-	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
-	w := httptest.NewRecorder()
-	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"agent_id":"agent-1","step_ref":"agent-step"}]}`
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp workflowResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if len(resp.Steps) != 1 {
-		t.Fatalf("steps len = %d, want 1", len(resp.Steps))
-	}
-	if resp.Steps[0].AgentID != "agent-1" {
-		t.Fatalf("steps[0].AgentID = %q, want agent-1", resp.Steps[0].AgentID)
-	}
-	if resp.Steps[0].JobID != "job-hidden" {
-		t.Fatalf("steps[0].JobID = %q, want job-hidden", resp.Steps[0].JobID)
-	}
-}
-
-func TestHandleCreateWorkflow_AgentAndJobMismatch(t *testing.T) {
-	t.Parallel()
-
-	ms := &APIStoreMock{
-		GetAgentFunc: func(_ context.Context, id string) (*domain.Agent, error) {
-			return &domain.Agent{ID: id, ProjectID: "proj-1", JobID: "job-hidden"}, nil
-		},
-	}
-
-	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
-	w := httptest.NewRecorder()
-	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"agent_id":"agent-1","job_id":"job-other","step_ref":"agent-step"}]}`
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "does not match agent_id") {
-		t.Fatalf("expected mismatch error, got: %s", w.Body.String())
 	}
 }
 
@@ -344,47 +251,6 @@ func TestHandleGetWorkflow_FoundWithSteps(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
-	}
-}
-
-func TestHandleGetWorkflow_AnnotatesAgentBackedSteps(t *testing.T) {
-	t.Parallel()
-
-	ms := &APIStoreMock{
-		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
-			return &domain.Workflow{ID: id, Name: "wf", ProjectID: "proj-1"}, nil
-		},
-		ListStepsByWorkflowFunc: func(_ context.Context, workflowID string) ([]domain.WorkflowStep, error) {
-			return []domain.WorkflowStep{{ID: "step-1", WorkflowID: workflowID, StepRef: "agent-step", JobID: "job-hidden"}}, nil
-		},
-		ListAgentsByJobIDsFunc: func(_ context.Context, projectID string, jobIDs []string) ([]domain.Agent, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("projectID = %q, want proj-1", projectID)
-			}
-			if len(jobIDs) != 1 || jobIDs[0] != "job-hidden" {
-				t.Fatalf("jobIDs = %v, want [job-hidden]", jobIDs)
-			}
-			return []domain.Agent{{ID: "agent-1", ProjectID: projectID, JobID: "job-hidden"}}, nil
-		},
-	}
-
-	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp workflowResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if len(resp.Steps) != 1 {
-		t.Fatalf("steps len = %d, want 1", len(resp.Steps))
-	}
-	if resp.Steps[0].AgentID != "agent-1" {
-		t.Fatalf("steps[0].AgentID = %q, want agent-1", resp.Steps[0].AgentID)
 	}
 }
 
@@ -1416,26 +1282,6 @@ func TestHandleDryRunWorkflow(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/dry-run", body))
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-		}
-	})
-
-	t.Run("agent-backed DAG", func(t *testing.T) {
-		t.Parallel()
-		ms := &APIStoreMock{
-			GetWorkflowFunc: func(_ context.Context, workflowID string) (*domain.Workflow, error) {
-				return &domain.Workflow{ID: workflowID, ProjectID: "proj-1"}, nil
-			},
-			GetAgentFunc: func(_ context.Context, id string) (*domain.Agent, error) {
-				return &domain.Agent{ID: id, ProjectID: "proj-1", JobID: "job-hidden"}, nil
-			},
-		}
-		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
-
-		w := httptest.NewRecorder()
-		body := `{"steps":[{"agent_id":"agent-1","step_ref":"a"}]}`
-		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/dry-run", body))
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }
@@ -2753,22 +2599,13 @@ func TestHandleListWorkflowVersionSteps(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
 			GetWorkflowVersionByVersionIDFunc: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
-				return &domain.WorkflowVersion{ID: "v2", ProjectID: "proj-1", Version: 2}, nil
+				return &domain.WorkflowVersion{ID: "v2", Version: 2}, nil
 			},
 			ListStepsByWorkflowVersionFunc: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
 				if workflowID != "wf-1" || version != 2 {
 					t.Fatalf("unexpected args: %s %d", workflowID, version)
 				}
-				return []domain.WorkflowStep{{StepRef: "a", JobID: "job-hidden"}, {StepRef: "b", DependsOn: []string{"a"}}}, nil
-			},
-			ListAgentsByJobIDsFunc: func(_ context.Context, projectID string, jobIDs []string) ([]domain.Agent, error) {
-				if projectID != "proj-1" {
-					t.Fatalf("projectID = %q, want proj-1", projectID)
-				}
-				if len(jobIDs) != 1 || jobIDs[0] != "job-hidden" {
-					t.Fatalf("jobIDs = %v, want [job-hidden]", jobIDs)
-				}
-				return []domain.Agent{{ID: "agent-1", ProjectID: projectID, JobID: "job-hidden"}}, nil
+				return []domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b", DependsOn: []string{"a"}}}, nil
 			},
 		}
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
@@ -2778,15 +2615,12 @@ func TestHandleListWorkflowVersionSteps(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
-		var steps []workflowStepResponse
+		var steps []domain.WorkflowStep
 		if err := json.NewDecoder(w.Body).Decode(&steps); err != nil {
 			t.Fatalf("decode response: %v", err)
 		}
 		if len(steps) != 2 {
 			t.Fatalf("steps len = %d, want 2", len(steps))
-		}
-		if steps[0].AgentID != "agent-1" {
-			t.Fatalf("steps[0].AgentID = %q, want agent-1", steps[0].AgentID)
 		}
 	})
 
