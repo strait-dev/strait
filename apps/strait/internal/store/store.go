@@ -15,24 +15,32 @@ import (
 )
 
 var (
-	ErrJobSlugConflict              = errors.New("job slug conflict")
-	ErrJobNotFound                  = errors.New("job not found")
-	ErrJobGroupNotFound             = errors.New("job group not found")
-	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
-	ErrEnvironmentNotFound          = errors.New("environment not found")
-	ErrJobSecretNotFound            = errors.New("job secret not found")
-	ErrRunNotFound                  = errors.New("run not found")
-	ErrRunConflict                  = errors.New("run status update conflict")
-	ErrWorkflowNotFound             = errors.New("workflow not found")
-	ErrWorkflowStepNotFound         = errors.New("workflow step not found")
-	ErrWorkflowRunNotFound          = errors.New("workflow run not found")
-	ErrWorkflowStepRunNotFound      = errors.New("workflow step run not found")
-	ErrEventKeyConflict             = errors.New("event key conflict")
-	ErrWorkflowVersionNotFound      = errors.New("workflow version not found")
-	ErrDeploymentVersionNotFound    = errors.New("deployment version not found")
-	ErrNotificationChannelNotFound  = errors.New("notification channel not found")
-	ErrJobMemoryPerKeyLimitExceeded = errors.New("job memory per-key limit exceeded")
-	ErrJobMemoryPerJobLimitExceeded = errors.New("job memory per-job limit exceeded")
+	ErrJobSlugConflict                = errors.New("job slug conflict")
+	ErrJobNotFound                    = errors.New("job not found")
+	ErrJobGroupNotFound               = errors.New("job group not found")
+	ErrWebhookSubscriptionNotFound    = errors.New("webhook subscription not found")
+	ErrEnvironmentNotFound            = errors.New("environment not found")
+	ErrJobSecretNotFound              = errors.New("job secret not found")
+	ErrRunNotFound                    = errors.New("run not found")
+	ErrRunConflict                    = errors.New("run status update conflict")
+	ErrWorkflowNotFound               = errors.New("workflow not found")
+	ErrWorkflowStepNotFound           = errors.New("workflow step not found")
+	ErrWorkflowRunNotFound            = errors.New("workflow run not found")
+	ErrWorkflowStepRunNotFound        = errors.New("workflow step run not found")
+	ErrEventKeyConflict               = errors.New("event key conflict")
+	ErrWorkflowVersionNotFound        = errors.New("workflow version not found")
+	ErrDeploymentVersionNotFound      = errors.New("deployment version not found")
+	ErrNotificationChannelNotFound    = errors.New("notification channel not found")
+	ErrNotifySubscriberNotFound       = errors.New("notify subscriber not found")
+	ErrNotificationTemplateNotFound   = errors.New("notification template not found")
+	ErrNotifyTopicNotFound            = errors.New("notify topic not found")
+	ErrNotificationCategoryNotFound   = errors.New("notification category not found")
+	ErrNotificationPreferenceNotFound = errors.New("notification preference not found")
+	ErrNotificationMessageNotFound    = errors.New("notification message not found")
+	ErrNotificationProviderNotFound   = errors.New("notification provider not found")
+	ErrInboxItemNotFound              = errors.New("inbox item not found")
+	ErrJobMemoryPerKeyLimitExceeded   = errors.New("job memory per-key limit exceeded")
+	ErrJobMemoryPerJobLimitExceeded   = errors.New("job memory per-job limit exceeded")
 )
 
 type DBTX interface {
@@ -381,6 +389,41 @@ type NotificationStore interface {
 	ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }
 
+type NotifyStore interface {
+	UpsertNotifySubscriber(ctx context.Context, sub *domain.NotifySubscriber) error
+	GetNotifySubscriber(ctx context.Context, id, projectID string) (*domain.NotifySubscriber, error)
+	GetNotifySubscriberByExternalID(ctx context.Context, projectID, externalID string) (*domain.NotifySubscriber, error)
+	ListNotifySubscribers(ctx context.Context, projectID string, tenantID, status *string, limit int, cursor *time.Time) ([]domain.NotifySubscriber, error)
+	UpdateNotifySubscriber(ctx context.Context, sub *domain.NotifySubscriber) error
+	CreateNotifyTopic(ctx context.Context, topic *domain.NotifyTopic) error
+	GetNotifyTopicByKey(ctx context.Context, projectID, topicKey string) (*domain.NotifyTopic, error)
+	ListNotifyTopics(ctx context.Context, projectID string) ([]domain.NotifyTopic, error)
+	AddNotifyTopicSubscriber(ctx context.Context, topicID, subscriberID string) error
+	RemoveNotifyTopicSubscriber(ctx context.Context, topicID, subscriberID string) error
+	CreateNotificationTemplate(ctx context.Context, tmpl *domain.NotificationTemplate) error
+	GetNotificationTemplateByID(ctx context.Context, id, projectID string) (*domain.NotificationTemplate, error)
+	GetLatestNotificationTemplateByKey(ctx context.Context, projectID, templateKey string) (*domain.NotificationTemplate, error)
+	ListNotificationTemplates(ctx context.Context, projectID string, status *string, limit int, cursor *time.Time) ([]domain.NotificationTemplate, error)
+	CreateNotificationCategory(ctx context.Context, cat *domain.NotificationCategory) error
+	GetNotificationCategoryByKey(ctx context.Context, projectID, categoryKey string) (*domain.NotificationCategory, error)
+	ListNotificationCategories(ctx context.Context, projectID string) ([]domain.NotificationCategory, error)
+	UpsertNotificationPreference(ctx context.Context, pref *domain.NotificationPreference) error
+	GetNotificationPreference(ctx context.Context, recipientType, recipientID, scope string) (*domain.NotificationPreference, error)
+	ListNotificationPreferences(ctx context.Context, recipientType, recipientID string) ([]domain.NotificationPreference, error)
+	CreateNotificationMessage(ctx context.Context, msg *domain.NotificationMessage) error
+	GetNotificationMessage(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error)
+	ListNotificationMessagesByProject(ctx context.Context, projectID string, status *string, limit int, cursor *time.Time) ([]domain.NotificationMessage, error)
+	UpdateNotificationMessageStatus(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error
+	CreateInboxItem(ctx context.Context, item *domain.InboxItem) error
+	GetInboxItem(ctx context.Context, id, recipientType, recipientID string) (*domain.InboxItem, error)
+	ListInboxItems(ctx context.Context, recipientType, recipientID string, state *string, limit int, cursor *time.Time) ([]domain.InboxItem, error)
+	UpdateInboxItemState(ctx context.Context, id, recipientType, recipientID, state string, fields map[string]any) error
+	CreateNotificationProvider(ctx context.Context, provider *domain.NotificationProvider) error
+	GetNotificationProvider(ctx context.Context, id, projectID string) (*domain.NotificationProvider, error)
+	ListNotificationProviders(ctx context.Context, projectID, channel string) ([]domain.NotificationProvider, error)
+	UpdateNotificationProvider(ctx context.Context, provider *domain.NotificationProvider) error
+}
+
 type Store interface {
 	JobStore
 	JobGroupStore
@@ -405,6 +448,7 @@ type Store interface {
 	CostEstimateStore
 	JobMemoryStore
 	NotificationStore
+	NotifyStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 
