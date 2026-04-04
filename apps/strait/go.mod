@@ -5,7 +5,7 @@ go 1.26
 toolchain go1.26.1
 
 require (
-	github.com/ClickHouse/clickhouse-go/v2 v2.43.0
+	github.com/ClickHouse/clickhouse-go/v2 v2.44.0
 	github.com/MarceloPetrucio/go-scalar-api-reference v0.0.0-20240521013641-ce5d2efe0e06
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/alitto/pond/v2 v2.7.0
