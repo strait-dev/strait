@@ -153,6 +153,43 @@ func (q *Queries) ListInboxItems(ctx context.Context, recipientType, recipientID
 	return items, nil
 }
 
+func (q *Queries) CountInboxUnread(ctx context.Context, recipientType, recipientID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountInboxUnread")
+	defer span.End()
+
+	query := `
+		SELECT COUNT(*)
+		FROM inbox_items
+		WHERE recipient_type = $1 AND recipient_id = $2 AND state = 'unread'`
+
+	var count int
+	if err := q.db.QueryRow(ctx, query, recipientType, recipientID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count inbox unread: %w", err)
+	}
+	return count, nil
+}
+
+func (q *Queries) MarkAllInboxItemsRead(ctx context.Context, recipientType, recipientID string, readAt time.Time) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkAllInboxItemsRead")
+	defer span.End()
+
+	query := `
+		UPDATE inbox_items
+		SET state = 'read',
+			read_at = COALESCE(read_at, $3),
+			updated_at = NOW()
+		WHERE recipient_type = $1
+		  AND recipient_id = $2
+		  AND state = 'unread'`
+
+	tag, err := q.db.Exec(ctx, query, recipientType, recipientID, readAt)
+	if err != nil {
+		return 0, fmt.Errorf("mark all inbox items read: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}
+
 func (q *Queries) UpdateInboxItemState(ctx context.Context, id, recipientType, recipientID, state string, fields map[string]any) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateInboxItemState")
 	defer span.End()

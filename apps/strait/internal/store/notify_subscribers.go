@@ -169,6 +169,71 @@ func (q *Queries) ListNotifySubscribers(ctx context.Context, projectID string, t
 	return subs, nil
 }
 
+func (q *Queries) SoftDeleteNotifySubscriber(ctx context.Context, id, projectID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.SoftDeleteNotifySubscriber")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `
+		UPDATE subscribers
+		SET status = 'deleted', updated_at = NOW()
+		WHERE id = $1 AND project_id = $2`, id, projectID)
+	if err != nil {
+		return fmt.Errorf("soft delete notify subscriber: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotifySubscriberNotFound
+	}
+	return nil
+}
+
+func (q *Queries) PurgeNotifySubscriber(ctx context.Context, id, projectID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.PurgeNotifySubscriber")
+	defer span.End()
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("purge notify subscriber: db does not support transactions")
+	}
+
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("purge notify subscriber begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	tag, err := tx.Exec(ctx, `UPDATE subscribers SET status = 'deleted', updated_at = NOW() WHERE id = $1 AND project_id = $2`, id, projectID)
+	if err != nil {
+		return fmt.Errorf("purge notify subscriber update subscriber: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotifySubscriberNotFound
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM inbox_items WHERE recipient_type = 'subscriber' AND recipient_id = $1 AND project_id = $2`, id, projectID); err != nil {
+		return fmt.Errorf("purge notify subscriber delete inbox items: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM notification_preferences WHERE recipient_type = 'subscriber' AND recipient_id = $1`, id); err != nil {
+		return fmt.Errorf("purge notify subscriber delete preferences: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM unsubscribe_tokens WHERE subscriber_id = $1 AND project_id = $2`, id, projectID); err != nil {
+		return fmt.Errorf("purge notify subscriber delete unsubscribe tokens: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE notification_messages
+		SET recipient_id = 'deleted', rendered_content = NULL
+		WHERE recipient_type = 'subscriber' AND recipient_id = $1 AND project_id = $2`, id, projectID); err != nil {
+		return fmt.Errorf("purge notify subscriber anonymize messages: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM topic_memberships WHERE subscriber_id = $1`, id); err != nil {
+		return fmt.Errorf("purge notify subscriber delete topic memberships: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("purge notify subscriber commit: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) UpdateNotifySubscriber(ctx context.Context, sub *domain.NotifySubscriber) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateNotifySubscriber")
 	defer span.End()

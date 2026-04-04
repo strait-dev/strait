@@ -75,6 +75,18 @@ type NotifyTopicMembership struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// UnsubscribeToken authorizes one-click unsubscribe operations.
+type UnsubscribeToken struct {
+	ID           string     `json:"id"`
+	ProjectID    string     `json:"project_id"`
+	SubscriberID string     `json:"subscriber_id"`
+	Scope        string     `json:"scope"`
+	Token        string     `json:"token"`
+	UsedAt       *time.Time `json:"used_at,omitempty"`
+	ExpiresAt    time.Time  `json:"expires_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
 // NotificationTemplate stores versioned, per-channel template content.
 type NotificationTemplate struct {
 	ID              string          `json:"id"`

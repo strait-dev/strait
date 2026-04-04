@@ -98,6 +98,27 @@ func (q *Queries) GetNotificationMessage(ctx context.Context, id, projectID stri
 	return msg, nil
 }
 
+func (q *Queries) GetNotificationMessageByID(ctx context.Context, id string) (*domain.NotificationMessage, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetNotificationMessageByID")
+	defer span.End()
+
+	query := `
+		SELECT id, project_id, idempotency_key, recipient_type, recipient_id, tenant_id, workflow_run_id, step_run_id, template_id, category_key,
+		       channel, provider_id, rendered_content, ai_generated, status, attempts, provider_response, delivered_at, read_at, clicked_at,
+		       bounced_at, suppression_reason, batch_id, scheduled_at, created_at
+		FROM notification_messages
+		WHERE id = $1`
+
+	msg, err := scanNotificationMessage(q.db.QueryRow(ctx, query, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotificationMessageNotFound
+		}
+		return nil, fmt.Errorf("get notification message by id: %w", err)
+	}
+	return msg, nil
+}
+
 func (q *Queries) ListNotificationMessagesByProject(ctx context.Context, projectID string, status *string, limit int, cursor *time.Time) ([]domain.NotificationMessage, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListNotificationMessagesByProject")
 	defer span.End()

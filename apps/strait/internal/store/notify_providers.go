@@ -128,6 +128,20 @@ func (q *Queries) ListNotificationProviders(ctx context.Context, projectID, chan
 	return providers, nil
 }
 
+func (q *Queries) DeleteNotificationProvider(ctx context.Context, id, projectID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteNotificationProvider")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `DELETE FROM notification_providers WHERE id = $1 AND project_id = $2`, id, projectID)
+	if err != nil {
+		return fmt.Errorf("delete notification provider: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotificationProviderNotFound
+	}
+	return nil
+}
+
 func (q *Queries) UpdateNotificationProvider(ctx context.Context, provider *domain.NotificationProvider) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateNotificationProvider")
 	defer span.End()

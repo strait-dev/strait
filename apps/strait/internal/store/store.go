@@ -39,6 +39,7 @@ var (
 	ErrNotificationMessageNotFound    = errors.New("notification message not found")
 	ErrNotificationProviderNotFound   = errors.New("notification provider not found")
 	ErrInboxItemNotFound              = errors.New("inbox item not found")
+	ErrUnsubscribeTokenNotFound       = errors.New("unsubscribe token not found")
 	ErrJobMemoryPerKeyLimitExceeded   = errors.New("job memory per-key limit exceeded")
 	ErrJobMemoryPerJobLimitExceeded   = errors.New("job memory per-job limit exceeded")
 )
@@ -395,11 +396,14 @@ type NotifyStore interface {
 	GetNotifySubscriberByExternalID(ctx context.Context, projectID, externalID string) (*domain.NotifySubscriber, error)
 	ListNotifySubscribers(ctx context.Context, projectID string, tenantID, status *string, limit int, cursor *time.Time) ([]domain.NotifySubscriber, error)
 	UpdateNotifySubscriber(ctx context.Context, sub *domain.NotifySubscriber) error
+	SoftDeleteNotifySubscriber(ctx context.Context, id, projectID string) error
+	PurgeNotifySubscriber(ctx context.Context, id, projectID string) error
 	CreateNotifyTopic(ctx context.Context, topic *domain.NotifyTopic) error
 	GetNotifyTopicByKey(ctx context.Context, projectID, topicKey string) (*domain.NotifyTopic, error)
 	ListNotifyTopics(ctx context.Context, projectID string) ([]domain.NotifyTopic, error)
 	AddNotifyTopicSubscriber(ctx context.Context, topicID, subscriberID string) error
 	RemoveNotifyTopicSubscriber(ctx context.Context, topicID, subscriberID string) error
+	ListNotifySubscribersByTopicKey(ctx context.Context, projectID, topicKey string, tenantID *string, limit int) ([]domain.NotifySubscriber, error)
 	CreateNotificationTemplate(ctx context.Context, tmpl *domain.NotificationTemplate) error
 	GetNotificationTemplateByID(ctx context.Context, id, projectID string) (*domain.NotificationTemplate, error)
 	GetLatestNotificationTemplateByKey(ctx context.Context, projectID, templateKey string) (*domain.NotificationTemplate, error)
@@ -412,16 +416,24 @@ type NotifyStore interface {
 	ListNotificationPreferences(ctx context.Context, recipientType, recipientID string) ([]domain.NotificationPreference, error)
 	CreateNotificationMessage(ctx context.Context, msg *domain.NotificationMessage) error
 	GetNotificationMessage(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error)
+	GetNotificationMessageByID(ctx context.Context, id string) (*domain.NotificationMessage, error)
 	ListNotificationMessagesByProject(ctx context.Context, projectID string, status *string, limit int, cursor *time.Time) ([]domain.NotificationMessage, error)
 	UpdateNotificationMessageStatus(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error
 	CreateInboxItem(ctx context.Context, item *domain.InboxItem) error
 	GetInboxItem(ctx context.Context, id, recipientType, recipientID string) (*domain.InboxItem, error)
 	ListInboxItems(ctx context.Context, recipientType, recipientID string, state *string, limit int, cursor *time.Time) ([]domain.InboxItem, error)
+	CountInboxUnread(ctx context.Context, recipientType, recipientID string) (int, error)
+	MarkAllInboxItemsRead(ctx context.Context, recipientType, recipientID string, readAt time.Time) (int64, error)
 	UpdateInboxItemState(ctx context.Context, id, recipientType, recipientID, state string, fields map[string]any) error
 	CreateNotificationProvider(ctx context.Context, provider *domain.NotificationProvider) error
 	GetNotificationProvider(ctx context.Context, id, projectID string) (*domain.NotificationProvider, error)
 	ListNotificationProviders(ctx context.Context, projectID, channel string) ([]domain.NotificationProvider, error)
 	UpdateNotificationProvider(ctx context.Context, provider *domain.NotificationProvider) error
+	DeleteNotificationProvider(ctx context.Context, id, projectID string) error
+	CreateUnsubscribeToken(ctx context.Context, token *domain.UnsubscribeToken) error
+	GetUnsubscribeToken(ctx context.Context, token string) (*domain.UnsubscribeToken, error)
+	UseUnsubscribeToken(ctx context.Context, token string, usedAt time.Time) error
+	TryNotifyDedupKey(ctx context.Context, projectID, dedupKey string, ttl time.Duration) (bool, error)
 }
 
 type Store interface {
