@@ -1,0 +1,13 @@
+#cloud-config
+package_update: true
+packages:
+  - curl
+
+runcmd:
+  # Wait for master to be reachable on the private network.
+  - while ! curl -sf -o /dev/null --connect-timeout 2 https://${master_private_ip}:6443 -k 2>/dev/null; do echo "Waiting for master..."; sleep 5; done
+
+  # Install k3s agent and join the cluster.
+  # --flannel-iface: use private network for pod networking.
+  # --node-label: set the node pool label for job scheduling affinity.
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="agent --flannel-iface eth1 --node-label strait.dev/pool=${node_pool}" K3S_URL="https://${master_private_ip}:6443" K3S_TOKEN="${k3s_token}" sh -

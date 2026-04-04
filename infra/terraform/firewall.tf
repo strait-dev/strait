@@ -1,0 +1,64 @@
+resource "hcloud_firewall" "cluster" {
+  name = "${var.cluster_name}-firewall"
+
+  # SSH access.
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "22"
+    source_ips = ["0.0.0.0/0", "::/0"]
+  }
+
+  # K8s API server (external access for kubectl).
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "6443"
+    source_ips = ["0.0.0.0/0", "::/0"]
+  }
+
+  # Kubelet API (node-to-node, restrict to private network).
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "10250"
+    source_ips = ["10.0.0.0/16"]
+  }
+
+  # Flannel VXLAN (k3s default CNI, node-to-node).
+  rule {
+    direction  = "in"
+    protocol   = "udp"
+    port       = "8472"
+    source_ips = ["10.0.0.0/16"]
+  }
+
+  # NodePort range (for services exposed via NodePort).
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "30000-32767"
+    source_ips = ["0.0.0.0/0", "::/0"]
+  }
+
+  # Allow all outbound traffic.
+  rule {
+    direction       = "out"
+    protocol        = "tcp"
+    port            = "any"
+    destination_ips = ["0.0.0.0/0", "::/0"]
+  }
+
+  rule {
+    direction       = "out"
+    protocol        = "udp"
+    port            = "any"
+    destination_ips = ["0.0.0.0/0", "::/0"]
+  }
+
+  rule {
+    direction       = "out"
+    protocol        = "icmp"
+    destination_ips = ["0.0.0.0/0", "::/0"]
+  }
+}

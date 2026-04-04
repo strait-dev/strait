@@ -1,0 +1,18 @@
+#cloud-config
+package_update: true
+packages:
+  - curl
+
+runcmd:
+  # Install k3s server.
+  # --disable traefik: we don't need an ingress controller for job pods.
+  # --disable servicelb: no load balancer needed.
+  # --flannel-iface: use private network interface for pod networking.
+  # --node-label: mark master as general pool (can also run micro/small jobs).
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik --disable servicelb --flannel-iface eth1 --node-label strait.dev/pool=general --tls-san ${master_public_ip}" sh -
+
+  # Wait for k3s to be ready.
+  - while ! /usr/local/bin/kubectl get nodes 2>/dev/null; do sleep 2; done
+
+  # Write the node token for workers to join.
+  - echo "k3s is ready. Node token at /var/lib/rancher/k3s/server/node-token"

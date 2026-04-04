@@ -1,0 +1,28 @@
+# Strait Infrastructure — Hetzner + k3s
+#
+# Copy this file to terraform.tfvars and fill in your values:
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars is gitignored — your secrets stay local.
+
+# Hetzner Cloud API token.
+# Get from: https://console.hetzner.cloud > Select project > API Tokens > Generate API token
+hcloud_token = ""
+
+# SSH key paths for server access.
+ssh_key_path         = "~/.ssh/id_ed25519.pub"
+ssh_private_key_path = "~/.ssh/id_ed25519"
+
+# Datacenter location.
+# fsn1 = Falkenstein, Germany (cheapest)
+# nbg1 = Nuremberg, Germany
+# hel1 = Helsinki, Finland
+location = "fsn1"
+
+# Node pool sizes.
+# general: micro, small-1x, small-2x jobs (CAX21: 4 vCPU, 8GB — $7/mo each)
+# perf:    medium-1x, medium-2x jobs (CAX31: 8 vCPU, 16GB — $14/mo each)
+# heavy:   large-1x, large-2x jobs (CAX41: 16 vCPU, 32GB — $27/mo each)
+general_count = 1
+perf_count    = 1
+heavy_count   = 0  # Set to 1 when you need large preset jobs
