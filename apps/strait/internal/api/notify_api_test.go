@@ -1,12 +1,49 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
+
+type notifyStoreAdapter struct {
+	store.NotifyStore
+	getActiveEscalationStateByStepRunFunc       func(ctx context.Context, projectID, stepRunID string) (*domain.EscalationState, error)
+	acknowledgeEscalationByStepRunFunc          func(ctx context.Context, stepRunID, acknowledgedBy string, acknowledgedAt time.Time) error
+	completeActiveEscalationByStepRunStatusFunc func(ctx context.Context, stepRunID, status string) error
+}
+
+func (m *notifyStoreAdapter) GetActiveEscalationStateByStepRun(ctx context.Context, projectID, stepRunID string) (*domain.EscalationState, error) {
+	if m.getActiveEscalationStateByStepRunFunc == nil {
+		return nil, store.ErrEscalationStateNotFound
+	}
+	return m.getActiveEscalationStateByStepRunFunc(ctx, projectID, stepRunID)
+}
+
+func (m *notifyStoreAdapter) AcknowledgeActiveEscalationStateByStepRun(ctx context.Context, stepRunID, acknowledgedBy string, acknowledgedAt time.Time) error {
+	if m.acknowledgeEscalationByStepRunFunc == nil {
+		return nil
+	}
+	return m.acknowledgeEscalationByStepRunFunc(ctx, stepRunID, acknowledgedBy, acknowledgedAt)
+}
+
+func (m *notifyStoreAdapter) CompleteActiveEscalationStateByStepRun(ctx context.Context, stepRunID, status string) error {
+	if m.completeActiveEscalationByStepRunStatusFunc == nil {
+		return nil
+	}
+	return m.completeActiveEscalationByStepRunStatusFunc(ctx, stepRunID, status)
+}
+
+type notifyAPIStore struct {
+	*APIStoreMock
+	store.NotifyStore
+}
 
 func TestNotifySubscriberTokenRoundTrip(t *testing.T) {
 	t.Parallel()
@@ -111,5 +148,139 @@ func TestBuildNotifyRenderContext(t *testing.T) {
 	encoded, err := json.Marshal(ctx)
 	if err != nil || len(encoded) == 0 {
 		t.Fatalf("context should marshal: err=%v", err)
+	}
+}
+
+func TestGetNotifyEscalationByStepRun(t *testing.T) {
+	t.Parallel()
+
+	ns := &notifyStoreAdapter{
+		getActiveEscalationStateByStepRunFunc: func(_ context.Context, projectID, stepRunID string) (*domain.EscalationState, error) {
+			if projectID != "proj_1" || stepRunID != "step_1" {
+				t.Fatalf("GetActiveEscalationStateByStepRun args = (%q, %q), want (proj_1, step_1)", projectID, stepRunID)
+			}
+			return &domain.EscalationState{ID: "esc_1", ProjectID: projectID, StepRunID: stepRunID, Status: domain.NotifyEscalationStatusActive}, nil
+		},
+	}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodGet, "/v1/notify/escalations/step-runs/step_1", "", "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["id"] != "esc_1" {
+		t.Fatalf("id = %v, want esc_1", body["id"])
+	}
+}
+
+func TestAcknowledgeNotifyEscalationByStepRun(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	ns := &notifyStoreAdapter{
+		getActiveEscalationStateByStepRunFunc: func(_ context.Context, _, _ string) (*domain.EscalationState, error) {
+			return &domain.EscalationState{ID: "esc_1", StepRunID: "step_1", Status: domain.NotifyEscalationStatusActive}, nil
+		},
+		acknowledgeEscalationByStepRunFunc: func(_ context.Context, stepRunID, acknowledgedBy string, acknowledgedAt time.Time) error {
+			called = true
+			if stepRunID != "step_1" {
+				t.Fatalf("stepRunID = %q, want step_1", stepRunID)
+			}
+			if acknowledgedBy != "user_1" {
+				t.Fatalf("acknowledgedBy = %q, want user_1", acknowledgedBy)
+			}
+			if acknowledgedAt.IsZero() {
+				t.Fatal("acknowledgedAt is zero")
+			}
+			return nil
+		},
+	}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/notify/escalations/step-runs/step_1/acknowledge", "{}", "proj_1")
+	r.Header.Set("X-Actor-Id", "user_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !called {
+		t.Fatal("expected AcknowledgeActiveEscalationStateByStepRun to be called")
+	}
+}
+
+func TestAcknowledgeNotifyEscalationByStepRun_NotFound(t *testing.T) {
+	t.Parallel()
+
+	ns := &notifyStoreAdapter{
+		getActiveEscalationStateByStepRunFunc: func(_ context.Context, _, _ string) (*domain.EscalationState, error) {
+			return nil, store.ErrEscalationStateNotFound
+		},
+	}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/notify/escalations/step-runs/step_1/acknowledge", "{}", "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+}
+
+func TestCompleteNotifyEscalationByStepRun_Validation(t *testing.T) {
+	t.Parallel()
+
+	ns := &notifyStoreAdapter{}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/notify/escalations/step-runs/step_1/complete", `{"status":"acknowledged"}`, "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestCompleteNotifyEscalationByStepRun(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	ns := &notifyStoreAdapter{
+		getActiveEscalationStateByStepRunFunc: func(_ context.Context, _, _ string) (*domain.EscalationState, error) {
+			return &domain.EscalationState{ID: "esc_1", StepRunID: "step_1", Status: domain.NotifyEscalationStatusActive}, nil
+		},
+		completeActiveEscalationByStepRunStatusFunc: func(_ context.Context, stepRunID, status string) error {
+			called = true
+			if stepRunID != "step_1" {
+				t.Fatalf("stepRunID = %q, want step_1", stepRunID)
+			}
+			if status != domain.NotifyEscalationStatusCompleted {
+				t.Fatalf("status = %q, want %q", status, domain.NotifyEscalationStatusCompleted)
+			}
+			return nil
+		},
+	}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/notify/escalations/step-runs/step_1/complete", `{}`, "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !called {
+		t.Fatal("expected CompleteActiveEscalationStateByStepRun to be called")
 	}
 }
