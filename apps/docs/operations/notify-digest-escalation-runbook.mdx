@@ -1,0 +1,117 @@
+---
+title: "Notify Digest & Escalation Runbook"
+description: "Operational runbook for diagnosing and remediating stuck notification digests and approval escalation states."
+sidebarTitle: "Notify Runbook"
+---
+
+This runbook covers day-one Strait Notify operations for:
+
+- digest batching (`instant`, `hourly`, `daily`)
+- scheduled notification dispatch
+- approval reminder escalation tiers
+
+Use this during incidents where notifications are delayed, missing, duplicated, or escalation reminders appear stuck.
+
+## Scope and Prerequisites
+
+Applies to:
+
+- API mode (`--mode api`)
+- worker mode (`--mode worker`)
+- combined mode (`--mode all`)
+
+Before triage, verify:
+
+1. API and worker health checks (`/health`, `/health/ready`)
+2. database and redis dependencies are healthy
+3. scheduler loops are running in at least one process
+
+## Fast Triage Checklist
+
+1. Confirm trigger intake:
+   - check `POST /v1/notify` caller logs and response IDs
+2. Confirm message lifecycle:
+   - inspect `GET /v1/notify/deliveries`
+   - look for `scheduled`, `processing`, `failed`, `delivered`
+3. Confirm digest path:
+   - if recipient has `digest_policy=hourly|daily`, non-critical unscheduled sends are batched
+4. Confirm escalation path:
+   - check `GET /v1/notify/escalations/step-runs/{stepRunID}`
+   - verify state progression (`active` → `processing` → terminal)
+
+## Common Failure Modes
+
+### 1) Messages remain in `scheduled`
+
+Likely causes:
+
+- worker process not running notify dispatcher
+- system clock skew between app nodes
+- backlog caused by repeated delivery errors
+
+Checks:
+
+- verify worker/scheduler process is healthy
+- validate host clocks (NTP)
+- inspect recent failures in `GET /v1/notify/deliveries?status=failed`
+
+### 2) Digest appears delayed or never sent
+
+Likely causes:
+
+- event is non-critical and correctly deferred to window end
+- digest batch repeatedly requeued due to downstream send errors
+- provider config issue (email)
+
+Checks:
+
+- confirm expected policy (`instant` vs `hourly` vs `daily`)
+- verify recipient/channel payload is valid
+- verify provider credentials/config for email path
+
+### 3) Escalation state stays active after approval resolution
+
+Likely causes:
+
+- approval action failed before callback completion
+- timeout/cleanup path failed under transient store error
+
+Checks:
+
+- verify approval status and step status on workflow run
+- call escalation lifecycle endpoints:
+  - `POST /v1/notify/escalations/step-runs/{stepRunID}/acknowledge`
+  - `POST /v1/notify/escalations/step-runs/{stepRunID}/complete`
+
+## Safe Remediation Steps
+
+Prefer API remediation first:
+
+1. **Acknowledge escalation** when human acted but state did not finalize.
+2. **Complete escalation** when the approval path is already terminal.
+3. **Re-trigger notifications** only after resolving root cause (provider, payload, permissions).
+
+Avoid bulk/manual SQL updates during active incident response unless API-based recovery is not possible.
+
+## Verification After Recovery
+
+- New notifications transition to `delivered` for inbox/email.
+- No persistent growth in `scheduled` or `processing` message counts.
+- Escalation states for resolved approvals return 404 on active lookup.
+- No repeated error spikes in worker logs for notify dispatcher.
+
+## Escalation and Ownership
+
+Escalate to on-call if any of the following persist beyond 15 minutes:
+
+- scheduled queue age keeps increasing
+- digest batches repeatedly requeue without progress
+- escalation states cannot be acknowledged/completed via API
+- approval reminders are not emitted for pending approvals
+
+Include in handoff:
+
+- affected project IDs
+- representative message IDs and step run IDs
+- latest `notify` endpoint responses
+- relevant API/worker log excerpts

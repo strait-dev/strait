@@ -78,6 +78,8 @@ Use the monitoring assets in `packages/monitoring/` as a baseline:
 - RBAC control-plane mutation rate
 - Audit event insert errors
 - Webhook delivery failures
+- Notify delivery failures (inbox/email) and rising `scheduled` backlog
+- Approval reminder escalation lifecycle stalls (`active`/`processing` not reaching terminal state)
 - Worker pool utilization
 - Database connection pool saturation
 - Analytics query latency spikes
@@ -96,6 +98,7 @@ Use the monitoring assets in `packages/monitoring/` as a baseline:
 
 ## Related Runbooks
 
+- [Notify Digest & Escalation Runbook](/operations/notify-digest-escalation-runbook)
 - [OIDC Rollout](/operations/oidc-rollout)
 - [RBAC Policy Rollout](/operations/rbac-policy-rollout)
 - [API Key Rotation Rollout](/operations/api-key-rotation-rollout)
