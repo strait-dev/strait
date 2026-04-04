@@ -30,6 +30,18 @@ data:
       forward_to = [prometheus.remote_write.grafana_cloud.receiver]
     }
 
+    // Scrape kube-state-metrics (pod/job/node/deployment state).
+    prometheus.scrape "kube_state_metrics" {
+      metrics_path = "/metrics"
+      scheme = "http"
+
+      static_configs {
+        targets = ["kube-state-metrics.monitoring.svc:8080"]
+      }
+
+      forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+    }
+
     // Ship metrics to Grafana Cloud.
     prometheus.remote_write "grafana_cloud" {
       endpoint {

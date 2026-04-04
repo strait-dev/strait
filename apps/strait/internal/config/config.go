@@ -159,7 +159,10 @@ type Config struct {
 	// Kubernetes runtime
 	K8sKubeconfig    string `env:"K8S_KUBECONFIG"`
 	K8sNamespace     string `env:"K8S_NAMESPACE" default:"default"`
-	K8sPriorityClass string `env:"K8S_PRIORITY_CLASS" default:"strait-job"`
+	K8sPriorityClass string        `env:"K8S_PRIORITY_CLASS" default:"strait-job"`
+	K8sGCEnabled     bool          `env:"K8S_GC_ENABLED" default:"true"`
+	K8sGCMaxAge      time.Duration `env:"K8S_GC_MAX_AGE" default:"30m"`
+	K8sGCInterval    time.Duration `env:"K8S_GC_INTERVAL" default:"5m"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`

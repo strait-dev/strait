@@ -58,9 +58,9 @@ type K8sRuntime struct {
 	metrics       K8sMetrics // Optional, nil-safe.
 }
 
-// NewK8sRuntime creates a new Kubernetes runtime.
+// BuildK8sClientset creates a Kubernetes clientset from a kubeconfig path.
 // If kubeconfig is empty, falls back to in-cluster config.
-func NewK8sRuntime(kubeconfig, namespace, priorityClass string) (*K8sRuntime, error) {
+func BuildK8sClientset(kubeconfig string) (kubernetes.Interface, error) {
 	var cfg *rest.Config
 	var err error
 
@@ -77,6 +77,16 @@ func NewK8sRuntime(kubeconfig, namespace, priorityClass string) (*K8sRuntime, er
 	if err != nil {
 		return nil, fmt.Errorf("k8s clientset: %w", err)
 	}
+	return clientset, nil
+}
+
+// NewK8sRuntime creates a new Kubernetes runtime.
+// If kubeconfig is empty, falls back to in-cluster config.
+func NewK8sRuntime(kubeconfig, namespace, priorityClass string) (*K8sRuntime, error) {
+	clientset, err := BuildK8sClientset(kubeconfig)
+	if err != nil {
+		return nil, err
+	}
 
 	return &K8sRuntime{
 		clientset:     clientset,
@@ -84,6 +94,9 @@ func NewK8sRuntime(kubeconfig, namespace, priorityClass string) (*K8sRuntime, er
 		priorityClass: priorityClass,
 	}, nil
 }
+
+// Clientset returns the underlying Kubernetes clientset for shared use (e.g. GC).
+func (k *K8sRuntime) Clientset() kubernetes.Interface { return k.clientset }
 
 // SetMetrics attaches optional metrics recording to the runtime.
 func (k *K8sRuntime) SetMetrics(m K8sMetrics) { k.metrics = m }

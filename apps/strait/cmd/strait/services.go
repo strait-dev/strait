@@ -568,6 +568,31 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	}
 	containerRuntime := buildComputeRuntime(cfg, metrics)
 
+	// Start K8s job garbage collector if using K8s runtime.
+	if (cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s") && cfg.K8sGCEnabled {
+		if k8sRT, ok := containerRuntime.(*compute.K8sRuntime); ok {
+			gc := compute.NewK8sJobGC(k8sRT.Clientset(), cfg.K8sNamespace, cfg.K8sGCMaxAge, cfg.K8sGCInterval)
+			g.Go(func(ctx context.Context) error {
+				gc.Run(ctx)
+				return nil
+			})
+			slog.Info("k8s job GC enabled", "max_age", cfg.K8sGCMaxAge, "interval", cfg.K8sGCInterval)
+		} else if router, ok := containerRuntime.(*compute.RuntimeRouter); ok {
+			_ = router // GC runs against whichever runtime is K8s — extract clientset from primary or fallback
+			clientset, err := compute.BuildK8sClientset(cfg.K8sKubeconfig)
+			if err != nil {
+				slog.Error("failed to build k8s client for GC", "error", err)
+			} else {
+				gc := compute.NewK8sJobGC(clientset, cfg.K8sNamespace, cfg.K8sGCMaxAge, cfg.K8sGCInterval)
+				g.Go(func(ctx context.Context) error {
+					gc.Run(ctx)
+					return nil
+				})
+				slog.Info("k8s job GC enabled (via router)", "max_age", cfg.K8sGCMaxAge, "interval", cfg.K8sGCInterval)
+			}
+		}
+	}
+
 	execCfg := worker.ExecutorConfig{
 		Pool:                    p,
 		Queue:                   q,
