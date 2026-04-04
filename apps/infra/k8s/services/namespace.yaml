@@ -1,0 +1,8 @@
+# Namespace for Strait application services (API, Sequin, OTel Collector).
+# Separate from the default namespace used for user job pods.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: strait
+  labels:
+    app.kubernetes.io/part-of: strait

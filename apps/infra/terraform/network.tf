@@ -6,6 +6,6 @@ resource "hcloud_network" "cluster" {
 resource "hcloud_network_subnet" "nodes" {
   network_id   = hcloud_network.cluster.id
   type         = "cloud"
-  network_zone = "eu-central"
+  network_zone = "us-east"
   ip_range     = "10.0.1.0/24"
 }

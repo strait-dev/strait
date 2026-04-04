@@ -17,9 +17,9 @@ variable "ssh_private_key_path" {
 }
 
 variable "location" {
-  description = "Hetzner datacenter location. fsn1 = Falkenstein (cheapest), nbg1 = Nuremberg, hel1 = Helsinki."
+  description = "Hetzner datacenter location. ash = Ashburn VA (us-east-1 equivalent), fsn1 = Falkenstein, nbg1 = Nuremberg, hel1 = Helsinki."
   type        = string
-  default     = "fsn1"
+  default     = "ash"
 }
 
 variable "cluster_name" {

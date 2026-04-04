@@ -3,11 +3,11 @@
 # ──────────────────────────────────────────────
 
 resource "hcloud_server" "master" {
-  name        = "${var.cluster_name}-master"
-  image       = "ubuntu-24.04"
-  server_type = var.master_type
-  location    = var.location
-  ssh_keys    = [hcloud_ssh_key.default.id]
+  name         = "${var.cluster_name}-master"
+  image        = "ubuntu-24.04"
+  server_type  = var.master_type
+  location     = var.location
+  ssh_keys     = [hcloud_ssh_key.default.id]
   firewall_ids = [hcloud_firewall.cluster.id]
 
   user_data = templatefile("${path.module}/cloud-init-master.yaml", {
@@ -63,12 +63,12 @@ data "external" "k3s_token" {
 # ──────────────────────────────────────────────
 
 resource "hcloud_server" "general" {
-  count       = var.general_count
-  name        = "${var.cluster_name}-general-${count.index + 1}"
-  image       = "ubuntu-24.04"
-  server_type = var.general_type
-  location    = var.location
-  ssh_keys    = [hcloud_ssh_key.default.id]
+  count        = var.general_count
+  name         = "${var.cluster_name}-general-${count.index + 1}"
+  image        = "ubuntu-24.04"
+  server_type  = var.general_type
+  location     = var.location
+  ssh_keys     = [hcloud_ssh_key.default.id]
   firewall_ids = [hcloud_firewall.cluster.id]
 
   user_data = templatefile("${path.module}/cloud-init-worker.yaml", {
@@ -95,12 +95,12 @@ resource "hcloud_server" "general" {
 # ──────────────────────────────────────────────
 
 resource "hcloud_server" "performance" {
-  count       = var.perf_count
-  name        = "${var.cluster_name}-perf-${count.index + 1}"
-  image       = "ubuntu-24.04"
-  server_type = var.perf_type
-  location    = var.location
-  ssh_keys    = [hcloud_ssh_key.default.id]
+  count        = var.perf_count
+  name         = "${var.cluster_name}-perf-${count.index + 1}"
+  image        = "ubuntu-24.04"
+  server_type  = var.perf_type
+  location     = var.location
+  ssh_keys     = [hcloud_ssh_key.default.id]
   firewall_ids = [hcloud_firewall.cluster.id]
 
   user_data = templatefile("${path.module}/cloud-init-worker.yaml", {
@@ -127,12 +127,12 @@ resource "hcloud_server" "performance" {
 # ──────────────────────────────────────────────
 
 resource "hcloud_server" "heavy" {
-  count       = var.heavy_count
-  name        = "${var.cluster_name}-heavy-${count.index + 1}"
-  image       = "ubuntu-24.04"
-  server_type = var.heavy_type
-  location    = var.location
-  ssh_keys    = [hcloud_ssh_key.default.id]
+  count        = var.heavy_count
+  name         = "${var.cluster_name}-heavy-${count.index + 1}"
+  image        = "ubuntu-24.04"
+  server_type  = var.heavy_type
+  location     = var.location
+  ssh_keys     = [hcloud_ssh_key.default.id]
   firewall_ids = [hcloud_firewall.cluster.id]
 
   user_data = templatefile("${path.module}/cloud-init-worker.yaml", {

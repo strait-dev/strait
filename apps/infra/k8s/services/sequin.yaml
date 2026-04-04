@@ -1,0 +1,89 @@
+# Sequin CDC consumer — captures database changes and forwards to Strait.
+# Runs the official sequin/sequin image. Internal only (ClusterIP).
+#
+# Secrets loaded from K8s Secret "sequin-env" (provision from Doppler).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sequin
+  namespace: strait
+  labels:
+    app: sequin
+    app.kubernetes.io/name: sequin
+    app.kubernetes.io/component: cdc
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: sequin
+  template:
+    metadata:
+      labels:
+        app: sequin
+        app.kubernetes.io/name: sequin
+        app.kubernetes.io/component: cdc
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: sequin
+          image: sequin/sequin:latest
+          ports:
+            - name: http
+              containerPort: 7376
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: sequin-env
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+---
+# Internal service — only accessible within the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sequin
+  namespace: strait
+  labels:
+    app: sequin
+spec:
+  type: ClusterIP
+  selector:
+    app: sequin
+  ports:
+    - name: http
+      port: 7376
+      targetPort: http
+      protocol: TCP
