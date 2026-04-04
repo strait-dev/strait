@@ -28,11 +28,9 @@ vulncheck:
 
 preflight: vet lint build test
 
-deploy: preflight ## Deploy to K8s cluster
-	kubectl apply -f ../infra/k8s/services/
-
-deploy-secrets: ## Sync secrets from Doppler to K8s
-	../infra/k8s/services/secrets.sh prd
+deploy: preflight ## Deploy (see strait-dev/infra repo for K8s manifests)
+	@echo "Deploy via the infra repo: https://github.com/strait-dev/infra"
+	@echo "Or trigger the deploy-k8s workflow from that repo."
 
 # ──────────────────────────────────────────────
 # Local Development

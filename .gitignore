@@ -303,8 +303,8 @@ apps/strait/e2e_stress
 apps/strait/echoserver
 
 # ==============================================================================
-# TERRAFORM / INFRASTRUCTURE
-# ==============================================================================
+# Infrastructure is in a separate private repo (strait-dev/infra).
+# These entries kept for local development if infra is cloned alongside.
 .terraform/
 *.tfstate
 *.tfstate.backup
@@ -312,4 +312,3 @@ apps/strait/echoserver
 !*.tfvars.example
 backend.hcl
 .terraform.lock.hcl
-apps/infra/kubeconfig*
