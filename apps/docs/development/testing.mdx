@@ -27,11 +27,27 @@ cd apps/strait && go test ./...
 
 ### Integration Tests
 
-Integration tests require Docker to run `testcontainers`. They are marked with the `integration` build tag.
+Integration tests are marked with the `integration` build tag and support two runtime modes.
+
+#### Option A: testcontainers mode (default)
+
+If `STRAIT_TEST_DATABASE_URL` and `STRAIT_TEST_REDIS_URL` are not set, tests spin up ephemeral Postgres and Redis via `testcontainers`.
 
 ```bash
 cd apps/strait && go test -tags integration ./...
 ```
+
+#### Option B: external services mode (fallback)
+
+If Docker runtime discovery fails locally (for example `panic: rootless Docker not found`), point tests at externally running services:
+
+```bash
+export STRAIT_TEST_DATABASE_URL='postgres://test:test@localhost:5432/strait_integration?sslmode=disable'
+export STRAIT_TEST_REDIS_URL='redis://localhost:6379/0'
+cd apps/strait && go test -tags integration ./...
+```
+
+In external mode, tests still run migrations automatically against the configured database.
 
 ### End-to-End (E2E) Tests
 
