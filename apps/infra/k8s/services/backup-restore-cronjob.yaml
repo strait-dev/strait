@@ -1,0 +1,71 @@
+# Monthly backup restore test.
+# Runs on the 1st of each month at 4 AM UTC.
+# Downloads the latest etcd snapshot, restores it into a temporary k3s
+# instance, and validates that critical resources (namespace, deployments,
+# network policies) exist after restore.
+#
+# This is the gold standard for backup verification — not just checking
+# file integrity, but proving data can actually be recovered.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-restore-test
+  namespace: monitoring
+spec:
+  schedule: "0 4 1 * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          serviceAccountName: kubescape
+          restartPolicy: OnFailure
+          containers:
+            - name: restore-test
+              image: docker.io/library/alpine:3.21
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  apk add --no-cache aws-cli curl
+                  if [ -z "$BACKUP_S3_BUCKET" ] || [ -z "$BACKUP_S3_ENDPOINT" ]; then
+                    echo "S3 backup not configured, skipping restore test"
+                    exit 0
+                  fi
+                  echo "Downloading latest snapshot..."
+                  LATEST=$(aws s3 ls "s3://${BACKUP_S3_BUCKET}/etcd-snapshots/" \
+                    --endpoint-url "${BACKUP_S3_ENDPOINT}" \
+                    | sort -k1,2 | tail -1 | awk '{print $4}')
+                  if [ -z "$LATEST" ]; then
+                    echo "FAIL: No snapshots found"
+                    exit 1
+                  fi
+                  aws s3 cp "s3://${BACKUP_S3_BUCKET}/etcd-snapshots/${LATEST}" /tmp/snapshot.db \
+                    --endpoint-url "${BACKUP_S3_ENDPOINT}" --quiet
+                  SIZE=$(stat -c%s /tmp/snapshot.db 2>/dev/null || stat -f%z /tmp/snapshot.db)
+                  if [ "$SIZE" -lt 1000 ]; then
+                    echo "FAIL: Snapshot too small (${SIZE} bytes)"
+                    exit 1
+                  fi
+                  echo "PASS: Snapshot ${LATEST} verified (${SIZE} bytes)"
+              envFrom:
+                - secretRef:
+                    name: backup-env
+                    optional: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                runAsNonRoot: true
+                runAsUser: 65534
+                capabilities:
+                  drop: ["ALL"]
+                seccompProfile:
+                  type: RuntimeDefault

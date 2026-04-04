@@ -1,0 +1,19 @@
+# cert-manager — automated TLS certificate management for K8s.
+# Used for internal mTLS between services in the strait namespace.
+#
+# Install cert-manager:
+#   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml
+#
+# Verify installation:
+#   kubectl -n cert-manager get pods
+#   kubectl get clusterissuers
+#
+# After installing cert-manager, apply internal-tls.yaml for service certificates.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

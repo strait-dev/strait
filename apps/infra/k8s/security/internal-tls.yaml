@@ -1,0 +1,110 @@
+# Internal TLS certificates for service-to-service encryption.
+# Uses a self-signed CA (internal only — not trusted by browsers).
+# Certificates auto-rotate every 90 days via cert-manager.
+#
+# This provides encryption-in-transit between:
+#   - Caddy -> Strait API
+#   - Strait -> OTel Collector
+#   - Strait -> Sequin
+#
+# Combined with NetworkPolicies, this gives defense-in-depth:
+# even if an attacker compromises a pod, they can't sniff traffic
+# between other services.
+
+# Self-signed CA issuer for internal certificates.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: strait-internal-ca
+spec:
+  selfSigned: {}
+---
+# CA certificate (signs all internal service certificates).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: strait-ca
+  namespace: strait
+spec:
+  isCA: true
+  commonName: strait-internal-ca
+  secretName: strait-ca-tls
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: strait-internal-ca
+    kind: ClusterIssuer
+---
+# Issuer that uses the CA certificate to sign service certs.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: strait-ca-issuer
+  namespace: strait
+spec:
+  ca:
+    secretName: strait-ca-tls
+---
+# TLS certificate for the Strait API server.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: strait-tls
+  namespace: strait
+spec:
+  secretName: strait-tls
+  duration: 2160h  # 90 days
+  renewBefore: 360h  # Renew 15 days before expiry
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  dnsNames:
+    - strait
+    - strait.strait.svc
+    - strait.strait.svc.cluster.local
+  issuerRef:
+    name: strait-ca-issuer
+    kind: Issuer
+---
+# TLS certificate for the OTel Collector.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: otel-collector-tls
+  namespace: strait
+spec:
+  secretName: otel-collector-tls
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  dnsNames:
+    - otel-collector
+    - otel-collector.strait.svc
+    - otel-collector.strait.svc.cluster.local
+  issuerRef:
+    name: strait-ca-issuer
+    kind: Issuer
+---
+# TLS certificate for Sequin.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: sequin-tls
+  namespace: strait
+spec:
+  secretName: sequin-tls
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  dnsNames:
+    - sequin
+    - sequin.strait.svc
+    - sequin.strait.svc.cluster.local
+  issuerRef:
+    name: strait-ca-issuer
+    kind: Issuer
