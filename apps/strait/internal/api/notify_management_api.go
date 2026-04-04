@@ -640,6 +640,130 @@ func (s *Server) handleListNotifyDeliveries(ctx context.Context, input *ListNoti
 	return &ListNotifyDeliveriesOutput{Body: messages}, nil
 }
 
+type GetNotifyEscalationByStepRunInput struct {
+	StepRunID string `path:"stepRunID"`
+}
+
+type GetNotifyEscalationByStepRunOutput struct {
+	Body *domain.EscalationState
+}
+
+func (s *Server) handleGetNotifyEscalationByStepRun(ctx context.Context, input *GetNotifyEscalationByStepRunInput) (*GetNotifyEscalationByStepRunOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+
+	state, err := ns.GetActiveEscalationStateByStepRun(ctx, projectID, input.StepRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrEscalationStateNotFound) {
+			return nil, huma.Error404NotFound("escalation not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get escalation")
+	}
+
+	return &GetNotifyEscalationByStepRunOutput{Body: state}, nil
+}
+
+type AcknowledgeNotifyEscalationByStepRunInput struct {
+	StepRunID string `path:"stepRunID"`
+}
+
+type AcknowledgeNotifyEscalationByStepRunOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleAcknowledgeNotifyEscalationByStepRun(ctx context.Context, input *AcknowledgeNotifyEscalationByStepRunInput) (*AcknowledgeNotifyEscalationByStepRunOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+
+	state, err := ns.GetActiveEscalationStateByStepRun(ctx, projectID, input.StepRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrEscalationStateNotFound) {
+			return nil, huma.Error404NotFound("escalation not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get escalation")
+	}
+
+	acknowledgedBy := actorFromContext(ctx)
+	if acknowledgedBy == "" {
+		acknowledgedBy = "system"
+	}
+	acknowledgedAt := time.Now().UTC()
+	if err := ns.AcknowledgeActiveEscalationStateByStepRun(ctx, input.StepRunID, acknowledgedBy, acknowledgedAt); err != nil {
+		return nil, huma.Error500InternalServerError("failed to acknowledge escalation")
+	}
+
+	return &AcknowledgeNotifyEscalationByStepRunOutput{Body: map[string]any{
+		"id":              state.ID,
+		"step_run_id":     input.StepRunID,
+		"status":          domain.NotifyEscalationStatusAcknowledged,
+		"acknowledged_by": acknowledgedBy,
+		"acknowledged_at": acknowledgedAt,
+	}}, nil
+}
+
+type CompleteNotifyEscalationByStepRunRequest struct {
+	Status string `json:"status,omitempty" validate:"omitempty,oneof=completed failed"`
+}
+
+type CompleteNotifyEscalationByStepRunInput struct {
+	StepRunID string `path:"stepRunID"`
+	Body      CompleteNotifyEscalationByStepRunRequest
+}
+
+type CompleteNotifyEscalationByStepRunOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleCompleteNotifyEscalationByStepRun(ctx context.Context, input *CompleteNotifyEscalationByStepRunInput) (*CompleteNotifyEscalationByStepRunOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validate.Struct(input.Body); err != nil {
+		return nil, newValidationError(err)
+	}
+
+	state, err := ns.GetActiveEscalationStateByStepRun(ctx, projectID, input.StepRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrEscalationStateNotFound) {
+			return nil, huma.Error404NotFound("escalation not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get escalation")
+	}
+
+	status := input.Body.Status
+	if status == "" {
+		status = domain.NotifyEscalationStatusCompleted
+	}
+
+	if err := ns.CompleteActiveEscalationStateByStepRun(ctx, input.StepRunID, status); err != nil {
+		return nil, huma.Error500InternalServerError("failed to complete escalation")
+	}
+
+	return &CompleteNotifyEscalationByStepRunOutput{Body: map[string]any{
+		"id":           state.ID,
+		"step_run_id":  input.StepRunID,
+		"status":       status,
+		"completed_at": time.Now().UTC(),
+	}}, nil
+}
+
 // Subscriber token generation.
 type CreateNotifySubscriberTokenRequest struct {
 	ExpiresIn string `json:"expires_in,omitempty"`

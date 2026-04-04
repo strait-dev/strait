@@ -430,6 +430,9 @@ func (s *Server) routes() chi.Router {
 		r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/notify/test", TypedHandler(s, http.StatusCreated, s.handleNotifyTest))
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Post("/notify/preview", TypedHandler(s, http.StatusOK, s.handleNotifyPreview))
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/notify/deliveries", TypedHandler(s, http.StatusOK, s.handleListNotifyDeliveries))
+		r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/notify/escalations/step-runs/{stepRunID}", TypedHandler(s, http.StatusOK, s.handleGetNotifyEscalationByStepRun))
+		r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/notify/escalations/step-runs/{stepRunID}/acknowledge", TypedHandler(s, http.StatusOK, s.handleAcknowledgeNotifyEscalationByStepRun))
+		r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/notify/escalations/step-runs/{stepRunID}/complete", TypedHandler(s, http.StatusOK, s.handleCompleteNotifyEscalationByStepRun))
 
 		r.Route("/log-drains", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListLogDrains))
