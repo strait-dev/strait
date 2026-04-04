@@ -1,0 +1,58 @@
+# LimitRange — enforces default resource limits on pods that don't specify them.
+# Prevents any single pod from consuming excessive resources.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: strait
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "1"
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "4"
+        memory: 4Gi
+      min:
+        cpu: 10m
+        memory: 16Mi
+---
+# ResourceQuota — caps total resource consumption in the strait namespace.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: strait-quota
+  namespace: strait
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 10Gi
+    limits.cpu: "20"
+    limits.memory: 20Gi
+    pods: "50"
+---
+# LimitRange for the default namespace (user job pods).
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: job-limits
+  namespace: default
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "2"
+        memory: 1Gi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "16"
+        memory: 32Gi
+      min:
+        cpu: 50m
+        memory: 64Mi

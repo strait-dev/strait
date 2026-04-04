@@ -63,6 +63,7 @@ spec:
             timeoutSeconds: 3
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 65534
             capabilities:

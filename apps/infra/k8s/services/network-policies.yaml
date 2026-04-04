@@ -51,8 +51,12 @@ spec:
         - port: 8080
           protocol: TCP
   egress:
-    # DNS resolution.
-    - ports:
+    # DNS resolution (restricted to kube-system CoreDNS).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
         - port: 53
           protocol: UDP
         - port: 53
@@ -120,8 +124,12 @@ spec:
         - port: 7376
           protocol: TCP
   egress:
-    # DNS resolution.
-    - ports:
+    # DNS resolution (restricted to kube-system CoreDNS).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
         - port: 53
           protocol: UDP
         - port: 53
@@ -167,8 +175,12 @@ spec:
         - port: 4318
           protocol: TCP
   egress:
-    # DNS resolution.
-    - ports:
+    # DNS resolution (restricted to kube-system CoreDNS).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
         - port: 53
           protocol: UDP
         - port: 53
@@ -217,8 +229,12 @@ spec:
         - port: 80
           protocol: TCP
   egress:
-    # DNS resolution.
-    - ports:
+    # DNS resolution (restricted to kube-system CoreDNS).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
         - port: 53
           protocol: UDP
         - port: 53

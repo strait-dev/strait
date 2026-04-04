@@ -20,6 +20,10 @@ data:
       order rate_limit before basicauth
     }
 
+    :80 {
+      respond /health 200
+    }
+
     {$STRAIT_DOMAIN} {
       # Rate limit: 100 requests/minute per client IP.
       rate_limit {
@@ -92,6 +96,20 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
