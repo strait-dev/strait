@@ -9,7 +9,7 @@ Runs on [Hetzner Cloud](https://www.hetzner.com/cloud) ARM servers with [k3s](ht
 ## Architecture
 
 ```
-Strait Server (Fly.io or self-hosted)
+Strait Server (managed infrastructure)
        |
        |--- COMPUTE_RUNTIME=k8s
        |--- K8S_KUBECONFIG=apps/infra/kubeconfig

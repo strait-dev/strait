@@ -68,8 +68,8 @@ Configure in Better Stack under **Settings** > **Notification preferences**:
 
 | Secret | Location | Purpose |
 |--------|----------|---------|
-| `GRAFANA_LOKI_URL` | `fly secrets` on `strait-otel-collector` | Loki push endpoint |
-| `GRAFANA_REMOTE_WRITE_URL` | `fly secrets` on `strait-otel-collector` | Prometheus remote write |
-| `GRAFANA_REMOTE_WRITE_USERNAME` | `fly secrets` on `strait-otel-collector` | Grafana Cloud user ID |
-| `GRAFANA_CLOUD_TOKEN` | `fly secrets` on `strait-otel-collector` | Grafana Cloud API key |
+| `GRAFANA_LOKI_URL` | Doppler / K8s Secret `otel-env` | Loki push endpoint |
+| `GRAFANA_REMOTE_WRITE_URL` | Doppler / K8s Secret `otel-env` | Prometheus remote write |
+| `GRAFANA_REMOTE_WRITE_USERNAME` | Doppler / K8s Secret `otel-env` | Grafana Cloud user ID |
+| `GRAFANA_CLOUD_TOKEN` | Doppler / K8s Secret `otel-env` | Grafana Cloud API key |
 | Better Stack webhook URL | Grafana Cloud contact point | Alert delivery |

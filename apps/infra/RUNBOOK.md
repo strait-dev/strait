@@ -132,7 +132,7 @@ make infra-up
 kubectl get nodes --show-labels | grep strait.dev/pool
 ```
 
-**Prevention:** Cluster autoscaler, RuntimeRouter fallback to Fly.
+**Prevention:** Cluster autoscaler, multi-region expansion if needed.
 
 ---
 
@@ -242,12 +242,12 @@ curl -s https://status.hetzner.com/api/v1/components.json | jq '.data[] | select
 
 **Fix:**
 ```bash
-# Failover to Fly.io.
-# Set COMPUTE_RUNTIME=fly (or COMPUTE_FALLBACK_PROVIDER=fly handles this automatically).
-# If using RuntimeRouter, jobs automatically fall back to Fly when K8s is unreachable.
+# Wait for provider recovery. Monitor status page.
+# If extended outage, provision replacement cluster in another region.
+# Jobs queue in Postgres and resume automatically when cluster recovers.
 ```
 
-**Prevention:** RuntimeRouter with Fly fallback, multi-region Hetzner (if critical).
+**Prevention:** Multi-region cluster expansion, regular backup verification.
 
 ---
 
