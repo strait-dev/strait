@@ -63,12 +63,17 @@ Metrics exposed at `GET /metrics`:
 | `strait_bulk_items_processed_total` | Counter | Items processed in bulk operations |
 | `strait_bulk_child_cancellations_total` | Counter | Cascading child run cancellations |
 | `strait_webhook_retry_attempts_total` | Counter | Webhook delivery retry attempts |
+| `strait_notify_scheduled_backlog` | Gauge | Due scheduled notify messages claimed per dispatcher poll |
+| `strait_notify_digest_requeues_total` | Counter | Digest batch requeues (by reason) |
+| `strait_notify_digest_failures_total` | Counter | Digest batch terminal failures (by reason) |
+| `strait_notify_escalation_stuck_total` | Counter | Escalation requeues indicating stuck lifecycle |
 
 ## Monitoring Assets
 
 Use the monitoring assets in `packages/monitoring/` as a baseline:
 
 - `grafana-authz-rbac-dashboard.json`
+- `alerts-strait-core.yaml`
 - `alerts-authz-rbac.yaml`
 
 ## Core Signals

@@ -106,6 +106,11 @@ type Metrics struct {
 
 	// Notification delivery metrics.
 	NotificationDeliveriesTotal metric.Int64Counter
+	NotifyScheduledBacklog      metric.Int64Gauge
+	NotifyDigestRequeuesTotal   metric.Int64Counter
+	NotifyDigestFailuresTotal   metric.Int64Counter
+	NotifyEscalationTransitions metric.Int64Counter
+	NotifyEscalationStuckStates metric.Int64Counter
 
 	// Log drain metrics.
 	LogDrainEventsTotal metric.Int64Counter
@@ -651,6 +656,31 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total notification deliveries by status"),
 		metric.WithUnit("1"),
 	)
+	notifyScheduledBacklog, _ := meter.Int64Gauge(
+		"strait_notify_scheduled_backlog",
+		metric.WithDescription("Number of due scheduled notify messages claimed by dispatcher poll"),
+		metric.WithUnit("1"),
+	)
+	notifyDigestRequeuesTotal, _ := meter.Int64Counter(
+		"strait_notify_digest_requeues_total",
+		metric.WithDescription("Total digest batch requeues by reason"),
+		metric.WithUnit("1"),
+	)
+	notifyDigestFailuresTotal, _ := meter.Int64Counter(
+		"strait_notify_digest_failures_total",
+		metric.WithDescription("Total digest batch failures by reason"),
+		metric.WithUnit("1"),
+	)
+	notifyEscalationTransitions, _ := meter.Int64Counter(
+		"strait_notify_escalation_transitions_total",
+		metric.WithDescription("Total notify escalation transitions by status"),
+		metric.WithUnit("1"),
+	)
+	notifyEscalationStuckStates, _ := meter.Int64Counter(
+		"strait_notify_escalation_stuck_total",
+		metric.WithDescription("Total notify escalation requeues indicating stuck state"),
+		metric.WithUnit("1"),
+	)
 	logDrainEventsTotal, _ := meter.Int64Counter(
 		"strait_log_drain_events_total",
 		metric.WithDescription("Total log drain events by status"),
@@ -751,6 +781,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		ClickHouseDroppedRecords:     clickhouseDroppedRecords,
 		ClickHouseFlushFailures:      clickhouseFlushFailures,
 		NotificationDeliveriesTotal:  notificationDeliveriesTotal,
+		NotifyScheduledBacklog:       notifyScheduledBacklog,
+		NotifyDigestRequeuesTotal:    notifyDigestRequeuesTotal,
+		NotifyDigestFailuresTotal:    notifyDigestFailuresTotal,
+		NotifyEscalationTransitions:  notifyEscalationTransitions,
+		NotifyEscalationStuckStates:  notifyEscalationStuckStates,
 		LogDrainEventsTotal:          logDrainEventsTotal,
 		PubSubPublishErrors:          pubsubPublishErrors,
 		StripeUsageEventsIngested:    stripeUsageEventsIngested,

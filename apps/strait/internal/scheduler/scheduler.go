@@ -90,6 +90,9 @@ type SchedulerOption func(*Scheduler)
 func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	return func(s *Scheduler) {
 		s.reaper.WithMetrics(m)
+		if s.notifyDispatcher != nil {
+			s.notifyDispatcher.WithMetrics(m)
+		}
 	}
 }
 

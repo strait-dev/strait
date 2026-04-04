@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 
 	"github.com/resend/resend-go/v2"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -43,6 +46,7 @@ type NotifyDispatcher struct {
 	resendAPIKey string
 	resendFrom   string
 	logger       *slog.Logger
+	metrics      *telemetry.Metrics
 }
 
 func NewNotifyDispatcher(s notifyDispatcherStore, interval time.Duration, resendAPIKey, resendFrom string) *NotifyDispatcher {
@@ -61,6 +65,11 @@ func NewNotifyDispatcher(s notifyDispatcherStore, interval time.Duration, resend
 		resendFrom:   resendFrom,
 		logger:       slog.Default(),
 	}
+}
+
+func (d *NotifyDispatcher) WithMetrics(m *telemetry.Metrics) *NotifyDispatcher {
+	d.metrics = m
+	return d
 }
 
 func (d *NotifyDispatcher) Run(ctx context.Context) {
@@ -103,6 +112,9 @@ func (d *NotifyDispatcher) pollDueMessages(ctx context.Context) {
 		d.logger.Error("notify dispatcher: claim due messages", "error", err)
 		return
 	}
+	if d.metrics != nil {
+		d.metrics.NotifyScheduledBacklog.Record(ctx, int64(len(messages)))
+	}
 
 	for _, msg := range messages {
 		if err := d.processMessage(ctx, msg); err != nil {
@@ -135,6 +147,7 @@ func (d *NotifyDispatcher) processEscalation(ctx context.Context, state domain.E
 		if err := d.store.AdvanceEscalationState(ctx, state.ID, state.ProjectID, state.CurrentTier, nil, domain.NotifyEscalationStatusCompleted); err != nil {
 			return fmt.Errorf("complete escalation state: %w", err)
 		}
+		d.recordEscalationTransition(ctx, domain.NotifyEscalationStatusCompleted)
 		return nil
 	}
 
@@ -194,6 +207,7 @@ func (d *NotifyDispatcher) processEscalation(ctx context.Context, state domain.E
 	if err := d.store.AdvanceEscalationState(ctx, state.ID, state.ProjectID, nextTier, nextAt, status); err != nil {
 		return fmt.Errorf("advance escalation state: %w", err)
 	}
+	d.recordEscalationTransition(ctx, status)
 
 	return nil
 }
@@ -202,13 +216,14 @@ func (d *NotifyDispatcher) processBatch(ctx context.Context, batch domain.Notifi
 	sub, err := d.store.GetNotifySubscriber(ctx, batch.RecipientID, batch.ProjectID)
 	if err != nil {
 		_ = d.store.MarkNotificationBatchFailed(ctx, batch.ID, batch.ProjectID)
+		d.recordDigestFailure(ctx, "resolve_subscriber")
 		return fmt.Errorf("resolve batch subscriber: %w", err)
 	}
 
 	payload := buildDigestPayload(batch)
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		d.requeueBatch(ctx, batch)
+		d.requeueBatch(ctx, batch, "marshal_payload")
 		return fmt.Errorf("marshal digest payload: %w", err)
 	}
 
@@ -224,22 +239,23 @@ func (d *NotifyDispatcher) processBatch(ctx context.Context, batch domain.Notifi
 		BatchID:         batch.ID,
 	}
 	if err := d.store.CreateNotificationMessage(ctx, msg); err != nil {
-		d.requeueBatch(ctx, batch)
+		d.requeueBatch(ctx, batch, "create_message")
 		return fmt.Errorf("create digest message: %w", err)
 	}
 
 	if err := d.deliverByChannel(ctx, msg, sub, payload); err != nil {
 		d.failMessage(ctx, *msg, err)
-		d.requeueBatch(ctx, batch)
+		d.requeueBatch(ctx, batch, "deliver_channel")
 		return err
 	}
 
 	now := time.Now().UTC()
 	if err := d.store.UpdateNotificationMessageStatus(ctx, msg.ID, msg.ProjectID, domain.NotifyMessageStatusProcessing, domain.NotifyMessageStatusDelivered, map[string]any{"delivered_at": now}); err != nil {
-		d.requeueBatch(ctx, batch)
+		d.requeueBatch(ctx, batch, "mark_message_delivered")
 		return fmt.Errorf("mark digest message delivered: %w", err)
 	}
 	if err := d.store.MarkNotificationBatchSent(ctx, batch.ID, batch.ProjectID, now); err != nil {
+		d.recordDigestFailure(ctx, "mark_batch_sent")
 		return fmt.Errorf("mark batch sent: %w", err)
 	}
 
@@ -393,10 +409,12 @@ func (d *NotifyDispatcher) deliverEmail(ctx context.Context, msg domain.Notifica
 	return nil
 }
 
-func (d *NotifyDispatcher) requeueBatch(ctx context.Context, batch domain.NotificationBatch) {
+func (d *NotifyDispatcher) requeueBatch(ctx context.Context, batch domain.NotificationBatch, reason string) {
+	d.recordDigestRequeue(ctx, reason)
 	nextWindow := time.Now().UTC().Add(5 * time.Minute)
 	if err := d.store.RequeueNotificationBatch(ctx, batch.ID, batch.ProjectID, nextWindow); err != nil {
 		d.logger.Warn("notify dispatcher: requeue batch failed", "batch_id", batch.ID, "error", err)
+		d.recordDigestFailure(ctx, "requeue_failed")
 		if markErr := d.store.MarkNotificationBatchFailed(ctx, batch.ID, batch.ProjectID); markErr != nil {
 			d.logger.Warn("notify dispatcher: mark batch failed", "batch_id", batch.ID, "error", markErr)
 		}
@@ -404,10 +422,53 @@ func (d *NotifyDispatcher) requeueBatch(ctx context.Context, batch domain.Notifi
 }
 
 func (d *NotifyDispatcher) requeueEscalation(ctx context.Context, state domain.EscalationState) {
+	d.recordEscalationStuck(ctx, "requeue")
 	nextAt := time.Now().UTC().Add(5 * time.Minute)
 	if err := d.store.AdvanceEscalationState(ctx, state.ID, state.ProjectID, state.CurrentTier, &nextAt, domain.NotifyEscalationStatusActive); err != nil {
 		d.logger.Warn("notify dispatcher: requeue escalation failed", "escalation_id", state.ID, "error", err)
+		return
 	}
+	d.recordEscalationTransition(ctx, domain.NotifyEscalationStatusActive)
+}
+
+func (d *NotifyDispatcher) recordDigestRequeue(ctx context.Context, reason string) {
+	if d.metrics == nil {
+		return
+	}
+	if reason == "" {
+		reason = "unknown"
+	}
+	d.metrics.NotifyDigestRequeuesTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", reason)))
+}
+
+func (d *NotifyDispatcher) recordDigestFailure(ctx context.Context, reason string) {
+	if d.metrics == nil {
+		return
+	}
+	if reason == "" {
+		reason = "unknown"
+	}
+	d.metrics.NotifyDigestFailuresTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", reason)))
+}
+
+func (d *NotifyDispatcher) recordEscalationTransition(ctx context.Context, status string) {
+	if d.metrics == nil {
+		return
+	}
+	if status == "" {
+		status = "unknown"
+	}
+	d.metrics.NotifyEscalationTransitions.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
+}
+
+func (d *NotifyDispatcher) recordEscalationStuck(ctx context.Context, reason string) {
+	if d.metrics == nil {
+		return
+	}
+	if reason == "" {
+		reason = "unknown"
+	}
+	d.metrics.NotifyEscalationStuckStates.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", reason)))
 }
 
 func buildDigestPayload(batch domain.NotificationBatch) map[string]any {
@@ -493,6 +554,9 @@ func collectDigestTitles(events []map[string]any) []string {
 func (d *NotifyDispatcher) failMessage(ctx context.Context, msg domain.NotificationMessage, reason error) {
 	if reason == nil {
 		return
+	}
+	if msg.BatchID != "" {
+		d.recordDigestFailure(ctx, "message_failed")
 	}
 	if err := d.store.UpdateNotificationMessageStatus(ctx, msg.ID, msg.ProjectID, domain.NotifyMessageStatusProcessing, domain.NotifyMessageStatusFailed, map[string]any{
 		"suppression_reason": reason.Error(),

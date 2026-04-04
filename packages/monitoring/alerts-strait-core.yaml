@@ -148,6 +148,42 @@ groups:
           summary: "Notification delivery failures detected"
           description: "Notification deliveries are failing. Check channel endpoints and credentials."
 
+      - alert: StraitNotifyScheduledBacklogHigh
+        expr: max_over_time(strait_notify_scheduled_backlog[15m]) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notify scheduled backlog is elevated"
+          description: "Scheduled notify messages remain due across dispatcher polls. Check worker saturation and downstream channel failures."
+
+      - alert: StraitNotifyDigestRequeuesHigh
+        expr: sum(rate(strait_notify_digest_requeues_total[15m])) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notify digest batches are requeueing repeatedly"
+          description: "Digest batches are being requeued multiple times. Check channel delivery reliability and batch payload validity."
+
+      - alert: StraitNotifyDigestFailures
+        expr: sum(rate(strait_notify_digest_failures_total[15m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notify digest batch failures detected"
+          description: "Digest batch processing is failing. Check provider credentials, payload rendering, and batch state transitions."
+
+      - alert: StraitNotifyEscalationStuck
+        expr: sum(rate(strait_notify_escalation_stuck_total[15m])) > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Notify escalation states are requeueing"
+          description: "Escalation states are repeatedly requeued. Verify workflow approval status lookups and dispatcher health."
+
       # Log drain
       - alert: StraitLogDrainExportFailures
         expr: sum(rate(strait_log_drain_events_total{status="error"}[10m])) > 0

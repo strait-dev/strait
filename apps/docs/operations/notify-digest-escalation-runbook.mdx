@@ -39,6 +39,21 @@ Before triage, verify:
    - check `GET /v1/notify/escalations/step-runs/{stepRunID}`
    - verify state progression (`active` → `processing` → terminal)
 
+## Triage Script (CLI)
+
+Use the script-only triage helper for a quick database snapshot:
+
+```bash
+cd apps/strait
+DATABASE_URL='postgres://...' go run ./scripts/notify-triage --project-id <project_id>
+```
+
+Useful flags:
+
+- `--window=6h` to widen/narrow recent failure inspection
+- `--stale-threshold=30m` to tune stuck escalation detection
+- `--limit=20` to control failed message row output size
+
 ## Common Failure Modes
 
 ### 1) Messages remain in `scheduled`
