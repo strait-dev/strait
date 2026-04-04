@@ -168,6 +168,57 @@ func (q *Queries) ListNotificationMessagesByProject(ctx context.Context, project
 	return messages, nil
 }
 
+func (q *Queries) ClaimDueScheduledNotificationMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimDueScheduledNotificationMessages")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		WITH due AS (
+			SELECT id
+			FROM notification_messages
+			WHERE status = 'scheduled'
+			  AND scheduled_at IS NOT NULL
+			  AND scheduled_at <= NOW()
+			ORDER BY scheduled_at ASC
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE notification_messages nm
+		SET status = $2,
+		    attempts = nm.attempts + 1
+		FROM due
+		WHERE nm.id = due.id
+		RETURNING nm.id, nm.project_id, nm.idempotency_key, nm.recipient_type, nm.recipient_id, nm.tenant_id,
+		          nm.workflow_run_id, nm.step_run_id, nm.template_id, nm.category_key,
+		          nm.channel, nm.provider_id, nm.rendered_content, nm.ai_generated, nm.status, nm.attempts,
+		          nm.provider_response, nm.delivered_at, nm.read_at, nm.clicked_at,
+		          nm.bounced_at, nm.suppression_reason, nm.batch_id, nm.scheduled_at, nm.created_at`
+
+	rows, err := q.db.Query(ctx, query, limit, domain.NotifyMessageStatusProcessing)
+	if err != nil {
+		return nil, fmt.Errorf("claim due scheduled notification messages: %w", err)
+	}
+	defer rows.Close()
+
+	messages := make([]domain.NotificationMessage, 0, limit)
+	for rows.Next() {
+		msg, scanErr := scanNotificationMessage(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("claim due scheduled notification messages scan: %w", scanErr)
+		}
+		messages = append(messages, *msg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("claim due scheduled notification messages rows: %w", err)
+	}
+
+	return messages, nil
+}
+
 func (q *Queries) UpdateNotificationMessageStatus(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateNotificationMessageStatus")
 	defer span.End()

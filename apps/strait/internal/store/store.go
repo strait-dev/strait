@@ -418,6 +418,7 @@ type NotifyStore interface {
 	GetNotificationMessage(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error)
 	GetNotificationMessageByID(ctx context.Context, id string) (*domain.NotificationMessage, error)
 	ListNotificationMessagesByProject(ctx context.Context, projectID string, status *string, limit int, cursor *time.Time) ([]domain.NotificationMessage, error)
+	ClaimDueScheduledNotificationMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error)
 	UpdateNotificationMessageStatus(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error
 	CreateInboxItem(ctx context.Context, item *domain.InboxItem) error
 	GetInboxItem(ctx context.Context, id, recipientType, recipientID string) (*domain.InboxItem, error)

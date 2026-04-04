@@ -49,6 +49,7 @@ type Scheduler struct {
 	staleSubscriptionChecker *StaleSubscriptionChecker
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
+	notifyDispatcher         *NotifyDispatcher
 	wg                       conc.WaitGroup
 }
 
@@ -72,6 +73,9 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		budgetMonitor:         NewBudgetMonitor(s, nil, 5*time.Minute),
 		costEstimateRefresher: NewCostEstimateRefresher(s, time.Hour),
 		memoryCleanup:         NewMemoryCleanup(s, 5*time.Minute),
+	}
+	if notifyStore, ok := any(s).(notifyDispatcherStore); ok {
+		sched.notifyDispatcher = NewNotifyDispatcher(notifyStore, cfg.PollerInterval, cfg.ResendAPIKey, cfg.ResendFromEmail)
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -212,6 +216,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.contractExpiryChecker != nil {
 		safeGo(&s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
+	}
+	if s.notifyDispatcher != nil {
+		safeGo(&s.wg, "notify_dispatcher", func() { s.notifyDispatcher.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")
