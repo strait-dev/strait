@@ -104,6 +104,41 @@ Strait Notify currently supports `inbox` and `email` channels for delivery.
 - `POST /v1/notify/preview`: Renders template output without creating delivery records.
 - `GET /v1/notify/deliveries`: Lists notification messages and statuses.
 
+### Management APIs
+
+- Subscribers:
+  - `POST /v1/subscribers`, `GET /v1/subscribers`
+  - `GET|PUT|DELETE /v1/subscribers/{subscriberID}`
+  - `POST /v1/subscribers/{subscriberID}/token`
+- Topics:
+  - `POST /v1/topics`, `GET /v1/topics`
+  - `POST /v1/topics/{topicKey}/subscribers`
+  - `DELETE /v1/topics/{topicKey}/subscribers/{subscriberID}`
+- Templates:
+  - `POST /v1/templates`, `GET /v1/templates`
+  - `GET|PUT /v1/templates/{templateKey}`
+- Categories:
+  - `POST /v1/categories`, `GET /v1/categories`
+- Providers:
+  - `POST /v1/providers`, `GET /v1/providers`
+  - `PUT|DELETE /v1/providers/{providerID}`
+
+### Subscriber APIs
+
+- Inbox:
+  - `GET /v1/inbox`
+  - `GET /v1/inbox/unread-count`
+  - `PATCH /v1/inbox/{itemID}`
+  - `POST /v1/inbox/{itemID}/action`
+  - `POST /v1/inbox/mark-all-read`
+- Preferences:
+  - `GET /v1/preferences`
+  - `PUT /v1/preferences`
+  - `PUT /v1/preferences/{scope}`
+- Unsubscribe:
+  - `GET|POST /v1/unsubscribe/{token}`
+  - `POST /v1/unsubscribe/{token}/one-click`
+
 ### Digest Semantics
 
 Digest batching is controlled by subscriber preferences (`digest_policy`).
@@ -140,4 +175,22 @@ curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/explain?step_ref=deploy&
 # Replay a failed branch from step 'deploy'
 curl -X POST "https://strait.dev/v1/workflow-runs/wr_123/steps/deploy/replay-subtree" \
   -H "Authorization: Bearer strait_live_abc123"
+```
+
+```bash
+# Trigger a notify template to a subscriber
+curl -X POST "https://strait.dev/v1/notify" \
+  -H "Authorization: Bearer strait_live_abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": {"type": "subscriber", "id": "sub_123"},
+    "template_key": "workflow.approval.pending",
+    "payload": {"workflow_name": "release"}
+  }'
+```
+
+```bash
+# Read subscriber inbox items
+curl -X GET "https://strait.dev/v1/inbox?limit=20" \
+  -H "Authorization: Bearer <notify_subscriber_token>"
 ```
