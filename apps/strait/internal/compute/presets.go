@@ -18,6 +18,20 @@ const (
 	CostLarge2x  int64 = 1050 // 16 vCPU / 32 GB  — $3.780/hr
 )
 
+// NodePoolLabel is the K8s node label used for pool-based scheduling.
+const NodePoolLabel = "strait.dev/pool"
+
+// NodePoolAffinityWeight controls how strongly jobs prefer their designated pool.
+// 80 = strong preference but not absolute. Jobs overflow to other pools if needed.
+const NodePoolAffinityWeight = 80
+
+// Node pool names for K8s scheduling affinity.
+const (
+	NodePoolGeneral     = "general"     // micro, small-1x, small-2x (Hetzner CAX21: 4 vCPU, 8GB)
+	NodePoolPerformance = "performance" // medium-1x, medium-2x (Hetzner CAX31: 8 vCPU, 16GB)
+	NodePoolHeavy       = "heavy"       // large-1x, large-2x (Hetzner CAX41: 16 vCPU, 32GB)
+)
+
 // Preset defines the resource allocation for a machine preset.
 type Preset struct {
 	Name          string // e.g. "micro", "small-1x"
@@ -25,17 +39,18 @@ type Preset struct {
 	MemoryMB      int    // Memory in megabytes
 	FlyGuestSize  string // Fly Machines guest size string
 	CostPerSecond int64  // Cost in micro-USD per second of wall time
+	NodePool      string // K8s node pool for affinity scheduling (general, performance, heavy).
 }
 
 // AllPresets is the canonical list of supported machine presets.
 var AllPresets = map[string]Preset{
-	"micro":     {Name: "micro", CPUs: 1, MemoryMB: 256, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostMicro},
-	"small-1x":  {Name: "small-1x", CPUs: 1, MemoryMB: 512, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostSmall1x},
-	"small-2x":  {Name: "small-2x", CPUs: 2, MemoryMB: 1024, FlyGuestSize: "shared-cpu-2x", CostPerSecond: CostSmall2x},
-	"medium-1x": {Name: "medium-1x", CPUs: 2, MemoryMB: 4096, FlyGuestSize: "performance-1x", CostPerSecond: CostMedium1x},
-	"medium-2x": {Name: "medium-2x", CPUs: 4, MemoryMB: 8192, FlyGuestSize: "performance-2x", CostPerSecond: CostMedium2x},
-	"large-1x":  {Name: "large-1x", CPUs: 8, MemoryMB: 16384, FlyGuestSize: "performance-4x", CostPerSecond: CostLarge1x},
-	"large-2x":  {Name: "large-2x", CPUs: 16, MemoryMB: 32768, FlyGuestSize: "performance-8x", CostPerSecond: CostLarge2x},
+	"micro":     {Name: "micro", CPUs: 1, MemoryMB: 256, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostMicro, NodePool: NodePoolGeneral},
+	"small-1x":  {Name: "small-1x", CPUs: 1, MemoryMB: 512, FlyGuestSize: "shared-cpu-1x", CostPerSecond: CostSmall1x, NodePool: NodePoolGeneral},
+	"small-2x":  {Name: "small-2x", CPUs: 2, MemoryMB: 1024, FlyGuestSize: "shared-cpu-2x", CostPerSecond: CostSmall2x, NodePool: NodePoolGeneral},
+	"medium-1x": {Name: "medium-1x", CPUs: 2, MemoryMB: 4096, FlyGuestSize: "performance-1x", CostPerSecond: CostMedium1x, NodePool: NodePoolPerformance},
+	"medium-2x": {Name: "medium-2x", CPUs: 4, MemoryMB: 8192, FlyGuestSize: "performance-2x", CostPerSecond: CostMedium2x, NodePool: NodePoolPerformance},
+	"large-1x":  {Name: "large-1x", CPUs: 8, MemoryMB: 16384, FlyGuestSize: "performance-4x", CostPerSecond: CostLarge1x, NodePool: NodePoolHeavy},
+	"large-2x":  {Name: "large-2x", CPUs: 16, MemoryMB: 32768, FlyGuestSize: "performance-8x", CostPerSecond: CostLarge2x, NodePool: NodePoolHeavy},
 }
 
 // PresetOrder defines the canonical ordering of presets from smallest to largest.
@@ -115,4 +130,31 @@ func (p Preset) K8sResources() (requests, limits corev1.ResourceList) {
 		}
 	}
 	return requests, limits
+}
+
+// K8sNodeAffinity returns a soft node affinity targeting this preset's node pool.
+// Uses PreferredDuringScheduling so jobs prefer their pool but can overflow to any node.
+// Returns nil if the preset has no node pool configured.
+func (p Preset) K8sNodeAffinity() *corev1.Affinity {
+	if p.NodePool == "" {
+		return nil
+	}
+	return &corev1.Affinity{
+		NodeAffinity: &corev1.NodeAffinity{
+			PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
+				{
+					Weight: NodePoolAffinityWeight,
+					Preference: corev1.NodeSelectorTerm{
+						MatchExpressions: []corev1.NodeSelectorRequirement{
+							{
+								Key:      NodePoolLabel,
+								Operator: corev1.NodeSelectorOpIn,
+								Values:   []string{p.NodePool},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
 }

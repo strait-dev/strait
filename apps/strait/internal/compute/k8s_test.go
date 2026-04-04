@@ -684,6 +684,61 @@ func TestK8sRuntime_Create_OverrideNamespace(t *testing.T) {
 	}
 }
 
+func TestK8sRuntime_Create_NodeAffinity_AllPresets(t *testing.T) {
+	tests := []struct {
+		preset   string
+		wantPool string
+	}{
+		{"micro", NodePoolGeneral},
+		{"small-1x", NodePoolGeneral},
+		{"small-2x", NodePoolGeneral},
+		{"medium-1x", NodePoolPerformance},
+		{"medium-2x", NodePoolPerformance},
+		{"large-1x", NodePoolHeavy},
+		{"large-2x", NodePoolHeavy},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.preset, func(t *testing.T) {
+			rt, cs := newTestK8sRuntime()
+			ctx := context.Background()
+
+			id, err := rt.Create(ctx, RunRequest{
+				ImageURI:      "alpine:3.19",
+				MachinePreset: tt.preset,
+				TimeoutSecs:   30,
+			})
+			if err != nil {
+				t.Fatalf("Create(%s): %v", tt.preset, err)
+			}
+
+			job, _ := cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
+			affinity := job.Spec.Template.Spec.Affinity
+			if affinity == nil {
+				t.Fatalf("preset %s: Affinity is nil", tt.preset)
+			}
+			if affinity.NodeAffinity == nil {
+				t.Fatalf("preset %s: NodeAffinity is nil", tt.preset)
+			}
+
+			terms := affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+			if len(terms) != 1 {
+				t.Fatalf("preset %s: expected 1 term, got %d", tt.preset, len(terms))
+			}
+
+			pool := terms[0].Preference.MatchExpressions[0].Values[0]
+			if pool != tt.wantPool {
+				t.Errorf("preset %s: pool=%q, want %q", tt.preset, pool, tt.wantPool)
+			}
+
+			// Verify it's soft (preferred), not hard (required).
+			if affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+				t.Errorf("preset %s: has hard affinity, want soft only", tt.preset)
+			}
+		})
+	}
+}
+
 func TestK8sRuntime_Create_InvalidImageURI(t *testing.T) {
 	rt, _ := newTestK8sRuntime()
 	_, err := rt.Create(context.Background(), RunRequest{

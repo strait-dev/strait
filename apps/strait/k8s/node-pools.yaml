@@ -1,0 +1,20 @@
+# Node pool labels for Strait job scheduling.
+# Apply these labels to your k3s/K8s nodes after provisioning.
+#
+# General pool (micro, small-1x, small-2x):
+#   kubectl label node <node-name> strait.dev/pool=general
+#
+# Performance pool (medium-1x, medium-2x):
+#   kubectl label node <node-name> strait.dev/pool=performance
+#
+# Heavy pool (large-1x, large-2x):
+#   kubectl label node <node-name> strait.dev/pool=heavy
+#
+# Node type recommendations (Hetzner ARM):
+#   general:     CAX21 (4 vCPU, 8GB)   - $7/mo  — handles ~70% of jobs
+#   performance: CAX31 (8 vCPU, 16GB)  - $14/mo — handles ~20% of jobs
+#   heavy:       CAX41 (16 vCPU, 32GB) - $27/mo — handles ~10% of jobs
+#
+# Affinity is soft (preferredDuringScheduling, weight 80). Jobs prefer
+# their designated pool but can overflow to any node if the pool is full.
+# This prevents jobs from being stuck Pending during peak hours.

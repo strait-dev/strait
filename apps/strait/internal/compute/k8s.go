@@ -180,6 +180,10 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 			job.Spec.Template.Spec.PriorityClassName = k.priorityClass
 		}
 
+		if affinity := preset.K8sNodeAffinity(); affinity != nil {
+			job.Spec.Template.Spec.Affinity = affinity
+		}
+
 		deadline := int64(defaultMaxDeadlineSecs)
 		if req.TimeoutSecs > 0 {
 			deadline = int64(req.TimeoutSecs)
