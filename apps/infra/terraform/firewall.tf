@@ -33,7 +33,15 @@ resource "hcloud_firewall" "cluster" {
     source_ips = ["10.0.0.0/16"]
   }
 
-  # Strait API NodePort (only expose the API, not the full NodePort range).
+  # Caddy HTTPS (Strait API with TLS termination).
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "30443"
+    source_ips = ["0.0.0.0/0", "::/0"]
+  }
+
+  # Caddy HTTP (Let's Encrypt ACME challenge + HTTPS redirect).
   rule {
     direction  = "in"
     protocol   = "tcp"

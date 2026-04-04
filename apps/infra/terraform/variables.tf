@@ -161,6 +161,13 @@ variable "server_count" {
   }
 }
 
+# TLS configuration.
+variable "strait_domain" {
+  description = "Domain for the Strait API (used by Caddy for TLS). Leave empty to skip TLS."
+  type        = string
+  default     = ""
+}
+
 variable "ssh_allowed_ips" {
   description = "CIDR blocks allowed to SSH into nodes. Restrict in production."
   type        = list(string)

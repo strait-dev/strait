@@ -1,0 +1,142 @@
+# Caddy reverse proxy — TLS termination for the Strait API.
+# Auto-provisions Let's Encrypt certificates for the configured domain.
+# Proxies HTTPS traffic to the strait ClusterIP service on port 8080.
+#
+# Prerequisites:
+#   - DNS A record pointing your domain to a node's public IP
+#   - Port 80 + 443 reachable from the internet (for ACME challenge + HTTPS)
+#
+# Configuration:
+#   Set the STRAIT_DOMAIN in the caddy-env secret:
+#     kubectl -n strait create secret generic caddy-env --from-literal=STRAIT_DOMAIN=api.yourdomain.com
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caddy-config
+  namespace: strait
+data:
+  Caddyfile: |
+    {$STRAIT_DOMAIN} {
+      reverse_proxy strait.strait.svc:8080
+
+      header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        -Server
+      }
+
+      log {
+        output stdout
+        format json
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy
+  namespace: strait
+  labels:
+    app: caddy
+    app.kubernetes.io/name: caddy
+    app.kubernetes.io/component: ingress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: caddy
+  template:
+    metadata:
+      labels:
+        app: caddy
+        app.kubernetes.io/name: caddy
+        app.kubernetes.io/component: ingress
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: caddy
+          image: caddy:2-alpine
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              protocol: TCP
+          env:
+            - name: STRAIT_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: caddy-env
+                  key: STRAIT_DOMAIN
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: data
+              mountPath: /data
+            - name: caddy-config-dir
+              mountPath: /config
+      volumes:
+        - name: config
+          configMap:
+            name: caddy-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: caddy-data
+        - name: caddy-config-dir
+          emptyDir: {}
+---
+# PVC for Let's Encrypt certificate storage (persists across restarts).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: caddy-data
+  namespace: strait
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# NodePort service for external HTTPS access.
+# Port 30443 for HTTPS, port 30080 for HTTP (ACME challenge + redirect).
+apiVersion: v1
+kind: Service
+metadata:
+  name: caddy
+  namespace: strait
+  labels:
+    app: caddy
+spec:
+  type: NodePort
+  selector:
+    app: caddy
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30080
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: https
+      nodePort: 30443
+      protocol: TCP

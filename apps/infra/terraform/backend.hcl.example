@@ -1,0 +1,19 @@
+# Terraform remote state backend configuration.
+# Copy to backend.hcl and fill in your Hetzner Object Storage credentials:
+#   cp backend.hcl.example backend.hcl
+#
+# Then initialize:
+#   terraform init -backend-config=backend.hcl
+#
+# To migrate from local state to remote:
+#   terraform init -migrate-state -backend-config=backend.hcl
+#
+# backend.hcl is gitignored — your credentials stay local.
+# Store these credentials in Doppler for team access.
+
+bucket     = "strait-tf-state"
+key        = "hetzner/terraform.tfstate"
+region     = "us-east-1"  # Required by S3 backend but ignored by Hetzner
+endpoints  = { s3 = "https://fsn1.your-objectstorage.com" }
+access_key = ""  # Hetzner Object Storage access key
+secret_key = ""  # Hetzner Object Storage secret key

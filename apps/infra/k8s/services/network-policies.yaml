@@ -193,3 +193,53 @@ spec:
       ports:
         - port: 443
           protocol: TCP
+---
+# Caddy TLS reverse proxy.
+# Ingress: external HTTPS/HTTP from any source.
+# Egress: DNS, Strait API (8080), Let's Encrypt ACME (443).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: caddy
+  namespace: strait
+spec:
+  podSelector:
+    matchLabels:
+      app: caddy
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # External HTTPS and HTTP (ACME challenge + redirect).
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
+  egress:
+    # DNS resolution.
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Strait API server (reverse proxy target).
+    - to:
+        - podSelector:
+            matchLabels:
+              app: strait
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Let's Encrypt ACME (external HTTPS for certificate provisioning).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
