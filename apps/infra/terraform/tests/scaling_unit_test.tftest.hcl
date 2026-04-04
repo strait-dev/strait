@@ -138,4 +138,44 @@ run "test_eu_location_with_correct_zone" {
     condition     = hcloud_server.general[0].location == "fsn1"
     error_message = "Workers should use same location as master"
   }
+
+  assert {
+    condition     = hcloud_network_subnet.nodes.network_zone == "eu-central"
+    error_message = "fsn1 should map to eu-central network zone"
+  }
+}
+
+run "test_ash_location_maps_to_us_east" {
+  command = plan
+
+  variables {
+    location = "ash"
+  }
+
+  assert {
+    condition     = hcloud_network_subnet.nodes.network_zone == "us-east"
+    error_message = "ash should map to us-east network zone"
+  }
+}
+
+run "test_hil_location_maps_to_us_west" {
+  command = plan
+
+  variables {
+    location = "hil"
+  }
+
+  assert {
+    condition     = hcloud_network_subnet.nodes.network_zone == "us-west"
+    error_message = "hil should map to us-west network zone"
+  }
+}
+
+run "test_firewall_exposes_only_api_ports" {
+  command = plan
+
+  assert {
+    condition     = hcloud_firewall.cluster.name == "strait-firewall"
+    error_message = "Firewall should exist with correct name"
+  }
 }

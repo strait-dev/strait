@@ -1,28 +1,81 @@
-# Strait Infrastructure — Hetzner + k3s
+# Strait Infrastructure — Hetzner k3s + Calico
 #
 # Copy this file to terraform.tfvars and fill in your values:
 #   cp terraform.tfvars.example terraform.tfvars
 #
 # terraform.tfvars is gitignored — your secrets stay local.
+# For team access, store credentials in Doppler.
+
+# ──────────────────────────────────────────────
+# Required
+# ──────────────────────────────────────────────
 
 # Hetzner Cloud API token.
-# Get from: https://console.hetzner.cloud > Select project > API Tokens > Generate API token
+# Get from: https://console.hetzner.cloud > Select project > API Tokens
 hcloud_token = ""
 
 # SSH key paths for server access.
 ssh_key_path         = "~/.ssh/id_ed25519.pub"
 ssh_private_key_path = "~/.ssh/id_ed25519"
 
+# ──────────────────────────────────────────────
+# Cluster Configuration
+# ──────────────────────────────────────────────
+
 # Datacenter location.
-# fsn1 = Falkenstein, Germany (cheapest)
+# ash  = Ashburn, VA (us-east-1 equivalent — co-locate with PlanetScale)
+# hil  = Hillsboro, OR (us-west-2 equivalent)
+# fsn1 = Falkenstein, Germany (cheapest EU)
 # nbg1 = Nuremberg, Germany
 # hel1 = Helsinki, Finland
-location = "fsn1"
+location     = "ash"
+cluster_name = "strait"
+
+# HA: set to 3 for etcd quorum (survives 1 server failure).
+server_count = 1
+
+# Server types (Hetzner ARM).
+master_type  = "cax21"  # 4 vCPU, 8GB — $7/mo
+general_type = "cax21"  # 4 vCPU, 8GB — $7/mo
+perf_type    = "cax31"  # 8 vCPU, 16GB — $14/mo
+heavy_type   = "cax41"  # 16 vCPU, 32GB — $27/mo
 
 # Node pool sizes.
-# general: micro, small-1x, small-2x jobs (CAX21: 4 vCPU, 8GB — $7/mo each)
-# perf:    medium-1x, medium-2x jobs (CAX31: 8 vCPU, 16GB — $14/mo each)
-# heavy:   large-1x, large-2x jobs (CAX41: 16 vCPU, 32GB — $27/mo each)
+# general: micro, small-1x, small-2x jobs
+# perf:    medium-1x, medium-2x jobs
+# heavy:   large-1x, large-2x jobs (disabled by default)
 general_count = 1
 perf_count    = 1
-heavy_count   = 0  # Set to 1 when you need large preset jobs
+heavy_count   = 0
+
+# ──────────────────────────────────────────────
+# Security
+# ──────────────────────────────────────────────
+
+# CIDR blocks allowed to SSH and access K8s API.
+# RESTRICT THIS IN PRODUCTION to your IP/VPN CIDR.
+ssh_allowed_ips = ["0.0.0.0/0", "::/0"]
+
+# Domain for TLS (Caddy auto-provisions Let's Encrypt cert).
+# Leave empty to skip TLS. Requires DNS A record pointing to a node IP.
+strait_domain = ""
+
+# ──────────────────────────────────────────────
+# Backups (Hetzner Object Storage / S3-compatible)
+# ──────────────────────────────────────────────
+
+# backup_s3_endpoint   = "https://fsn1.your-objectstorage.com"
+# backup_s3_bucket     = "strait-backups"
+# backup_s3_access_key = ""  # From Doppler
+# backup_s3_secret_key = ""  # From Doppler
+
+# ──────────────────────────────────────────────
+# Monitoring (Grafana Cloud)
+# ──────────────────────────────────────────────
+
+# grafana_remote_write_url      = ""  # Prometheus remote write URL
+# grafana_remote_write_username = ""  # Prometheus instance ID
+# grafana_remote_write_password = ""  # Grafana Cloud API key (from Doppler)
+# grafana_loki_url              = ""  # Loki push URL
+# grafana_loki_username         = ""  # Loki instance ID
+# grafana_loki_password         = ""  # Grafana Cloud API key (from Doppler)
