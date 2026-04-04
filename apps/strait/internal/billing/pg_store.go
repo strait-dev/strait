@@ -24,7 +24,7 @@ func NewPgStore(pool *pgxpool.Pool) *PgStore {
 
 // EnsureOrgSubscription creates a free-tier subscription row for an org if one
 // does not already exist. Used for lazy initialization when a project is first
-// created under an org that has no Polar subscription yet.
+// created under an org that has no Stripe subscription yet.
 func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status)
@@ -40,7 +40,7 @@ func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error
 func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
 	var sub OrgSubscription
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
@@ -48,18 +48,20 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 			grace_period_end, COALESCE(payment_status, 'ok'),
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
+			COALESCE(monthly_usage_email, false),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE org_id = $1
 	`, orgID).Scan(
 		&sub.ID, &sub.OrgID, &sub.PlanTier,
-		&sub.PolarSubscriptionID, &sub.PolarCustomerID,
+		&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 		&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 		&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 		&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
 		&sub.GracePeriodEnd, &sub.PaymentStatus,
 		&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 		&sub.EnforcementMode,
+		&sub.MonthlyUsageEmail,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -74,15 +76,15 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO organization_subscriptions (
-			id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+			id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, canceled_at,
 			created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (org_id) DO UPDATE SET
 			plan_tier = EXCLUDED.plan_tier,
-			polar_subscription_id = EXCLUDED.polar_subscription_id,
-			polar_customer_id = EXCLUDED.polar_customer_id,
+			stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+			stripe_customer_id = EXCLUDED.stripe_customer_id,
 			status = EXCLUDED.status,
 			current_period_start = EXCLUDED.current_period_start,
 			current_period_end = EXCLUDED.current_period_end,
@@ -92,7 +94,7 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 			canceled_at = EXCLUDED.canceled_at,
 			updated_at = NOW()
 	`, sub.ID, sub.OrgID, sub.PlanTier,
-		sub.PolarSubscriptionID, sub.PolarCustomerID,
+		sub.StripeSubscriptionID, sub.StripeCustomerID,
 		sub.Status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
 		sub.SpendingLimitMicrousd, sub.LimitAction, sub.CanceledAt,
 		sub.CreatedAt, sub.UpdatedAt,
@@ -209,7 +211,7 @@ func (s *PgStore) ApplyPendingDowngrade(ctx context.Context, orgID string) error
 
 func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscription, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
@@ -234,7 +236,7 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 		var sub OrgSubscription
 		if err := rows.Scan(
 			&sub.ID, &sub.OrgID, &sub.PlanTier,
-			&sub.PolarSubscriptionID, &sub.PolarCustomerID,
+			&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
@@ -715,153 +717,6 @@ func (s *PgStore) SumOrgPeriodSpend(ctx context.Context, orgID string, from time
 	return total, nil
 }
 
-// ReferralStore implementation on PgStore.
-
-func (s *PgStore) CreateReferral(ctx context.Context, referral *Referral) error {
-	err := s.pool.QueryRow(ctx, `
-		INSERT INTO referrals (referrer_org_id, referral_code, status, credit_microusd)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, created_at
-	`, referral.ReferrerOrgID, referral.ReferralCode, referral.Status, referral.CreditMicrousd,
-	).Scan(&referral.ID, &referral.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("creating referral: %w", err)
-	}
-	return nil
-}
-
-func (s *PgStore) GetReferralByCode(ctx context.Context, code string) (*Referral, error) {
-	var r Referral
-	var referredOrgID, referredEmail *string
-	err := s.pool.QueryRow(ctx, `
-		SELECT id, referrer_org_id, referral_code, referred_email, referred_org_id,
-			status, credit_microusd, activated_at, created_at
-		FROM referrals
-		WHERE referral_code = $1
-	`, code).Scan(
-		&r.ID, &r.ReferrerOrgID, &r.ReferralCode, &referredEmail, &referredOrgID,
-		&r.Status, &r.CreditMicrousd, &r.ActivatedAt, &r.CreatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("getting referral by code: %w", err)
-	}
-	if referredOrgID != nil {
-		r.ReferredOrgID = *referredOrgID
-	}
-	if referredEmail != nil {
-		r.ReferredEmail = *referredEmail
-	}
-	return &r, nil
-}
-
-func (s *PgStore) ListReferralsByOrg(ctx context.Context, orgID string) ([]Referral, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, referrer_org_id, referral_code, referred_email, referred_org_id,
-			status, credit_microusd, activated_at, created_at
-		FROM referrals
-		WHERE referrer_org_id = $1
-		ORDER BY created_at DESC
-	`, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("listing referrals by org: %w", err)
-	}
-	defer rows.Close()
-
-	var referrals []Referral
-	for rows.Next() {
-		var r Referral
-		var referredOrgID, referredEmail *string
-		if err := rows.Scan(
-			&r.ID, &r.ReferrerOrgID, &r.ReferralCode, &referredEmail, &referredOrgID,
-			&r.Status, &r.CreditMicrousd, &r.ActivatedAt, &r.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scanning referral: %w", err)
-		}
-		if referredOrgID != nil {
-			r.ReferredOrgID = *referredOrgID
-		}
-		if referredEmail != nil {
-			r.ReferredEmail = *referredEmail
-		}
-		referrals = append(referrals, r)
-	}
-	return referrals, rows.Err()
-}
-
-func (s *PgStore) ActivateReferral(ctx context.Context, code, referredOrgID, referredEmail string, expiresAt time.Time) error {
-	now := time.Now()
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE referrals
-		SET status = 'activated', referred_org_id = $2, referred_email = $3,
-			activated_at = $4, expires_at = $5
-		WHERE referral_code = $1 AND status = 'pending'
-	`, code, referredOrgID, referredEmail, now, expiresAt)
-	if err != nil {
-		return fmt.Errorf("activating referral: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("referral not found or already activated")
-	}
-	return nil
-}
-
-func (s *PgStore) CountActivatedReferralsInYear(ctx context.Context, orgID string) (int, error) {
-	var count int
-	err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM referrals
-		WHERE referrer_org_id = $1
-		  AND status = 'activated'
-		  AND activated_at > NOW() - INTERVAL '1 year'
-	`, orgID).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("counting activated referrals in year: %w", err)
-	}
-	return count, nil
-}
-
-func (s *PgStore) GetPendingReferralByReferredOrg(ctx context.Context, referredOrgID string) (*Referral, error) {
-	var r Referral
-	var referredEmailP, rOrgID *string
-	err := s.pool.QueryRow(ctx, `
-		SELECT id, referrer_org_id, referral_code, referred_email, referred_org_id,
-			status, credit_microusd, activated_at, created_at
-		FROM referrals
-		WHERE referred_org_id = $1 AND status = 'pending'
-		LIMIT 1
-	`, referredOrgID).Scan(
-		&r.ID, &r.ReferrerOrgID, &r.ReferralCode, &referredEmailP, &rOrgID,
-		&r.Status, &r.CreditMicrousd, &r.ActivatedAt, &r.CreatedAt,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil //nolint:nilnil // intentional: nil,nil means "no pending referral found"
-	}
-	if err != nil {
-		return nil, fmt.Errorf("getting pending referral by referred org: %w", err)
-	}
-	if rOrgID != nil {
-		r.ReferredOrgID = *rOrgID
-	}
-	if referredEmailP != nil {
-		r.ReferredEmail = *referredEmailP
-	}
-	return &r, nil
-}
-
-func (s *PgStore) ExpireOldReferrals(ctx context.Context) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE referrals
-		SET status = 'expired'
-		WHERE status = 'activated'
-		  AND expires_at IS NOT NULL
-		  AND expires_at < NOW()
-	`)
-	if err != nil {
-		return 0, fmt.Errorf("expiring old referrals: %w", err)
-	}
-	return tag.RowsAffected(), nil
-}
-
 func (s *PgStore) GetProjectBudget(ctx context.Context, projectID string) (int64, string, error) {
 	var budget int64
 	var action string
@@ -962,7 +817,7 @@ func (s *PgStore) UpdatePaymentStatus(ctx context.Context, orgID string, status 
 
 func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
@@ -986,7 +841,7 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 		var sub OrgSubscription
 		if err := rows.Scan(
 			&sub.ID, &sub.OrgID, &sub.PlanTier,
-			&sub.PolarSubscriptionID, &sub.PolarCustomerID,
+			&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
@@ -1004,10 +859,10 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 
 // ListStaleSubscriptions returns subscriptions that are marked active but whose
 // current_period_end has passed by more than 1 day without a pending downgrade.
-// These may indicate missed cancellation webhooks from Polar.
+// These may indicate missed cancellation webhooks from Stripe.
 func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, plan_tier, polar_subscription_id, polar_customer_id,
+		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
@@ -1033,7 +888,7 @@ func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription
 		var sub OrgSubscription
 		if err := rows.Scan(
 			&sub.ID, &sub.OrgID, &sub.PlanTier,
-			&sub.PolarSubscriptionID, &sub.PolarCustomerID,
+			&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
@@ -1167,4 +1022,304 @@ func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, ena
 		return fmt.Errorf("updating monthly usage email preference: %w", err)
 	}
 	return nil
+}
+
+// DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
+// Keeps the most recently updated jobs; clears cron on the oldest excess.
+func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {
+	result, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET cron = '', updated_at = NOW()
+		WHERE id IN (
+			SELECT j.id FROM jobs j
+			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND j.cron IS NOT NULL AND j.cron != ''
+			ORDER BY j.updated_at DESC
+			OFFSET $2
+		)
+	`, orgID, maxSchedules)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess cron jobs: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// DeactivateExcessEnvironments marks excess environments as deleted for an org.
+// Keeps the most recently created environments; deactivates the oldest excess.
+func (s *PgStore) DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error) {
+	result, err := s.pool.Exec(ctx, `
+		DELETE FROM environments
+		WHERE id IN (
+			SELECT e.id FROM environments e
+			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			ORDER BY e.created_at DESC
+			OFFSET $2
+		)
+	`, orgID, maxEnvironments)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess environments: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// DeactivateExcessWebhookSubscriptions deactivates webhook subscriptions beyond the limit.
+// Keeps the most recently created subscriptions; deactivates the oldest excess.
+func (s *PgStore) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error) {
+	result, err := s.pool.Exec(ctx, `
+		UPDATE webhook_subscriptions SET active = false
+		WHERE id IN (
+			SELECT ws.id FROM webhook_subscriptions ws
+			WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND ws.active = true
+			ORDER BY ws.created_at DESC
+			OFFSET $2
+		)
+	`, orgID, maxEndpoints)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess webhook subscriptions: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// ListActiveAddons returns all active add-ons for an organization.
+func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, org_id, addon_type, quantity, stripe_subscription_id, active, expires_at, created_at, updated_at
+		FROM organization_addons
+		WHERE org_id = $1 AND active = true
+		ORDER BY created_at
+	`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing active addons: %w", err)
+	}
+	defer rows.Close()
+
+	var addons []Addon
+	for rows.Next() {
+		var a Addon
+		if err := rows.Scan(&a.ID, &a.OrgID, &a.AddonType, &a.Quantity, &a.StripeSubscriptionID, &a.Active, &a.ExpiresAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scanning addon row: %w", err)
+		}
+		addons = append(addons, a)
+	}
+	return addons, rows.Err()
+}
+
+// CreateAddon inserts a new add-on record.
+func (s *PgStore) CreateAddon(ctx context.Context, addon *Addon) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO organization_addons (id, org_id, addon_type, quantity, stripe_subscription_id, active, expires_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+	`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.StripeSubscriptionID, addon.Active, addon.ExpiresAt)
+	if err != nil {
+		return fmt.Errorf("creating addon: %w", err)
+	}
+	return nil
+}
+
+// DeactivateAddon sets an add-on to inactive.
+func (s *PgStore) DeactivateAddon(ctx context.Context, addonID string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE organization_addons SET active = false, updated_at = NOW() WHERE id = $1
+	`, addonID)
+	if err != nil {
+		return fmt.Errorf("deactivating addon: %w", err)
+	}
+	return nil
+}
+
+// CountActiveAddonsByType returns the number of active add-ons for an org and type.
+func (s *PgStore) CountActiveAddonsByType(ctx context.Context, orgID string, addonType AddonType) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM organization_addons WHERE org_id = $1 AND addon_type = $2 AND active = true",
+		orgID, string(addonType)).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active addons by type: %w", err)
+	}
+	return count, nil
+}
+
+// RecordProcessedWebhook records a webhook message ID as processed for idempotency.
+func (s *PgStore) RecordProcessedWebhook(ctx context.Context, msgID string) error {
+	_, err := s.pool.Exec(ctx,
+		"INSERT INTO processed_webhook_messages (msg_id) VALUES ($1) ON CONFLICT (msg_id) DO NOTHING",
+		msgID)
+	if err != nil {
+		return fmt.Errorf("record processed webhook: %w", err)
+	}
+	return nil
+}
+
+// IsWebhookProcessed checks whether a webhook message ID has already been processed.
+func (s *PgStore) IsWebhookProcessed(ctx context.Context, msgID string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM processed_webhook_messages WHERE msg_id = $1)",
+		msgID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check webhook processed: %w", err)
+	}
+	return exists, nil
+}
+
+// DeleteOldWebhookMessages removes processed webhook message records older than the given time.
+func (s *PgStore) DeleteOldWebhookMessages(ctx context.Context, olderThan time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		"DELETE FROM processed_webhook_messages WHERE processed_at < $1",
+		olderThan)
+	if err != nil {
+		return 0, fmt.Errorf("delete old webhook messages: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// GetEnterpriseContract returns the enterprise contract for an org.
+func (s *PgStore) GetEnterpriseContract(ctx context.Context, orgID string) (*EnterpriseContract, error) {
+	var c EnterpriseContract
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
+			included_credit_microusd, compute_discount_pct,
+			contract_start_date, contract_end_date,
+			auto_renew, billing_cadence, stripe_subscription_id,
+			notes, created_at, updated_at
+		FROM enterprise_contracts
+		WHERE org_id = $1
+	`, orgID).Scan(
+		&c.ID, &c.OrgID, &c.EnterpriseTier,
+		&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+		&c.ContractStartDate, &c.ContractEndDate,
+		&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
+		&c.Notes, &c.CreatedAt, &c.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrContractNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting enterprise contract: %w", err)
+	}
+	return &c, nil
+}
+
+// UpsertEnterpriseContract creates or updates an enterprise contract for an org.
+func (s *PgStore) UpsertEnterpriseContract(ctx context.Context, c *EnterpriseContract) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO enterprise_contracts (
+			id, org_id, enterprise_tier, annual_commitment_cents,
+			included_credit_microusd, compute_discount_pct,
+			contract_start_date, contract_end_date,
+			auto_renew, billing_cadence, stripe_subscription_id,
+			notes, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		ON CONFLICT (org_id) DO UPDATE SET
+			enterprise_tier = EXCLUDED.enterprise_tier,
+			annual_commitment_cents = EXCLUDED.annual_commitment_cents,
+			included_credit_microusd = EXCLUDED.included_credit_microusd,
+			compute_discount_pct = EXCLUDED.compute_discount_pct,
+			contract_start_date = EXCLUDED.contract_start_date,
+			contract_end_date = EXCLUDED.contract_end_date,
+			auto_renew = EXCLUDED.auto_renew,
+			billing_cadence = EXCLUDED.billing_cadence,
+			stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+			notes = EXCLUDED.notes,
+			updated_at = NOW()
+	`, c.ID, c.OrgID, c.EnterpriseTier,
+		c.AnnualCommitmentCents, c.IncludedCreditMicrousd, c.ComputeDiscountPct,
+		c.ContractStartDate, c.ContractEndDate,
+		c.AutoRenew, c.BillingCadence, c.StripeSubscriptionID,
+		c.Notes, c.CreatedAt, c.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("upserting enterprise contract: %w", err)
+	}
+	return nil
+}
+
+// ListExpiringContracts returns enterprise contracts expiring within the given number of days.
+func (s *PgStore) ListExpiringContracts(ctx context.Context, withinDays int) ([]EnterpriseContract, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
+			included_credit_microusd, compute_discount_pct,
+			contract_start_date, contract_end_date,
+			auto_renew, billing_cadence, stripe_subscription_id,
+			notes, created_at, updated_at
+		FROM enterprise_contracts
+		WHERE contract_end_date <= NOW() + make_interval(days => $1)
+		  AND contract_end_date > NOW()
+		ORDER BY contract_end_date ASC
+	`, withinDays)
+	if err != nil {
+		return nil, fmt.Errorf("listing expiring contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var contracts []EnterpriseContract
+	for rows.Next() {
+		var c EnterpriseContract
+		if err := rows.Scan(
+			&c.ID, &c.OrgID, &c.EnterpriseTier,
+			&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+			&c.ContractStartDate, &c.ContractEndDate,
+			&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
+			&c.Notes, &c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning enterprise contract: %w", err)
+		}
+		contracts = append(contracts, c)
+	}
+	return contracts, rows.Err()
+}
+
+// PauseHTTPJobsByOrg pauses all active HTTP-mode jobs for an org.
+// Sets the pause reason so they can be selectively unpaused on upgrade.
+// Returns the number of jobs paused.
+func (s *PgStore) PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET
+			paused = true,
+			paused_at = NOW(),
+			pause_reason = $2,
+			updated_at = NOW()
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND execution_mode = 'http'
+		  AND paused = false
+		  AND enabled = true
+	`, orgID, reason)
+	if err != nil {
+		return 0, fmt.Errorf("pausing HTTP jobs for org: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// UnpauseJobsByPauseReason unpauses jobs that were paused for a specific reason.
+// Only affects jobs matching the exact reason; manually paused jobs are preserved.
+// Returns the number of jobs unpaused.
+func (s *PgStore) UnpauseJobsByPauseReason(ctx context.Context, orgID, reason string) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET
+			paused = false,
+			paused_at = NULL,
+			pause_reason = NULL,
+			updated_at = NOW()
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND pause_reason = $2
+		  AND paused = true
+	`, orgID, reason)
+	if err != nil {
+		return 0, fmt.Errorf("unpausing jobs by reason: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CountHTTPJobsByOrg returns the number of HTTP-mode jobs (not deleted) for an org.
+func (s *PgStore) CountHTTPJobsByOrg(ctx context.Context, orgID string) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND execution_mode = 'http'
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting HTTP jobs for org: %w", err)
+	}
+	return count, nil
 }

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -169,15 +170,25 @@ type Config struct {
 	OTLPMetricEndpoint string `env:"OTLP_METRIC_ENDPOINT"`
 	OTLPMetricEnabled  bool   `env:"OTLP_METRIC_ENABLED" default:"false"`
 
-	// Polar billing integration
-	PolarAccessToken          string `env:"POLAR_ACCESS_TOKEN"`
-	PolarWebhookSecret        string `env:"POLAR_API_WEBHOOK_SECRET"`
-	PolarServer               string `env:"POLAR_SERVER"`
-	PolarStarterMonthlyID     string `env:"POLAR_STARTER_MONTHLY_ID"`
-	PolarStarterYearlyID      string `env:"POLAR_STARTER_YEARLY_ID"`
-	PolarProMonthlyID         string `env:"POLAR_PRO_MONTHLY_ID"`
-	PolarProYearlyID          string `env:"POLAR_PRO_YEARLY_ID"`
-	BillingEnforcementEnabled bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
+	// Stripe billing integration
+	StripeSecretKey                      string `env:"STRIPE_SECRET_KEY"`
+	StripeWebhookSecret                  string `env:"STRIPE_WEBHOOK_SECRET"`
+	StripeStarterMonthlyPriceID          string `env:"STRIPE_STARTER_MONTHLY_PRICE_ID"`
+	StripeStarterYearlyPriceID           string `env:"STRIPE_STARTER_YEARLY_PRICE_ID"`
+	StripeProMonthlyPriceID              string `env:"STRIPE_PRO_MONTHLY_PRICE_ID"`
+	StripeProYearlyPriceID               string `env:"STRIPE_PRO_YEARLY_PRICE_ID"`
+	StripeScaleMonthlyPriceID            string `env:"STRIPE_SCALE_MONTHLY_PRICE_ID"`
+	StripeScaleYearlyPriceID             string `env:"STRIPE_SCALE_YEARLY_PRICE_ID"`
+	StripeEnterpriseStarterYearlyPriceID string `env:"STRIPE_ENTERPRISE_STARTER_YEARLY_PRICE_ID"`
+	StripeEnterpriseGrowthYearlyPriceID  string `env:"STRIPE_ENTERPRISE_GROWTH_YEARLY_PRICE_ID"`
+	StripeEnterpriseLargeYearlyPriceID   string `env:"STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID"`
+	StripeAddonConcurrentRunsID          string `env:"STRIPE_ADDON_CONCURRENT_RUNS_PRICE_ID"`
+	StripeAddonMembersID                 string `env:"STRIPE_ADDON_MEMBERS_PRICE_ID"`
+	StripeAddonCronSchedulesID           string `env:"STRIPE_ADDON_CRON_SCHEDULES_PRICE_ID"`
+	StripeAddonDataRetentionID           string `env:"STRIPE_ADDON_DATA_RETENTION_PRICE_ID"`
+	StripeAddonWebhookEndpointsID        string `env:"STRIPE_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID"`
+	StripeMeterID                        string `env:"STRIPE_METER_ID"`
+	BillingEnforcementEnabled            bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
 
 	// Resend email integration
 	ResendAPIKey    string `env:"RESEND_API_KEY"`
@@ -346,6 +357,51 @@ func Load() (*Config, error) {
 	)
 
 	return &cfg, nil
+}
+
+// Redacted returns a map of config field names to values with secrets masked.
+// Includes all operationally useful fields while hiding credentials and keys.
+func (c *Config) Redacted() map[string]any {
+	return map[string]any{
+		"Mode":                   c.Mode,
+		"Port":                   c.Port,
+		"Edition":                c.Edition,
+		"WorkerConcurrency":      c.WorkerConcurrency,
+		"PollerInterval":         c.PollerInterval.String(),
+		"DBMaxConns":             c.DBMaxConns,
+		"ComputeRuntime":         c.ComputeRuntime,
+		"SentryEnvironment":      c.SentryEnvironment,
+		"DefaultAPIKeyRateLimit": c.DefaultAPIKeyRateLimit,
+		"DatabaseURL":            "[REDACTED]",
+		"RedisURL":               "[REDACTED]",
+		"InternalSecret":         "[REDACTED]",
+		"JWTSigningKey":          "[REDACTED]",
+		"EncryptionKey":          "[REDACTED]",
+		"StripeSecretKey":        "[REDACTED]",
+		"StripeWebhookSecret":    "[REDACTED]",
+		"ResendAPIKey":           "[REDACTED]",
+		"PostHogAPIKey":          "[REDACTED]",
+		"SentryDSN":              "[REDACTED]",
+	}
+}
+
+// String returns a redacted string representation of the config for logging.
+// Keys are sorted for deterministic output.
+func (c *Config) String() string {
+	r := c.Redacted()
+	keys := make([]string, 0, len(r))
+	for k := range r {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	var sb strings.Builder
+	for _, k := range keys {
+		if sb.Len() > 0 {
+			sb.WriteString(" ")
+		}
+		fmt.Fprintf(&sb, "%s=%v", k, r[k])
+	}
+	return sb.String()
 }
 
 func parseCSVEnv(key string) []string {

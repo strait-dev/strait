@@ -1,4 +1,15 @@
-import { Polar } from "@polar-sh/sdk";
+/**
+ * Subscription data fetching hooks for the Strait billing system.
+ *
+ * Fetches subscription state from two sources:
+ * 1. **Stripe API** -- the source of truth for subscription status, plan, and billing period.
+ * 2. **Go backend** (`/v1/usage/current`) -- fallback for plan tier when Stripe is unavailable.
+ *
+ * The derived state ({@link subscriptionStateQueryOptions}) combines both sources
+ * and is used throughout the app for feature gating, upgrade prompts, and billing UI.
+ *
+ * @see https://docs.stripe.com/api/subscriptions — Stripe Subscriptions API
+ */
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -6,6 +17,8 @@ import { Effect } from "effect";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getAuth } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
+import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
+import { selectBestSubscription } from "./subscription-helpers";
 import {
   deriveSubscriptionState,
   type NormalizedSubscription,
@@ -15,135 +28,57 @@ import {
   type SubscriptionStateData,
 } from "./subscription-state";
 
-const polarAccessToken = process.env.POLAR_ACCESS_TOKEN;
+/**
+ * Maps Stripe Price IDs to plan slugs.
+ *
+ * Each plan tier has two prices (monthly + yearly) that both resolve
+ * to the same slug. Populated from env vars set via Doppler.
+ */
+const PRICE_TO_PLAN = new Map<string, PlanSlug>([
+  [process.env.STRIPE_STARTER_MONTHLY_PRICE_ID ?? "", "starter"],
+  [process.env.STRIPE_STARTER_YEARLY_PRICE_ID ?? "", "starter"],
+  [process.env.STRIPE_PRO_MONTHLY_PRICE_ID ?? "", "pro"],
+  [process.env.STRIPE_PRO_YEARLY_PRICE_ID ?? "", "pro"],
+  [process.env.STRIPE_SCALE_MONTHLY_PRICE_ID ?? "", "scale"],
+  [process.env.STRIPE_SCALE_YEARLY_PRICE_ID ?? "", "scale"],
+  [process.env.STRIPE_ENTERPRISE_STARTER_YEARLY_PRICE_ID ?? "", "enterprise"],
+  [process.env.STRIPE_ENTERPRISE_GROWTH_YEARLY_PRICE_ID ?? "", "enterprise"],
+  [process.env.STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID ?? "", "enterprise"],
+]);
 
-const polarClient = polarAccessToken
-  ? new Polar({
-      accessToken: polarAccessToken,
-      server:
-        (process.env.POLAR_SERVER as "sandbox" | "production") ?? "production",
-    })
-  : null;
-
-const PRODUCT_PLAN_MAP: Record<string, string> = {
-  [process.env.POLAR_STARTER_MONTHLY_ID ?? ""]: "starter",
-  [process.env.POLAR_STARTER_YEARLY_ID ?? ""]: "starter",
-  [process.env.POLAR_PRO_MONTHLY_ID ?? ""]: "pro",
-  [process.env.POLAR_PRO_YEARLY_ID ?? ""]: "pro",
-};
-
-const toRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : null;
-
-const toDate = (value: unknown): Date | null => {
-  if (!value) {
-    return null;
-  }
-
-  if (value instanceof Date) {
-    return value;
-  }
-
-  const date = new Date(String(value));
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const asString = (value: unknown): string =>
-  typeof value === "string" ? value : "";
-
-const asBoolean = (value: unknown): boolean =>
-  typeof value === "boolean" ? value : false;
-
+/**
+ * Fetch the most relevant subscription for a customer by email.
+ *
+ * Looks up the Stripe customer, lists their subscriptions, and selects
+ * the best one using {@link selectBestSubscription}.
+ *
+ * @returns The normalized subscription, or `null` if the customer has none.
+ */
 const getSubscriptionByEmail = async (
   email: string
 ): Promise<NormalizedSubscription | null> => {
-  if (!polarClient) {
+  if (!process.env.STRIPE_SECRET_KEY) {
     return null;
   }
 
-  const { result: customersResult } = await polarClient.customers.list({
-    email,
-    limit: 1,
-  });
-
-  const customers = customersResult.items;
-  const customer = Array.isArray(customers) ? customers[0] : null;
-
-  if (!customer) {
+  const customerId = await findCustomerByEmail(email);
+  if (!customerId) {
     return null;
   }
 
-  const { result: subscriptionsResult } = await polarClient.subscriptions.list({
-    customerId: customer.id,
+  const stripe = getStripeClient();
+  const { data: subscriptions } = await stripe.subscriptions.list({
+    customer: customerId,
     limit: 20,
+    expand: ["data.items.data.price"],
   });
 
-  const items = Array.isArray(subscriptionsResult.items)
-    ? subscriptionsResult.items
-    : [];
-
-  const ranked = items
-    .map((item) => {
-      const status = asString(toRecord(item)?.status);
-      let rank = 2;
-
-      if (
-        status === "active" ||
-        status === "trialing" ||
-        status === "past_due" ||
-        status === "incomplete" ||
-        status === "unpaid"
-      ) {
-        rank = 0;
-      } else if (status === "canceled" || status === "cancelled") {
-        rank = 1;
-      }
-
-      return {
-        item,
-        rank,
-        periodEnd:
-          toDate(toRecord(item)?.currentPeriodEnd) ??
-          toDate(toRecord(item)?.currentPeriodEndAt) ??
-          new Date(0),
-      };
-    })
-    .sort((a, b) => {
-      if (a.rank !== b.rank) {
-        return a.rank - b.rank;
-      }
-
-      return b.periodEnd.getTime() - a.periodEnd.getTime();
-    });
-
-  const selected = ranked[0]?.item;
-  const record = toRecord(selected);
-
-  if (!record) {
-    return null;
-  }
-
-  const product = toRecord(record.product);
-  const price = toRecord(record.price);
-
-  return {
-    id: asString(record.id),
-    status: asString(record.status),
-    productId: asString(record.productId || product?.id),
-    priceId: asString(record.priceId || price?.id),
-    currentPeriodEnd:
-      toDate(record.currentPeriodEnd) ?? toDate(record.currentPeriodEndAt),
-    cancelAtPeriodEnd: asBoolean(record.cancelAtPeriodEnd),
-    recurringInterval:
-      asString(
-        record.recurringInterval || record.interval || price?.recurringInterval
-      ) || null,
-    trialEnd: toDate(record.trialEnd) ?? toDate(record.trialEndsAt),
-  };
+  return selectBestSubscription(subscriptions);
 };
 
+/**
+ * Server function: fetch the current user's raw subscription data from Stripe.
+ */
 const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SubscriptionData | null> => {
     const headers = getRequestHeaders();
@@ -155,7 +90,6 @@ const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
     }
 
     const subscription = await getSubscriptionByEmail(email);
-
     if (!subscription) {
       return null;
     }
@@ -171,7 +105,11 @@ const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
   }
 );
 
-/** Fetch the plan tier from the backend usage API as a fallback. */
+/**
+ * Fetch the plan tier from the Go backend usage API.
+ * Used as a fallback when the Stripe price-to-plan mapping doesn't resolve
+ * (e.g. enterprise plans with custom pricing not in {@link PRICE_TO_PLAN}).
+ */
 const getBackendPlanTier = async (
   session: { session: { activeOrganizationId?: string | null } } | null
 ): Promise<PlanSlug | null> => {
@@ -187,6 +125,12 @@ const getBackendPlanTier = async (
   );
 };
 
+/**
+ * Server function: derive the full subscription state for the current user.
+ *
+ * Combines Stripe subscription data with the backend plan tier fallback
+ * to produce the {@link SubscriptionStateData} used throughout the app.
+ */
 const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SubscriptionStateData> => {
     const headers = getRequestHeaders();
@@ -203,8 +147,11 @@ const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
 
     const subscription = await getSubscriptionByEmail(email);
     const backendPlan = await getBackendPlanTier(session);
+
     const planFromProduct = normalizePlanSlug(
-      subscription?.productId ? PRODUCT_PLAN_MAP[subscription.productId] : null
+      subscription?.productId
+        ? (PRICE_TO_PLAN.get(subscription.productId) ?? null)
+        : null
     );
 
     return deriveSubscriptionState({
@@ -215,7 +162,7 @@ const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
   }
 );
 
-/** Query options for the current user's subscription details. */
+/** Query options for the current user's raw subscription details. */
 export const subscriptionQueryOptions = () =>
   queryOptions({
     queryKey: ["subscription"],
@@ -224,7 +171,10 @@ export const subscriptionQueryOptions = () =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-/** Query options for the current subscription state (plan, limits, feature access). */
+/**
+ * Query options for the current user's derived subscription state.
+ * This is the primary hook used by billing UI, feature gates, and upgrade prompts.
+ */
 export const subscriptionStateQueryOptions = () =>
   queryOptions({
     queryKey: ["subscription", "state"],

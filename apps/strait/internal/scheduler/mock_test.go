@@ -259,6 +259,14 @@ func (m *mockReaperStore) DeleteTerminalRunsPastRetention(ctx context.Context, s
 	return 0, nil
 }
 
+func (m *mockReaperStore) DeleteRunsByOrgOlderThan(_ context.Context, _ string, _ time.Duration) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) DeleteWorkflowRunsByOrgOlderThan(_ context.Context, _ string, _ time.Duration) (int64, error) {
+	return 0, nil
+}
+
 func (m *mockReaperStore) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error) {
 	if m.listExpiredEventTriggersFn != nil {
 		return m.listExpiredEventTriggersFn(ctx)

@@ -98,9 +98,9 @@ function DeviceAuthPage() {
         title="Device Authorized"
       >
         <div className="flex flex-col items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+          <div className="flex size-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
             <svg
-              className="h-6 w-6 text-green-600 dark:text-green-400"
+              className="size-6 text-green-600 dark:text-green-400"
               fill="none"
               stroke="currentColor"
               strokeWidth={2}
@@ -134,7 +134,7 @@ function DeviceAuthPage() {
             Confirm this code matches your terminal:
           </p>
           <div className="rounded-lg border-2 border-border bg-muted/50 px-6 py-3">
-            <span className="font-bold font-mono text-2xl text-foreground tracking-[0.3em]">
+            <span className="font-bold font-mono text-2xl text-foreground">
               {code}
             </span>
           </div>

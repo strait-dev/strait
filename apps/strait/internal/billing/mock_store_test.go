@@ -42,7 +42,11 @@ type mockBillingStore struct {
 	aiModelCallCounts       map[string]int64
 	usageRecords            []UsageRecord
 	periodSpendByOrg        map[string]int64
+	sumSpendErr             error
+	recordWebhookErr        error
+	recordedWebhookIDs      []string
 	getOrgSubscriptionFn    func(ctx context.Context, orgID string) (*OrgSubscription, error)
+	enterpriseContracts     map[string]*EnterpriseContract
 }
 
 func (m *mockBillingStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
@@ -243,6 +247,9 @@ func (m *mockBillingStore) GetOrgDailyUsage(_ context.Context, _ string, _ time.
 }
 
 func (m *mockBillingStore) SumOrgPeriodSpend(_ context.Context, orgID string, _ time.Time) (int64, error) {
+	if m.sumSpendErr != nil {
+		return 0, m.sumSpendErr
+	}
 	if m.periodSpendByOrg != nil {
 		return m.periodSpendByOrg[orgID], nil
 	}
@@ -325,4 +332,66 @@ func (m *mockBillingStore) RecordSentUsageReport(_ context.Context, _ string, _ 
 
 func (m *mockBillingStore) UpdateMonthlyUsageEmail(_ context.Context, _ string, _ bool) error {
 	return nil
+}
+
+func (m *mockBillingStore) ListActiveAddons(_ context.Context, _ string) ([]Addon, error) {
+	return nil, nil
+}
+
+func (m *mockBillingStore) CreateAddon(_ context.Context, _ *Addon) error {
+	return nil
+}
+
+func (m *mockBillingStore) DeactivateAddon(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockBillingStore) CountActiveAddonsByType(_ context.Context, _ string, _ AddonType) (int, error) {
+	return 0, nil
+}
+
+func (m *mockBillingStore) RecordProcessedWebhook(_ context.Context, msgID string) error {
+	m.recordedWebhookIDs = append(m.recordedWebhookIDs, msgID)
+	return m.recordWebhookErr
+}
+
+func (m *mockBillingStore) IsWebhookProcessed(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockBillingStore) DeleteOldWebhookMessages(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockBillingStore) GetEnterpriseContract(_ context.Context, orgID string) (*EnterpriseContract, error) {
+	if m.enterpriseContracts != nil {
+		if c, ok := m.enterpriseContracts[orgID]; ok {
+			return c, nil
+		}
+	}
+	return nil, ErrContractNotFound
+}
+
+func (m *mockBillingStore) UpsertEnterpriseContract(_ context.Context, c *EnterpriseContract) error {
+	if m.enterpriseContracts == nil {
+		m.enterpriseContracts = make(map[string]*EnterpriseContract)
+	}
+	m.enterpriseContracts[c.OrgID] = c
+	return nil
+}
+
+func (m *mockBillingStore) ListExpiringContracts(_ context.Context, _ int) ([]EnterpriseContract, error) {
+	return nil, nil
+}
+
+func (m *mockBillingStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockBillingStore) UnpauseJobsByPauseReason(_ context.Context, _ string, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockBillingStore) CountHTTPJobsByOrg(_ context.Context, _ string) (int, error) {
+	return 0, nil
 }

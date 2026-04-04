@@ -11,7 +11,8 @@ const BLOCKED_DOMAINS = [
   "apis.google.com",
   "ngrok.com",
   "ngrok-free.dev",
-  "polar.sh",
+  "stripe.com",
+  "js.stripe.com",
 ];
 
 /**

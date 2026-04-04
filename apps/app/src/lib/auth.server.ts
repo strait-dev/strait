@@ -1,14 +1,21 @@
+/**
+ * Better Auth server configuration and lazy singletons.
+ *
+ * **Important: Deferred initialization pattern.**
+ * Cloudflare Workers only populate `process.env` during request handling,
+ * not at module load time. Every constructor that reads an env var must be
+ * wrapped in a lazy getter so it runs on the first request, not on import.
+ *
+ * This module exports {@link getAuth} and {@link getAuthPool} as the primary
+ * entry points. Both are lazily initialized on first call.
+ *
+ * @see https://developers.cloudflare.com/workers/runtime-apis/handlers/fetch/
+ * @see https://www.better-auth.com/docs/introduction — Better Auth docs
+ * @see https://www.better-auth.com/docs/concepts/database — Database adapters
+ */
 import { env as cfEnv } from "cloudflare:workers";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
-import {
-  checkout,
-  polar,
-  usage as polarUsage,
-  portal,
-  webhooks,
-} from "@polar-sh/better-auth";
-import type { Polar } from "@polar-sh/sdk";
 import { render } from "@react-email/render";
 import {
   ConfirmAccount,
@@ -37,14 +44,7 @@ import {
   STRAIT_API_SCOPES,
 } from "@/lib/oauth-scopes";
 import { getResend } from "@/lib/resend.server";
-
-// ---------------------------------------------------------------------------
-// Deferred singletons
-//
-// Cloudflare Workers only populate `process.env` during request handling,
-// not at module load time. Every constructor that reads an env var must be
-// wrapped in a lazy getter so it runs on the first request, not on import.
-// ---------------------------------------------------------------------------
+import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
 
 /**
  * Resolve the auth database connection string.
@@ -56,23 +56,15 @@ import { getResend } from "@/lib/resend.server";
  * Falls back to `AUTH_DATABASE_URL` for local development where
  * Hyperdrive provides a local connection string automatically.
  */
-function getAuthConnectionString(): string {
+const getAuthConnectionString = (): string => {
   const hyperdrive = (cfEnv as Record<string, unknown>).HYPERDRIVE as
     | { connectionString: string }
     | undefined;
-  console.log("[auth] Hyperdrive binding present:", !!hyperdrive);
-  console.log(
-    "[auth] Hyperdrive connectionString present:",
-    !!hyperdrive?.connectionString
-  );
   if (hyperdrive?.connectionString) {
-    console.log("[auth] Using Hyperdrive connection string");
     return hyperdrive.connectionString;
   }
-  const fallback = process.env.AUTH_DATABASE_URL ?? "";
-  console.log("[auth] Falling back to AUTH_DATABASE_URL, present:", !!fallback);
-  return fallback;
-}
+  return process.env.AUTH_DATABASE_URL ?? "";
+};
 
 /**
  * Lazily initialized PostgreSQL connection pool for the auth database.
@@ -90,7 +82,7 @@ function getAuthConnectionString(): string {
  * The returned object implements the `query()` and `connect()` methods
  * that Better Auth's Kysely adapter requires.
  */
-export function getAuthPool(): Pool {
+export const getAuthPool = (): Pool => {
   const connectionString = getAuthConnectionString();
   return {
     async query(text: string, values?: unknown[]) {
@@ -117,7 +109,7 @@ export function getAuthPool(): Pool {
       };
     },
   } as unknown as Pool;
-}
+};
 
 /**
  * Cache the OIDC private key import. `importPKCS8` parses PEM and is CPU
@@ -127,7 +119,7 @@ export function getAuthPool(): Pool {
  */
 let oidcPrivateKeyPromise: Promise<CryptoKey> | null = null;
 
-function getOIDCPrivateKey(): Promise<CryptoKey> {
+const getOIDCPrivateKey = (): Promise<CryptoKey> => {
   if (!oidcPrivateKeyPromise) {
     oidcPrivateKeyPromise = importPKCS8(
       process.env.OIDC_PRIVATE_KEY_PEM as string,
@@ -138,26 +130,36 @@ function getOIDCPrivateKey(): Promise<CryptoKey> {
     });
   }
   return oidcPrivateKeyPromise;
-}
+};
 
 /**
- * Create a Polar SDK client if the access token is configured.
- * Called once during `createAuth()`.
+ * Create a Stripe customer for a newly signed-up user.
+ * Links the org_id in metadata so the Go webhook handler can resolve orgs.
+ * Best-effort: errors are logged but never fail signup.
  */
-async function createPolarClient(): Promise<Polar | null> {
-  if (!process.env.POLAR_ACCESS_TOKEN) {
-    return null;
+const createStripeCustomer = async (
+  user: { id: string; email: string; name: string },
+  orgId: string
+): Promise<void> => {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return;
   }
-  // Dynamic import: @polar-sh/sdk depends on tsyringe, which checks for
-  // Reflect.getMetadata at module evaluation time. A top-level import
-  // would crash the Worker before any request handling code runs.
-  const { Polar: PolarClient } = await import("@polar-sh/sdk");
-  return new PolarClient({
-    accessToken: process.env.POLAR_ACCESS_TOKEN,
-    server:
-      (process.env.POLAR_SERVER as "sandbox" | "production") ?? "production",
-  });
-}
+  try {
+    const existing = await findCustomerByEmail(user.email);
+    if (existing) {
+      return; // Customer already exists
+    }
+
+    const stripe = getStripeClient();
+    await stripe.customers.create({
+      email: user.email,
+      name: user.name || undefined,
+      metadata: { org_id: orgId, user_id: user.id },
+    });
+  } catch (err) {
+    console.error("Failed to create Stripe customer for user", user.id, err);
+  }
+};
 
 /**
  * Build the Better Auth configuration.
@@ -166,7 +168,7 @@ async function createPolarClient(): Promise<Polar | null> {
  * the entire config tree reads from `process.env`, which is empty at
  * module load time in Cloudflare Workers.
  *
- * Handles: authentication, sessions, organizations, Polar billing.
+ * Handles: authentication, sessions, organizations.
  *
  * Supported auth methods:
  * - Email/password
@@ -176,9 +178,8 @@ async function createPolarClient(): Promise<Polar | null> {
  * - Google OAuth
  * - GitHub OAuth
  */
-async function createAuth() {
+const createAuth = () => {
   const pool = getAuthPool();
-  const polarClient = await createPolarClient();
   const resend = getResend();
   return betterAuth({
     database: pool,
@@ -328,49 +329,8 @@ async function createAuth() {
       // SSO disabled: @better-auth/sso has a known ESM incompatibility
       // (samlify requires camelcase@9 ESM-only from CJS). Re-enable when
       // https://github.com/better-auth/better-auth/issues/8620 is fixed.
-      ...(polarClient
-        ? [
-            polar({
-              client: polarClient,
-              createCustomerOnSignUp: true,
-              use: [
-                checkout({
-                  products: [
-                    {
-                      productId: process.env.POLAR_STARTER_MONTHLY_ID ?? "",
-                      slug: "starter-monthly",
-                    },
-                    {
-                      productId: process.env.POLAR_STARTER_YEARLY_ID ?? "",
-                      slug: "starter-yearly",
-                    },
-                    {
-                      productId: process.env.POLAR_PRO_MONTHLY_ID ?? "",
-                      slug: "pro-monthly",
-                    },
-                    {
-                      productId: process.env.POLAR_PRO_YEARLY_ID ?? "",
-                      slug: "pro-yearly",
-                    },
-                  ],
-                  successUrl: "/app?checkout_success=true",
-                  authenticatedUsersOnly: true,
-                }),
-                portal({
-                  returnUrl: process.env.BETTER_AUTH_URL,
-                }),
-                polarUsage(),
-                ...(process.env.POLAR_APP_WEBHOOK_SECRET
-                  ? [
-                      webhooks({
-                        secret: process.env.POLAR_APP_WEBHOOK_SECRET,
-                      }),
-                    ]
-                  : []),
-              ] as any,
-            }),
-          ]
-        : []),
+      // Stripe billing is handled via standalone server functions (checkout,
+      // portal) and a Go backend webhook handler, not through Better Auth plugins.
     ],
     databaseHooks: {
       user: {
@@ -395,6 +355,9 @@ async function createAuth() {
                   `UPDATE "user" SET "defaultOrganizationId" = $1 WHERE id = $2`,
                   [org.id, user.id]
                 );
+
+                // Create a Stripe customer (best-effort, don't fail signup).
+                await createStripeCustomer(user, org.id);
 
                 // Auto-create a default project so the user lands on a
                 // ready-to-use dashboard instead of an empty "Create project" screen.
@@ -504,37 +467,22 @@ async function createAuth() {
       },
     },
   });
-}
+};
 
-// ---------------------------------------------------------------------------
-// Exported lazy singletons
-// ---------------------------------------------------------------------------
-
-/**
- * Lazily initialized Better Auth server instance.
- *
- * The full `betterAuth()` config reads dozens of `process.env` values.
- * In Cloudflare Workers these are only available during request handling,
- * so we defer the entire construction to the first call.
- */
-type AuthInstance = Awaited<ReturnType<typeof createAuth>>;
+type AuthInstance = ReturnType<typeof createAuth>;
 
 let _auth: AuthInstance | null = null;
-let _authPromise: Promise<AuthInstance> | null = null;
 
 /**
  * Returns the Better Auth singleton, initializing it on first call.
- * Callers must `await` the result.
+ *
+ * Callers must `await` the result for backwards compatibility.
+ *
+ * @see https://www.better-auth.com/docs/introduction
  */
-export function getAuth(): Promise<AuthInstance> {
-  if (_auth) {
-    return Promise.resolve(_auth);
+export const getAuth = (): Promise<AuthInstance> => {
+  if (!_auth) {
+    _auth = createAuth();
   }
-  if (!_authPromise) {
-    _authPromise = createAuth().then((instance) => {
-      _auth = instance;
-      return instance;
-    });
-  }
-  return _authPromise;
-}
+  return Promise.resolve(_auth);
+};

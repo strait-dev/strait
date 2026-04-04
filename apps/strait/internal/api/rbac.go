@@ -17,8 +17,8 @@ import (
 // Roles.
 
 type createRoleRequest struct {
-	Name         string   `json:"name" validate:"required"`
-	Description  string   `json:"description"`
+	Name         string   `json:"name" validate:"required,max=255"`
+	Description  string   `json:"description" validate:"max=2000"`
 	Permissions  []string `json:"permissions" validate:"required,min=1"`
 	ParentRoleID string   `json:"parent_role_id,omitempty"`
 }
@@ -46,6 +46,10 @@ type CreateRoleInput struct{ Body createRoleRequest }
 type CreateRoleOutput struct{ Body *domain.ProjectRole }
 
 func (s *Server) handleCreateRole(ctx context.Context, input *CreateRoleInput) (*CreateRoleOutput, error) {
+	if err := s.checkFeatureAllowed(ctx, projectIDFromContext(ctx), billing.FeatureRBAC, "Role management"); err != nil {
+		return nil, err
+	}
+
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
@@ -114,8 +118,8 @@ func (s *Server) handleGetRole(ctx context.Context, input *GetRoleInput) (*GetRo
 }
 
 type updateRoleRequest struct {
-	Name         string   `json:"name" validate:"required"`
-	Description  string   `json:"description"`
+	Name         string   `json:"name" validate:"required,max=255"`
+	Description  string   `json:"description" validate:"max=2000"`
 	Permissions  []string `json:"permissions" validate:"required,min=1"`
 	ParentRoleID string   `json:"parent_role_id,omitempty"`
 }
@@ -126,6 +130,10 @@ type UpdateRoleInput struct {
 type UpdateRoleOutput struct{ Body *domain.ProjectRole }
 
 func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (*UpdateRoleOutput, error) {
+	if err := s.checkFeatureAllowed(ctx, projectIDFromContext(ctx), billing.FeatureRBAC, "Role management"); err != nil {
+		return nil, err
+	}
+
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
@@ -161,6 +169,10 @@ type DeleteRoleInput struct {
 }
 
 func (s *Server) handleDeleteRole(ctx context.Context, input *DeleteRoleInput) (*struct{}, error) {
+	if err := s.checkFeatureAllowed(ctx, projectIDFromContext(ctx), billing.FeatureRBAC, "Role management"); err != nil {
+		return nil, err
+	}
+
 	if err := s.store.DeleteProjectRole(ctx, input.RoleID); err != nil {
 		if errors.Is(err, store.ErrRoleNotFound) {
 			return nil, huma.Error404NotFound("role not found or is a system role")
@@ -487,6 +499,11 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
+
+	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
+		return nil, err
+	}
+
 	ascending := input.Order == "asc"
 	if input.Order != "" && input.Order != "asc" && input.Order != "desc" {
 		return nil, huma.Error400BadRequest("order must be one of: asc, desc")
@@ -529,6 +546,10 @@ func (s *Server) handleVerifyAuditChain(ctx context.Context, _ *VerifyAuditChain
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
+		return nil, err
 	}
 
 	result, err := s.store.VerifyAuditChain(ctx, projectID)

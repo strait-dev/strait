@@ -85,6 +85,14 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 		return nil, huma.Error404NotFound("job not found")
 	}
 
+	// Validate plan gates on the existing job definition -- catches downgraded orgs.
+	if err := s.checkHTTPModeAllowed(ctx, job.ExecutionMode, job.ProjectID); err != nil {
+		return nil, err
+	}
+	if err := s.checkPresetAllowed(ctx, job.ProjectID, string(job.MachinePreset)); err != nil {
+		return nil, err
+	}
+
 	if !job.Enabled {
 		return nil, huma.Error400BadRequest("job is disabled")
 	}

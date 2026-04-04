@@ -4765,8 +4765,11 @@ func TestNotificationDeliveryClaimLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClaimPendingNotificationDeliveries(second) error = %v", err)
 	}
-	if len(secondClaim) != 0 {
-		t.Fatalf("second claim len = %d, want 0", len(secondClaim))
+	// Verify our specific delivery is NOT re-claimed (others may exist from parallel tests).
+	for _, s := range secondClaim {
+		if s.ChannelID == channel.ID {
+			t.Fatal("our delivery was re-claimed, should be excluded (already processing)")
+		}
 	}
 
 	expiringDelivery := &domain.NotificationDelivery{
@@ -4790,17 +4793,22 @@ func TestNotificationDeliveryClaimLifecycle(t *testing.T) {
 		t.Fatalf("expired claim len = %d, want 1", len(expiredClaim))
 	}
 
-	reclaimed, err := q.ClaimPendingNotificationDeliveries(ctx, 1, time.Minute)
+	reclaimed, err := q.ClaimPendingNotificationDeliveries(ctx, 10, time.Minute)
 	if err != nil {
 		t.Fatalf("ClaimPendingNotificationDeliveries(reclaimed) error = %v", err)
 	}
-	if len(reclaimed) != 1 {
-		t.Fatalf("reclaimed claim len = %d, want 1", len(reclaimed))
+	// Find our specific expired delivery in the reclaimed batch (other tests may have deliveries too).
+	var reclaimedDelivery *domain.NotificationDelivery
+	for i := range reclaimed {
+		if reclaimed[i].ID == expiringDelivery.ID {
+			reclaimedDelivery = &reclaimed[i]
+			break
+		}
 	}
-	if reclaimed[0].ID != expiringDelivery.ID {
-		t.Fatalf("reclaimed delivery ID = %q, want %q", reclaimed[0].ID, expiringDelivery.ID)
+	if reclaimedDelivery == nil {
+		t.Fatalf("expired delivery %s not found in reclaimed batch of %d", expiringDelivery.ID, len(reclaimed))
 	}
-	if reclaimed[0].ClaimToken == expiredClaim[0].ClaimToken {
+	if reclaimedDelivery.ClaimToken == expiredClaim[0].ClaimToken {
 		t.Fatal("reclaimed claim token was not rotated")
 	}
 
@@ -4813,10 +4821,10 @@ func TestNotificationDeliveryClaimLifecycle(t *testing.T) {
 		t.Fatal("UpdateClaimedNotificationDelivery(stale) = true, want false")
 	}
 
-	reclaimed[0].Status = "delivered"
+	reclaimedDelivery.Status = "delivered"
 	now := time.Now().UTC()
-	reclaimed[0].DeliveredAt = &now
-	updated, err = q.UpdateClaimedNotificationDelivery(ctx, &reclaimed[0])
+	reclaimedDelivery.DeliveredAt = &now
+	updated, err = q.UpdateClaimedNotificationDelivery(ctx, reclaimedDelivery)
 	if err != nil {
 		t.Fatalf("UpdateClaimedNotificationDelivery(reclaimed) error = %v", err)
 	}

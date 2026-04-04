@@ -138,6 +138,7 @@ func seedEvent(t *testing.T, ctx context.Context, st *store.Queries, runID, mess
 		Type:    domain.EventLog,
 		Level:   "info",
 		Message: message,
+		Data:    json.RawMessage(`{}`),
 	}
 	if err := st.InsertEvent(ctx, event); err != nil {
 		t.Fatalf("InsertEvent() error = %v", err)

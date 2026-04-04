@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -39,6 +40,10 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
+		return nil, err
 	}
 
 	if input.From == "" || input.To == "" {

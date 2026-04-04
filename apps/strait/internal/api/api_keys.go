@@ -17,7 +17,7 @@ import (
 type CreateAPIKeyRequest struct {
 	ProjectID            string   `json:"project_id" validate:"required"`
 	OrgID                string   `json:"org_id,omitempty"`
-	Name                 string   `json:"name" validate:"required"`
+	Name                 string   `json:"name" validate:"required,max=255"`
 	Scopes               []string `json:"scopes,omitempty"`
 	ExpiresIn            *int     `json:"expires_in_days,omitempty"`
 	EnvironmentID        string   `json:"environment_id,omitempty"`

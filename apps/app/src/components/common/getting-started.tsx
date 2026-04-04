@@ -94,7 +94,9 @@ export const GettingStarted = ({ user }: Props) => {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="font-normal text-2xl tracking-tight">Get started</h1>
+        <h1 className="text-balance font-normal text-2xl tracking-tight">
+          Get started
+        </h1>
         <p className="mt-1 text-muted-foreground">
           Follow these steps to set up your first job.
         </p>

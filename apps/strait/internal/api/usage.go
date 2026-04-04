@@ -533,81 +533,6 @@ func (s *Server) handleUpdateAnomalyConfig(ctx context.Context, input *UpdateAno
 	return &UpdateAnomalyConfigOutput{Body: map[string]string{"status": "updated"}}, nil
 }
 
-// Referral handlers.
-type createReferralCodeRequest struct {
-	OrgID string `json:"org_id"`
-}
-type CreateReferralCodeInput struct{ Body createReferralCodeRequest }
-type CreateReferralCodeOutput struct{ Body any }
-
-func (s *Server) handleCreateReferralCode(ctx context.Context, input *CreateReferralCodeInput) (*CreateReferralCodeOutput, error) {
-	if s.referralService == nil {
-		return nil, huma.Error501NotImplemented("referral service not configured")
-	}
-	if input.Body.OrgID == "" {
-		return nil, huma.Error400BadRequest("org_id is required")
-	}
-	if err := s.validateCallerOrgAccess(ctx, input.Body.OrgID); err != nil {
-		return nil, huma.Error403Forbidden(err.Error())
-	}
-	referral, err := s.referralService.GenerateCode(ctx, input.Body.OrgID)
-	if err != nil {
-		slog.Error("failed to create referral code", "error", err)
-		return nil, huma.Error500InternalServerError("failed to create referral code")
-	}
-	return &CreateReferralCodeOutput{Body: referral}, nil
-}
-
-type activateReferralRequest struct {
-	Code          string `json:"code"`
-	ReferredOrgID string `json:"referred_org_id"`
-	ReferredEmail string `json:"referred_email"`
-}
-type ActivateReferralInput struct{ Body activateReferralRequest }
-type ActivateReferralOutput struct{ Body any }
-
-func (s *Server) handleActivateReferral(ctx context.Context, input *ActivateReferralInput) (*ActivateReferralOutput, error) {
-	if s.referralService == nil {
-		return nil, huma.Error501NotImplemented("referral service not configured")
-	}
-	req := input.Body
-	if req.Code == "" || req.ReferredOrgID == "" {
-		return nil, huma.Error400BadRequest("code and referred_org_id are required")
-	}
-	if err := s.validateCallerOrgAccess(ctx, req.ReferredOrgID); err != nil {
-		return nil, huma.Error403Forbidden(err.Error())
-	}
-	referral, err := s.referralService.ActivateReferral(ctx, req.Code, req.ReferredOrgID, req.ReferredEmail)
-	if err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-	return &ActivateReferralOutput{Body: referral}, nil
-}
-
-type ListReferralsInput struct {
-	OrgID string `query:"org_id"`
-}
-type ListReferralsOutput struct{ Body []billing.Referral }
-
-func (s *Server) handleListReferrals(ctx context.Context, input *ListReferralsInput) (*ListReferralsOutput, error) {
-	if s.referralService == nil {
-		return nil, huma.Error501NotImplemented("referral service not configured")
-	}
-	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	referrals, rErr := s.referralService.ListReferrals(ctx, orgID)
-	if rErr != nil {
-		slog.Error("failed to list referrals", "error", rErr)
-		return nil, huma.Error500InternalServerError("failed to list referrals")
-	}
-	if referrals == nil {
-		referrals = []billing.Referral{}
-	}
-	return &ListReferralsOutput{Body: referrals}, nil
-}
-
 type CheckOrgLimitInput struct {
 	UserID   string `query:"user_id"`
 	PlanTier string `query:"plan_tier"`
@@ -637,4 +562,71 @@ func (s *Server) handleCheckOrgLimit(ctx context.Context, input *CheckOrgLimitIn
 		return nil, huma.Error500InternalServerError("failed to check org creation limit")
 	}
 	return &CheckOrgLimitOutput{Body: map[string]string{"status": "allowed"}}, nil
+}
+
+type WhatIfCostInput struct {
+	Body struct {
+		Preset      string `json:"preset"`
+		TimeoutSecs int    `json:"timeout_secs"`
+		Cron        string `json:"cron,omitempty"`
+		Count       int    `json:"count,omitempty"`
+	}
+}
+type WhatIfCostOutput struct{ Body any }
+
+func (s *Server) handleWhatIfCostEstimate(_ context.Context, input *WhatIfCostInput) (*WhatIfCostOutput, error) {
+	if input.Body.Preset == "" {
+		return nil, huma.Error400BadRequest("preset is required")
+	}
+	if input.Body.TimeoutSecs <= 0 {
+		return nil, huma.Error400BadRequest("timeout_secs must be a positive integer")
+	}
+
+	estimate, err := billing.EstimateWhatIf(
+		input.Body.Preset,
+		input.Body.TimeoutSecs,
+		input.Body.Cron,
+		input.Body.Count,
+	)
+	if err != nil {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("invalid input: %v", err))
+	}
+
+	return &WhatIfCostOutput{Body: estimate}, nil
+}
+
+type DeploymentDeltaInput struct {
+	Body struct {
+		Changes []billing.DeploymentChange `json:"changes"`
+	}
+}
+type DeploymentDeltaOutput struct{ Body any }
+
+func (s *Server) handleEstimateDeploymentDelta(ctx context.Context, input *DeploymentDeltaInput) (*DeploymentDeltaOutput, error) {
+	if len(input.Body.Changes) == 0 {
+		return &DeploymentDeltaOutput{Body: &billing.DeploymentDeltaResponse{}}, nil
+	}
+
+	// Fetch current job configs from store.
+	var jobs []billing.JobConfig
+	for _, change := range input.Body.Changes {
+		job, err := s.store.GetJob(ctx, change.JobID)
+		if err != nil {
+			return nil, huma.Error404NotFound(fmt.Sprintf("job %q not found", change.JobID))
+		}
+		jobs = append(jobs, billing.JobConfig{
+			ID:          job.ID,
+			Name:        job.Name,
+			Preset:      string(job.MachinePreset),
+			TimeoutSecs: job.TimeoutSecs,
+			Cron:        job.Cron,
+		})
+	}
+
+	result, err := billing.EstimateDeploymentDelta(jobs, input.Body.Changes)
+	if err != nil {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("estimation error: %v", err))
+	}
+
+	return &DeploymentDeltaOutput{Body: result}, nil
 }

@@ -54,11 +54,11 @@
     "@biomejs/biome": "2.4.10",
     "@changesets/cli": "^2.30.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260401.1",
-    "knip": "^6.1.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260403.1",
+    "knip": "^6.3.0",
     "lefthook": "^2.1.4",
     "openapi-typescript": "^7.13.0",
     "turbo": "^2.9.3",
-    "ultracite": "7.4.2"
+    "ultracite": "7.4.3"
   }
 }

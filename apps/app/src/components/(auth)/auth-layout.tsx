@@ -22,7 +22,7 @@ const AuthLayout = ({ children, title, description }: AuthLayoutProps) => {
                 width={32}
               />
             </div>
-            <h1 className="font-normal text-secondary-foreground text-xl tracking-tight">
+            <h1 className="text-balance font-normal text-secondary-foreground text-xl tracking-tight">
               {title}
             </h1>
             {description ? (

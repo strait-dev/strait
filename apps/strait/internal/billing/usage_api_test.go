@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/domain"
+
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 )
@@ -64,8 +66,9 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 	if resp.Plan != "free" {
 		t.Errorf("plan = %q, want free", resp.Plan)
 	}
-	if resp.Usage.RunsToday.Limit != 5000 {
-		t.Errorf("runs limit = %d, want 5000", resp.Usage.RunsToday.Limit)
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	if resp.Usage.RunsToday.Limit != freeLimits.MaxRunsPerDay {
+		t.Errorf("runs limit = %d, want %d", resp.Usage.RunsToday.Limit, freeLimits.MaxRunsPerDay)
 	}
 	if resp.Usage.Projects.Used != 1 {
 		t.Errorf("projects used = %d, want 1", resp.Usage.Projects.Used)
@@ -84,7 +87,9 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 	}
 	assertFloatApprox(t, resp.Usage.AIModelCalls.Percent, 35)
 	assertFloatApprox(t, resp.Usage.ConcurrentRuns.Percent, 60)
-	assertFloatApprox(t, resp.Usage.Members.Percent, 66.6666666667)
+	// Members: 2 used / 1 limit = 200% (over limit on free).
+	expectedMemberPct := safePercent(2, int64(freeLimits.MaxMembersPerOrg))
+	assertFloatApprox(t, resp.Usage.Members.Percent, expectedMemberPct)
 	if resp.Usage.RetentionDays != 1 {
 		t.Errorf("retention = %d, want 1", resp.Usage.RetentionDays)
 	}
@@ -126,14 +131,14 @@ func TestUsageService_GetCurrentUsage_EnterpriseAIModelCallsRemainUnlimited(t *t
 	}
 }
 
-func TestUsageService_AlertsAt80Percent(t *testing.T) {
+func TestUsageService_NoAlertsForUnlimitedDailyRuns(t *testing.T) {
 	t.Parallel()
 
 	svc, enforcer := newUsageServiceTest(t, &mockBillingStore{})
 
-	// Simulate 4100 runs (82% of 5000 free limit)
+	// Daily runs are unlimited, so no 80% alert should fire regardless of run count.
 	ctx := context.Background()
-	for range 4100 {
+	for range 10_000 {
 		_ = enforcer.CheckDailyRunLimit(ctx, "org_alert")
 	}
 
@@ -142,11 +147,11 @@ func TestUsageService_AlertsAt80Percent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(resp.Alerts) == 0 {
-		t.Fatal("expected alerts at 82% usage")
-	}
-	if resp.Alerts[0].Dimension != "runs_today" {
-		t.Errorf("alert dimension = %q, want runs_today", resp.Alerts[0].Dimension)
+	// No daily run alerts expected for unlimited plans.
+	for _, alert := range resp.Alerts {
+		if alert.Dimension == "runs_today" {
+			t.Error("unexpected runs_today alert for unlimited daily runs")
+		}
 	}
 }
 
@@ -388,9 +393,10 @@ func TestRecommendPlan(t *testing.T) {
 		want    string
 	}{
 		{"low_usage", 1000, 0, "free"},
-		{"moderate", 200000, 10000000, "starter"},
-		{"high", 1000000, 30000000, "pro"},
-		{"very_high", 5000000, 60000000, "enterprise"},
+		{"moderate", 200000, 10_000_000, "starter"},
+		{"high", 1000000, 30_000_000, "pro"},
+		{"scale_range", 5000000, 60_000_000, "scale"},
+		{"very_high", 10000000, 100_000_000, "enterprise"},
 	}
 
 	for _, tt := range tests {

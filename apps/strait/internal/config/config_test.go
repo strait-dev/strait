@@ -904,15 +904,14 @@ func TestLoad_StringOverrides(t *testing.T) {
 	}
 }
 
-func TestLoad_PolarBillingFields(t *testing.T) {
+func TestLoad_StripeBillingFields(t *testing.T) {
 	setRequiredEnv(t)
-	t.Setenv("POLAR_ACCESS_TOKEN", "pat_123")
-	t.Setenv("POLAR_API_WEBHOOK_SECRET", "whsec_123")
-	t.Setenv("POLAR_SERVER", "https://polar.sh")
-	t.Setenv("POLAR_STARTER_MONTHLY_ID", "price_starter_m")
-	t.Setenv("POLAR_STARTER_YEARLY_ID", "price_starter_y")
-	t.Setenv("POLAR_PRO_MONTHLY_ID", "price_pro_m")
-	t.Setenv("POLAR_PRO_YEARLY_ID", "price_pro_y")
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_123")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_123")
+	t.Setenv("STRIPE_STARTER_MONTHLY_PRICE_ID", "price_starter_m")
+	t.Setenv("STRIPE_STARTER_YEARLY_PRICE_ID", "price_starter_y")
+	t.Setenv("STRIPE_PRO_MONTHLY_PRICE_ID", "price_pro_m")
+	t.Setenv("STRIPE_PRO_YEARLY_PRICE_ID", "price_pro_y")
 	t.Setenv("BILLING_ENFORCEMENT_ENABLED", "true")
 
 	cfg, err := Load()
@@ -920,14 +919,11 @@ func TestLoad_PolarBillingFields(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.PolarAccessToken != "pat_123" {
-		t.Fatalf("PolarAccessToken = %q, want pat_123", cfg.PolarAccessToken)
+	if cfg.StripeSecretKey != "sk_test_123" {
+		t.Fatalf("StripeSecretKey = %q, want sk_test_123", cfg.StripeSecretKey)
 	}
-	if cfg.PolarWebhookSecret != "whsec_123" {
-		t.Fatalf("PolarWebhookSecret = %q, want whsec_123", cfg.PolarWebhookSecret)
-	}
-	if cfg.PolarServer != "https://polar.sh" {
-		t.Fatalf("PolarServer = %q, want https://polar.sh", cfg.PolarServer)
+	if cfg.StripeWebhookSecret != "whsec_123" {
+		t.Fatalf("StripeWebhookSecret = %q, want whsec_123", cfg.StripeWebhookSecret)
 	}
 	if !cfg.BillingEnforcementEnabled {
 		t.Fatal("BillingEnforcementEnabled = false, want true")

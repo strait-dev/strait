@@ -36,7 +36,7 @@ func (s *Server) routes() chi.Router {
 		AllowedOrigins:   s.config.CORSAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Internal-Secret", "X-Idempotency-Key", "Idempotency-Key"},
-		ExposedHeaders:   []string{"Link", "X-Request-Id", "X-API-Version"},
+		ExposedHeaders:   []string{"Link", "X-Request-Id", "X-API-Version", "X-Strait-Plan", "X-Strait-Usage-Limit", "X-Strait-Usage-Remaining"},
 		AllowCredentials: s.config.CORSAllowCredentials,
 		MaxAge:           300,
 	}))
@@ -138,9 +138,9 @@ func (s *Server) routes() chi.Router {
 		})
 	}
 
-	// Polar billing webhook (HMAC-verified, no API key auth).
-	if s.polarWebhook != nil {
-		r.Post("/api/webhooks/polar", s.polarWebhook.ServeHTTP)
+	// Stripe billing webhook (signature-verified, no API key auth).
+	if s.stripeWebhook != nil {
+		r.Post("/api/webhooks/stripe", s.stripeWebhook.ServeHTTP)
 	}
 
 	// CDC webhook (Sequin push delivery, internal secret auth).
@@ -197,6 +197,7 @@ func (s *Server) routes() chi.Router {
 		r.Use(requireJSONContentType)
 		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)
+		r.Use(s.planUsageHeaders)
 		r.Use(chimw.Timeout(requestTimeout))
 		r.Route("/secrets", func(r chi.Router) {
 			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeSecretsWrite), rateLimit(20, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateSecret))
@@ -223,13 +224,9 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/anomaly-config", TypedHandler(s, http.StatusOK, s.handleUpdateAnomalyConfig))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/email-preferences", TypedHandler(s, http.StatusOK, s.handleGetEmailPreferences))
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/usage/email-preferences", TypedHandler(s, http.StatusOK, s.handleUpdateEmailPreferences))
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/cost-estimate/what-if", TypedHandler(s, http.StatusOK, s.handleWhatIfCostEstimate))
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/cost-estimate/deployment", TypedHandler(s, http.StatusOK, s.handleEstimateDeploymentDelta))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/billing/check-org-limit", TypedHandler(s, http.StatusOK, s.handleCheckOrgLimit))
-		r.Route("/referrals", func(r chi.Router) {
-			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeProjectsManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateReferralCode))
-			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeProjectsManage), rateLimit(5, time.Minute)).Post("/activate", TypedHandler(s, http.StatusOK, s.handleActivateReferral))
-			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListReferrals))
-		})
-
 		r.Route("/projects", func(r chi.Router) {
 			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeProjectsManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateProject))
 			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListProjects))

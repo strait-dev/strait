@@ -10,8 +10,8 @@ type OrgSubscription struct {
 	ID                         string
 	OrgID                      string
 	PlanTier                   string
-	PolarSubscriptionID        *string
-	PolarCustomerID            *string
+	StripeSubscriptionID       *string
+	StripeCustomerID           *string
 	Status                     string
 	CurrentPeriodStart         *time.Time
 	CurrentPeriodEnd           *time.Time
@@ -110,4 +110,27 @@ type Store interface {
 
 	// Email preference
 	UpdateMonthlyUsageEmail(ctx context.Context, orgID string, enabled bool) error
+
+	// Organization add-ons
+	ListActiveAddons(ctx context.Context, orgID string) ([]Addon, error)
+	CreateAddon(ctx context.Context, addon *Addon) error
+	DeactivateAddon(ctx context.Context, addonID string) error
+	CountActiveAddonsByType(ctx context.Context, orgID string, addonType AddonType) (int, error)
+
+	// Webhook idempotency
+	RecordProcessedWebhook(ctx context.Context, msgID string) error
+	IsWebhookProcessed(ctx context.Context, msgID string) (bool, error)
+
+	// Webhook message cleanup
+	DeleteOldWebhookMessages(ctx context.Context, olderThan time.Time) (int64, error)
+
+	// Enterprise contracts
+	GetEnterpriseContract(ctx context.Context, orgID string) (*EnterpriseContract, error)
+	UpsertEnterpriseContract(ctx context.Context, contract *EnterpriseContract) error
+	ListExpiringContracts(ctx context.Context, withinDays int) ([]EnterpriseContract, error)
+
+	// HTTP-mode job lifecycle (downgrade auto-pause / upgrade auto-unpause)
+	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error)
+	UnpauseJobsByPauseReason(ctx context.Context, orgID, reason string) (int64, error)
+	CountHTTPJobsByOrg(ctx context.Context, orgID string) (int, error)
 }

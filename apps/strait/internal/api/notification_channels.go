@@ -41,7 +41,7 @@ func validateNotificationChannelConfig(channelType string, config json.RawMessag
 
 type CreateNotificationChannelRequest struct {
 	ChannelType string          `json:"channel_type" validate:"required,oneof=slack discord webhook"`
-	Name        string          `json:"name" validate:"required"`
+	Name        string          `json:"name" validate:"required,max=255"`
 	Config      json.RawMessage `json:"config" validate:"required"`
 	Enabled     *bool           `json:"enabled,omitempty"`
 }

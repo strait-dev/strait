@@ -25,6 +25,7 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
+import FeatureLock from "@/components/billing/feature-lock";
 import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
@@ -290,7 +291,17 @@ function WorkflowDetailPage() {
         </TabsContent>
 
         {/* DAG Tab */}
-        <TabsContent className="mt-6" value="dag">
+        <TabsContent className="mt-6 space-y-4" value="dag">
+          {dagSteps.some((s) => s.type === "approval") && (
+            <FeatureLock feature="approval_gates">
+              <div />
+            </FeatureLock>
+          )}
+          {dagSteps.some((s) => s.type === "sub_workflow") && (
+            <FeatureLock feature="sub_workflows">
+              <div />
+            </FeatureLock>
+          )}
           <Card>
             <CardContent className="p-0">
               <WorkflowDAGFlow steps={dagSteps} />

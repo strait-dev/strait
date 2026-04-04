@@ -36,6 +36,18 @@ type planResponse struct {
 	RequiresCreditCard      bool     `json:"requires_credit_card"`
 	OveragePerKRunsMicrousd int64    `json:"overage_per_k_runs_microusd"`
 	SupportLevel            string   `json:"support_level"`
+	HasDedicatedCompute     bool     `json:"has_dedicated_compute"`
+	HasStaticIPs            bool     `json:"has_static_ips"`
+	HasVPCPeering           bool     `json:"has_vpc_peering"`
+	HasSCIM                 bool     `json:"has_scim"`
+	HasDataResidency        bool     `json:"has_data_residency"`
+	HasCustomRBAC           bool     `json:"has_custom_rbac"`
+	HasReservedCapacity     bool     `json:"has_reserved_capacity"`
+	HasPriorityQueue        bool     `json:"has_priority_queue"`
+	HasIPAllowlisting       bool     `json:"has_ip_allowlisting"`
+	HasSessionManagement    bool     `json:"has_session_management"`
+	HasSecretRotation       bool     `json:"has_secret_rotation"`
+	HasSIEMExport           bool     `json:"has_siem_export"`
 }
 
 func toPlanResponse(p billing.OrgPlanLimits) planResponse {
@@ -73,6 +85,18 @@ func toPlanResponse(p billing.OrgPlanLimits) planResponse {
 		RequiresCreditCard:      p.RequiresCreditCard,
 		OveragePerKRunsMicrousd: p.OveragePerKRunsMicrousd,
 		SupportLevel:            p.SupportLevel,
+		HasDedicatedCompute:     p.HasDedicatedCompute,
+		HasStaticIPs:            p.HasStaticIPs,
+		HasVPCPeering:           p.HasVPCPeering,
+		HasSCIM:                 p.HasSCIM,
+		HasDataResidency:        p.HasDataResidency,
+		HasCustomRBAC:           p.HasCustomRBAC,
+		HasReservedCapacity:     p.HasReservedCapacity,
+		HasPriorityQueue:        p.HasPriorityQueue,
+		HasIPAllowlisting:       p.HasIPAllowlisting,
+		HasSessionManagement:    p.HasSessionManagement,
+		HasSecretRotation:       p.HasSecretRotation,
+		HasSIEMExport:           p.HasSIEMExport,
 	}
 }
 
@@ -89,6 +113,7 @@ func (s *Server) handleGetPlans(_ context.Context, _ *struct{}) (*GetPlansOutput
 		domain.PlanFree,
 		domain.PlanStarter,
 		domain.PlanPro,
+		domain.PlanScale,
 		domain.PlanEnterprise,
 	}
 

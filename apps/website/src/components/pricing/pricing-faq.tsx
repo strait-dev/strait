@@ -67,6 +67,12 @@ export const PRICING_FAQ_ITEMS: FaqItem[] = [
     answer:
       "Yes. You can upgrade or downgrade your plan at any time. When upgrading, you get immediate access to the new plan features. When downgrading, changes take effect at the end of your current billing period.",
   },
+  {
+    _id: "faq-11",
+    question: "How is HTTP mode priced?",
+    answer:
+      "HTTP mode is available on Pro, Scale, and Enterprise plans. It is priced at $20 per 1 million runs ($0.00002 per run). With the Pro plan's included compute credit, you get approximately 2.5 million HTTP-mode runs before overage charges apply. Enterprise plans have custom HTTP mode pricing.",
+  },
 ];
 
 const PricingFaq = () => {

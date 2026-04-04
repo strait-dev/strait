@@ -697,48 +697,6 @@ func TestConcurrentReconciler_Run_StopsOnCancel(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Referral expiry: Run loop
-// ---------------------------------------------------------------------------.
-
-func TestReferralExpiry_Run_StopsOnCancel(t *testing.T) {
-	t.Parallel()
-
-	s := &advMockReferralStore{
-		expireFn: func(_ context.Context) (int64, error) {
-			return 0, nil
-		},
-	}
-	r := NewReferralExpiry(s, 50*time.Millisecond)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		r.Run(ctx)
-		close(done)
-	}()
-
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
-	}
-}
-
-func TestReferralExpiry_ZeroExpired(t *testing.T) {
-	t.Parallel()
-
-	s := &advMockReferralStore{
-		expireFn: func(_ context.Context) (int64, error) {
-			return 0, nil
-		},
-	}
-	r := NewReferralExpiry(s, time.Minute)
-	r.expire(context.Background())
-	// Should not panic for zero expired.
-}
-
-// ---------------------------------------------------------------------------.
 // Cron: recordCronDrift, concurrent trigger races
 // ---------------------------------------------------------------------------.
 

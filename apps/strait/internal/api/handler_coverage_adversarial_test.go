@@ -451,7 +451,7 @@ func TestHandlerGetPlans_ContainsAllTiers(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	expectedTiers := []string{"free", "starter", "pro", "enterprise"}
+	expectedTiers := []string{"free", "starter", "pro", "scale", "enterprise"}
 	if len(resp.Plans) != len(expectedTiers) {
 		t.Fatalf("expected %d plans, got %d", len(expectedTiers), len(resp.Plans))
 	}
@@ -824,6 +824,9 @@ func (m *advMockBillingEnforcer) GetActiveProjectOrgID(ctx context.Context, proj
 }
 func (m *advMockBillingEnforcer) GetOrgPlanLimits(_ context.Context, _ string) (billing.OrgPlanLimits, error) {
 	return billing.OrgPlanLimits{}, nil
+}
+func (m *advMockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int64, error) {
+	return 0, nil
 }
 func (m *advMockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
 func (m *advMockBillingEnforcer) CheckOrgCreationLimit(ctx context.Context, userID string, planTier domain.PlanTier) error {

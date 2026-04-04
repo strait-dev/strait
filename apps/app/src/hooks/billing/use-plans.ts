@@ -1,6 +1,35 @@
+/**
+ * Plan definitions and formatting utilities.
+ *
+ * Fetches plan tier data from the Go backend via `GET /v1/plans` and
+ * transforms it into UI-friendly structures for the pricing page,
+ * plan comparison table, and upgrade flow.
+ */
+
 import { createServerFn } from "@tanstack/react-start";
 import { apiRequest } from "@/lib/api-client.server";
 
+export {
+  formatBoolean,
+  formatComputeCredit,
+  formatLimit,
+  formatRBAC,
+  formatRegionCount,
+  formatRetention,
+  formatSupportLevel,
+} from "./plan-formatters";
+
+import {
+  formatBoolean,
+  formatComputeCredit,
+  formatLimit,
+  formatRBAC,
+  formatRegionCount,
+  formatRetention,
+  formatSupportLevel,
+} from "./plan-formatters";
+
+/** Raw plan data from the `GET /v1/plans` API response. */
 export type APIPlan = {
   tier: string;
   display_name: string;
@@ -30,12 +59,30 @@ export type APIPlan = {
   requires_credit_card: boolean;
   overage_per_k_runs_microusd: number;
   support_level: string;
+  has_dedicated_compute: boolean;
+  has_static_ips: boolean;
+  has_vpc_peering: boolean;
+  has_scim: boolean;
+  has_data_residency: boolean;
+  has_custom_rbac: boolean;
+  has_reserved_capacity: boolean;
+  has_priority_queue: boolean;
+  has_ip_allowlisting: boolean;
+  has_session_management: boolean;
+  has_secret_rotation: boolean;
+  has_siem_export: boolean;
 };
 
+/** API response wrapper for the plans endpoint. */
 type PlansResponse = {
   plans: APIPlan[];
 };
 
+/**
+ * Server function to fetch all plan tier definitions from the Go backend.
+ *
+ * @returns Array of plan definitions ordered by tier rank.
+ */
 export const getPlansServerFn = createServerFn({ method: "GET" }).handler(
   async () => {
     const data = await apiRequest<PlansResponse>("/v1/plans");
@@ -43,91 +90,61 @@ export const getPlansServerFn = createServerFn({ method: "GET" }).handler(
   }
 );
 
-const MICRO_TO_DOLLARS = 1_000_000;
-
-function formatLimit(value: number): string {
-  if (value === -1) {
-    return "Unlimited";
-  }
-  if (value >= 1000) {
-    return value.toLocaleString("en-US");
-  }
-  return String(value);
-}
-
-function formatComputeCredit(microusd: number): string {
-  if (microusd <= 0) {
-    return "-";
-  }
-  return `$${(microusd / MICRO_TO_DOLLARS).toFixed(2)}`;
-}
-
-function formatRegionCount(regions: string[]): string {
-  if (regions.length === 0) {
-    return "All";
-  }
-  return String(regions.length);
-}
-
-function formatRetention(days: number): string {
-  if (days === 1) {
-    return "1 day";
-  }
-  return `${days} days`;
-}
-
-function formatRBAC(level: string): string {
-  if (!level) {
-    return "-";
-  }
-  return level.charAt(0).toUpperCase() + level.slice(1);
-}
-
-function formatBoolean(value: boolean): string {
-  return value ? "Yes" : "-";
-}
-
+/** A single feature listed on a pricing card. */
 export type PricingFeature = {
+  /** Feature name for display. */
   name: string;
+  /** Optional longer description. */
   description?: string;
+  /** Whether the feature is included in the plan. */
   included: boolean;
 };
 
+/** Pricing plan data shaped for the upgrade page plan cards. */
 export type PricingPlan = {
+  /** Display name (e.g. "Pro", "Scale"). */
   name: string;
-  slug: "free" | "starter" | "pro" | "enterprise";
+  /** Plan tier slug. */
+  slug: "free" | "starter" | "pro" | "scale" | "enterprise";
+  /** Short description of the plan's target audience. */
   description: string;
+  /** Plan prices in cents. */
   prices: {
     monthly: number;
     yearly: number;
     monthlyInYearly?: number;
   };
+  /** Features listed on the pricing card. */
   features: PricingFeature[];
+  /** Whether this plan card should be visually highlighted. */
   highlight?: boolean;
+  /** Optional badge text (e.g. "Most popular"). */
   badge?: string;
+  /** Badge visual variant. */
   badgeVariant?: "success-light" | "info-light" | "default";
+  /** Whether the plan uses custom pricing (Enterprise). */
   isCustomPricing?: boolean;
 };
 
+/** Plan descriptions for the pricing cards. */
 const PLAN_DESCRIPTIONS: Record<string, string> = {
   free: "For side projects and evaluation. All features included.",
   starter: "For growing teams with production workloads.",
   pro: "For production workloads at scale.",
+  scale: "For high-volume teams that need audit logs and canary deploys.",
   enterprise: "Custom everything for large organizations.",
 };
 
-const SUPPORT_LABELS: Record<string, string> = {
-  community: "Community support",
-  email_48h: "Email support (48h)",
-  priority_24h: "Priority support (24h)",
-  dedicated: "Dedicated support + Slack",
-};
-
-function formatSupportLevel(level: string): string {
-  return SUPPORT_LABELS[level] ?? level;
-}
-
-export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
+/**
+ * Transform API plan data into pricing plan objects for the upgrade page.
+ *
+ * Enterprise plans receive a special feature list and custom pricing flag.
+ * Other plans get their features derived from the API response fields.
+ *
+ * @param plans - Array of raw API plan data.
+ * @returns Array of pricing plans shaped for the plan selection UI.
+ */
+export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: feature mapping requires many branches per plan tier
   return plans.map((p) => {
     const slug = p.tier as PricingPlan["slug"];
@@ -226,25 +243,41 @@ export function apiPlansToPricingPlans(plans: APIPlan[]): PricingPlan[] {
         monthlyInYearly,
       },
       features,
-      highlight: slug === "starter",
+      highlight: slug === "pro",
       badge: isFree ? "No credit card required" : undefined,
       badgeVariant: isFree ? ("success-light" as const) : undefined,
       isCustomPricing: isEnterprise,
     };
   });
-}
+};
 
+/** A single row in the plan comparison table. */
 export type ComparisonFeature = {
+  /** Feature name. */
   name: string;
+  /** Value for the free tier. */
   free: string;
+  /** Value for the starter tier. */
   starter: string;
+  /** Value for the pro tier. */
   pro: string;
+  /** Value for the scale tier. */
+  scale: string;
+  /** Value for the enterprise tier. */
   enterprise: string;
 };
 
-export function apiPlansToComparisonFeatures(
+/**
+ * Transform API plan data into comparison table rows.
+ *
+ * Each row shows how a feature varies across all five tiers.
+ *
+ * @param plans - Array of raw API plan data.
+ * @returns Array of comparison feature rows for the plan comparison table.
+ */
+export const apiPlansToComparisonFeatures = (
   plans: APIPlan[]
-): ComparisonFeature[] {
+): ComparisonFeature[] => {
   const byTier = Object.fromEntries(plans.map((p) => [p.tier, p])) as Record<
     string,
     APIPlan
@@ -263,6 +296,7 @@ export function apiPlansToComparisonFeatures(
     free: val("free", fn),
     starter: val("starter", fn),
     pro: val("pro", fn),
+    scale: val("scale", fn),
     enterprise: val("enterprise", fn),
   });
 
@@ -286,5 +320,10 @@ export function apiPlansToComparisonFeatures(
     ),
     row("Log drains", (p) => formatLimit(p.max_log_drains_per_org)),
     row("Alert rules", (p) => formatLimit(p.max_alert_rules_per_project)),
+    row("Dedicated compute", (p) => formatBoolean(p.has_dedicated_compute)),
+    row("Static IPs", (p) => formatBoolean(p.has_static_ips)),
+    row("VPC peering", (p) => formatBoolean(p.has_vpc_peering)),
+    row("SCIM", (p) => formatBoolean(p.has_scim)),
+    row("SIEM export", (p) => formatBoolean(p.has_siem_export)),
   ];
-}
+};

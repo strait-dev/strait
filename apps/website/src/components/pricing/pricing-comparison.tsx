@@ -169,6 +169,81 @@ function buildSections(): PricingSection[] {
       ],
     },
     {
+      name: "Execution",
+      rows: [
+        row(
+          "Execution modes",
+          "text",
+          (k) => PLANS[k].limits.executionModes,
+          "Managed: we run your container. HTTP: we orchestrate, you run the compute."
+        ),
+        row(
+          "API rate limit",
+          "text",
+          (k) => {
+            const limit = PLANS[k].limits.apiRateLimit;
+            if (limit === null) {
+              return "Unlimited";
+            }
+            return `${limit.toLocaleString()} req/min`;
+          },
+          "Maximum API requests per minute per organization."
+        ),
+      ],
+    },
+    {
+      name: "Workflows",
+      rows: [
+        row(
+          "Workflow DAG steps",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.workflowSteps),
+          "Maximum number of steps in a workflow DAG definition."
+        ),
+        row(
+          "Approval gates",
+          "boolean",
+          (k) => PLANS[k].limits.approvalGates,
+          "Human-in-the-loop approval steps that pause workflow execution until approved."
+        ),
+        row(
+          "Sub-workflows",
+          "boolean",
+          (k) => PLANS[k].limits.subWorkflows,
+          "Nest workflows inside other workflows for complex orchestration patterns."
+        ),
+        row(
+          "Job chaining",
+          "boolean",
+          (k) => PLANS[k].limits.jobChaining,
+          "Trigger follow-up jobs on completion or failure with payload mapping."
+        ),
+        row(
+          "Canary deployments",
+          "boolean",
+          (k) => PLANS[k].limits.canaryDeployments,
+          "Gradually shift traffic between workflow versions with auto-promote/rollback."
+        ),
+      ],
+    },
+    {
+      name: "Automation",
+      rows: [
+        row(
+          "Scheduled jobs (cron)",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.scheduledJobs),
+          "Maximum number of cron schedule definitions across the organization."
+        ),
+        row(
+          "Webhook endpoints",
+          "text",
+          (k) => formatLimit(PLANS[k].limits.webhookEndpoints),
+          "HTTP endpoints that receive real-time notifications for job lifecycle events."
+        ),
+      ],
+    },
+    {
       name: "Support",
       rows: [
         row(
@@ -176,6 +251,47 @@ function buildSections(): PricingSection[] {
           "text",
           (k) => supportLevel(k),
           "How you get help. Community is forum-based. Email is 1-business-day SLA. Priority is 4-hour SLA. Dedicated is a named contact."
+        ),
+      ],
+    },
+    {
+      name: "Enterprise",
+      rows: [
+        row(
+          "Dedicated compute",
+          "boolean",
+          (k) => k === "enterprise",
+          "Isolated Fly organization for your workloads with no resource contention."
+        ),
+        row(
+          "Static IPs",
+          "boolean",
+          (k) => k === "enterprise",
+          "Fixed egress IP addresses for connecting to databases behind IP allowlists."
+        ),
+        row(
+          "VPC peering",
+          "boolean",
+          (k) => k === "enterprise",
+          "Private network access to your services without traversing the public internet."
+        ),
+        row(
+          "SCIM directory sync",
+          "boolean",
+          (k) => k === "enterprise",
+          "Automated user provisioning and deprovisioning from your identity provider."
+        ),
+        row(
+          "SLA with credits",
+          "boolean",
+          (k) => k === "enterprise",
+          "99.9%+ uptime SLA with automatic service credits for downtime."
+        ),
+        row(
+          "SIEM export",
+          "boolean",
+          (k) => k === "enterprise",
+          "Forward audit logs to Splunk, Datadog, Elastic, or custom HTTP endpoints."
         ),
       ],
     },

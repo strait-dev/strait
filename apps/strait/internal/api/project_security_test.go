@@ -275,47 +275,6 @@ func TestProject_DeleteWithActiveResources(t *testing.T) {
 	}
 }
 
-// TestProject_ReferralActivationDuringCreate verifies that concurrent creates
-// racing on the referral auto-activation path do not block or corrupt state.
-func TestProject_ReferralActivationDuringCreate(t *testing.T) {
-	t.Parallel()
-
-	var createCount atomic.Int32
-	ms := &APIStoreMock{
-		CreateProjectFunc: func(_ context.Context, p *domain.Project) error {
-			createCount.Add(1)
-			p.CreatedAt = time.Now()
-			p.UpdatedAt = time.Now()
-			return nil
-		},
-		ListProjectsByOrgFunc: func(_ context.Context, _ string) ([]domain.Project, error) {
-			// Simulate first project for referral path.
-			return []domain.Project{{ID: "proj-first"}}, nil
-		},
-	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-
-	const goroutines = 10
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
-	for i := range goroutines {
-		go func(n int) {
-			defer wg.Done()
-			body := fmt.Sprintf(`{"id":"proj-ref-%d","org_id":"org-ref","name":"Referral %d"}`, n, n)
-			w := httptest.NewRecorder()
-			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
-			if w.Code != http.StatusCreated {
-				t.Errorf("goroutine %d: expected 201, got %d", n, w.Code)
-			}
-		}(i)
-	}
-	wg.Wait()
-
-	if createCount.Load() != goroutines {
-		t.Fatalf("expected %d creates, got %d", goroutines, createCount.Load())
-	}
-}
-
 // FuzzProjectName fuzzes project names to verify that the API handles
 // arbitrary strings without panicking.
 func FuzzProjectName(f *testing.F) {

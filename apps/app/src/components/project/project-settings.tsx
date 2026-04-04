@@ -30,7 +30,7 @@ const ProjectSettings = ({ projectId }: Props) => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-normal text-foreground text-lg tracking-tight">
+        <h2 className="text-balance font-normal text-foreground text-lg tracking-tight">
           Project Settings
         </h2>
         <p className="text-muted-foreground text-sm">

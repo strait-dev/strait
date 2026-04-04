@@ -13,8 +13,8 @@ import (
 
 type CreateEnvironmentRequest struct {
 	ProjectID string            `json:"project_id" validate:"required"`
-	Name      string            `json:"name" validate:"required"`
-	Slug      string            `json:"slug" validate:"required"`
+	Name      string            `json:"name" validate:"required,max=255"`
+	Slug      string            `json:"slug" validate:"required,max=255"`
 	ParentID  string            `json:"parent_id,omitempty"`
 	Variables map[string]string `json:"variables,omitempty"`
 }
@@ -46,6 +46,10 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
+	}
+
+	if err := s.checkEnvironmentLimit(ctx, req.ProjectID); err != nil {
+		return nil, err
 	}
 
 	env := &domain.Environment{

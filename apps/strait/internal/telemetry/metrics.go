@@ -114,11 +114,11 @@ type Metrics struct {
 	PubSubPublishErrors metric.Int64Counter
 
 	// Billing observability metrics.
-	PolarEventsIngested   metric.Int64Counter
-	PolarEventsDropped    metric.Int64Counter
-	OverageEntered        metric.Int64Counter
-	HTTPModeRunsCompleted metric.Int64Counter
-	HTTPModeGateRejected  metric.Int64Counter
+	StripeUsageEventsIngested metric.Int64Counter
+	StripeUsageEventsDropped  metric.Int64Counter
+	OverageEntered            metric.Int64Counter
+	HTTPModeRunsCompleted     metric.Int64Counter
+	HTTPModeGateRejected      metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -662,14 +662,14 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 
-	polarEventsIngested, _ := meter.Int64Counter(
-		"strait.billing.polar_events_ingested_total",
-		metric.WithDescription("Total Polar usage events ingested"),
+	stripeUsageEventsIngested, _ := meter.Int64Counter(
+		"strait.billing.stripe_usage_events_ingested_total",
+		metric.WithDescription("Total Stripe usage events ingested"),
 		metric.WithUnit("1"),
 	)
-	polarEventsDropped, _ := meter.Int64Counter(
-		"strait.billing.polar_events_dropped_total",
-		metric.WithDescription("Total Polar usage events dropped"),
+	stripeUsageEventsDropped, _ := meter.Int64Counter(
+		"strait.billing.stripe_usage_events_dropped_total",
+		metric.WithDescription("Total Stripe usage events dropped"),
 		metric.WithUnit("1"),
 	)
 	overageEntered, _ := meter.Int64Counter(
@@ -753,8 +753,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		NotificationDeliveriesTotal:  notificationDeliveriesTotal,
 		LogDrainEventsTotal:          logDrainEventsTotal,
 		PubSubPublishErrors:          pubsubPublishErrors,
-		PolarEventsIngested:          polarEventsIngested,
-		PolarEventsDropped:           polarEventsDropped,
+		StripeUsageEventsIngested:    stripeUsageEventsIngested,
+		StripeUsageEventsDropped:     stripeUsageEventsDropped,
 		OverageEntered:               overageEntered,
 		HTTPModeRunsCompleted:        httpModeRunsCompleted,
 		HTTPModeGateRejected:         httpModeGateRejected,

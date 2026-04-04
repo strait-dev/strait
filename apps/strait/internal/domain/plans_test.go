@@ -14,6 +14,7 @@ func TestPlanTier_IsValid(t *testing.T) {
 		{PlanFree, true},
 		{PlanStarter, true},
 		{PlanPro, true},
+		{PlanScale, true},
 		{PlanEnterprise, true},
 		{PlanTier("unknown"), false},
 		{PlanTier(""), false},
@@ -77,6 +78,20 @@ func TestGetPlanConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("scale_plan", func(t *testing.T) {
+		t.Parallel()
+		cfg := GetPlanConfig(PlanScale)
+		if cfg.MaxRegions != 5 {
+			t.Errorf("expected MaxRegions=5, got %d", cfg.MaxRegions)
+		}
+		if !cfg.MultiRegion {
+			t.Error("expected MultiRegion=true for scale plan")
+		}
+		if cfg.AllowedRegions != nil {
+			t.Errorf("expected nil AllowedRegions (all regions), got %v", cfg.AllowedRegions)
+		}
+	})
+
 	t.Run("enterprise_plan", func(t *testing.T) {
 		t.Parallel()
 		cfg := GetPlanConfig(PlanEnterprise)
@@ -110,16 +125,19 @@ func TestIsRegionAllowed(t *testing.T) {
 		{"free_lhr", PlanFree, "lhr", false},
 		{"free_nrt", PlanFree, "nrt", false},
 		{"starter_iad", PlanStarter, "iad", true},
+		{"starter_ord", PlanStarter, "ord", true},
+		{"starter_lax", PlanStarter, "lax", true},
 		{"starter_lhr", PlanStarter, "lhr", true},
 		{"starter_fra", PlanStarter, "fra", true},
-		{"starter_nrt", PlanStarter, "nrt", true},
-		{"starter_syd", PlanStarter, "syd", true},
-		{"starter_lax", PlanStarter, "lax", true},
-		{"starter_ord", PlanStarter, "ord", false},
+		{"starter_sin", PlanStarter, "sin", true},
+		{"starter_nrt", PlanStarter, "nrt", false},
+		{"starter_syd", PlanStarter, "syd", false},
 		{"starter_hkg", PlanStarter, "hkg", false},
 		{"pro_iad", PlanPro, "iad", true},
 		{"pro_hkg", PlanPro, "hkg", true},
 		{"pro_any", PlanPro, "jnb", true},
+		{"scale_iad", PlanScale, "iad", true},
+		{"scale_any", PlanScale, "hkg", true},
 		{"enterprise_iad", PlanEnterprise, "iad", true},
 		{"enterprise_any", PlanEnterprise, "bog", true},
 	}
@@ -131,5 +149,65 @@ func TestIsRegionAllowed(t *testing.T) {
 				t.Errorf("IsRegionAllowed(%q, %q) = %v, want %v", tt.tier, tt.region, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAllPlanTiers(t *testing.T) {
+	t.Parallel()
+	tiers := AllPlanTiers()
+	if len(tiers) != 5 {
+		t.Fatalf("expected 5 plan tiers, got %d", len(tiers))
+	}
+	expected := []PlanTier{PlanFree, PlanStarter, PlanPro, PlanScale, PlanEnterprise}
+	for i, tier := range tiers {
+		if tier != expected[i] {
+			t.Errorf("AllPlanTiers()[%d] = %q, want %q", i, tier, expected[i])
+		}
+	}
+}
+
+func TestPlanTierRank(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tier PlanTier
+		want int
+	}{
+		{PlanFree, 0},
+		{PlanStarter, 1},
+		{PlanPro, 2},
+		{PlanScale, 3},
+		{PlanEnterprise, 4},
+		{PlanTier("unknown"), 0},
+		{PlanTier(""), 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.tier), func(t *testing.T) {
+			t.Parallel()
+			if got := tt.tier.Rank(); got != tt.want {
+				t.Errorf("PlanTier(%q).Rank() = %d, want %d", tt.tier, got, tt.want)
+			}
+		})
+	}
+
+	// Verify monotonically increasing ranks.
+	tiers := AllPlanTiers()
+	for i := 1; i < len(tiers); i++ {
+		if tiers[i].Rank() <= tiers[i-1].Rank() {
+			t.Errorf("Rank(%q)=%d should be > Rank(%q)=%d",
+				tiers[i], tiers[i].Rank(), tiers[i-1], tiers[i-1].Rank())
+		}
+	}
+}
+
+func TestAllPlanConfigs_IncludesScale(t *testing.T) {
+	t.Parallel()
+	configs := AllPlanConfigs()
+	if _, ok := configs[PlanScale]; !ok {
+		t.Error("AllPlanConfigs() missing Scale plan config")
+	}
+	if len(configs) != 5 {
+		t.Errorf("expected 5 plan configs, got %d", len(configs))
 	}
 }

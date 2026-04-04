@@ -3,8 +3,11 @@ package billing
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"strait/internal/compute"
+
+	"github.com/robfig/cron/v3"
 )
 
 // CheaperAlternative describes a less expensive preset option.
@@ -98,4 +101,184 @@ func findCheaperAlternative(currentPreset string, timeoutSecs int, currentCost i
 		CostMicro:  best.cost,
 		SavingsPct: savingsPct,
 	}
+}
+
+// CronRunsPerDay estimates how many times a cron expression fires in 24 hours.
+// Returns 0 for empty expressions. Returns error for invalid expressions.
+func CronRunsPerDay(cronExpr string) (float64, error) {
+	if cronExpr == "" {
+		return 0, nil
+	}
+
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	sched, err := parser.Parse(cronExpr)
+	if err != nil {
+		return 0, fmt.Errorf("parsing cron expression: %w", err)
+	}
+
+	// Count firings in a 24-hour window starting from a fixed reference point.
+	// Use 1 second before midnight so that sched.Next() includes 00:00 firings.
+	start := time.Date(2025, 1, 5, 23, 59, 59, 0, time.UTC) // Sunday 23:59:59
+	end := start.Add(24 * time.Hour)                        // Monday 23:59:59
+
+	count := 0
+	t := sched.Next(start)
+	for !t.IsZero() && t.Before(end) {
+		count++
+		t = sched.Next(t)
+	}
+
+	return float64(count), nil
+}
+
+// WhatIfEstimate describes the projected cost of a hypothetical job configuration.
+type WhatIfEstimate struct {
+	MonthlyCostUsd float64 `json:"monthly_cost_usd"`
+	DailyCostUsd   float64 `json:"daily_cost_usd"`
+	CostPerRunUsd  float64 `json:"cost_per_run_usd"`
+	RunsPerDay     float64 `json:"runs_per_day"`
+}
+
+// EstimateWhatIf estimates the monthly cost of a hypothetical job configuration.
+func EstimateWhatIf(preset string, timeoutSecs int, cronExpr string, count int) (*WhatIfEstimate, error) {
+	if count <= 0 {
+		count = 1
+	}
+
+	costMicro, err := compute.EstimateCost(preset, timeoutSecs)
+	if err != nil {
+		return nil, fmt.Errorf("estimating cost: %w", err)
+	}
+
+	runsPerDay := float64(count) // default: 1 run per day per job
+	if cronExpr != "" {
+		rpd, cronErr := CronRunsPerDay(cronExpr)
+		if cronErr != nil {
+			return nil, cronErr
+		}
+		runsPerDay = rpd * float64(count)
+	}
+
+	costPerRunUsd := float64(costMicro) / 1_000_000
+	dailyCostUsd := costPerRunUsd * runsPerDay
+	monthlyCostUsd := dailyCostUsd * 30
+
+	return &WhatIfEstimate{
+		MonthlyCostUsd: monthlyCostUsd,
+		DailyCostUsd:   dailyCostUsd,
+		CostPerRunUsd:  costPerRunUsd,
+		RunsPerDay:     runsPerDay,
+	}, nil
+}
+
+// DeploymentChange describes a proposed change to an existing job.
+type DeploymentChange struct {
+	JobID          string  `json:"job_id"`
+	NewPreset      *string `json:"new_preset,omitempty"`
+	NewTimeoutSecs *int    `json:"new_timeout_secs,omitempty"`
+	NewCron        *string `json:"new_cron,omitempty"`
+}
+
+// DeploymentDelta describes the cost impact of a single job change.
+type DeploymentDelta struct {
+	JobID               string  `json:"job_id"`
+	JobName             string  `json:"job_name"`
+	CurrentMonthlyUsd   float64 `json:"current_monthly_usd"`
+	ProjectedMonthlyUsd float64 `json:"projected_monthly_usd"`
+	DeltaUsd            float64 `json:"delta_usd"`
+}
+
+// DeploymentDeltaResponse is the response for deployment cost-delta estimation.
+type DeploymentDeltaResponse struct {
+	Changes       []DeploymentDelta `json:"changes"`
+	TotalDeltaUsd float64           `json:"total_delta_usd"`
+}
+
+// JobConfig holds the cost-relevant fields of a job for delta calculation.
+type JobConfig struct {
+	ID          string
+	Name        string
+	Preset      string
+	TimeoutSecs int
+	Cron        string
+}
+
+// EstimateDeploymentDelta computes the monthly cost delta for a set of job changes.
+func EstimateDeploymentDelta(jobs []JobConfig, changes []DeploymentChange) (*DeploymentDeltaResponse, error) {
+	jobMap := make(map[string]JobConfig, len(jobs))
+	for _, j := range jobs {
+		jobMap[j.ID] = j
+	}
+
+	resp := &DeploymentDeltaResponse{}
+	for _, change := range changes {
+		job, ok := jobMap[change.JobID]
+		if !ok {
+			return nil, fmt.Errorf("job %q not found", change.JobID)
+		}
+
+		currentPreset := job.Preset
+		currentTimeout := job.TimeoutSecs
+		currentCron := job.Cron
+
+		newPreset := currentPreset
+		newTimeout := currentTimeout
+		newCron := currentCron
+
+		if change.NewPreset != nil {
+			newPreset = *change.NewPreset
+		}
+		if change.NewTimeoutSecs != nil {
+			newTimeout = *change.NewTimeoutSecs
+		}
+		if change.NewCron != nil {
+			newCron = *change.NewCron
+		}
+
+		currentMonthly, err := estimateMonthlyJobCost(currentPreset, currentTimeout, currentCron)
+		if err != nil {
+			return nil, fmt.Errorf("estimating current cost for %q: %w", job.ID, err)
+		}
+
+		projectedMonthly, err := estimateMonthlyJobCost(newPreset, newTimeout, newCron)
+		if err != nil {
+			return nil, fmt.Errorf("estimating projected cost for %q: %w", job.ID, err)
+		}
+
+		delta := DeploymentDelta{
+			JobID:               job.ID,
+			JobName:             job.Name,
+			CurrentMonthlyUsd:   currentMonthly,
+			ProjectedMonthlyUsd: projectedMonthly,
+			DeltaUsd:            projectedMonthly - currentMonthly,
+		}
+		resp.Changes = append(resp.Changes, delta)
+		resp.TotalDeltaUsd += delta.DeltaUsd
+	}
+
+	return resp, nil
+}
+
+func estimateMonthlyJobCost(preset string, timeoutSecs int, cronExpr string) (float64, error) {
+	if preset == "" || timeoutSecs <= 0 {
+		return 0, nil
+	}
+
+	costMicro, err := compute.EstimateCost(preset, timeoutSecs)
+	if err != nil {
+		return 0, err
+	}
+
+	runsPerDay := float64(1)
+	if cronExpr != "" {
+		rpd, cronErr := CronRunsPerDay(cronExpr)
+		if cronErr != nil {
+			return 0, cronErr
+		}
+		if rpd > 0 {
+			runsPerDay = rpd
+		}
+	}
+
+	return float64(costMicro) * runsPerDay * 30 / 1_000_000, nil
 }

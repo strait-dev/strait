@@ -22,7 +22,7 @@ const CENTS_TO_DOLLARS = 100;
 
 import type { ComparisonFeature, PricingPlan } from "@/hooks/billing/use-plans";
 
-type PlanType = "free" | "starter" | "pro" | "enterprise";
+type PlanType = "free" | "starter" | "pro" | "scale" | "enterprise";
 
 type PricingFeature = {
   name: string;
@@ -31,7 +31,7 @@ type PricingFeature = {
 };
 
 type UpgradeMode = "new_user" | "upgrade" | "checkout_recovery";
-type PlanSlug = "free" | "starter" | "pro" | "enterprise";
+type PlanSlug = "free" | "starter" | "pro" | "scale" | "enterprise";
 
 type BillingInterval = "monthly" | "yearly";
 
@@ -231,11 +231,10 @@ const PricingCard = ({
   );
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: Using div for grid layout compatibility
-    <div
+    <button
       className={cn(
-        "group relative w-full",
-        "rounded-custom transition-all duration-300",
+        "group relative w-full text-left",
+        "rounded-custom",
         "bg-card",
         "border-2",
         isSelected
@@ -243,19 +242,9 @@ const PricingCard = ({
           : "border-border hover:border-foreground/30",
         !!plan.highlight && !isSelected && "border-foreground/20"
       )}
+      disabled={isLoading || isCurrentPlan}
       onClick={handleCardClick}
-      onKeyDown={(e) => {
-        if (
-          (e.key === "Enter" || e.key === " ") &&
-          !isLoading &&
-          !isCurrentPlan
-        ) {
-          e.preventDefault();
-          onSelect(plan.slug);
-        }
-      }}
-      role="button"
-      tabIndex={0}
+      type="button"
     >
       <PricingCardBadges
         billingInterval={billingInterval}
@@ -321,7 +310,7 @@ const PricingCard = ({
           onClick={(e) => {
             e.stopPropagation();
             if (isEnterprise) {
-              window.open("mailto:sales@strait.dev", "_blank");
+              window.location.assign("/app/enterprise-contact");
               return;
             }
             if (isFreePlan) {
@@ -341,8 +330,14 @@ const PricingCard = ({
         >
           {getCardButtonText()}
         </Button>
+        {isEnterprise && currentPlanSlug === "scale" ? (
+          <p className="mt-2 text-center text-[11px] text-muted-foreground/70">
+            Your Scale subscription will be credited toward your Enterprise
+            contract.
+          </p>
+        ) : null}
       </div>
-    </div>
+    </button>
   );
 };
 
@@ -382,7 +377,7 @@ export const PlanSelection = ({
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h1 className="font-normal text-secondary-foreground text-xl tracking-tight">
+        <h1 className="text-balance font-normal text-secondary-foreground text-xl tracking-tight">
           {messaging.title}
         </h1>
         <p className="whitespace-normal text-muted-foreground text-sm">
@@ -490,7 +485,7 @@ const FeatureComparisonMatrix = ({
 
   return (
     <div className="mt-12">
-      <h3 className="mb-6 text-center font-semibold text-lg">
+      <h3 className="mb-6 text-balance text-center font-semibold text-lg">
         Full feature comparison
       </h3>
       <div className="overflow-x-auto">
@@ -563,7 +558,7 @@ const FAQ_ITEMS = [
 const PricingFAQ = () => {
   return (
     <div className="mx-auto mt-12 max-w-2xl">
-      <h3 className="mb-6 text-center font-semibold text-lg">
+      <h3 className="mb-6 text-balance text-center font-semibold text-lg">
         Frequently asked questions
       </h3>
       <Accordion className="w-full">

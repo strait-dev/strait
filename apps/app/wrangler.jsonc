@@ -10,7 +10,8 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "7ad425b88d1240f584ce89c67d2fa5a7"
+      "id": "7ad425b88d1240f584ce89c67d2fa5a7",
+      "localConnectionString": "postgres://strait:strait@localhost:5432/strait?sslmode=disable"
     }
   ],
   "placement": {

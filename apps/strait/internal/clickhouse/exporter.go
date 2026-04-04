@@ -156,6 +156,17 @@ type WebhookDeliveryEventRecord struct {
 	DeliveredAt    *time.Time
 }
 
+// BillingEventRecord maps to the billing_events ClickHouse table.
+type BillingEventRecord struct {
+	Timestamp time.Time
+	OrgID     string
+	ProjectID string
+	EventType string // "gate_rejected", "spending_limit_hit", "plan_changed", "addon_purchased"
+	Feature   string // e.g. "canary_deployments", "large-2x", "http_mode"
+	PlanTier  string
+	Details   string // JSON blob
+}
+
 // maxFlushRetries is the maximum number of consecutive flush failures before
 // a batch is dropped to prevent unbounded growth.
 const maxFlushRetries = 2
@@ -337,6 +348,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	var workflowRuns []WorkflowRunAnalyticsRecord
 	var workflowSteps []WorkflowStepAnalyticsRecord
 	var eventTriggers []EventTriggerEventRecord
+	var billing []BillingEventRecord
 
 	for _, rec := range batch {
 		switch r := rec.(type) {
@@ -360,6 +372,8 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			workflowSteps = append(workflowSteps, r)
 		case EventTriggerEventRecord:
 			eventTriggers = append(eventTriggers, r)
+		case BillingEventRecord:
+			billing = append(billing, r)
 		default:
 			e.logger.Warn("clickhouse exporter: unknown record type", "type", fmt.Sprintf("%T", rec))
 		}
@@ -416,6 +430,11 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			errs = append(errs, fmt.Errorf("event_trigger_events: %w", err))
 		}
 	}
+	if len(billing) > 0 {
+		if err := e.insertBillingEvents(ctx, billing); err != nil {
+			errs = append(errs, fmt.Errorf("billing_events: %w", err))
+		}
+	}
 
 	if len(errs) > 0 {
 		msgs := make([]string, len(errs))
@@ -436,6 +455,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 		"workflow_runs", len(workflowRuns),
 		"workflow_steps", len(workflowSteps),
 		"event_triggers", len(eventTriggers),
+		"billing_events", len(billing),
 	)
 	return nil
 }
@@ -583,6 +603,20 @@ func (e *Exporter) insertWebhookDeliveryEvents(ctx context.Context, records []We
 		placeholders[i] = row
 		args = append(args, r.DeliveryID, r.RunID, r.JobID, r.ProjectID, r.WebhookURL,
 			r.Status, r.Attempts, r.LastStatusCode, r.DurationMs, r.EventType, r.CreatedAt, r.DeliveredAt)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func (e *Exporter) insertBillingEvents(ctx context.Context, records []BillingEventRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO billing_events (timestamp, org_id, project_id, event_type, feature, plan_tier, details) VALUES "
+	placeholders := make([]string, len(records))
+	args := make([]any, 0, len(records)*7)
+
+	for i, r := range records {
+		placeholders[i] = row
+		args = append(args, r.Timestamp, r.OrgID, r.ProjectID, r.EventType, r.Feature, r.PlanTier, r.Details)
 	}
 
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)

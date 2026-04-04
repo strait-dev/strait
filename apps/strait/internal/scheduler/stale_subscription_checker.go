@@ -19,7 +19,7 @@ const staleSubscriptionCheckerLockID int64 = 900_100_005
 // StaleSubscriptionChecker periodically queries for subscriptions that appear
 // stale -- active status but current_period_end has passed by more than 1 day
 // with no pending downgrade. These may indicate missed cancellation webhooks
-// from Polar. The checker logs warnings for manual investigation rather than
+// from Stripe. The checker logs warnings for manual investigation rather than
 // taking automated action.
 type StaleSubscriptionChecker struct {
 	store          StaleSubscriptionStore
@@ -84,7 +84,7 @@ func (c *StaleSubscriptionChecker) check(ctx context.Context) {
 		slog.Warn("stale subscription detected: active subscription past period end",
 			"org_id", sub.OrgID,
 			"plan_tier", sub.PlanTier,
-			"polar_subscription_id", sub.PolarSubscriptionID,
+			"stripe_subscription_id", sub.StripeSubscriptionID,
 			"current_period_end", sub.CurrentPeriodEnd,
 			"days_past_end", int(daysPastEnd),
 		)

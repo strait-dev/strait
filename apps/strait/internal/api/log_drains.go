@@ -29,7 +29,7 @@ func validateAuthConfig(authType string, config map[string]string) error {
 
 type CreateLogDrainRequest struct {
 	ProjectID   string            `json:"project_id" validate:"required"`
-	Name        string            `json:"name" validate:"required"`
+	Name        string            `json:"name" validate:"required,max=255"`
 	DrainType   string            `json:"drain_type" validate:"required"`
 	EndpointURL string            `json:"endpoint_url" validate:"required"`
 	AuthType    string            `json:"auth_type" validate:"required"`

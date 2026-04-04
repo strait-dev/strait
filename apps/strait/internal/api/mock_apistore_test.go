@@ -85,6 +85,15 @@ var _ APIStore = &APIStoreMock{}
 //			CountBatchBufferItemsFunc: func(ctx context.Context, jobID string, batchKey string) (int, error) {
 //				panic("mock out the CountBatchBufferItems method")
 //			},
+//			CountCronJobsByOrgFunc: func(ctx context.Context, orgID string) (int, error) {
+//				panic("mock out the CountCronJobsByOrg method")
+//			},
+//			CountEnvironmentsByOrgFunc: func(ctx context.Context, orgID string) (int, error) {
+//				panic("mock out the CountEnvironmentsByOrg method")
+//			},
+//			CountEnvironmentsByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
+//				panic("mock out the CountEnvironmentsByProject method")
+//			},
 //			CountEventTriggersFinishedBeforeFunc: func(ctx context.Context, before time.Time) (int64, error) {
 //				panic("mock out the CountEventTriggersFinishedBefore method")
 //			},
@@ -105,6 +114,12 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			CountRunsForJobSinceFunc: func(ctx context.Context, jobID string, since time.Time) (int, error) {
 //				panic("mock out the CountRunsForJobSince method")
+//			},
+//			CountWebhookSubscriptionsByOrgFunc: func(ctx context.Context, orgID string) (int, error) {
+//				panic("mock out the CountWebhookSubscriptionsByOrg method")
+//			},
+//			CountWebhookSubscriptionsByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
+//				panic("mock out the CountWebhookSubscriptionsByProject method")
 //			},
 //			CreateAPIKeyFunc: func(ctx context.Context, key *domain.APIKey) error {
 //				panic("mock out the CreateAPIKey method")
@@ -854,6 +869,15 @@ type APIStoreMock struct {
 	// CountBatchBufferItemsFunc mocks the CountBatchBufferItems method.
 	CountBatchBufferItemsFunc func(ctx context.Context, jobID string, batchKey string) (int, error)
 
+	// CountCronJobsByOrgFunc mocks the CountCronJobsByOrg method.
+	CountCronJobsByOrgFunc func(ctx context.Context, orgID string) (int, error)
+
+	// CountEnvironmentsByOrgFunc mocks the CountEnvironmentsByOrg method.
+	CountEnvironmentsByOrgFunc func(ctx context.Context, orgID string) (int, error)
+
+	// CountEnvironmentsByProjectFunc mocks the CountEnvironmentsByProject method.
+	CountEnvironmentsByProjectFunc func(ctx context.Context, projectID string) (int, error)
+
 	// CountEventTriggersFinishedBeforeFunc mocks the CountEventTriggersFinishedBefore method.
 	CountEventTriggersFinishedBeforeFunc func(ctx context.Context, before time.Time) (int64, error)
 
@@ -874,6 +898,12 @@ type APIStoreMock struct {
 
 	// CountRunsForJobSinceFunc mocks the CountRunsForJobSince method.
 	CountRunsForJobSinceFunc func(ctx context.Context, jobID string, since time.Time) (int, error)
+
+	// CountWebhookSubscriptionsByOrgFunc mocks the CountWebhookSubscriptionsByOrg method.
+	CountWebhookSubscriptionsByOrgFunc func(ctx context.Context, orgID string) (int, error)
+
+	// CountWebhookSubscriptionsByProjectFunc mocks the CountWebhookSubscriptionsByProject method.
+	CountWebhookSubscriptionsByProjectFunc func(ctx context.Context, projectID string) (int, error)
 
 	// CreateAPIKeyFunc mocks the CreateAPIKey method.
 	CreateAPIKeyFunc func(ctx context.Context, key *domain.APIKey) error
@@ -1754,6 +1784,27 @@ type APIStoreMock struct {
 			// BatchKey is the batchKey argument value.
 			BatchKey string
 		}
+		// CountCronJobsByOrg holds details about calls to the CountCronJobsByOrg method.
+		CountCronJobsByOrg []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OrgID is the orgID argument value.
+			OrgID string
+		}
+		// CountEnvironmentsByOrg holds details about calls to the CountEnvironmentsByOrg method.
+		CountEnvironmentsByOrg []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OrgID is the orgID argument value.
+			OrgID string
+		}
+		// CountEnvironmentsByProject holds details about calls to the CountEnvironmentsByProject method.
+		CountEnvironmentsByProject []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+		}
 		// CountEventTriggersFinishedBefore holds details about calls to the CountEventTriggersFinishedBefore method.
 		CountEventTriggersFinishedBefore []struct {
 			// Ctx is the ctx argument value.
@@ -1804,6 +1855,20 @@ type APIStoreMock struct {
 			JobID string
 			// Since is the since argument value.
 			Since time.Time
+		}
+		// CountWebhookSubscriptionsByOrg holds details about calls to the CountWebhookSubscriptionsByOrg method.
+		CountWebhookSubscriptionsByOrg []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OrgID is the orgID argument value.
+			OrgID string
+		}
+		// CountWebhookSubscriptionsByProject holds details about calls to the CountWebhookSubscriptionsByProject method.
+		CountWebhookSubscriptionsByProject []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 		}
 		// CreateAPIKey holds details about calls to the CreateAPIKey method.
 		CreateAPIKey []struct {
@@ -3885,6 +3950,9 @@ type APIStoreMock struct {
 	lockCountActiveEventTriggersByProject  sync.RWMutex
 	lockCountActiveWorkflowRunsByVersion   sync.RWMutex
 	lockCountBatchBufferItems              sync.RWMutex
+	lockCountCronJobsByOrg                 sync.RWMutex
+	lockCountEnvironmentsByOrg             sync.RWMutex
+	lockCountEnvironmentsByProject         sync.RWMutex
 	lockCountEventTriggersFinishedBefore   sync.RWMutex
 	lockCountProjectActiveRuns             sync.RWMutex
 	lockCountProjectQueuedRuns             sync.RWMutex
@@ -3892,6 +3960,8 @@ type APIStoreMock struct {
 	lockCountRunToolCalls                  sync.RWMutex
 	lockCountRunningWorkflowRuns           sync.RWMutex
 	lockCountRunsForJobSince               sync.RWMutex
+	lockCountWebhookSubscriptionsByOrg     sync.RWMutex
+	lockCountWebhookSubscriptionsByProject sync.RWMutex
 	lockCreateAPIKey                       sync.RWMutex
 	lockCreateAuditEvent                   sync.RWMutex
 	lockCreateBatchOperation               sync.RWMutex
@@ -5059,6 +5129,126 @@ func (mock *APIStoreMock) CountBatchBufferItemsCalls() []struct {
 	return calls
 }
 
+// CountCronJobsByOrg calls CountCronJobsByOrgFunc.
+func (mock *APIStoreMock) CountCronJobsByOrg(ctx context.Context, orgID string) (int, error) {
+	callInfo := struct {
+		Ctx   context.Context
+		OrgID string
+	}{
+		Ctx:   ctx,
+		OrgID: orgID,
+	}
+	mock.lockCountCronJobsByOrg.Lock()
+	mock.calls.CountCronJobsByOrg = append(mock.calls.CountCronJobsByOrg, callInfo)
+	mock.lockCountCronJobsByOrg.Unlock()
+	if mock.CountCronJobsByOrgFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountCronJobsByOrgFunc(ctx, orgID)
+}
+
+// CountCronJobsByOrgCalls gets all the calls that were made to CountCronJobsByOrg.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountCronJobsByOrgCalls())
+func (mock *APIStoreMock) CountCronJobsByOrgCalls() []struct {
+	Ctx   context.Context
+	OrgID string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		OrgID string
+	}
+	mock.lockCountCronJobsByOrg.RLock()
+	calls = mock.calls.CountCronJobsByOrg
+	mock.lockCountCronJobsByOrg.RUnlock()
+	return calls
+}
+
+// CountEnvironmentsByOrg calls CountEnvironmentsByOrgFunc.
+func (mock *APIStoreMock) CountEnvironmentsByOrg(ctx context.Context, orgID string) (int, error) {
+	callInfo := struct {
+		Ctx   context.Context
+		OrgID string
+	}{
+		Ctx:   ctx,
+		OrgID: orgID,
+	}
+	mock.lockCountEnvironmentsByOrg.Lock()
+	mock.calls.CountEnvironmentsByOrg = append(mock.calls.CountEnvironmentsByOrg, callInfo)
+	mock.lockCountEnvironmentsByOrg.Unlock()
+	if mock.CountEnvironmentsByOrgFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountEnvironmentsByOrgFunc(ctx, orgID)
+}
+
+// CountEnvironmentsByOrgCalls gets all the calls that were made to CountEnvironmentsByOrg.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountEnvironmentsByOrgCalls())
+func (mock *APIStoreMock) CountEnvironmentsByOrgCalls() []struct {
+	Ctx   context.Context
+	OrgID string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		OrgID string
+	}
+	mock.lockCountEnvironmentsByOrg.RLock()
+	calls = mock.calls.CountEnvironmentsByOrg
+	mock.lockCountEnvironmentsByOrg.RUnlock()
+	return calls
+}
+
+// CountEnvironmentsByProject calls CountEnvironmentsByProjectFunc.
+func (mock *APIStoreMock) CountEnvironmentsByProject(ctx context.Context, projectID string) (int, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+	}
+	mock.lockCountEnvironmentsByProject.Lock()
+	mock.calls.CountEnvironmentsByProject = append(mock.calls.CountEnvironmentsByProject, callInfo)
+	mock.lockCountEnvironmentsByProject.Unlock()
+	if mock.CountEnvironmentsByProjectFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountEnvironmentsByProjectFunc(ctx, projectID)
+}
+
+// CountEnvironmentsByProjectCalls gets all the calls that were made to CountEnvironmentsByProject.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountEnvironmentsByProjectCalls())
+func (mock *APIStoreMock) CountEnvironmentsByProjectCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+	}
+	mock.lockCountEnvironmentsByProject.RLock()
+	calls = mock.calls.CountEnvironmentsByProject
+	mock.lockCountEnvironmentsByProject.RUnlock()
+	return calls
+}
+
 // CountEventTriggersFinishedBefore calls CountEventTriggersFinishedBeforeFunc.
 func (mock *APIStoreMock) CountEventTriggersFinishedBefore(ctx context.Context, before time.Time) (int64, error) {
 	callInfo := struct {
@@ -5340,6 +5530,86 @@ func (mock *APIStoreMock) CountRunsForJobSinceCalls() []struct {
 	mock.lockCountRunsForJobSince.RLock()
 	calls = mock.calls.CountRunsForJobSince
 	mock.lockCountRunsForJobSince.RUnlock()
+	return calls
+}
+
+// CountWebhookSubscriptionsByOrg calls CountWebhookSubscriptionsByOrgFunc.
+func (mock *APIStoreMock) CountWebhookSubscriptionsByOrg(ctx context.Context, orgID string) (int, error) {
+	callInfo := struct {
+		Ctx   context.Context
+		OrgID string
+	}{
+		Ctx:   ctx,
+		OrgID: orgID,
+	}
+	mock.lockCountWebhookSubscriptionsByOrg.Lock()
+	mock.calls.CountWebhookSubscriptionsByOrg = append(mock.calls.CountWebhookSubscriptionsByOrg, callInfo)
+	mock.lockCountWebhookSubscriptionsByOrg.Unlock()
+	if mock.CountWebhookSubscriptionsByOrgFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountWebhookSubscriptionsByOrgFunc(ctx, orgID)
+}
+
+// CountWebhookSubscriptionsByOrgCalls gets all the calls that were made to CountWebhookSubscriptionsByOrg.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountWebhookSubscriptionsByOrgCalls())
+func (mock *APIStoreMock) CountWebhookSubscriptionsByOrgCalls() []struct {
+	Ctx   context.Context
+	OrgID string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		OrgID string
+	}
+	mock.lockCountWebhookSubscriptionsByOrg.RLock()
+	calls = mock.calls.CountWebhookSubscriptionsByOrg
+	mock.lockCountWebhookSubscriptionsByOrg.RUnlock()
+	return calls
+}
+
+// CountWebhookSubscriptionsByProject calls CountWebhookSubscriptionsByProjectFunc.
+func (mock *APIStoreMock) CountWebhookSubscriptionsByProject(ctx context.Context, projectID string) (int, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+	}
+	mock.lockCountWebhookSubscriptionsByProject.Lock()
+	mock.calls.CountWebhookSubscriptionsByProject = append(mock.calls.CountWebhookSubscriptionsByProject, callInfo)
+	mock.lockCountWebhookSubscriptionsByProject.Unlock()
+	if mock.CountWebhookSubscriptionsByProjectFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountWebhookSubscriptionsByProjectFunc(ctx, projectID)
+}
+
+// CountWebhookSubscriptionsByProjectCalls gets all the calls that were made to CountWebhookSubscriptionsByProject.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountWebhookSubscriptionsByProjectCalls())
+func (mock *APIStoreMock) CountWebhookSubscriptionsByProjectCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+	}
+	mock.lockCountWebhookSubscriptionsByProject.RLock()
+	calls = mock.calls.CountWebhookSubscriptionsByProject
+	mock.lockCountWebhookSubscriptionsByProject.RUnlock()
 	return calls
 }
 

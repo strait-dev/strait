@@ -39,7 +39,9 @@ func TestPreviewDowngrade_ProToFree(t *testing.T) {
 		t.Errorf("expected target tier free, got %s", impact.TargetTier)
 	}
 
-	// With 5 projects and free limit of 2, projects should require reduction.
+	freeLimits := GetPlanLimits(domain.PlanFree)
+
+	// With 5 projects and free limit of 1, projects should require reduction.
 	impactMap := make(map[string]ResourceImpact)
 	for _, imp := range impact.Impacts {
 		impactMap[imp.Resource] = imp
@@ -52,8 +54,8 @@ func TestPreviewDowngrade_ProToFree(t *testing.T) {
 	if projImpact.Current != 5 {
 		t.Errorf("expected current projects 5, got %d", projImpact.Current)
 	}
-	if projImpact.Limit != 2 {
-		t.Errorf("expected limit 2 for free plan, got %d", projImpact.Limit)
+	if projImpact.Limit != int64(freeLimits.MaxProjectsPerOrg) {
+		t.Errorf("expected limit %d for free plan, got %d", freeLimits.MaxProjectsPerOrg, projImpact.Limit)
 	}
 }
 

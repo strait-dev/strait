@@ -31,6 +31,7 @@ import { capitalize, formatMicroUsd } from "@/lib/format";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import ChartTooltip from "../dashboard/chart-tooltip";
+import OverageWarningBanner from "./overage-warning-banner";
 import RadialUsageGauge from "./radial-usage-gauge";
 
 const RUNS_LABEL_MAP = {
@@ -136,10 +137,13 @@ const UsageDashboard = () => {
 
   return (
     <div className="space-y-6">
+      {/* Overage warning */}
+      <OverageWarningBanner />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-normal text-foreground text-lg tracking-tight">
+          <h2 className="text-balance font-normal text-foreground text-lg tracking-tight">
             Usage & Billing
           </h2>
           <p className="text-muted-foreground text-sm">
@@ -516,7 +520,7 @@ const UsageDashboard = () => {
             size="sm"
             variant="link"
           >
-            Manage Billing in Polar
+            Manage Billing
           </Button>
           <Button
             disabled={isRedirecting}

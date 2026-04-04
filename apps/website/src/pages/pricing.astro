@@ -4,6 +4,7 @@ import CTA from "@/components/CTA.astro";
 import JsonLd from "@/components/JsonLd.astro";
 import { StaticPricingTable } from "@/components/landing-page/pricing/static-pricing-table.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import { ComputePricingTable } from "@/components/pricing/compute-pricing-table.tsx";
 import PricingComparison from "@/components/pricing/pricing-comparison.tsx";
 import PricingFaq, {
   PRICING_FAQ_ITEMS,
@@ -98,6 +99,7 @@ const faqSchema = getFAQPageSchema(PRICING_FAQ_ITEMS);
     </section>
 
     <PricingComparison client:only="react" />
+    <ComputePricingTable client:only="react" />
     <PricingFaq client:only="react" />
     <CTA />
   </main>

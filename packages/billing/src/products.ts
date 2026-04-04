@@ -1,4 +1,4 @@
-export type PlanKey = "free" | "starter" | "pro" | "enterprise";
+export type PlanKey = "free" | "starter" | "pro" | "scale" | "enterprise";
 
 export type Plan = {
   name: string;
@@ -18,6 +18,15 @@ export type Plan = {
     regions: string;
     spendingLimits: string;
     overagePerThousandRuns: number | null;
+    executionModes: string;
+    workflowSteps: number | null;
+    approvalGates: boolean;
+    subWorkflows: boolean;
+    jobChaining: boolean;
+    canaryDeployments: boolean;
+    scheduledJobs: number | null;
+    webhookEndpoints: number | null;
+    apiRateLimit: number | null;
   };
   governance: {
     rbac: "none" | "basic" | "full";
@@ -31,7 +40,13 @@ export type Plan = {
   badge?: string;
 };
 
-export const PLAN_KEYS: PlanKey[] = ["free", "starter", "pro", "enterprise"];
+export const PLAN_KEYS: PlanKey[] = [
+  "free",
+  "starter",
+  "pro",
+  "scale",
+  "enterprise",
+];
 
 export const PLANS: Record<PlanKey, Plan> = {
   free: {
@@ -40,26 +55,34 @@ export const PLANS: Record<PlanKey, Plan> = {
     prices: { monthly: 0, yearly: 0 },
     trial: false,
     creditCardRequired: false,
-    computeCredit: "100 runs/mo (micro, 10s)",
+    computeCredit: "$1/mo",
     features: [
-      "1 organization",
-      "2 projects",
-      "3 members",
-      "5,000 runs/day",
+      "1 project",
+      "1 member",
       "5 concurrent runs",
+      "Unlimited daily runs",
       "1-day retention",
       "Community support",
     ],
     limits: {
       organizations: 1,
-      projectsPerOrg: 2,
-      membersPerOrg: 3,
-      runsPerDay: 5000,
+      projectsPerOrg: 1,
+      membersPerOrg: 1,
+      runsPerDay: null,
       concurrentRuns: 5,
       retentionDays: 1,
       regions: "1 (iad)",
       spendingLimits: "Hard cap",
       overagePerThousandRuns: null,
+      executionModes: "Managed only",
+      workflowSteps: 10,
+      approvalGates: false,
+      subWorkflows: false,
+      jobChaining: false,
+      canaryDeployments: false,
+      scheduledJobs: 10,
+      webhookEndpoints: 0,
+      apiRateLimit: 60,
     },
     governance: {
       rbac: "none",
@@ -75,28 +98,37 @@ export const PLANS: Record<PlanKey, Plan> = {
     name: "Starter",
     description: "For small teams shipping to production.",
     prices: { monthly: 1999, yearly: 19_999 },
-    trial: true,
+    trial: false,
     creditCardRequired: true,
     computeCredit: "$19.99/mo",
     features: [
-      "2 organizations",
-      "5 projects per org",
-      "10 members per org",
-      "25,000 runs/day",
+      "3 projects per org",
+      "5 members per org",
       "25 concurrent runs",
+      "Unlimited daily runs",
       "7-day retention",
-      "Email support",
+      "6 regions",
+      "Email support (72h)",
     ],
     limits: {
       organizations: 2,
-      projectsPerOrg: 5,
-      membersPerOrg: 10,
-      runsPerDay: 25_000,
+      projectsPerOrg: 3,
+      membersPerOrg: 5,
+      runsPerDay: null,
       concurrentRuns: 25,
       retentionDays: 7,
       regions: "6",
       spendingLimits: "Configurable",
       overagePerThousandRuns: 200,
+      executionModes: "Managed only",
+      workflowSteps: 50,
+      approvalGates: false,
+      subWorkflows: false,
+      jobChaining: false,
+      canaryDeployments: false,
+      scheduledJobs: 25,
+      webhookEndpoints: 3,
+      apiRateLimit: 300,
     },
     governance: {
       rbac: "basic",
@@ -105,63 +137,135 @@ export const PLANS: Record<PlanKey, Plan> = {
       aiMessagesPerDay: 100,
       aiByok: false,
     },
-    cta: { label: "Start free trial", href: "/login?redirect=/app/upgrade" },
+    cta: { label: "Get started", href: "/login?redirect=/app/upgrade" },
     highlighted: false,
-    badge: "14-day trial",
+    badge: undefined,
   },
   pro: {
     name: "Pro",
-    description: "For growing teams that need scale and governance.",
+    description: "For growing teams that need workflow orchestration.",
     prices: { monthly: 4999, yearly: 49_999 },
-    trial: true,
+    trial: false,
     creditCardRequired: true,
     computeCredit: "$49.99/mo",
     features: [
-      "5 organizations",
-      "15 projects per org",
-      "25 members per org",
-      "100,000 runs/day",
+      "10 projects per org",
+      "10 members per org",
       "100 concurrent runs",
+      "Managed + HTTP execution",
       "30-day retention",
-      "Priority support",
+      "All regions + multi-region",
+      "Approval gates & sub-workflows",
+      "Priority support (24h)",
     ],
     limits: {
       organizations: 5,
-      projectsPerOrg: 15,
-      membersPerOrg: 25,
-      runsPerDay: 100_000,
+      projectsPerOrg: 10,
+      membersPerOrg: 10,
+      runsPerDay: null,
       concurrentRuns: 100,
       retentionDays: 30,
       regions: "All",
       spendingLimits: "Configurable",
       overagePerThousandRuns: 200,
+      executionModes: "Managed + HTTP",
+      workflowSteps: 250,
+      approvalGates: true,
+      subWorkflows: true,
+      jobChaining: true,
+      canaryDeployments: false,
+      scheduledJobs: 100,
+      webhookEndpoints: 10,
+      apiRateLimit: 1000,
+    },
+    governance: {
+      rbac: "full",
+      auditLogs: false,
+      ssoSaml: false,
+      aiMessagesPerDay: 500,
+      aiByok: true,
+    },
+    cta: { label: "Get started", href: "/login?redirect=/app/upgrade" },
+    highlighted: true,
+    badge: "Most popular",
+  },
+  scale: {
+    name: "Scale",
+    description: "For high-volume teams with audit and canary deploy needs.",
+    prices: { monthly: 9900, yearly: 99_000 },
+    trial: false,
+    creditCardRequired: true,
+    computeCredit: "$99/mo",
+    features: [
+      "50 projects per org",
+      "50 members per org",
+      "500 concurrent runs",
+      "Managed + HTTP execution",
+      "60-day retention",
+      "Audit logs",
+      "Canary deployments",
+      "Priority support + Slack (8h)",
+    ],
+    limits: {
+      organizations: 10,
+      projectsPerOrg: 50,
+      membersPerOrg: 50,
+      runsPerDay: null,
+      concurrentRuns: 500,
+      retentionDays: 60,
+      regions: "All",
+      spendingLimits: "Configurable",
+      overagePerThousandRuns: 200,
+      executionModes: "Managed + HTTP",
+      workflowSteps: 1000,
+      approvalGates: true,
+      subWorkflows: true,
+      jobChaining: true,
+      canaryDeployments: true,
+      scheduledJobs: 500,
+      webhookEndpoints: 25,
+      apiRateLimit: 3000,
     },
     governance: {
       rbac: "full",
       auditLogs: true,
       ssoSaml: false,
-      aiMessagesPerDay: 500,
+      aiMessagesPerDay: 1000,
       aiByok: true,
     },
-    cta: { label: "Start free trial", href: "/login?redirect=/app/upgrade" },
-    highlighted: true,
-    badge: "Most popular",
+    cta: {
+      label: "Upgrade to Scale",
+      href: "/login?redirect=/app/upgrade",
+    },
+    highlighted: false,
   },
   enterprise: {
     name: "Enterprise",
-    description: "For organizations with custom security and compliance needs.",
+    description:
+      "For mission-critical workloads with dedicated infrastructure and compliance.",
     prices: { monthly: -1, yearly: -1 },
     trial: false,
     creditCardRequired: false,
-    computeCredit: "Custom",
+    computeCredit: "Starting at $1,000/mo",
     features: [
-      "Unlimited organizations",
-      "Unlimited projects & members",
-      "Unlimited runs",
-      "Unlimited concurrent runs",
-      "90-day retention",
-      "Dedicated support",
-      "SSO/SAML",
+      "Everything in Scale",
+      "SSO (SAML 2.0 + OIDC)",
+      "SCIM directory sync",
+      "Dedicated compute (isolated infra)",
+      "Static egress IPs",
+      "VPC peering",
+      "99.9%+ SLA with credits",
+      "90-day data retention",
+      "Dedicated CSM + named engineer",
+      "P1: 1h / P2: 4h / P3: 24h response",
+      "Custom RBAC policies",
+      "IP allowlisting",
+      "Session management",
+      "Secret rotation",
+      "Audit log export (SIEM)",
+      "Data residency (EU/US/APAC)",
+      "Reserved capacity",
+      "Priority queue",
     ],
     limits: {
       organizations: null,
@@ -173,6 +277,15 @@ export const PLANS: Record<PlanKey, Plan> = {
       regions: "All",
       spendingLimits: "Custom",
       overagePerThousandRuns: null,
+      executionModes: "Managed + HTTP",
+      workflowSteps: null,
+      approvalGates: true,
+      subWorkflows: true,
+      jobChaining: true,
+      canaryDeployments: true,
+      scheduledJobs: null,
+      webhookEndpoints: null,
+      apiRateLimit: null,
     },
     governance: {
       rbac: "full",
@@ -188,7 +301,7 @@ export const PLANS: Record<PlanKey, Plan> = {
 
 export function formatPlanPrice(
   plan: Plan,
-  interval: "monthly" | "yearly"
+  interval: "monthly" | "yearly",
 ): string {
   const price = plan.prices[interval];
   if (price === 0) {

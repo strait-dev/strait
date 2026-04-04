@@ -1,0 +1,1 @@
+ALTER TABLE organization_addons ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NULL;

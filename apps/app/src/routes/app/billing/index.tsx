@@ -6,11 +6,14 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
+import AddonsTab from "@/components/billing/addons-tab";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
+import { EnterpriseOverview } from "@/components/billing/enterprise-overview";
 import ProjectCostsTab from "@/components/billing/project-costs-tab";
-import ReferralProgram from "@/components/billing/referral-program";
+import SpendingLimitSetupBanner from "@/components/billing/spending-limit-setup-banner";
 import SpendingLimitsTab from "@/components/billing/spending-limits-tab";
 import UsageDashboard from "@/components/billing/usage-dashboard";
 import UsageHistoryTab from "@/components/billing/usage-history-tab";
@@ -24,7 +27,6 @@ import { anomalyAlertsQueryOptions } from "@/hooks/billing/use-anomaly-alerts";
 import { anomalyConfigQueryOptions } from "@/hooks/billing/use-anomaly-config";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
-import { referralsQueryOptions } from "@/hooks/billing/use-referrals";
 import { spendingLimitQueryOptions } from "@/hooks/billing/use-spending-limit";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
@@ -34,7 +36,6 @@ import {
   BriefcaseIcon,
   CreditCardIcon,
   TrendingUpIcon,
-  UsersIcon,
 } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -48,7 +49,6 @@ export const Route = createFileRoute("/app/billing/")({
       ctx.queryClient.ensureQueryData(spendingLimitQueryOptions()),
       ctx.queryClient.ensureQueryData(anomalyAlertsQueryOptions()),
       ctx.queryClient.ensureQueryData(usageForecastQueryOptions()),
-      ctx.queryClient.ensureQueryData(referralsQueryOptions()),
       ctx.queryClient.ensureQueryData(anomalyConfigQueryOptions()),
     ]);
   },
@@ -59,18 +59,34 @@ export const Route = createFileRoute("/app/billing/")({
 
 function RouteComponent() {
   usePageEvent("billing_viewed");
+  const { data: orgUsage } = useQuery(orgUsageQueryOptions());
+  const isEnterprise = orgUsage?.plan === "enterprise";
 
   return (
     <Shell>
       <div className="flex w-full flex-col gap-6">
         <div>
-          <h1 className="font-normal text-foreground text-lg tracking-tight">
+          <h1 className="text-balance font-normal text-foreground text-lg tracking-tight">
             Billing
           </h1>
           <p className="text-muted-foreground text-sm">
             Monitor usage, costs, and spending across your organization.
           </p>
         </div>
+
+        {isEnterprise && orgUsage?.enterprise_tier ? (
+          <EnterpriseOverview
+            computeDiscountPct={orgUsage.compute_discount_pct ?? 0}
+            contractEndDate={orgUsage.contract_end_date ?? ""}
+            creditUsedPercent={orgUsage.credit_used_percent}
+            enterpriseTier={orgUsage.enterprise_tier}
+            includedCreditMicro={orgUsage.included_credit_microusd}
+            periodSpendMicro={orgUsage.period_spend_microusd}
+            slaUptimePct={orgUsage.sla_uptime_pct ?? 0}
+          />
+        ) : null}
+
+        <SpendingLimitSetupBanner />
 
         <Tabs className="w-full" defaultValue="overview">
           <TabsList>
@@ -90,13 +106,13 @@ function RouteComponent() {
               <HugeiconsIcon className="size-4" icon={TrendingUpIcon} />
               Spending
             </TabsTrigger>
+            <TabsTrigger className="flex items-center gap-2" value="addons">
+              <HugeiconsIcon className="size-4" icon={CreditCardIcon} />
+              Add-ons
+            </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="alerts">
               <HugeiconsIcon className="size-4" icon={AlertIcon} />
               Alerts
-            </TabsTrigger>
-            <TabsTrigger className="flex items-center gap-2" value="referrals">
-              <HugeiconsIcon className="size-4" icon={UsersIcon} />
-              Referrals
             </TabsTrigger>
           </TabsList>
 
@@ -160,6 +176,21 @@ function RouteComponent() {
             </QueryErrorBoundary>
           </TabsContent>
 
+          <TabsContent className="mt-6 space-y-6" value="addons">
+            <QueryErrorBoundary
+              fallback={({ resetErrorBoundary }) => (
+                <InlineError
+                  message="Failed to load add-ons"
+                  onRetry={resetErrorBoundary}
+                />
+              )}
+            >
+              <Suspense fallback={<TabSkeleton />}>
+                <AddonsTab />
+              </Suspense>
+            </QueryErrorBoundary>
+          </TabsContent>
+
           <TabsContent className="mt-6 space-y-6" value="alerts">
             <QueryErrorBoundary
               fallback={({ resetErrorBoundary }) => (
@@ -171,21 +202,6 @@ function RouteComponent() {
             >
               <Suspense fallback={<TabSkeleton />}>
                 <AlertsForecastTab />
-              </Suspense>
-            </QueryErrorBoundary>
-          </TabsContent>
-
-          <TabsContent className="mt-6 space-y-6" value="referrals">
-            <QueryErrorBoundary
-              fallback={({ resetErrorBoundary }) => (
-                <InlineError
-                  message="Failed to load referrals"
-                  onRetry={resetErrorBoundary}
-                />
-              )}
-            >
-              <Suspense fallback={<TabSkeleton />}>
-                <ReferralProgram />
               </Suspense>
             </QueryErrorBoundary>
           </TabsContent>

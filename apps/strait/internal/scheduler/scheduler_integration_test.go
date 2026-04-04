@@ -34,7 +34,9 @@ func getTestDB(t *testing.T) *testutil.TestDB {
 		if err != nil {
 			log.Fatalf("setup test db: %v", err)
 		}
-		t.Cleanup(func() { testDB.Cleanup(ctx) })
+		// Do NOT use t.Cleanup here. The sync.Once means cleanup would fire when
+		// the first test finishes, destroying the container for all other tests.
+		// Testcontainers Reaper handles container cleanup at process exit.
 	})
 	if testDB == nil || testDB.Pool == nil {
 		t.Fatal("testDB is not initialized")

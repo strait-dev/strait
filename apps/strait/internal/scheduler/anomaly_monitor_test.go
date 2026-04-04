@@ -189,6 +189,58 @@ func (m *mockAnomalyMonitorStore) UpdateMonthlyUsageEmail(context.Context, strin
 	return nil
 }
 
+func (m *mockAnomalyMonitorStore) ListActiveAddons(context.Context, string) ([]billing.Addon, error) {
+	return nil, nil
+}
+
+func (m *mockAnomalyMonitorStore) CreateAddon(context.Context, *billing.Addon) error {
+	return nil
+}
+
+func (m *mockAnomalyMonitorStore) DeactivateAddon(context.Context, string) error {
+	return nil
+}
+
+func (m *mockAnomalyMonitorStore) CountActiveAddonsByType(context.Context, string, billing.AddonType) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAnomalyMonitorStore) RecordProcessedWebhook(context.Context, string) error {
+	return nil
+}
+
+func (m *mockAnomalyMonitorStore) IsWebhookProcessed(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockAnomalyMonitorStore) DeleteOldWebhookMessages(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAnomalyMonitorStore) GetEnterpriseContract(context.Context, string) (*billing.EnterpriseContract, error) {
+	return nil, billing.ErrContractNotFound
+}
+
+func (m *mockAnomalyMonitorStore) UpsertEnterpriseContract(context.Context, *billing.EnterpriseContract) error {
+	return nil
+}
+
+func (m *mockAnomalyMonitorStore) ListExpiringContracts(context.Context, int) ([]billing.EnterpriseContract, error) {
+	return nil, nil
+}
+
+func (m *mockAnomalyMonitorStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAnomalyMonitorStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAnomalyMonitorStore) CountHTTPJobsByOrg(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 // mockCooldown implements AnomalyCooldown for testing.
 type mockCooldown struct {
 	cooled map[string]bool

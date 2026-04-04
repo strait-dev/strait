@@ -2,12 +2,8 @@ package billing
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -280,180 +276,44 @@ func TestWithBillingTx_NilPool_Panics(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// 4. Polar event ingestion adversarial tests (polar_events.go)
+// 4. Stripe usage event ingestion adversarial tests (stripe_usage.go)
 // ---------------------------------------------------------------------------.
 
-func TestPolarEventIngester_DuplicateExternalID(t *testing.T) {
+func TestStripeUsageReporter_EmptySecretKey_Noop(t *testing.T) {
 	t.Parallel()
-	var receivedEvents []polarIngestRequest
-	var mu sync.Mutex
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req polarIngestRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Errorf("decode error: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		mu.Lock()
-		receivedEvents = append(receivedEvents, req)
-		mu.Unlock()
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-	ctx := context.Background()
-
-	// Send the same runID twice (duplicate).
-	for range 2 {
-		err := ingester.IngestComputeUsage(ctx, "cust-1", "run-dup-1", 1000)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(receivedEvents) != 2 {
-		t.Fatalf("expected 2 requests (server-side dedup), got %d", len(receivedEvents))
-	}
-	// Both requests should carry the same external_id; dedup is server-side.
-	for i, req := range receivedEvents {
-		if req.Events[0].ExternalID != "run-dup-1" {
-			t.Errorf("request %d: external_id = %q, want run-dup-1", i, req.Events[0].ExternalID)
-		}
-	}
-}
-
-func TestPolarEventIngester_MalformedResponse(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"error": "internal server error"}`))
-	}))
-	defer srv.Close()
-
-	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-	err := ingester.IngestComputeUsage(context.Background(), "cust-1", "run-1", 500)
-	if err == nil {
-		t.Fatal("expected error for 500 response")
-	}
-}
-
-func TestPolarEventIngester_UnknownEventType_StillSends(t *testing.T) {
-	t.Parallel()
-	var received atomic.Int32
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		received.Add(1)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-
-	// IngestBatch with a custom event name (not compute_overage).
-	events := []polarEvent{
-		{Name: "unknown_meter", ExternalCustomerID: "cust-1", ExternalID: "evt-1"},
-	}
-	err := ingester.IngestBatch(context.Background(), events)
+	// Empty secret key causes IngestComputeUsage to silently return nil.
+	reporter := NewStripeUsageReporter("", slog.Default())
+	err := reporter.IngestComputeUsage(context.Background(), "cust-1", "run-1", 1000)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if received.Load() != 1 {
-		t.Fatalf("expected 1 request, got %d", received.Load())
+		t.Fatalf("expected nil for empty secret key, got: %v", err)
 	}
 }
 
-func TestPolarEventIngester_EmptyBatch_NoRequest(t *testing.T) {
+func TestStripeUsageReporter_EmptyCustomerID_Noop(t *testing.T) {
 	t.Parallel()
-	var received atomic.Int32
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		received.Add(1)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-	err := ingester.IngestBatch(context.Background(), nil)
+	// Empty customer ID causes IngestComputeUsage to silently return nil.
+	reporter := NewStripeUsageReporter("sk_test_key", slog.Default())
+	err := reporter.IngestComputeUsage(context.Background(), "", "run-1", 1000)
 	if err != nil {
-		t.Fatalf("unexpected error for empty batch: %v", err)
-	}
-	if received.Load() != 0 {
-		t.Fatalf("expected 0 requests for empty batch, got %d", received.Load())
+		t.Fatalf("expected nil for empty customer ID, got: %v", err)
 	}
 }
 
-func TestPolarEventIngester_ConcurrentIngestion(t *testing.T) {
+func TestStripeUsageReporter_WithMetrics(t *testing.T) {
 	t.Parallel()
-	var received atomic.Int32
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		received.Add(1)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-	ctx := context.Background()
-
-	const goroutines = 50
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
-	for i := range goroutines {
-		go func(idx int) {
-			defer wg.Done()
-			err := ingester.IngestComputeUsage(ctx, "cust-conc", fmt.Sprintf("run-%d", idx), 100)
-			if err != nil {
-				t.Errorf("goroutine %d: unexpected error: %v", idx, err)
-			}
-		}(i)
-	}
-	wg.Wait()
-
-	if received.Load() != goroutines {
-		t.Fatalf("expected %d requests, got %d", goroutines, received.Load())
+	// Verify WithUsageReporterMetrics option can be applied without panic.
+	reporter := NewStripeUsageReporter("sk_test_key", slog.Default(), WithUsageReporterMetrics(nil))
+	if reporter == nil {
+		t.Fatal("expected non-nil reporter")
 	}
 }
 
-func TestPolarEventIngester_HTTP4xx_ReturnsError(t *testing.T) {
+func TestStripeUsageReporter_NilLogger(t *testing.T) {
 	t.Parallel()
-
-	for _, code := range []int{400, 401, 403, 404, 422, 429} {
-		t.Run(fmt.Sprintf("status_%d", code), func(t *testing.T) {
-			t.Parallel()
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(code)
-				_, _ = w.Write([]byte(`{"detail":"test error"}`))
-			}))
-			defer srv.Close()
-
-			ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-			err := ingester.IngestComputeUsage(context.Background(), "cust-1", "run-1", 100)
-			if err == nil {
-				t.Fatalf("expected error for HTTP %d", code)
-			}
-		})
-	}
-}
-
-func TestPolarEventIngester_CanceledContext(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ingester := NewPolarEventIngester(srv.URL, "test-token", slog.Default())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel before calling
-
-	err := ingester.IngestComputeUsage(ctx, "cust-1", "run-1", 100)
-	if err == nil {
-		t.Fatal("expected error for canceled context")
+	// Passing nil logger should use slog.Default without panic.
+	reporter := NewStripeUsageReporter("sk_test_key", nil)
+	if reporter == nil {
+		t.Fatal("expected non-nil reporter")
 	}
 }
 
@@ -793,7 +653,7 @@ func TestEnforcer_ProjectSuspended_CacheRace(t *testing.T) {
 	// Success = no panics or races under -race.
 }
 
-func TestEnforcer_DailyRunLimit_ConcurrentExhaustion(t *testing.T) {
+func TestEnforcer_DailyRunLimit_ConcurrentUnlimited(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -805,9 +665,10 @@ func TestEnforcer_DailyRunLimit_ConcurrentExhaustion(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 	ctx := context.Background()
 
-	freeLimits := GetPlanLimits(domain.PlanFree)
+	// Daily runs are unlimited for all plans. Verify concurrent access
+	// never produces a rejection.
 	const goroutines = 20
-	var allowed atomic.Int64
+	const runsPerGoroutine = 500
 	var rejected atomic.Int64
 
 	var wg sync.WaitGroup
@@ -815,26 +676,17 @@ func TestEnforcer_DailyRunLimit_ConcurrentExhaustion(t *testing.T) {
 	for range goroutines {
 		go func() {
 			defer wg.Done()
-			// Each goroutine tries limit/goroutines + 1 runs.
-			runs := int(freeLimits.MaxRunsPerDay)/goroutines + 1
-			for range runs {
-				err := enforcer.CheckDailyRunLimit(ctx, "org-exhaust-conc")
-				if err != nil {
+			for range runsPerGoroutine {
+				if err := enforcer.CheckDailyRunLimit(ctx, "org-exhaust-conc"); err != nil {
 					rejected.Add(1)
-				} else {
-					allowed.Add(1)
 				}
 			}
 		}()
 	}
 	wg.Wait()
 
-	// The atomic Lua script should enforce the limit exactly.
-	if allowed.Load() > freeLimits.MaxRunsPerDay {
-		t.Fatalf("allowed %d exceeds limit %d under concurrent access", allowed.Load(), freeLimits.MaxRunsPerDay)
-	}
-	if allowed.Load() != freeLimits.MaxRunsPerDay {
-		t.Logf("allowed = %d (limit = %d); may be less due to race timing", allowed.Load(), freeLimits.MaxRunsPerDay)
+	if rejected.Load() != 0 {
+		t.Fatalf("expected 0 rejections for unlimited daily runs, got %d", rejected.Load())
 	}
 }
 

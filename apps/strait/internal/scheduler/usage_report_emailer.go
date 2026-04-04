@@ -168,7 +168,19 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		periodStart.Format("Jan 2"),
 		periodEnd.Format("Jan 2, 2006"))
 
-	htmlBody := buildUsageReportHTML(orgID, sub.PlanTier, periodStart, periodEnd)
+	// Get plan details and addon info for the report.
+	limits := billing.GetPlanLimits(domain.PlanTier(sub.PlanTier))
+	var addonCount int
+	if addons, err := re.store.ListActiveAddons(ctx, orgID); err == nil {
+		addonCount = len(addons)
+	}
+	var periodSpend int64
+	if spend, err := re.store.SumOrgPeriodSpend(ctx, orgID, periodStart); err == nil {
+		periodSpend = spend
+	}
+	overage := max(periodSpend-limits.ComputeCreditMicrousd, 0)
+
+	htmlBody := buildUsageReportHTML(orgID, sub.PlanTier, periodStart, periodEnd, limits.ComputeCreditMicrousd, addonCount, overage)
 
 	req := &resend.SendEmailRequest{
 		From:    re.fromEmail,
@@ -202,14 +214,29 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 	)
 }
 
-func buildUsageReportHTML(orgID, planTier string, periodStart, periodEnd time.Time) string {
+func buildUsageReportHTML(orgID, planTier string, periodStart, periodEnd time.Time, creditMicro int64, addonCount int, overageMicro int64) string {
+	creditUsd := fmt.Sprintf("$%.2f", float64(creditMicro)/1_000_000)
+	overageUsd := fmt.Sprintf("$%.2f", float64(overageMicro)/1_000_000)
+
+	addonLine := ""
+	if addonCount > 0 {
+		addonLine = fmt.Sprintf(`<p><strong>Active add-ons:</strong> %d pack(s)</p>`, addonCount)
+	}
+
+	overageLine := ""
+	if overageMicro > 0 {
+		overageLine = fmt.Sprintf(`<p><strong>Overage:</strong> %s (above included credit)</p>`, overageUsd)
+	}
+
 	return fmt.Sprintf(`<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
 <h2>Monthly Usage Report</h2>
 <p>Here is your usage summary for <strong>%s</strong> (%s plan).</p>
 <p>Period: %s to %s</p>
-<p>Your detailed usage report is attached as a PDF.</p>
-<p>To manage your billing and spending limits, visit your <a href="https://app.strait.dev/settings/billing">billing settings</a>.</p>
+<p><strong>Included credit:</strong> %s/mo</p>
+%s%s<p>Your detailed usage report is attached as a PDF.</p>
+<p>To manage your billing and spending limits, visit your <a href="https://app.strait.dev/app/billing">billing settings</a>.</p>
 <hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0">
 <p style="font-size:12px;color:#666">This is an automated email from Strait. You can disable monthly reports in your organization settings.</p>
-</div>`, orgID, planTier, periodStart.Format("Jan 2"), periodEnd.Format("Jan 2, 2006"))
+</div>`, orgID, planTier, periodStart.Format("Jan 2"), periodEnd.Format("Jan 2, 2006"),
+		creditUsd, addonLine, overageLine)
 }

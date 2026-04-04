@@ -9,6 +9,7 @@
 import {
   AlarmClockIcon as _AlarmClockIcon,
   AlertCircleIcon as _AlertCircleIcon,
+  BarChartIcon as _BarChartIcon,
   CreditCardIcon as _CreditCardIcon,
   FilterIcon as _FilterIcon,
   HelpCircleIcon as _HelpCircleIcon,
@@ -143,3 +144,4 @@ export const SparklesIcon = _SparklesIcon;
 export const LoadingIcon = Loading03Icon;
 export const UnfoldMoreIcon = _UnfoldMoreIcon;
 export const UsersAltIcon = UserMultipleIcon;
+export const AnalyticsIcon = _BarChartIcon;

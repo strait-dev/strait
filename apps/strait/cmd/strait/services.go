@@ -392,26 +392,48 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 
 	posthogClient := billing.NewPostHogClient(cfg.PostHogAPIKey, cfg.PostHogHost, slog.Default())
 
-	var polarWebhook http.Handler
-	if cfg.PolarWebhookSecret != "" {
-		polarMapping := billing.NewPolarMapping(
-			cfg.PolarStarterMonthlyID, cfg.PolarStarterYearlyID,
-			cfg.PolarProMonthlyID, cfg.PolarProYearlyID,
+	var stripeWebhook http.Handler
+	if cfg.StripeWebhookSecret != "" {
+		stripeMapping := billing.NewStripeMappingFromOptions(
+			billing.WithStarterPrices(cfg.StripeStarterMonthlyPriceID, cfg.StripeStarterYearlyPriceID),
+			billing.WithProPrices(cfg.StripeProMonthlyPriceID, cfg.StripeProYearlyPriceID),
+			billing.WithScalePrices(cfg.StripeScaleMonthlyPriceID, cfg.StripeScaleYearlyPriceID),
+			billing.WithEnterpriseStarterPrice(cfg.StripeEnterpriseStarterYearlyPriceID),
+			billing.WithEnterpriseGrowthPrice(cfg.StripeEnterpriseGrowthYearlyPriceID),
+			billing.WithEnterpriseLargePrice(cfg.StripeEnterpriseLargeYearlyPriceID),
+			billing.WithAddonPrice(cfg.StripeAddonConcurrentRunsID, billing.AddonConcurrentRuns),
+			billing.WithAddonPrice(cfg.StripeAddonMembersID, billing.AddonMembers),
+			billing.WithAddonPrice(cfg.StripeAddonCronSchedulesID, billing.AddonCronSchedules),
+			billing.WithAddonPrice(cfg.StripeAddonDataRetentionID, billing.AddonDataRetention),
+			billing.WithAddonPrice(cfg.StripeAddonWebhookEndpointsID, billing.AddonWebhookEndpoints),
 		)
 		var webhookOpts []billing.WebhookOption
 		if posthogClient != nil {
 			webhookOpts = append(webhookOpts, billing.WithPostHog(posthogClient))
 		}
-		polarWebhook = billing.NewWebhookHandler(billingStore, polarMapping, cfg.PolarWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
-		slog.Info("polar webhook handler enabled")
+		if cfg.ResendAPIKey != "" {
+			resendClient := billing.NewResendWelcomeEmailFunc(cfg.ResendAPIKey, cfg.ResendFromEmail)
+			webhookOpts = append(webhookOpts, billing.WithWelcomeEmail(resendClient))
+		}
+		billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
+		if billingEmailSender != nil {
+			webhookOpts = append(webhookOpts, billing.WithBillingEmails(billingEmailSender))
+		}
+		webhookOpts = append(webhookOpts, billing.WithEdition(cfg.Edition))
+		wh := billing.NewWebhookHandler(billingStore, stripeMapping, cfg.StripeWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
+		g.Go(func(ctx context.Context) error {
+			wh.StartReplayCleanup(ctx)
+			<-ctx.Done()
+			return nil
+		})
+		stripeWebhook = wh
+		slog.Info("stripe webhook handler enabled")
 	}
 
 	var usageSvc *billing.UsageService
 	if billingEnforcer != nil {
 		usageSvc = billing.NewUsageService(billingStore, billingEnforcer)
 	}
-
-	referralSvc := billing.NewReferralService(billingStore)
 
 	srv := api.NewServer(api.ServerDeps{
 		Config:             cfg,
@@ -429,10 +451,9 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		RedisClient:        rdb,
 		Encryptor:          encryptor,
 		ContainerRuntime:   apiContainerRuntime,
-		PolarWebhook:       polarWebhook,
+		StripeWebhook:      stripeWebhook,
 		BillingEnforcer:    nilSafeBillingEnforcer(billingEnforcer),
 		UsageService:       usageSvc,
-		ReferralService:    referralSvc,
 		CHExporter:         chExporter,
 		Edition:            domain.ParseEdition(cfg.Edition),
 		Version:            version,
@@ -544,6 +565,15 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
 		execCfg.BillingEnforcer = billingEnforcer
 		slog.Info("billing enforcement enabled")
+	}
+
+	// Wire Stripe usage event reporting for metered billing (cloud only).
+	if cfg.StripeSecretKey != "" {
+		execCfg.StripeUsageReporter = billing.NewStripeUsageReporter(
+			cfg.StripeSecretKey, slog.Default(),
+			billing.WithUsageReporterMetrics(metrics),
+		)
+		slog.Info("stripe usage reporting enabled")
 	}
 
 	exec := worker.NewExecutor(execCfg)
@@ -688,6 +718,18 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			downgradeApplier := scheduler.NewDowngradeApplier(billingStore, billingEnforcer, 5*time.Minute)
 			schedOpts = append(schedOpts, scheduler.WithDowngradeApplier(downgradeApplier))
 			slog.Info("downgrade applier enabled")
+
+			webhookCleanup := scheduler.NewWebhookMessageCleanup(billingStore, slog.Default())
+			schedOpts = append(schedOpts, scheduler.WithWebhookMessageCleanup(webhookCleanup))
+
+			billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
+			contractExpiryChecker := scheduler.NewContractExpiryChecker(billingStore, billingEmailSender, 24*time.Hour)
+			schedOpts = append(schedOpts, scheduler.WithContractExpiryChecker(contractExpiryChecker))
+			slog.Info("contract expiry checker enabled")
+
+			retentionResolver := billing.NewPlanRetentionResolver(billingStore)
+			schedOpts = append(schedOpts, scheduler.WithOrgRetentionResolver(retentionResolver))
+			slog.Info("per-org plan retention enabled")
 		}
 		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
 			schedOpts...,

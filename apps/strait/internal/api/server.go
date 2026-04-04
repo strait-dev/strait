@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -322,6 +323,11 @@ type AuthStore interface {
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 	ListRunsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListJobsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error)
+	CountCronJobsByOrg(ctx context.Context, orgID string) (int, error)
+	CountEnvironmentsByProject(ctx context.Context, projectID string) (int, error)
+	CountEnvironmentsByOrg(ctx context.Context, orgID string) (int, error)
+	CountWebhookSubscriptionsByProject(ctx context.Context, projectID string) (int, error)
+	CountWebhookSubscriptionsByOrg(ctx context.Context, orgID string) (int, error)
 	CreateDeviceCode(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error
 	GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
 	ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error
@@ -505,10 +511,9 @@ type Server struct {
 	authLimiter        *ratelimit.AuthLimiter
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
-	polarWebhook       http.Handler
+	stripeWebhook      http.Handler
 	billingEnforcer    BillingEnforcer
 	usageService       UsageService
-	referralService    ReferralService
 	chExporter         *clickhouse.Exporter
 	edition            domain.Edition
 	version            string
@@ -553,6 +558,7 @@ type BillingEnforcer interface {
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetOrgPlanLimits(ctx context.Context, orgID string) (billing.OrgPlanLimits, error)
+	GetDailyRunCount(ctx context.Context, orgID string) (int64, error)
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
 }
 
@@ -576,14 +582,6 @@ type UsageService interface {
 	UpdateEmailPreferences(ctx context.Context, orgID string, enabled bool) error
 }
 
-// ReferralService handles referral code management.
-type ReferralService interface {
-	GenerateCode(ctx context.Context, orgID string) (*billing.Referral, error)
-	ActivateReferral(ctx context.Context, code, referredOrgID, referredEmail string) (*billing.Referral, error)
-	ListReferrals(ctx context.Context, orgID string) ([]billing.Referral, error)
-	AutoActivateReferral(ctx context.Context, orgID string) error
-}
-
 // ServerDeps holds all dependencies required to construct a Server.
 type ServerDeps struct {
 	Config             *config.Config
@@ -603,10 +601,9 @@ type ServerDeps struct {
 	RedisClient        *redis.Client            // Optional: enables per-project/key rate limiting.
 	Encryptor          Encryptor                // Optional: enables event source signature encryption.
 	ContainerRuntime   compute.ContainerRuntime // Optional: enables managed container stop on cancel.
-	PolarWebhook       http.Handler             // Optional: Polar billing webhook handler.
+	StripeWebhook      http.Handler             // Optional: Stripe billing webhook handler.
 	BillingEnforcer    BillingEnforcer          // Optional: enables billing limit checks on project create.
 	UsageService       UsageService             // Optional: enables usage endpoint.
-	ReferralService    ReferralService          // Optional: enables referral endpoints.
 	CHExporter         *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
 	Edition            domain.Edition           // Edition controls feature gating (community vs cloud).
 	Version            string                   // Build version (injected via ldflags).
@@ -656,10 +653,9 @@ func NewServer(deps ServerDeps) *Server {
 		authLimiter:        ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
 		containerRuntime:   deps.ContainerRuntime,
-		polarWebhook:       deps.PolarWebhook,
+		stripeWebhook:      deps.StripeWebhook,
 		billingEnforcer:    deps.BillingEnforcer,
 		usageService:       deps.UsageService,
-		referralService:    deps.ReferralService,
 		chExporter:         deps.CHExporter,
 		edition:            deps.Edition,
 		version:            deps.Version,
@@ -722,25 +718,32 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
-		"status":         "ok",
-		"edition":        string(s.edition),
-		"version":        s.version,
-		"uptime_seconds": int(time.Since(s.startedAt).Seconds()),
+		"status":  "ok",
+		"edition": string(s.edition),
+		"version": s.version,
 	}
+
+	// Detailed subsystem checks are only exposed to authenticated internal callers.
+	// The public endpoint returns a minimal status to prevent infrastructure fingerprinting.
+	secret := r.Header.Get("X-Internal-Secret")
+	isInternal := secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) == 1
 
 	if s.healthRegistry != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 		result := s.healthRegistry.CheckAll(ctx)
 
-		subsystems := make(map[string]string)
-		for _, c := range result.Components {
-			subsystems[c.Name] = string(c.Status)
-		}
-		resp["subsystems"] = subsystems
-
 		if result.Status != health.StatusUp {
 			resp["status"] = string(result.Status)
+		}
+
+		if isInternal {
+			resp["uptime_seconds"] = int(time.Since(s.startedAt).Seconds())
+			subsystems := make(map[string]string)
+			for _, c := range result.Components {
+				subsystems[c.Name] = string(c.Status)
+			}
+			resp["subsystems"] = subsystems
 		}
 	}
 

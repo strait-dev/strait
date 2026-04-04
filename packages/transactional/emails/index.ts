@@ -5,7 +5,12 @@ export { default as DeleteAccount } from "./auth/delete-account";
 export { default as MagicLink } from "./auth/magic-link";
 export { default as PasswordUpdate } from "./auth/password-update";
 export { default as ResetPassword } from "./auth/reset-password";
-
+// Billing
+export { default as OverageAlert } from "./billing/overage-alert";
+export { default as PaidPlanWelcome } from "./billing/paid-plan-welcome";
+export { default as PaymentFailed } from "./billing/payment-failed";
+export { default as PlanChanged } from "./billing/plan-changed";
+export { default as SpendingLimitWarning } from "./billing/spending-limit-warning";
 // Common
 export { default as Contact } from "./common/contact";
 export { default as Feedback } from "./common/feedback";

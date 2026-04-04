@@ -145,6 +145,58 @@ func (m *mockReportStore) UpdateMonthlyUsageEmail(context.Context, string, bool)
 	return nil
 }
 
+func (m *mockReportStore) ListActiveAddons(context.Context, string) ([]billing.Addon, error) {
+	return nil, nil
+}
+
+func (m *mockReportStore) CreateAddon(context.Context, *billing.Addon) error {
+	return nil
+}
+
+func (m *mockReportStore) DeactivateAddon(context.Context, string) error {
+	return nil
+}
+
+func (m *mockReportStore) CountActiveAddonsByType(context.Context, string, billing.AddonType) (int, error) {
+	return 0, nil
+}
+
+func (m *mockReportStore) RecordProcessedWebhook(context.Context, string) error {
+	return nil
+}
+
+func (m *mockReportStore) IsWebhookProcessed(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockReportStore) DeleteOldWebhookMessages(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReportStore) GetEnterpriseContract(context.Context, string) (*billing.EnterpriseContract, error) {
+	return nil, billing.ErrContractNotFound
+}
+
+func (m *mockReportStore) UpsertEnterpriseContract(context.Context, *billing.EnterpriseContract) error {
+	return nil
+}
+
+func (m *mockReportStore) ListExpiringContracts(context.Context, int) ([]billing.EnterpriseContract, error) {
+	return nil, nil
+}
+
+func (m *mockReportStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReportStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReportStore) CountHTTPJobsByOrg(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 type mockResendAPI struct {
 	sent []*resend.SendEmailRequest
 }

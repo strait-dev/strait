@@ -14,6 +14,7 @@ const PLAN_LABELS: Record<PlanTier, string> = {
   free: "Free",
   starter: "Starter",
   pro: "Pro",
+  scale: "Scale",
   enterprise: "Enterprise",
 };
 
@@ -21,6 +22,7 @@ const OVERAGE_RATE_PER_1K_RUNS: Record<PlanTier, number> = {
   free: 0,
   starter: 1.0,
   pro: 0.75,
+  scale: 0.5,
   enterprise: 0,
 };
 
@@ -28,6 +30,7 @@ const COMPUTE_RATE_PER_HOUR: Record<PlanTier, number> = {
   free: 0,
   starter: 0.1,
   pro: 0.08,
+  scale: 0.06,
   enterprise: 0,
 };
 
@@ -35,6 +38,7 @@ const MEMBER_OVERAGE_PER_SEAT: Record<PlanTier, number> = {
   free: 0,
   starter: 5,
   pro: 10,
+  scale: 10,
   enterprise: 0,
 };
 

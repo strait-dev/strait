@@ -1,22 +1,39 @@
+/**
+ * Project costs query hook.
+ *
+ * Fetches per-project cost breakdown for the current billing period from
+ * `GET /v1/usage/projects`. Used by the project costs tab in the billing dashboard.
+ */
+
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { getOrgIdFromSession } from "./session";
+import { type LimitAction, REFETCH_10M } from "./types";
 
 /** Cost breakdown for a single project in the current billing period. */
 export type ProjectCostEntry = {
+  /** Project ID. */
   project_id: string;
+  /** Project display name. */
   name: string;
+  /** Total runs in the period. */
   runs: number;
+  /** Compute cost in micro-USD. */
   compute_microusd: number;
+  /** AI cost in micro-USD. */
   ai_microusd: number;
+  /** Total cost (compute + AI) in micro-USD. */
   total_microusd: number;
+  /** Monthly budget in micro-USD, if set. */
   monthly_budget_microusd?: number;
-  budget_action?: string;
+  /** Budget action, if a budget is set. */
+  budget_action?: LimitAction;
 };
 
+/** Server function to fetch per-project cost breakdown. */
 const getProjectCostsServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
@@ -43,11 +60,17 @@ const getProjectCostsServerFn = createServerFn({ method: "GET" })
     );
   });
 
-/** Query options for per-project cost breakdown in the current billing period. Refetches every 10 minutes. */
+/**
+ * Query options for per-project cost breakdown in the current billing period.
+ *
+ * Refetches every 10 minutes.
+ *
+ * @returns TanStack Query options for `["billing", "projectCosts"]`.
+ */
 export const projectCostsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.billing.projectCosts.queryKey,
     queryFn: () => getProjectCostsServerFn(),
-    refetchInterval: 600_000,
+    refetchInterval: REFETCH_10M,
     refetchIntervalInBackground: false,
   });

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/workflow"
@@ -52,9 +53,9 @@ type workflowStepRequest struct {
 
 type createWorkflowRequest struct {
 	ProjectID         string                `json:"project_id" validate:"required"`
-	Name              string                `json:"name" validate:"required"`
-	Slug              string                `json:"slug" validate:"required"`
-	Description       string                `json:"description,omitempty"`
+	Name              string                `json:"name" validate:"required,max=255"`
+	Slug              string                `json:"slug" validate:"required,max=255"`
+	Description       string                `json:"description,omitempty" validate:"max=2000"`
 	Tags              map[string]string     `json:"tags,omitempty"`
 	Enabled           *bool                 `json:"enabled,omitempty"`
 	TimeoutSecs       int                   `json:"timeout_secs,omitempty"`
@@ -125,6 +126,12 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 
 	if err := validateWorkflowSteps(req.Steps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
+	}
+	if err := s.checkWorkflowStepLimit(ctx, req.ProjectID, len(req.Steps)); err != nil {
+		return nil, err
+	}
+	if err := s.checkWorkflowStepFeatures(ctx, req.ProjectID, req.Steps); err != nil {
+		return nil, err
 	}
 	candidateSteps := workflowStepsFromRequests(req.Steps)
 	if err := s.validateWorkflowPolicy(ctx, req.ProjectID, candidateSteps); err != nil {
@@ -302,6 +309,12 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 	if req.Steps != nil {
 		if err := validateWorkflowSteps(*req.Steps); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
+		}
+		if err := s.checkWorkflowStepLimit(ctx, wf.ProjectID, len(*req.Steps)); err != nil {
+			return nil, err
+		}
+		if err := s.checkWorkflowStepFeatures(ctx, wf.ProjectID, *req.Steps); err != nil {
+			return nil, err
 		}
 
 		candidateSteps = workflowStepsFromRequests(*req.Steps)
@@ -1128,6 +1141,24 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 	sourceSteps, err := s.store.ListStepsByWorkflow(ctx, sourceID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list source workflow steps")
+	}
+
+	// Enforce plan gates on the cloned workflow's step count and types.
+	if err := s.checkWorkflowStepLimit(ctx, projectID, len(sourceSteps)); err != nil {
+		return nil, err
+	}
+	for _, step := range sourceSteps {
+		switch step.StepType {
+		case domain.WorkflowStepTypeApproval:
+			if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureApprovalGates, "Approval gates"); err != nil {
+				return nil, err
+			}
+		case domain.WorkflowStepTypeSubWorkflow:
+			if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureSubWorkflows, "Sub-workflows"); err != nil {
+				return nil, err
+			}
+		default:
+		}
 	}
 
 	newSteps := make([]domain.WorkflowStep, 0, len(sourceSteps))

@@ -34,53 +34,85 @@ import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscrip
 import { getPostHog } from "@/lib/analytics";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
 import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";
+import { findOrCreateCustomer, getStripeClient } from "@/lib/stripe.server";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import { authMiddleware } from "@/middlewares/auth";
 import type { AppRouteContext } from "@/routes/app/layout";
 
-const PLAN_SLUGS: Record<string, string> = {
-  "starter-monthly": "starter-monthly",
-  "starter-yearly": "starter-yearly",
-  "pro-monthly": "pro-monthly",
-  "pro-yearly": "pro-yearly",
-  "enterprise-monthly": "enterprise-monthly",
-  "enterprise-yearly": "enterprise-yearly",
+const PLAN_PRICE_MAP: Record<string, string | undefined> = {
+  "starter-monthly": process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
+  "starter-yearly": process.env.STRIPE_STARTER_YEARLY_PRICE_ID,
+  "pro-monthly": process.env.STRIPE_PRO_MONTHLY_PRICE_ID,
+  "pro-yearly": process.env.STRIPE_PRO_YEARLY_PRICE_ID,
+  "scale-monthly": process.env.STRIPE_SCALE_MONTHLY_PRICE_ID,
+  "scale-yearly": process.env.STRIPE_SCALE_YEARLY_PRICE_ID,
 };
 
 type StartCheckoutInput = {
-  planSlug: "starter" | "pro" | "enterprise";
+  planSlug: "starter" | "pro" | "scale" | "enterprise";
   billingInterval: "monthly" | "yearly";
 };
 
 const startCheckoutInputSchema = z.object({
-  planSlug: z.enum(["starter", "pro", "enterprise"]),
+  planSlug: z.enum(["starter", "pro", "scale", "enterprise"]),
   billingInterval: z.enum(["monthly", "yearly"]),
 });
 
 /**
  * Server function to start checkout for plan upgrade.
- * Creates a Better Auth Polar checkout URL for the selected plan.
+ * Creates a Stripe Checkout Session and returns the URL.
+ * Reuses existing Stripe customers to avoid duplicates.
  */
 const startCheckoutServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: StartCheckoutInput) =>
     startCheckoutInputSchema.parse(data)
   )
   .middleware([authMiddleware])
-  .handler(({ data }) => {
-    const productSlug = `${data.planSlug}-${data.billingInterval}`;
-    const checkoutProductSlug = PLAN_SLUGS[productSlug];
+  .handler(async ({ data, context }) => {
+    const stripe = getStripeClient();
 
-    if (!checkoutProductSlug) {
-      throw new Error(`Invalid plan: ${productSlug}`);
+    const slug = `${data.planSlug}-${data.billingInterval}`;
+    const priceId = PLAN_PRICE_MAP[slug];
+
+    if (!priceId) {
+      throw new Error(`Invalid plan: ${slug}`);
     }
 
-    const authBaseUrl =
+    const baseUrl =
       process.env.BETTER_AUTH_URL ??
       process.env.VITE_BASE_URL ??
       "http://localhost:5173";
 
+    const ctx = context as unknown as {
+      session?: {
+        user: { email: string };
+        session: { activeOrganizationId?: string };
+      };
+    };
+    const email = ctx?.session?.user?.email;
+    const orgId = ctx?.session?.session?.activeOrganizationId;
+
+    // Reuse existing Stripe customer to avoid duplicates.
+    const customerId = email
+      ? await findOrCreateCustomer(email, orgId ? { org_id: orgId } : undefined)
+      : undefined;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${baseUrl}/app?checkout_success=true`,
+      cancel_url: `${baseUrl}/app/upgrade?canceled=true`,
+      ...(customerId ? { customer: customerId } : { customer_email: email }),
+      allow_promotion_codes: true,
+      automatic_tax: { enabled: true },
+      subscription_data: {
+        metadata: orgId ? { org_id: orgId } : {},
+      },
+    });
+
     return {
-      checkoutUrl: `${authBaseUrl}/api/auth/checkout/${checkoutProductSlug}`,
+      checkoutUrl:
+        session.url ?? `${baseUrl}/app/upgrade?error=checkout_failed`,
     };
   });
 
@@ -118,6 +150,7 @@ function RouteComponent() {
     | "free"
     | "starter"
     | "pro"
+    | "scale"
     | "enterprise";
   const [selectedPlan, setSelectedPlan] = useState<PlanType>(
     currentPlan || "starter"
@@ -146,7 +179,7 @@ function RouteComponent() {
       }
       return startCheckoutServerFn({
         data: {
-          planSlug: selectedPlan as "starter" | "pro" | "enterprise",
+          planSlug: selectedPlan as "starter" | "pro" | "scale" | "enterprise",
           billingInterval,
         },
       });

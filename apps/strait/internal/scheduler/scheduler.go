@@ -45,9 +45,10 @@ type Scheduler struct {
 	downgradeApplier         *DowngradeApplier
 	costEstimateRefresher    *CostEstimateRefresher
 	memoryCleanup            *MemoryCleanup
-	referralExpiry           *ReferralExpiry
 	gracePeriodEnforcer      *GracePeriodEnforcer
 	staleSubscriptionChecker *StaleSubscriptionChecker
+	webhookMessageCleanup    *WebhookMessageCleanup
+	contractExpiryChecker    *ContractExpiryChecker
 	wg                       conc.WaitGroup
 }
 
@@ -138,13 +139,6 @@ func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
 	}
 }
 
-// WithReferralExpiry enables periodic expiration of old referral credits.
-func WithReferralExpiry(expiry *ReferralExpiry) SchedulerOption {
-	return func(s *Scheduler) {
-		s.referralExpiry = expiry
-	}
-}
-
 // WithGracePeriodEnforcer enables periodic enforcement of expired payment grace periods.
 func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
 	return func(s *Scheduler) {
@@ -156,6 +150,27 @@ func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
 func WithStaleSubscriptionChecker(checker *StaleSubscriptionChecker) SchedulerOption {
 	return func(s *Scheduler) {
 		s.staleSubscriptionChecker = checker
+	}
+}
+
+// WithWebhookMessageCleanup enables periodic cleanup of old processed webhook messages.
+func WithWebhookMessageCleanup(cleanup *WebhookMessageCleanup) SchedulerOption {
+	return func(s *Scheduler) {
+		s.webhookMessageCleanup = cleanup
+	}
+}
+
+// WithOrgRetentionResolver enables per-org plan-based data retention in the reaper.
+func WithOrgRetentionResolver(resolver OrgRetentionResolver) SchedulerOption {
+	return func(s *Scheduler) {
+		s.reaper = s.reaper.WithOrgRetention(resolver)
+	}
+}
+
+// WithContractExpiryChecker enables periodic enterprise contract expiry reminders.
+func WithContractExpiryChecker(checker *ContractExpiryChecker) SchedulerOption {
+	return func(s *Scheduler) {
+		s.contractExpiryChecker = checker
 	}
 }
 
@@ -186,14 +201,17 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if s.anomalyMonitor != nil {
 		safeGo(&s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
 	}
-	if s.referralExpiry != nil {
-		safeGo(&s.wg, "referral_expiry", func() { s.referralExpiry.Run(ctx) })
-	}
 	if s.gracePeriodEnforcer != nil {
 		safeGo(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
 	}
 	if s.staleSubscriptionChecker != nil {
 		safeGo(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })
+	}
+	if s.webhookMessageCleanup != nil {
+		safeGo(&s.wg, "webhook_message_cleanup", func() { s.webhookMessageCleanup.Run(ctx) })
+	}
+	if s.contractExpiryChecker != nil {
+		safeGo(&s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

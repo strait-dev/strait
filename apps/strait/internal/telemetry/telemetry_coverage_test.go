@@ -549,11 +549,11 @@ func TestInitMetrics_BillingMetricsInitialized(t *testing.T) {
 	if m.NotificationDeliveryFailures == nil {
 		t.Error("NotificationDeliveryFailures is nil")
 	}
-	if m.PolarEventsIngested == nil {
-		t.Error("PolarEventsIngested is nil")
+	if m.StripeUsageEventsIngested == nil {
+		t.Error("StripeUsageEventsIngested is nil")
 	}
-	if m.PolarEventsDropped == nil {
-		t.Error("PolarEventsDropped is nil")
+	if m.StripeUsageEventsDropped == nil {
+		t.Error("StripeUsageEventsDropped is nil")
 	}
 	if m.OverageEntered == nil {
 		t.Error("OverageEntered is nil")
