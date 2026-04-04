@@ -47,4 +47,20 @@ doppler secrets download --project strait --config "$ENV" --no-file --format env
       --dry-run=client -o yaml \
   | kubectl --kubeconfig "$KUBECONFIG" apply -f -
 
+# GHCR image pull secret (for private strait images).
+GITHUB_USER=$(doppler secrets get GITHUB_USERNAME --project strait --config "$ENV" --plain 2>/dev/null || true)
+GITHUB_TOKEN=$(doppler secrets get GITHUB_PACKAGES_TOKEN --project strait --config "$ENV" --plain 2>/dev/null || true)
+if [ -n "$GITHUB_USER" ] && [ -n "$GITHUB_TOKEN" ]; then
+  echo "Creating ghcr-pull-secret..."
+  kubectl --kubeconfig "$KUBECONFIG" create secret docker-registry ghcr-pull-secret \
+    --namespace "$NAMESPACE" \
+    --docker-server=ghcr.io \
+    --docker-username="$GITHUB_USER" \
+    --docker-password="$GITHUB_TOKEN" \
+    --dry-run=client -o yaml \
+  | kubectl --kubeconfig "$KUBECONFIG" apply -f -
+else
+  echo "Skipping ghcr-pull-secret (GITHUB_USERNAME/GITHUB_PACKAGES_TOKEN not set in Doppler)"
+fi
+
 echo "All secrets provisioned for environment: $ENV"

@@ -31,10 +31,12 @@ spec:
         app.kubernetes.io/component: server
     spec:
       serviceAccountName: strait-server
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       terminationGracePeriodSeconds: 30
       containers:
         - name: strait
-          image: ghcr.io/trystrait/strait:latest
+          image: ghcr.io/strait-dev/strait:latest
           args: ["serve", "--mode", "all"]
           ports:
             - name: http

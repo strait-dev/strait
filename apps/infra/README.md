@@ -179,6 +179,38 @@ heavy_count   = 1   # 1 heavy worker ($27/mo)
 
 ---
 
+## DNS Setup
+
+Caddy auto-provisions TLS certificates via Let's Encrypt, but it needs a domain. After deploying the cluster:
+
+1. Set `strait_domain` in your `terraform.tfvars` (e.g., `api.yourdomain.com`)
+2. Run `terraform apply` to see the `dns_instructions` output
+3. Create a DNS A record in your DNS provider:
+
+```
+Type: A
+Name: api (or your subdomain)
+Value: <master_ip from terraform output>
+TTL: 300
+```
+
+4. Create the Caddy domain secret:
+
+```bash
+kubectl -n strait create secret generic caddy-env \
+  --from-literal=STRAIT_DOMAIN=api.yourdomain.com
+```
+
+5. Restart Caddy to pick up the domain:
+
+```bash
+kubectl -n strait rollout restart deployment/caddy
+```
+
+Caddy will automatically provision and renew the Let's Encrypt certificate.
+
+---
+
 ## Infrastructure Tests
 
 Run validation tests against the live cluster:

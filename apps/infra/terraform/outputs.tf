@@ -32,3 +32,8 @@ output "ssh_command" {
   description = "SSH into the master node."
   value       = "ssh -i ${var.ssh_private_key_path} root@${hcloud_server.master.ipv4_address}"
 }
+
+output "dns_instructions" {
+  description = "DNS A record to create for the Strait API."
+  value       = var.strait_domain != "" ? "Create DNS A record: ${var.strait_domain} -> ${hcloud_server.master.ipv4_address}" : "Set strait_domain variable to enable TLS. Then create an A record pointing to ${hcloud_server.master.ipv4_address}."
+}

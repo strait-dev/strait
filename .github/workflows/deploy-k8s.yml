@@ -1,0 +1,80 @@
+name: Deploy to K8s
+
+on:
+  workflow_run:
+    workflows: ["Publish Docker Images"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (e.g., 1.2.3)"
+        required: true
+
+concurrency:
+  group: deploy-k8s
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/strait-dev/strait
+  NAMESPACE: strait
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            # Extract tag from the workflow run that triggered this.
+            TAG="${{ github.event.workflow_run.head_branch }}"
+            # Strip leading 'v' if present (v1.2.3 -> 1.2.3).
+            TAG="${TAG#v}"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBECONFIG_BASE64 }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Deploy strait
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          echo "Deploying $IMAGE:$TAG to $NAMESPACE..."
+          kubectl -n "$NAMESPACE" set image deployment/strait strait="$IMAGE:$TAG"
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n "$NAMESPACE" rollout status deployment/strait --timeout=300s
+
+      - name: Health check
+        if: vars.STRAIT_DOMAIN != ''
+        run: |
+          echo "Checking https://${{ vars.STRAIT_DOMAIN }}/health..."
+          for i in 1 2 3 4 5; do
+            if curl -sf --max-time 10 "https://${{ vars.STRAIT_DOMAIN }}/health"; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Health check failed after 5 attempts"
+          exit 1
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Deployment failed, rolling back..."
+          kubectl -n "$NAMESPACE" rollout undo deployment/strait
+          kubectl -n "$NAMESPACE" rollout status deployment/strait --timeout=120s
+          echo "Rollback complete"

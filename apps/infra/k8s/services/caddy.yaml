@@ -56,7 +56,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: caddy
-          image: caddy:2-alpine
+          image: caddy:2.9-alpine
           ports:
             - name: http
               containerPort: 80
