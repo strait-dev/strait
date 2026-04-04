@@ -728,6 +728,24 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleListNotificationDeliveries)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-notify-escalation-by-step-run", Method: http.MethodGet, Path: "/v1/notify/escalations/step-runs/{stepRunID}",
+		Summary: "Get active escalation state", Description: "Returns the active escalation state for a workflow approval step run.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleGetNotifyEscalationByStepRun)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "acknowledge-notify-escalation-by-step-run", Method: http.MethodPost, Path: "/v1/notify/escalations/step-runs/{stepRunID}/acknowledge",
+		Summary: "Acknowledge escalation", Description: "Acknowledges the active escalation state for a workflow approval step run.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleAcknowledgeNotifyEscalationByStepRun)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "complete-notify-escalation-by-step-run", Method: http.MethodPost, Path: "/v1/notify/escalations/step-runs/{stepRunID}/complete",
+		Summary: "Complete escalation", Description: "Completes the active escalation state for a workflow approval step run.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleCompleteNotifyEscalationByStepRun)
+
 	// -- Log Drains --
 	RegisterTypedOp(api, OpMeta{
 		ID: "list-log-drains", Method: http.MethodGet, Path: "/v1/log-drains",
