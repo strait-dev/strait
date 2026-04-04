@@ -1,4 +1,5 @@
 .PHONY: build test lint vet dev preflight deploy deploy-staging
+.PHONY: dev-up dev-down dev-http dev-managed dev-setup
 .PHONY: loadtest-up loadtest-down loadtest-server loadtest-quick loadtest-throughput
 .PHONY: loadtest-concurrency loadtest-endurance loadtest-chaos loadtest-errors
 .PHONY: loadtest-all loadtest-report loadtest-unit loadtest-flush
@@ -28,6 +29,69 @@ vulncheck:
 
 dev:
 	go run ./cmd/strait
+
+# ───���──────────────────────────────────────────
+# Local Development (Contributors)
+# ──────────────────────────────────────────────
+# Quick start:
+#   make dev-up       # Start Postgres + Redis
+#   make dev-http     # Start Strait in HTTP mode (no container runtime)
+#   make dev-managed  # Start Strait in managed mode (Docker runtime)
+#
+# For managed mode, Docker must be running. Job containers execute via
+# the local Docker daemon — no cloud services or K8s needed.
+
+DEV_ENV = \
+	DATABASE_URL="postgres://strait:strait@localhost:5432/strait?sslmode=disable" \
+	REDIS_URL="redis://localhost:6379" \
+	INTERNAL_SECRET="local-dev-internal-secret-change-me" \
+	JWT_SIGNING_KEY="local-dev-jwt-signing-key-change-me-32chars" \
+	ALLOW_PRIVATE_ENDPOINTS=true \
+	CORS_ALLOWED_ORIGINS="*" \
+	PORT=8080
+
+dev-up:
+	docker compose up -d postgres redis
+	@echo ""
+	@echo "Postgres: localhost:5432 (strait/strait)"
+	@echo "Redis:    localhost:6379"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  make dev-http      # HTTP mode (no container runtime)"
+	@echo "  make dev-managed   # Managed mode (Docker runtime)"
+
+dev-down:
+	docker compose down
+
+dev-http:
+	$(DEV_ENV) COMPUTE_RUNTIME=none go run ./cmd/strait
+
+dev-managed:
+	$(DEV_ENV) \
+	COMPUTE_RUNTIME=docker \
+	EXTERNAL_API_URL="http://host.docker.internal:8080" \
+	ALLOWED_IMAGE_REGISTRIES="docker.io,ghcr.io" \
+	go run ./cmd/strait
+
+dev-setup:
+	@echo "Setting up Strait for local development..."
+	docker compose up -d postgres redis
+	@echo "Waiting for Postgres..."
+	@sleep 3
+	$(DEV_ENV) COMPUTE_RUNTIME=none go run ./cmd/strait &
+	@sleep 5
+	@kill %1 2>/dev/null || true
+	@echo ""
+	@echo "Setup complete. Database migrations applied."
+	@echo ""
+	@echo "Run Strait:"
+	@echo "  make dev-http      # HTTP mode (no container runtime)"
+	@echo "  make dev-managed   # Managed mode (runs containers via Docker)"
+	@echo ""
+	@echo "Managed mode test:"
+	@echo "  1. make dev-managed"
+	@echo "  2. Create a job with execution_mode: managed and image_uri: alpine:3.19"
+	@echo "  3. Trigger the job — it runs as a Docker container on your machine"
 
 preflight: vet lint build test
 
