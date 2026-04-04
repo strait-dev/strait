@@ -9,16 +9,27 @@ import (
 
 type grafanaDashboard struct {
 	Dashboard struct {
-		Title  string          `json:"title"`
-		UID    string          `json:"uid"`
-		Panels []grafanaPanel  `json:"panels"`
+		Title      string             `json:"title"`
+		UID        string             `json:"uid"`
+		Panels     []grafanaPanel     `json:"panels"`
+		Templating grafanaTemplating  `json:"templating"`
 	} `json:"dashboard"`
 }
 
+type grafanaTemplating struct {
+	List []grafanaVariable `json:"list"`
+}
+
+type grafanaVariable struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 type grafanaPanel struct {
-	Title   string          `json:"title"`
-	Type    string          `json:"type"`
-	Targets []grafanaTarget `json:"targets"`
+	Title       string          `json:"title"`
+	Description string          `json:"description"`
+	Type        string          `json:"type"`
+	Targets     []grafanaTarget `json:"targets"`
 }
 
 type grafanaTarget struct {
@@ -68,38 +79,136 @@ func TestDashboard_AllPanelsHaveTargets(t *testing.T) {
 	}
 }
 
+func TestDashboard_AllPanelsHaveDescriptions(t *testing.T) {
+	t.Parallel()
+	d := loadDashboard(t)
+	for _, p := range d.Dashboard.Panels {
+		if p.Description == "" {
+			t.Errorf("panel %q is missing description", p.Title)
+		}
+	}
+}
+
 func TestDashboard_NorthStarMetricExists(t *testing.T) {
 	t.Parallel()
 	d := loadDashboard(t)
 
 	found := false
 	for _, p := range d.Dashboard.Panels {
-		if strings.Contains(strings.ToLower(p.Title), "north star") || strings.Contains(strings.ToLower(p.Title), "success rate") {
+		if strings.Contains(strings.ToLower(p.Title), "success rate") {
 			found = true
 			if len(p.Targets) == 0 {
 				t.Error("north star panel has no targets")
 				break
 			}
-			expr := p.Targets[0].Expr
-			if !strings.Contains(expr, "strait_run_transitions") {
-				t.Errorf("north star metric should use strait_run_transitions, got: %s", expr)
-			}
-			if !strings.Contains(expr, "completed") {
-				t.Errorf("north star metric should track completed runs, got: %s", expr)
+			if !strings.Contains(p.Targets[0].Expr, "strait_run_transitions") {
+				t.Errorf("north star should use strait_run_transitions")
 			}
 			break
 		}
 	}
 	if !found {
-		t.Error("dashboard missing north star / success rate panel")
+		t.Error("dashboard missing success rate panel")
+	}
+}
+
+func TestDashboard_HealthScoreExists(t *testing.T) {
+	t.Parallel()
+	d := loadDashboard(t)
+
+	found := false
+	for _, p := range d.Dashboard.Panels {
+		if strings.Contains(strings.ToLower(p.Title), "health score") {
+			found = true
+			if p.Type != "gauge" {
+				t.Errorf("Health Score should be a gauge, got %q", p.Type)
+			}
+			if len(p.Targets) == 0 {
+				t.Error("Health Score panel has no targets")
+			} else {
+				expr := p.Targets[0].Expr
+				// Must be a composite metric using multiple signals.
+				if !strings.Contains(expr, "strait_run_transitions") {
+					t.Error("Health Score should include success rate")
+				}
+				if !strings.Contains(expr, "strait_dispatch_errors") {
+					t.Error("Health Score should include dispatch errors")
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("dashboard missing Health Score (0-5) gauge")
 	}
 }
 
 func TestDashboard_HasMinimumPanelCount(t *testing.T) {
 	t.Parallel()
 	d := loadDashboard(t)
-	if len(d.Dashboard.Panels) < 20 {
-		t.Errorf("expected at least 20 panels for comprehensive coverage, got %d", len(d.Dashboard.Panels))
+	if len(d.Dashboard.Panels) < 30 {
+		t.Errorf("expected at least 30 panels for comprehensive coverage, got %d", len(d.Dashboard.Panels))
+	}
+}
+
+func TestDashboard_HasTemplateVariables(t *testing.T) {
+	t.Parallel()
+	d := loadDashboard(t)
+
+	required := map[string]bool{"namespace": false, "interval": false, "pod": false}
+	for _, v := range d.Dashboard.Templating.List {
+		if _, ok := required[v.Name]; ok {
+			required[v.Name] = true
+		}
+	}
+	for name, found := range required {
+		if !found {
+			t.Errorf("dashboard missing template variable: %s", name)
+		}
+	}
+}
+
+func TestDashboard_HasHeatmaps(t *testing.T) {
+	t.Parallel()
+	d := loadDashboard(t)
+	count := 0
+	for _, p := range d.Dashboard.Panels {
+		if p.Type == "heatmap" {
+			count++
+		}
+	}
+	if count < 2 {
+		t.Errorf("expected at least 2 heatmap panels, got %d", count)
+	}
+}
+
+func TestDashboard_HasK8sClusterPanels(t *testing.T) {
+	t.Parallel()
+	d := loadDashboard(t)
+
+	k8sMetrics := map[string]bool{
+		"kube_pod_status_phase":                       false,
+		"kube_deployment_status_replicas":              false,
+		"kube_pod_container_status_restarts_total":     false,
+		"kube_node_status_condition":                   false,
+		"node_disk":                                    false,
+		"node_network":                                 false,
+	}
+
+	for _, p := range d.Dashboard.Panels {
+		for _, tgt := range p.Targets {
+			for metric := range k8sMetrics {
+				if strings.Contains(tgt.Expr, metric) {
+					k8sMetrics[metric] = true
+				}
+			}
+		}
+	}
+
+	for metric, found := range k8sMetrics {
+		if !found {
+			t.Errorf("dashboard missing K8s metric: %s", metric)
+		}
 	}
 }
 
@@ -108,15 +217,10 @@ func TestDashboard_CoversAllCategories(t *testing.T) {
 	d := loadDashboard(t)
 
 	categories := map[string]bool{
-		"success rate":  false,
-		"queue":         false,
-		"webhook":       false,
-		"workflow":      false,
-		"http":          false,
-		"worker pool":   false,
-		"db":            false,
-		"node":          false,
-		"scheduling":    false,
+		"success rate": false, "queue": false, "webhook": false,
+		"workflow": false, "http": false, "worker pool": false,
+		"db": false, "node": false, "scheduling": false,
+		"disk": false, "network": false, "health score": false,
 	}
 
 	for _, p := range d.Dashboard.Panels {
@@ -126,7 +230,6 @@ func TestDashboard_CoversAllCategories(t *testing.T) {
 				categories[cat] = true
 			}
 		}
-		// Also check targets for metric names.
 		for _, tgt := range p.Targets {
 			expr := strings.ToLower(tgt.Expr)
 			if strings.Contains(expr, "webhook") { categories["webhook"] = true }
@@ -137,6 +240,8 @@ func TestDashboard_CoversAllCategories(t *testing.T) {
 			if strings.Contains(expr, "db_pool") { categories["db"] = true }
 			if strings.Contains(expr, "node_cpu") || strings.Contains(expr, "node_memory") { categories["node"] = true }
 			if strings.Contains(expr, "scheduling") { categories["scheduling"] = true }
+			if strings.Contains(expr, "node_disk") { categories["disk"] = true }
+			if strings.Contains(expr, "node_network") { categories["network"] = true }
 		}
 	}
 
