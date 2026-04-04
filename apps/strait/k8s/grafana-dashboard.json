@@ -1,95 +1,256 @@
 {
   "dashboard": {
-    "title": "Strait K8s Compute",
-    "uid": "strait-k8s-compute",
+    "title": "Strait Platform Overview",
+    "uid": "strait-platform",
     "timezone": "browser",
     "refresh": "30s",
+    "tags": ["strait", "production"],
     "panels": [
       {
-        "title": "Job Create Rate",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-        "targets": [
-          {
-            "expr": "sum(rate(strait_k8s_job_create_total[5m])) by (status)",
-            "legendFormat": "{{status}}"
+        "title": "Job Success Rate (North Star)",
+        "description": "Percentage of runs completing successfully. This is the platform's north star metric.",
+        "type": "gauge",
+        "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": null },
+                { "color": "orange", "value": 90 },
+                { "color": "yellow", "value": 95 },
+                { "color": "green", "value": 99 }
+              ]
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
           }
-        ]
-      },
-      {
-        "title": "Pod Scheduling Latency (Cold Start)",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        },
         "targets": [
           {
-            "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_pod_scheduling_duration_seconds_bucket[5m])) by (le))",
-            "legendFormat": "p50"
-          },
-          {
-            "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_pod_scheduling_duration_seconds_bucket[5m])) by (le))",
-            "legendFormat": "p99"
+            "expr": "100 * sum(rate(strait_run_transitions{to=\"completed\"}[5m])) / clamp_min(sum(rate(strait_run_transitions{to=~\"completed|failed|timed_out\"}[5m])), 0.001)",
+            "legendFormat": "Success Rate"
           }
         ]
       },
       {
         "title": "Active Jobs",
         "type": "stat",
-        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+        "gridPos": { "h": 6, "w": 3, "x": 6, "y": 0 },
         "targets": [
-          {
-            "expr": "strait_k8s_jobs_active",
-            "legendFormat": "active"
-          }
+          { "expr": "strait_k8s_jobs_active", "legendFormat": "Active" }
         ]
       },
       {
-        "title": "Wait Duration P50/P99",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+        "title": "Queue Depth",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 3, "x": 9, "y": 0 },
         "targets": [
-          {
-            "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[5m])) by (le))",
-            "legendFormat": "p50"
-          },
-          {
-            "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[5m])) by (le))",
-            "legendFormat": "p99"
-          }
+          { "expr": "strait_queue_depth", "legendFormat": "Queued" }
         ]
       },
       {
-        "title": "Error Rate",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+        "title": "DLQ Depth",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 3, "x": 12, "y": 0 },
+        "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
         "targets": [
-          {
-            "expr": "sum(rate(strait_k8s_job_create_total{status=\"error\"}[5m]))",
-            "legendFormat": "create errors"
-          }
+          { "expr": "strait_dlq_depth", "legendFormat": "Dead Letters" }
         ]
       },
       {
-        "title": "Fallback Rate",
-        "type": "timeseries",
-        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+        "title": "HTTP Request Rate",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 3, "x": 15, "y": 0 },
         "targets": [
-          {
-            "expr": "sum(rate(strait_compute_fallback_total[5m]))",
-            "legendFormat": "fallbacks/sec"
-          }
+          { "expr": "sum(rate(strait_http_request_duration_count[5m]))", "legendFormat": "req/s" }
         ]
       },
       {
-        "title": "Create Duration by Preset",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+        "title": "Worker Pool Utilization",
+        "type": "gauge",
+        "gridPos": { "h": 6, "w": 3, "x": 18, "y": 0 },
+        "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 90 }] } } },
         "targets": [
-          {
-            "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_create_duration_seconds_bucket[5m])) by (le, preset))",
-            "legendFormat": "p99 {{preset}}"
-          }
+          { "expr": "100 * strait_pool_running_workers / clamp_min(strait_pool_running_workers + strait_pool_waiting_tasks, 1)", "legendFormat": "Utilization" }
         ]
+      },
+      {
+        "title": "DB Pool",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 3, "x": 21, "y": 0 },
+        "targets": [
+          { "expr": "strait_db_pool_acquired_conns", "legendFormat": "In Use" }
+        ]
+      },
+
+      {
+        "title": "Run Transitions",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 6 },
+        "targets": [
+          { "expr": "sum(rate(strait_run_transitions[5m])) by (to)", "legendFormat": "{{to}}" }
+        ]
+      },
+      {
+        "title": "Run Duration P50 / P99",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 6 },
+        "targets": [
+          { "expr": "histogram_quantile(0.5, sum(rate(strait_run_duration_bucket[5m])) by (le))", "legendFormat": "P50" },
+          { "expr": "histogram_quantile(0.99, sum(rate(strait_run_duration_bucket[5m])) by (le))", "legendFormat": "P99" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" } }
+      },
+      {
+        "title": "Dispatch Duration + Errors",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
+        "targets": [
+          { "expr": "histogram_quantile(0.5, sum(rate(strait_dispatch_duration_bucket[5m])) by (le))", "legendFormat": "Dispatch P50" },
+          { "expr": "histogram_quantile(0.99, sum(rate(strait_dispatch_duration_bucket[5m])) by (le))", "legendFormat": "Dispatch P99" },
+          { "expr": "sum(rate(strait_dispatch_errors[5m]))", "legendFormat": "Errors" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" } }
+      },
+
+      {
+        "title": "Job Create Rate (by preset)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 14 },
+        "targets": [
+          { "expr": "sum(rate(strait_k8s_job_create_total[5m])) by (preset)", "legendFormat": "{{preset}}" }
+        ]
+      },
+      {
+        "title": "Pod Scheduling Latency (Cold Start)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 14 },
+        "targets": [
+          { "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_pod_scheduling_duration_seconds_bucket[5m])) by (le))", "legendFormat": "P50" },
+          { "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_pod_scheduling_duration_seconds_bucket[5m])) by (le))", "legendFormat": "P99" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" } }
+      },
+      {
+        "title": "Job Wait Duration + Create Duration",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
+        "targets": [
+          { "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[5m])) by (le))", "legendFormat": "Wait P50" },
+          { "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[5m])) by (le))", "legendFormat": "Wait P99" },
+          { "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_create_duration_seconds_bucket[5m])) by (le, preset))", "legendFormat": "Create P99 {{preset}}" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" } }
+      },
+
+      {
+        "title": "Webhook Delivery Rate",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 22 },
+        "targets": [
+          { "expr": "sum(rate(strait_webhook_deliveries_total[5m])) by (status)", "legendFormat": "{{status}}" }
+        ]
+      },
+      {
+        "title": "Webhook Delivery Duration P50 / P99",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 22 },
+        "targets": [
+          { "expr": "histogram_quantile(0.5, sum(rate(strait_webhook_delivery_duration_seconds_bucket[5m])) by (le))", "legendFormat": "P50" },
+          { "expr": "histogram_quantile(0.99, sum(rate(strait_webhook_delivery_duration_seconds_bucket[5m])) by (le))", "legendFormat": "P99" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" } }
+      },
+      {
+        "title": "Circuit Breaker + Backlog",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 22 },
+        "targets": [
+          { "expr": "strait_webhook_circuit_breaker_state", "legendFormat": "Circuit {{endpoint}}" },
+          { "expr": "strait_webhook_backlog_depth", "legendFormat": "Backlog" }
+        ]
+      },
+
+      {
+        "title": "Workflow Triggers + Step Progressions",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 30 },
+        "targets": [
+          { "expr": "sum(rate(strait_workflow_triggers[5m]))", "legendFormat": "Triggers" },
+          { "expr": "sum(rate(strait_workflow_step_progressions[5m]))", "legendFormat": "Step Progressions" },
+          { "expr": "sum(rate(strait_workflow_stalled_runs[5m]))", "legendFormat": "Stalled" }
+        ]
+      },
+      {
+        "title": "Event Triggers",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 30 },
+        "targets": [
+          { "expr": "sum(rate(strait_event_triggers_created_total[5m]))", "legendFormat": "Created" },
+          { "expr": "sum(rate(strait_event_triggers_received_total[5m]))", "legendFormat": "Received" },
+          { "expr": "sum(rate(strait_event_triggers_timed_out_total[5m]))", "legendFormat": "Timed Out" }
+        ]
+      },
+      {
+        "title": "Scheduler: Cron Triggers",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 30 },
+        "targets": [
+          { "expr": "sum(rate(strait_scheduler_cron_triggers_total[5m])) by (status)", "legendFormat": "{{status}}" }
+        ]
+      },
+
+      {
+        "title": "HTTP Request Duration (by status)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 38 },
+        "targets": [
+          { "expr": "histogram_quantile(0.5, sum(rate(strait_http_request_duration_bucket[5m])) by (le))", "legendFormat": "P50" },
+          { "expr": "histogram_quantile(0.99, sum(rate(strait_http_request_duration_bucket[5m])) by (le))", "legendFormat": "P99" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" } }
+      },
+      {
+        "title": "Worker Pool (running / waiting / dropped)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 38 },
+        "targets": [
+          { "expr": "strait_pool_running_workers", "legendFormat": "Running" },
+          { "expr": "strait_pool_waiting_tasks", "legendFormat": "Waiting" },
+          { "expr": "sum(rate(strait_pool_dropped_tasks[5m]))", "legendFormat": "Dropped/s" }
+        ]
+      },
+      {
+        "title": "DB Connection Pool",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 38 },
+        "targets": [
+          { "expr": "strait_db_pool_acquired_conns", "legendFormat": "Acquired" },
+          { "expr": "strait_db_pool_idle_conns", "legendFormat": "Idle" },
+          { "expr": "strait_db_pool_max_conns", "legendFormat": "Max" }
+        ]
+      },
+      {
+        "title": "Node CPU Utilization",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 46 },
+        "targets": [
+          { "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "legendFormat": "{{instance}}" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+      },
+      {
+        "title": "Node Memory Utilization",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 46 },
+        "targets": [
+          { "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)", "legendFormat": "{{instance}}" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
       }
-    ]
+    ],
+    "time": { "from": "now-1h", "to": "now" },
+    "schemaVersion": 39
   }
 }
