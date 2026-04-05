@@ -125,9 +125,9 @@ export function getAuthPool(): Pool {
  * (e.g. invalid PEM), the cache is cleared so the next call retries
  * instead of returning the rejected promise forever.
  */
-let oidcPrivateKeyPromise: Promise<CryptoKey> | null = null;
+let oidcPrivateKeyPromise: ReturnType<typeof importPKCS8> | null = null;
 
-function getOIDCPrivateKey(): Promise<CryptoKey> {
+function getOIDCPrivateKey(): ReturnType<typeof importPKCS8> {
   if (!oidcPrivateKeyPromise) {
     oidcPrivateKeyPromise = importPKCS8(
       process.env.OIDC_PRIVATE_KEY_PEM as string,
@@ -137,7 +137,8 @@ function getOIDCPrivateKey(): Promise<CryptoKey> {
       throw err;
     });
   }
-  return oidcPrivateKeyPromise;
+  // biome-ignore lint/style/noNonNullAssertion: guarded by the if-check above
+  return oidcPrivateKeyPromise!;
 }
 
 /**
