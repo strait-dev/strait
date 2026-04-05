@@ -1,0 +1,9 @@
+{
+  "extends": "../config/base.json",
+  "display": "@strait/inbox",
+  "compilerOptions": {
+    "moduleResolution": "bundler"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+}

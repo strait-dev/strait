@@ -142,6 +142,13 @@
       "name": "@strait/config",
       "version": "0.0.0",
     },
+    "packages/inbox": {
+      "name": "@strait/inbox",
+      "version": "0.1.0",
+      "dependencies": {
+        "effect": "^3.21.0",
+      },
+    },
     "packages/transactional": {
       "name": "@strait/transactional",
       "version": "1.0.0",
@@ -1557,6 +1564,8 @@
     "@strait/config": ["@strait/config@workspace:packages/config"],
 
     "@strait/docs": ["@strait/docs@workspace:apps/docs"],
+
+    "@strait/inbox": ["@strait/inbox@workspace:packages/inbox"],
 
     "@strait/transactional": ["@strait/transactional@workspace:packages/transactional"],
 

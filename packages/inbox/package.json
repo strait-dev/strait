@@ -1,0 +1,22 @@
+{
+  "name": "@strait/inbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "clean": "rm -rf .turbo node_modules",
+    "biome:lint": "biome lint ./src",
+    "biome:format": "biome format --write ./src",
+    "biome:write": "biome check --write ./src",
+    "biome:fix:unsafe": "biome check --fix --unsafe ./src",
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "effect": "^3.21.0"
+  }
+}
