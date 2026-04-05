@@ -241,6 +241,18 @@ func (m *mockAnomalyMonitorStore) CountHTTPJobsByOrg(context.Context, string) (i
 	return 0, nil
 }
 
+func (m *mockAnomalyMonitorStore) SumOrgAgentSpendSince(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAnomalyMonitorStore) UpdateAgentSubscriptionPlan(context.Context, string, string, *time.Time, *time.Time) error {
+	return nil
+}
+
+func (m *mockAnomalyMonitorStore) UpdateAgentSpendingLimit(context.Context, string, int64) error {
+	return nil
+}
+
 // mockCooldown implements AnomalyCooldown for testing.
 type mockCooldown struct {
 	cooled map[string]bool

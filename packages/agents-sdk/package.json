@@ -60,10 +60,10 @@
     "./vercel-ai": "./src/vercel-ai.ts"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.80.0",
-    "@types/node": "^25.5.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260330.1",
-    "ai": "^6.0.141",
+    "@anthropic-ai/sdk": "^0.82.0",
+    "@types/node": "^25.5.2",
+    "@typescript/native-preview": "^7.0.0-dev.20260405.1",
+    "ai": "^6.0.146",
     "fast-check": "^4.6.0",
     "openai": "^6.33.0",
     "vitest": "^4.1.2"

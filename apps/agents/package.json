@@ -23,12 +23,12 @@
     "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260330.1",
+    "@types/node": "^25.5.2",
+    "@typescript/native-preview": "^7.0.0-dev.20260405.1",
     "fast-check": "^4.6.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2",
-    "wrangler": "^4.78.0"
+    "wrangler": "^4.80.0"
   },
   "dependencies": {
     "effect": "3.21.0"

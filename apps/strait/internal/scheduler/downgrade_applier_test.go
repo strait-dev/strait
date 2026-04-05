@@ -254,6 +254,18 @@ func (m *mockEnforcerStore) CountHTTPJobsByOrg(context.Context, string) (int, er
 	return 0, nil
 }
 
+func (m *mockEnforcerStore) SumOrgAgentSpendSince(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockEnforcerStore) UpdateAgentSubscriptionPlan(context.Context, string, string, *time.Time, *time.Time) error {
+	return nil
+}
+
+func (m *mockEnforcerStore) UpdateAgentSpendingLimit(context.Context, string, int64) error {
+	return nil
+}
+
 func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 	t.Parallel()
 

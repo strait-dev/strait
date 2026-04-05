@@ -197,6 +197,18 @@ func (m *mockReportStore) CountHTTPJobsByOrg(context.Context, string) (int, erro
 	return 0, nil
 }
 
+func (m *mockReportStore) SumOrgAgentSpendSince(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReportStore) UpdateAgentSubscriptionPlan(context.Context, string, string, *time.Time, *time.Time) error {
+	return nil
+}
+
+func (m *mockReportStore) UpdateAgentSpendingLimit(context.Context, string, int64) error {
+	return nil
+}
+
 type mockResendAPI struct {
 	sent []*resend.SendEmailRequest
 }

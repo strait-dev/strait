@@ -950,3 +950,11 @@ func nilSafeBillingEnforcer(e *billing.Enforcer) api.BillingEnforcer {
 	}
 	return e
 }
+
+// wrapUsageService prevents the nil-interface trap for UsageService.
+func wrapUsageService(s *billing.UsageService) api.UsageService {
+	if s == nil {
+		return nil
+	}
+	return s
+}
