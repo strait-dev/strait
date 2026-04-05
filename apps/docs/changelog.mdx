@@ -20,6 +20,15 @@ icon: "clock-rotate-left"
   - API Reference overview updates
   - Workflow approval guide escalation section
   - New operations runbook: `/operations/notify-digest-escalation-runbook`
+- Hardened notify subscriber auth and unsubscribe flows:
+  - subscriber tokens now enforce issuer/audience claims
+  - unsubscribe tokens use cryptographically secure random generation with hashed token lookup at rest
+- Added notify delivery reliability controls:
+  - scheduled message retries with capped exponential backoff
+  - provider fallback chains for email delivery (`fallback_id`)
+  - inbox projection idempotency via `inbox_items.message_id` uniqueness
+- Added configurable notify scheduler knobs (`NOTIFY_*`) for retries, digest payload limits, and escalation tier pacing.
+- Added notify-focused Grafana dashboard asset and tuned notify alert thresholds in `packages/monitoring/alerts-strait-core.yaml`.
 
 ## 2026-03
 

@@ -24,6 +24,8 @@ This page documents all environment variables available for configuring Strait.
 | `PORT` | Integer | `8080` | Port the HTTP server listens on. |
 | `INTERNAL_SECRET` | String | (Required) | Secret used for internal authentication between components. |
 | `JWT_SIGNING_KEY` | String | (Required) | Key used to sign JWT run tokens. Must be at least 32 characters. |
+| `NOTIFY_SUBSCRIBER_TOKEN_ISSUER` | String | `strait-notify` | Issuer claim required for notify subscriber JWTs. |
+| `NOTIFY_SUBSCRIBER_TOKEN_AUDIENCE` | String | `strait-notify-subscriber` | Audience claim required for notify subscriber JWTs. |
 | `LOG_LEVEL` | String | `info` | Logging verbosity: `debug`, `info`, `warn`, `error`. |
 | `SECRET_ENCRYPTION_KEY` | String | - | Key used to encrypt job secrets. Required when using secret injection. |
 | `ENCRYPTION_KEY` | String | - | Key used for data encryption at rest. Should be unique per environment. |
@@ -62,6 +64,13 @@ This page documents all environment variables available for configuring Strait.
 | `INDEX_MAINTENANCE_INTERVAL` | Duration | `24h` | Interval for partial index maintenance (`REINDEX INDEX CONCURRENTLY`). Set to `0` or negative to disable. |
 | `REAPER_DELETE_BATCH_SIZE` | Integer | `100` | Number of records to delete in a single reaper batch. |
 | `LOG_DRAIN_WORKER_INTERVAL` | Duration | `60s` | Interval for the log drain delivery worker. |
+| `NOTIFY_DELIVERY_MAX_ATTEMPTS` | Integer | `5` | Maximum attempts for scheduled notify message delivery before terminal failure. |
+| `NOTIFY_RETRY_BASE_DELAY` | Duration | `30s` | Base delay used for exponential notify delivery retries. |
+| `NOTIFY_RETRY_MAX_DELAY` | Duration | `15m` | Maximum delay cap for notify delivery retries. |
+| `NOTIFY_DIGEST_MAX_ITEMS` | Integer | `50` | Maximum digest entries rendered into one digest message payload. |
+| `NOTIFY_DIGEST_MAX_TITLE_CHARS` | Integer | `120` | Maximum title characters per digest line item before truncation. |
+| `NOTIFY_ESCALATION_TIERS` | Integer | `3` | Number of escalation tiers emitted for pending approval reminders. |
+| `NOTIFY_ESCALATION_MIN_INTERVAL` | Duration | `10m` | Minimum interval between approval escalation reminders. |
 
 ## Database Pool
 

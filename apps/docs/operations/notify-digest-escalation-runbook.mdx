@@ -50,7 +50,7 @@ DATABASE_URL='postgres://...' go run ./scripts/notify-triage --project-id <proje
 
 Useful flags:
 
-- `--window=6h` to widen/narrow recent failure inspection
+- `--window=6h` to widen/narrow recent failure inspection (also drives top suppression-reason aggregation)
 - `--stale-threshold=30m` to tune stuck escalation detection
 - `--limit=20` to control failed message row output size
 
