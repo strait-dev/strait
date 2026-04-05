@@ -1,0 +1,43 @@
+{
+  "title": "Strait Notify Operations",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "title": "Scheduled Backlog",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "max(strait_notify_scheduled_backlog)"}
+      ]
+    },
+    {
+      "title": "Digest Requeues (5m rate)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(strait_notify_digest_requeues_total[5m])) by (reason)"}
+      ]
+    },
+    {
+      "title": "Digest Failures (5m rate)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(strait_notify_digest_failures_total[5m])) by (reason)"}
+      ]
+    },
+    {
+      "title": "Escalation Transitions (5m rate)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(strait_notify_escalation_transitions_total[5m])) by (status)"}
+      ]
+    },
+    {
+      "title": "Escalation Stuck States (5m rate)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(strait_notify_escalation_stuck_total[5m])) by (reason)"}
+      ]
+    }
+  ]
+}

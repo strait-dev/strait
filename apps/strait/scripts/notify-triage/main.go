@@ -19,6 +19,11 @@ type failedMessage struct {
 	CreatedAt         time.Time
 }
 
+type suppressionBucket struct {
+	Reason string
+	Count  int64
+}
+
 func main() {
 	var (
 		databaseURL    string
@@ -73,6 +78,14 @@ func main() {
 		 WHERE status = 'processing'
 		   AND ($1 = '' OR project_id = $1)`)
 
+	retryScheduled := mustCount(ctx, pool, projectID,
+		`SELECT COUNT(*)
+		 FROM notification_messages
+		 WHERE status = 'scheduled'
+		   AND attempts > 0
+		   AND scheduled_at > NOW()
+		   AND ($1 = '' OR project_id = $1)`)
+
 	overdueDigestBatches := mustCount(ctx, pool, projectID,
 		`SELECT COUNT(*)
 		 FROM notification_batches
@@ -110,12 +123,22 @@ func main() {
 	fmt.Println("queue health:")
 	fmt.Printf("  due_scheduled_messages: %d\n", dueScheduled)
 	fmt.Printf("  processing_messages:    %d\n", processingMessages)
+	fmt.Printf("  retry_scheduled_msgs:   %d\n", retryScheduled)
 	fmt.Printf("  overdue_digest_batches: %d\n", overdueDigestBatches)
 	fmt.Printf("  processing_batches:     %d\n", processingDigestBatches)
 	fmt.Printf("  failed_digest_batches:  %d\n", failedDigestBatches)
 	fmt.Printf("  due_active_escalations: %d\n", activeEscalationsDue)
 	fmt.Printf("  stuck_escalations:      %d\n", stuckEscalations)
 	fmt.Println()
+
+	suppressionTop := mustListSuppressionReasons(ctx, pool, projectID, window, 5)
+	if len(suppressionTop) > 0 {
+		fmt.Printf("top suppression reasons (window=%s):\n", window)
+		for _, bucket := range suppressionTop {
+			fmt.Printf("  - count=%d reason=%s\n", bucket.Count, sanitize(bucket.Reason))
+		}
+		fmt.Println()
+	}
 
 	failed := mustListFailedMessages(ctx, pool, projectID, window, limit)
 	if len(failed) == 0 {
@@ -143,6 +166,42 @@ func mustCount(ctx context.Context, pool *pgxpool.Pool, projectID, query string,
 		exitf("count query failed: %v", err)
 	}
 	return count
+}
+
+func mustListSuppressionReasons(ctx context.Context, pool *pgxpool.Pool, projectID string, window time.Duration, limit int) []suppressionBucket {
+	if limit <= 0 {
+		limit = 5
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT COALESCE(NULLIF(suppression_reason, ''), 'unknown') AS reason, COUNT(*)
+		 FROM notification_messages
+		 WHERE status = 'failed'
+		   AND created_at >= NOW() - $2::interval
+		   AND ($1 = '' OR project_id = $1)
+		 GROUP BY reason
+		 ORDER BY COUNT(*) DESC
+		 LIMIT $3`,
+		projectID,
+		window.String(),
+		limit,
+	)
+	if err != nil {
+		exitf("suppression reason query failed: %v", err)
+	}
+	defer rows.Close()
+
+	out := make([]suppressionBucket, 0, limit)
+	for rows.Next() {
+		var row suppressionBucket
+		if err := rows.Scan(&row.Reason, &row.Count); err != nil {
+			exitf("scan suppression reason row failed: %v", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		exitf("iterate suppression reason rows failed: %v", err)
+	}
+	return out
 }
 
 func mustListFailedMessages(ctx context.Context, pool *pgxpool.Pool, projectID string, window time.Duration, limit int) []failedMessage {
