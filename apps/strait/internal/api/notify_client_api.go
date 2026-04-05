@@ -400,7 +400,7 @@ func (s *Server) handleGetUnsubscribe(ctx context.Context, input *GetUnsubscribe
 		return nil, huma.Error500InternalServerError("failed to resolve unsubscribe token")
 	}
 	return &GetUnsubscribeOutput{Body: map[string]any{
-		"token":         tok.Token,
+		"token":         input.Token,
 		"scope":         tok.Scope,
 		"subscriber_id": tok.SubscriberID,
 		"expires_at":    tok.ExpiresAt,
@@ -452,7 +452,7 @@ func (s *Server) handleProcessUnsubscribe(ctx context.Context, input *Unsubscrib
 			return nil, huma.Error500InternalServerError("failed to update category preference")
 		}
 	}
-	_ = ns.UseUnsubscribeToken(ctx, tok.Token, time.Now().UTC())
+	_ = ns.UseUnsubscribeToken(ctx, input.Token, time.Now().UTC())
 	s.dispatchNotifyWebhookEvent(ctx, tok.ProjectID, "notification.unsubscribed", map[string]any{
 		"subscriber_id": tok.SubscriberID,
 		"scope":         scope,

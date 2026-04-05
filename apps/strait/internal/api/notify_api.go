@@ -582,13 +582,22 @@ func (s *Server) resolveNotifyDigestPolicy(ctx context.Context, ns notifyStore, 
 	}
 }
 
-func resolveNotifyDigestWindow(policy string, now time.Time) (time.Time, bool) {
-	now = now.UTC()
+func resolveNotifyDigestWindow(policy string, now time.Time, tzName string) (time.Time, bool) {
+	loc := time.UTC
+	if strings.TrimSpace(tzName) != "" {
+		if tz, err := time.LoadLocation(tzName); err == nil {
+			loc = tz
+		}
+	}
+	localNow := now.In(loc)
+
 	switch policy {
 	case notifyDigestPolicyHourly:
-		return now.Truncate(time.Hour).Add(time.Hour), true
+		window := localNow.Truncate(time.Hour).Add(time.Hour)
+		return window.UTC(), true
 	case notifyDigestPolicyDaily:
-		return now.Truncate(24 * time.Hour).Add(24 * time.Hour), true
+		nextDay := time.Date(localNow.Year(), localNow.Month(), localNow.Day()+1, 0, 0, 0, 0, loc)
+		return nextDay.UTC(), true
 	default:
 		return time.Time{}, false
 	}
@@ -602,7 +611,7 @@ func (s *Server) enqueueNotifyDigestBatch(
 	channel, templateKey, categoryKey, digestPolicy string,
 	rawChannelPayload any,
 ) (*domain.NotificationBatch, error) {
-	windowEnd, ok := resolveNotifyDigestWindow(digestPolicy, time.Now())
+	windowEnd, ok := resolveNotifyDigestWindow(digestPolicy, time.Now(), recipient.Timezone)
 	if !ok {
 		return nil, fmt.Errorf("unsupported digest policy: %s", digestPolicy)
 	}
@@ -731,7 +740,11 @@ func (s *Server) absoluteNotifyURL(path string) string {
 }
 
 func (s *Server) createUnsubscribeURL(ctx context.Context, ns notifyStore, projectID, subscriberID, categoryKey string) (string, error) {
-	tokenValue := fmt.Sprintf("unsub_%d", time.Now().UnixNano())
+	tokenValue, err := generateSecureToken(24)
+	if err != nil {
+		return "", fmt.Errorf("generate unsubscribe token: %w", err)
+	}
+	tokenHash := sha256.Sum256([]byte(tokenValue))
 	scope := "global"
 	if categoryKey != "" {
 		scope = "category:" + categoryKey
@@ -740,13 +753,13 @@ func (s *Server) createUnsubscribeURL(ctx context.Context, ns notifyStore, proje
 		ProjectID:    projectID,
 		SubscriberID: subscriberID,
 		Scope:        scope,
-		Token:        tokenValue,
+		TokenHash:    hex.EncodeToString(tokenHash[:]),
 		ExpiresAt:    time.Now().UTC().Add(30 * 24 * time.Hour),
 	}
 	if err := ns.CreateUnsubscribeToken(ctx, tok); err != nil {
 		return "", err
 	}
-	return s.absoluteNotifyURL("/v1/unsubscribe/" + tok.Token), nil
+	return s.absoluteNotifyURL("/v1/unsubscribe/" + tokenValue), nil
 }
 
 // Subscribers API.

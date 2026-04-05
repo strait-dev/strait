@@ -41,6 +41,7 @@ var (
 	ErrEscalationStateNotFound        = errors.New("escalation state not found")
 	ErrNotificationProviderNotFound   = errors.New("notification provider not found")
 	ErrInboxItemNotFound              = errors.New("inbox item not found")
+	ErrInboxItemAlreadyExists         = errors.New("inbox item already exists")
 	ErrUnsubscribeTokenNotFound       = errors.New("unsubscribe token not found")
 	ErrJobMemoryPerKeyLimitExceeded   = errors.New("job memory per-key limit exceeded")
 	ErrJobMemoryPerJobLimitExceeded   = errors.New("job memory per-job limit exceeded")

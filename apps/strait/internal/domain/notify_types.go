@@ -96,7 +96,8 @@ type UnsubscribeToken struct {
 	ProjectID    string     `json:"project_id"`
 	SubscriberID string     `json:"subscriber_id"`
 	Scope        string     `json:"scope"`
-	Token        string     `json:"token"`
+	Token        string     `json:"token,omitempty"`
+	TokenHash    string     `json:"-"`
 	UsedAt       *time.Time `json:"used_at,omitempty"`
 	ExpiresAt    time.Time  `json:"expires_at"`
 	CreatedAt    time.Time  `json:"created_at"`
@@ -235,6 +236,7 @@ type InboxItem struct {
 	TenantID      string          `json:"tenant_id,omitempty"`
 	WorkflowID    string          `json:"workflow_id,omitempty"`
 	WorkflowRunID string          `json:"workflow_run_id,omitempty"`
+	MessageID     string          `json:"message_id,omitempty"`
 	CategoryKey   string          `json:"category_key,omitempty"`
 	Title         string          `json:"title"`
 	Body          string          `json:"body,omitempty"`

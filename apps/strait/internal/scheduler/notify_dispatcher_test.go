@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 type notifyDispatcherStoreMock struct {
@@ -26,6 +27,7 @@ type notifyDispatcherStoreMock struct {
 	getSubFunc             func(context.Context, string, string) (*domain.NotifySubscriber, error)
 	createInboxFunc        func(context.Context, *domain.InboxItem) error
 	getProviderFunc        func(context.Context, string, string) (*domain.NotificationProvider, error)
+	listProvidersFunc      func(context.Context, string, string) ([]domain.NotificationProvider, error)
 }
 
 func (m *notifyDispatcherStoreMock) ClaimDueScheduledNotificationMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error) {
@@ -140,6 +142,13 @@ func (m *notifyDispatcherStoreMock) GetNotificationProvider(ctx context.Context,
 	return m.getProviderFunc(ctx, id, projectID)
 }
 
+func (m *notifyDispatcherStoreMock) ListNotificationProviders(ctx context.Context, projectID, channel string) ([]domain.NotificationProvider, error) {
+	if m.listProvidersFunc == nil {
+		return nil, nil
+	}
+	return m.listProvidersFunc(ctx, projectID, channel)
+}
+
 func TestNotifyDispatcherPoll_InboxDelivered(t *testing.T) {
 	t.Parallel()
 
@@ -188,6 +197,46 @@ func TestNotifyDispatcherPoll_InboxDelivered(t *testing.T) {
 	}
 	if !delivered {
 		t.Fatal("expected delivered status update")
+	}
+}
+
+func TestNotifyDispatcherPoll_InboxDuplicateProjectionIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	msg := domain.NotificationMessage{
+		ID:              "msg_dup_1",
+		ProjectID:       "proj_1",
+		RecipientType:   domain.NotifyRecipientTypeSubscriber,
+		RecipientID:     "sub_1",
+		Channel:         "inbox",
+		Status:          domain.NotifyMessageStatusProcessing,
+		RenderedContent: []byte(`{"title":"Hello"}`),
+	}
+
+	var delivered bool
+	st := &notifyDispatcherStoreMock{
+		claimFunc: func(context.Context, int) ([]domain.NotificationMessage, error) {
+			return []domain.NotificationMessage{msg}, nil
+		},
+		getSubFunc: func(context.Context, string, string) (*domain.NotifySubscriber, error) {
+			return &domain.NotifySubscriber{ID: "sub_1", ProjectID: "proj_1", TenantID: "tenant_1"}, nil
+		},
+		createInboxFunc: func(_ context.Context, _ *domain.InboxItem) error {
+			return store.ErrInboxItemAlreadyExists
+		},
+		updateStatusFunc: func(_ context.Context, _, _ string, fromStatus, toStatus string, _ map[string]any) error {
+			if fromStatus == domain.NotifyMessageStatusProcessing && toStatus == domain.NotifyMessageStatusDelivered {
+				delivered = true
+			}
+			return nil
+		},
+	}
+
+	d := NewNotifyDispatcher(st, 0, "", "")
+	d.poll(context.Background())
+
+	if !delivered {
+		t.Fatal("expected delivered status update for duplicate inbox projection")
 	}
 }
 
@@ -348,5 +397,81 @@ func TestNotifyDispatcherPoll_UnsupportedChannelFails(t *testing.T) {
 
 	if !failed {
 		t.Fatal("expected failed status update")
+	}
+}
+
+func TestNotifyDispatcherPoll_RetryMessageOnTransientFailure(t *testing.T) {
+	t.Parallel()
+
+	msg := domain.NotificationMessage{
+		ID:              "msg_retry_1",
+		ProjectID:       "proj_1",
+		RecipientType:   domain.NotifyRecipientTypeSubscriber,
+		RecipientID:     "sub_1",
+		Channel:         "inbox",
+		Status:          domain.NotifyMessageStatusProcessing,
+		Attempts:        1,
+		RenderedContent: []byte(`{"title":"hello"}`),
+	}
+
+	var retried bool
+	st := &notifyDispatcherStoreMock{
+		claimFunc: func(context.Context, int) ([]domain.NotificationMessage, error) {
+			return []domain.NotificationMessage{msg}, nil
+		},
+		getSubFunc: func(context.Context, string, string) (*domain.NotifySubscriber, error) {
+			return &domain.NotifySubscriber{ID: "sub_1", ProjectID: "proj_1"}, nil
+		},
+		createInboxFunc: func(context.Context, *domain.InboxItem) error {
+			return errors.New("temporary inbox outage")
+		},
+		updateStatusFunc: func(_ context.Context, _, _ string, fromStatus, toStatus string, fields map[string]any) error {
+			if fromStatus == domain.NotifyMessageStatusProcessing && toStatus == domain.NotifyMessageStatusScheduled {
+				retried = true
+				if fields["scheduled_at"] == nil {
+					t.Fatal("expected scheduled_at on retry")
+				}
+			}
+			if toStatus == domain.NotifyMessageStatusFailed {
+				t.Fatal("message should be retried before failing")
+			}
+			return nil
+		},
+	}
+
+	d := NewNotifyDispatcher(st, 0, "", "").WithRetryPolicy(3, time.Second, time.Minute)
+	d.poll(context.Background())
+
+	if !retried {
+		t.Fatal("expected retry status update")
+	}
+}
+
+func TestResolveEmailProviderAttempts_UsesFallbackChain(t *testing.T) {
+	t.Parallel()
+
+	st := &notifyDispatcherStoreMock{
+		getProviderFunc: func(_ context.Context, id, _ string) (*domain.NotificationProvider, error) {
+			switch id {
+			case "primary":
+				return &domain.NotificationProvider{ID: "primary", Provider: "mailgun", FallbackID: "secondary", ConfigEnc: []byte(`{"api_key":"x"}`)}, nil
+			case "secondary":
+				return &domain.NotificationProvider{ID: "secondary", Provider: "resend", ConfigEnc: []byte(`{"api_key":"rk","from_email":"noreply@example.com"}`)}, nil
+			default:
+				return nil, errors.New("unknown provider")
+			}
+		},
+	}
+
+	d := NewNotifyDispatcher(st, 0, "", "noreply@strait.dev")
+	attempts, err := d.resolveEmailProviderAttempts(context.Background(), domain.NotificationMessage{ProjectID: "proj_1", ProviderID: "primary"})
+	if err != nil {
+		t.Fatalf("resolveEmailProviderAttempts() error = %v", err)
+	}
+	if len(attempts) < 2 {
+		t.Fatalf("attempt count = %d, want >= 2", len(attempts))
+	}
+	if attempts[0].ID != "primary" || attempts[1].ID != "secondary" {
+		t.Fatalf("attempt order = [%s,%s], want [primary,secondary]", attempts[0].ID, attempts[1].ID)
 	}
 }

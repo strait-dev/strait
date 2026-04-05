@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 )
 
@@ -39,14 +40,14 @@ func (q *Queries) CreateInboxItem(ctx context.Context, item *domain.InboxItem) e
 
 	query := `
 		INSERT INTO inbox_items (
-			id, recipient_type, recipient_id, project_id, tenant_id, workflow_id, workflow_run_id, category_key,
+			id, recipient_type, recipient_id, project_id, tenant_id, workflow_id, workflow_run_id, message_id, category_key,
 			title, body, avatar, priority, state, actions, dedup_key, dedup_count,
 			read_at, archived_at, actioned_at, action_result
 		)
 		VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12, $13, $14, $15, $16,
-			$17, $18, $19, $20
+			$1, $2, $3, $4, $5, $6, $7, $8, $9,
+			$10, $11, $12, $13, $14, $15, $16, $17,
+			$18, $19, $20, $21
 		)
 		RETURNING created_at, updated_at`
 
@@ -60,6 +61,7 @@ func (q *Queries) CreateInboxItem(ctx context.Context, item *domain.InboxItem) e
 		dbscan.NilIfEmptyString(item.TenantID),
 		dbscan.NilIfEmptyString(item.WorkflowID),
 		dbscan.NilIfEmptyString(item.WorkflowRunID),
+		dbscan.NilIfEmptyString(item.MessageID),
 		dbscan.NilIfEmptyString(item.CategoryKey),
 		item.Title,
 		dbscan.NilIfEmptyString(item.Body),
@@ -75,6 +77,10 @@ func (q *Queries) CreateInboxItem(ctx context.Context, item *domain.InboxItem) e
 		dbscan.NilIfEmptyRawMessage(item.ActionResult),
 	).Scan(&item.CreatedAt, &item.UpdatedAt)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "idx_notify_inbox_items_message_id") {
+			return ErrInboxItemAlreadyExists
+		}
 		return fmt.Errorf("create inbox item: %w", err)
 	}
 
@@ -86,7 +92,7 @@ func (q *Queries) GetInboxItem(ctx context.Context, id, recipientType, recipient
 	defer span.End()
 
 	query := `
-		SELECT id, recipient_type, recipient_id, project_id, tenant_id, workflow_id, workflow_run_id, category_key,
+		SELECT id, recipient_type, recipient_id, project_id, tenant_id, workflow_id, workflow_run_id, message_id, category_key,
 		       title, body, avatar, priority, state, actions, dedup_key, dedup_count,
 		       read_at, archived_at, actioned_at, action_result, created_at, updated_at
 		FROM inbox_items
@@ -112,7 +118,7 @@ func (q *Queries) ListInboxItems(ctx context.Context, recipientType, recipientID
 	}
 
 	query := `
-		SELECT id, recipient_type, recipient_id, project_id, tenant_id, workflow_id, workflow_run_id, category_key,
+		SELECT id, recipient_type, recipient_id, project_id, tenant_id, workflow_id, workflow_run_id, message_id, category_key,
 		       title, body, avatar, priority, state, actions, dedup_key, dedup_count,
 		       read_at, archived_at, actioned_at, action_result, created_at, updated_at
 		FROM inbox_items
@@ -250,6 +256,7 @@ func scanInboxItem(scanner scanTarget) (*domain.InboxItem, error) {
 	var tenantID *string
 	var workflowID *string
 	var workflowRunID *string
+	var messageID *string
 	var categoryKey *string
 	var body *string
 	var avatar *string
@@ -264,6 +271,7 @@ func scanInboxItem(scanner scanTarget) (*domain.InboxItem, error) {
 		&tenantID,
 		&workflowID,
 		&workflowRunID,
+		&messageID,
 		&categoryKey,
 		&item.Title,
 		&body,
@@ -292,6 +300,9 @@ func scanInboxItem(scanner scanTarget) (*domain.InboxItem, error) {
 	}
 	if workflowRunID != nil {
 		item.WorkflowRunID = *workflowRunID
+	}
+	if messageID != nil {
+		item.MessageID = *messageID
 	}
 	if categoryKey != nil {
 		item.CategoryKey = *categoryKey

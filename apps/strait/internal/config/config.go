@@ -15,33 +15,35 @@ import (
 )
 
 type Config struct {
-	DatabaseURL               string        `env:"DATABASE_URL"`
-	RedisURL                  string        `env:"REDIS_URL"`
-	RedisSentinelMaster       string        `env:"REDIS_SENTINEL_MASTER"`
-	RedisSentinelAddrs        []string      `env:"REDIS_SENTINEL_ADDRS"`
-	Mode                      string        `env:"MODE" default:"all"`
-	Port                      int           `env:"PORT" default:"8080"`
-	WorkerConcurrency         int           `env:"WORKER_CONCURRENCY" default:"25"`
-	InternalSecret            string        `env:"INTERNAL_SECRET"`
-	JWTSigningKey             string        `env:"JWT_SIGNING_KEY"`
-	SecretEncryptionKey       string        `env:"SECRET_ENCRYPTION_KEY"`
-	EncryptionKey             string        `env:"ENCRYPTION_KEY"`
-	EncryptionKeyOld          []string      `env:"ENCRYPTION_KEY_OLD"`
-	OIDCEnabled               bool          `env:"OIDC_ENABLED" default:"false"`
-	OIDCIssuer                string        `env:"OIDC_ISSUER"`
-	OIDCAudience              string        `env:"OIDC_AUDIENCE"`
-	OIDCPublicKeyPEM          string        `env:"OIDC_PUBLIC_KEY_PEM"`
-	LogLevel                  string        `env:"LOG_LEVEL" default:"info"`
-	LogFormat                 string        `env:"LOG_FORMAT" default:"json"`
-	HeartbeatInterval         time.Duration `env:"HEARTBEAT_INTERVAL" default:"10s"`
-	ReaperInterval            time.Duration `env:"REAPER_INTERVAL" default:"30s"`
-	StaleThreshold            time.Duration `env:"STALE_THRESHOLD" default:"1m"`
-	PollerInterval            time.Duration `env:"POLLER_INTERVAL" default:"5s"`
-	RunRetentionShort         time.Duration `env:"RUN_RETENTION_SHORT" default:"720h"`
-	RunRetentionLong          time.Duration `env:"RUN_RETENTION_LONG" default:"2160h"`
-	OTELEndpoint              string        `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
-	WorkflowRunRetentionDays  int           `env:"WORKFLOW_RUN_RETENTION_DAYS" default:"30"`
-	EventTriggerRetentionDays int           `env:"EVENT_TRIGGER_RETENTION_DAYS"`
+	DatabaseURL                   string        `env:"DATABASE_URL"`
+	RedisURL                      string        `env:"REDIS_URL"`
+	RedisSentinelMaster           string        `env:"REDIS_SENTINEL_MASTER"`
+	RedisSentinelAddrs            []string      `env:"REDIS_SENTINEL_ADDRS"`
+	Mode                          string        `env:"MODE" default:"all"`
+	Port                          int           `env:"PORT" default:"8080"`
+	WorkerConcurrency             int           `env:"WORKER_CONCURRENCY" default:"25"`
+	InternalSecret                string        `env:"INTERNAL_SECRET"`
+	JWTSigningKey                 string        `env:"JWT_SIGNING_KEY"`
+	NotifySubscriberTokenIssuer   string        `env:"NOTIFY_SUBSCRIBER_TOKEN_ISSUER" default:"strait-notify"`
+	NotifySubscriberTokenAudience string        `env:"NOTIFY_SUBSCRIBER_TOKEN_AUDIENCE" default:"strait-notify-subscriber"`
+	SecretEncryptionKey           string        `env:"SECRET_ENCRYPTION_KEY"`
+	EncryptionKey                 string        `env:"ENCRYPTION_KEY"`
+	EncryptionKeyOld              []string      `env:"ENCRYPTION_KEY_OLD"`
+	OIDCEnabled                   bool          `env:"OIDC_ENABLED" default:"false"`
+	OIDCIssuer                    string        `env:"OIDC_ISSUER"`
+	OIDCAudience                  string        `env:"OIDC_AUDIENCE"`
+	OIDCPublicKeyPEM              string        `env:"OIDC_PUBLIC_KEY_PEM"`
+	LogLevel                      string        `env:"LOG_LEVEL" default:"info"`
+	LogFormat                     string        `env:"LOG_FORMAT" default:"json"`
+	HeartbeatInterval             time.Duration `env:"HEARTBEAT_INTERVAL" default:"10s"`
+	ReaperInterval                time.Duration `env:"REAPER_INTERVAL" default:"30s"`
+	StaleThreshold                time.Duration `env:"STALE_THRESHOLD" default:"1m"`
+	PollerInterval                time.Duration `env:"POLLER_INTERVAL" default:"5s"`
+	RunRetentionShort             time.Duration `env:"RUN_RETENTION_SHORT" default:"720h"`
+	RunRetentionLong              time.Duration `env:"RUN_RETENTION_LONG" default:"2160h"`
+	OTELEndpoint                  string        `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	WorkflowRunRetentionDays      int           `env:"WORKFLOW_RUN_RETENTION_DAYS" default:"30"`
+	EventTriggerRetentionDays     int           `env:"EVENT_TRIGGER_RETENTION_DAYS"`
 
 	// Database connection pool tuning
 	DBMaxConns         int32         `env:"DB_MAX_CONNS" default:"50"`
@@ -107,15 +109,22 @@ type Config struct {
 	MaxDequeueBatchSize      int `env:"MAX_DEQUEUE_BATCH_SIZE" default:"0"`
 
 	// Scheduler settings
-	WorkflowRetention        time.Duration `env:"WORKFLOW_RETENTION" default:"720h"`
-	EventTriggerRetention    time.Duration `env:"EVENT_TRIGGER_RETENTION"`
-	IndexMaintenanceInterval time.Duration `env:"INDEX_MAINTENANCE_INTERVAL" default:"24h"`
-	ReaperDeleteBatchSize    int           `env:"REAPER_DELETE_BATCH_SIZE" default:"100"`
-	StalledWorkflowThreshold time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
-	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"log_only"`
-	WfMaxStepCap             int           `env:"WF_MAX_STEP_CAP" default:"100"`
-	WfStepConcurrencyLimit   int           `env:"WF_STEP_CONCURRENCY_LIMIT" default:"0"`
-	DependencyStatusCacheTTL time.Duration `env:"DEPENDENCY_STATUS_CACHE_TTL" default:"5s"`
+	WorkflowRetention           time.Duration `env:"WORKFLOW_RETENTION" default:"720h"`
+	EventTriggerRetention       time.Duration `env:"EVENT_TRIGGER_RETENTION"`
+	IndexMaintenanceInterval    time.Duration `env:"INDEX_MAINTENANCE_INTERVAL" default:"24h"`
+	ReaperDeleteBatchSize       int           `env:"REAPER_DELETE_BATCH_SIZE" default:"100"`
+	StalledWorkflowThreshold    time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
+	StalledWorkflowAction       string        `env:"WF_STALL_ACTION" default:"log_only"`
+	WfMaxStepCap                int           `env:"WF_MAX_STEP_CAP" default:"100"`
+	WfStepConcurrencyLimit      int           `env:"WF_STEP_CONCURRENCY_LIMIT" default:"0"`
+	DependencyStatusCacheTTL    time.Duration `env:"DEPENDENCY_STATUS_CACHE_TTL" default:"5s"`
+	NotifyDeliveryMaxAttempts   int           `env:"NOTIFY_DELIVERY_MAX_ATTEMPTS" default:"5"`
+	NotifyRetryBaseDelay        time.Duration `env:"NOTIFY_RETRY_BASE_DELAY" default:"30s"`
+	NotifyRetryMaxDelay         time.Duration `env:"NOTIFY_RETRY_MAX_DELAY" default:"15m"`
+	NotifyDigestMaxItems        int           `env:"NOTIFY_DIGEST_MAX_ITEMS" default:"50"`
+	NotifyDigestMaxTitleChars   int           `env:"NOTIFY_DIGEST_MAX_TITLE_CHARS" default:"120"`
+	NotifyEscalationTiers       int           `env:"NOTIFY_ESCALATION_TIERS" default:"3"`
+	NotifyEscalationMinInterval time.Duration `env:"NOTIFY_ESCALATION_MIN_INTERVAL" default:"10m"`
 
 	// Workflow settings
 	MaxWorkflowNestingDepth int `env:"MAX_WORKFLOW_NESTING_DEPTH" default:"10"`
@@ -343,6 +352,9 @@ func Load() (*Config, error) {
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return nil, &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
 	}
+	if err := validateNotifyConfig(&cfg); err != nil {
+		return nil, err
+	}
 
 	if cfg.EncryptionKey == "" && cfg.SecretEncryptionKey == "" {
 		slog.Warn("neither ENCRYPTION_KEY nor SECRET_ENCRYPTION_KEY is set; secret encryption will be unavailable")
@@ -375,6 +387,40 @@ func Load() (*Config, error) {
 	)
 
 	return &cfg, nil
+}
+
+func validateNotifyConfig(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	if strings.TrimSpace(cfg.NotifySubscriberTokenIssuer) == "" {
+		return &domain.ConfigError{Field: "NOTIFY_SUBSCRIBER_TOKEN_ISSUER", Message: "must not be empty"}
+	}
+	if strings.TrimSpace(cfg.NotifySubscriberTokenAudience) == "" {
+		return &domain.ConfigError{Field: "NOTIFY_SUBSCRIBER_TOKEN_AUDIENCE", Message: "must not be empty"}
+	}
+	if cfg.NotifyDeliveryMaxAttempts < 1 {
+		return &domain.ConfigError{Field: "NOTIFY_DELIVERY_MAX_ATTEMPTS", Message: "must be >= 1"}
+	}
+	if cfg.NotifyRetryBaseDelay <= 0 {
+		return &domain.ConfigError{Field: "NOTIFY_RETRY_BASE_DELAY", Message: "must be > 0"}
+	}
+	if cfg.NotifyRetryMaxDelay < cfg.NotifyRetryBaseDelay {
+		return &domain.ConfigError{Field: "NOTIFY_RETRY_MAX_DELAY", Message: "must be >= NOTIFY_RETRY_BASE_DELAY"}
+	}
+	if cfg.NotifyDigestMaxItems < 1 {
+		return &domain.ConfigError{Field: "NOTIFY_DIGEST_MAX_ITEMS", Message: "must be >= 1"}
+	}
+	if cfg.NotifyDigestMaxTitleChars < 16 {
+		return &domain.ConfigError{Field: "NOTIFY_DIGEST_MAX_TITLE_CHARS", Message: "must be >= 16"}
+	}
+	if cfg.NotifyEscalationTiers < 1 {
+		return &domain.ConfigError{Field: "NOTIFY_ESCALATION_TIERS", Message: "must be >= 1"}
+	}
+	if cfg.NotifyEscalationMinInterval <= 0 {
+		return &domain.ConfigError{Field: "NOTIFY_ESCALATION_MIN_INTERVAL", Message: "must be > 0"}
+	}
+	return nil
 }
 
 // Redacted returns a map of config field names to values with secrets masked.

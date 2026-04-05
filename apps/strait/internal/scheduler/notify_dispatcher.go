@@ -3,12 +3,16 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 	"strait/internal/telemetry"
 
 	"github.com/resend/resend-go/v2"
@@ -37,16 +41,23 @@ type notifyDispatcherStore interface {
 	GetNotifySubscriber(ctx context.Context, id, projectID string) (*domain.NotifySubscriber, error)
 	CreateInboxItem(ctx context.Context, item *domain.InboxItem) error
 	GetNotificationProvider(ctx context.Context, id, projectID string) (*domain.NotificationProvider, error)
+	ListNotificationProviders(ctx context.Context, projectID, channel string) ([]domain.NotificationProvider, error)
 }
 
 type NotifyDispatcher struct {
-	store        notifyDispatcherStore
-	interval     time.Duration
-	batchSize    int
-	resendAPIKey string
-	resendFrom   string
-	logger       *slog.Logger
-	metrics      *telemetry.Metrics
+	store                 notifyDispatcherStore
+	interval              time.Duration
+	batchSize             int
+	resendAPIKey          string
+	resendFrom            string
+	maxAttempts           int
+	retryBaseDelay        time.Duration
+	retryMaxDelay         time.Duration
+	digestMaxItems        int
+	digestMaxTitleChars   int
+	escalationMinInterval time.Duration
+	logger                *slog.Logger
+	metrics               *telemetry.Metrics
 }
 
 func NewNotifyDispatcher(s notifyDispatcherStore, interval time.Duration, resendAPIKey, resendFrom string) *NotifyDispatcher {
@@ -58,17 +69,56 @@ func NewNotifyDispatcher(s notifyDispatcherStore, interval time.Duration, resend
 	}
 
 	return &NotifyDispatcher{
-		store:        s,
-		interval:     interval,
-		batchSize:    100,
-		resendAPIKey: resendAPIKey,
-		resendFrom:   resendFrom,
-		logger:       slog.Default(),
+		store:                 s,
+		interval:              interval,
+		batchSize:             100,
+		resendAPIKey:          resendAPIKey,
+		resendFrom:            resendFrom,
+		maxAttempts:           5,
+		retryBaseDelay:        30 * time.Second,
+		retryMaxDelay:         15 * time.Minute,
+		digestMaxItems:        50,
+		digestMaxTitleChars:   120,
+		escalationMinInterval: notifyEscalationDefaultInterval,
+		logger:                slog.Default(),
 	}
 }
 
 func (d *NotifyDispatcher) WithMetrics(m *telemetry.Metrics) *NotifyDispatcher {
 	d.metrics = m
+	return d
+}
+
+func (d *NotifyDispatcher) WithRetryPolicy(maxAttempts int, baseDelay, maxDelay time.Duration) *NotifyDispatcher {
+	if maxAttempts > 0 {
+		d.maxAttempts = maxAttempts
+	}
+	if baseDelay > 0 {
+		d.retryBaseDelay = baseDelay
+	}
+	if maxDelay > 0 {
+		d.retryMaxDelay = maxDelay
+	}
+	if d.retryMaxDelay < d.retryBaseDelay {
+		d.retryMaxDelay = d.retryBaseDelay
+	}
+	return d
+}
+
+func (d *NotifyDispatcher) WithDigestLimits(maxItems, maxTitleChars int) *NotifyDispatcher {
+	if maxItems > 0 {
+		d.digestMaxItems = maxItems
+	}
+	if maxTitleChars > 0 {
+		d.digestMaxTitleChars = maxTitleChars
+	}
+	return d
+}
+
+func (d *NotifyDispatcher) WithEscalationMinInterval(minInterval time.Duration) *NotifyDispatcher {
+	if minInterval > 0 {
+		d.escalationMinInterval = minInterval
+	}
 	return d
 }
 
@@ -200,7 +250,7 @@ func (d *NotifyDispatcher) processEscalation(ctx context.Context, state domain.E
 	if nextTier >= state.TotalTiers {
 		status = domain.NotifyEscalationStatusCompleted
 	} else {
-		t := time.Now().UTC().Add(notifyEscalationDefaultInterval)
+		t := time.Now().UTC().Add(d.computeEscalationInterval(approval, nextTier, state.TotalTiers))
 		nextAt = &t
 	}
 
@@ -212,6 +262,28 @@ func (d *NotifyDispatcher) processEscalation(ctx context.Context, state domain.E
 	return nil
 }
 
+func (d *NotifyDispatcher) computeEscalationInterval(approval *domain.WorkflowStepApproval, nextTier, totalTiers int) time.Duration {
+	if approval == nil || approval.ExpiresAt == nil || totalTiers <= nextTier {
+		return d.escalationMinInterval
+	}
+
+	remaining := time.Until(*approval.ExpiresAt)
+	if remaining <= 0 {
+		return d.escalationMinInterval
+	}
+
+	remainingEscalations := totalTiers - nextTier
+	if remainingEscalations <= 0 {
+		return d.escalationMinInterval
+	}
+
+	interval := remaining / time.Duration(remainingEscalations+1)
+	if interval < d.escalationMinInterval {
+		return d.escalationMinInterval
+	}
+	return interval
+}
+
 func (d *NotifyDispatcher) processBatch(ctx context.Context, batch domain.NotificationBatch) error {
 	sub, err := d.store.GetNotifySubscriber(ctx, batch.RecipientID, batch.ProjectID)
 	if err != nil {
@@ -220,7 +292,7 @@ func (d *NotifyDispatcher) processBatch(ctx context.Context, batch domain.Notifi
 		return fmt.Errorf("resolve batch subscriber: %w", err)
 	}
 
-	payload := buildDigestPayload(batch)
+	payload := d.buildDigestPayload(batch)
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		d.requeueBatch(ctx, batch, "marshal_payload")
@@ -278,6 +350,9 @@ func (d *NotifyDispatcher) processMessage(ctx context.Context, msg domain.Notifi
 	}
 
 	if err := d.deliverByChannel(ctx, &msg, sub, payload); err != nil {
+		if d.retryMessage(ctx, msg, err) {
+			return nil
+		}
 		d.failMessage(ctx, msg, err)
 		return err
 	}
@@ -330,6 +405,7 @@ func (d *NotifyDispatcher) deliverInbox(ctx context.Context, msg domain.Notifica
 		ProjectID:     msg.ProjectID,
 		TenantID:      sub.TenantID,
 		WorkflowRunID: msg.WorkflowRunID,
+		MessageID:     msg.ID,
 		CategoryKey:   msg.CategoryKey,
 		Title:         title,
 		Body:          body,
@@ -340,6 +416,9 @@ func (d *NotifyDispatcher) deliverInbox(ctx context.Context, msg domain.Notifica
 	}
 
 	if err := d.store.CreateInboxItem(ctx, item); err != nil {
+		if errors.Is(err, store.ErrInboxItemAlreadyExists) {
+			return nil
+		}
 		return fmt.Errorf("create inbox item: %w", err)
 	}
 
@@ -361,51 +440,151 @@ func (d *NotifyDispatcher) deliverEmail(ctx context.Context, msg domain.Notifica
 		return fmt.Errorf("email body is required")
 	}
 
-	providerName := "resend"
-	apiKey := d.resendAPIKey
-	fromEmail := d.resendFrom
+	attempts, err := d.resolveEmailProviderAttempts(ctx, msg)
+	if err != nil {
+		return err
+	}
+
+	var sendErr error
+	for _, attempt := range attempts {
+		err := d.sendWithProvider(ctx, attempt, sub.Email, subject, htmlBody, textBody)
+		if err == nil {
+			return nil
+		}
+		d.logger.Warn("notify dispatcher: email send attempt failed",
+			"message_id", msg.ID,
+			"provider_id", attempt.ID,
+			"provider", attempt.Provider,
+			"error", err,
+		)
+		sendErr = errors.Join(sendErr, err)
+	}
+
+	if sendErr == nil {
+		return fmt.Errorf("email delivery failed: no providers configured")
+	}
+	return sendErr
+}
+
+type emailProviderAttempt struct {
+	ID         string
+	Provider   string
+	FromEmail  string
+	APIKey     string
+	FallbackID string
+}
+
+func (d *NotifyDispatcher) resolveEmailProviderAttempts(ctx context.Context, msg domain.NotificationMessage) ([]emailProviderAttempt, error) {
+	attempts := make([]emailProviderAttempt, 0, 4)
+	seen := map[string]struct{}{}
+
+	appendConfigFallback := func() {
+		if d.resendAPIKey == "" {
+			return
+		}
+		attempts = append(attempts, emailProviderAttempt{
+			Provider:  "resend",
+			FromEmail: d.resendFrom,
+			APIKey:    d.resendAPIKey,
+		})
+	}
 
 	if msg.ProviderID != "" {
-		provider, err := d.store.GetNotificationProvider(ctx, msg.ProviderID, msg.ProjectID)
+		chain, err := d.resolveProviderFallbackChain(ctx, msg.ProjectID, msg.ProviderID, seen)
 		if err != nil {
-			return fmt.Errorf("resolve provider: %w", err)
+			return nil, err
 		}
-		providerName = provider.Provider
+		attempts = append(attempts, chain...)
+		appendConfigFallback()
+		return attempts, nil
+	}
 
-		cfg := struct {
-			APIKey    string `json:"api_key"`
-			FromEmail string `json:"from_email"`
-		}{}
+	providers, err := d.store.ListNotificationProviders(ctx, msg.ProjectID, "email")
+	if err == nil {
+		for _, provider := range providers {
+			if !provider.IsDefault {
+				continue
+			}
+			chain, chainErr := d.resolveProviderFallbackChain(ctx, msg.ProjectID, provider.ID, seen)
+			if chainErr != nil {
+				return nil, chainErr
+			}
+			attempts = append(attempts, chain...)
+			break
+		}
+	}
+	appendConfigFallback()
+	if len(attempts) == 0 {
+		return nil, fmt.Errorf("email delivery failed: no providers configured")
+	}
+	return attempts, nil
+}
+
+func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, projectID, providerID string, seen map[string]struct{}) ([]emailProviderAttempt, error) {
+	if providerID == "" {
+		return nil, nil
+	}
+	if _, ok := seen[providerID]; ok {
+		return nil, nil
+	}
+	seen[providerID] = struct{}{}
+
+	provider, err := d.store.GetNotificationProvider(ctx, providerID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve provider: %w", err)
+	}
+
+	cfg := struct {
+		APIKey    string `json:"api_key"`
+		FromEmail string `json:"from_email"`
+	}{}
+	if len(provider.ConfigEnc) > 0 {
 		if err := json.Unmarshal(provider.ConfigEnc, &cfg); err != nil {
-			return fmt.Errorf("decode provider config: %w", err)
-		}
-		if cfg.APIKey != "" {
-			apiKey = cfg.APIKey
-		}
-		if cfg.FromEmail != "" {
-			fromEmail = cfg.FromEmail
+			return nil, fmt.Errorf("decode provider config: %w", err)
 		}
 	}
 
-	if strings.ToLower(providerName) != "resend" {
-		return fmt.Errorf("unsupported email provider: %s", providerName)
+	attempt := emailProviderAttempt{
+		ID:         provider.ID,
+		Provider:   provider.Provider,
+		FromEmail:  cfg.FromEmail,
+		APIKey:     cfg.APIKey,
+		FallbackID: provider.FallbackID,
 	}
-	if apiKey == "" {
+	if attempt.FromEmail == "" {
+		attempt.FromEmail = d.resendFrom
+	}
+
+	chain := []emailProviderAttempt{attempt}
+	if provider.FallbackID == "" {
+		return chain, nil
+	}
+	next, err := d.resolveProviderFallbackChain(ctx, projectID, provider.FallbackID, seen)
+	if err != nil {
+		return nil, err
+	}
+	return append(chain, next...), nil
+}
+
+func (d *NotifyDispatcher) sendWithProvider(ctx context.Context, attempt emailProviderAttempt, to, subject, htmlBody, textBody string) error {
+	if strings.ToLower(attempt.Provider) != "resend" {
+		return fmt.Errorf("unsupported email provider: %s", attempt.Provider)
+	}
+	if attempt.APIKey == "" {
 		return fmt.Errorf("resend api key is required")
 	}
 
-	client := resend.NewClient(apiKey)
+	client := resend.NewClient(attempt.APIKey)
 	_, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
-		From:    fromEmail,
-		To:      []string{sub.Email},
+		From:    attempt.FromEmail,
+		To:      []string{to},
 		Subject: subject,
 		Html:    htmlBody,
 		Text:    textBody,
 	})
 	if err != nil {
-		return fmt.Errorf("send email: %w", err)
+		return fmt.Errorf("send email (%s): %w", attempt.Provider, err)
 	}
-
 	return nil
 }
 
@@ -471,14 +650,14 @@ func (d *NotifyDispatcher) recordEscalationStuck(ctx context.Context, reason str
 	d.metrics.NotifyEscalationStuckStates.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", reason)))
 }
 
-func buildDigestPayload(batch domain.NotificationBatch) map[string]any {
+func (d *NotifyDispatcher) buildDigestPayload(batch domain.NotificationBatch) map[string]any {
 	eventPayloads := extractDigestEventPayloads(batch.Events)
 	count := batch.EventCount
 	if count <= 0 {
 		count = len(eventPayloads)
 	}
 
-	titles := collectDigestTitles(eventPayloads)
+	titles := d.collectDigestTitles(eventPayloads)
 	summary := "Open your inbox to review updates."
 	if len(titles) > 0 {
 		summary = strings.Join(titles, "\n")
@@ -499,6 +678,11 @@ func buildDigestPayload(batch domain.NotificationBatch) map[string]any {
 		htmlBuilder.WriteString("</li>")
 	}
 	htmlBuilder.WriteString("</ul>")
+
+	if hidden := count - len(titles); hidden > 0 {
+		fmt.Fprintf(&htmlBuilder, "<p>+%d more updates</p>", hidden)
+		summary += fmt.Sprintf("\n+%d more updates", hidden)
+	}
 
 	return map[string]any{
 		"title":     subject,
@@ -530,25 +714,112 @@ func extractDigestEventPayloads(events json.RawMessage) []map[string]any {
 	return payloads
 }
 
-func collectDigestTitles(events []map[string]any) []string {
+func (d *NotifyDispatcher) collectDigestTitles(events []map[string]any) []string {
 	if len(events) == 0 {
 		return nil
 	}
 
-	titles := make([]string, 0, len(events))
+	maxItems := d.digestMaxItems
+	if maxItems <= 0 {
+		maxItems = 3
+	}
+	maxTitleChars := d.digestMaxTitleChars
+	if maxTitleChars <= 0 {
+		maxTitleChars = 120
+	}
+
+	titles := make([]string, 0, minInt(len(events), maxItems))
 	for _, event := range events {
+		if len(titles) >= maxItems {
+			break
+		}
+		candidate := ""
 		if title, ok := event["title"].(string); ok && title != "" {
-			titles = append(titles, title)
+			candidate = title
+		} else if subject, ok := event["subject"].(string); ok && subject != "" {
+			candidate = subject
+		}
+		if candidate == "" {
 			continue
 		}
-		if subject, ok := event["subject"].(string); ok && subject != "" {
-			titles = append(titles, subject)
+		if len(candidate) > maxTitleChars {
+			candidate = strings.TrimSpace(candidate[:maxTitleChars-1]) + "…"
 		}
-	}
-	if len(titles) > 3 {
-		return titles[:3]
+		titles = append(titles, candidate)
 	}
 	return titles
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func (d *NotifyDispatcher) retryMessage(ctx context.Context, msg domain.NotificationMessage, reason error) bool {
+	if !isRetryableDeliveryError(reason) {
+		return false
+	}
+	if msg.Attempts >= d.maxAttempts {
+		return false
+	}
+
+	delay := d.computeRetryDelay(msg)
+	nextAt := time.Now().UTC().Add(delay)
+	err := d.store.UpdateNotificationMessageStatus(ctx, msg.ID, msg.ProjectID, domain.NotifyMessageStatusProcessing, domain.NotifyMessageStatusScheduled, map[string]any{
+		"scheduled_at":       nextAt,
+		"suppression_reason": reason.Error(),
+	})
+	if err != nil {
+		d.logger.Warn("notify dispatcher: schedule retry failed", "message_id", msg.ID, "error", err)
+		return false
+	}
+
+	d.logger.Info("notify dispatcher: scheduled retry", "message_id", msg.ID, "attempt", msg.Attempts, "next_at", nextAt)
+	if msg.BatchID != "" {
+		d.recordDigestRequeue(ctx, "message_retry")
+	}
+	return true
+}
+
+func isRetryableDeliveryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	nonRetryableFragments := []string{
+		"unsupported channel",
+		"unsupported email provider",
+		"email subject is required",
+		"email body is required",
+		"subscriber email is required",
+		"decode rendered content",
+	}
+	for _, fragment := range nonRetryableFragments {
+		if strings.Contains(message, fragment) {
+			return false
+		}
+	}
+	return true
+}
+
+func (d *NotifyDispatcher) computeRetryDelay(msg domain.NotificationMessage) time.Duration {
+	attempt := max(msg.Attempts, 1)
+	exponent := minInt(attempt-1, 8)
+	base := float64(d.retryBaseDelay)
+	delay := time.Duration(base * math.Pow(2, float64(exponent)))
+	delay = max(delay, d.retryBaseDelay)
+	delay = min(delay, d.retryMaxDelay)
+
+	h := fnv.New32a()
+	_, _ = fmt.Fprintf(h, "%s:%d", msg.ID, msg.Attempts)
+	jitterRatio := float64(h.Sum32()%3000) / 10000.0 // 0.0 - 0.2999
+	jittered := time.Duration(float64(delay) * (1 + jitterRatio))
+	if jittered > d.retryMaxDelay {
+		return d.retryMaxDelay
+	}
+	return jittered
 }
 
 func (d *NotifyDispatcher) failMessage(ctx context.Context, msg domain.NotificationMessage, reason error) {

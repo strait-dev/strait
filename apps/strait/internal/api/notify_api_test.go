@@ -69,6 +69,21 @@ func TestNotifySubscriberTokenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNotifySubscriberToken_InvalidIssuerRejected(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	token, err := srv.createNotifySubscriberToken("sub_123", "proj_123", "tenant_123", time.Hour)
+	if err != nil {
+		t.Fatalf("createNotifySubscriberToken() error = %v", err)
+	}
+
+	srv.config.NotifySubscriberTokenIssuer = "unexpected-issuer"
+	if _, err := srv.parseNotifySubscriberToken(token); err == nil {
+		t.Fatal("parseNotifySubscriberToken() expected issuer validation error")
+	}
+}
+
 func TestResolveNotifySchedule(t *testing.T) {
 	t.Parallel()
 
@@ -99,7 +114,7 @@ func TestResolveNotifyDigestWindow(t *testing.T) {
 
 	now := time.Date(2026, 4, 5, 13, 34, 10, 0, time.UTC)
 
-	hourly, ok := resolveNotifyDigestWindow(notifyDigestPolicyHourly, now)
+	hourly, ok := resolveNotifyDigestWindow(notifyDigestPolicyHourly, now, "")
 	if !ok {
 		t.Fatal("resolveNotifyDigestWindow(hourly) ok = false, want true")
 	}
@@ -107,7 +122,7 @@ func TestResolveNotifyDigestWindow(t *testing.T) {
 		t.Fatalf("hourly window = %s, want 2026-04-05T14:00:00Z", hourly.Format(time.RFC3339))
 	}
 
-	daily, ok := resolveNotifyDigestWindow(notifyDigestPolicyDaily, now)
+	daily, ok := resolveNotifyDigestWindow(notifyDigestPolicyDaily, now, "")
 	if !ok {
 		t.Fatal("resolveNotifyDigestWindow(daily) ok = false, want true")
 	}
@@ -115,7 +130,15 @@ func TestResolveNotifyDigestWindow(t *testing.T) {
 		t.Fatalf("daily window = %s, want 2026-04-06T00:00:00Z", daily.Format(time.RFC3339))
 	}
 
-	if _, ok := resolveNotifyDigestWindow("weekly", now); ok {
+	berlinDaily, ok := resolveNotifyDigestWindow(notifyDigestPolicyDaily, now, "Europe/Berlin")
+	if !ok {
+		t.Fatal("resolveNotifyDigestWindow(daily, tz) ok = false, want true")
+	}
+	if berlinDaily.Format(time.RFC3339) != "2026-04-05T22:00:00Z" {
+		t.Fatalf("berlin daily window = %s, want 2026-04-05T22:00:00Z", berlinDaily.Format(time.RFC3339))
+	}
+
+	if _, ok := resolveNotifyDigestWindow("weekly", now, ""); ok {
 		t.Fatal("resolveNotifyDigestWindow(weekly) ok = true, want false")
 	}
 }

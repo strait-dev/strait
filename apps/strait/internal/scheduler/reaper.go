@@ -138,27 +138,29 @@ type OrgRetentionResolver interface {
 }
 
 type Reaper struct {
-	store                 ReaperStore
-	interval              time.Duration
-	staleThreshold        time.Duration
-	workflowRetention     time.Duration
-	eventTriggerRetention time.Duration
-	stalledThreshold      time.Duration
-	deleteBatchLimit      int
-	advisoryLocker        AdvisoryLocker
-	shortRetention        time.Duration
-	longRetention         time.Duration
-	retentionEnabled      bool
-	workflowCallback      WorkflowCallback
-	machineDestroyer      MachineDestroyer
-	chExporter            *clickhouse.Exporter
-	metrics               *telemetry.Metrics
-	logger                *slog.Logger
-	stalledAction         string
-	dlqAlertCooldown      map[string]time.Time
-	queueAlertCooldown    map[string]time.Time
-	reminderSent          map[string]time.Time
-	orgRetention          OrgRetentionResolver
+	store                       ReaperStore
+	interval                    time.Duration
+	staleThreshold              time.Duration
+	workflowRetention           time.Duration
+	eventTriggerRetention       time.Duration
+	stalledThreshold            time.Duration
+	deleteBatchLimit            int
+	advisoryLocker              AdvisoryLocker
+	shortRetention              time.Duration
+	longRetention               time.Duration
+	retentionEnabled            bool
+	workflowCallback            WorkflowCallback
+	machineDestroyer            MachineDestroyer
+	chExporter                  *clickhouse.Exporter
+	metrics                     *telemetry.Metrics
+	logger                      *slog.Logger
+	stalledAction               string
+	dlqAlertCooldown            map[string]time.Time
+	queueAlertCooldown          map[string]time.Time
+	reminderSent                map[string]time.Time
+	notifyEscalationTiers       int
+	notifyEscalationMinInterval time.Duration
+	orgRetention                OrgRetentionResolver
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -187,22 +189,24 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		longRetention = 90 * 24 * time.Hour
 	}
 	return &Reaper{
-		store:                 s,
-		interval:              interval,
-		staleThreshold:        staleThreshold,
-		workflowRetention:     defaultWorkflowRetention,
-		eventTriggerRetention: defaultEventTriggerRetention,
-		stalledThreshold:      15 * time.Minute,
-		deleteBatchLimit:      defaultDeleteBatchLimit,
-		shortRetention:        shortRetention,
-		longRetention:         longRetention,
-		retentionEnabled:      retentionEnabled,
-		workflowCallback:      workflowCallback,
-		logger:                slog.Default(),
-		stalledAction:         "log_only",
-		dlqAlertCooldown:      make(map[string]time.Time),
-		queueAlertCooldown:    make(map[string]time.Time),
-		reminderSent:          make(map[string]time.Time),
+		store:                       s,
+		interval:                    interval,
+		staleThreshold:              staleThreshold,
+		workflowRetention:           defaultWorkflowRetention,
+		eventTriggerRetention:       defaultEventTriggerRetention,
+		stalledThreshold:            15 * time.Minute,
+		deleteBatchLimit:            defaultDeleteBatchLimit,
+		shortRetention:              shortRetention,
+		longRetention:               longRetention,
+		retentionEnabled:            retentionEnabled,
+		workflowCallback:            workflowCallback,
+		logger:                      slog.Default(),
+		stalledAction:               "log_only",
+		dlqAlertCooldown:            make(map[string]time.Time),
+		queueAlertCooldown:          make(map[string]time.Time),
+		reminderSent:                make(map[string]time.Time),
+		notifyEscalationTiers:       3,
+		notifyEscalationMinInterval: notifyEscalationDefaultInterval,
 	}
 }
 
@@ -263,6 +267,16 @@ func (r *Reaper) WithStalledAction(action string) *Reaper {
 	default:
 		r.logger.Warn("invalid stalled action, using log_only", "action", action)
 		r.stalledAction = "log_only"
+	}
+	return r
+}
+
+func (r *Reaper) WithNotifyEscalationPolicy(tiers int, minInterval time.Duration) *Reaper {
+	if tiers > 0 {
+		r.notifyEscalationTiers = tiers
+	}
+	if minInterval > 0 {
+		r.notifyEscalationMinInterval = minInterval
 	}
 	return r
 }
@@ -523,6 +537,25 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 	}
 }
 
+func (r *Reaper) computeEscalationSeedInterval(approval domain.WorkflowStepApproval) time.Duration {
+	if approval.ExpiresAt == nil {
+		return r.notifyEscalationMinInterval
+	}
+	remaining := time.Until(*approval.ExpiresAt)
+	if remaining <= 0 {
+		return r.notifyEscalationMinInterval
+	}
+	futureEscalations := r.notifyEscalationTiers - 1
+	if futureEscalations <= 0 {
+		return r.notifyEscalationMinInterval
+	}
+	interval := remaining / time.Duration(futureEscalations+1)
+	if interval < r.notifyEscalationMinInterval {
+		return r.notifyEscalationMinInterval
+	}
+	return interval
+}
+
 func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 	rs, ok := r.store.(ApprovalReminderStore)
 	if !ok {
@@ -599,14 +632,14 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 			}
 		}
 
-		if hasEscalation {
-			nextAt := now.Add(notifyEscalationDefaultInterval)
+		if hasEscalation && r.notifyEscalationTiers > 1 {
+			nextAt := now.Add(r.computeEscalationSeedInterval(approval))
 			state := &domain.EscalationState{
 				ProjectID:        wfRun.ProjectID,
 				StepRunID:        approval.WorkflowStepRunID,
 				WorkflowRunID:    approval.WorkflowRunID,
 				CurrentTier:      1,
-				TotalTiers:       3,
+				TotalTiers:       r.notifyEscalationTiers,
 				NextEscalationAt: &nextAt,
 				Status:           domain.NotifyEscalationStatusActive,
 			}

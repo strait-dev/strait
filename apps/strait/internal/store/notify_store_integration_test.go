@@ -492,8 +492,8 @@ func TestNotifyDedupAndUnsubscribeToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUnsubscribeToken() error = %v", err)
 	}
-	if loaded.Token != tok.Token {
-		t.Fatalf("Token = %q, want %q", loaded.Token, tok.Token)
+	if loaded.TokenHash == "" {
+		t.Fatal("TokenHash is empty, want hashed token")
 	}
 
 	if err := q.UseUnsubscribeToken(ctx, tok.Token, time.Now().UTC()); err != nil {
@@ -521,6 +521,7 @@ func TestNotifyStoreSentinelErrors(t *testing.T) {
 		{name: "ErrEscalationStateNotFound", err: store.ErrEscalationStateNotFound, msg: "escalation state not found"},
 		{name: "ErrNotificationProviderNotFound", err: store.ErrNotificationProviderNotFound, msg: "notification provider not found"},
 		{name: "ErrInboxItemNotFound", err: store.ErrInboxItemNotFound, msg: "inbox item not found"},
+		{name: "ErrInboxItemAlreadyExists", err: store.ErrInboxItemAlreadyExists, msg: "inbox item already exists"},
 	}
 
 	for _, tt := range tests {

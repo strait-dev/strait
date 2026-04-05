@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 
+	"strait/internal/dbscan"
 	"strait/internal/domain"
 
 	"github.com/google/uuid"
@@ -21,9 +24,14 @@ func (q *Queries) CreateUnsubscribeToken(ctx context.Context, token *domain.Unsu
 		token.ID = uuid.Must(uuid.NewV7()).String()
 	}
 
+	tokenHash := token.TokenHash
+	if tokenHash == "" {
+		tokenHash = hashUnsubscribeToken(token.Token)
+	}
+
 	query := `
-		INSERT INTO unsubscribe_tokens (id, project_id, subscriber_id, scope, token, used_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO unsubscribe_tokens (id, project_id, subscriber_id, scope, token, token_hash, used_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(ctx, query,
@@ -31,12 +39,16 @@ func (q *Queries) CreateUnsubscribeToken(ctx context.Context, token *domain.Unsu
 		token.ProjectID,
 		token.SubscriberID,
 		token.Scope,
-		token.Token,
+		dbscan.NilIfEmptyString(token.Token),
+		tokenHash,
 		token.UsedAt,
 		token.ExpiresAt,
 	).Scan(&token.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create unsubscribe token: %w", err)
+	}
+	if token.TokenHash == "" {
+		token.TokenHash = tokenHash
 	}
 
 	return nil
@@ -46,18 +58,19 @@ func (q *Queries) GetUnsubscribeToken(ctx context.Context, token string) (*domai
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetUnsubscribeToken")
 	defer span.End()
 
+	tokenHash := hashUnsubscribeToken(token)
 	query := `
-		SELECT id, project_id, subscriber_id, scope, token, used_at, expires_at, created_at
+		SELECT id, project_id, subscriber_id, scope, token_hash, used_at, expires_at, created_at
 		FROM unsubscribe_tokens
-		WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()`
+		WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()`
 
 	var row domain.UnsubscribeToken
-	err := q.db.QueryRow(ctx, query, token).Scan(
+	err := q.db.QueryRow(ctx, query, tokenHash).Scan(
 		&row.ID,
 		&row.ProjectID,
 		&row.SubscriberID,
 		&row.Scope,
-		&row.Token,
+		&row.TokenHash,
 		&row.UsedAt,
 		&row.ExpiresAt,
 		&row.CreatedAt,
@@ -76,7 +89,8 @@ func (q *Queries) UseUnsubscribeToken(ctx context.Context, token string, usedAt 
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UseUnsubscribeToken")
 	defer span.End()
 
-	tag, err := q.db.Exec(ctx, `UPDATE unsubscribe_tokens SET used_at = $2 WHERE token = $1 AND used_at IS NULL`, token, usedAt)
+	tokenHash := hashUnsubscribeToken(token)
+	tag, err := q.db.Exec(ctx, `UPDATE unsubscribe_tokens SET used_at = $2 WHERE token_hash = $1 AND used_at IS NULL`, tokenHash, usedAt)
 	if err != nil {
 		return fmt.Errorf("use unsubscribe token: %w", err)
 	}
@@ -84,6 +98,11 @@ func (q *Queries) UseUnsubscribeToken(ctx context.Context, token string, usedAt 
 		return ErrUnsubscribeTokenNotFound
 	}
 	return nil
+}
+
+func hashUnsubscribeToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func (q *Queries) TryNotifyDedupKey(ctx context.Context, projectID, dedupKey string, ttl time.Duration) (bool, error) {

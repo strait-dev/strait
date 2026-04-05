@@ -2,6 +2,9 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -22,15 +25,33 @@ func (s *Server) createNotifySubscriberToken(subscriberID, projectID, tenantID s
 	if expiresIn <= 0 {
 		expiresIn = 24 * time.Hour
 	}
+	issuer := strings.TrimSpace(s.config.NotifySubscriberTokenIssuer)
+	if issuer == "" {
+		issuer = "strait-notify"
+	}
+	audience := strings.TrimSpace(s.config.NotifySubscriberTokenAudience)
+	if audience == "" {
+		audience = "strait-notify-subscriber"
+	}
+
 	now := time.Now().UTC()
+	jti, err := generateSecureToken(16)
+	if err != nil {
+		return "", err
+	}
+
 	claims := notifySubscriberClaims{
 		SubscriberID: subscriberID,
 		ProjectID:    projectID,
 		TenantID:     tenantID,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    issuer,
+			Audience:  jwt.ClaimStrings{audience},
 			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now.Add(-30 * time.Second)),
 			ExpiresAt: jwt.NewNumericDate(now.Add(expiresIn)),
 			Subject:   subscriberID,
+			ID:        jti,
 		},
 	}
 
@@ -39,17 +60,47 @@ func (s *Server) createNotifySubscriberToken(subscriberID, projectID, tenantID s
 }
 
 func (s *Server) parseNotifySubscriberToken(raw string) (*notifySubscriberClaims, error) {
+	issuer := strings.TrimSpace(s.config.NotifySubscriberTokenIssuer)
+	if issuer == "" {
+		issuer = "strait-notify"
+	}
+	audience := strings.TrimSpace(s.config.NotifySubscriberTokenAudience)
+	if audience == "" {
+		audience = "strait-notify-subscriber"
+	}
+
 	claims := &notifySubscriberClaims{}
 	_, err := jwt.ParseWithClaims(raw, claims, func(_ *jwt.Token) (any, error) {
 		return []byte(s.config.JWTSigningKey), nil
-	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithIssuer(issuer),
+		jwt.WithAudience(audience),
+	)
 	if err != nil {
 		return nil, err
 	}
 	if claims.SubscriberID == "" {
 		claims.SubscriberID = claims.Subject
 	}
+	if claims.SubscriberID == "" || claims.ProjectID == "" {
+		return nil, errors.New("invalid subscriber token claims")
+	}
+	if claims.Subject != "" && claims.Subject != claims.SubscriberID {
+		return nil, errors.New("subscriber token subject mismatch")
+	}
 	return claims, nil
+}
+
+func generateSecureToken(n int) (string, error) {
+	if n <= 0 {
+		n = 16
+	}
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 func (s *Server) notifySubscriberAuth(next http.Handler) http.Handler {

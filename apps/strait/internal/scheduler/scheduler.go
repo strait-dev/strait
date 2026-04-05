@@ -65,7 +65,8 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithEventTriggerRetention(cfg.EventTriggerRetention).
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize).
 			WithStalledThreshold(cfg.StalledWorkflowThreshold).
-			WithStalledAction(cfg.StalledWorkflowAction),
+			WithStalledAction(cfg.StalledWorkflowAction).
+			WithNotifyEscalationPolicy(cfg.NotifyEscalationTiers, cfg.NotifyEscalationMinInterval),
 		indexMaintainer:       NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
 		debouncePoller:        NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
 		batchFlusher:          NewBatchFlusher(s, q, cfg.BatchFlushInterval),
@@ -75,7 +76,10 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		memoryCleanup:         NewMemoryCleanup(s, 5*time.Minute),
 	}
 	if notifyStore, ok := any(s).(notifyDispatcherStore); ok {
-		sched.notifyDispatcher = NewNotifyDispatcher(notifyStore, cfg.PollerInterval, cfg.ResendAPIKey, cfg.ResendFromEmail)
+		sched.notifyDispatcher = NewNotifyDispatcher(notifyStore, cfg.PollerInterval, cfg.ResendAPIKey, cfg.ResendFromEmail).
+			WithRetryPolicy(cfg.NotifyDeliveryMaxAttempts, cfg.NotifyRetryBaseDelay, cfg.NotifyRetryMaxDelay).
+			WithDigestLimits(cfg.NotifyDigestMaxItems, cfg.NotifyDigestMaxTitleChars).
+			WithEscalationMinInterval(cfg.NotifyEscalationMinInterval)
 	}
 	for _, opt := range opts {
 		opt(sched)
