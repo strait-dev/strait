@@ -74,4 +74,19 @@ describe("makeInboxClient", () => {
     expect(capturedAuth).toBe("Bearer async_token");
     expect(out.count).toBe(0);
   });
+
+  it("maps response schema drift to InboxClientError", async () => {
+    const client = makeInboxClient({
+      baseUrl: "https://api.strait.dev",
+      token: "token_123",
+      fetch: () =>
+        Promise.resolve(new Response('{"count":"oops"}', { status: 200 })),
+    });
+
+    const err = await Effect.runPromise(Effect.flip(client.getUnreadCount()));
+
+    expect(err).toBeInstanceOf(InboxClientError);
+    expect(err.path).toBe("/v1/inbox/unread-count");
+    expect(err.details).toContain("response validation failed");
+  });
 });

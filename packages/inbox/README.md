@@ -1,6 +1,6 @@
 # @strait/inbox
 
-Effect-first client for Strait Notify subscriber endpoints.
+Effect-first client for Strait Notify subscriber endpoints with runtime response validation via Effect Schema.
 
 ## Scope
 

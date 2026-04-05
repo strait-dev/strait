@@ -1,18 +1,21 @@
-import { Effect } from "effect";
+import { Effect, Either, ParseResult, Schema } from "effect";
 import { InboxClientError } from "./errors";
+import {
+  InboxActionResponseSchema,
+  InboxItemListSchema,
+  InboxItemSchema,
+  NotificationPreferenceListSchema,
+  ProcessUnsubscribeResponseSchema,
+  ResolveUnsubscribeTokenResponseSchema,
+  UnreadCountResponseSchema,
+} from "./schemas";
 import type {
   FetchLike,
   InboxActionInput,
-  InboxActionResponse,
   InboxClient,
   InboxClientConfig,
-  InboxItem,
   ListInboxInput,
-  NotificationPreference,
   ProcessUnsubscribeRequest,
-  ProcessUnsubscribeResponse,
-  ResolveUnsubscribeTokenResponse,
-  UnreadCountResponse,
   UpdateInboxItemStateInput,
   UpdateNotifyPreferencesRequest,
 } from "./types";
@@ -30,9 +33,10 @@ export const makeInboxClient = (config: InboxClientConfig): InboxClient => {
   const fetchImpl = resolveFetch(config.fetch);
   const baseUrl = normalizeBaseURL(config.baseUrl);
 
-  const requestJson = <T>(
-    request: RequestShape
-  ): Effect.Effect<T, InboxClientError> =>
+  const requestJson = <A, I>(
+    request: RequestShape,
+    schema: Schema.Schema<A, I>
+  ): Effect.Effect<A, InboxClientError> =>
     Effect.tryPromise({
       try: async () => {
         const token = await resolveToken(config.token);
@@ -69,10 +73,16 @@ export const makeInboxClient = (config: InboxClientConfig): InboxClient => {
         }
 
         if (response.status === 204 || text.trim() === "") {
-          return undefined as T;
+          throw new InboxClientError({
+            path: request.path,
+            method: request.method,
+            status: response.status,
+            details: "empty response body",
+          });
         }
 
-        return JSON.parse(text) as T;
+        const parsed = JSON.parse(text) as unknown;
+        return decodeWithSchema(request, schema, parsed);
       },
       catch: (cause) =>
         cause instanceof InboxClientError
@@ -87,74 +97,124 @@ export const makeInboxClient = (config: InboxClientConfig): InboxClient => {
 
   return {
     listInbox: (input?: ListInboxInput) =>
-      requestJson<InboxItem[]>({
-        path: "/v1/inbox",
-        method: "GET",
-        query: {
-          limit: input?.limit,
-          cursor: input?.cursor,
-          state: input?.state,
+      requestJson(
+        {
+          path: "/v1/inbox",
+          method: "GET",
+          query: {
+            limit: input?.limit,
+            cursor: input?.cursor,
+            state: input?.state,
+          },
         },
-      }),
+        InboxItemListSchema
+      ),
     getUnreadCount: () =>
-      requestJson<UnreadCountResponse>({
-        path: "/v1/inbox/unread-count",
-        method: "GET",
-      }),
+      requestJson(
+        {
+          path: "/v1/inbox/unread-count",
+          method: "GET",
+        },
+        UnreadCountResponseSchema
+      ),
     updateItemState: (input: UpdateInboxItemStateInput) =>
-      requestJson<InboxItem>({
-        path: `/v1/inbox/${encodeURIComponent(input.itemId)}`,
-        method: "PATCH",
-        body: { state: input.state },
-      }),
+      requestJson(
+        {
+          path: `/v1/inbox/${encodeURIComponent(input.itemId)}`,
+          method: "PATCH",
+          body: { state: input.state },
+        },
+        InboxItemSchema
+      ),
     performItemAction: (input: InboxActionInput) =>
-      requestJson<InboxActionResponse>({
-        path: `/v1/inbox/${encodeURIComponent(input.itemId)}/action`,
-        method: "POST",
-        body: { action_index: input.actionIndex },
-      }),
+      requestJson(
+        {
+          path: `/v1/inbox/${encodeURIComponent(input.itemId)}/action`,
+          method: "POST",
+          body: { action_index: input.actionIndex },
+        },
+        InboxActionResponseSchema
+      ),
     markAllRead: () =>
-      requestJson<UnreadCountResponse>({
-        path: "/v1/inbox/mark-all-read",
-        method: "POST",
-      }),
+      requestJson(
+        {
+          path: "/v1/inbox/mark-all-read",
+          method: "POST",
+        },
+        UnreadCountResponseSchema
+      ),
     listPreferences: () =>
-      requestJson<NotificationPreference[]>({
-        path: "/v1/preferences",
-        method: "GET",
-      }),
+      requestJson(
+        {
+          path: "/v1/preferences",
+          method: "GET",
+        },
+        NotificationPreferenceListSchema
+      ),
     updatePreferences: (input: UpdateNotifyPreferencesRequest) =>
-      requestJson<NotificationPreference[]>({
-        path: "/v1/preferences",
-        method: "PUT",
-        body: input,
-      }),
+      requestJson(
+        {
+          path: "/v1/preferences",
+          method: "PUT",
+          body: input,
+        },
+        NotificationPreferenceListSchema
+      ),
     updatePreferencesScope: (
       scope: string,
       input: UpdateNotifyPreferencesRequest
     ) =>
-      requestJson<NotificationPreference[]>({
-        path: `/v1/preferences/${encodeURIComponent(scope)}`,
-        method: "PUT",
-        body: input,
-      }),
+      requestJson(
+        {
+          path: `/v1/preferences/${encodeURIComponent(scope)}`,
+          method: "PUT",
+          body: input,
+        },
+        NotificationPreferenceListSchema
+      ),
     resolveUnsubscribeToken: (token: string) =>
-      requestJson<ResolveUnsubscribeTokenResponse>({
-        path: `/v1/unsubscribe/${encodeURIComponent(token)}`,
-        method: "GET",
-      }),
+      requestJson(
+        {
+          path: `/v1/unsubscribe/${encodeURIComponent(token)}`,
+          method: "GET",
+        },
+        ResolveUnsubscribeTokenResponseSchema
+      ),
     processUnsubscribe: (token: string, input?: ProcessUnsubscribeRequest) =>
-      requestJson<ProcessUnsubscribeResponse>({
-        path: `/v1/unsubscribe/${encodeURIComponent(token)}`,
-        method: "POST",
-        body: input ?? {},
-      }),
+      requestJson(
+        {
+          path: `/v1/unsubscribe/${encodeURIComponent(token)}`,
+          method: "POST",
+          body: input ?? {},
+        },
+        ProcessUnsubscribeResponseSchema
+      ),
     processUnsubscribeOneClick: (token: string) =>
-      requestJson<ProcessUnsubscribeResponse>({
-        path: `/v1/unsubscribe/${encodeURIComponent(token)}/one-click`,
-        method: "POST",
-      }),
+      requestJson(
+        {
+          path: `/v1/unsubscribe/${encodeURIComponent(token)}/one-click`,
+          method: "POST",
+        },
+        ProcessUnsubscribeResponseSchema
+      ),
   };
+};
+
+const decodeWithSchema = <A, I>(
+  request: RequestShape,
+  schema: Schema.Schema<A, I>,
+  payload: unknown
+): A => {
+  const decoded = Schema.decodeUnknownEither(schema)(payload);
+  if (Either.isLeft(decoded)) {
+    const formatted = ParseResult.TreeFormatter.formatErrorSync(decoded.left);
+    throw new InboxClientError({
+      path: request.path,
+      method: request.method,
+      details: `response validation failed: ${formatted}`,
+    });
+  }
+  return decoded.right;
 };
 
 const resolveFetch = (fetchImpl?: FetchLike): FetchLike => {
