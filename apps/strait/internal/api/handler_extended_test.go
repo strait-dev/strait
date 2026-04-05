@@ -781,3 +781,17 @@ func TestOpenAPISpec_NotifyEndpoints_AreRegistered(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAPISpec_NotifyProviderCallbacks_AreExcluded(t *testing.T) {
+	t.Parallel()
+	spec := fetchOpenAPISpec(t)
+
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("spec missing 'paths'")
+	}
+
+	if _, exists := paths["/v1/notify/providers/{projectID}/{providerID}/callbacks/resend"]; exists {
+		t.Fatal("provider callback path should not be published in OpenAPI")
+	}
+}

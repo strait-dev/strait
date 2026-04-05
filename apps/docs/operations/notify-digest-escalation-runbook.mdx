@@ -98,6 +98,23 @@ Checks:
   - `POST /v1/notify/escalations/step-runs/{stepRunID}/acknowledge`
   - `POST /v1/notify/escalations/step-runs/{stepRunID}/complete`
 
+### 4) Resend callback events are not reflected in delivery status
+
+Likely causes:
+
+- provider callback URL misconfigured
+- `webhook_secret` missing or incorrect in provider config
+- callback payload missing `strait_message_id` tag or message no longer exists
+
+Checks:
+
+- confirm Resend webhook points to:
+  - `POST /v1/notify/providers/{projectID}/{providerID}/callbacks/resend`
+- verify `webhook_secret` is present in the provider config payload used at `POST|PUT /v1/providers...`
+- confirm outbound messages include provider tags (`strait_message_id`, `strait_project_id`)
+- inspect notify delivery rows for transitions to `delivered`, `bounced`, or `failed`
+- inspect subscriber preference changes when bounces/complaints occur (`channel_prefs.email=false`)
+
 ## Safe Remediation Steps
 
 Prefer API remediation first:
