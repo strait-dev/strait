@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"strait/internal/domain"
@@ -11,6 +12,19 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 )
+
+// resolveAgentIDForDO returns the agent ID if this run's job uses DO memory backend.
+// Returns empty string if DO is not configured or the job is not an agent.
+func (s *Server) resolveAgentIDForDO(ctx context.Context, jobID string) string {
+	if s.doMemoryClient == nil || s.config == nil || s.config.AgentMemoryBackend != "durable_objects" {
+		return ""
+	}
+	agent, err := s.store.GetAgentByJobID(ctx, jobID)
+	if err != nil || agent == nil {
+		return ""
+	}
+	return agent.ID
+}
 
 type SDKSetMemoryRequest struct {
 	Value   json.RawMessage `json:"value" validate:"required"`
@@ -58,6 +72,23 @@ func (s *Server) handleSDKSetMemory(ctx context.Context, input *SDKSetMemoryInpu
 		t := time.Now().Add(time.Duration(*req.TTLSecs) * time.Second)
 		ttlExpiresAt = &t
 	}
+	// Route to Durable Objects if configured for this agent.
+	if agentID := s.resolveAgentIDForDO(ctx, run.JobID); agentID != "" {
+		ttlSecs := 0
+		if req.TTLSecs != nil {
+			ttlSecs = *req.TTLSecs
+		}
+		entry, doErr := s.doMemoryClient.Set(ctx, agentID, key, req.Value, ttlSecs, maxPerKey, maxPerJob)
+		if doErr != nil {
+			slog.Warn("DO memory set failed, falling back to Postgres", "agent_id", agentID, "error", doErr)
+		} else {
+			return &SDKSetMemoryOutput{Body: &domain.JobMemory{
+				JobID: run.JobID, ProjectID: run.ProjectID, MemoryKey: key,
+				Value: entry.Value, SizeBytes: entry.SizeBytes,
+			}}, nil
+		}
+	}
+
 	mem := &domain.JobMemory{JobID: run.JobID, ProjectID: run.ProjectID, MemoryKey: key, Value: req.Value, SizeBytes: len(req.Value), TTLExpiresAt: ttlExpiresAt}
 	if err := s.store.UpsertJobMemoryWithQuota(ctx, mem, maxPerKey, maxPerJob); err != nil {
 		switch {
@@ -89,6 +120,20 @@ func (s *Server) handleSDKGetMemory(ctx context.Context, input *SDKGetMemoryInpu
 	if run == nil {
 		return nil, huma.Error404NotFound("run not found")
 	}
+	if agentID := s.resolveAgentIDForDO(ctx, run.JobID); agentID != "" {
+		entry, doErr := s.doMemoryClient.Get(ctx, agentID, input.Key)
+		if doErr == nil {
+			if entry == nil {
+				return nil, huma.Error404NotFound("memory key not found")
+			}
+			return &SDKGetMemoryOutput{Body: &domain.JobMemory{
+				JobID: run.JobID, ProjectID: run.ProjectID, MemoryKey: input.Key,
+				Value: entry.Value, SizeBytes: entry.SizeBytes,
+			}}, nil
+		}
+		slog.Warn("DO memory get failed, falling back to Postgres", "agent_id", agentID, "error", doErr)
+	}
+
 	mem, err := s.store.GetJobMemory(ctx, run.JobID, input.Key)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get job memory")
@@ -109,6 +154,14 @@ func (s *Server) handleSDKListMemory(ctx context.Context, input *SDKRunIDInput) 
 		}
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
+	if agentID := s.resolveAgentIDForDO(ctx, run.JobID); agentID != "" {
+		entries, doErr := s.doMemoryClient.List(ctx, agentID)
+		if doErr == nil {
+			return &SDKListMemoryOutput{Body: entries}, nil
+		}
+		slog.Warn("DO memory list failed, falling back to Postgres", "agent_id", agentID, "error", doErr)
+	}
+
 	items, err := s.store.ListJobMemory(ctx, run.JobID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list job memory")
@@ -129,6 +182,13 @@ func (s *Server) handleSDKDeleteMemory(ctx context.Context, input *SDKDeleteMemo
 		}
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
+	if agentID := s.resolveAgentIDForDO(ctx, run.JobID); agentID != "" {
+		if doErr := s.doMemoryClient.Delete(ctx, agentID, input.Key); doErr == nil {
+			return nil, nil
+		}
+		slog.Warn("DO memory delete failed, falling back to Postgres", "agent_id", agentID, "error", err)
+	}
+
 	if err := s.store.DeleteJobMemory(ctx, run.JobID, input.Key); err != nil {
 		return nil, huma.Error500InternalServerError("failed to delete job memory")
 	}

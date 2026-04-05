@@ -77,6 +77,30 @@ func WithEnterpriseLargePrice(yearlyID string) StripeMappingOption {
 	}
 }
 
+// WithAgentMakerPrices registers Agent Maker plan Price IDs.
+func WithAgentMakerPrices(monthlyID, yearlyID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if monthlyID != "" {
+			m.priceToTier[monthlyID] = domain.AgentPlanMaker
+		}
+		if yearlyID != "" {
+			m.priceToTier[yearlyID] = domain.AgentPlanMaker
+		}
+	}
+}
+
+// WithAgentGrowthPrices registers Agent Growth plan Price IDs.
+func WithAgentGrowthPrices(monthlyID, yearlyID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if monthlyID != "" {
+			m.priceToTier[monthlyID] = domain.AgentPlanGrowth
+		}
+		if yearlyID != "" {
+			m.priceToTier[yearlyID] = domain.AgentPlanGrowth
+		}
+	}
+}
+
 // WithAddonPrice registers an addon Price ID to addon type mapping.
 func WithAddonPrice(priceID string, addonType AddonType) StripeMappingOption {
 	return func(m *StripeMapping) {

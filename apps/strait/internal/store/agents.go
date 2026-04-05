@@ -151,6 +151,20 @@ func (q *Queries) GetAgentBySlug(ctx context.Context, projectID, slug string) (*
 	return agent, nil
 }
 
+func (q *Queries) GetAgentByJobID(ctx context.Context, jobID string) (*domain.Agent, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAgentByJobID")
+	defer span.End()
+
+	agent, err := scanAgent(q.db.QueryRow(ctx, `SELECT `+agentColumns+` FROM agents WHERE job_id = $1`, jobID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAgentNotFound
+		}
+		return nil, fmt.Errorf("get agent by job id: %w", err)
+	}
+	return agent, nil
+}
+
 func (q *Queries) ListAgentsByJobIDs(ctx context.Context, projectID string, jobIDs []string) ([]domain.Agent, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAgentsByJobIDs")
 	defer span.End()
@@ -558,4 +572,57 @@ func ComputeAgentHealthScore(stats *AgentHealthStats) (float64, string) {
 	}
 
 	return score, level
+}
+
+// GetAgentDeploymentByID returns a single deployment by its ID.
+func (q *Queries) GetAgentDeploymentByID(ctx context.Context, deploymentID string) (*domain.AgentDeployment, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAgentDeploymentByID")
+	defer span.End()
+
+	d, err := scanAgentDeployment(q.db.QueryRow(ctx, `SELECT `+agentDeploymentColumns+` FROM agent_deployments WHERE id = $1`, deploymentID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAgentNotFound
+		}
+		return nil, fmt.Errorf("get agent deployment by id: %w", err)
+	}
+	return d, nil
+}
+
+// RollbackAgentDeployment creates a new deployment using the config_snapshot from
+// a target deployment. This effectively "rolls back" to a previous version.
+func (q *Queries) RollbackAgentDeployment(ctx context.Context, agentID, targetDeploymentID, actor string) (*domain.AgentDeployment, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RollbackAgentDeployment")
+	defer span.End()
+
+	// Get target deployment's config.
+	target, err := q.GetAgentDeploymentByID(ctx, targetDeploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("get rollback target: %w", err)
+	}
+	if target.AgentID != agentID {
+		return nil, fmt.Errorf("deployment %s does not belong to agent %s", targetDeploymentID, agentID)
+	}
+
+	// Get next version number.
+	nextVersion, err := q.NextAgentDeploymentVersion(ctx, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("get next version: %w", err)
+	}
+
+	// Create new deployment from target's config snapshot.
+	newDeploy := &domain.AgentDeployment{
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		AgentID:        agentID,
+		Version:        nextVersion,
+		Status:         domain.AgentDeploymentStatusDeployed,
+		Provider:       target.Provider,
+		ConfigSnapshot: target.ConfigSnapshot,
+		CreatedBy:      actor,
+	}
+	if err := q.CreateAgentDeployment(ctx, newDeploy); err != nil {
+		return nil, fmt.Errorf("create rollback deployment: %w", err)
+	}
+
+	return newDeploy, nil
 }

@@ -205,6 +205,10 @@ export class StraitContext {
     this.#budget.assertWithinLimits();
   }
 
+  recordIteration(): void {
+    this.#budget.recordIteration();
+  }
+
   createDynamicSteps(
     steps: AgentWorkflowStepDefinition[],
     options?: DynamicWorkflowStepOptions

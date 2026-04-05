@@ -5,7 +5,7 @@ import type {
   NormalizedUsageReport,
 } from "./types";
 
-type UsageTotals = Omit<BudgetSnapshot, "limits" | "toolCalls">;
+type UsageTotals = Omit<BudgetSnapshot, "limits" | "toolCalls" | "iterations">;
 
 function projectTotals(
   current: UsageTotals,
@@ -28,6 +28,7 @@ export class BudgetLedger {
     costMicrousd: 0,
   };
   #toolCalls = 0;
+  #iterations = 0;
 
   constructor(limits: AgentBudget = {}) {
     this.#limits = { ...limits };
@@ -84,6 +85,24 @@ export class BudgetLedger {
     return this.snapshot();
   }
 
+  recordIteration(): BudgetSnapshot {
+    if (
+      this.#limits.maxIterations != null &&
+      this.#limits.maxIterations > 0 &&
+      this.#iterations + 1 > this.#limits.maxIterations
+    ) {
+      throw new BudgetExceededError(
+        "iterations",
+        this.#limits.maxIterations,
+        this.#iterations,
+        1
+      );
+    }
+
+    this.#iterations += 1;
+    return this.snapshot();
+  }
+
   assertWithinLimits(): BudgetSnapshot {
     if (
       this.#limits.maxTokens != null &&
@@ -124,6 +143,19 @@ export class BudgetLedger {
       );
     }
 
+    if (
+      this.#limits.maxIterations != null &&
+      this.#limits.maxIterations > 0 &&
+      this.#iterations >= this.#limits.maxIterations
+    ) {
+      throw new BudgetExceededError(
+        "iterations",
+        this.#limits.maxIterations,
+        this.#iterations,
+        0
+      );
+    }
+
     return this.snapshot();
   }
 
@@ -131,6 +163,7 @@ export class BudgetLedger {
     return {
       ...this.#totals,
       toolCalls: this.#toolCalls,
+      iterations: this.#iterations,
       limits: { ...this.#limits },
     };
   }

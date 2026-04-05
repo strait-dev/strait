@@ -403,7 +403,7 @@ func TestManagedDispatch_RegionFallback(t *testing.T) {
 	}
 
 	e := newManagedTestExecutor(store, runtime, func(ex *Executor) {
-		ex.defaultFlyRegion = "iad"
+		ex.defaultRegion = "iad"
 	})
 	e.managedDispatch(context.Background(), run, job)
 

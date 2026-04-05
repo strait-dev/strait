@@ -675,6 +675,53 @@ type RunComputeUsage struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
+// EvalRun records the result of an agent evaluation suite execution.
+type EvalRun struct {
+	ID           string          `json:"id"`
+	AgentID      string          `json:"agent_id"`
+	DeploymentID string          `json:"deployment_id"`
+	ProjectID    string          `json:"project_id"`
+	SuiteName    string          `json:"suite_name"`
+	ResultsJSON  json.RawMessage `json:"results_json"`
+	TotalCases   int             `json:"total_cases"`
+	PassedCases  int             `json:"passed_cases"`
+	FailedCases  int             `json:"failed_cases"`
+	DurationMs   int             `json:"duration_ms"`
+	Status       string          `json:"status"`
+	CreatedAt    time.Time       `json:"created_at"`
+}
+
+// AgentCanaryDeployment represents an active canary between two agent deployments.
+type AgentCanaryDeployment struct {
+	ID                 string     `json:"id"`
+	AgentID            string     `json:"agent_id"`
+	ProjectID          string     `json:"project_id"`
+	SourceDeploymentID string     `json:"source_deployment_id"`
+	TargetDeploymentID string     `json:"target_deployment_id"`
+	TrafficPct         int        `json:"traffic_pct"`
+	Status             string     `json:"status"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	CompletedAt        *time.Time `json:"completed_at,omitempty"`
+}
+
+// AgentUsageRecord tracks billing usage for a single agent run across all three
+// Stripe meters (execution, token tracking, tool calls).
+type AgentUsageRecord struct {
+	ID                string    `json:"id"`
+	RunID             string    `json:"run_id"`
+	ProjectID         string    `json:"project_id"`
+	OrgID             string    `json:"org_id"`
+	AgentID           string    `json:"agent_id"`
+	TotalTokens       int64     `json:"total_tokens"`
+	ToolCallCount     int       `json:"tool_call_count"`
+	RunCostMicrousd   int64     `json:"run_cost_microusd"`
+	TokenCostMicrousd int64     `json:"token_cost_microusd"`
+	ToolCostMicrousd  int64     `json:"tool_cost_microusd"`
+	TotalCostMicrousd int64     `json:"total_cost_microusd"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
 // RunResourceSnapshot records a point-in-time resource utilization sample for a run.
 type RunResourceSnapshot struct {
 	ID             string    `json:"id"`

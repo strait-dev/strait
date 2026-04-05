@@ -40,7 +40,7 @@ export class UnknownPricingError extends StraitSDKError {
   }
 }
 
-export type BudgetLimitKind = "cost" | "tokens" | "tool_calls";
+export type BudgetLimitKind = "cost" | "iterations" | "tokens" | "tool_calls";
 
 export class BudgetExceededError extends StraitSDKError {
   readonly kind: BudgetLimitKind;

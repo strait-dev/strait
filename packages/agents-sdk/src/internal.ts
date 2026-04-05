@@ -24,6 +24,7 @@ export interface AdapterContext {
   budgetExceeded?: () => void;
   budgetSnapshot?: StraitContext["budgetSnapshot"];
   checkpoint?: StraitContext["checkpoint"];
+  recordIteration?: () => void;
   reportToolCall: StraitContext["reportToolCall"];
   reportUsage: StraitContext["reportUsage"];
   stream: StraitContext["stream"];
@@ -103,9 +104,11 @@ export function createAdapterContext(
         totalTokens: 0,
         costMicrousd: 0,
         toolCalls: 0,
+        iterations: 0,
         limits: {},
       })),
     checkpoint: context.checkpoint ?? (() => Promise.resolve({} as never)),
+    recordIteration: context.recordIteration ?? undefined,
   };
 }
 
@@ -196,7 +199,24 @@ export function reportCheckpointState(
       return;
     }
 
-    await context.checkpoint(state, {
+    // Enrich checkpoint with budget snapshot for per-step cost attribution.
+    let enrichedState = state;
+    if (
+      context.budgetSnapshot != null &&
+      typeof state === "object" &&
+      state !== null &&
+      !Array.isArray(state)
+    ) {
+      const snapshot = context.budgetSnapshot();
+      enrichedState = {
+        ...(state as Record<string, JsonValue>),
+        cost_microusd_at_checkpoint: snapshot.costMicrousd,
+        tokens_at_checkpoint: snapshot.totalTokens,
+        iterations_at_checkpoint: snapshot.iterations,
+      };
+    }
+
+    await context.checkpoint(enrichedState, {
       source: checkpointOptions?.source,
     } satisfies CheckpointOptions);
   });

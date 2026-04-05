@@ -18,12 +18,14 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 
 	"github.com/alitto/pond/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
 )
 
 const (
@@ -95,6 +97,8 @@ type agentStore interface {
 	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	AdvisoryXactLock(ctx context.Context, lockID int64) error
+	GetAgentDeploymentByID(ctx context.Context, deploymentID string) (*domain.AgentDeployment, error)
+	GetActiveAgentCanary(ctx context.Context, agentID string) (*domain.AgentCanaryDeployment, error)
 }
 
 type Provider interface {
@@ -153,6 +157,12 @@ type QuotaChecker interface {
 	CountProjectRunsSince(ctx context.Context, projectID string, since time.Time) (int, error)
 }
 
+// AgentBillingEnforcer checks agent-specific billing limits before dispatch.
+type AgentBillingEnforcer interface {
+	CheckAgentSpendingLimit(ctx context.Context, projectID string) error
+	GetAgentPlanForProject(ctx context.Context, projectID string) (string, error)
+}
+
 // WebhookDeliveryStore creates durable webhook delivery records that the
 // existing DeliveryWorker processes with exponential backoff.
 type WebhookDeliveryStore interface {
@@ -173,6 +183,8 @@ type localService struct {
 	dispatchPool      pond.Pool
 	maxConcurrentRuns int
 	quotaChecker      QuotaChecker
+	billingEnforcer   AgentBillingEnforcer
+	canaryRouter      *AgentCanaryRouter
 	webhookStore      WebhookDeliveryStore
 }
 
@@ -333,6 +345,22 @@ func WithWebhookStore(ws WebhookDeliveryStore) Option {
 	}
 }
 
+func WithCanaryRouter(cr *AgentCanaryRouter) Option {
+	return func(s *localService) {
+		if cr != nil {
+			s.canaryRouter = cr
+		}
+	}
+}
+
+func WithBillingEnforcer(be AgentBillingEnforcer) Option {
+	return func(s *localService) {
+		if be != nil {
+			s.billingEnforcer = be
+		}
+	}
+}
+
 func (s *localService) Close() {
 	if s.dispatchPool != nil {
 		s.dispatchPool.StopAndWait()
@@ -344,12 +372,27 @@ func (s *localService) CreateAgent(ctx context.Context, req CreateAgentRequest) 
 		return nil, err
 	}
 
-	// Check agent quota.
+	// Check agent quota from project quotas table.
 	if s.quotaChecker != nil {
 		quota, qErr := s.quotaChecker.GetProjectQuota(ctx, req.ProjectID)
 		if qErr == nil && quota != nil && quota.MaxAgents > 0 {
 			existing, listErr := s.store.ListAgents(ctx, req.ProjectID, quota.MaxAgents+1, nil)
 			if listErr == nil && len(existing) >= quota.MaxAgents {
+				return nil, ErrAgentQuotaExceeded
+			}
+		}
+	}
+
+	// Check agent definition limit from billing plan.
+	if s.billingEnforcer != nil {
+		agentTier, tierErr := s.billingEnforcer.GetAgentPlanForProject(ctx, req.ProjectID)
+		if tierErr != nil {
+			slog.Warn("agent plan lookup failed, defaulting to free", "project_id", req.ProjectID, "error", tierErr)
+		}
+		limits := billing.GetAgentPlanLimits(domain.PlanTier(agentTier))
+		if limits.MaxAgentDefinitions > 0 { // -1 = unlimited
+			existing, listErr := s.store.ListAgents(ctx, req.ProjectID, limits.MaxAgentDefinitions+1, nil)
+			if listErr == nil && len(existing) >= limits.MaxAgentDefinitions {
 				return nil, ErrAgentQuotaExceeded
 			}
 		}
@@ -573,6 +616,9 @@ func (s *localService) DeployAgent(ctx context.Context, projectID, agentID, acto
 }
 
 func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "agents.RunAgent")
+	defer span.End()
+
 	if err := validateRunRequest(req); err != nil {
 		return nil, err
 	}
@@ -589,6 +635,13 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		}
 	}
 
+	// Check agent spending limit (Free plan hard cap, paid plan optional cap).
+	if s.billingEnforcer != nil {
+		if err := s.billingEnforcer.CheckAgentSpendingLimit(ctx, req.ProjectID); err != nil {
+			return nil, err
+		}
+	}
+
 	agent, err := s.GetAgent(ctx, req.ProjectID, req.AgentID)
 	if err != nil {
 		return nil, err
@@ -598,8 +651,19 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		return nil, err
 	}
 
-	// Enforce per-agent concurrency limit by counting non-terminal runs.
-	existingRuns, err := s.store.ListRunsByJob(ctx, agent.JobID, s.maxConcurrentRuns+1, 0)
+	// Enforce per-agent concurrency limit — use plan limit if available, otherwise config default.
+	maxConcurrent := s.maxConcurrentRuns
+	if s.billingEnforcer != nil {
+		agentTier, tierErr := s.billingEnforcer.GetAgentPlanForProject(ctx, req.ProjectID)
+		if tierErr != nil {
+			slog.Warn("agent plan lookup failed, defaulting to free", "project_id", req.ProjectID, "error", tierErr)
+		}
+		limits := billing.GetAgentPlanLimits(domain.PlanTier(agentTier))
+		if limits.MaxAgentConcurrentRuns > 0 {
+			maxConcurrent = limits.MaxAgentConcurrentRuns
+		}
+	}
+	existingRuns, err := s.store.ListRunsByJob(ctx, agent.JobID, maxConcurrent+1, 0)
 	if err != nil {
 		return nil, fmt.Errorf("check agent concurrency: %w", err)
 	}
@@ -609,7 +673,7 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 			activeCount++
 		}
 	}
-	if activeCount >= s.maxConcurrentRuns {
+	if activeCount >= maxConcurrent {
 		return nil, ErrConcurrencyExceeded
 	}
 
@@ -619,6 +683,17 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 	}
 	if deployment.Status != domain.AgentDeploymentStatusDeployed {
 		return nil, ErrNotDeployed
+	}
+
+	// Route via canary if active (probabilistic traffic splitting).
+	if s.canaryRouter != nil {
+		if canary := s.getActiveCanary(ctx, agent.ID); canary != nil {
+			if targetID := s.canaryRouter.Route(canary); targetID != "" && targetID != deployment.ID {
+				if altDeploy, altErr := s.store.GetAgentDeploymentByID(ctx, targetID); altErr == nil && altDeploy != nil {
+					deployment = altDeploy
+				}
+			}
+		}
 	}
 
 	run := &domain.JobRun{
@@ -1264,6 +1339,16 @@ func (s *localService) buildWebhookPayload(agent *domain.Agent, run *domain.JobR
 // When a WebhookDeliveryStore is available, it creates a durable delivery record
 // processed by the existing DeliveryWorker with exponential backoff and retries.
 // Falls back to fire-and-forget HTTP when no store is configured.
+// getActiveCanary returns the active canary deployment for an agent, or nil if none.
+func (s *localService) getActiveCanary(ctx context.Context, agentID string) *domain.AgentCanaryDeployment {
+	canary, err := s.store.GetActiveAgentCanary(ctx, agentID)
+	if err != nil {
+		slog.Warn("failed to get active canary", "agent_id", agentID, "error", err)
+		return nil
+	}
+	return canary
+}
+
 func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent, runID string) {
 	if agent == nil {
 		return

@@ -908,6 +908,21 @@ type APIStoreMock struct {
 	// CountRunToolCallsFunc mocks the CountRunToolCalls method.
 	CountRunToolCallsFunc func(ctx context.Context, runID string) (int, error)
 
+	// CreateAgentUsageRecordFunc mocks the CreateAgentUsageRecord method.
+	CreateAgentUsageRecordFunc func(ctx context.Context, rec *domain.AgentUsageRecord) error
+
+	// GetAgentByJobIDFunc mocks the GetAgentByJobID method.
+	GetAgentByJobIDFunc func(ctx context.Context, jobID string) (*domain.Agent, error)
+
+	// GetOrgAgentSpendingLimitFunc mocks the GetOrgAgentSpendingLimit method.
+	GetOrgAgentSpendingLimitFunc func(ctx context.Context, orgID string) (int64, error)
+
+	// UpdateAgentSpendingLimitFunc mocks the UpdateAgentSpendingLimit method.
+	UpdateAgentSpendingLimitFunc func(ctx context.Context, orgID string, limitMicrousd int64) error
+
+	// QueryAgentUsageSummaryFunc mocks the QueryAgentUsageSummary method.
+	QueryAgentUsageSummaryFunc func(ctx context.Context, orgID string, since time.Time) (*store.AgentUsageSummary, error)
+
 	// CountRunningWorkflowRunsFunc mocks the CountRunningWorkflowRuns method.
 	CountRunningWorkflowRunsFunc func(ctx context.Context, workflowID string) (int, error)
 
@@ -5519,6 +5534,61 @@ func (mock *APIStoreMock) CountRunToolCallsCalls() []struct {
 	calls = mock.calls.CountRunToolCalls
 	mock.lockCountRunToolCalls.RUnlock()
 	return calls
+}
+
+// CreateAgentUsageRecord calls CreateAgentUsageRecordFunc.
+func (mock *APIStoreMock) CreateAgentUsageRecord(ctx context.Context, rec *domain.AgentUsageRecord) error {
+	if mock.CreateAgentUsageRecordFunc == nil {
+		return nil
+	}
+	return mock.CreateAgentUsageRecordFunc(ctx, rec)
+}
+
+// QueryAgentUsageSummary calls QueryAgentUsageSummaryFunc.
+func (mock *APIStoreMock) QueryAgentUsageSummary(ctx context.Context, orgID string, since time.Time) (*store.AgentUsageSummary, error) {
+	if mock.QueryAgentUsageSummaryFunc != nil {
+		return mock.QueryAgentUsageSummaryFunc(ctx, orgID, since)
+	}
+	return &store.AgentUsageSummary{}, nil
+}
+
+// GetOrgAgentSpendingLimit returns the spending limit via mock func or default.
+func (mock *APIStoreMock) GetOrgAgentSpendingLimit(ctx context.Context, orgID string) (int64, error) {
+	if mock.GetOrgAgentSpendingLimitFunc != nil {
+		return mock.GetOrgAgentSpendingLimitFunc(ctx, orgID)
+	}
+	return -1, nil
+}
+
+// UpdateAgentSpendingLimit calls the mock func or returns nil.
+func (mock *APIStoreMock) UpdateAgentSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64) error {
+	if mock.UpdateAgentSpendingLimitFunc != nil {
+		return mock.UpdateAgentSpendingLimitFunc(ctx, orgID, limitMicrousd)
+	}
+	return nil
+}
+
+// RollbackAgentDeployment is a no-op mock.
+func (mock *APIStoreMock) RollbackAgentDeployment(_ context.Context, _, _, _ string) (*domain.AgentDeployment, error) {
+	return &domain.AgentDeployment{}, nil
+}
+
+// CreateEvalRun is a no-op mock.
+func (mock *APIStoreMock) CreateEvalRun(_ context.Context, _ *domain.EvalRun) error {
+	return nil
+}
+
+// ListEvalRuns returns empty mock results.
+func (mock *APIStoreMock) ListEvalRuns(_ context.Context, _ string, _ int) ([]domain.EvalRun, error) {
+	return []domain.EvalRun{}, nil
+}
+
+// GetAgentByJobID calls GetAgentByJobIDFunc.
+func (mock *APIStoreMock) GetAgentByJobID(ctx context.Context, jobID string) (*domain.Agent, error) {
+	if mock.GetAgentByJobIDFunc == nil {
+		return nil, nil
+	}
+	return mock.GetAgentByJobIDFunc(ctx, jobID)
 }
 
 // CountRunningWorkflowRuns calls CountRunningWorkflowRunsFunc.

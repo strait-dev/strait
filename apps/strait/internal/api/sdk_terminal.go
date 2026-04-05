@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -63,6 +64,7 @@ func (s *Server) handleSDKComplete(ctx context.Context, input *SDKCompleteInput)
 		}
 		return nil, huma.Error500InternalServerError("failed to update run")
 	}
+	s.ingestAgentBilling(ctx, run)
 	if s.workflowCallback != nil {
 		completedRun := *run
 		completedRun.Status = domain.StatusCompleted
@@ -121,6 +123,7 @@ func (s *Server) handleSDKFail(ctx context.Context, input *SDKFailInput) (*SDKFa
 		}
 		return nil, huma.Error500InternalServerError("failed to update run")
 	}
+	s.ingestAgentBilling(ctx, run)
 	if s.workflowCallback != nil {
 		failedRun := *run
 		failedRun.Status = domain.StatusFailed
@@ -147,6 +150,83 @@ func (s *Server) handleSDKFail(ctx context.Context, input *SDKFailInput) (*SDKFa
 		return nil, huma.Error500InternalServerError("failed to get updated run")
 	}
 	return &SDKFailOutput{Body: updatedRun}, nil
+}
+
+// ingestAgentBilling records agent run usage and sends billing events to Stripe.
+// It is a no-op for non-agent runs, dev environment runs, and self-hosted instances.
+func (s *Server) ingestAgentBilling(ctx context.Context, run *domain.JobRun) {
+	if s.agentBilling == nil || s.billingEnforcer == nil {
+		return
+	}
+
+	job, err := s.store.GetJob(ctx, run.JobID)
+	if err != nil || job == nil {
+		return
+	}
+
+	if len(job.Tags) == 0 || job.Tags["strait_internal"] != "agent" {
+		return
+	}
+
+	// Skip dev environment runs — never billed.
+	if job.EnvironmentID != "" {
+		env, envErr := s.store.GetEnvironment(ctx, job.EnvironmentID)
+		if envErr == nil && env != nil && env.Slug == "development" {
+			return
+		}
+	}
+
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, run.ProjectID)
+	if err != nil || orgID == "" {
+		return
+	}
+	stripeCustomerID, err := s.billingEnforcer.GetStripeCustomerID(ctx, orgID)
+	if err != nil || stripeCustomerID == "" {
+		return
+	}
+
+	totalTokens, tokErr := s.store.SumRunTotalTokens(ctx, run.ID)
+	if tokErr != nil {
+		slog.Warn("failed to sum run tokens for billing", "run_id", run.ID, "error", tokErr)
+	}
+	toolCallCount, toolErr := s.store.CountRunToolCalls(ctx, run.ID)
+	if toolErr != nil {
+		slog.Warn("failed to count run tool calls for billing", "run_id", run.ID, "error", toolErr)
+	}
+
+	// Look up agent ID for the usage record.
+	var agentID string
+	if agent, agentErr := s.store.GetAgentByJobID(ctx, job.ID); agentErr == nil && agent != nil {
+		agentID = agent.ID
+	}
+
+	// Calculate costs for the usage record.
+	runCost, tokenCost, toolCost, totalCost := billing.CalculateAgentRunCost(totalTokens, toolCallCount)
+
+	// Store usage record (deduped by run_id unique index).
+	if recErr := s.store.CreateAgentUsageRecord(ctx, &domain.AgentUsageRecord{
+		RunID:             run.ID,
+		ProjectID:         run.ProjectID,
+		OrgID:             orgID,
+		AgentID:           agentID,
+		TotalTokens:       totalTokens,
+		ToolCallCount:     toolCallCount,
+		RunCostMicrousd:   runCost,
+		TokenCostMicrousd: tokenCost,
+		ToolCostMicrousd:  toolCost,
+		TotalCostMicrousd: totalCost,
+	}); recErr != nil {
+		slog.Warn("failed to create agent usage record", "run_id", run.ID, "error", recErr)
+	}
+
+	// Fire-and-forget Stripe billing via background pool.
+	s.bgPool.Submit(func() {
+		ingestCtx, cancel := context.WithTimeout(context.Background(), billing.AgentBillingTimeout)
+		defer cancel()
+		if err := s.agentBilling.IngestAgentRunUsage(ingestCtx, stripeCustomerID, run.ID, totalTokens, toolCallCount); err != nil {
+			slog.Warn("agent billing ingestion failed", "run_id", run.ID, "error", err)
+		}
+	})
 }
 
 type SDKSpawnRequest struct {
@@ -319,4 +399,3 @@ func (s *Server) resumeWaitingParentIfReady(ctx context.Context, run *domain.Job
 	}
 	return s.store.UpdateRunStatus(ctx, parent.ID, domain.StatusWaiting, domain.StatusQueued, map[string]any{"started_at": nil, "finished_at": nil, "next_retry_at": nil})
 }
-

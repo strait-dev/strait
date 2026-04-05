@@ -339,6 +339,11 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		return ErrUnknownPrice
 	}
 
+	// Route agent plan subscriptions to agent-specific handler.
+	if tier.IsAgentPlan() {
+		return h.handleAgentSubscriptionCreated(ctx, &sub, tier)
+	}
+
 	orgID := h.resolveOrgID(&sub)
 	if orgID == "" {
 		h.logger.Warn("cannot resolve org_id from subscription", "subscription_id", sub.ID)
@@ -491,10 +496,21 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 
 	priceID := extractPriceID(&sub)
 
+	// Check if this is an addon update first.
+	if _, isAddon := h.stripeMapping.AddonTypeForPrice(priceID); isAddon {
+		// Addon updates don't change plan tier — handled by quantity changes.
+		return nil
+	}
+
 	tier, ok := h.stripeMapping.TierForPrice(priceID)
 	if !ok {
 		h.logger.Warn("unknown stripe price ID on update", "price_id", priceID)
 		return nil
+	}
+
+	// Route agent plan updates to agent-specific handler.
+	if tier.IsAgentPlan() {
+		return h.handleAgentSubscriptionCreated(ctx, &sub, tier) // reuse — same update logic
 	}
 
 	orgID := h.resolveOrgID(&sub)
@@ -1323,6 +1339,32 @@ func (h *WebhookHandler) handleAddonSubscriptionCanceled(ctx context.Context, su
 
 	h.logger.Info("addon subscription canceled",
 		"org_id", orgID,
+		"subscription_id", sub.ID,
+	)
+	return nil
+}
+
+// handleAgentSubscriptionCreated processes a new agent plan subscription.
+func (h *WebhookHandler) handleAgentSubscriptionCreated(ctx context.Context, sub *stripe.Subscription, tier domain.PlanTier) error {
+	orgID := h.resolveOrgID(sub)
+	if orgID == "" {
+		h.logger.Warn("cannot resolve org_id for agent subscription", "subscription_id", sub.ID)
+		return nil
+	}
+
+	periodStart, periodEnd := extractPeriod(sub)
+
+	if err := h.store.UpdateAgentSubscriptionPlan(ctx, orgID, string(tier), periodStart, periodEnd); err != nil {
+		return fmt.Errorf("updating agent plan: %w", err)
+	}
+
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(orgID)
+	}
+
+	h.logger.Info("agent subscription created",
+		"org_id", orgID,
+		"agent_plan_tier", string(tier),
 		"subscription_id", sub.ID,
 	)
 	return nil

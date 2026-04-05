@@ -213,6 +213,14 @@ type RunStore interface {
 	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
 	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
 	CountRunToolCalls(ctx context.Context, runID string) (int, error)
+	CreateAgentUsageRecord(ctx context.Context, rec *domain.AgentUsageRecord) error
+	QueryAgentUsageSummary(ctx context.Context, orgID string, since time.Time) (*store.AgentUsageSummary, error)
+	GetOrgAgentSpendingLimit(ctx context.Context, orgID string) (int64, error)
+	UpdateAgentSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64) error
+	GetAgentByJobID(ctx context.Context, jobID string) (*domain.Agent, error)
+	CreateEvalRun(ctx context.Context, run *domain.EvalRun) error
+	ListEvalRuns(ctx context.Context, agentID string, limit int) ([]domain.EvalRun, error)
+	RollbackAgentDeployment(ctx context.Context, agentID, targetDeploymentID, actor string) (*domain.AgentDeployment, error)
 	CountRunIterations(ctx context.Context, runID string) (int, error)
 	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
 	UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error
@@ -526,6 +534,8 @@ type Server struct {
 	billingEnforcer    BillingEnforcer
 	usageService       UsageService
 	chExporter         *clickhouse.Exporter
+	agentBilling       *billing.AgentBillingReporter
+	doMemoryClient     *agents.DOMemoryClient
 	edition            domain.Edition
 	version            string
 	startedAt          time.Time
@@ -571,6 +581,7 @@ type BillingEnforcer interface {
 	GetOrgPlanLimits(ctx context.Context, orgID string) (billing.OrgPlanLimits, error)
 	GetDailyRunCount(ctx context.Context, orgID string) (int64, error)
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
+	GetStripeCustomerID(ctx context.Context, orgID string) (string, error)
 }
 
 // UsageService provides org usage data for the billing dashboard.
@@ -609,17 +620,19 @@ type ServerDeps struct {
 	Metrics            *telemetry.Metrics
 	TxPool             store.TxBeginner // Optional: enables transactional event trigger sends.
 	ActorSyncer        ActorSyncer
-	PoolStatter        PoolStatter              // Optional: enables DB pool backpressure middleware.
-	RedisClient        *redis.Client            // Optional: enables per-project/key rate limiting.
-	Encryptor          Encryptor                // Optional: enables event source signature encryption.
-	ContainerRuntime   compute.ContainerRuntime // Optional: enables managed container stop on cancel.
-	StripeWebhook      http.Handler             // Optional: Stripe billing webhook handler.
-	BillingEnforcer    BillingEnforcer          // Optional: enables billing limit checks on project create.
-	UsageService       UsageService             // Optional: enables usage endpoint.
-	CHExporter         *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
-	Edition            domain.Edition           // Edition controls feature gating (community vs cloud).
-	Version            string                   // Build version (injected via ldflags).
-	CDCWebhookReceiver http.Handler             // Optional: enables CDC webhook push endpoint.
+	PoolStatter        PoolStatter                   // Optional: enables DB pool backpressure middleware.
+	RedisClient        *redis.Client                 // Optional: enables per-project/key rate limiting.
+	Encryptor          Encryptor                     // Optional: enables event source signature encryption.
+	ContainerRuntime   compute.ContainerRuntime      // Optional: enables managed container stop on cancel.
+	StripeWebhook      http.Handler                  // Optional: Stripe billing webhook handler.
+	BillingEnforcer    BillingEnforcer               // Optional: enables billing limit checks on project create.
+	UsageService       UsageService                  // Optional: enables usage endpoint.
+	CHExporter         *clickhouse.Exporter          // Optional: enables ClickHouse analytics export from API handlers.
+	AgentBilling       *billing.AgentBillingReporter // Optional: enables agent run billing to Stripe.
+	DOMemoryClient     *agents.DOMemoryClient        // Optional: enables Durable Objects memory backend.
+	Edition            domain.Edition                // Edition controls feature gating (community vs cloud).
+	Version            string                        // Build version (injected via ldflags).
+	CDCWebhookReceiver http.Handler                  // Optional: enables CDC webhook push endpoint.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -670,6 +683,8 @@ func NewServer(deps ServerDeps) *Server {
 		billingEnforcer:    deps.BillingEnforcer,
 		usageService:       deps.UsageService,
 		chExporter:         deps.CHExporter,
+		agentBilling:       deps.AgentBilling,
+		doMemoryClient:     deps.DOMemoryClient,
 		edition:            deps.Edition,
 		version:            deps.Version,
 		startedAt:          time.Now(),

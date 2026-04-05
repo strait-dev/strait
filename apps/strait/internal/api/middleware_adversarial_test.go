@@ -984,3 +984,6 @@ func (m *adversarialBillingEnforcer) EnsureOrgSubscription(ctx context.Context, 
 	return nil
 }
 
+func (m *adversarialBillingEnforcer) GetStripeCustomerID(_ context.Context, _ string) (string, error) {
+	return "", nil
+}

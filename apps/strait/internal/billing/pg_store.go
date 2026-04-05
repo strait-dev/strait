@@ -49,6 +49,10 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
 			COALESCE(monthly_usage_email, false),
+			COALESCE(agent_plan_tier, 'agent_free'),
+			agent_stripe_subscription_id, agent_current_period_start, agent_current_period_end,
+			COALESCE(agent_spending_limit_microusd, -1),
+			agent_pending_plan_tier,
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE org_id = $1
@@ -62,6 +66,10 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 		&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 		&sub.EnforcementMode,
 		&sub.MonthlyUsageEmail,
+		&sub.AgentPlanTier,
+		&sub.AgentStripeSubscriptionID, &sub.AgentCurrentPeriodStart, &sub.AgentCurrentPeriodEnd,
+		&sub.AgentSpendingLimitMicrousd,
+		&sub.AgentPendingPlanTier,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -219,6 +227,10 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			grace_period_end, COALESCE(payment_status, 'ok'),
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
+			COALESCE(agent_plan_tier, 'agent_free'),
+			agent_stripe_subscription_id, agent_current_period_start, agent_current_period_end,
+			COALESCE(agent_spending_limit_microusd, -1),
+			agent_pending_plan_tier,
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE pending_plan_tier IS NOT NULL
@@ -243,6 +255,10 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 			&sub.EnforcementMode,
+			&sub.AgentPlanTier,
+			&sub.AgentStripeSubscriptionID, &sub.AgentCurrentPeriodStart, &sub.AgentCurrentPeriodEnd,
+			&sub.AgentSpendingLimitMicrousd,
+			&sub.AgentPendingPlanTier,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pending downgrade: %w", err)
@@ -825,6 +841,10 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 			grace_period_end, COALESCE(payment_status, 'ok'),
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
+			COALESCE(agent_plan_tier, 'agent_free'),
+			agent_stripe_subscription_id, agent_current_period_start, agent_current_period_end,
+			COALESCE(agent_spending_limit_microusd, -1),
+			agent_pending_plan_tier,
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE payment_status = 'grace'
@@ -848,6 +868,10 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 			&sub.EnforcementMode,
+			&sub.AgentPlanTier,
+			&sub.AgentStripeSubscriptionID, &sub.AgentCurrentPeriodStart, &sub.AgentCurrentPeriodEnd,
+			&sub.AgentSpendingLimitMicrousd,
+			&sub.AgentPendingPlanTier,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning grace period org: %w", err)
@@ -870,6 +894,10 @@ func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription
 			grace_period_end, COALESCE(payment_status, 'ok'),
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
+			COALESCE(agent_plan_tier, 'agent_free'),
+			agent_stripe_subscription_id, agent_current_period_start, agent_current_period_end,
+			COALESCE(agent_spending_limit_microusd, -1),
+			agent_pending_plan_tier,
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE status = 'active'
@@ -895,6 +923,10 @@ func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 			&sub.EnforcementMode,
+			&sub.AgentPlanTier,
+			&sub.AgentStripeSubscriptionID, &sub.AgentCurrentPeriodStart, &sub.AgentCurrentPeriodEnd,
+			&sub.AgentSpendingLimitMicrousd,
+			&sub.AgentPendingPlanTier,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning stale subscription: %w", err)
@@ -1322,4 +1354,49 @@ func (s *PgStore) CountHTTPJobsByOrg(ctx context.Context, orgID string) (int, er
 		return 0, fmt.Errorf("counting HTTP jobs for org: %w", err)
 	}
 	return count, nil
+}
+
+// UpdateAgentSubscriptionPlan updates the agent-specific plan tier on an org subscription.
+func (s *PgStore) UpdateAgentSubscriptionPlan(ctx context.Context, orgID, agentPlanTier string, periodStart, periodEnd *time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET agent_plan_tier = $2,
+			agent_current_period_start = $3,
+			agent_current_period_end = $4,
+			agent_pending_plan_tier = NULL,
+			updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, agentPlanTier, periodStart, periodEnd)
+	if err != nil {
+		return fmt.Errorf("update agent subscription plan: %w", err)
+	}
+	return nil
+}
+
+// UpdateAgentSpendingLimit sets the optional agent spending cap for an org.
+func (s *PgStore) UpdateAgentSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET agent_spending_limit_microusd = $2, updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, limitMicrousd)
+	if err != nil {
+		return fmt.Errorf("update agent spending limit: %w", err)
+	}
+	return nil
+}
+
+// SumOrgAgentSpendSince returns the total agent billing cost in micro-USD for an
+// org since the given timestamp. Queries the agent_usage_records table.
+func (s *PgStore) SumOrgAgentSpendSince(ctx context.Context, orgID string, since time.Time) (int64, error) {
+	var total int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(total_cost_microusd), 0)
+		FROM agent_usage_records
+		WHERE org_id = $1 AND created_at >= $2
+	`, orgID, since).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("sum org agent spend since: %w", err)
+	}
+	return total, nil
 }

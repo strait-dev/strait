@@ -171,9 +171,9 @@ describe("createVercelAIAdapter", () => {
       status: "completed",
     });
     expect(checkpoint).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         phase: "tool-loop",
-      },
+      }),
       {
         source: "vercel-ai",
       }

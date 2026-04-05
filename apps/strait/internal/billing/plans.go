@@ -70,6 +70,21 @@ type OrgPlanLimits struct {
 	WebhookEventLevel      string            // "none", "basic", "all", "all_custom"
 	APIRateLimit           int               // requests per minute; -1 = unlimited
 	MaxAddonPacks          map[AddonType]int `json:"max_addon_packs,omitempty"` // max packs per addon type; -1 = unlimited
+
+	// Agent-specific limits (populated from AgentPlans, not Jobs Plans).
+	MaxAgentDefinitions        int   // Free=3, Maker=10, Growth=-1
+	MaxAgentConcurrentRuns     int   // Free=5, Maker=25, Growth=200
+	AgentCreditMicrousd        int64 // Free=1_000_000, Maker=39_000_000, Growth=149_000_000
+	AgentMemoryPerAgentBytes   int64 // Free=524_288, Maker=10_485_760, Growth=104_857_600
+	AgentRetentionDays         int   // Free=1, Maker=7, Growth=30
+	AgentMaxWebhookEndpoints   int   // Free=0, Maker=3, Growth=10
+	HasAgentMultiOrchestration bool  // Free=false, Maker(basic)=true, Growth(full)=true
+	AgentMultiMaxAgents        int   // Free=0, Maker=2, Growth=-1
+	HasAgentEvalFramework      bool  // Growth+ only
+	HasAgentAdvancedGuardrails bool  // Growth+ only
+	HasAgentAuditLogs          bool  // Growth+ only
+	HasAgentLogDrains          bool  // Growth+ only
+	AgentAPIRateLimit          int   // Free=60, Maker=500, Growth=2000
 }
 
 // IsPresetAllowed returns true if the given machine preset name is allowed on this plan.
@@ -492,4 +507,119 @@ func GetPlanLimits(tier domain.PlanTier) OrgPlanLimits {
 		return limits
 	}
 	return Plans[domain.PlanFree]
+}
+
+// Agent credit constants in micro-USD.
+const (
+	AgentCreditFreeMicrousd   int64 = 1_000_000   // $1
+	AgentCreditMakerMicrousd  int64 = 39_000_000  // $39
+	AgentCreditGrowthMicrousd int64 = 149_000_000 // $149
+)
+
+// AgentPlans defines the limits for each agent plan tier.
+var AgentPlans = map[domain.PlanTier]OrgPlanLimits{
+	domain.AgentPlanFree: {
+		PlanTier:                   domain.AgentPlanFree,
+		DisplayName:                "Agents Free",
+		MaxProjectsPerOrg:          1,
+		MaxMembersPerOrg:           1,
+		MaxAgentDefinitions:        3,
+		MaxAgentConcurrentRuns:     5,
+		AgentCreditMicrousd:        AgentCreditFreeMicrousd,
+		AgentMemoryPerAgentBytes:   524_288, // 512KB
+		AgentRetentionDays:         1,
+		AgentMaxWebhookEndpoints:   0,
+		HasAgentMultiOrchestration: false,
+		AgentMultiMaxAgents:        0,
+		HasAgentEvalFramework:      false,
+		HasAgentAdvancedGuardrails: false,
+		HasAgentAuditLogs:          false,
+		HasAgentLogDrains:          false,
+		AgentAPIRateLimit:          60,
+	},
+	domain.AgentPlanMaker: {
+		PlanTier:                   domain.AgentPlanMaker,
+		DisplayName:                "Agents Maker",
+		PriceMonthlyUsd:            3900,
+		PriceAnnualUsd:             39000,
+		MaxProjectsPerOrg:          3,
+		MaxMembersPerOrg:           5,
+		MaxAgentDefinitions:        10,
+		MaxAgentConcurrentRuns:     25,
+		AgentCreditMicrousd:        AgentCreditMakerMicrousd,
+		AgentMemoryPerAgentBytes:   10_485_760, // 10MB
+		AgentRetentionDays:         7,
+		AgentMaxWebhookEndpoints:   3,
+		HasAgentMultiOrchestration: true,
+		AgentMultiMaxAgents:        2,
+		HasAgentEvalFramework:      false,
+		HasAgentAdvancedGuardrails: false,
+		HasAgentAuditLogs:          false,
+		HasAgentLogDrains:          false,
+		AgentAPIRateLimit:          500,
+		HasRBAC:                    true,
+		RBACLevel:                  "basic",
+		SupportLevel:               "email_72h",
+		RequiresCreditCard:         true,
+	},
+	domain.AgentPlanGrowth: {
+		PlanTier:                   domain.AgentPlanGrowth,
+		DisplayName:                "Agents Growth",
+		PriceMonthlyUsd:            14900,
+		PriceAnnualUsd:             149000,
+		MaxProjectsPerOrg:          10,
+		MaxMembersPerOrg:           25,
+		MaxAgentDefinitions:        -1, // unlimited
+		MaxAgentConcurrentRuns:     200,
+		AgentCreditMicrousd:        AgentCreditGrowthMicrousd,
+		AgentMemoryPerAgentBytes:   104_857_600, // 100MB
+		AgentRetentionDays:         30,
+		AgentMaxWebhookEndpoints:   10,
+		HasAgentMultiOrchestration: true,
+		AgentMultiMaxAgents:        -1, // unlimited
+		HasAgentEvalFramework:      true,
+		HasAgentAdvancedGuardrails: true,
+		HasAgentAuditLogs:          true,
+		HasAgentLogDrains:          true,
+		AgentAPIRateLimit:          2000,
+		HasRBAC:                    true,
+		RBACLevel:                  "full",
+		HasAuditLogs:               true,
+		SupportLevel:               "priority_24h",
+		RequiresCreditCard:         true,
+	},
+	domain.AgentPlanEnterprise: {
+		PlanTier:                   domain.AgentPlanEnterprise,
+		DisplayName:                "Agents Enterprise",
+		MaxProjectsPerOrg:          -1,
+		MaxMembersPerOrg:           -1,
+		MaxAgentDefinitions:        -1,
+		MaxAgentConcurrentRuns:     -1,
+		AgentCreditMicrousd:        0,             // set per-contract
+		AgentMemoryPerAgentBytes:   1_073_741_824, // 1GB
+		AgentRetentionDays:         90,
+		AgentMaxWebhookEndpoints:   -1,
+		HasAgentMultiOrchestration: true,
+		AgentMultiMaxAgents:        -1,
+		HasAgentEvalFramework:      true,
+		HasAgentAdvancedGuardrails: true,
+		HasAgentAuditLogs:          true,
+		HasAgentLogDrains:          true,
+		AgentAPIRateLimit:          -1,
+		HasRBAC:                    true,
+		RBACLevel:                  "full",
+		HasAuditLogs:               true,
+		HasSSO:                     true,
+		HasSLA:                     true,
+		SupportLevel:               "dedicated",
+	},
+}
+
+// GetAgentPlanLimits returns the agent plan limits for the given tier.
+// Returns agent free plan limits if the tier is unknown.
+func GetAgentPlanLimits(tier domain.PlanTier) OrgPlanLimits {
+	if limits, ok := AgentPlans[tier]; ok {
+		return limits
+	}
+	return AgentPlans[domain.AgentPlanFree]
 }

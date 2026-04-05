@@ -11,6 +11,13 @@ const (
 	AddonCronSchedules    AddonType = "cron_schedules"
 	AddonDataRetention    AddonType = "data_retention"
 	AddonWebhookEndpoints AddonType = "webhook_endpoints"
+
+	// Agent-specific add-ons.
+	AddonAgentConcurrentRuns   AddonType = "agent_concurrent_runs"
+	AddonAgentDefinitions      AddonType = "agent_definitions"
+	AddonAgentMemory           AddonType = "agent_memory"
+	AddonAgentRetention        AddonType = "agent_retention"
+	AddonAgentWebhookEndpoints AddonType = "agent_webhook_endpoints"
 )
 
 // AllAddonTypes returns all known add-on types.
@@ -26,9 +33,11 @@ func AllAddonTypes() []AddonType {
 
 // IsValidAddonType returns true if the addon type is recognized.
 func IsValidAddonType(t AddonType) bool {
-	switch t {
+	switch t { //nolint:exhaustive // agent addons are valid too
 	case AddonConcurrentRuns, AddonMembers, AddonCronSchedules,
-		AddonDataRetention, AddonWebhookEndpoints:
+		AddonDataRetention, AddonWebhookEndpoints,
+		AddonAgentConcurrentRuns, AddonAgentDefinitions, AddonAgentMemory,
+		AddonAgentRetention, AddonAgentWebhookEndpoints:
 		return true
 	}
 	return false
@@ -113,7 +122,7 @@ func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 
 		increment := pack.PackSize * addon.Quantity
 
-		switch addon.AddonType {
+		switch addon.AddonType { //nolint:exhaustive // agent addons handled separately
 		case AddonConcurrentRuns:
 			if result.MaxConcurrentRuns != -1 {
 				result.MaxConcurrentRuns += increment

@@ -235,6 +235,11 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/cost-estimate/what-if", TypedHandler(s, http.StatusOK, s.handleWhatIfCostEstimate))
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/cost-estimate/deployment", TypedHandler(s, http.StatusOK, s.handleEstimateDeploymentDelta))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/billing/check-org-limit", TypedHandler(s, http.StatusOK, s.handleCheckOrgLimit))
+
+		// Agent billing endpoints
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/agents/billing/usage", TypedHandler(s, http.StatusOK, s.handleGetAgentUsage))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/agents/billing/spending-limit", TypedHandler(s, http.StatusOK, s.handleGetAgentSpendingLimit))
+		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/agents/billing/spending-limit", TypedHandler(s, http.StatusOK, s.handleUpdateAgentSpendingLimit))
 		r.Route("/projects", func(r chi.Router) {
 			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeProjectsManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateProject))
 			r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListProjects))
@@ -294,6 +299,13 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAgents))
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/topology", TypedHandler(s, http.StatusOK, s.handleGetAgentTopology))
 			r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(10, time.Minute)).Post("/playground/run", TypedHandler(s, http.StatusCreated, s.handlePlaygroundRun))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/templates", TypedHandler(s, http.StatusOK, s.handleListAgentTemplates))
+
+			// Agent analytics endpoints (ClickHouse-backed).
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/analytics/run-timeline", TypedHandler(s, http.StatusOK, s.handleAgentRunTimeline))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/analytics/cost-summary", TypedHandler(s, http.StatusOK, s.handleAgentCostSummary))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/analytics/model-breakdown", TypedHandler(s, http.StatusOK, s.handleAgentModelBreakdown))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/analytics/top-agents", TypedHandler(s, http.StatusOK, s.handleAgentTopAgents))
 
 			r.Route("/{agentID}", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetAgent))
@@ -313,6 +325,9 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Get("/webhook-secret", TypedHandler(s, http.StatusOK, s.handleGetWebhookSecret))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/webhook-secret/rotate", TypedHandler(s, http.StatusOK, s.handleRotateAgentWebhookSecret))
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/runs/{runID}/replay", TypedHandler(s, http.StatusCreated, s.handleReplayAgentRun))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/evals", TypedHandler(s, http.StatusCreated, s.handleSubmitEval))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/rollback", TypedHandler(s, http.StatusOK, s.handleRollbackAgent))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/evals", TypedHandler(s, http.StatusOK, s.handleListEvals))
 			})
 		})
 

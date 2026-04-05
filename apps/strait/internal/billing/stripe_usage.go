@@ -16,6 +16,14 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// Stripe billing meter names.
+const (
+	MeterComputeOverage     = "compute_overage"
+	MeterAgentRunOverage    = "agent_run_overage"
+	MeterAgentTokenTracking = "agent_token_tracking" //nolint:gosec // not a credential, it's a Stripe meter name
+	MeterAgentToolCalls     = "agent_tool_calls"
+)
+
 // stripeKeyOnce ensures the global stripe.Key is set exactly once,
 // preventing data races when multiple StripeUsageReporters are created
 // concurrently (e.g. in parallel tests).
@@ -37,6 +45,25 @@ type StripeUsageReporterOption func(*StripeUsageReporter)
 func WithUsageReporterMetrics(m *telemetry.Metrics) StripeUsageReporterOption {
 	return func(r *StripeUsageReporter) {
 		r.metrics = m
+	}
+}
+
+// validMeterNames is the allowlist of known Stripe billing meter event names.
+var validMeterNames = map[string]bool{
+	MeterComputeOverage:     true,
+	MeterAgentRunOverage:    true,
+	MeterAgentTokenTracking: true,
+	MeterAgentToolCalls:     true,
+}
+
+// WithMeterEventName overrides the default meter event name ("compute_overage").
+// Panics if the name is not in the allowlist to prevent misconfiguration at startup.
+func WithMeterEventName(name string) StripeUsageReporterOption {
+	if !validMeterNames[name] {
+		panic(fmt.Sprintf("unknown Stripe meter name: %q", name))
+	}
+	return func(r *StripeUsageReporter) {
+		r.meterEventName = name
 	}
 }
 
@@ -72,6 +99,15 @@ func (r *StripeUsageReporter) IngestComputeUsage(ctx context.Context, stripeCust
 	}
 
 	return r.ingest(ctx, stripeCustomerID, runID, costMicroUSD)
+}
+
+// Ingest sends a usage event to this reporter's configured meter.
+// The identifier is used for Stripe deduplication.
+func (r *StripeUsageReporter) Ingest(ctx context.Context, stripeCustomerID, identifier string, value int64) error {
+	if r.secretKey == "" || stripeCustomerID == "" {
+		return nil
+	}
+	return r.ingest(ctx, stripeCustomerID, identifier, value)
 }
 
 func (r *StripeUsageReporter) ingest(ctx context.Context, customerID, runID string, costMicroUSD int64) error {

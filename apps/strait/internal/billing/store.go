@@ -27,8 +27,17 @@ type OrgSubscription struct {
 	OverrideConcurrentRunLimit *int
 	EnforcementMode            string // "enforce" (default), "warn", "disabled"
 	MonthlyUsageEmail          bool   // opt-in for monthly PDF usage report emails
-	CreatedAt                  time.Time
-	UpdatedAt                  time.Time
+
+	// Agent-specific subscription fields (independent from Jobs).
+	AgentPlanTier              string
+	AgentStripeSubscriptionID  *string
+	AgentCurrentPeriodStart    *time.Time
+	AgentCurrentPeriodEnd      *time.Time
+	AgentSpendingLimitMicrousd int64
+	AgentPendingPlanTier       *string
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // UsageRecord represents a daily usage aggregate per org and project.
@@ -78,6 +87,9 @@ type Store interface {
 	GetProjectUsageForPeriod(ctx context.Context, projectID string, from, to time.Time) ([]UsageRecord, error)
 	GetOrgDailyUsage(ctx context.Context, orgID string, date time.Time) ([]UsageRecord, error)
 	SumOrgPeriodSpend(ctx context.Context, orgID string, from time.Time) (int64, error)
+	SumOrgAgentSpendSince(ctx context.Context, orgID string, since time.Time) (int64, error)
+	UpdateAgentSubscriptionPlan(ctx context.Context, orgID, agentPlanTier string, periodStart, periodEnd *time.Time) error
+	UpdateAgentSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64) error
 
 	// Project budget
 	GetProjectBudget(ctx context.Context, projectID string) (int64, string, error)

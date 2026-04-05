@@ -29,6 +29,7 @@ describe("BudgetLedger", () => {
       totalTokens: 15,
       costMicrousd: 150,
       toolCalls: 1,
+      iterations: 0,
       limits: {
         maxCostMicrousd: 1000,
         maxTokens: 1000,
@@ -95,5 +96,56 @@ describe("BudgetLedger", () => {
     });
 
     expect(() => ledger.assertWithinLimits()).toThrow(BudgetExceededError);
+  });
+
+  it("enforces the iteration budget", () => {
+    const ledger = new BudgetLedger({
+      maxIterations: 3,
+    });
+
+    ledger.recordIteration();
+    ledger.recordIteration();
+    ledger.recordIteration();
+
+    expect(() => ledger.recordIteration()).toThrow(BudgetExceededError);
+    expect(() => ledger.recordIteration()).toThrow(
+      "iterations budget exceeded"
+    );
+    expect(ledger.snapshot().iterations).toBe(3);
+  });
+
+  it("tracks iterations in snapshot", () => {
+    const ledger = new BudgetLedger({ maxIterations: 10 });
+
+    ledger.recordIteration();
+    ledger.recordIteration();
+
+    const snap = ledger.snapshot();
+    expect(snap.iterations).toBe(2);
+    expect(snap.limits.maxIterations).toBe(10);
+  });
+
+  it("assertWithinLimits catches iteration limit", () => {
+    const ledger = new BudgetLedger({ maxIterations: 1 });
+
+    ledger.recordIteration();
+    expect(() => ledger.assertWithinLimits()).toThrow(BudgetExceededError);
+  });
+
+  it("allows unlimited iterations when maxIterations is not set", () => {
+    const ledger = new BudgetLedger({});
+
+    for (let i = 0; i < 100; i++) {
+      ledger.recordIteration();
+    }
+    expect(ledger.snapshot().iterations).toBe(100);
+  });
+
+  it("maxIterations = 1 allows exactly one iteration", () => {
+    const ledger = new BudgetLedger({ maxIterations: 1 });
+
+    ledger.recordIteration();
+    expect(ledger.snapshot().iterations).toBe(1);
+    expect(() => ledger.recordIteration()).toThrow(BudgetExceededError);
   });
 });

@@ -149,7 +149,7 @@ func TestSendMessageEmptyProjectRejected(t *testing.T) {
 func TestCanaryRouterNilRandFnDefaultsToSource(t *testing.T) {
 	t.Parallel()
 	router := &AgentCanaryRouter{randFn: nil}
-	canary := &AgentCanaryDeployment{
+	canary := &domain.AgentCanaryDeployment{
 		Status:             AgentCanaryStatusActive,
 		SourceDeploymentID: "source",
 		TargetDeploymentID: "target",

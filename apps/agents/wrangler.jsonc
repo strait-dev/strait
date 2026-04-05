@@ -11,6 +11,20 @@
       "binding": "SANDBOX_LOADER"
     }
   ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AGENT_MEMORY",
+        "class_name": "AgentMemoryDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AgentMemoryDO"]
+    }
+  ],
   "vars": {
     "STRAIT_ENV": "local"
   }

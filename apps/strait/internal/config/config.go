@@ -144,10 +144,9 @@ type Config struct {
 	// Managed execution (container runtime)
 	AllowedImageRegistries  []string      `env:"ALLOWED_IMAGE_REGISTRIES" envSeparator:"," envDefault:""`
 	RequireImageDigest      bool          `env:"REQUIRE_IMAGE_DIGEST" envDefault:"false"`
-	ComputeRuntime          string        `env:"COMPUTE_RUNTIME" default:"none"`
-	FlyAPIToken             string        `env:"FLY_API_TOKEN"`
-	FlyAppName              string        `env:"FLY_APP_NAME"`
-	FlyRegion               string        `env:"FLY_REGION" default:"iad"`
+	ComputeRuntime          string        `env:"COMPUTE_RUNTIME" default:"k8s"`
+	ComputeFallbackProvider string        `env:"COMPUTE_FALLBACK_PROVIDER"`
+	DefaultRegion           string        `env:"DEFAULT_REGION" default:"iad"`
 	ExternalAPIURL          string        `env:"EXTERNAL_API_URL"`
 	MaxConcurrentMachines   int           `env:"MAX_CONCURRENT_MACHINES" default:"10"`
 	WarmPoolEnabled         bool          `env:"WARM_POOL_ENABLED" default:"false"`
@@ -164,7 +163,15 @@ type Config struct {
 	CFOutboundWorkerName       string `env:"CF_OUTBOUND_WORKER_NAME"`
 	CFCompatibilityDate        string `env:"CF_COMPATIBILITY_DATE"`
 	CFSandboxMode              string `env:"CF_SANDBOX_MODE" default:"dynamic_worker"`
+	AgentMemoryBackend         string `env:"AGENT_MEMORY_BACKEND" default:"postgres"` // "postgres" or "durable_objects"
 
+	// Kubernetes runtime
+	K8sKubeconfig    string        `env:"K8S_KUBECONFIG"`
+	K8sNamespace     string        `env:"K8S_NAMESPACE" default:"default"`
+	K8sPriorityClass string        `env:"K8S_PRIORITY_CLASS" default:"strait-job"`
+	K8sGCEnabled     bool          `env:"K8S_GC_ENABLED" default:"true"`
+	K8sGCMaxAge      time.Duration `env:"K8S_GC_MAX_AGE" default:"30m"`
+	K8sGCInterval    time.Duration `env:"K8S_GC_INTERVAL" default:"5m"`
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
 
@@ -200,6 +207,19 @@ type Config struct {
 	StripeMeterID                        string `env:"STRIPE_METER_ID"`
 	BillingEnforcementEnabled            bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
 
+	// Stripe Agents plan prices
+	StripeAgentMakerMonthlyPriceID  string `env:"STRIPE_AGENT_MAKER_MONTHLY_PRICE_ID"`
+	StripeAgentMakerYearlyPriceID   string `env:"STRIPE_AGENT_MAKER_YEARLY_PRICE_ID"`
+	StripeAgentGrowthMonthlyPriceID string `env:"STRIPE_AGENT_GROWTH_MONTHLY_PRICE_ID"`
+	StripeAgentGrowthYearlyPriceID  string `env:"STRIPE_AGENT_GROWTH_YEARLY_PRICE_ID"`
+
+	// Stripe Agents add-on prices
+	StripeAgentAddonConcurrentRunsID   string `env:"STRIPE_AGENT_ADDON_CONCURRENT_RUNS_PRICE_ID"`
+	StripeAgentAddonDefinitionsID      string `env:"STRIPE_AGENT_ADDON_DEFINITIONS_PRICE_ID"`
+	StripeAgentAddonMemoryID           string `env:"STRIPE_AGENT_ADDON_MEMORY_PRICE_ID"`
+	StripeAgentAddonRetentionID        string `env:"STRIPE_AGENT_ADDON_RETENTION_PRICE_ID"`
+	StripeAgentAddonWebhookEndpointsID string `env:"STRIPE_AGENT_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID"`
+
 	// Resend email integration
 	ResendAPIKey    string `env:"RESEND_API_KEY"`
 	ResendFromEmail string `env:"RESEND_FROM_EMAIL" default:"noreply@strait.dev"`
@@ -225,7 +245,7 @@ type Config struct {
 
 // Load reads configuration from environment variables.
 //
-//nolint:gocyclo,cyclop
+//nolint:gocyclo,cyclop,gocognit
 func Load() (*Config, error) {
 	var cfg Config
 
@@ -313,17 +333,28 @@ func Load() (*Config, error) {
 	}
 
 	switch cfg.ComputeRuntime {
-	case "none", "fly", "docker", "":
+	case "none", "docker", "k8s", "":
 		// valid
 	default:
-		return nil, &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, fly, or docker"}
+		return nil, &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, docker, or k8s"}
 	}
-	if cfg.ComputeRuntime == "fly" {
-		if cfg.FlyAPIToken == "" {
-			return nil, &domain.ConfigError{Field: "FLY_API_TOKEN", Message: "is required when COMPUTE_RUNTIME=fly"}
+	if cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s" {
+		if cfg.K8sNamespace == "" {
+			return nil, &domain.ConfigError{Field: "K8S_NAMESPACE", Message: "is required when using k8s compute runtime"}
 		}
-		if cfg.FlyAppName == "" {
-			return nil, &domain.ConfigError{Field: "FLY_APP_NAME", Message: "is required when COMPUTE_RUNTIME=fly"}
+	}
+	if cfg.ComputeFallbackProvider != "" {
+		switch cfg.ComputeFallbackProvider {
+		case "docker", "k8s":
+			// valid
+		default:
+			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must be docker or k8s"}
+		}
+		if cfg.ComputeFallbackProvider == cfg.ComputeRuntime {
+			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must differ from COMPUTE_RUNTIME"}
+		}
+		if cfg.ComputeRuntime == "none" || cfg.ComputeRuntime == "" {
+			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "requires a primary COMPUTE_RUNTIME"}
 		}
 	}
 	if cfg.Edition == string(domain.EditionCommunity) && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {

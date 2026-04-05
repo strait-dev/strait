@@ -278,6 +278,72 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleListAgentRuns)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "list-agent-templates", Method: http.MethodGet, Path: "/v1/agents/templates",
+		Summary: "List agent templates", Description: "Returns built-in agent templates for quick setup.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{401, 500},
+	}, s.handleListAgentTemplates)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "rollback-agent", Method: http.MethodPost, Path: "/v1/agents/{agentID}/rollback",
+		Summary: "Rollback agent deployment", Description: "Creates a new deployment from a previous version's config snapshot.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleRollbackAgent)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "submit-agent-eval", Method: http.MethodPost, Path: "/v1/agents/{agentID}/evals",
+		Summary: "Submit eval results", Description: "Submits evaluation suite results for an agent deployment.",
+		Tags: []string{"Agents", "Evals"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleSubmitEval)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-agent-evals", Method: http.MethodGet, Path: "/v1/agents/{agentID}/evals",
+		Summary: "List eval runs", Description: "Returns evaluation run history for an agent.",
+		Tags: []string{"Agents", "Evals"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleListEvals)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-agent-run-timeline", Method: http.MethodGet, Path: "/v1/agents/analytics/run-timeline",
+		Summary: "Get agent run timeline", Description: "Returns bucketed run counts over time for an agent.",
+		Tags: []string{"Agents", "Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleAgentRunTimeline)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-agent-cost-summary", Method: http.MethodGet, Path: "/v1/agents/analytics/cost-summary",
+		Summary: "Get agent cost summary", Description: "Returns aggregate cost, token, and tool call statistics for an agent.",
+		Tags: []string{"Agents", "Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleAgentCostSummary)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-agent-model-breakdown", Method: http.MethodGet, Path: "/v1/agents/analytics/model-breakdown",
+		Summary: "Get agent model breakdown", Description: "Returns per-model cost and token breakdown for an agent.",
+		Tags: []string{"Agents", "Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleAgentModelBreakdown)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-agent-top-agents", Method: http.MethodGet, Path: "/v1/agents/analytics/top-agents",
+		Summary: "Get top agents by cost", Description: "Returns agents ranked by cost within a time range.",
+		Tags: []string{"Agents", "Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleAgentTopAgents)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-agent-usage", Method: http.MethodGet, Path: "/v1/agents/billing/usage",
+		Summary: "Get agent usage", Description: "Returns agent billing usage for the current period, including run counts, token usage, and upgrade recommendations.",
+		Tags: []string{"Agents", "Billing"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleGetAgentUsage)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-agent-spending-limit", Method: http.MethodGet, Path: "/v1/agents/billing/spending-limit",
+		Summary: "Get agent spending limit", Description: "Returns the current agent spending limit configuration.",
+		Tags: []string{"Agents", "Billing"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleGetAgentSpendingLimit)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-agent-spending-limit", Method: http.MethodPut, Path: "/v1/agents/billing/spending-limit",
+		Summary: "Update agent spending limit", Description: "Sets or removes the optional monthly spending cap for agent runs.",
+		Tags: []string{"Agents", "Billing"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleUpdateAgentSpendingLimit)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "batch-create-jobs", Method: http.MethodPost, Path: "/v1/jobs/batch",
 		Summary: "Batch create jobs", Description: "Creates multiple jobs in a single request.",
 		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 409, 429, 500},

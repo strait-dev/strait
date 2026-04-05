@@ -71,7 +71,7 @@ body:
         - OS: macOS 15.4
         - Go: 1.26
         - PostgreSQL: 16.2
-        - Deployment: Fly.io
+        - Deployment: Cloud (managed) / Self-hosted
     validations:
       required: false
 

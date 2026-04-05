@@ -171,6 +171,7 @@ function wireToolRunner(
     }
 
     iteration += 1;
+    context.recordIteration?.();
 
     return Promise.all([
       reportUsage(context, message as AnthropicMessage),
@@ -219,7 +220,11 @@ export function withStrait<TClient extends AnthropicClientLike>(
           await reportUsage(context, message);
           await reportToolUses(context, message);
         })
-        .catch(() => undefined);
+        .catch((err: unknown) => {
+          if (typeof console !== "undefined") {
+            console.warn("[strait] telemetry delivery failed:", err);
+          }
+        });
       return messagePromise;
     },
     stream(...args: unknown[]) {

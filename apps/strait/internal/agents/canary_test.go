@@ -2,12 +2,14 @@ package agents
 
 import (
 	"testing"
+
+	"strait/internal/domain"
 )
 
 func TestAgentCanaryRouterRouteZeroTraffic(t *testing.T) {
 	t.Parallel()
 	router := &AgentCanaryRouter{randFn: func() float64 { return 0.5 }}
-	canary := &AgentCanaryDeployment{
+	canary := &domain.AgentCanaryDeployment{
 		Status:             AgentCanaryStatusActive,
 		SourceDeploymentID: "source",
 		TargetDeploymentID: "target",
@@ -21,7 +23,7 @@ func TestAgentCanaryRouterRouteZeroTraffic(t *testing.T) {
 func TestAgentCanaryRouterRouteFullTraffic(t *testing.T) {
 	t.Parallel()
 	router := &AgentCanaryRouter{randFn: func() float64 { return 0.99 }}
-	canary := &AgentCanaryDeployment{
+	canary := &domain.AgentCanaryDeployment{
 		Status:             AgentCanaryStatusActive,
 		SourceDeploymentID: "source",
 		TargetDeploymentID: "target",
@@ -37,7 +39,7 @@ func TestAgentCanaryRouterRouteSplitTraffic(t *testing.T) {
 
 	// When random value is below threshold, route to target.
 	router := &AgentCanaryRouter{randFn: func() float64 { return 0.1 }}
-	canary := &AgentCanaryDeployment{
+	canary := &domain.AgentCanaryDeployment{
 		Status:             AgentCanaryStatusActive,
 		SourceDeploymentID: "source",
 		TargetDeploymentID: "target",
@@ -65,7 +67,7 @@ func TestAgentCanaryRouterRouteNilCanary(t *testing.T) {
 func TestAgentCanaryRouterRouteInactiveCanary(t *testing.T) {
 	t.Parallel()
 	router := NewAgentCanaryRouter()
-	canary := &AgentCanaryDeployment{
+	canary := &domain.AgentCanaryDeployment{
 		Status:             AgentCanaryStatusCompleted,
 		SourceDeploymentID: "source",
 		TargetDeploymentID: "target",

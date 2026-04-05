@@ -171,6 +171,7 @@ function wireToolRunner(
     }
 
     iteration += 1;
+    context.recordIteration?.();
 
     return Promise.all([
       reportToolEvent(context, {
@@ -250,7 +251,11 @@ function wrapResponses<TResponses extends OpenAIResponsesLike>(
                 }),
           });
         })
-        .catch(() => undefined);
+        .catch((err: unknown) => {
+          if (typeof console !== "undefined") {
+            console.warn("[strait] telemetry delivery failed:", err);
+          }
+        });
       return responsePromise;
     },
   } satisfies OpenAIResponsesLike as TResponses;
@@ -275,7 +280,11 @@ export function withStrait<TClient extends OpenAIClientLike>(
       const completionPromise = create(...args);
       Promise.resolve(completionPromise)
         .then((completion) => reportUsage(context, completion))
-        .catch(() => undefined);
+        .catch((err: unknown) => {
+          if (typeof console !== "undefined") {
+            console.warn("[strait] telemetry delivery failed:", err);
+          }
+        });
       return completionPromise;
     },
     stream(...args: unknown[]) {

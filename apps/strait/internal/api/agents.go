@@ -155,6 +155,7 @@ func (s *Server) handleCreateAgent(ctx context.Context, input *CreateAgentInput)
 		return nil, mapAgentServiceError(err)
 	}
 
+	s.auditAgentEvent(ctx, projectID, "agent.created", agent.ID)
 	return &CreateAgentOutput{Body: agent}, nil
 }
 
@@ -294,6 +295,7 @@ func (s *Server) handleDeleteAgent(ctx context.Context, input *DeleteAgentInput)
 	if err := svc.DeleteAgent(ctx, projectID, input.AgentID); err != nil {
 		return nil, mapAgentServiceError(err)
 	}
+	s.auditAgentEvent(ctx, projectID, "agent.deleted", input.AgentID)
 	return nil, nil
 }
 
@@ -315,6 +317,7 @@ func (s *Server) handleDeployAgent(ctx context.Context, input *DeployAgentInput)
 	if err != nil {
 		return nil, mapAgentServiceError(err)
 	}
+	s.auditAgentEvent(ctx, projectID, "agent.deployed", input.AgentID)
 	return &DeployAgentOutput{Body: deployment}, nil
 }
 
@@ -909,4 +912,62 @@ func (s *Server) handleRotateAgentWebhookSecret(ctx context.Context, input *Rota
 	out := &RotateAgentWebhookSecretOutput{}
 	out.Body.WebhookSecret = newSecret
 	return out, nil
+}
+
+// auditAgentEvent logs an audit event for an agent action if the store supports it.
+// Silently skips if the store or audit feature is not available.
+func (s *Server) auditAgentEvent(ctx context.Context, projectID, action, agentID string) {
+	if s.store == nil {
+		return
+	}
+	actor := actorFromContext(ctx)
+	actorType := "api_key"
+	if v, ok := ctx.Value(ctxActorTypeKey).(string); ok && v != "" {
+		actorType = v
+	}
+	if err := s.store.CreateAuditEvent(ctx, &domain.AuditEvent{
+		ProjectID:    projectID,
+		ActorID:      actor,
+		ActorType:    actorType,
+		Action:       action,
+		ResourceType: "agent",
+		ResourceID:   agentID,
+	}); err != nil {
+		slog.Warn("failed to create agent audit event", "action", action, "agent_id", agentID, "error", err)
+	}
+}
+
+// Agent rollback handler.
+
+type RollbackAgentInput struct {
+	AgentID string `path:"agentID"`
+	Body    RollbackAgentRequest
+}
+type RollbackAgentRequest struct {
+	TargetDeploymentID string `json:"target_deployment_id" validate:"required"`
+}
+type RollbackAgentOutput struct {
+	Body *domain.AgentDeployment
+}
+
+func (s *Server) handleRollbackAgent(ctx context.Context, input *RollbackAgentInput) (*RollbackAgentOutput, error) {
+	if input.AgentID == "" {
+		return nil, huma.Error400BadRequest("agent_id is required")
+	}
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
+
+	projectID := projectIDFromContext(ctx)
+	actor := actorFromContext(ctx)
+
+	deployment, err := s.store.RollbackAgentDeployment(ctx, input.AgentID, req.TargetDeploymentID, actor)
+	if err != nil {
+		slog.Error("failed to rollback agent", "agent_id", input.AgentID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to rollback agent deployment")
+	}
+
+	s.auditAgentEvent(ctx, projectID, "agent.rolled_back", input.AgentID)
+	return &RollbackAgentOutput{Body: deployment}, nil
 }

@@ -267,7 +267,7 @@ func TestCanaryRouterEdgeCases(t *testing.T) {
 	router := NewAgentCanaryRouter()
 
 	// TrafficPct exactly 0 -> always source.
-	canary := &AgentCanaryDeployment{
+	canary := &domain.AgentCanaryDeployment{
 		Status: AgentCanaryStatusActive, TrafficPct: 0,
 		SourceDeploymentID: "s", TargetDeploymentID: "t",
 	}

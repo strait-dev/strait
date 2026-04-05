@@ -34,7 +34,11 @@ var (
 	ErrGracePeriodExpired            = errors.New("payment grace period expired")
 	ErrPaymentRestricted             = errors.New("payment restricted")
 	ErrProjectSuspended              = errors.New("project suspended due to plan downgrade")
+	ErrAgentSpendingLimitExceeded    = errors.New("agent spending limit exceeded")
 )
+
+// AgentFreeCapMicrousd is the hard cap for agent spending on the Free plan ($1/mo).
+const AgentFreeCapMicrousd int64 = 1_000_000
 
 // LimitError provides structured information about a limit rejection.
 type LimitError struct {
@@ -650,18 +654,68 @@ func (e *Enforcer) DecrConcurrentRunCount(ctx context.Context, orgID string) {
 }
 
 // CheckProjectLimit checks if org can create another project.
+// effectiveMaxProjects returns the higher of Jobs and Agents plan limits for projects.
+func (e *Enforcer) effectiveMaxProjects(ctx context.Context, orgID string) int {
+	jobLimits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		return 1 // safe default
+	}
+	jobMax := jobLimits.MaxProjectsPerOrg
+
+	// Look up agent plan tier.
+	sub, subErr := e.store.GetOrgSubscription(ctx, orgID)
+	agentMax := 1 // default free
+	if subErr == nil && sub.AgentPlanTier != "" {
+		agentLimits := GetAgentPlanLimits(domain.PlanTier(sub.AgentPlanTier))
+		agentMax = agentLimits.MaxProjectsPerOrg
+	}
+
+	if jobMax == -1 || agentMax == -1 {
+		return -1
+	}
+	if agentMax > jobMax {
+		return agentMax
+	}
+	return jobMax
+}
+
+// effectiveMaxMembers returns the higher of Jobs and Agents plan limits for members.
+func (e *Enforcer) effectiveMaxMembers(ctx context.Context, orgID string) int {
+	jobLimits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		return 1
+	}
+	jobMax := jobLimits.MaxMembersPerOrg
+
+	sub, subErr := e.store.GetOrgSubscription(ctx, orgID)
+	agentMax := 1
+	if subErr == nil && sub.AgentPlanTier != "" {
+		agentLimits := GetAgentPlanLimits(domain.PlanTier(sub.AgentPlanTier))
+		agentMax = agentLimits.MaxMembersPerOrg
+	}
+
+	if jobMax == -1 || agentMax == -1 {
+		return -1
+	}
+	if agentMax > jobMax {
+		return agentMax
+	}
+	return jobMax
+}
+
 func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 	if e == nil || orgID == "" {
 		return nil
 	}
 
+	maxProjects := e.effectiveMaxProjects(ctx, orgID)
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for project check", "org_id", orgID, "error", err)
 		return nil
 	}
 
-	if limits.MaxProjectsPerOrg == -1 {
+	if maxProjects == -1 {
 		return nil
 	}
 
@@ -671,13 +725,13 @@ func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 	}
 	e.resetFailOpen(orgID, "project_limit")
 
-	if count >= limits.MaxProjectsPerOrg {
+	if count >= maxProjects {
 		e.recordRejection(ctx, "project_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "project_limit_reached",
-			Message:      fmt.Sprintf("Your %s plan allows %d projects per organization. Upgrade to add more.", limits.DisplayName, limits.MaxProjectsPerOrg),
+			Message:      fmt.Sprintf("Your plan allows %d projects per organization. Upgrade to add more.", maxProjects),
 			CurrentUsage: int64(count),
-			Limit:        int64(limits.MaxProjectsPerOrg),
+			Limit:        int64(maxProjects),
 			Plan:         string(limits.PlanTier),
 			UpgradeURL:   "/upgrade",
 		}
@@ -804,6 +858,118 @@ func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string
 		Plan:         string(limits.PlanTier),
 		UpgradeURL:   "/upgrade",
 	}
+}
+
+// CheckAgentSpendingLimit checks if an org has exceeded its agent spending limit.
+// Free plan: hard cap at $1/mo (1,000,000 micro-USD).
+// Paid plans: no cap unless an optional spending limit is set.
+func (e *Enforcer) CheckAgentSpendingLimit(ctx context.Context, projectID string) error {
+	if projectID == "" {
+		return nil
+	}
+
+	orgID, err := e.store.GetProjectOrgID(ctx, projectID)
+	if err != nil {
+		e.logger.Warn("failed to get org for agent spending check", "project_id", projectID, "error", err)
+		return nil // fail open
+	}
+	if orgID == "" {
+		return nil
+	}
+
+	sub, err := e.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return e.checkAgentFreeCap(ctx, orgID, AgentCreditFreeMicrousd)
+		}
+		e.logger.Warn("failed to get subscription for agent spending check", "org_id", orgID, "error", err)
+		return nil // fail open
+	}
+
+	agentTier := domain.PlanTier(sub.AgentPlanTier)
+	if agentTier == "" {
+		agentTier = domain.AgentPlanFree
+	}
+
+	agentLimits := GetAgentPlanLimits(agentTier)
+
+	// Free agent plan: hard cap at included credit.
+	if agentTier == domain.AgentPlanFree {
+		return e.checkAgentFreeCap(ctx, orgID, agentLimits.AgentCreditMicrousd)
+	}
+
+	// Paid agent plan with optional spending limit.
+	if sub.AgentSpendingLimitMicrousd > 0 {
+		now := time.Now().UTC()
+		periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		agentSpend, spendErr := e.store.SumOrgAgentSpendSince(ctx, orgID, periodStart)
+		if spendErr != nil {
+			e.logger.Warn("failed to sum agent spend for cap check", "org_id", orgID, "error", spendErr)
+			return nil
+		}
+		if agentSpend >= sub.AgentSpendingLimitMicrousd {
+			e.recordRejection(ctx, "agent_spending_limit", agentTier)
+			return &LimitError{
+				Code:         "agent_spending_limit_reached",
+				Message:      fmt.Sprintf("Your agent spending limit of $%.2f has been reached.", float64(sub.AgentSpendingLimitMicrousd)/1e6),
+				CurrentUsage: agentSpend,
+				Limit:        sub.AgentSpendingLimitMicrousd,
+				Plan:         string(agentTier),
+				UpgradeURL:   "/settings/billing",
+			}
+		}
+	}
+
+	// Paid plans without spending limit: no cap, overage charged at period end.
+	return nil
+}
+
+func (e *Enforcer) checkAgentFreeCap(ctx context.Context, orgID string, creditMicrousd int64) error {
+	if creditMicrousd <= 0 {
+		return nil // no valid cap configured, fail open
+	}
+	now := time.Now().UTC()
+	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	agentSpend, err := e.store.SumOrgAgentSpendSince(ctx, orgID, periodStart)
+	if err != nil {
+		e.logger.Warn("failed to sum agent spend for free cap", "org_id", orgID, "error", err)
+		return nil // fail open
+	}
+
+	if agentSpend >= creditMicrousd {
+		e.recordRejection(ctx, "agent_spending_limit", domain.AgentPlanFree)
+		return &LimitError{
+			Code:         "agent_spending_limit_reached",
+			Message:      fmt.Sprintf("Your agent budget of $%.2f/month has been reached. Upgrade to continue running agents.", float64(creditMicrousd)/1e6),
+			CurrentUsage: agentSpend,
+			Limit:        creditMicrousd,
+			Plan:         string(domain.AgentPlanFree),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
+}
+
+// GetAgentPlanForProject returns the agent plan tier for a project's org.
+// Returns "agent_free" if no subscription exists or on any error.
+func (e *Enforcer) GetAgentPlanForProject(ctx context.Context, projectID string) (string, error) {
+	freeTier := string(domain.AgentPlanFree)
+	if projectID == "" {
+		return freeTier, nil
+	}
+	orgID, orgErr := e.store.GetProjectOrgID(ctx, projectID)
+	if orgErr != nil || orgID == "" {
+		return freeTier, nil //nolint:nilerr // intentional fail-open to free tier
+	}
+	sub, subErr := e.store.GetOrgSubscription(ctx, orgID)
+	if subErr != nil {
+		return freeTier, nil //nolint:nilerr // intentional fail-open to free tier
+	}
+	if sub.AgentPlanTier == "" {
+		return string(domain.AgentPlanFree), nil
+	}
+	return sub.AgentPlanTier, nil
 }
 
 // CheckProjectBudgetLimit checks if a project has exceeded its monthly budget.
@@ -1070,18 +1236,20 @@ func (e *Enforcer) recordFailOpen(ctx context.Context, checkType, errorType stri
 }
 
 // CheckMemberLimit checks if the org can add another member.
+// Uses the higher of Jobs and Agents plan limits.
 func (e *Enforcer) CheckMemberLimit(ctx context.Context, orgID string) error {
 	if orgID == "" {
 		return nil
 	}
 
+	maxMembers := e.effectiveMaxMembers(ctx, orgID)
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for member check", "org_id", orgID, "error", err)
 		return nil
 	}
 
-	if limits.MaxMembersPerOrg == -1 {
+	if maxMembers == -1 {
 		return nil
 	}
 
@@ -1091,13 +1259,13 @@ func (e *Enforcer) CheckMemberLimit(ctx context.Context, orgID string) error {
 	}
 	e.resetFailOpen(orgID, "member_limit")
 
-	if count >= limits.MaxMembersPerOrg {
+	if count >= maxMembers {
 		e.recordRejection(ctx, "member_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "member_limit_reached",
-			Message:      fmt.Sprintf("Your %s plan allows %d members per organization. Upgrade to add more.", limits.DisplayName, limits.MaxMembersPerOrg),
+			Message:      fmt.Sprintf("Your plan allows %d members per organization. Upgrade to add more.", maxMembers),
 			CurrentUsage: int64(count),
-			Limit:        int64(limits.MaxMembersPerOrg),
+			Limit:        int64(maxMembers),
 			Plan:         string(limits.PlanTier),
 			UpgradeURL:   "/upgrade",
 		}

@@ -9,6 +9,7 @@ export type JsonValue =
 
 export interface AgentBudget {
   maxCostMicrousd?: number;
+  maxIterations?: number;
   maxTokens?: number;
   maxToolCalls?: number;
 }
@@ -23,6 +24,8 @@ export interface RetryPolicy {
 
 export interface ModelPricing {
   aliases?: readonly string[];
+  cacheReadCostMicrousd?: number;
+  cacheWriteCostMicrousd?: number;
   inputCostMicrousd: number;
   model: string;
   outputCostMicrousd: number;
@@ -89,6 +92,7 @@ export interface StreamChunkReport {
 export interface BudgetSnapshot {
   completionTokens: number;
   costMicrousd: number;
+  iterations: number;
   limits: AgentBudget;
   promptTokens: number;
   toolCalls: number;

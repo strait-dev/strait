@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"strait/internal/agents"
 	"strait/internal/api"
 	"strait/internal/billing"
 	"strait/internal/cdc"
@@ -91,6 +92,53 @@ func logWorkerShutdownComplete(logger *slog.Logger, metrics *telemetry.Metrics, 
 
 	if metrics != nil {
 		metrics.ShutdownTotal.Add(context.Background(), 1, metric.WithAttributes(attribute.String("reason", reason)))
+	}
+}
+
+// buildComputeRuntime constructs the container runtime based on config.
+// If a fallback provider is configured, wraps both in a RuntimeRouter.
+func buildComputeRuntime(cfg *config.Config, metrics *telemetry.Metrics) compute.ContainerRuntime {
+	primary := buildSingleRuntime(cfg.ComputeRuntime, cfg, metrics)
+	if primary == nil {
+		return nil
+	}
+
+	if cfg.ComputeFallbackProvider == "" {
+		return primary
+	}
+
+	fallback := buildSingleRuntime(cfg.ComputeFallbackProvider, cfg, metrics)
+	if fallback == nil {
+		slog.Warn("fallback runtime failed to initialize, running without fallback",
+			"primary", cfg.ComputeRuntime,
+			"fallback", cfg.ComputeFallbackProvider,
+		)
+		return primary
+	}
+
+	slog.Info("compute runtime with fallback enabled",
+		"primary", cfg.ComputeRuntime,
+		"fallback", cfg.ComputeFallbackProvider,
+	)
+	return compute.NewRuntimeRouter(primary, fallback)
+}
+
+func buildSingleRuntime(provider string, cfg *config.Config, metrics *telemetry.Metrics) compute.ContainerRuntime {
+	switch provider {
+	case "docker":
+		slog.Info("container runtime enabled", "runtime", "docker")
+		return compute.NewDockerRuntime()
+	case "k8s":
+		rt, err := compute.NewK8sRuntime(cfg.K8sKubeconfig, cfg.K8sNamespace, cfg.K8sPriorityClass)
+		if err != nil {
+			slog.Error("CRITICAL: k8s runtime init failed", "error", err)
+			return nil
+		}
+		rt.SetMetrics(telemetry.NewK8sMetricsAdapter(metrics))
+		slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace)
+		return rt
+	default:
+		return nil
 	}
 }
 
@@ -380,13 +428,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		}))
 	}
 
-	var apiContainerRuntime compute.ContainerRuntime
-	switch cfg.ComputeRuntime {
-	case "fly":
-		apiContainerRuntime = compute.NewFlyRuntime(cfg.FlyAPIToken, cfg.FlyAppName)
-	case "docker":
-		apiContainerRuntime = compute.NewDockerRuntime()
-	}
+	apiContainerRuntime := buildComputeRuntime(cfg, metrics)
 
 	billingStore := billing.NewPgStore(dbPool)
 
@@ -406,6 +448,15 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			billing.WithAddonPrice(cfg.StripeAddonCronSchedulesID, billing.AddonCronSchedules),
 			billing.WithAddonPrice(cfg.StripeAddonDataRetentionID, billing.AddonDataRetention),
 			billing.WithAddonPrice(cfg.StripeAddonWebhookEndpointsID, billing.AddonWebhookEndpoints),
+			// Agent plan prices
+			billing.WithAgentMakerPrices(cfg.StripeAgentMakerMonthlyPriceID, cfg.StripeAgentMakerYearlyPriceID),
+			billing.WithAgentGrowthPrices(cfg.StripeAgentGrowthMonthlyPriceID, cfg.StripeAgentGrowthYearlyPriceID),
+			// Agent add-on prices
+			billing.WithAddonPrice(cfg.StripeAgentAddonConcurrentRunsID, billing.AddonAgentConcurrentRuns),
+			billing.WithAddonPrice(cfg.StripeAgentAddonDefinitionsID, billing.AddonAgentDefinitions),
+			billing.WithAddonPrice(cfg.StripeAgentAddonMemoryID, billing.AddonAgentMemory),
+			billing.WithAddonPrice(cfg.StripeAgentAddonRetentionID, billing.AddonAgentRetention),
+			billing.WithAddonPrice(cfg.StripeAgentAddonWebhookEndpointsID, billing.AddonAgentWebhookEndpoints),
 		)
 		var webhookOpts []billing.WebhookOption
 		if posthogClient != nil {
@@ -435,9 +486,50 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		usageSvc = billing.NewUsageService(billingStore, billingEnforcer)
 	}
 
+	// Wire the agent service — enables /v1/agents endpoints.
+	cfCfg := agents.CloudflareConfig{
+		AccountID:                cfg.CFAccountID,
+		APIToken:                 cfg.CFAPIToken,
+		DispatchNamespace:        cfg.CFDispatchNamespace,
+		DispatchNamespaceStaging: cfg.CFDispatchNamespaceStaging,
+		DispatchWorkerURL:        cfg.CFDispatchWorkerURL,
+		OutboundWorkerName:       cfg.CFOutboundWorkerName,
+		CompatibilityDate:        cfg.CFCompatibilityDate,
+		SandboxMode:              agents.CloudflareSandboxMode(cfg.CFSandboxMode),
+	}
+	agentOpts := []agents.Option{
+		agents.WithProvider(agents.SelectProvider(cfCfg)),
+		agents.WithJWTSigningKey(cfg.JWTSigningKey),
+		agents.WithInternalSecret(cfg.InternalSecret),
+		agents.WithDispatchHTTPClient(&http.Client{Timeout: 30 * time.Second}),
+		agents.WithAPIBaseURL(fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)),
+		agents.WithQuotaChecker(queries),
+		agents.WithWebhookStore(queries),
+	}
+	if billingEnforcer != nil {
+		agentOpts = append(agentOpts, agents.WithBillingEnforcer(billingEnforcer))
+	}
+	agentSvc := agents.NewService(queries, txPool, agentOpts...)
+	slog.Info("agent service initialized", "cf_enabled", cfCfg.Enabled())
+
+	var doMemClient *agents.DOMemoryClient
+	if cfCfg.Enabled() {
+		doMemClient = agents.NewDOMemoryClient(cfg.CFAccountID, cfg.CFDispatchNamespace, cfg.CFAPIToken)
+	}
+
+	var agentBilling *billing.AgentBillingReporter
+	if cfg.StripeSecretKey != "" {
+		agentBilling = billing.NewAgentBillingReporter(
+			cfg.StripeSecretKey, slog.Default(),
+			billing.WithUsageReporterMetrics(metrics),
+		)
+		slog.Info("agent billing enabled")
+	}
+
 	srv := api.NewServer(api.ServerDeps{
 		Config:             cfg,
 		Store:              queries,
+		AgentService:       agentSvc,
 		AnalyticsStore:     analyticsStore,
 		Queue:              q,
 		PubSub:             pub,
@@ -455,6 +547,8 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		BillingEnforcer:    nilSafeBillingEnforcer(billingEnforcer),
 		UsageService:       usageSvc,
 		CHExporter:         chExporter,
+		AgentBilling:       agentBilling,
+		DOMemoryClient:     doMemClient,
 		Edition:            domain.ParseEdition(cfg.Edition),
 		Version:            version,
 		CDCWebhookReceiver: cdcWebhookReceiver,
@@ -482,7 +576,9 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		srv.Close()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
-		return httpServer.Shutdown(shutdownCtx)
+		err := httpServer.Shutdown(shutdownCtx)
+		agentSvc.Close() // close dispatch pool after server stops accepting requests
+		return err
 	})
 }
 
@@ -522,16 +618,31 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		partitionWeights = cfg.WorkerPartitionWeights
 		slog.Info("worker queue partitioning enabled", "partitions", partitions)
 	}
-	var containerRuntime compute.ContainerRuntime
-	switch cfg.ComputeRuntime {
-	case "fly":
-		containerRuntime = compute.NewFlyRuntime(cfg.FlyAPIToken, cfg.FlyAppName)
-		slog.Info("container runtime enabled", "runtime", "fly", "app", cfg.FlyAppName, "region", cfg.FlyRegion)
-	case "docker":
-		containerRuntime = compute.NewDockerRuntime()
-		slog.Info("container runtime enabled", "runtime", "docker")
-	default:
-		// No container runtime ("none" or empty).
+	containerRuntime := buildComputeRuntime(cfg, metrics)
+
+	// Start K8s job garbage collector if using K8s runtime.
+	if (cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s") && cfg.K8sGCEnabled {
+		if k8sRT, ok := containerRuntime.(*compute.K8sRuntime); ok {
+			gc := compute.NewK8sJobGC(k8sRT.Clientset(), cfg.K8sNamespace, cfg.K8sGCMaxAge, cfg.K8sGCInterval)
+			g.Go(func(ctx context.Context) error {
+				gc.Run(ctx)
+				return nil
+			})
+			slog.Info("k8s job GC enabled", "max_age", cfg.K8sGCMaxAge, "interval", cfg.K8sGCInterval)
+		} else if router, ok := containerRuntime.(*compute.RuntimeRouter); ok {
+			_ = router // GC runs against whichever runtime is K8s — extract clientset from primary or fallback
+			clientset, err := compute.BuildK8sClientset(cfg.K8sKubeconfig)
+			if err != nil {
+				slog.Error("failed to build k8s client for GC", "error", err)
+			} else {
+				gc := compute.NewK8sJobGC(clientset, cfg.K8sNamespace, cfg.K8sGCMaxAge, cfg.K8sGCInterval)
+				g.Go(func(ctx context.Context) error {
+					gc.Run(ctx)
+					return nil
+				})
+				slog.Info("k8s job GC enabled (via router)", "max_age", cfg.K8sGCMaxAge, "interval", cfg.K8sGCInterval)
+			}
+		}
 	}
 
 	execCfg := worker.ExecutorConfig{
@@ -557,7 +668,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		ContainerRuntime:        containerRuntime,
 		ExternalAPIURL:          cfg.ExternalAPIURL,
 		MaxConcurrentMachines:   cfg.MaxConcurrentMachines,
-		DefaultFlyRegion:        cfg.FlyRegion,
+		DefaultRegion:           cfg.DefaultRegion,
 	}
 
 	// Only wire billing enforcement in the executor when explicitly enabled.

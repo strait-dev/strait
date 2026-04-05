@@ -48,6 +48,7 @@ type RunRequest struct {
 	Labels        map[string]string // Metadata labels for tracking.
 	TimeoutSecs   int               // Maximum wall-clock seconds before kill.
 	Reusable      bool              // When true, created with auto_destroy=false for pool/pause reuse.
+	Namespace     string            // Optional: K8s namespace override (for per-tenant isolation).
 }
 
 // RunResult captures the outcome of a container execution.

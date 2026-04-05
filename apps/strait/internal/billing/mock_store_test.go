@@ -47,6 +47,8 @@ type mockBillingStore struct {
 	recordedWebhookIDs      []string
 	getOrgSubscriptionFn    func(ctx context.Context, orgID string) (*OrgSubscription, error)
 	enterpriseContracts     map[string]*EnterpriseContract
+	projectOrgMap           map[string]string
+	agentSpendByOrg         map[string]int64
 }
 
 func (m *mockBillingStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
@@ -166,7 +168,12 @@ func (m *mockBillingStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]Or
 	return subs, nil
 }
 
-func (m *mockBillingStore) GetProjectOrgID(_ context.Context, _ string) (string, error) {
+func (m *mockBillingStore) GetProjectOrgID(_ context.Context, projectID string) (string, error) {
+	if m.projectOrgMap != nil {
+		if orgID, ok := m.projectOrgMap[projectID]; ok {
+			return orgID, nil
+		}
+	}
 	return "", nil
 }
 
@@ -254,6 +261,21 @@ func (m *mockBillingStore) SumOrgPeriodSpend(_ context.Context, orgID string, _ 
 		return m.periodSpendByOrg[orgID], nil
 	}
 	return 0, nil
+}
+
+func (m *mockBillingStore) SumOrgAgentSpendSince(_ context.Context, orgID string, _ time.Time) (int64, error) {
+	if m.agentSpendByOrg != nil {
+		return m.agentSpendByOrg[orgID], nil
+	}
+	return 0, nil
+}
+
+func (m *mockBillingStore) UpdateAgentSubscriptionPlan(_ context.Context, _, _ string, _, _ *time.Time) error {
+	return nil
+}
+
+func (m *mockBillingStore) UpdateAgentSpendingLimit(_ context.Context, _ string, _ int64) error {
+	return nil
 }
 
 func (m *mockBillingStore) GetProjectBudget(_ context.Context, _ string) (int64, string, error) {

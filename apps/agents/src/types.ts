@@ -30,6 +30,9 @@ export type DispatchEnvelope = {
     sandbox_policy?: JsonValue;
   };
   payload?: JsonValue;
+  tracing?: {
+    traceparent: string;
+  };
   callback: {
     base_url: string;
     run_id: string;
@@ -71,6 +74,7 @@ export type RuntimeEvent =
       status?: string;
     }
   | { type: "stream"; chunk: string; stream_id?: string; done?: boolean }
+  | { type: "stream_error"; error: string; stream_id?: string }
   | { type: "complete"; result?: JsonValue }
   | { type: "fail"; error: string };
 

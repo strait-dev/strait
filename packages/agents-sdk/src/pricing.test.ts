@@ -156,4 +156,97 @@ describe("pricing", () => {
       lookupPricing(defaultPricingCatalog, "google", "gemini-2.5-pro")
     ).toBeTruthy();
   });
+
+  it("includes O1/O3 reasoning models in default catalog", () => {
+    const o1 = getPricingOrThrow(defaultPricingCatalog, "openai", "o1");
+    expect(o1.inputCostMicrousd).toBe(15);
+    expect(o1.outputCostMicrousd).toBe(60);
+
+    const o3mini = getPricingOrThrow(
+      defaultPricingCatalog,
+      "openai",
+      "o3-mini"
+    );
+    expect(o3mini.inputCostMicrousd).toBe(1.1);
+
+    const o3 = getPricingOrThrow(defaultPricingCatalog, "openai", "o3");
+    expect(o3.inputCostMicrousd).toBe(2);
+    expect(o3.outputCostMicrousd).toBe(8);
+  });
+
+  it("resolves O1 alias", () => {
+    const o1 = getPricingOrThrow(
+      defaultPricingCatalog,
+      "openai",
+      "o1-2025-04-16"
+    );
+    expect(o1.model).toBe("o1");
+  });
+
+  it("includes claude-haiku-4-5 in default catalog", () => {
+    const haiku = getPricingOrThrow(
+      defaultPricingCatalog,
+      "anthropic",
+      "claude-haiku-4-5"
+    );
+    expect(haiku.inputCostMicrousd).toBe(0.8);
+    expect(haiku.outputCostMicrousd).toBe(4);
+  });
+
+  it("estimates cost with cache token discounts", () => {
+    // Claude Sonnet 4.5: input=3, cacheRead=0.3
+    // 500 normal prompt tokens + 500 cache read tokens = 500*3 + 500*0.3 = 1650
+    // 200 completion tokens at 15 = 3000
+    // Total = 4650
+    const cost = estimateUsageCostMicrousd({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      promptTokens: 1000,
+      completionTokens: 200,
+      promptTokenDetails: {
+        cacheReadTokens: 500,
+      },
+    });
+    expect(cost).toBe(Math.round(500 * 3 + 500 * 0.3 + 200 * 15));
+  });
+
+  it("cache discount does not apply when no cache tokens", () => {
+    const withCache = estimateUsageCostMicrousd({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      promptTokens: 1000,
+      completionTokens: 100,
+    });
+    // All 1000 tokens at full input rate (3) + 100 * 15 = 4500
+    expect(withCache).toBe(Math.round(1000 * 3 + 100 * 15));
+  });
+
+  it("cache write tokens charged at premium rate", () => {
+    // 500 normal + 500 cache write at 3.75 = 500*3 + 500*3.75 = 3375
+    const cost = estimateUsageCostMicrousd({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      promptTokens: 1000,
+      completionTokens: 0,
+      promptTokenDetails: {
+        cacheWriteTokens: 500,
+      },
+    });
+    expect(cost).toBe(Math.round(500 * 3 + 500 * 3.75));
+  });
+
+  it("models without cache pricing use input rate for cache tokens", () => {
+    // GPT-4o has no cache pricing fields.
+    const cost = estimateUsageCostMicrousd({
+      provider: "openai",
+      model: "gpt-4o",
+      promptTokens: 1000,
+      completionTokens: 0,
+      promptTokenDetails: {
+        cacheReadTokens: 500,
+      },
+    });
+    // Falls back to inputCostMicrousd for cache tokens: 1000 * 2.5 = 2500
+    expect(cost).toBe(Math.round(1000 * 2.5));
+  });
 });
