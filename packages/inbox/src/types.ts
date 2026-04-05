@@ -97,6 +97,24 @@ export interface ProcessUnsubscribeResponse {
   status: "ok";
 }
 
+export interface InboxFeedEvent {
+  data: unknown;
+  event: string;
+}
+
+export interface ConnectInboxFeedInput {
+  onClose?: () => void;
+  onError?: (error: InboxClientError) => void;
+  onEvent?: (event: InboxFeedEvent) => void;
+  onOpen?: () => void;
+  signal?: AbortSignal;
+}
+
+export interface InboxFeedConnection {
+  close: () => void;
+  closed: Promise<void>;
+}
+
 export type AccessTokenProvider = string | (() => string | Promise<string>);
 
 export type FetchLike = (
@@ -112,6 +130,9 @@ export interface InboxClientConfig {
 }
 
 export interface InboxClient {
+  connectFeed(
+    input?: ConnectInboxFeedInput
+  ): Effect.Effect<InboxFeedConnection, InboxClientError>;
   getUnreadCount(): Effect.Effect<UnreadCountResponse, InboxClientError>;
   listInbox(
     input?: ListInboxInput

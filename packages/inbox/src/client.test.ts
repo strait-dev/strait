@@ -89,4 +89,89 @@ describe("makeInboxClient", () => {
     expect(err.path).toBe("/v1/inbox/unread-count");
     expect(err.details).toContain("response validation failed");
   });
+
+  it("streams inbox feed events and parses JSON payloads", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('event: unread_count\ndata: {"count":2}\n\n')
+        );
+        controller.enqueue(
+          encoder.encode('event: item_updated\ndata: {"id":"item_1"}\n\n')
+        );
+        controller.close();
+      },
+    });
+
+    const events: Array<{ event: string; data: unknown }> = [];
+    const client = makeInboxClient({
+      baseUrl: "https://api.strait.dev",
+      token: "token_123",
+      fetch: () =>
+        Promise.resolve(
+          new Response(stream, {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          })
+        ),
+    });
+
+    const connection = await Effect.runPromise(
+      client.connectFeed({
+        onEvent: (event) => {
+          events.push(event);
+        },
+      })
+    );
+
+    await connection.closed;
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toEqual({ event: "unread_count", data: { count: 2 } });
+    expect(events[1]).toEqual({
+      event: "item_updated",
+      data: { id: "item_1" },
+    });
+  });
+
+  it("allows inbox feed connections to close cleanly", async () => {
+    let cancelled = false;
+    let closeEvents = 0;
+
+    const stream = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
+      start() {
+        // Keep stream open until connection.close() is called.
+      },
+    });
+
+    const client = makeInboxClient({
+      baseUrl: "https://api.strait.dev",
+      token: "token_123",
+      fetch: () =>
+        Promise.resolve(
+          new Response(stream, {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          })
+        ),
+    });
+
+    const connection = await Effect.runPromise(
+      client.connectFeed({
+        onClose: () => {
+          closeEvents += 1;
+        },
+      })
+    );
+
+    connection.close();
+    await connection.closed;
+
+    expect(cancelled).toBe(true);
+    expect(closeEvents).toBe(1);
+  });
 });

@@ -10,10 +10,12 @@ import {
   UnreadCountResponseSchema,
 } from "./schemas";
 import type {
+  ConnectInboxFeedInput,
   FetchLike,
   InboxActionInput,
   InboxClient,
   InboxClientConfig,
+  InboxFeedEvent,
   ListInboxInput,
   ProcessUnsubscribeRequest,
   UpdateInboxItemStateInput,
@@ -21,13 +23,15 @@ import type {
 } from "./types";
 
 type RequestShape = {
-  path: string;
-  method: "GET" | "POST" | "PATCH" | "PUT";
-  query?: Record<string, string | number | undefined>;
   body?: unknown;
+  method: "GET" | "POST" | "PATCH" | "PUT";
+  path: string;
+  query?: Record<string, string | number | undefined>;
 };
 
 const trailingSlashRegex = /\/+$/;
+const newlineRegex = /\r\n/g;
+const noop = (): void => undefined;
 
 export const makeInboxClient = (config: InboxClientConfig): InboxClient => {
   const fetchImpl = resolveFetch(config.fetch);
@@ -84,18 +88,92 @@ export const makeInboxClient = (config: InboxClientConfig): InboxClient => {
         const parsed = JSON.parse(text) as unknown;
         return decodeWithSchema(request, schema, parsed);
       },
-      catch: (cause) =>
-        cause instanceof InboxClientError
-          ? cause
-          : new InboxClientError({
-              path: request.path,
-              method: request.method,
-              details: "request failed",
-              cause,
-            }),
+      catch: (cause) => normalizeRequestError(request, cause),
     });
 
+  const connectFeed = (
+    input: ConnectInboxFeedInput = {}
+  ): Effect.Effect<import("./types").InboxFeedConnection, InboxClientError> => {
+    const request: RequestShape = {
+      method: "GET",
+      path: "/v1/inbox/feed",
+    };
+
+    return Effect.tryPromise({
+      try: async () => {
+        const token = await resolveToken(config.token);
+        if (!token) {
+          throw new InboxClientError({
+            path: request.path,
+            method: request.method,
+            details: "missing subscriber token",
+          });
+        }
+
+        const abortController = new AbortController();
+        const cleanupExternalSignal = attachExternalAbort(
+          abortController,
+          input.signal
+        );
+
+        const response = await fetchImpl(buildURL(baseUrl, request.path), {
+          method: request.method,
+          headers: {
+            Accept: "text/event-stream",
+            Authorization: `Bearer ${token}`,
+            ...(config.headers ?? {}),
+          },
+          signal: abortController.signal,
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          cleanupExternalSignal();
+          throw new InboxClientError({
+            path: request.path,
+            method: request.method,
+            status: response.status,
+            details: parseErrorDetails(text),
+          });
+        }
+
+        if (!response.body) {
+          cleanupExternalSignal();
+          throw new InboxClientError({
+            path: request.path,
+            method: request.method,
+            details: "stream body unavailable",
+          });
+        }
+
+        const reader = response.body.getReader();
+        input.onOpen?.();
+
+        const closed = runFeedLoop(reader, request, input)
+          .catch((cause) => {
+            const error = normalizeRequestError(request, cause);
+            input.onError?.(error);
+          })
+          .finally(() => {
+            cleanupExternalSignal();
+            input.onClose?.();
+          });
+
+        return {
+          close: () => {
+            abortController.abort();
+            const cancelPromise = reader.cancel();
+            cancelPromise.catch(() => undefined);
+          },
+          closed,
+        };
+      },
+      catch: (cause) => normalizeRequestError(request, cause),
+    });
+  };
+
   return {
+    connectFeed,
     listInbox: (input?: ListInboxInput) =>
       requestJson(
         {
@@ -200,6 +278,125 @@ export const makeInboxClient = (config: InboxClientConfig): InboxClient => {
   };
 };
 
+const runFeedLoop = async (
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  request: RequestShape,
+  input: ConnectInboxFeedInput
+): Promise<void> => {
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      break;
+    }
+
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const split = splitFeedFrames(buffer);
+    buffer = split.remainder;
+
+    for (const frame of split.frames) {
+      emitFeedFrame(request, frame, input);
+    }
+  }
+
+  buffer += decoder.decode();
+  const finalSplit = splitFeedFrames(buffer, true);
+  for (const frame of finalSplit.frames) {
+    emitFeedFrame(request, frame, input);
+  }
+};
+
+const emitFeedFrame = (
+  request: RequestShape,
+  frame: string,
+  input: ConnectInboxFeedInput
+): void => {
+  const parsed = parseFeedFrame(frame);
+  if (parsed == null) {
+    return;
+  }
+
+  try {
+    input.onEvent?.(parsed);
+  } catch (cause) {
+    input.onError?.(
+      new InboxClientError({
+        path: request.path,
+        method: request.method,
+        details: "feed event handler failed",
+        cause,
+      })
+    );
+  }
+};
+
+const splitFeedFrames = (
+  source: string,
+  flushRemainder = false
+): { frames: string[]; remainder: string } => {
+  const normalized = source.replace(newlineRegex, "\n");
+  const frames: string[] = [];
+
+  let start = 0;
+  while (true) {
+    const separatorIndex = normalized.indexOf("\n\n", start);
+    if (separatorIndex < 0) {
+      break;
+    }
+
+    frames.push(normalized.slice(start, separatorIndex));
+    start = separatorIndex + 2;
+  }
+
+  const remainder = normalized.slice(start);
+  if (flushRemainder && remainder.trim() !== "") {
+    frames.push(remainder);
+    return { frames, remainder: "" };
+  }
+
+  return { frames, remainder };
+};
+
+const parseFeedFrame = (frame: string): InboxFeedEvent | null => {
+  const lines = frame.split("\n");
+  let eventName = "message";
+  const dataLines: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (line === "" || line.startsWith(":")) {
+      continue;
+    }
+    if (line.startsWith("event:")) {
+      eventName = line.slice("event:".length).trim();
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) {
+    return null;
+  }
+
+  const dataText = dataLines.join("\n");
+  return {
+    event: eventName,
+    data: parseSSEData(dataText),
+  };
+};
+
+const parseSSEData = (payload: string): unknown => {
+  try {
+    return JSON.parse(payload) as unknown;
+  } catch {
+    return payload;
+  }
+};
+
 const decodeWithSchema = <A, I>(
   request: RequestShape,
   schema: Schema.Schema<A, I>,
@@ -261,4 +458,35 @@ const parseErrorDetails = (text: string): string => {
   } catch {
     return trimmed;
   }
+};
+
+const normalizeRequestError = (
+  request: RequestShape,
+  cause: unknown
+): InboxClientError =>
+  cause instanceof InboxClientError
+    ? cause
+    : new InboxClientError({
+        path: request.path,
+        method: request.method,
+        details: "request failed",
+        cause,
+      });
+
+const attachExternalAbort = (
+  controller: AbortController,
+  external?: AbortSignal
+): (() => void) => {
+  if (!external) {
+    return noop;
+  }
+
+  if (external.aborted) {
+    controller.abort(external.reason);
+    return noop;
+  }
+
+  const onAbort = () => controller.abort(external.reason);
+  external.addEventListener("abort", onAbort, { once: true });
+  return () => external.removeEventListener("abort", onAbort);
 };

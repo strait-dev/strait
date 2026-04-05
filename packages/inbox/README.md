@@ -11,6 +11,7 @@ This package wraps the subscriber-facing Notify API surface:
 - `/v1/inbox/{itemID}`
 - `/v1/inbox/{itemID}/action`
 - `/v1/inbox/mark-all-read`
+- `/v1/inbox/feed`
 - `/v1/preferences`
 - `/v1/preferences/{scope}`
 - `/v1/unsubscribe/{token}`
@@ -28,6 +29,20 @@ const client = makeInboxClient({
 });
 
 const items = await Effect.runPromise(client.listInbox({ limit: 20 }));
+
+const feed = await Effect.runPromise(
+  client.connectFeed({
+    onEvent: (event) => {
+      if (event.event === "unread_count") {
+        console.log("unread count update", event.data);
+      }
+    },
+  })
+);
+
+// Later:
+feed.close();
+await feed.closed;
 ```
 
 ## Error handling

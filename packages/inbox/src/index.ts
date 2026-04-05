@@ -13,8 +13,11 @@ export {
   UnreadCountResponseSchema,
 } from "./schemas";
 export type {
+  ConnectInboxFeedInput,
   InboxClient,
   InboxClientConfig,
+  InboxFeedConnection,
+  InboxFeedEvent,
   InboxItem,
   InboxItemState,
   ListInboxInput,
