@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -129,6 +130,10 @@ type MachineDestroyer interface {
 // ApprovalReminderStore is an optional interface for querying approvals past their reminder point.
 type ApprovalReminderStore interface {
 	ListApprovalsPastReminderPoint(ctx context.Context) ([]domain.WorkflowStepApproval, error)
+}
+
+type notifyPolicyOverrideResolver interface {
+	ResolveNotifyPolicyOverride(ctx context.Context, projectID, stepRunID, categoryKey, channel string) (*domain.NotifyPolicyOverride, error)
 }
 
 // OrgRetentionResolver resolves the retention period for an organization based on its plan.
@@ -537,23 +542,59 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 	}
 }
 
-func (r *Reaper) computeEscalationSeedInterval(approval domain.WorkflowStepApproval) time.Duration {
+func (r *Reaper) computeEscalationSeedInterval(approval domain.WorkflowStepApproval, tiers int, minInterval time.Duration) time.Duration {
+	if tiers <= 0 {
+		tiers = r.notifyEscalationTiers
+	}
+	if minInterval <= 0 {
+		minInterval = r.notifyEscalationMinInterval
+	}
 	if approval.ExpiresAt == nil {
-		return r.notifyEscalationMinInterval
+		return minInterval
 	}
 	remaining := time.Until(*approval.ExpiresAt)
 	if remaining <= 0 {
-		return r.notifyEscalationMinInterval
+		return minInterval
 	}
-	futureEscalations := r.notifyEscalationTiers - 1
+	futureEscalations := tiers - 1
 	if futureEscalations <= 0 {
-		return r.notifyEscalationMinInterval
+		return minInterval
 	}
 	interval := remaining / time.Duration(futureEscalations+1)
-	if interval < r.notifyEscalationMinInterval {
-		return r.notifyEscalationMinInterval
+	if interval < minInterval {
+		return minInterval
 	}
 	return interval
+}
+
+func (r *Reaper) resolveApprovalEscalationPolicy(ctx context.Context, projectID, stepRunID string) (int, time.Duration) {
+	tiers := r.notifyEscalationTiers
+	minInterval := r.notifyEscalationMinInterval
+
+	resolver, ok := r.store.(notifyPolicyOverrideResolver)
+	if !ok {
+		return tiers, minInterval
+	}
+
+	policy, err := resolver.ResolveNotifyPolicyOverride(ctx, projectID, stepRunID, "", "")
+	if err != nil {
+		if !errors.Is(err, store.ErrNotifyPolicyNotFound) {
+			slog.Warn("failed to resolve escalation policy override", "project_id", projectID, "step_run_id", stepRunID, "error", err)
+		}
+		return tiers, minInterval
+	}
+	if policy == nil {
+		return tiers, minInterval
+	}
+
+	if policy.EscalationTiers != nil && *policy.EscalationTiers > 0 {
+		tiers = *policy.EscalationTiers
+	}
+	if policy.EscalationMinIntervalSecs != nil && *policy.EscalationMinIntervalSecs > 0 {
+		minInterval = time.Duration(*policy.EscalationMinIntervalSecs) * time.Second
+	}
+
+	return tiers, minInterval
 }
 
 func (r *Reaper) reapApprovalReminders(ctx context.Context) {
@@ -632,14 +673,15 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 			}
 		}
 
-		if hasEscalation && r.notifyEscalationTiers > 1 {
-			nextAt := now.Add(r.computeEscalationSeedInterval(approval))
+		tiers, minInterval := r.resolveApprovalEscalationPolicy(ctx, wfRun.ProjectID, approval.WorkflowStepRunID)
+		if hasEscalation && tiers > 1 {
+			nextAt := now.Add(r.computeEscalationSeedInterval(approval, tiers, minInterval))
 			state := &domain.EscalationState{
 				ProjectID:        wfRun.ProjectID,
 				StepRunID:        approval.WorkflowStepRunID,
 				WorkflowRunID:    approval.WorkflowRunID,
 				CurrentTier:      1,
-				TotalTiers:       r.notifyEscalationTiers,
+				TotalTiers:       tiers,
 				NextEscalationAt: &nextAt,
 				Status:           domain.NotifyEscalationStatusActive,
 			}

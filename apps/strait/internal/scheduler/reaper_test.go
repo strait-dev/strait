@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func TestReaper_ReapStale(t *testing.T) {
@@ -2100,6 +2101,8 @@ type mockNotifierReaperStore struct {
 	createNotificationDeliveryFn      func(ctx context.Context, d *domain.NotificationDelivery) error
 	getWorkflowRunFn                  func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	listApprovalsPastReminderPointFn  func(ctx context.Context) ([]domain.WorkflowStepApproval, error)
+	resolvePolicyOverrideFn           func(ctx context.Context, projectID, stepRunID, categoryKey, channel string) (*domain.NotifyPolicyOverride, error)
+	upsertEscalationStateFn           func(ctx context.Context, state *domain.EscalationState) error
 }
 
 func (m *mockNotifierReaperStore) ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
@@ -2128,6 +2131,20 @@ func (m *mockNotifierReaperStore) ListApprovalsPastReminderPoint(ctx context.Con
 		return m.listApprovalsPastReminderPointFn(ctx)
 	}
 	return nil, nil
+}
+
+func (m *mockNotifierReaperStore) ResolveNotifyPolicyOverride(ctx context.Context, projectID, stepRunID, categoryKey, channel string) (*domain.NotifyPolicyOverride, error) {
+	if m.resolvePolicyOverrideFn != nil {
+		return m.resolvePolicyOverrideFn(ctx, projectID, stepRunID, categoryKey, channel)
+	}
+	return nil, store.ErrNotifyPolicyNotFound
+}
+
+func (m *mockNotifierReaperStore) UpsertEscalationState(ctx context.Context, state *domain.EscalationState) error {
+	if m.upsertEscalationStateFn != nil {
+		return m.upsertEscalationStateFn(ctx, state)
+	}
+	return nil
 }
 
 func TestReaper_ReapExpiredApprovals_SendsExpiredNotification(t *testing.T) {
@@ -2344,6 +2361,59 @@ func TestReaper_ReapApprovalReminders_SendsReminder(t *testing.T) {
 	}
 	if deliveries[0].EventType != domain.NotificationEventApprovalReminder {
 		t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalReminder, deliveries[0].EventType)
+	}
+}
+
+func TestReaper_ReapApprovalReminders_UsesPolicyOverrideForEscalationSeed(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	expires := now.Add(40 * time.Minute)
+	var seededState *domain.EscalationState
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return []domain.WorkflowStepApproval{
+				{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "pending", RequestedAt: now.Add(-20 * time.Minute), ExpiresAt: &expires},
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", WorkflowID: "wf-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			return nil
+		},
+		resolvePolicyOverrideFn: func(_ context.Context, _, _, _, _ string) (*domain.NotifyPolicyOverride, error) {
+			tiers := 5
+			minInterval := 900
+			return &domain.NotifyPolicyOverride{
+				EscalationTiers:           &tiers,
+				EscalationMinIntervalSecs: &minInterval,
+			}, nil
+		},
+		upsertEscalationStateFn: func(_ context.Context, state *domain.EscalationState) error {
+			cloned := *state
+			seededState = &cloned
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithNotifyEscalationPolicy(3, 30*time.Second)
+	r.reapApprovalReminders(context.Background())
+
+	if seededState == nil {
+		t.Fatal("expected escalation state to be seeded")
+	}
+	if seededState.TotalTiers != 5 {
+		t.Fatalf("TotalTiers = %d, want 5", seededState.TotalTiers)
+	}
+	if seededState.NextEscalationAt == nil {
+		t.Fatal("expected NextEscalationAt to be set")
+	}
+	if delta := time.Until(*seededState.NextEscalationAt); delta < 14*time.Minute {
+		t.Fatalf("next escalation delta = %s, want >= 14m", delta)
 	}
 }
 

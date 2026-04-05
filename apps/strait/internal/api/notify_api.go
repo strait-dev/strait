@@ -60,14 +60,16 @@ type NotifyScheduleInput struct {
 }
 
 type NotifyTriggerRequest struct {
-	To          NotifyRecipientInput `json:"to" validate:"required"`
-	TenantID    string               `json:"tenant_id,omitempty"`
-	TemplateKey string               `json:"template_key" validate:"required"`
-	Payload     json.RawMessage      `json:"payload,omitempty"`
-	Channels    []string             `json:"channels,omitempty"`
-	CategoryKey string               `json:"category_key,omitempty"`
-	Dedup       *NotifyDedupInput    `json:"dedup,omitempty"`
-	Schedule    *NotifyScheduleInput `json:"schedule,omitempty"`
+	To            NotifyRecipientInput `json:"to" validate:"required"`
+	TenantID      string               `json:"tenant_id,omitempty"`
+	TemplateKey   string               `json:"template_key" validate:"required"`
+	Payload       json.RawMessage      `json:"payload,omitempty"`
+	Channels      []string             `json:"channels,omitempty"`
+	CategoryKey   string               `json:"category_key,omitempty"`
+	WorkflowRunID string               `json:"workflow_run_id,omitempty"`
+	StepRunID     string               `json:"step_run_id,omitempty"`
+	Dedup         *NotifyDedupInput    `json:"dedup,omitempty"`
+	Schedule      *NotifyScheduleInput `json:"schedule,omitempty"`
 }
 
 type NotifyTriggerInput struct {
@@ -213,7 +215,7 @@ func (s *Server) handleNotifyTrigger(ctx context.Context, input *NotifyTriggerIn
 			}
 
 			if categoryType != domain.NotifyCategoryTypeCritical && scheduledAt == nil {
-				digestPolicy := s.resolveNotifyDigestPolicy(ctx, ns, recipient, channel)
+				digestPolicy := s.resolveNotifyDigestPolicy(ctx, ns, projectID, recipient, req.StepRunID, req.CategoryKey, channel)
 				if digestPolicy != notifyDigestPolicyInstant {
 					batch, batchErr := s.enqueueNotifyDigestBatch(ctx, ns, projectID, recipient, channel, req.TemplateKey, req.CategoryKey, digestPolicy, rawChannelPayload)
 					if batchErr != nil {
@@ -233,6 +235,8 @@ func (s *Server) handleNotifyTrigger(ctx context.Context, input *NotifyTriggerIn
 				RecipientType:   domain.NotifyRecipientTypeSubscriber,
 				RecipientID:     recipient.ID,
 				TenantID:        recipient.TenantID,
+				WorkflowRunID:   req.WorkflowRunID,
+				StepRunID:       req.StepRunID,
 				TemplateID:      tmpl.ID,
 				CategoryKey:     req.CategoryKey,
 				Channel:         channel,
@@ -563,22 +567,61 @@ func (s *Server) allowNotifyRate(ctx context.Context, ns notifyStore, sub domain
 	return int(val) <= limit
 }
 
-func (s *Server) resolveNotifyDigestPolicy(ctx context.Context, ns notifyStore, sub domain.NotifySubscriber, channel string) string {
+func (s *Server) resolveNotifyDigestPolicy(
+	ctx context.Context,
+	ns notifyStore,
+	projectID string,
+	sub domain.NotifySubscriber,
+	stepRunID,
+	categoryKey,
+	channel string,
+) string {
 	if channel != "inbox" && channel != "email" {
 		return notifyDigestPolicyInstant
 	}
 
+	resolvedPolicy := notifyDigestPolicyInstant
 	pref, err := ns.GetNotificationPreference(ctx, domain.NotifyRecipientTypeSubscriber, sub.ID, "global")
-	if err != nil {
-		return notifyDigestPolicyInstant
+	if err == nil {
+		resolvedPolicy = normalizeNotifyDigestPolicy(pref.DigestPolicy)
 	}
 
-	policy := strings.ToLower(strings.TrimSpace(pref.DigestPolicy))
-	switch policy {
-	case notifyDigestPolicyHourly, notifyDigestPolicyDaily:
-		return policy
+	override, err := ns.ResolveNotifyPolicyOverride(ctx, projectID, stepRunID, categoryKey, channel)
+	if err != nil {
+		if errors.Is(err, store.ErrNotifyPolicyNotFound) {
+			return resolvedPolicy
+		}
+		return resolvedPolicy
+	}
+	return applyNotifyDigestPolicyOverride(resolvedPolicy, override)
+}
+
+func normalizeNotifyDigestPolicy(policy string) string {
+	switch strings.ToLower(strings.TrimSpace(policy)) {
+	case notifyDigestPolicyHourly:
+		return notifyDigestPolicyHourly
+	case notifyDigestPolicyDaily:
+		return notifyDigestPolicyDaily
 	default:
 		return notifyDigestPolicyInstant
+	}
+}
+
+func applyNotifyDigestPolicyOverride(base string, override *domain.NotifyPolicyOverride) string {
+	if override == nil {
+		return normalizeNotifyDigestPolicy(base)
+	}
+
+	overridePolicy := strings.ToLower(strings.TrimSpace(override.DigestPolicy))
+	switch overridePolicy {
+	case notifyDigestPolicyInstant:
+		return notifyDigestPolicyInstant
+	case notifyDigestPolicyHourly:
+		return notifyDigestPolicyHourly
+	case notifyDigestPolicyDaily:
+		return notifyDigestPolicyDaily
+	default:
+		return normalizeNotifyDigestPolicy(base)
 	}
 }
 

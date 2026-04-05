@@ -143,6 +143,29 @@ func TestResolveNotifyDigestWindow(t *testing.T) {
 	}
 }
 
+func TestApplyNotifyDigestPolicyOverride(t *testing.T) {
+	t.Parallel()
+
+	if got := applyNotifyDigestPolicyOverride(notifyDigestPolicyHourly, nil); got != notifyDigestPolicyHourly {
+		t.Fatalf("apply override (nil) = %q, want %q", got, notifyDigestPolicyHourly)
+	}
+
+	override := &domain.NotifyPolicyOverride{DigestPolicy: "daily"}
+	if got := applyNotifyDigestPolicyOverride(notifyDigestPolicyHourly, override); got != notifyDigestPolicyDaily {
+		t.Fatalf("apply override (daily) = %q, want %q", got, notifyDigestPolicyDaily)
+	}
+
+	override = &domain.NotifyPolicyOverride{DigestPolicy: "instant"}
+	if got := applyNotifyDigestPolicyOverride(notifyDigestPolicyDaily, override); got != notifyDigestPolicyInstant {
+		t.Fatalf("apply override (instant) = %q, want %q", got, notifyDigestPolicyInstant)
+	}
+
+	override = &domain.NotifyPolicyOverride{DigestPolicy: "weekly"}
+	if got := applyNotifyDigestPolicyOverride(notifyDigestPolicyDaily, override); got != notifyDigestPolicyDaily {
+		t.Fatalf("apply override (invalid) = %q, want %q", got, notifyDigestPolicyDaily)
+	}
+}
+
 func TestBuildNotifyRenderContext(t *testing.T) {
 	t.Parallel()
 

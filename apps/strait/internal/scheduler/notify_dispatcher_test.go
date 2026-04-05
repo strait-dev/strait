@@ -11,23 +11,24 @@ import (
 )
 
 type notifyDispatcherStoreMock struct {
-	claimFunc              func(context.Context, int) ([]domain.NotificationMessage, error)
-	claimBatchFunc         func(context.Context, int) ([]domain.NotificationBatch, error)
-	markBatchSentFunc      func(context.Context, string, string, time.Time) error
-	requeueBatchFunc       func(context.Context, string, string, time.Time) error
-	markBatchFailedFunc    func(context.Context, string, string) error
-	claimEscalationFunc    func(context.Context, int) ([]domain.EscalationState, error)
-	advanceEscalationFunc  func(context.Context, string, string, int, *time.Time, string) error
-	getApprovalByStepRunFn func(context.Context, string) (*domain.WorkflowStepApproval, error)
-	getWorkflowRunFunc     func(context.Context, string) (*domain.WorkflowRun, error)
-	listChannelsFunc       func(context.Context, string) ([]domain.NotificationChannel, error)
-	createDeliveryFunc     func(context.Context, *domain.NotificationDelivery) error
-	createMessageFunc      func(context.Context, *domain.NotificationMessage) error
-	updateStatusFunc       func(context.Context, string, string, string, string, map[string]any) error
-	getSubFunc             func(context.Context, string, string) (*domain.NotifySubscriber, error)
-	createInboxFunc        func(context.Context, *domain.InboxItem) error
-	getProviderFunc        func(context.Context, string, string) (*domain.NotificationProvider, error)
-	listProvidersFunc      func(context.Context, string, string) ([]domain.NotificationProvider, error)
+	claimFunc                 func(context.Context, int) ([]domain.NotificationMessage, error)
+	claimBatchFunc            func(context.Context, int) ([]domain.NotificationBatch, error)
+	markBatchSentFunc         func(context.Context, string, string, time.Time) error
+	requeueBatchFunc          func(context.Context, string, string, time.Time) error
+	markBatchFailedFunc       func(context.Context, string, string) error
+	claimEscalationFunc       func(context.Context, int) ([]domain.EscalationState, error)
+	advanceEscalationFunc     func(context.Context, string, string, int, *time.Time, string) error
+	getApprovalByStepRunFn    func(context.Context, string) (*domain.WorkflowStepApproval, error)
+	getWorkflowRunFunc        func(context.Context, string) (*domain.WorkflowRun, error)
+	listChannelsFunc          func(context.Context, string) ([]domain.NotificationChannel, error)
+	createDeliveryFunc        func(context.Context, *domain.NotificationDelivery) error
+	createMessageFunc         func(context.Context, *domain.NotificationMessage) error
+	updateStatusFunc          func(context.Context, string, string, string, string, map[string]any) error
+	getSubFunc                func(context.Context, string, string) (*domain.NotifySubscriber, error)
+	createInboxFunc           func(context.Context, *domain.InboxItem) error
+	getProviderFunc           func(context.Context, string, string) (*domain.NotificationProvider, error)
+	listProvidersFunc         func(context.Context, string, string) ([]domain.NotificationProvider, error)
+	resolvePolicyOverrideFunc func(context.Context, string, string, string, string) (*domain.NotifyPolicyOverride, error)
 }
 
 func (m *notifyDispatcherStoreMock) ClaimDueScheduledNotificationMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error) {
@@ -147,6 +148,13 @@ func (m *notifyDispatcherStoreMock) ListNotificationProviders(ctx context.Contex
 		return nil, nil
 	}
 	return m.listProvidersFunc(ctx, projectID, channel)
+}
+
+func (m *notifyDispatcherStoreMock) ResolveNotifyPolicyOverride(ctx context.Context, projectID, stepRunID, categoryKey, channel string) (*domain.NotifyPolicyOverride, error) {
+	if m.resolvePolicyOverrideFunc == nil {
+		return nil, store.ErrNotifyPolicyNotFound
+	}
+	return m.resolvePolicyOverrideFunc(ctx, projectID, stepRunID, categoryKey, channel)
 }
 
 func TestNotifyDispatcherPoll_InboxDelivered(t *testing.T) {
@@ -444,6 +452,132 @@ func TestNotifyDispatcherPoll_RetryMessageOnTransientFailure(t *testing.T) {
 
 	if !retried {
 		t.Fatal("expected retry status update")
+	}
+}
+
+func TestNotifyDispatcherPoll_RetryMessage_UsesPolicyOverride(t *testing.T) {
+	t.Parallel()
+
+	msg := domain.NotificationMessage{
+		ID:              "msg_retry_override",
+		ProjectID:       "proj_1",
+		RecipientType:   domain.NotifyRecipientTypeSubscriber,
+		RecipientID:     "sub_1",
+		StepRunID:       "step_1",
+		CategoryKey:     "billing",
+		Channel:         "inbox",
+		Status:          domain.NotifyMessageStatusProcessing,
+		Attempts:        1,
+		RenderedContent: []byte(`{"title":"hello"}`),
+	}
+
+	var retryScheduled bool
+	st := &notifyDispatcherStoreMock{
+		claimFunc: func(context.Context, int) ([]domain.NotificationMessage, error) {
+			return []domain.NotificationMessage{msg}, nil
+		},
+		getSubFunc: func(context.Context, string, string) (*domain.NotifySubscriber, error) {
+			return &domain.NotifySubscriber{ID: "sub_1", ProjectID: "proj_1"}, nil
+		},
+		createInboxFunc: func(context.Context, *domain.InboxItem) error {
+			return errors.New("temporary inbox outage")
+		},
+		resolvePolicyOverrideFunc: func(context.Context, string, string, string, string) (*domain.NotifyPolicyOverride, error) {
+			maxAttempts := 2
+			baseDelay := 300
+			maxDelay := 300
+			return &domain.NotifyPolicyOverride{
+				RetryMaxAttempts:   &maxAttempts,
+				RetryBaseDelaySecs: &baseDelay,
+				RetryMaxDelaySecs:  &maxDelay,
+			}, nil
+		},
+		updateStatusFunc: func(_ context.Context, _, _ string, fromStatus, toStatus string, fields map[string]any) error {
+			if fromStatus == domain.NotifyMessageStatusProcessing && toStatus == domain.NotifyMessageStatusScheduled {
+				retryScheduled = true
+				nextAt, ok := fields["scheduled_at"].(time.Time)
+				if !ok {
+					t.Fatalf("scheduled_at type = %T, want time.Time", fields["scheduled_at"])
+				}
+				if delta := time.Until(nextAt); delta < 4*time.Minute {
+					t.Fatalf("scheduled_at delta = %s, want >= 4m", delta)
+				}
+			}
+			if toStatus == domain.NotifyMessageStatusFailed {
+				t.Fatal("message should be retried before failing")
+			}
+			return nil
+		},
+	}
+
+	d := NewNotifyDispatcher(st, 0, "", "").WithRetryPolicy(5, time.Second, 10*time.Second)
+	d.poll(context.Background())
+
+	if !retryScheduled {
+		t.Fatal("expected retry scheduling with policy override")
+	}
+}
+
+func TestNotifyDispatcherPoll_EscalationDelivery_UsesPolicyOverride(t *testing.T) {
+	t.Parallel()
+
+	state := domain.EscalationState{
+		ID:            "esc_override",
+		ProjectID:     "proj_1",
+		StepRunID:     "step_1",
+		WorkflowRunID: "wf_run_1",
+		CurrentTier:   1,
+		TotalTiers:    3,
+		Status:        domain.NotifyEscalationStatusProcessing,
+	}
+
+	var capturedMaxAttempts int
+	var nextEscalationAt time.Time
+	st := &notifyDispatcherStoreMock{
+		claimEscalationFunc: func(context.Context, int) ([]domain.EscalationState, error) {
+			return []domain.EscalationState{state}, nil
+		},
+		getApprovalByStepRunFn: func(context.Context, string) (*domain.WorkflowStepApproval, error) {
+			expiresAt := time.Now().Add(20 * time.Minute)
+			return &domain.WorkflowStepApproval{ID: "apr_1", Status: domain.ApprovalStatusPending, ExpiresAt: &expiresAt}, nil
+		},
+		getWorkflowRunFunc: func(context.Context, string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wf_run_1", WorkflowID: "wf_1", ProjectID: "proj_1"}, nil
+		},
+		listChannelsFunc: func(context.Context, string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch_1", ProjectID: "proj_1", ChannelType: "email"}}, nil
+		},
+		resolvePolicyOverrideFunc: func(_ context.Context, _ string, _ string, _ string, channel string) (*domain.NotifyPolicyOverride, error) {
+			if channel == "email" {
+				attempts := 7
+				return &domain.NotifyPolicyOverride{RetryMaxAttempts: &attempts}, nil
+			}
+			minInterval := 600
+			return &domain.NotifyPolicyOverride{EscalationMinIntervalSecs: &minInterval}, nil
+		},
+		createDeliveryFunc: func(_ context.Context, d *domain.NotificationDelivery) error {
+			capturedMaxAttempts = d.MaxAttempts
+			return nil
+		},
+		advanceEscalationFunc: func(_ context.Context, _, _ string, _ int, nextAt *time.Time, _ string) error {
+			if nextAt != nil {
+				nextEscalationAt = *nextAt
+			}
+			return nil
+		},
+	}
+
+	d := NewNotifyDispatcher(st, 0, "", "").WithEscalationMinInterval(30 * time.Second)
+	d.poll(context.Background())
+
+	if capturedMaxAttempts != 7 {
+		t.Fatalf("delivery max attempts = %d, want 7", capturedMaxAttempts)
+	}
+	if nextEscalationAt.IsZero() {
+		t.Fatal("expected next escalation time to be set")
+	}
+	if delta := time.Until(nextEscalationAt); delta < 9*time.Minute {
+		t.Fatalf("next escalation delta = %s, want >= 9m", delta)
 	}
 }
 

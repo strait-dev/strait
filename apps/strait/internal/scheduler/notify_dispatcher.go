@@ -44,6 +44,10 @@ type notifyDispatcherStore interface {
 	ListNotificationProviders(ctx context.Context, projectID, channel string) ([]domain.NotificationProvider, error)
 }
 
+type notifyPolicyResolver interface {
+	ResolveNotifyPolicyOverride(ctx context.Context, projectID, stepRunID, categoryKey, channel string) (*domain.NotifyPolicyOverride, error)
+}
+
 type NotifyDispatcher struct {
 	store                 notifyDispatcherStore
 	interval              time.Duration
@@ -237,7 +241,7 @@ func (d *NotifyDispatcher) processEscalation(ctx context.Context, state domain.E
 			EventType:   domain.NotificationEventApprovalReminder,
 			Payload:     payload,
 			Status:      "pending",
-			MaxAttempts: 3,
+			MaxAttempts: d.effectiveDeliveryMaxAttempts(ctx, state.ProjectID, state.StepRunID, channel.ChannelType, 3),
 		}
 		if err := d.store.CreateNotificationDelivery(ctx, delivery); err != nil {
 			d.requeueEscalation(ctx, state)
@@ -250,7 +254,8 @@ func (d *NotifyDispatcher) processEscalation(ctx context.Context, state domain.E
 	if nextTier >= state.TotalTiers {
 		status = domain.NotifyEscalationStatusCompleted
 	} else {
-		t := time.Now().UTC().Add(d.computeEscalationInterval(approval, nextTier, state.TotalTiers))
+		minInterval := d.effectiveEscalationMinInterval(ctx, state)
+		t := time.Now().UTC().Add(d.computeEscalationInterval(approval, nextTier, state.TotalTiers, minInterval))
 		nextAt = &t
 	}
 
@@ -262,24 +267,27 @@ func (d *NotifyDispatcher) processEscalation(ctx context.Context, state domain.E
 	return nil
 }
 
-func (d *NotifyDispatcher) computeEscalationInterval(approval *domain.WorkflowStepApproval, nextTier, totalTiers int) time.Duration {
+func (d *NotifyDispatcher) computeEscalationInterval(approval *domain.WorkflowStepApproval, nextTier, totalTiers int, minInterval time.Duration) time.Duration {
+	if minInterval <= 0 {
+		minInterval = d.escalationMinInterval
+	}
 	if approval == nil || approval.ExpiresAt == nil || totalTiers <= nextTier {
-		return d.escalationMinInterval
+		return minInterval
 	}
 
 	remaining := time.Until(*approval.ExpiresAt)
 	if remaining <= 0 {
-		return d.escalationMinInterval
+		return minInterval
 	}
 
 	remainingEscalations := totalTiers - nextTier
 	if remainingEscalations <= 0 {
-		return d.escalationMinInterval
+		return minInterval
 	}
 
 	interval := remaining / time.Duration(remainingEscalations+1)
-	if interval < d.escalationMinInterval {
-		return d.escalationMinInterval
+	if interval < minInterval {
+		return minInterval
 	}
 	return interval
 }
@@ -757,15 +765,94 @@ func minInt(a, b int) int {
 	return b
 }
 
+func (d *NotifyDispatcher) resolvePolicyOverride(ctx context.Context, projectID, stepRunID, categoryKey, channel string) (*domain.NotifyPolicyOverride, error) {
+	resolver, ok := d.store.(notifyPolicyResolver)
+	if !ok {
+		return nil, nil
+	}
+
+	policy, err := resolver.ResolveNotifyPolicyOverride(ctx, projectID, stepRunID, categoryKey, channel)
+	if err != nil {
+		if errors.Is(err, store.ErrNotifyPolicyNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return policy, nil
+}
+
+func (d *NotifyDispatcher) effectiveRetryPolicy(ctx context.Context, msg domain.NotificationMessage) (int, time.Duration, time.Duration) {
+	maxAttempts := d.maxAttempts
+	baseDelay := d.retryBaseDelay
+	maxDelay := d.retryMaxDelay
+
+	policy, err := d.resolvePolicyOverride(ctx, msg.ProjectID, msg.StepRunID, msg.CategoryKey, msg.Channel)
+	if err != nil {
+		d.logger.Warn("notify dispatcher: resolve retry policy override", "project_id", msg.ProjectID, "message_id", msg.ID, "error", err)
+		return maxAttempts, baseDelay, maxDelay
+	}
+	if policy == nil {
+		return maxAttempts, baseDelay, maxDelay
+	}
+
+	if policy.RetryMaxAttempts != nil && *policy.RetryMaxAttempts > 0 {
+		maxAttempts = *policy.RetryMaxAttempts
+	}
+	if policy.RetryBaseDelaySecs != nil && *policy.RetryBaseDelaySecs > 0 {
+		baseDelay = time.Duration(*policy.RetryBaseDelaySecs) * time.Second
+	}
+	if policy.RetryMaxDelaySecs != nil && *policy.RetryMaxDelaySecs > 0 {
+		maxDelay = time.Duration(*policy.RetryMaxDelaySecs) * time.Second
+	}
+	if maxDelay < baseDelay {
+		maxDelay = baseDelay
+	}
+
+	return maxAttempts, baseDelay, maxDelay
+}
+
+func (d *NotifyDispatcher) effectiveEscalationMinInterval(ctx context.Context, state domain.EscalationState) time.Duration {
+	interval := d.escalationMinInterval
+
+	policy, err := d.resolvePolicyOverride(ctx, state.ProjectID, state.StepRunID, "", "")
+	if err != nil {
+		d.logger.Warn("notify dispatcher: resolve escalation policy override", "project_id", state.ProjectID, "escalation_id", state.ID, "error", err)
+		return interval
+	}
+	if policy != nil && policy.EscalationMinIntervalSecs != nil && *policy.EscalationMinIntervalSecs > 0 {
+		interval = time.Duration(*policy.EscalationMinIntervalSecs) * time.Second
+	}
+
+	return interval
+}
+
+func (d *NotifyDispatcher) effectiveDeliveryMaxAttempts(ctx context.Context, projectID, stepRunID, channel string, fallback int) int {
+	if fallback <= 0 {
+		fallback = 3
+	}
+
+	policy, err := d.resolvePolicyOverride(ctx, projectID, stepRunID, "", channel)
+	if err != nil {
+		d.logger.Warn("notify dispatcher: resolve delivery policy override", "project_id", projectID, "step_run_id", stepRunID, "channel", channel, "error", err)
+		return fallback
+	}
+	if policy != nil && policy.RetryMaxAttempts != nil && *policy.RetryMaxAttempts > 0 {
+		return *policy.RetryMaxAttempts
+	}
+	return fallback
+}
+
 func (d *NotifyDispatcher) retryMessage(ctx context.Context, msg domain.NotificationMessage, reason error) bool {
 	if !isRetryableDeliveryError(reason) {
 		return false
 	}
-	if msg.Attempts >= d.maxAttempts {
+
+	maxAttempts, baseDelay, maxDelay := d.effectiveRetryPolicy(ctx, msg)
+	if msg.Attempts >= maxAttempts {
 		return false
 	}
 
-	delay := d.computeRetryDelay(msg)
+	delay := d.computeRetryDelay(msg, baseDelay, maxDelay)
 	nextAt := time.Now().UTC().Add(delay)
 	err := d.store.UpdateNotificationMessageStatus(ctx, msg.ID, msg.ProjectID, domain.NotifyMessageStatusProcessing, domain.NotifyMessageStatusScheduled, map[string]any{
 		"scheduled_at":       nextAt,
@@ -804,20 +891,30 @@ func isRetryableDeliveryError(err error) bool {
 	return true
 }
 
-func (d *NotifyDispatcher) computeRetryDelay(msg domain.NotificationMessage) time.Duration {
+func (d *NotifyDispatcher) computeRetryDelay(msg domain.NotificationMessage, baseDelay, maxDelay time.Duration) time.Duration {
+	if baseDelay <= 0 {
+		baseDelay = d.retryBaseDelay
+	}
+	if maxDelay <= 0 {
+		maxDelay = d.retryMaxDelay
+	}
+	if maxDelay < baseDelay {
+		maxDelay = baseDelay
+	}
+
 	attempt := max(msg.Attempts, 1)
 	exponent := minInt(attempt-1, 8)
-	base := float64(d.retryBaseDelay)
+	base := float64(baseDelay)
 	delay := time.Duration(base * math.Pow(2, float64(exponent)))
-	delay = max(delay, d.retryBaseDelay)
-	delay = min(delay, d.retryMaxDelay)
+	delay = max(delay, baseDelay)
+	delay = min(delay, maxDelay)
 
 	h := fnv.New32a()
 	_, _ = fmt.Fprintf(h, "%s:%d", msg.ID, msg.Attempts)
 	jitterRatio := float64(h.Sum32()%3000) / 10000.0 // 0.0 - 0.2999
 	jittered := time.Duration(float64(delay) * (1 + jitterRatio))
-	if jittered > d.retryMaxDelay {
-		return d.retryMaxDelay
+	if jittered > maxDelay {
+		return maxDelay
 	}
 	return jittered
 }
