@@ -504,6 +504,102 @@ func TestNotifyDedupAndUnsubscribeToken(t *testing.T) {
 	}
 }
 
+func TestNotifyPolicyOverrideLifecycle(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	retryAttempts := 6
+	baseDelay := 30
+	maxDelay := 300
+
+	policy := &domain.NotifyPolicyOverride{
+		ProjectID:          "project-notify-policy",
+		ScopeType:          domain.NotifyPolicyScopeProject,
+		ScopeKey:           "*",
+		DigestPolicy:       "hourly",
+		RetryMaxAttempts:   &retryAttempts,
+		RetryBaseDelaySecs: &baseDelay,
+		RetryMaxDelaySecs:  &maxDelay,
+		Enabled:            true,
+	}
+	if err := q.UpsertNotifyPolicyOverride(ctx, policy); err != nil {
+		t.Fatalf("UpsertNotifyPolicyOverride() error = %v", err)
+	}
+	if policy.ID == "" {
+		t.Fatal("policy ID is empty")
+	}
+
+	loaded, err := q.GetNotifyPolicyOverride(ctx, policy.ID, policy.ProjectID)
+	if err != nil {
+		t.Fatalf("GetNotifyPolicyOverride() error = %v", err)
+	}
+	if loaded.DigestPolicy != "hourly" {
+		t.Fatalf("DigestPolicy = %q, want hourly", loaded.DigestPolicy)
+	}
+
+	list, err := q.ListNotifyPolicyOverrides(ctx, policy.ProjectID, nil)
+	if err != nil {
+		t.Fatalf("ListNotifyPolicyOverrides() error = %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("ListNotifyPolicyOverrides() len = %d, want 1", len(list))
+	}
+
+	if err := q.DeleteNotifyPolicyOverride(ctx, policy.ID, policy.ProjectID); err != nil {
+		t.Fatalf("DeleteNotifyPolicyOverride() error = %v", err)
+	}
+	if _, err := q.GetNotifyPolicyOverride(ctx, policy.ID, policy.ProjectID); !errors.Is(err, store.ErrNotifyPolicyNotFound) {
+		t.Fatalf("GetNotifyPolicyOverride(after delete) error = %v, want ErrNotifyPolicyNotFound", err)
+	}
+}
+
+func TestResolveNotifyPolicyOverride_Precedence(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-notify-policy-precedence"
+	projectAttempts := 3
+	categoryAttempts := 4
+	stepAttempts := 5
+
+	policies := []*domain.NotifyPolicyOverride{
+		{ProjectID: projectID, ScopeType: domain.NotifyPolicyScopeProject, ScopeKey: "*", Channel: "", RetryMaxAttempts: &projectAttempts, Enabled: true},
+		{ProjectID: projectID, ScopeType: domain.NotifyPolicyScopeCategory, ScopeKey: "billing", Channel: "", RetryMaxAttempts: &categoryAttempts, Enabled: true},
+		{ProjectID: projectID, ScopeType: domain.NotifyPolicyScopeWorkflowStep, ScopeKey: "step_123", Channel: "email", RetryMaxAttempts: &stepAttempts, Enabled: true},
+	}
+	for _, policy := range policies {
+		if err := q.UpsertNotifyPolicyOverride(ctx, policy); err != nil {
+			t.Fatalf("UpsertNotifyPolicyOverride(%s) error = %v", policy.ScopeType, err)
+		}
+	}
+
+	resolved, err := q.ResolveNotifyPolicyOverride(ctx, projectID, "step_123", "billing", "email")
+	if err != nil {
+		t.Fatalf("ResolveNotifyPolicyOverride(step) error = %v", err)
+	}
+	if resolved.ScopeType != domain.NotifyPolicyScopeWorkflowStep {
+		t.Fatalf("resolved scope = %q, want %q", resolved.ScopeType, domain.NotifyPolicyScopeWorkflowStep)
+	}
+
+	resolved, err = q.ResolveNotifyPolicyOverride(ctx, projectID, "", "billing", "inbox")
+	if err != nil {
+		t.Fatalf("ResolveNotifyPolicyOverride(category) error = %v", err)
+	}
+	if resolved.ScopeType != domain.NotifyPolicyScopeCategory {
+		t.Fatalf("resolved scope = %q, want %q", resolved.ScopeType, domain.NotifyPolicyScopeCategory)
+	}
+
+	resolved, err = q.ResolveNotifyPolicyOverride(ctx, projectID, "", "", "email")
+	if err != nil {
+		t.Fatalf("ResolveNotifyPolicyOverride(project) error = %v", err)
+	}
+	if resolved.ScopeType != domain.NotifyPolicyScopeProject {
+		t.Fatalf("resolved scope = %q, want %q", resolved.ScopeType, domain.NotifyPolicyScopeProject)
+	}
+}
+
 func TestNotifyStoreSentinelErrors(t *testing.T) {
 	t.Parallel()
 
@@ -522,6 +618,7 @@ func TestNotifyStoreSentinelErrors(t *testing.T) {
 		{name: "ErrNotificationProviderNotFound", err: store.ErrNotificationProviderNotFound, msg: "notification provider not found"},
 		{name: "ErrInboxItemNotFound", err: store.ErrInboxItemNotFound, msg: "inbox item not found"},
 		{name: "ErrInboxItemAlreadyExists", err: store.ErrInboxItemAlreadyExists, msg: "inbox item already exists"},
+		{name: "ErrNotifyPolicyNotFound", err: store.ErrNotifyPolicyNotFound, msg: "notify policy override not found"},
 	}
 
 	for _, tt := range tests {

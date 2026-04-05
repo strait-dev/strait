@@ -55,6 +55,12 @@ const (
 	NotifyInboxStateActioned = "actioned"
 )
 
+const (
+	NotifyPolicyScopeProject      = "project"
+	NotifyPolicyScopeCategory     = "category"
+	NotifyPolicyScopeWorkflowStep = "workflow_step"
+)
+
 // NotifySubscriber is an end-user recipient managed by a developer project.
 type NotifySubscriber struct {
 	ID         string          `json:"id"`
@@ -146,6 +152,24 @@ type NotificationPreference struct {
 	RateLimitOverride *int            `json:"rate_limit_override,omitempty"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
+}
+
+// NotifyPolicyOverride configures delivery and escalation knobs by scope.
+type NotifyPolicyOverride struct {
+	ID                        string    `json:"id"`
+	ProjectID                 string    `json:"project_id"`
+	ScopeType                 string    `json:"scope_type"`
+	ScopeKey                  string    `json:"scope_key"`
+	Channel                   string    `json:"channel,omitempty"`
+	DigestPolicy              string    `json:"digest_policy,omitempty"`
+	RetryMaxAttempts          *int      `json:"retry_max_attempts,omitempty"`
+	RetryBaseDelaySecs        *int      `json:"retry_base_delay_secs,omitempty"`
+	RetryMaxDelaySecs         *int      `json:"retry_max_delay_secs,omitempty"`
+	EscalationTiers           *int      `json:"escalation_tiers,omitempty"`
+	EscalationMinIntervalSecs *int      `json:"escalation_min_interval_secs,omitempty"`
+	Enabled                   bool      `json:"enabled"`
+	CreatedAt                 time.Time `json:"created_at"`
+	UpdatedAt                 time.Time `json:"updated_at"`
 }
 
 // NotificationMessage tracks channel delivery status and lifecycle timestamps.

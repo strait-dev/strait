@@ -42,6 +42,7 @@ var (
 	ErrNotificationProviderNotFound   = errors.New("notification provider not found")
 	ErrInboxItemNotFound              = errors.New("inbox item not found")
 	ErrInboxItemAlreadyExists         = errors.New("inbox item already exists")
+	ErrNotifyPolicyNotFound           = errors.New("notify policy override not found")
 	ErrUnsubscribeTokenNotFound       = errors.New("unsubscribe token not found")
 	ErrJobMemoryPerKeyLimitExceeded   = errors.New("job memory per-key limit exceeded")
 	ErrJobMemoryPerJobLimitExceeded   = errors.New("job memory per-job limit exceeded")
@@ -417,6 +418,11 @@ type NotifyStore interface {
 	UpsertNotificationPreference(ctx context.Context, pref *domain.NotificationPreference) error
 	GetNotificationPreference(ctx context.Context, recipientType, recipientID, scope string) (*domain.NotificationPreference, error)
 	ListNotificationPreferences(ctx context.Context, recipientType, recipientID string) ([]domain.NotificationPreference, error)
+	UpsertNotifyPolicyOverride(ctx context.Context, policy *domain.NotifyPolicyOverride) error
+	GetNotifyPolicyOverride(ctx context.Context, id, projectID string) (*domain.NotifyPolicyOverride, error)
+	ListNotifyPolicyOverrides(ctx context.Context, projectID string, scopeType *string) ([]domain.NotifyPolicyOverride, error)
+	ResolveNotifyPolicyOverride(ctx context.Context, projectID, stepRunID, categoryKey, channel string) (*domain.NotifyPolicyOverride, error)
+	DeleteNotifyPolicyOverride(ctx context.Context, id, projectID string) error
 	CreateNotificationMessage(ctx context.Context, msg *domain.NotificationMessage) error
 	GetNotificationMessage(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error)
 	GetNotificationMessageByID(ctx context.Context, id string) (*domain.NotificationMessage, error)
