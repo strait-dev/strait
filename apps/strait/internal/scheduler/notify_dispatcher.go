@@ -455,8 +455,9 @@ func (d *NotifyDispatcher) deliverEmail(ctx context.Context, msg domain.Notifica
 
 	var sendErr error
 	for _, attempt := range attempts {
-		err := d.sendWithProvider(ctx, attempt, sub.Email, subject, htmlBody, textBody)
+		providerMessageID, err := d.sendWithProvider(ctx, msg, attempt, sub.Email, subject, htmlBody, textBody)
 		if err == nil {
+			d.persistProviderResponse(ctx, msg, attempt, providerMessageID)
 			return nil
 		}
 		d.logger.Warn("notify dispatcher: email send attempt failed",
@@ -574,26 +575,55 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 	return append(chain, next...), nil
 }
 
-func (d *NotifyDispatcher) sendWithProvider(ctx context.Context, attempt emailProviderAttempt, to, subject, htmlBody, textBody string) error {
+func (d *NotifyDispatcher) sendWithProvider(ctx context.Context, msg domain.NotificationMessage, attempt emailProviderAttempt, to, subject, htmlBody, textBody string) (string, error) {
 	if strings.ToLower(attempt.Provider) != "resend" {
-		return fmt.Errorf("unsupported email provider: %s", attempt.Provider)
+		return "", fmt.Errorf("unsupported email provider: %s", attempt.Provider)
 	}
 	if attempt.APIKey == "" {
-		return fmt.Errorf("resend api key is required")
+		return "", fmt.Errorf("resend api key is required")
 	}
 
 	client := resend.NewClient(attempt.APIKey)
-	_, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
+	resp, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
 		From:    attempt.FromEmail,
 		To:      []string{to},
 		Subject: subject,
 		Html:    htmlBody,
 		Text:    textBody,
+		Tags: []resend.Tag{
+			{Name: "strait_message_id", Value: msg.ID},
+			{Name: "strait_project_id", Value: msg.ProjectID},
+		},
 	})
 	if err != nil {
-		return fmt.Errorf("send email (%s): %w", attempt.Provider, err)
+		return "", fmt.Errorf("send email (%s): %w", attempt.Provider, err)
 	}
-	return nil
+	if resp == nil {
+		return "", nil
+	}
+	return resp.Id, nil
+}
+
+func (d *NotifyDispatcher) persistProviderResponse(ctx context.Context, msg domain.NotificationMessage, attempt emailProviderAttempt, providerMessageID string) {
+	if msg.ID == "" || msg.ProjectID == "" {
+		return
+	}
+
+	providerResp, err := json.Marshal(map[string]any{
+		"provider":            attempt.Provider,
+		"provider_message_id": providerMessageID,
+	})
+	if err != nil {
+		return
+	}
+
+	fields := map[string]any{"provider_response": json.RawMessage(providerResp)}
+	if attempt.ID != "" {
+		fields["provider_id"] = attempt.ID
+	}
+	if err := d.store.UpdateNotificationMessageStatus(ctx, msg.ID, msg.ProjectID, domain.NotifyMessageStatusProcessing, domain.NotifyMessageStatusProcessing, fields); err != nil {
+		d.logger.Warn("notify dispatcher: persist provider response failed", "message_id", msg.ID, "error", err)
+	}
 }
 
 func (d *NotifyDispatcher) requeueBatch(ctx context.Context, batch domain.NotificationBatch, reason string) {

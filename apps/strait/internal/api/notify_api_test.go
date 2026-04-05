@@ -21,6 +21,11 @@ type notifyStoreAdapter struct {
 	getNotifyPolicyOverrideFunc                 func(ctx context.Context, id, projectID string) (*domain.NotifyPolicyOverride, error)
 	listNotifyPolicyOverridesFunc               func(ctx context.Context, projectID string, scopeType *string) ([]domain.NotifyPolicyOverride, error)
 	deleteNotifyPolicyOverrideFunc              func(ctx context.Context, id, projectID string) error
+	getNotificationPreferenceFunc               func(ctx context.Context, recipientType, recipientID, scope string) (*domain.NotificationPreference, error)
+	upsertNotificationPreferenceFunc            func(ctx context.Context, pref *domain.NotificationPreference) error
+	getNotificationMessageFunc                  func(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error)
+	getNotificationProviderFunc                 func(ctx context.Context, id, projectID string) (*domain.NotificationProvider, error)
+	updateNotificationMessageStatusFunc         func(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error
 }
 
 func (m *notifyStoreAdapter) GetActiveEscalationStateByStepRun(ctx context.Context, projectID, stepRunID string) (*domain.EscalationState, error) {
@@ -70,6 +75,41 @@ func (m *notifyStoreAdapter) DeleteNotifyPolicyOverride(ctx context.Context, id,
 		return nil
 	}
 	return m.deleteNotifyPolicyOverrideFunc(ctx, id, projectID)
+}
+
+func (m *notifyStoreAdapter) GetNotificationPreference(ctx context.Context, recipientType, recipientID, scope string) (*domain.NotificationPreference, error) {
+	if m.getNotificationPreferenceFunc == nil {
+		return nil, store.ErrNotificationPreferenceNotFound
+	}
+	return m.getNotificationPreferenceFunc(ctx, recipientType, recipientID, scope)
+}
+
+func (m *notifyStoreAdapter) UpsertNotificationPreference(ctx context.Context, pref *domain.NotificationPreference) error {
+	if m.upsertNotificationPreferenceFunc == nil {
+		return nil
+	}
+	return m.upsertNotificationPreferenceFunc(ctx, pref)
+}
+
+func (m *notifyStoreAdapter) GetNotificationMessage(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error) {
+	if m.getNotificationMessageFunc == nil {
+		return nil, store.ErrNotificationMessageNotFound
+	}
+	return m.getNotificationMessageFunc(ctx, id, projectID)
+}
+
+func (m *notifyStoreAdapter) GetNotificationProvider(ctx context.Context, id, projectID string) (*domain.NotificationProvider, error) {
+	if m.getNotificationProviderFunc == nil {
+		return nil, store.ErrNotificationProviderNotFound
+	}
+	return m.getNotificationProviderFunc(ctx, id, projectID)
+}
+
+func (m *notifyStoreAdapter) UpdateNotificationMessageStatus(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error {
+	if m.updateNotificationMessageStatusFunc == nil {
+		return nil
+	}
+	return m.updateNotificationMessageStatusFunc(ctx, id, projectID, fromStatus, toStatus, fields)
 }
 
 type notifyAPIStore struct {

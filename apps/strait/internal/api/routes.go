@@ -216,6 +216,7 @@ func (s *Server) routes() chi.Router {
 	r.Get("/v1/unsubscribe/{token}", TypedHandler(s, http.StatusOK, s.handleGetUnsubscribe))
 	r.Post("/v1/unsubscribe/{token}", TypedHandler(s, http.StatusOK, s.handleProcessUnsubscribe))
 	r.Post("/v1/unsubscribe/{token}/one-click", TypedHandler(s, http.StatusOK, s.handleUnsubscribeOneClick))
+	r.Post("/v1/notify/providers/{projectID}/{providerID}/callbacks/resend", s.handleNotifyResendProviderCallback)
 
 	// Email tracking endpoints are public by design.
 	r.Get("/t/{messageID}/open.gif", s.handleNotifyOpenPixel)

@@ -450,8 +450,9 @@ func buildInboxItemFromRenderedPayload(sub *domain.NotifySubscriber, projectID, 
 }
 
 type resendProviderConfig struct {
-	APIKey    string `json:"api_key"`
-	FromEmail string `json:"from_email"`
+	APIKey        string `json:"api_key"`
+	FromEmail     string `json:"from_email"`
+	WebhookSecret string `json:"webhook_secret"`
 }
 
 func (s *Server) sendNotifyEmail(ctx context.Context, ns notifyStore, sub *domain.NotifySubscriber, msg *domain.NotificationMessage, payload any) error {
@@ -506,15 +507,31 @@ func (s *Server) sendNotifyEmail(ctx context.Context, ns notifyStore, sub *domai
 	}
 
 	client := resend.NewClient(apiKey)
-	_, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
+	resp, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
 		From:    fromEmail,
 		To:      []string{sub.Email},
 		Subject: subject,
 		Html:    htmlBody,
 		Text:    textBody,
+		Tags: []resend.Tag{
+			{Name: "strait_message_id", Value: msg.ID},
+			{Name: "strait_project_id", Value: msg.ProjectID},
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("send email: %w", err)
+	}
+
+	providerResp, marshalErr := json.Marshal(map[string]any{
+		"provider":            "resend",
+		"provider_message_id": resp.Id,
+	})
+	if marshalErr == nil && len(providerResp) > 0 {
+		updateFields := map[string]any{"provider_response": json.RawMessage(providerResp)}
+		if msg.ProviderID != "" {
+			updateFields["provider_id"] = msg.ProviderID
+		}
+		_ = ns.UpdateNotificationMessageStatus(ctx, msg.ID, msg.ProjectID, domain.NotifyMessageStatusProcessing, domain.NotifyMessageStatusProcessing, updateFields)
 	}
 
 	return nil
