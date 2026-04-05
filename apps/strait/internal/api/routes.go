@@ -419,6 +419,14 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListNotificationCategories))
 		})
 
+		r.Route("/notify/policies", func(r chi.Router) {
+			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateNotifyPolicyOverride))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListNotifyPolicyOverrides))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/{policyID}", TypedHandler(s, http.StatusOK, s.handleGetNotifyPolicyOverride))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/{policyID}", TypedHandler(s, http.StatusOK, s.handleUpdateNotifyPolicyOverride))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/{policyID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteNotifyPolicyOverride))
+		})
+
 		r.Route("/providers", func(r chi.Router) {
 			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleConfigureNotificationProvider))
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListNotificationProviders))

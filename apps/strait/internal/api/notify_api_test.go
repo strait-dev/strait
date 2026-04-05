@@ -17,6 +17,10 @@ type notifyStoreAdapter struct {
 	getActiveEscalationStateByStepRunFunc       func(ctx context.Context, projectID, stepRunID string) (*domain.EscalationState, error)
 	acknowledgeEscalationByStepRunFunc          func(ctx context.Context, stepRunID, acknowledgedBy string, acknowledgedAt time.Time) error
 	completeActiveEscalationByStepRunStatusFunc func(ctx context.Context, stepRunID, status string) error
+	upsertNotifyPolicyOverrideFunc              func(ctx context.Context, policy *domain.NotifyPolicyOverride) error
+	getNotifyPolicyOverrideFunc                 func(ctx context.Context, id, projectID string) (*domain.NotifyPolicyOverride, error)
+	listNotifyPolicyOverridesFunc               func(ctx context.Context, projectID string, scopeType *string) ([]domain.NotifyPolicyOverride, error)
+	deleteNotifyPolicyOverrideFunc              func(ctx context.Context, id, projectID string) error
 }
 
 func (m *notifyStoreAdapter) GetActiveEscalationStateByStepRun(ctx context.Context, projectID, stepRunID string) (*domain.EscalationState, error) {
@@ -38,6 +42,34 @@ func (m *notifyStoreAdapter) CompleteActiveEscalationStateByStepRun(ctx context.
 		return nil
 	}
 	return m.completeActiveEscalationByStepRunStatusFunc(ctx, stepRunID, status)
+}
+
+func (m *notifyStoreAdapter) UpsertNotifyPolicyOverride(ctx context.Context, policy *domain.NotifyPolicyOverride) error {
+	if m.upsertNotifyPolicyOverrideFunc == nil {
+		return nil
+	}
+	return m.upsertNotifyPolicyOverrideFunc(ctx, policy)
+}
+
+func (m *notifyStoreAdapter) GetNotifyPolicyOverride(ctx context.Context, id, projectID string) (*domain.NotifyPolicyOverride, error) {
+	if m.getNotifyPolicyOverrideFunc == nil {
+		return nil, store.ErrNotifyPolicyNotFound
+	}
+	return m.getNotifyPolicyOverrideFunc(ctx, id, projectID)
+}
+
+func (m *notifyStoreAdapter) ListNotifyPolicyOverrides(ctx context.Context, projectID string, scopeType *string) ([]domain.NotifyPolicyOverride, error) {
+	if m.listNotifyPolicyOverridesFunc == nil {
+		return nil, nil
+	}
+	return m.listNotifyPolicyOverridesFunc(ctx, projectID, scopeType)
+}
+
+func (m *notifyStoreAdapter) DeleteNotifyPolicyOverride(ctx context.Context, id, projectID string) error {
+	if m.deleteNotifyPolicyOverrideFunc == nil {
+		return nil
+	}
+	return m.deleteNotifyPolicyOverrideFunc(ctx, id, projectID)
 }
 
 type notifyAPIStore struct {
@@ -194,6 +226,133 @@ func TestBuildNotifyRenderContext(t *testing.T) {
 	encoded, err := json.Marshal(ctx)
 	if err != nil || len(encoded) == 0 {
 		t.Fatalf("context should marshal: err=%v", err)
+	}
+}
+
+func TestCreateNotifyPolicyOverride(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	ns := &notifyStoreAdapter{
+		upsertNotifyPolicyOverrideFunc: func(_ context.Context, policy *domain.NotifyPolicyOverride) error {
+			called = true
+			if policy.ProjectID != "proj_1" {
+				t.Fatalf("ProjectID = %q, want proj_1", policy.ProjectID)
+			}
+			if policy.ScopeType != domain.NotifyPolicyScopeCategory {
+				t.Fatalf("ScopeType = %q, want %q", policy.ScopeType, domain.NotifyPolicyScopeCategory)
+			}
+			policy.ID = "pol_1"
+			return nil
+		},
+	}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/notify/policies", `{"scope_type":"category","scope_key":"billing","digest_policy":"daily"}`, "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusCreated, w.Body.String())
+	}
+	if !called {
+		t.Fatal("expected UpsertNotifyPolicyOverride to be called")
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["id"] != "pol_1" {
+		t.Fatalf("id = %v, want pol_1", body["id"])
+	}
+}
+
+func TestUpdateNotifyPolicyOverride(t *testing.T) {
+	t.Parallel()
+
+	updated := false
+	ns := &notifyStoreAdapter{
+		getNotifyPolicyOverrideFunc: func(_ context.Context, id, projectID string) (*domain.NotifyPolicyOverride, error) {
+			if id != "pol_1" || projectID != "proj_1" {
+				t.Fatalf("GetNotifyPolicyOverride args = (%q,%q), want (pol_1,proj_1)", id, projectID)
+			}
+			return &domain.NotifyPolicyOverride{ID: "pol_1", ProjectID: projectID, ScopeType: domain.NotifyPolicyScopeProject, ScopeKey: "*", Enabled: true}, nil
+		},
+		upsertNotifyPolicyOverrideFunc: func(_ context.Context, policy *domain.NotifyPolicyOverride) error {
+			updated = true
+			if policy.DigestPolicy != "hourly" {
+				t.Fatalf("DigestPolicy = %q, want hourly", policy.DigestPolicy)
+			}
+			if !policy.Enabled {
+				t.Fatal("Enabled = false, want true")
+			}
+			return nil
+		},
+	}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPut, "/v1/notify/policies/pol_1", `{"digest_policy":"hourly","enabled":true}`, "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !updated {
+		t.Fatal("expected update upsert call")
+	}
+}
+
+func TestListNotifyPolicyOverrides(t *testing.T) {
+	t.Parallel()
+
+	ns := &notifyStoreAdapter{
+		listNotifyPolicyOverridesFunc: func(_ context.Context, projectID string, scopeType *string) ([]domain.NotifyPolicyOverride, error) {
+			if projectID != "proj_1" {
+				t.Fatalf("projectID = %q, want proj_1", projectID)
+			}
+			if scopeType == nil || *scopeType != "category" {
+				t.Fatalf("scopeType = %v, want category", scopeType)
+			}
+			return []domain.NotifyPolicyOverride{{ID: "pol_1", ProjectID: projectID, ScopeType: domain.NotifyPolicyScopeCategory, ScopeKey: "billing", Enabled: true}}, nil
+		},
+	}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodGet, "/v1/notify/policies?scope_type=category", "", "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var body []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body) != 1 {
+		t.Fatalf("len(body) = %d, want 1", len(body))
+	}
+}
+
+func TestDeleteNotifyPolicyOverride_NotFound(t *testing.T) {
+	t.Parallel()
+
+	ns := &notifyStoreAdapter{
+		deleteNotifyPolicyOverrideFunc: func(_ context.Context, _, _ string) error {
+			return store.ErrNotifyPolicyNotFound
+		},
+	}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodDelete, "/v1/notify/policies/pol_missing", "", "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusNotFound, w.Body.String())
 	}
 }
 

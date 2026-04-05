@@ -825,6 +825,36 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleListNotificationCategories)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "create-notify-policy-override", Method: http.MethodPost, Path: "/v1/notify/policies",
+		Summary: "Create notify policy override", Description: "Creates or upserts a notify policy override scoped by project/category/workflow step.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 429, 500},
+	}, s.handleCreateNotifyPolicyOverride)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-notify-policy-overrides", Method: http.MethodGet, Path: "/v1/notify/policies",
+		Summary: "List notify policy overrides", Description: "Returns notify policy overrides for the current project.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleListNotifyPolicyOverrides)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-notify-policy-override", Method: http.MethodGet, Path: "/v1/notify/policies/{policyID}",
+		Summary: "Get notify policy override", Description: "Returns a notify policy override by ID.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleGetNotifyPolicyOverride)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-notify-policy-override", Method: http.MethodPut, Path: "/v1/notify/policies/{policyID}",
+		Summary: "Update notify policy override", Description: "Updates a notify policy override by ID.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleUpdateNotifyPolicyOverride)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "delete-notify-policy-override", Method: http.MethodDelete, Path: "/v1/notify/policies/{policyID}",
+		Summary: "Delete notify policy override", Description: "Deletes a notify policy override by ID.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleDeleteNotifyPolicyOverride)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "configure-notification-provider", Method: http.MethodPost, Path: "/v1/providers",
 		Summary: "Configure notification provider", Description: "Creates a notification provider configuration.",
 		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 429, 500},

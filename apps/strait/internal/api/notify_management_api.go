@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -456,6 +457,231 @@ func (s *Server) handleListNotificationCategories(ctx context.Context, _ *ListNo
 		return nil, huma.Error500InternalServerError("failed to list categories")
 	}
 	return &ListNotificationCategoriesOutput{Body: categories}, nil
+}
+
+type CreateNotifyPolicyOverrideRequest struct {
+	ScopeType                 string `json:"scope_type" validate:"required,oneof=project category workflow_step"`
+	ScopeKey                  string `json:"scope_key" validate:"required"`
+	Channel                   string `json:"channel,omitempty"`
+	DigestPolicy              string `json:"digest_policy,omitempty" validate:"omitempty,oneof=instant hourly daily"`
+	RetryMaxAttempts          *int   `json:"retry_max_attempts,omitempty"`
+	RetryBaseDelaySecs        *int   `json:"retry_base_delay_secs,omitempty"`
+	RetryMaxDelaySecs         *int   `json:"retry_max_delay_secs,omitempty"`
+	EscalationTiers           *int   `json:"escalation_tiers,omitempty"`
+	EscalationMinIntervalSecs *int   `json:"escalation_min_interval_secs,omitempty"`
+	Enabled                   *bool  `json:"enabled,omitempty"`
+}
+
+type CreateNotifyPolicyOverrideInput struct {
+	Body CreateNotifyPolicyOverrideRequest
+}
+
+type CreateNotifyPolicyOverrideOutput struct {
+	Body *domain.NotifyPolicyOverride
+}
+
+func (s *Server) handleCreateNotifyPolicyOverride(ctx context.Context, input *CreateNotifyPolicyOverrideInput) (*CreateNotifyPolicyOverrideOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+
+	policy := &domain.NotifyPolicyOverride{
+		ProjectID:                 projectID,
+		ScopeType:                 req.ScopeType,
+		ScopeKey:                  req.ScopeKey,
+		Channel:                   strings.TrimSpace(strings.ToLower(req.Channel)),
+		DigestPolicy:              strings.TrimSpace(strings.ToLower(req.DigestPolicy)),
+		RetryMaxAttempts:          req.RetryMaxAttempts,
+		RetryBaseDelaySecs:        req.RetryBaseDelaySecs,
+		RetryMaxDelaySecs:         req.RetryMaxDelaySecs,
+		EscalationTiers:           req.EscalationTiers,
+		EscalationMinIntervalSecs: req.EscalationMinIntervalSecs,
+		Enabled:                   enabled,
+	}
+
+	if err := ns.UpsertNotifyPolicyOverride(ctx, policy); err != nil {
+		return nil, huma.Error500InternalServerError("failed to create notify policy override")
+	}
+
+	return &CreateNotifyPolicyOverrideOutput{Body: policy}, nil
+}
+
+type UpdateNotifyPolicyOverrideRequest struct {
+	DigestPolicy              *string `json:"digest_policy,omitempty" validate:"omitempty,oneof=instant hourly daily"`
+	RetryMaxAttempts          *int    `json:"retry_max_attempts,omitempty"`
+	RetryBaseDelaySecs        *int    `json:"retry_base_delay_secs,omitempty"`
+	RetryMaxDelaySecs         *int    `json:"retry_max_delay_secs,omitempty"`
+	EscalationTiers           *int    `json:"escalation_tiers,omitempty"`
+	EscalationMinIntervalSecs *int    `json:"escalation_min_interval_secs,omitempty"`
+	Enabled                   *bool   `json:"enabled,omitempty"`
+}
+
+type UpdateNotifyPolicyOverrideInput struct {
+	PolicyID string `path:"policyID"`
+	Body     UpdateNotifyPolicyOverrideRequest
+}
+
+type UpdateNotifyPolicyOverrideOutput struct {
+	Body *domain.NotifyPolicyOverride
+}
+
+func (s *Server) handleUpdateNotifyPolicyOverride(ctx context.Context, input *UpdateNotifyPolicyOverrideInput) (*UpdateNotifyPolicyOverrideOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	req := input.Body
+	if err := s.validate.Struct(&req); err != nil {
+		return nil, newValidationError(err)
+	}
+
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+
+	policy, err := ns.GetNotifyPolicyOverride(ctx, input.PolicyID, projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotifyPolicyNotFound) {
+			return nil, huma.Error404NotFound("notify policy override not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get notify policy override")
+	}
+
+	if req.DigestPolicy != nil {
+		policy.DigestPolicy = strings.TrimSpace(strings.ToLower(*req.DigestPolicy))
+	}
+	if req.RetryMaxAttempts != nil {
+		policy.RetryMaxAttempts = req.RetryMaxAttempts
+	}
+	if req.RetryBaseDelaySecs != nil {
+		policy.RetryBaseDelaySecs = req.RetryBaseDelaySecs
+	}
+	if req.RetryMaxDelaySecs != nil {
+		policy.RetryMaxDelaySecs = req.RetryMaxDelaySecs
+	}
+	if req.EscalationTiers != nil {
+		policy.EscalationTiers = req.EscalationTiers
+	}
+	if req.EscalationMinIntervalSecs != nil {
+		policy.EscalationMinIntervalSecs = req.EscalationMinIntervalSecs
+	}
+	if req.Enabled != nil {
+		policy.Enabled = *req.Enabled
+	}
+
+	if err := ns.UpsertNotifyPolicyOverride(ctx, policy); err != nil {
+		return nil, huma.Error500InternalServerError("failed to update notify policy override")
+	}
+
+	return &UpdateNotifyPolicyOverrideOutput{Body: policy}, nil
+}
+
+type ListNotifyPolicyOverridesInput struct {
+	ScopeType string `query:"scope_type" validate:"omitempty,oneof=project category workflow_step"`
+}
+
+type ListNotifyPolicyOverridesOutput struct {
+	Body []domain.NotifyPolicyOverride
+}
+
+func (s *Server) handleListNotifyPolicyOverrides(ctx context.Context, input *ListNotifyPolicyOverridesInput) (*ListNotifyPolicyOverridesOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	if err := s.validate.Struct(input); err != nil {
+		return nil, newValidationError(err)
+	}
+
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+
+	var scopeType *string
+	if input.ScopeType != "" {
+		scope := strings.TrimSpace(strings.ToLower(input.ScopeType))
+		scopeType = &scope
+	}
+
+	policies, err := ns.ListNotifyPolicyOverrides(ctx, projectID, scopeType)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list notify policy overrides")
+	}
+
+	return &ListNotifyPolicyOverridesOutput{Body: policies}, nil
+}
+
+type GetNotifyPolicyOverrideInput struct {
+	PolicyID string `path:"policyID"`
+}
+
+type GetNotifyPolicyOverrideOutput struct {
+	Body *domain.NotifyPolicyOverride
+}
+
+func (s *Server) handleGetNotifyPolicyOverride(ctx context.Context, input *GetNotifyPolicyOverrideInput) (*GetNotifyPolicyOverrideOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+
+	policy, err := ns.GetNotifyPolicyOverride(ctx, input.PolicyID, projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotifyPolicyNotFound) {
+			return nil, huma.Error404NotFound("notify policy override not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get notify policy override")
+	}
+
+	return &GetNotifyPolicyOverrideOutput{Body: policy}, nil
+}
+
+type DeleteNotifyPolicyOverrideInput struct {
+	PolicyID string `path:"policyID"`
+}
+
+func (s *Server) handleDeleteNotifyPolicyOverride(ctx context.Context, input *DeleteNotifyPolicyOverrideInput) (*struct{}, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := ns.DeleteNotifyPolicyOverride(ctx, input.PolicyID, projectID); err != nil {
+		if errors.Is(err, store.ErrNotifyPolicyNotFound) {
+			return nil, huma.Error404NotFound("notify policy override not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to delete notify policy override")
+	}
+	return nil, nil
 }
 
 // Providers API.
