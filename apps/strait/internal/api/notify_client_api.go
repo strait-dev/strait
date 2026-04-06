@@ -347,6 +347,8 @@ func (s *Server) upsertNotifyPreferenceScope(ctx context.Context, scope string, 
 	}
 	if len(req.ChannelPrefs) > 0 {
 		existing.ChannelPrefs = req.ChannelPrefs
+	} else {
+		existing.ChannelPrefs = nil
 	}
 	if len(req.QuietHours) > 0 {
 		existing.QuietHours = req.QuietHours

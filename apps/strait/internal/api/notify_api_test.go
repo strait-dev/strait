@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ type notifyStoreAdapter struct {
 	deleteNotifyPolicyOverrideFunc              func(ctx context.Context, id, projectID string) error
 	getNotificationPreferenceFunc               func(ctx context.Context, recipientType, recipientID, scope string) (*domain.NotificationPreference, error)
 	upsertNotificationPreferenceFunc            func(ctx context.Context, pref *domain.NotificationPreference) error
+	listNotificationPreferencesFunc             func(ctx context.Context, recipientType, recipientID string) ([]domain.NotificationPreference, error)
 	disableNotificationChannelPreferenceFunc    func(ctx context.Context, recipientType, recipientID, scope, channel string) error
 	recordNotifyProviderCallbackReceiptFunc     func(ctx context.Context, projectID, providerID, provider, callbackID, eventType, messageID, payloadHash string, expiresAt time.Time) (bool, error)
 	deleteNotifyProviderCallbackReceiptFunc     func(ctx context.Context, projectID, providerID, callbackID string) error
@@ -92,6 +94,13 @@ func (m *notifyStoreAdapter) UpsertNotificationPreference(ctx context.Context, p
 		return nil
 	}
 	return m.upsertNotificationPreferenceFunc(ctx, pref)
+}
+
+func (m *notifyStoreAdapter) ListNotificationPreferences(ctx context.Context, recipientType, recipientID string) ([]domain.NotificationPreference, error) {
+	if m.listNotificationPreferencesFunc == nil {
+		return []domain.NotificationPreference{}, nil
+	}
+	return m.listNotificationPreferencesFunc(ctx, recipientType, recipientID)
 }
 
 func (m *notifyStoreAdapter) DisableNotificationChannelPreference(ctx context.Context, recipientType, recipientID, scope, channel string) error {
@@ -181,6 +190,58 @@ func TestNotifySubscriberToken_InvalidIssuerRejected(t *testing.T) {
 	srv.config.NotifySubscriberTokenIssuer = "unexpected-issuer"
 	if _, err := srv.parseNotifySubscriberToken(token); err == nil {
 		t.Fatal("parseNotifySubscriberToken() expected issuer validation error")
+	}
+}
+
+func TestUpdateNotifyPreferencesScope_OmittedChannelPrefsPreservesSuppressionState(t *testing.T) {
+	t.Parallel()
+
+	upsertCalled := false
+	ns := &notifyStoreAdapter{
+		getNotificationPreferenceFunc: func(_ context.Context, recipientType, recipientID, scope string) (*domain.NotificationPreference, error) {
+			return &domain.NotificationPreference{
+				RecipientType:    recipientType,
+				RecipientID:      recipientID,
+				Scope:            scope,
+				ChannelPrefs:     []byte(`{"email":true,"inbox":true}`),
+				Timezone:         "UTC",
+				DigestPolicy:     "immediate",
+				CriticalOverride: true,
+			}, nil
+		},
+		upsertNotificationPreferenceFunc: func(_ context.Context, pref *domain.NotificationPreference) error {
+			upsertCalled = true
+			if pref.ChannelPrefs != nil {
+				t.Fatalf("ChannelPrefs should be nil when omitted, got %s", string(pref.ChannelPrefs))
+			}
+			if pref.Timezone != "Europe/Berlin" {
+				t.Fatalf("Timezone = %q, want Europe/Berlin", pref.Timezone)
+			}
+			return nil
+		},
+		listNotificationPreferencesFunc: func(_ context.Context, _, _ string) ([]domain.NotificationPreference, error) {
+			return []domain.NotificationPreference{}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	token, err := srv.createNotifySubscriberToken("sub_1", "proj_1", "", time.Hour)
+	if err != nil {
+		t.Fatalf("createNotifySubscriberToken() error = %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPut, "/v1/preferences/global", strings.NewReader(`{"timezone":"Europe/Berlin"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Authorization", "Bearer "+token)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !upsertCalled {
+		t.Fatal("expected UpsertNotificationPreference call")
 	}
 }
 

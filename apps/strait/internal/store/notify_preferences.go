@@ -29,18 +29,14 @@ func (q *Queries) UpsertNotificationPreference(ctx context.Context, pref *domain
 	if pref.DigestPolicy == "" {
 		pref.DigestPolicy = "immediate"
 	}
-	if len(pref.ChannelPrefs) == 0 {
-		pref.ChannelPrefs = []byte("{}")
-	}
-
 	query := `
 		INSERT INTO notification_preferences (
 			id, recipient_type, recipient_id, scope, channel_prefs, quiet_hours, phone, timezone, digest_policy, critical_override, rate_limit_override
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (recipient_type, recipient_id, scope)
 		DO UPDATE SET
-			channel_prefs = EXCLUDED.channel_prefs,
+			channel_prefs = COALESCE(notification_preferences.channel_prefs, '{}'::jsonb) || COALESCE(EXCLUDED.channel_prefs, '{}'::jsonb),
 			quiet_hours = EXCLUDED.quiet_hours,
 			phone = EXCLUDED.phone,
 			timezone = EXCLUDED.timezone,
@@ -144,7 +140,10 @@ func (q *Queries) DisableNotificationChannelPreference(ctx context.Context, reci
 		ON CONFLICT (recipient_type, recipient_id, scope)
 		DO UPDATE SET
 			channel_prefs = jsonb_set(
-				COALESCE(notification_preferences.channel_prefs, '{}'::jsonb),
+				CASE
+					WHEN jsonb_typeof(notification_preferences.channel_prefs) = 'object' THEN notification_preferences.channel_prefs
+					ELSE '{}'::jsonb
+				END,
 				ARRAY[$4],
 				'false'::jsonb,
 				true
