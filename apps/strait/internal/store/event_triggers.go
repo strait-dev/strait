@@ -615,11 +615,11 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 
 	txb, ok := q.db.(TxBeginner)
 	if !ok {
-		// Fallback: not a pool (e.g., already in a tx). Execute sequentially.
-		if err := q.UpdateEventTriggerStatus(ctx, triggerID, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
-			return fmt.Errorf("update trigger status: %w", err)
-		}
-		return requeueRun(q)
+		// Non-atomic fallback is unsafe: marking the trigger as received and
+		// requeuing the run must happen atomically. Return an error instead
+		// of executing two separate operations that could leave the system
+		// in an inconsistent state if the second one fails.
+		return fmt.Errorf("receive event and requeue run requires transaction support")
 	}
 
 	return WithTx(ctx, txb, func(txQ *Queries) error {

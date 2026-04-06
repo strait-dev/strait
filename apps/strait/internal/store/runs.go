@@ -642,13 +642,14 @@ func (q *Queries) AreAllDescendantsTerminal(ctx context.Context, parentRunID str
 
 	query := `
 		WITH RECURSIVE descendants AS (
-			SELECT id, status
+			SELECT id, status, 1 AS depth
 			FROM job_runs
 			WHERE parent_run_id = $1
 			UNION ALL
-			SELECT jr.id, jr.status
+			SELECT jr.id, jr.status, d.depth + 1
 			FROM job_runs jr
 			JOIN descendants d ON jr.parent_run_id = d.id
+			WHERE d.depth < 100
 		)
 		SELECT COUNT(*)
 		FROM descendants
@@ -1008,16 +1009,9 @@ func (q *Queries) ReplayDeadLetterRun(ctx context.Context, runID string) (*domai
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReplayDeadLetterRun")
 	defer span.End()
 
-	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-
-	if run.Status != domain.StatusDeadLetter {
-		return nil, fmt.Errorf("run %s is not dead_letter", runID)
-	}
-
-	err = q.UpdateRunStatus(ctx, runID, domain.StatusDeadLetter, domain.StatusQueued, map[string]any{
+	// Use CAS transition directly to avoid read-check-update race where two
+	// concurrent replays could both pass a separate status check.
+	err := q.UpdateRunStatus(ctx, runID, domain.StatusDeadLetter, domain.StatusQueued, map[string]any{
 		"attempt":       1,
 		"error":         "",
 		"started_at":    nil,
@@ -2143,50 +2137,57 @@ func (q *Queries) ResetRunIdempotencyKey(ctx context.Context, runID string) erro
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResetRunIdempotencyKey")
 	defer span.End()
 
-	// Fetch run details needed for idempotency cleanup.
-	var idempotencyKey *string
-	var jobID string
-	var createdAt time.Time
-	err := q.db.QueryRow(ctx, `
-		SELECT idempotency_key, job_id, created_at
-		FROM job_runs
-		WHERE id = $1
-		  AND status NOT IN ('dequeued', 'executing', 'waiting')`,
-		runID,
-	).Scan(&idempotencyKey, &jobID, &createdAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrRunNotFound
+	txb, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("reset idempotency key requires transaction support")
+	}
+
+	return WithTx(ctx, txb, func(txQ *Queries) error {
+		// Fetch run details needed for idempotency cleanup.
+		var idempotencyKey *string
+		var jobID string
+		var createdAt time.Time
+		err := txQ.db.QueryRow(ctx, `
+			SELECT idempotency_key, job_id, created_at
+			FROM job_runs
+			WHERE id = $1
+			  AND status NOT IN ('dequeued', 'executing', 'waiting')`,
+			runID,
+		).Scan(&idempotencyKey, &jobID, &createdAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrRunNotFound
+			}
+			return fmt.Errorf("reset idempotency key fetch: %w", err)
 		}
-		return fmt.Errorf("reset idempotency key fetch: %w", err)
-	}
 
-	if idempotencyKey == nil || *idempotencyKey == "" {
+		if idempotencyKey == nil || *idempotencyKey == "" {
+			return nil
+		}
+
+		// Clear idempotency_key on the run. Use created_at for partition pruning.
+		_, err = txQ.db.Exec(ctx, `
+			UPDATE job_runs
+			SET idempotency_key = NULL
+			WHERE id = $1 AND created_at = $2`,
+			runID, createdAt,
+		)
+		if err != nil {
+			return fmt.Errorf("reset idempotency key update: %w", err)
+		}
+
+		// Remove from global dedup table.
+		_, err = txQ.db.Exec(ctx, `
+			DELETE FROM job_run_idempotency
+			WHERE job_id = $1 AND idempotency_key = $2`,
+			jobID, *idempotencyKey,
+		)
+		if err != nil {
+			return fmt.Errorf("reset idempotency key cleanup: %w", err)
+		}
+
 		return nil
-	}
-
-	// Clear idempotency_key on the run. Use created_at for partition pruning.
-	_, err = q.db.Exec(ctx, `
-		UPDATE job_runs
-		SET idempotency_key = NULL
-		WHERE id = $1 AND created_at = $2`,
-		runID, createdAt,
-	)
-	if err != nil {
-		return fmt.Errorf("reset idempotency key update: %w", err)
-	}
-
-	// Remove from global dedup table.
-	_, err = q.db.Exec(ctx, `
-		DELETE FROM job_run_idempotency
-		WHERE job_id = $1 AND idempotency_key = $2`,
-		jobID, *idempotencyKey,
-	)
-	if err != nil {
-		return fmt.Errorf("reset idempotency key cleanup: %w", err)
-	}
-
-	return nil
+	})
 }
 
 func (q *Queries) RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error {
@@ -2223,9 +2224,9 @@ func (q *Queries) BulkCancelByFilter(ctx context.Context, projectID string, f Bu
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkCancelByFilter")
 	defer span.End()
 
-	baseQuery := `
-		UPDATE job_runs
-		SET status = 'canceled', finished_at = $1, error = $2
+	// Build the filter conditions for the subquery that selects candidate rows.
+	// A LIMIT 10000 cap prevents locking millions of rows in a single UPDATE.
+	filterQuery := `SELECT id FROM job_runs
 		WHERE project_id = $3
 		  AND status IN ('delayed', 'queued')
 		  AND started_at IS NULL`
@@ -2234,26 +2235,32 @@ func (q *Queries) BulkCancelByFilter(ctx context.Context, projectID string, f Bu
 	param := 4
 
 	if f.JobID != "" {
-		baseQuery += fmt.Sprintf(" AND job_id = $%d", param)
+		filterQuery += fmt.Sprintf(" AND job_id = $%d", param)
 		args = append(args, f.JobID)
 		param++
 	}
 	if f.BatchID != "" {
-		baseQuery += fmt.Sprintf(" AND batch_id = $%d", param)
+		filterQuery += fmt.Sprintf(" AND batch_id = $%d", param)
 		args = append(args, f.BatchID)
 		param++
 	}
 	if f.TriggeredBy != "" {
-		baseQuery += fmt.Sprintf(" AND triggered_by = $%d", param)
+		filterQuery += fmt.Sprintf(" AND triggered_by = $%d", param)
 		args = append(args, f.TriggeredBy)
 		param++
 	}
 	if f.Status != "" {
-		baseQuery += fmt.Sprintf(" AND status = $%d", param)
+		filterQuery += fmt.Sprintf(" AND status = $%d", param)
 		args = append(args, f.Status)
 	}
 
-	baseQuery += " RETURNING id"
+	filterQuery += " LIMIT 10000"
+
+	baseQuery := `
+		UPDATE job_runs
+		SET status = 'canceled', finished_at = $1, error = $2
+		WHERE id IN (` + filterQuery + `)
+		RETURNING id`
 
 	rows, err := q.db.Query(ctx, baseQuery, args...)
 	if err != nil {

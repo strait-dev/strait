@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 
@@ -274,5 +276,120 @@ func TestQueueStats_DBError(t *testing.T) {
 	}
 	if stats != nil {
 		t.Errorf("stats = %v, want nil on error", stats)
+	}
+}
+
+// Issue 10: ReplayDeadLetterRun uses CAS directly without separate read-check.
+func TestReplayDeadLetterRun_CASConflict(t *testing.T) {
+	t.Parallel()
+
+	// UpdateRunStatus returns ErrRunConflict when CAS fails (run not in dead_letter).
+	db := &mockDBTX{
+		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+			return pgconn.NewCommandTag("UPDATE 0"), nil
+		},
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					// Run exists but is in 'completed' state, not 'dead_letter'.
+					if p, ok := dest[0].(*domain.RunStatus); ok {
+						*p = domain.StatusCompleted
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := New(db)
+	_, err := q.ReplayDeadLetterRun(context.Background(), "run-1")
+	if err == nil {
+		t.Fatal("expected error for non-dead_letter run, got nil")
+	}
+	if !errors.Is(err, ErrRunConflict) {
+		t.Fatalf("expected ErrRunConflict, got %v", err)
+	}
+}
+
+// Issue 11: ReceiveEventAndRequeueRun returns error when tx not supported.
+func TestReceiveEventAndRequeueRun_NoTxSupport(t *testing.T) {
+	t.Parallel()
+
+	// mockDBTX does not implement TxBeginner, so the fallback path triggers.
+	db := &mockDBTX{}
+	q := New(db)
+	err := q.ReceiveEventAndRequeueRun(context.Background(), "trigger-1", nil, time.Now(), "run-1")
+	if err == nil {
+		t.Fatal("expected error when db does not support transactions, got nil")
+	}
+	want := "requires transaction support"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %q, want substring %q", err.Error(), want)
+	}
+}
+
+// Issue 17: AreAllDescendantsTerminal CTE includes depth limiter.
+func TestAreAllDescendantsTerminal_DepthLimiter(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			capturedSQL = sql
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					*dest[0].(*int) = 0
+					return nil
+				},
+			}
+		},
+	}
+
+	q := New(db)
+	allTerminal, err := q.AreAllDescendantsTerminal(context.Background(), "parent-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !allTerminal {
+		t.Fatal("expected true when count is 0")
+	}
+	if !strings.Contains(capturedSQL, "d.depth < 100") {
+		t.Fatalf("CTE query missing depth limiter, got: %s", capturedSQL)
+	}
+}
+
+// Issue 20: BulkCancelByFilter SQL contains LIMIT 10000.
+func TestBulkCancelByFilter_HasLimit(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			capturedSQL = sql
+			return nil, errors.New("mock: stop early")
+		},
+	}
+
+	q := New(db)
+	_, _ = q.BulkCancelByFilter(context.Background(), "proj-1", BulkCancelFilter{}, time.Now(), "test")
+	if !strings.Contains(capturedSQL, "LIMIT 10000") {
+		t.Fatalf("bulk cancel query missing LIMIT 10000, got: %s", capturedSQL)
+	}
+}
+
+// Issue 21: ResetRunIdempotencyKey requires transaction support.
+func TestResetRunIdempotencyKey_NoTxSupport(t *testing.T) {
+	t.Parallel()
+
+	// mockDBTX does not implement TxBeginner.
+	db := &mockDBTX{}
+	q := New(db)
+	err := q.ResetRunIdempotencyKey(context.Background(), "run-1")
+	if err == nil {
+		t.Fatal("expected error when db does not support transactions, got nil")
+	}
+	want := "requires transaction support"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %q, want substring %q", err.Error(), want)
 	}
 }
