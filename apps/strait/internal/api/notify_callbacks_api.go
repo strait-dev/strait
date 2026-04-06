@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -24,112 +26,199 @@ const (
 	notifyProviderCallbackOutcomeBounced   = "bounced"
 	notifyProviderCallbackOutcomeComplaint = "complaint"
 	notifyProviderCallbackOutcomeIgnored   = "ignored"
+
+	notifyProviderCallbackMaxPayloadBytes = 256 * 1024
+	notifyProviderCallbackReceiptTTL      = 30 * 24 * time.Hour
 )
+
+type notifyCallbackHTTPError struct {
+	status  int
+	message string
+}
+
+func (e *notifyCallbackHTTPError) Error() string {
+	return e.message
+}
+
+type notifyResendCallbackEnvelope struct {
+	notifyStore         notifyStore
+	projectID           string
+	providerID          string
+	callbackID          string
+	normalizedEventType string
+	messageID           string
+	payloadHash         string
+}
 
 func (s *Server) handleNotifyResendProviderCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	envelope, err := s.prepareNotifyResendCallback(ctx, r)
+	if err != nil {
+		s.writeNotifyCallbackError(w, err)
+		return
+	}
+
+	recordedReceipt, err := envelope.notifyStore.RecordNotifyProviderCallbackReceipt(
+		ctx,
+		envelope.projectID,
+		envelope.providerID,
+		"resend",
+		envelope.callbackID,
+		envelope.normalizedEventType,
+		envelope.messageID,
+		envelope.payloadHash,
+		time.Now().UTC().Add(notifyProviderCallbackReceiptTTL),
+	)
+	if err != nil {
+		http.Error(w, "failed to record callback receipt", http.StatusInternalServerError)
+		return
+	}
+	if !recordedReceipt {
+		s.completeNotifyProviderCallback(ctx, w, envelope.normalizedEventType, notifyProviderCallbackOutcomeIgnored, "duplicate_replay", envelope.messageID, envelope.callbackID)
+		return
+	}
+
+	processed := false
+	defer func() {
+		if processed {
+			return
+		}
+		cleanupErr := envelope.notifyStore.DeleteNotifyProviderCallbackReceipt(ctx, envelope.projectID, envelope.providerID, envelope.callbackID)
+		if cleanupErr != nil {
+			slog.Warn("notify provider callback receipt cleanup failed",
+				"provider", "resend",
+				"project_id", envelope.projectID,
+				"provider_id", envelope.providerID,
+				"callback_id", envelope.callbackID,
+				"error", cleanupErr,
+			)
+		}
+	}()
+
+	outcome, reason, err := s.applyNotifyResendProviderCallback(ctx, envelope)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	processed = true
+	s.completeNotifyProviderCallback(ctx, w, envelope.normalizedEventType, outcome, reason, envelope.messageID, envelope.callbackID)
+}
+
+func (s *Server) prepareNotifyResendCallback(ctx context.Context, r *http.Request) (*notifyResendCallbackEnvelope, error) {
 	projectID := strings.TrimSpace(chi.URLParam(r, "projectID"))
 	providerID := strings.TrimSpace(chi.URLParam(r, "providerID"))
 	if projectID == "" || providerID == "" {
-		http.Error(w, "projectID and providerID are required", http.StatusBadRequest)
-		return
+		return nil, &notifyCallbackHTTPError{status: http.StatusBadRequest, message: "projectID and providerID are required"}
 	}
 
 	ns, err := s.requireNotifyStore()
 	if err != nil {
-		http.Error(w, "notify store unavailable", http.StatusServiceUnavailable)
-		return
+		return nil, &notifyCallbackHTTPError{status: http.StatusServiceUnavailable, message: "notify store unavailable"}
 	}
 
 	provider, err := ns.GetNotificationProvider(ctx, providerID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotificationProviderNotFound) {
-			http.Error(w, "provider not found", http.StatusNotFound)
-			return
+			return nil, &notifyCallbackHTTPError{status: http.StatusNotFound, message: "provider not found"}
 		}
-		http.Error(w, "failed to resolve provider", http.StatusInternalServerError)
-		return
+		return nil, &notifyCallbackHTTPError{status: http.StatusInternalServerError, message: "failed to resolve provider"}
 	}
 	if strings.ToLower(provider.Provider) != "resend" {
-		http.Error(w, "provider is not resend", http.StatusBadRequest)
-		return
+		return nil, &notifyCallbackHTTPError{status: http.StatusBadRequest, message: "provider is not resend"}
 	}
 
 	cfg := resendProviderConfig{}
 	if err := json.Unmarshal(provider.ConfigEnc, &cfg); err != nil {
-		http.Error(w, "invalid provider config", http.StatusBadRequest)
-		return
+		return nil, &notifyCallbackHTTPError{status: http.StatusBadRequest, message: "invalid provider config"}
 	}
 	if strings.TrimSpace(cfg.WebhookSecret) == "" {
-		http.Error(w, "resend webhook secret is not configured", http.StatusBadRequest)
-		return
+		return nil, &notifyCallbackHTTPError{status: http.StatusBadRequest, message: "resend webhook secret is not configured"}
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, notifyProviderCallbackMaxPayloadBytes+1))
 	if err != nil {
-		http.Error(w, "failed to read body", http.StatusBadRequest)
-		return
+		return nil, &notifyCallbackHTTPError{status: http.StatusBadRequest, message: "failed to read body"}
 	}
 	defer r.Body.Close()
+	if len(body) > notifyProviderCallbackMaxPayloadBytes {
+		return nil, &notifyCallbackHTTPError{status: http.StatusRequestEntityTooLarge, message: "payload too large"}
+	}
+
+	callbackID := strings.TrimSpace(r.Header.Get("svix-id"))
+	if callbackID == "" {
+		return nil, &notifyCallbackHTTPError{status: http.StatusBadRequest, message: "missing callback id"}
+	}
 
 	client := resend.NewClient("")
 	verifyErr := client.Webhooks.Verify(&resend.VerifyWebhookOptions{
 		Payload: string(body),
 		Headers: resend.WebhookHeaders{
-			Id:        r.Header.Get("svix-id"),
+			Id:        callbackID,
 			Timestamp: r.Header.Get("svix-timestamp"),
 			Signature: r.Header.Get("svix-signature"),
 		},
 		WebhookSecret: cfg.WebhookSecret,
 	})
 	if verifyErr != nil {
-		http.Error(w, "invalid webhook signature", http.StatusUnauthorized)
-		return
+		return nil, &notifyCallbackHTTPError{status: http.StatusUnauthorized, message: "invalid webhook signature"}
 	}
 
 	payload := map[string]any{}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		http.Error(w, "invalid payload", http.StatusBadRequest)
-		return
+		return nil, &notifyCallbackHTTPError{status: http.StatusBadRequest, message: "invalid payload"}
 	}
 
 	eventType, _ := payload["type"].(string)
-	normalizedEventType := normalizeNotifyProviderEventType(eventType)
-	messageID := extractNotifyResendMessageID(payload)
-	if messageID == "" {
-		s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "missing_message_id", "")
+	return &notifyResendCallbackEnvelope{
+		notifyStore:         ns,
+		projectID:           projectID,
+		providerID:          providerID,
+		callbackID:          callbackID,
+		normalizedEventType: normalizeNotifyProviderEventType(eventType),
+		messageID:           extractNotifyResendMessageID(payload),
+		payloadHash:         hashNotifyProviderCallbackPayload(body),
+	}, nil
+}
+
+func (s *Server) writeNotifyCallbackError(w http.ResponseWriter, err error) {
+	var httpErr *notifyCallbackHTTPError
+	if errors.As(err, &httpErr) {
+		http.Error(w, httpErr.message, httpErr.status)
 		return
 	}
+	http.Error(w, "failed to process callback", http.StatusInternalServerError)
+}
 
-	msg, err := ns.GetNotificationMessage(ctx, messageID, projectID)
+func (s *Server) applyNotifyResendProviderCallback(ctx context.Context, envelope *notifyResendCallbackEnvelope) (string, string, error) {
+	ns := envelope.notifyStore
+	if envelope.messageID == "" {
+		return notifyProviderCallbackOutcomeIgnored, "missing_message_id", nil
+	}
+
+	msg, err := ns.GetNotificationMessage(ctx, envelope.messageID, envelope.projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotificationMessageNotFound) {
-			s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "message_not_found", messageID)
-			return
+			return notifyProviderCallbackOutcomeIgnored, "message_not_found", nil
 		}
-		http.Error(w, "failed to resolve message", http.StatusInternalServerError)
-		return
+		return "", "", errors.New("failed to resolve message")
 	}
 
-	if msg.ProjectID != projectID {
-		s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "project_mismatch", messageID)
-		return
+	if msg.ProjectID != envelope.projectID {
+		return notifyProviderCallbackOutcomeIgnored, "project_mismatch", nil
 	}
-	if msg.ProviderID != "" && msg.ProviderID != providerID {
-		s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "provider_mismatch", messageID)
-		return
+	if msg.ProviderID != "" && msg.ProviderID != envelope.providerID {
+		return notifyProviderCallbackOutcomeIgnored, "provider_mismatch", nil
 	}
 
-	status, fields, suppressEmail := resolveNotifyResendCallbackOutcome(normalizedEventType, time.Now().UTC())
-	classifiedOutcome := classifyNotifyResendCallbackOutcome(normalizedEventType)
+	status, fields, suppressEmail := resolveNotifyResendCallbackOutcome(envelope.normalizedEventType, time.Now().UTC())
+	classifiedOutcome := classifyNotifyResendCallbackOutcome(envelope.normalizedEventType)
 	if status == "" {
-		s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "unsupported_event", messageID)
-		return
+		return notifyProviderCallbackOutcomeIgnored, "unsupported_event", nil
 	}
 	if !shouldApplyNotifyProviderCallbackTransition(msg.Status, status) {
 		s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail)
-		s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "duplicate_or_terminal", messageID)
-		return
+		return notifyProviderCallbackOutcomeIgnored, "duplicate_or_terminal", nil
 	}
 
 	if err := ns.UpdateNotificationMessageStatus(ctx, msg.ID, msg.ProjectID, msg.Status, status, fields); err != nil {
@@ -137,20 +226,23 @@ func (s *Server) handleNotifyResendProviderCallback(w http.ResponseWriter, r *ht
 			latest, latestErr := ns.GetNotificationMessage(ctx, msg.ID, msg.ProjectID)
 			if latestErr == nil && !shouldApplyNotifyProviderCallbackTransition(latest.Status, status) {
 				s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail)
-				s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "stale_event", messageID)
-				return
+				return notifyProviderCallbackOutcomeIgnored, "stale_event", nil
 			}
 		}
-		http.Error(w, "failed to update message", http.StatusInternalServerError)
-		return
+		return "", "", errors.New("failed to update message")
 	}
 
 	s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail)
-	s.completeNotifyProviderCallback(ctx, w, normalizedEventType, classifiedOutcome, "updated", messageID)
+	return classifiedOutcome, "updated", nil
 }
 
 func normalizeNotifyProviderEventType(eventType string) string {
 	return strings.ToLower(strings.TrimSpace(eventType))
+}
+
+func hashNotifyProviderCallbackPayload(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
 }
 
 func extractNotifyResendMessageID(payload map[string]any) string {
@@ -256,19 +348,20 @@ func (s *Server) applyNotifySuppressionIfNeeded(ctx context.Context, ns notifySt
 	}
 }
 
-func (s *Server) completeNotifyProviderCallback(ctx context.Context, w http.ResponseWriter, eventType, outcome, reason, messageID string) {
-	s.recordNotifyProviderCallbackOutcome(ctx, "resend", eventType, outcome)
+func (s *Server) completeNotifyProviderCallback(ctx context.Context, w http.ResponseWriter, eventType, outcome, reason, messageID, callbackID string) {
+	s.recordNotifyProviderCallbackOutcome(ctx, "resend", eventType, outcome, reason)
 	slog.Info("notify provider callback processed",
 		"provider", "resend",
 		"event_type", eventType,
 		"outcome", outcome,
 		"reason", reason,
 		"message_id", messageID,
+		"callback_id", callbackID,
 	)
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func (s *Server) recordNotifyProviderCallbackOutcome(ctx context.Context, provider, eventType, outcome string) {
+func (s *Server) recordNotifyProviderCallbackOutcome(ctx context.Context, provider, eventType, outcome, reason string) {
 	if s.metrics == nil {
 		return
 	}
@@ -277,6 +370,7 @@ func (s *Server) recordNotifyProviderCallbackOutcome(ctx context.Context, provid
 		attribute.String("provider", provider),
 		attribute.String("event_type", eventType),
 		attribute.String("outcome", outcome),
+		attribute.String("reason", reason),
 	))
 }
 

@@ -24,6 +24,8 @@ type notifyStoreAdapter struct {
 	getNotificationPreferenceFunc               func(ctx context.Context, recipientType, recipientID, scope string) (*domain.NotificationPreference, error)
 	upsertNotificationPreferenceFunc            func(ctx context.Context, pref *domain.NotificationPreference) error
 	disableNotificationChannelPreferenceFunc    func(ctx context.Context, recipientType, recipientID, scope, channel string) error
+	recordNotifyProviderCallbackReceiptFunc     func(ctx context.Context, projectID, providerID, provider, callbackID, eventType, messageID, payloadHash string, expiresAt time.Time) (bool, error)
+	deleteNotifyProviderCallbackReceiptFunc     func(ctx context.Context, projectID, providerID, callbackID string) error
 	getNotificationMessageFunc                  func(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error)
 	getNotificationProviderFunc                 func(ctx context.Context, id, projectID string) (*domain.NotificationProvider, error)
 	updateNotificationMessageStatusFunc         func(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error
@@ -97,6 +99,24 @@ func (m *notifyStoreAdapter) DisableNotificationChannelPreference(ctx context.Co
 		return nil
 	}
 	return m.disableNotificationChannelPreferenceFunc(ctx, recipientType, recipientID, scope, channel)
+}
+
+func (m *notifyStoreAdapter) RecordNotifyProviderCallbackReceipt(
+	ctx context.Context,
+	projectID, providerID, provider, callbackID, eventType, messageID, payloadHash string,
+	expiresAt time.Time,
+) (bool, error) {
+	if m.recordNotifyProviderCallbackReceiptFunc == nil {
+		return true, nil
+	}
+	return m.recordNotifyProviderCallbackReceiptFunc(ctx, projectID, providerID, provider, callbackID, eventType, messageID, payloadHash, expiresAt)
+}
+
+func (m *notifyStoreAdapter) DeleteNotifyProviderCallbackReceipt(ctx context.Context, projectID, providerID, callbackID string) error {
+	if m.deleteNotifyProviderCallbackReceiptFunc == nil {
+		return nil
+	}
+	return m.deleteNotifyProviderCallbackReceiptFunc(ctx, projectID, providerID, callbackID)
 }
 
 func (m *notifyStoreAdapter) GetNotificationMessage(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error) {

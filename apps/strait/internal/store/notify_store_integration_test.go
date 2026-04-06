@@ -5,6 +5,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -597,6 +598,119 @@ func TestResolveNotifyPolicyOverride_Precedence(t *testing.T) {
 	}
 	if resolved.ScopeType != domain.NotifyPolicyScopeProject {
 		t.Fatalf("resolved scope = %q, want %q", resolved.ScopeType, domain.NotifyPolicyScopeProject)
+	}
+}
+
+func TestNotifyProviderCallbackReceipt_DedupAndDelete(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	now := time.Now().UTC()
+	inserted, err := q.RecordNotifyProviderCallbackReceipt(
+		ctx,
+		"project-notify-callback-receipts",
+		"provider-1",
+		"resend",
+		"cb_1",
+		"email.delivered",
+		"msg_1",
+		"hash1",
+		now.Add(24*time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("RecordNotifyProviderCallbackReceipt(first) error = %v", err)
+	}
+	if !inserted {
+		t.Fatal("RecordNotifyProviderCallbackReceipt(first) inserted = false, want true")
+	}
+
+	inserted, err = q.RecordNotifyProviderCallbackReceipt(
+		ctx,
+		"project-notify-callback-receipts",
+		"provider-1",
+		"resend",
+		"cb_1",
+		"email.delivered",
+		"msg_1",
+		"hash1",
+		now.Add(24*time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("RecordNotifyProviderCallbackReceipt(duplicate) error = %v", err)
+	}
+	if inserted {
+		t.Fatal("RecordNotifyProviderCallbackReceipt(duplicate) inserted = true, want false")
+	}
+
+	if err := q.DeleteNotifyProviderCallbackReceipt(ctx, "project-notify-callback-receipts", "provider-1", "cb_1"); err != nil {
+		t.Fatalf("DeleteNotifyProviderCallbackReceipt() error = %v", err)
+	}
+
+	inserted, err = q.RecordNotifyProviderCallbackReceipt(
+		ctx,
+		"project-notify-callback-receipts",
+		"provider-1",
+		"resend",
+		"cb_1",
+		"email.delivered",
+		"msg_1",
+		"hash1",
+		now.Add(24*time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("RecordNotifyProviderCallbackReceipt(after delete) error = %v", err)
+	}
+	if !inserted {
+		t.Fatal("RecordNotifyProviderCallbackReceipt(after delete) inserted = false, want true")
+	}
+}
+
+func TestNotifyProviderCallbackReceipt_ConcurrentDedup(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	const attempts = 12
+	var (
+		wg        sync.WaitGroup
+		errMu     sync.Mutex
+		firstErr  error
+		insertedN int
+	)
+
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			inserted, err := q.RecordNotifyProviderCallbackReceipt(
+				ctx,
+				"project-notify-callback-concurrent",
+				"provider-1",
+				"resend",
+				"cb-concurrent",
+				"email.delivered",
+				"msg_1",
+				"hash1",
+				time.Now().UTC().Add(24*time.Hour),
+			)
+			errMu.Lock()
+			defer errMu.Unlock()
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+			if inserted {
+				insertedN++
+			}
+		}()
+	}
+	wg.Wait()
+
+	if firstErr != nil {
+		t.Fatalf("RecordNotifyProviderCallbackReceipt(concurrent) error = %v", firstErr)
+	}
+	if insertedN != 1 {
+		t.Fatalf("RecordNotifyProviderCallbackReceipt(concurrent) inserted count = %d, want 1", insertedN)
 	}
 }
 

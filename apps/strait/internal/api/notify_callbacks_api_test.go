@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -379,6 +380,150 @@ func TestNotifyResendProviderCallback_ConflictBecomesIgnored(t *testing.T) {
 	}
 	if getCalls != 2 {
 		t.Fatalf("get notification message calls = %d, want 2", getCalls)
+	}
+}
+
+func TestNotifyResendProviderCallback_DuplicateReplayIgnored(t *testing.T) {
+	t.Parallel()
+
+	const (
+		webhookSecret = "whsec_c2VjcmV0"
+		payload       = `{"type":"email.delivered","data":{"tags":[{"name":"strait_message_id","value":"msg_1"}]}}`
+	)
+
+	messageLookups := 0
+	ns := &notifyStoreAdapter{
+		getNotificationProviderFunc: func(_ context.Context, _, _ string) (*domain.NotificationProvider, error) {
+			return &domain.NotificationProvider{ID: "provider_1", ProjectID: "proj_1", Provider: "resend", ConfigEnc: []byte(`{"webhook_secret":"` + webhookSecret + `"}`)}, nil
+		},
+		recordNotifyProviderCallbackReceiptFunc: func(_ context.Context, _, _, _, _, _, _, _ string, _ time.Time) (bool, error) {
+			return false, nil
+		},
+		getNotificationMessageFunc: func(_ context.Context, _, _ string) (*domain.NotificationMessage, error) {
+			messageLookups++
+			return &domain.NotificationMessage{}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := signedResendCallbackRequest(t, "/v1/notify/providers/proj_1/provider_1/callbacks/resend", webhookSecret, payload)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusAccepted)
+	}
+	if messageLookups != 0 {
+		t.Fatalf("message lookups = %d, want 0", messageLookups)
+	}
+}
+
+func TestNotifyResendProviderCallback_CleansReceiptOnInternalFailure(t *testing.T) {
+	t.Parallel()
+
+	const (
+		webhookSecret = "whsec_c2VjcmV0"
+		payload       = `{"type":"email.delivered","data":{"tags":[{"name":"strait_message_id","value":"msg_1"}]}}`
+	)
+
+	deleted := false
+	ns := &notifyStoreAdapter{
+		getNotificationProviderFunc: func(_ context.Context, _, _ string) (*domain.NotificationProvider, error) {
+			return &domain.NotificationProvider{ID: "provider_1", ProjectID: "proj_1", Provider: "resend", ConfigEnc: []byte(`{"webhook_secret":"` + webhookSecret + `"}`)}, nil
+		},
+		recordNotifyProviderCallbackReceiptFunc: func(_ context.Context, _, _, _, _, _, _, _ string, _ time.Time) (bool, error) {
+			return true, nil
+		},
+		deleteNotifyProviderCallbackReceiptFunc: func(_ context.Context, _, _, _ string) error {
+			deleted = true
+			return nil
+		},
+		getNotificationMessageFunc: func(_ context.Context, _, _ string) (*domain.NotificationMessage, error) {
+			return &domain.NotificationMessage{ID: "msg_1", ProjectID: "proj_1", ProviderID: "provider_1", Status: domain.NotifyMessageStatusProcessing}, nil
+		},
+		updateNotificationMessageStatusFunc: func(_ context.Context, _, _, _, _ string, _ map[string]any) error {
+			return errors.New("boom")
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := signedResendCallbackRequest(t, "/v1/notify/providers/proj_1/provider_1/callbacks/resend", webhookSecret, payload)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+	if !deleted {
+		t.Fatal("expected callback receipt cleanup on internal failure")
+	}
+}
+
+func TestNotifyResendProviderCallback_ReplayStormProcessesOnlyFirstEvent(t *testing.T) {
+	t.Parallel()
+
+	const (
+		webhookSecret = "whsec_c2VjcmV0"
+		payload       = `{"type":"email.delivered","data":{"tags":[{"name":"strait_message_id","value":"msg_1"}]}}`
+	)
+
+	receiptCalls := 0
+	updateCalls := 0
+	ns := &notifyStoreAdapter{
+		getNotificationProviderFunc: func(_ context.Context, _, _ string) (*domain.NotificationProvider, error) {
+			return &domain.NotificationProvider{ID: "provider_1", ProjectID: "proj_1", Provider: "resend", ConfigEnc: []byte(`{"webhook_secret":"` + webhookSecret + `"}`)}, nil
+		},
+		recordNotifyProviderCallbackReceiptFunc: func(_ context.Context, _, _, _, _, _, _, _ string, _ time.Time) (bool, error) {
+			receiptCalls++
+			return receiptCalls == 1, nil
+		},
+		getNotificationMessageFunc: func(_ context.Context, _, _ string) (*domain.NotificationMessage, error) {
+			return &domain.NotificationMessage{ID: "msg_1", ProjectID: "proj_1", ProviderID: "provider_1", Status: domain.NotifyMessageStatusProcessing}, nil
+		},
+		updateNotificationMessageStatusFunc: func(_ context.Context, _, _, _, _ string, _ map[string]any) error {
+			updateCalls++
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	for i := range 10 {
+		w := httptest.NewRecorder()
+		r := signedResendCallbackRequest(t, "/v1/notify/providers/proj_1/provider_1/callbacks/resend", webhookSecret, payload)
+		srv.ServeHTTP(w, r)
+		if w.Code != http.StatusAccepted {
+			t.Fatalf("attempt %d status = %d, want %d", i, w.Code, http.StatusAccepted)
+		}
+	}
+
+	if updateCalls != 1 {
+		t.Fatalf("update calls = %d, want 1", updateCalls)
+	}
+}
+
+func TestNotifyResendProviderCallback_RejectsOversizedPayload(t *testing.T) {
+	t.Parallel()
+
+	webhookSecret := "whsec_c2VjcmV0"
+	payload := strings.Repeat("a", notifyProviderCallbackMaxPayloadBytes+1)
+
+	ns := &notifyStoreAdapter{
+		getNotificationProviderFunc: func(_ context.Context, _, _ string) (*domain.NotificationProvider, error) {
+			return &domain.NotificationProvider{ID: "provider_1", ProjectID: "proj_1", Provider: "resend", ConfigEnc: []byte(`{"webhook_secret":"` + webhookSecret + `"}`)}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/notify/providers/proj_1/provider_1/callbacks/resend", strings.NewReader(payload))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("svix-id", "cb_1")
+	r.Header.Set("svix-timestamp", fmt.Sprintf("%d", time.Now().UTC().Unix()))
+	r.Header.Set("svix-signature", "v1,invalid")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusRequestEntityTooLarge)
 	}
 }
 
