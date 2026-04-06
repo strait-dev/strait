@@ -347,7 +347,7 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 	orgID := h.resolveOrgID(&sub)
 	if orgID == "" {
 		h.logger.Warn("cannot resolve org_id from subscription", "subscription_id", sub.ID)
-		return nil
+		return fmt.Errorf("unable to resolve org_id from subscription %s metadata", sub.ID)
 	}
 
 	now := time.Now()

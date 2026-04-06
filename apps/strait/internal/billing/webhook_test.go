@@ -135,6 +135,43 @@ func TestWebhookHandler_SubscriptionCreated(t *testing.T) {
 	}
 }
 
+func TestWebhookHandler_SubscriptionCreated_EmptyOrgID_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
+
+	// Subscription with no org_id in metadata -- should fail so Stripe retries.
+	payload := StripeWebhookPayload{
+		Type: "customer.subscription.created",
+		Data: mustJSON(t, testSubscriptionData{
+			ID:         "sub_no_org",
+			ProductID:  "pro-id",
+			CustomerID: "cust_no_org",
+			Metadata:   map[string]string{}, // no org_id
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	// The handler should return a non-200 status so Stripe retries the webhook.
+	if rr.Code == http.StatusOK {
+		t.Error("expected non-200 when org_id is empty, so Stripe retries; got 200 OK")
+	}
+
+	if store.lastUpserted != nil {
+		t.Error("expected no subscription to be upserted when org_id is empty")
+	}
+}
+
 func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 	t.Parallel()
 

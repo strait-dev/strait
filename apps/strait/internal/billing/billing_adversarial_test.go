@@ -642,9 +642,9 @@ func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
-	// Should succeed (no-op) without error since org_id cannot be resolved.
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for missing org_id, got %d", rr.Code)
+	// Should return an error so Stripe retries the webhook until org_id is resolvable.
+	if rr.Code == http.StatusOK {
+		t.Fatalf("expected non-200 for missing org_id so Stripe retries, got %d", rr.Code)
 	}
 	if store.upsertCount != 0 {
 		t.Fatal("expected no upsert when org_id is missing")
