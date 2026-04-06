@@ -298,8 +298,10 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 		param++
 	}
 
+	// CAS guard: prevent concurrent updates from both succeeding by refusing to
+	// overwrite a row that has already reached a terminal status.
 	query := fmt.Sprintf(
-		"UPDATE workflow_step_runs SET %s WHERE id = $2",
+		"UPDATE workflow_step_runs SET %s WHERE id = $2 AND status NOT IN ('completed', 'failed', 'skipped', 'canceled')",
 		strings.Join(setClauses, ", "),
 	)
 

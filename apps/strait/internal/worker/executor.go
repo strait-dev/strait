@@ -384,24 +384,44 @@ func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data ma
 	}
 }
 
+// doPoll wraps a single poll cycle with proper WaitGroup tracking via
+// defer so that pollWG.Done is always called even if poll panics.
+func (e *Executor) doPoll(ctx context.Context) {
+	e.pollWG.Add(1)
+	e.pollInFlight.Add(1)
+	defer e.pollWG.Done()
+	defer e.pollInFlight.Add(-1)
+	e.poll(ctx)
+}
+
 // Run starts the heartbeat manager, event loop, and polling loop. Blocks until ctx is canceled.
 func (e *Executor) Run(ctx context.Context) {
 	e.runStarted.Store(true)
+
+	// Create a child context that cancels when either the parent context
+	// is canceled or Shutdown closes e.stop, so all background goroutines
+	// (heartbeat, pool pruner) exit promptly in both cases.
+	runCtx, runCancel := context.WithCancel(ctx)
+
 	defer func() {
+		runCancel()
 		close(e.done)
-		// Wait for in-flight polls to finish emitting events, then close the
-		// event channel so the event loop goroutine exits cleanly.
+		// Wait for in-flight polls and tracked goroutines to finish
+		// emitting events, then close the event channel so the event
+		// loop goroutine exits cleanly.
 		e.pollWG.Wait()
 		close(e.eventCh)
 	}()
 
 	e.logger.Info("executor started", "poll_interval", e.pollInterval)
 
-	go e.heartbeat.Run(ctx)
+	e.pollWG.Go(func() {
+		e.heartbeat.Run(runCtx)
+	})
 	go e.runEventLoop()
 
 	if e.machinePool != nil {
-		go e.runPoolPruner(ctx)
+		go e.runPoolPruner(runCtx)
 	}
 
 	ticker := time.NewTicker(e.pollInterval)
@@ -420,17 +440,9 @@ func (e *Executor) Run(ctx context.Context) {
 				e.wake = nil
 				continue
 			}
-			e.pollWG.Add(1)
-			e.pollInFlight.Add(1)
-			e.poll(ctx)
-			e.pollInFlight.Add(-1)
-			e.pollWG.Done()
+			e.doPoll(ctx)
 		case <-ticker.C:
-			e.pollWG.Add(1)
-			e.pollInFlight.Add(1)
-			e.poll(ctx)
-			e.pollInFlight.Add(-1)
-			e.pollWG.Done()
+			e.doPoll(ctx)
 		}
 	}
 }

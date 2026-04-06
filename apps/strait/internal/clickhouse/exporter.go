@@ -188,6 +188,7 @@ type Exporter struct {
 	pending             []any // buffered records
 	consecutiveFailures int
 	stopping            atomic.Bool
+	stopOnce            sync.Once
 	stopCh              chan struct{}
 	done                chan struct{}
 }
@@ -281,12 +282,15 @@ func (e *Exporter) Start(ctx context.Context) {
 
 // Stop signals the exporter to flush remaining records and shut down.
 // Records enqueued after Stop() returns are silently dropped.
+// Safe to call multiple times; subsequent calls are no-ops.
 func (e *Exporter) Stop() {
 	if e == nil {
 		return
 	}
-	e.stopping.Store(true)
-	close(e.stopCh)
+	e.stopOnce.Do(func() {
+		e.stopping.Store(true)
+		close(e.stopCh)
+	})
 	<-e.done
 }
 

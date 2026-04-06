@@ -73,12 +73,18 @@ func requireJSONContentType(next http.Handler) http.Handler {
 	})
 }
 
-// realIP extracts the client IP from the request, preferring X-Forwarded-For
-// (first entry) over RemoteAddr. Returns only the IP, stripping port if present.
+// realIP extracts the client IP from the request, preferring the last entry
+// in X-Forwarded-For (the one appended by the first trusted reverse proxy)
+// over RemoteAddr. Returns only the IP, stripping port if present.
 func realIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		ip := strings.SplitN(xff, ",", 2)[0]
-		return strings.TrimSpace(ip)
+		// Use the rightmost (last) entry: this is the IP appended by the
+		// first trusted proxy and cannot be spoofed by the client.
+		parts := strings.Split(xff, ",")
+		ip := strings.TrimSpace(parts[len(parts)-1])
+		if ip != "" {
+			return ip
+		}
 	}
 	ip := r.RemoteAddr
 	if idx := strings.LastIndex(ip, ":"); idx != -1 {
