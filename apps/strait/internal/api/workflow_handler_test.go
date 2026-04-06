@@ -1017,6 +1017,9 @@ func TestHandleListWorkflowRuns(t *testing.T) {
 	t.Run("success with cursor pagination", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
 			ListWorkflowRunsFunc: func(_ context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
 				if workflowID != "wf-1" || limit != 11 { // handler passes limit+1
 					t.Fatalf("unexpected args: %s %d", workflowID, limit)
@@ -1035,7 +1038,12 @@ func TestHandleListWorkflowRuns(t *testing.T) {
 
 	t.Run("invalid params", func(t *testing.T) {
 		t.Parallel()
-		srv := newWorkflowTestServer(t, &APIStoreMock{}, &mockQueue{}, nil, nil)
+		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/runs?limit=0", ""))
 
@@ -1234,6 +1242,9 @@ func TestHandleResumeWorkflowRun(t *testing.T) {
 func TestHandleGetWorkflowRunLabels(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, ProjectID: "proj-1", WorkflowID: "wf-1", Status: domain.WfStatusCompleted}, nil
+		},
 		ListWorkflowRunLabelsFunc: func(_ context.Context, workflowRunID string) (map[string]string, error) {
 			if workflowRunID != "wr-1" {
 				t.Fatalf("workflowRunID = %q, want wr-1", workflowRunID)
@@ -1775,6 +1786,9 @@ func TestHandleListWorkflowStepRuns(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
+			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, ProjectID: "proj-1", WorkflowID: "wf-1", Status: domain.WfStatusCompleted}, nil
+			},
 			ListStepRunsByWorkflowRunFunc: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				if workflowRunID != "wr-1" {
 					t.Fatalf("workflow_run_id = %q, want wr-1", workflowRunID)
@@ -1795,6 +1809,9 @@ func TestHandleListWorkflowStepRuns(t *testing.T) {
 	t.Run("store error", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
+			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, ProjectID: "proj-1", WorkflowID: "wf-1", Status: domain.WfStatusCompleted}, nil
+			},
 			ListStepRunsByWorkflowRunFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return nil, errors.New("db down")
 			},
@@ -1890,6 +1907,9 @@ func TestHandleGetWorkflowRunGraph_CriticalPathEstimate(t *testing.T) {
 func TestHandleGetWorkflowRunExplain(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, ProjectID: "proj-1", WorkflowID: "wf-1", Status: domain.WfStatusCompleted}, nil
+		},
 		ListWorkflowStepDecisionsFunc: func(_ context.Context, workflowRunID, stepRef, decisionType string, _ int, _ *time.Time) ([]domain.WorkflowStepDecision, error) {
 			if workflowRunID != "wr-1" || stepRef != "review" || decisionType != "condition" {
 				t.Fatalf("unexpected filters")
