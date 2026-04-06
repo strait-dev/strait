@@ -65,6 +65,11 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		if err := domain.ValidateScopes(req.Scopes); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
+		// Prevent scope escalation: the caller cannot create a key with
+		// scopes broader than their own effective permissions.
+		if err := s.validateCallerCanGrantPermissions(ctx, req.Scopes); err != nil {
+			return nil, err
+		}
 	}
 	var expiresAt *time.Time
 	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
