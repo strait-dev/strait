@@ -1517,6 +1517,9 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1"}, nil
+		},
 		ReplayDeadLetterRunFunc: func(_ context.Context, runID string) (*domain.JobRun, error) {
 			if runID != "run-123" {
 				t.Fatalf("unexpected runID: %s", runID)
@@ -1546,6 +1549,9 @@ func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusFailed, ProjectID: "proj-1"}, nil
+		},
 		ReplayDeadLetterRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, fmt.Errorf("run run-123 is not dead_letter")
 		},
@@ -1564,6 +1570,9 @@ func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
 func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1"}, nil
+		},
 		BulkReplayDeadLetterRunsFunc: func(_ context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
 			if len(runIDs) != 2 || runIDs[0] != "run-1" || runIDs[1] != "run-2" {
 				t.Fatalf("unexpected run_ids: %+v", runIDs)

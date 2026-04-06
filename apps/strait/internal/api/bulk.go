@@ -424,6 +424,11 @@ func (s *Server) handleBulkCancelRuns(ctx context.Context, input *BulkCancelRuns
 			failed++
 			continue
 		}
+		if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+			results = append(results, BulkCancelResult{ID: runID, Status: "failed", Error: "run not found"})
+			failed++
+			continue
+		}
 		if run.Status.IsTerminal() {
 			results = append(results, BulkCancelResult{ID: runID, Status: string(run.Status), Error: "run already in terminal state"})
 			failed++

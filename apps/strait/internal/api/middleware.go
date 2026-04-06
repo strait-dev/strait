@@ -13,7 +13,9 @@ import (
 	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/ratelimit"
+	"strait/internal/store"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/otel/attribute"
@@ -148,6 +150,27 @@ func requireProjectMatch(ctx context.Context, resourceProjectID string) error {
 	}
 	if resourceProjectID != projectID {
 		return errProjectMismatch
+	}
+	return nil
+}
+
+// requireRunAccess fetches the run by ID and enforces tenant isolation.
+// Returns an appropriate huma error if the caller does not own the run.
+// Internal callers (scheduler, worker) that operate without a project
+// context skip the check.
+func (s *Server) requireRunAccess(ctx context.Context, runID string) error {
+	if projectIDFromContext(ctx) == "" {
+		return nil // internal caller without project context
+	}
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			return huma.Error404NotFound("run not found")
+		}
+		return huma.Error500InternalServerError("failed to get run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return huma.Error404NotFound("run not found")
 	}
 	return nil
 }

@@ -491,6 +491,10 @@ type ReplayDeadLetterRunOutput struct {
 }
 
 func (s *Server) handleReplayDeadLetterRun(ctx context.Context, input *ReplayDeadLetterRunInput) (*ReplayDeadLetterRunOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	run, err := s.store.ReplayDeadLetterRun(ctx, input.RunID)
 	if err != nil {
 		errMsg := err.Error()
@@ -539,6 +543,14 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 		}
 	}
 
+	// Enforce tenant isolation: if project_id is supplied, it must match the caller's project.
+	if hasProjectID {
+		if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+			return nil, huma.Error403Forbidden("project access denied")
+		}
+	}
+
+	// Enforce tenant isolation: if run_ids are supplied, verify each belongs to the caller's project.
 	if hasRunIDs {
 		if len(req.RunIDs) > 500 {
 			return nil, &typedAPIError{
@@ -547,6 +559,18 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 					Code:    ErrorCodeValidationError,
 					Message: "too many run_ids (max 500)",
 				},
+			}
+		}
+		for _, runID := range req.RunIDs {
+			run, err := s.store.GetRun(ctx, runID)
+			if err != nil {
+				if errors.Is(err, store.ErrRunNotFound) {
+					return nil, huma.Error404NotFound("run not found: " + runID)
+				}
+				return nil, huma.Error500InternalServerError("failed to get run")
+			}
+			if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+				return nil, huma.Error404NotFound("run not found: " + runID)
 			}
 		}
 	} else {
@@ -564,7 +588,13 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 		}
 	}
 
-	runs, err := s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, req.ProjectID, req.Limit)
+	// Scope bulk replay to the caller's project when using project_id mode.
+	effectiveProjectID := req.ProjectID
+	if effectiveProjectID == "" {
+		effectiveProjectID = projectIDFromContext(ctx)
+	}
+
+	runs, err := s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, effectiveProjectID, req.Limit)
 	if err != nil {
 		errMsg := err.Error()
 		switch {
@@ -608,6 +638,10 @@ type ListChildRunsOutput struct {
 }
 
 func (s *Server) handleListChildRuns(ctx context.Context, input *ListChildRunsInput) (*ListChildRunsOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -634,6 +668,10 @@ type GetDebugBundleOutput struct {
 }
 
 func (s *Server) handleGetDebugBundle(ctx context.Context, input *GetDebugBundleInput) (*GetDebugBundleOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	bundle, err := s.store.GetDebugBundle(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
@@ -662,6 +700,10 @@ type SetDebugModeOutput struct {
 }
 
 func (s *Server) handleSetDebugMode(ctx context.Context, input *SetDebugModeInput) (*SetDebugModeOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	if err := s.store.UpdateRunDebugMode(ctx, input.RunID, input.Body.DebugMode); err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
 			return nil, huma.Error404NotFound("run not found")
@@ -685,6 +727,10 @@ type ListRunLineageOutput struct {
 }
 
 func (s *Server) handleListRunLineage(ctx context.Context, input *ListRunLineageInput) (*ListRunLineageOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -711,6 +757,10 @@ type ResetIdempotencyKeyOutput struct {
 }
 
 func (s *Server) handleResetIdempotencyKey(ctx context.Context, input *ResetIdempotencyKeyInput) (*ResetIdempotencyKeyOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	if err := s.store.ResetRunIdempotencyKey(ctx, input.RunID); err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
 			return nil, huma.Error404NotFound("run not found or not eligible for idempotency reset")
