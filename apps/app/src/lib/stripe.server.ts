@@ -8,6 +8,7 @@
  * @see https://docs.stripe.com/api — Stripe API reference
  * @see https://github.com/stripe/stripe-node — stripe-node SDK
  */
+import "reflect-metadata";
 import Stripe from "stripe";
 
 let _stripeClient: Stripe | null = null;
