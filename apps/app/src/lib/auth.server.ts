@@ -13,6 +13,7 @@
  * @see https://www.better-auth.com/docs/introduction — Better Auth docs
  * @see https://www.better-auth.com/docs/concepts/database — Database adapters
  */
+import "reflect-metadata";
 import { env as cfEnv } from "cloudflare:workers";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";

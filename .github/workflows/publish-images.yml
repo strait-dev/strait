@@ -20,11 +20,11 @@ env:
 
 jobs:
   check-ci:
-    name: Verify CI Passed
+    name: Wait for CI
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
-      - name: Verify Test, Lint, Security passed
+      - name: Wait for Test, Lint, Security to pass
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
@@ -33,19 +33,38 @@ jobs:
               return;
             }
             const required = ['Test', 'Lint', 'Security'];
-            const { data: runs } = await github.rest.actions.listWorkflowRunsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              head_sha: context.sha,
-            });
-            for (const name of required) {
-              const run = runs.workflow_runs.find(r => r.name === name && r.status === 'completed');
-              if (!run || run.conclusion !== 'success') {
-                core.setFailed(`Required workflow "${name}" has not passed for ${context.sha}.`);
+            const maxWait = 15 * 60 * 1000; // 15 minutes
+            const poll = 30 * 1000; // 30 seconds
+            const start = Date.now();
+
+            while (Date.now() - start < maxWait) {
+              const { data: runs } = await github.rest.actions.listWorkflowRunsForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                head_sha: context.sha,
+              });
+
+              const results = required.map(name => {
+                const run = runs.workflow_runs.find(r => r.name === name);
+                return { name, status: run?.status, conclusion: run?.conclusion };
+              });
+
+              const allDone = results.every(r => r.status === 'completed');
+              if (allDone) {
+                const failed = results.filter(r => r.conclusion !== 'success');
+                if (failed.length > 0) {
+                  core.setFailed(`CI failed: ${failed.map(f => `${f.name}=${f.conclusion}`).join(', ')}`);
+                  return;
+                }
+                core.info('All required workflows passed.');
                 return;
               }
+
+              const pending = results.filter(r => r.status !== 'completed').map(r => r.name);
+              core.info(`Waiting for: ${pending.join(', ')} (${Math.round((Date.now() - start) / 1000)}s elapsed)`);
+              await new Promise(r => setTimeout(r, poll));
             }
-            core.info('All required workflows passed.');
+            core.setFailed('Timed out waiting for CI workflows to complete.');
 
   community-api:
     needs: check-ci
