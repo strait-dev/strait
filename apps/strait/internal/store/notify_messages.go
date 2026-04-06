@@ -284,7 +284,7 @@ func (q *Queries) UpdateNotificationMessageStatus(ctx context.Context, id, proje
 		if fromStatus == "" {
 			return ErrNotificationMessageNotFound
 		}
-		return fmt.Errorf("update notification message status conflict: id %s from %s", id, fromStatus)
+		return fmt.Errorf("%w: id %s from %s", ErrNotificationMessageStatusConflict, id, fromStatus)
 	}
 
 	return nil

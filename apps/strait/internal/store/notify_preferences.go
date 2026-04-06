@@ -123,6 +123,41 @@ func (q *Queries) ListNotificationPreferences(ctx context.Context, recipientType
 	return preferences, nil
 }
 
+func (q *Queries) DisableNotificationChannelPreference(ctx context.Context, recipientType, recipientID, scope, channel string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DisableNotificationChannelPreference")
+	defer span.End()
+
+	if scope == "" {
+		scope = "global"
+	}
+	if channel == "" {
+		return &domain.FieldError{Field: "channel"}
+	}
+
+	query := `
+		INSERT INTO notification_preferences (
+			recipient_type, recipient_id, scope, channel_prefs
+		)
+		VALUES (
+			$1, $2, $3, jsonb_build_object($4, false)
+		)
+		ON CONFLICT (recipient_type, recipient_id, scope)
+		DO UPDATE SET
+			channel_prefs = jsonb_set(
+				COALESCE(notification_preferences.channel_prefs, '{}'::jsonb),
+				ARRAY[$4],
+				'false'::jsonb,
+				true
+			),
+			updated_at = NOW()`
+
+	if _, err := q.db.Exec(ctx, query, recipientType, recipientID, scope, channel); err != nil {
+		return fmt.Errorf("disable notification channel preference: %w", err)
+	}
+
+	return nil
+}
+
 func scanNotificationPreference(scanner scanTarget) (*domain.NotificationPreference, error) {
 	var pref domain.NotificationPreference
 	var quietHours []byte

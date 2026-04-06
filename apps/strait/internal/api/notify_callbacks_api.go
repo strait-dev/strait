@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +15,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/resend/resend-go/v2"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+)
+
+const (
+	notifyProviderCallbackOutcomeDelivered = "delivered"
+	notifyProviderCallbackOutcomeBounced   = "bounced"
+	notifyProviderCallbackOutcomeComplaint = "complaint"
+	notifyProviderCallbackOutcomeIgnored   = "ignored"
 )
 
 func (s *Server) handleNotifyResendProviderCallback(w http.ResponseWriter, r *http.Request) {
@@ -84,38 +94,63 @@ func (s *Server) handleNotifyResendProviderCallback(w http.ResponseWriter, r *ht
 	}
 
 	eventType, _ := payload["type"].(string)
+	normalizedEventType := normalizeNotifyProviderEventType(eventType)
 	messageID := extractNotifyResendMessageID(payload)
 	if messageID == "" {
-		w.WriteHeader(http.StatusAccepted)
+		s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "missing_message_id", "")
 		return
 	}
 
 	msg, err := ns.GetNotificationMessage(ctx, messageID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotificationMessageNotFound) {
-			w.WriteHeader(http.StatusAccepted)
+			s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "message_not_found", messageID)
 			return
 		}
 		http.Error(w, "failed to resolve message", http.StatusInternalServerError)
 		return
 	}
 
-	status, fields, suppressEmail := resolveNotifyResendCallbackOutcome(eventType, time.Now().UTC())
-	if status == "" {
-		w.WriteHeader(http.StatusAccepted)
+	if msg.ProjectID != projectID {
+		s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "project_mismatch", messageID)
+		return
+	}
+	if msg.ProviderID != "" && msg.ProviderID != providerID {
+		s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "provider_mismatch", messageID)
 		return
 	}
 
-	if err := ns.UpdateNotificationMessageStatus(ctx, msg.ID, msg.ProjectID, "", status, fields); err != nil {
+	status, fields, suppressEmail := resolveNotifyResendCallbackOutcome(normalizedEventType, time.Now().UTC())
+	classifiedOutcome := classifyNotifyResendCallbackOutcome(normalizedEventType)
+	if status == "" {
+		s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "unsupported_event", messageID)
+		return
+	}
+	if !shouldApplyNotifyProviderCallbackTransition(msg.Status, status) {
+		s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail)
+		s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "duplicate_or_terminal", messageID)
+		return
+	}
+
+	if err := ns.UpdateNotificationMessageStatus(ctx, msg.ID, msg.ProjectID, msg.Status, status, fields); err != nil {
+		if errors.Is(err, store.ErrNotificationMessageStatusConflict) {
+			latest, latestErr := ns.GetNotificationMessage(ctx, msg.ID, msg.ProjectID)
+			if latestErr == nil && !shouldApplyNotifyProviderCallbackTransition(latest.Status, status) {
+				s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail)
+				s.completeNotifyProviderCallback(ctx, w, normalizedEventType, notifyProviderCallbackOutcomeIgnored, "stale_event", messageID)
+				return
+			}
+		}
 		http.Error(w, "failed to update message", http.StatusInternalServerError)
 		return
 	}
 
-	if suppressEmail {
-		_ = s.suppressNotifyRecipientEmail(ctx, ns, msg)
-	}
+	s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail)
+	s.completeNotifyProviderCallback(ctx, w, normalizedEventType, classifiedOutcome, "updated", messageID)
+}
 
-	w.WriteHeader(http.StatusAccepted)
+func normalizeNotifyProviderEventType(eventType string) string {
+	return strings.ToLower(strings.TrimSpace(eventType))
 }
 
 func extractNotifyResendMessageID(payload map[string]any) string {
@@ -144,21 +179,36 @@ func extractNotifyResendMessageID(payload map[string]any) string {
 	return ""
 }
 
-func resolveNotifyResendCallbackOutcome(eventType string, now time.Time) (string, map[string]any, bool) {
-	normalized := strings.ToLower(strings.TrimSpace(eventType))
-	reason := "provider_callback:" + normalized
+func classifyNotifyResendCallbackOutcome(eventType string) string {
+	normalized := normalizeNotifyProviderEventType(eventType)
 
 	switch {
 	case strings.Contains(normalized, "bounce"):
+		return notifyProviderCallbackOutcomeBounced
+	case strings.Contains(normalized, "complain"):
+		return notifyProviderCallbackOutcomeComplaint
+	case strings.Contains(normalized, "deliver"):
+		return notifyProviderCallbackOutcomeDelivered
+	default:
+		return notifyProviderCallbackOutcomeIgnored
+	}
+}
+
+func resolveNotifyResendCallbackOutcome(eventType string, now time.Time) (string, map[string]any, bool) {
+	normalized := normalizeNotifyProviderEventType(eventType)
+	reason := "provider_callback:" + normalized
+
+	switch classifyNotifyResendCallbackOutcome(normalized) {
+	case notifyProviderCallbackOutcomeBounced:
 		return domain.NotifyMessageStatusBounced, map[string]any{
 			"bounced_at":         now,
 			"suppression_reason": reason,
 		}, true
-	case strings.Contains(normalized, "complain"):
+	case notifyProviderCallbackOutcomeComplaint:
 		return domain.NotifyMessageStatusFailed, map[string]any{
 			"suppression_reason": reason,
 		}, true
-	case strings.Contains(normalized, "deliver"):
+	case notifyProviderCallbackOutcomeDelivered:
 		return domain.NotifyMessageStatusDelivered, map[string]any{
 			"delivered_at": now,
 		}, false
@@ -167,35 +217,73 @@ func resolveNotifyResendCallbackOutcome(eventType string, now time.Time) (string
 	}
 }
 
+func shouldApplyNotifyProviderCallbackTransition(currentStatus, nextStatus string) bool {
+	if nextStatus == "" {
+		return false
+	}
+	if strings.EqualFold(currentStatus, nextStatus) {
+		return false
+	}
+	if isTerminalNotifyMessageStatus(currentStatus) {
+		return false
+	}
+	return true
+}
+
+func isTerminalNotifyMessageStatus(status string) bool {
+	switch normalizeNotifyProviderEventType(status) {
+	case domain.NotifyMessageStatusDelivered,
+		domain.NotifyMessageStatusFailed,
+		domain.NotifyMessageStatusBounced,
+		domain.NotifyMessageStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) applyNotifySuppressionIfNeeded(ctx context.Context, ns notifyStore, msg *domain.NotificationMessage, suppressEmail bool) {
+	if !suppressEmail {
+		return
+	}
+	if err := s.suppressNotifyRecipientEmail(ctx, ns, msg); err != nil {
+		slog.Warn("notify provider callback suppression failed",
+			"message_id", msg.ID,
+			"project_id", msg.ProjectID,
+			"recipient_id", msg.RecipientID,
+			"error", err,
+		)
+	}
+}
+
+func (s *Server) completeNotifyProviderCallback(ctx context.Context, w http.ResponseWriter, eventType, outcome, reason, messageID string) {
+	s.recordNotifyProviderCallbackOutcome(ctx, "resend", eventType, outcome)
+	slog.Info("notify provider callback processed",
+		"provider", "resend",
+		"event_type", eventType,
+		"outcome", outcome,
+		"reason", reason,
+		"message_id", messageID,
+	)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *Server) recordNotifyProviderCallbackOutcome(ctx context.Context, provider, eventType, outcome string) {
+	if s.metrics == nil {
+		return
+	}
+
+	s.metrics.NotifyProviderCallbacksTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("provider", provider),
+		attribute.String("event_type", eventType),
+		attribute.String("outcome", outcome),
+	))
+}
+
 func (s *Server) suppressNotifyRecipientEmail(ctx context.Context, ns notifyStore, msg *domain.NotificationMessage) error {
 	if msg == nil || msg.RecipientType != domain.NotifyRecipientTypeSubscriber || msg.RecipientID == "" {
 		return nil
 	}
 
-	pref, err := ns.GetNotificationPreference(ctx, domain.NotifyRecipientTypeSubscriber, msg.RecipientID, "global")
-	if err != nil && !errors.Is(err, store.ErrNotificationPreferenceNotFound) {
-		return err
-	}
-	if pref == nil {
-		pref = &domain.NotificationPreference{
-			RecipientType:    domain.NotifyRecipientTypeSubscriber,
-			RecipientID:      msg.RecipientID,
-			Scope:            "global",
-			CriticalOverride: true,
-		}
-	}
-
-	channelPrefs := map[string]bool{}
-	if len(pref.ChannelPrefs) > 0 {
-		_ = json.Unmarshal(pref.ChannelPrefs, &channelPrefs)
-	}
-	channelPrefs["email"] = false
-
-	encoded, err := json.Marshal(channelPrefs)
-	if err != nil {
-		return err
-	}
-	pref.ChannelPrefs = encoded
-
-	return ns.UpsertNotificationPreference(ctx, pref)
+	return ns.DisableNotificationChannelPreference(ctx, domain.NotifyRecipientTypeSubscriber, msg.RecipientID, "global", "email")
 }

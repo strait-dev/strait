@@ -23,6 +23,7 @@ type notifyStoreAdapter struct {
 	deleteNotifyPolicyOverrideFunc              func(ctx context.Context, id, projectID string) error
 	getNotificationPreferenceFunc               func(ctx context.Context, recipientType, recipientID, scope string) (*domain.NotificationPreference, error)
 	upsertNotificationPreferenceFunc            func(ctx context.Context, pref *domain.NotificationPreference) error
+	disableNotificationChannelPreferenceFunc    func(ctx context.Context, recipientType, recipientID, scope, channel string) error
 	getNotificationMessageFunc                  func(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error)
 	getNotificationProviderFunc                 func(ctx context.Context, id, projectID string) (*domain.NotificationProvider, error)
 	updateNotificationMessageStatusFunc         func(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error
@@ -89,6 +90,13 @@ func (m *notifyStoreAdapter) UpsertNotificationPreference(ctx context.Context, p
 		return nil
 	}
 	return m.upsertNotificationPreferenceFunc(ctx, pref)
+}
+
+func (m *notifyStoreAdapter) DisableNotificationChannelPreference(ctx context.Context, recipientType, recipientID, scope, channel string) error {
+	if m.disableNotificationChannelPreferenceFunc == nil {
+		return nil
+	}
+	return m.disableNotificationChannelPreferenceFunc(ctx, recipientType, recipientID, scope, channel)
 }
 
 func (m *notifyStoreAdapter) GetNotificationMessage(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error) {

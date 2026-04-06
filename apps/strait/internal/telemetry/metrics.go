@@ -113,12 +113,13 @@ type Metrics struct {
 	ClickHouseFlushFailures  metric.Int64Counter
 
 	// Notification delivery metrics.
-	NotificationDeliveriesTotal metric.Int64Counter
-	NotifyScheduledBacklog      metric.Int64Gauge
-	NotifyDigestRequeuesTotal   metric.Int64Counter
-	NotifyDigestFailuresTotal   metric.Int64Counter
-	NotifyEscalationTransitions metric.Int64Counter
-	NotifyEscalationStuckStates metric.Int64Counter
+	NotificationDeliveriesTotal  metric.Int64Counter
+	NotifyProviderCallbacksTotal metric.Int64Counter
+	NotifyScheduledBacklog       metric.Int64Gauge
+	NotifyDigestRequeuesTotal    metric.Int64Counter
+	NotifyDigestFailuresTotal    metric.Int64Counter
+	NotifyEscalationTransitions  metric.Int64Counter
+	NotifyEscalationStuckStates  metric.Int64Counter
 
 	// Log drain metrics.
 	LogDrainEventsTotal metric.Int64Counter
@@ -703,6 +704,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total notification deliveries by status"),
 		metric.WithUnit("1"),
 	)
+	notifyProviderCallbacksTotal, _ := meter.Int64Counter(
+		"strait_notify_provider_callbacks_total",
+		metric.WithDescription("Total notify provider callbacks by provider, event type, and outcome"),
+		metric.WithUnit("1"),
+	)
 	notifyScheduledBacklog, _ := meter.Int64Gauge(
 		"strait_notify_scheduled_backlog",
 		metric.WithDescription("Number of due scheduled notify messages claimed by dispatcher poll"),
@@ -834,6 +840,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		ClickHouseDroppedRecords:     clickhouseDroppedRecords,
 		ClickHouseFlushFailures:      clickhouseFlushFailures,
 		NotificationDeliveriesTotal:  notificationDeliveriesTotal,
+		NotifyProviderCallbacksTotal: notifyProviderCallbacksTotal,
 		NotifyScheduledBacklog:       notifyScheduledBacklog,
 		NotifyDigestRequeuesTotal:    notifyDigestRequeuesTotal,
 		NotifyDigestFailuresTotal:    notifyDigestFailuresTotal,
