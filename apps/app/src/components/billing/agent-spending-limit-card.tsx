@@ -23,6 +23,8 @@ type AgentSpendingLimitCardProps = {
   orgId: string;
 };
 
+const INITIAL_CUSTOM_AMOUNT = "";
+
 /**
  * Card for viewing and setting the optional agent spending limit.
  * Follows the same pattern as the Jobs spending-limits-tab.
@@ -30,7 +32,7 @@ type AgentSpendingLimitCardProps = {
 function AgentSpendingLimitCard({ orgId }: AgentSpendingLimitCardProps) {
   const { data } = useQuery(agentSpendingLimitQueryOptions(orgId));
   const mutation = useUpdateAgentSpendingLimit(orgId);
-  const [customAmount, setCustomAmount] = useState("");
+  const [customAmount, setCustomAmount] = useState(INITIAL_CUSTOM_AMOUNT);
 
   const currentLimitUsd = data?.limit_usd ?? -1;
   const isEnabled = data?.enabled ?? false;
@@ -55,7 +57,7 @@ function AgentSpendingLimitCard({ orgId }: AgentSpendingLimitCardProps) {
     mutation.mutate(usdToMicrousd(usd), {
       onSuccess: () => {
         toast.success(`Agent spending limit set to $${usd}`);
-        setCustomAmount("");
+        setCustomAmount(INITIAL_CUSTOM_AMOUNT);
       },
       onError: () => {
         toast.error("Failed to update spending limit");

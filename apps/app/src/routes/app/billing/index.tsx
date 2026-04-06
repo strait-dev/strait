@@ -222,7 +222,9 @@ function RouteComponent() {
               )}
             >
               <Suspense fallback={<TabSkeleton />}>
-                <AgentBillingTab orgId={orgUsage?.org_id ?? ""} />
+                {orgUsage?.org_id ? (
+                  <AgentBillingTab orgId={orgUsage.org_id} />
+                ) : null}
               </Suspense>
             </QueryErrorBoundary>
           </TabsContent>

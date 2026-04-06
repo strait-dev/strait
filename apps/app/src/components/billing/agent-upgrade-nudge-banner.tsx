@@ -1,6 +1,6 @@
 import { Button } from "@strait/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { agentUsageQueryOptions } from "@/hooks/api/use-agent-billing";
 
 type AgentUpgradeNudgeBannerProps = {
@@ -16,18 +16,18 @@ const DISMISS_KEY_PREFIX = "strait:agent_upgrade_dismissed:";
  */
 function AgentUpgradeNudgeBanner({ orgId }: AgentUpgradeNudgeBannerProps) {
   const { data } = useQuery(agentUsageQueryOptions(orgId));
-  const [dismissed, setDismissed] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    const key = `${DISMISS_KEY_PREFIX}${orgId}`;
+    if (localStorage.getItem(key) === "true") {
+      setDismissed(true);
     }
-    return localStorage.getItem(`${DISMISS_KEY_PREFIX}${orgId}`) === "true";
-  });
+  }, [orgId]);
 
   const dismiss = useCallback(() => {
     setDismissed(true);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(`${DISMISS_KEY_PREFIX}${orgId}`, "true");
-    }
+    localStorage.setItem(`${DISMISS_KEY_PREFIX}${orgId}`, "true");
   }, [orgId]);
 
   if (!(data?.upgrade_recommended && data.upgrade_reason) || dismissed) {
