@@ -71,6 +71,11 @@ func (s *Server) handleSimulateWorkflow(ctx context.Context, input *SimulateWork
 	if err != nil {
 		return nil, huma.Error404NotFound("workflow not found")
 	}
+
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
 	steps, err := s.store.ListStepsByWorkflowVersion(ctx, input.WorkflowID, wf.Version)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to load workflow steps")

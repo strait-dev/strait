@@ -44,6 +44,10 @@ func (s *Server) handleCreateCanaryDeployment(ctx context.Context, input *Create
 		return nil, huma.Error404NotFound("workflow not found")
 	}
 
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
 	if err := s.checkFeatureAllowed(ctx, wf.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
 		return nil, err
 	}
@@ -86,6 +90,15 @@ func (s *Server) handleUpdateCanaryDeployment(ctx context.Context, input *Update
 		return nil, newValidationError(err)
 	}
 
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil || wf == nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
 	if err := s.store.UpdateCanaryDeploymentTraffic(ctx, input.WorkflowID, input.Body.TrafficPct); err != nil {
 		if errors.Is(err, store.ErrCanaryNotFound) {
 			return nil, huma.Error404NotFound("no active canary deployment found for this workflow")
@@ -117,6 +130,15 @@ type RollbackCanaryOutput struct {
 }
 
 func (s *Server) handleRollbackCanaryDeployment(ctx context.Context, input *RollbackCanaryInput) (*RollbackCanaryOutput, error) {
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil || wf == nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
 	// First set traffic to 0.
 	if err := s.store.UpdateCanaryDeploymentTraffic(ctx, input.WorkflowID, 0); err != nil {
 		if errors.Is(err, store.ErrCanaryNotFound) {
@@ -146,6 +168,15 @@ type GetCanaryStatusOutput struct {
 }
 
 func (s *Server) handleGetCanaryStatus(ctx context.Context, input *GetCanaryStatusInput) (*GetCanaryStatusOutput, error) {
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil || wf == nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
 	canary, err := s.store.GetActiveCanaryDeployment(ctx, input.WorkflowID)
 	if err != nil {
 		if errors.Is(err, store.ErrCanaryNotFound) {
