@@ -217,3 +217,76 @@ func TestIsPrivateIP(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateExternalURL_OctalIPBypass(t *testing.T) {
+	// Not parallel: modifies package-level lookupHost.
+	origLookup := lookupHost
+	t.Cleanup(func() { lookupHost = origLookup })
+	lookupHost = func(host string) ([]string, error) {
+		return []string{"93.184.216.34"}, nil
+	}
+
+	octalPayloads := []string{
+		"http://0177.0.0.1/",          // octal 127.0.0.1
+		"http://0177.0.0.01/",         // octal variant
+		"http://0177.00.00.01/",       // octal with extra zeros
+		"http://0300.0250.0.1/",       // octal 192.168.0.1
+		"http://012.0.0.1/",           // octal 10.0.0.1
+		"http://0x7f.0.0.1/",          // hex-per-octet 127.0.0.1
+		"http://0x7f.0x0.0x0.0x1/",    // full hex-per-octet
+		"http://0xA9.0xFE.0xA9.0xFE/", // hex 169.254.169.254
+	}
+
+	for _, payload := range octalPayloads {
+		t.Run(payload, func(t *testing.T) {
+			err := ValidateExternalURL(payload)
+			if err == nil {
+				t.Errorf("expected error for octal/hex IP bypass %q, got nil", payload)
+			}
+		})
+	}
+
+	// Verify normal IPs still work
+	validURLs := []string{
+		"https://93.184.216.34/",
+		"https://example.com/",
+		"https://1.2.3.4/webhook",
+	}
+	for _, u := range validURLs {
+		t.Run("valid:"+u, func(t *testing.T) {
+			if err := ValidateExternalURL(u); err != nil {
+				t.Errorf("expected no error for %q, got: %v", u, err)
+			}
+		})
+	}
+}
+
+func TestLooksLikeNonStandardIP(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		host     string
+		expected bool
+	}{
+		{"0177.0.0.1", true},
+		{"0177.0.0.01", true},
+		{"0300.0250.0.1", true},
+		{"012.0.0.1", true},
+		{"0x7f.0.0.1", true},
+		{"0x7f.0x0.0x0.0x1", true},
+		{"127.0.0.1", false},   // standard decimal, no leading zero
+		{"10.0.0.1", false},    // standard decimal
+		{"example.com", false}, // hostname
+		{"192.168.1.1", false}, // standard decimal
+		{"1.2.3", false},       // not 4 parts
+		{"", false},            // empty
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			t.Parallel()
+			got := looksLikeNonStandardIP(tt.host)
+			if got != tt.expected {
+				t.Errorf("looksLikeNonStandardIP(%q) = %v, want %v", tt.host, got, tt.expected)
+			}
+		})
+	}
+}

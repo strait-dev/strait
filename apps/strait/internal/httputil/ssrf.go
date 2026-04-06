@@ -65,6 +65,52 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
+// looksLikeNonStandardIP detects IP-like hostnames that use non-standard
+// notation (octal, hex-per-octet, or decimal-encoded) which Go's net.ParseIP
+// rejects but OS DNS resolvers may interpret as loopback/private addresses.
+// Examples: "0177.0.0.1" (octal for 127.0.0.1), "0x7f.0.0.1".
+func looksLikeNonStandardIP(host string) bool {
+	// Must look like a dotted-quad (4 parts separated by dots).
+	parts := strings.Split(host, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	allNumeric := true
+	hasLeadingZero := false
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		// Check if this part is numeric (decimal, octal, or hex).
+		isNumeric := true
+		for _, c := range part {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') && c != 'x' && c != 'X' {
+				isNumeric = false
+				break
+			}
+		}
+		if !isNumeric {
+			allNumeric = false
+		}
+		// Leading zero in a numeric part signals octal notation.
+		if len(part) > 1 && part[0] == '0' && isNumeric {
+			hasLeadingZero = true
+		}
+	}
+	// If all parts are numeric and any has a leading zero (octal) or hex prefix,
+	// this is a non-standard IP representation.
+	if allNumeric && hasLeadingZero {
+		return true
+	}
+	// Hex-per-octet: 0x7f.0.0.1
+	for _, part := range parts {
+		if len(part) > 2 && (part[:2] == "0x" || part[:2] == "0X") {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateExternalURL checks that rawURL is a safe, externally-routable HTTP(S) URL.
 // It rejects:
 //   - non-HTTP(S) schemes
@@ -97,6 +143,13 @@ func ValidateExternalURL(rawURL string) error {
 		if strings.EqualFold(host, blocked) {
 			return fmt.Errorf("URL must not point to internal host %q", blocked)
 		}
+	}
+
+	// Reject ambiguous IP representations that Go's net.ParseIP does not
+	// handle but OS-level DNS resolvers may interpret: octal-encoded octets
+	// (e.g. 0177.0.0.1 = 127.0.0.1) and other non-standard notations.
+	if looksLikeNonStandardIP(host) {
+		return fmt.Errorf("ssrf: URL host %q uses non-standard IP notation", host)
 	}
 
 	// If the host is an IP literal, validate it directly.

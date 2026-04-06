@@ -31,7 +31,7 @@ type CreateJobRequest struct {
 	Tags                      map[string]string `json:"tags,omitempty"`
 	EndpointURL               string            `json:"endpoint_url" validate:"omitempty,url"`
 	FallbackEndpointURL       string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts               int               `json:"max_attempts" validate:"omitempty,min=1"`
+	MaxAttempts               int               `json:"max_attempts" validate:"omitempty,min=1,max=100"`
 	TimeoutSecs               int               `json:"timeout_secs" validate:"omitempty,min=1"`
 	MaxConcurrency            int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
 	MaxConcurrencyPerKey      int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
@@ -76,7 +76,7 @@ type UpdateJobRequest struct {
 	Tags                      *map[string]string `json:"tags,omitempty"`
 	EndpointURL               *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
 	FallbackEndpointURL       *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts               *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1"`
+	MaxAttempts               *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1,max=100"`
 	TimeoutSecs               *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
 	MaxConcurrency            *int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
 	MaxConcurrencyPerKey      *int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
