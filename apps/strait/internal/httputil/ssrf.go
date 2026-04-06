@@ -41,6 +41,15 @@ var blockedHosts = []string{
 // lookupHost is the DNS resolver function, replaceable in tests.
 var lookupHost = net.LookupHost
 
+// SetLookupHostForTest replaces the DNS resolver used by ValidateExternalURL.
+// It returns a restore function that must be called to reset the original resolver.
+// This is intended for use in tests outside the httputil package.
+func SetLookupHostForTest(fn func(string) ([]string, error)) func() {
+	orig := lookupHost
+	lookupHost = fn
+	return func() { lookupHost = orig }
+}
+
 // isPrivateIP reports whether ip belongs to a private, loopback, link-local,
 // CGNAT, or otherwise internal network range.
 func isPrivateIP(ip net.IP) bool {
@@ -99,11 +108,11 @@ func ValidateExternalURL(rawURL string) error {
 	}
 
 	// Resolve hostname and check all returned IPs. DNS resolution failure
-	// is not treated as SSRF; the request will fail later with a meaningful
-	// network error rather than a confusing validation message.
+	// is treated as a rejection to prevent DNS rebinding attacks where an
+	// attacker controls a DNS server that intermittently fails.
 	addrs, lookupErr := lookupHost(host)
 	if lookupErr != nil {
-		return nil //nolint:nilerr // intentional: let the HTTP client surface the DNS error
+		return fmt.Errorf("ssrf: DNS lookup failed for %q: %w", host, lookupErr)
 	}
 	for _, addr := range addrs {
 		ip := net.ParseIP(addr)

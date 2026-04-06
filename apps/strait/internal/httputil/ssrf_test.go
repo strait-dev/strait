@@ -160,6 +160,24 @@ func TestValidateExternalURL_DNSResolvesToPrivate(t *testing.T) {
 	}
 }
 
+func TestValidateExternalURL_DNSLookupFailure(t *testing.T) {
+	t.Parallel()
+
+	origLookup := lookupHost
+	t.Cleanup(func() { lookupHost = origLookup })
+	lookupHost = mockLookupHost
+
+	// "unknown.example.com" is not in the mock, so lookup returns an error.
+	// The SSRF check must reject the URL to prevent DNS rebinding attacks.
+	err := ValidateExternalURL("https://unknown.example.com/hook")
+	if err == nil {
+		t.Fatal("expected error for DNS lookup failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "DNS lookup failed") {
+		t.Fatalf("error %q does not mention DNS lookup failure", err)
+	}
+}
+
 func TestIsPrivateIP(t *testing.T) {
 	t.Parallel()
 
