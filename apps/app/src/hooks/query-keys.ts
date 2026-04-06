@@ -103,6 +103,12 @@ export const queryKeys = createQueryKeyStore({
     detail: (id: string) => [id],
     costs: (agentId: string) => [agentId, "costs"],
     runs: (agentId: string, search?: ListParams) => [agentId, { search }],
+    templates: null,
+  },
+
+  agentBilling: {
+    usage: (orgId: string) => [orgId],
+    spendingLimit: (orgId: string) => [orgId],
   },
 
   runs: {
