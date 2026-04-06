@@ -1553,7 +1553,7 @@ func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
 			return &domain.JobRun{ID: id, Status: domain.StatusFailed, ProjectID: "proj-1"}, nil
 		},
 		ReplayDeadLetterRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
-			return nil, fmt.Errorf("run run-123 is not dead_letter")
+			return nil, fmt.Errorf("replay dead letter run: %w: run run-123 has status failed, expected dead_letter", store.ErrRunConflict)
 		},
 	}
 

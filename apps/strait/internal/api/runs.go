@@ -497,12 +497,11 @@ func (s *Server) handleReplayDeadLetterRun(ctx context.Context, input *ReplayDea
 
 	run, err := s.store.ReplayDeadLetterRun(ctx, input.RunID)
 	if err != nil {
-		errMsg := err.Error()
 		switch {
-		case strings.Contains(errMsg, "not found"):
+		case errors.Is(err, store.ErrRunNotFound):
 			return nil, huma.Error404NotFound("run not found")
-		case strings.Contains(errMsg, "not dead_letter"):
-			return nil, huma.Error409Conflict("run is not dead_letter")
+		case errors.Is(err, store.ErrRunConflict):
+			return nil, huma.Error409Conflict("run is not in dead_letter status")
 		default:
 			return nil, huma.Error500InternalServerError("failed to replay dead letter run")
 		}
