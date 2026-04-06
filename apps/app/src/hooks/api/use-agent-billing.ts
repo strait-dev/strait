@@ -127,13 +127,3 @@ export function useUpdateAgentSpendingLimit(orgId: string) {
     },
   });
 }
-
-// Re-export pure utility functions for convenience.
-export {
-  AGENT_SPENDING_PRESETS,
-  computeCreditPercent,
-  formatAgentPlanTier,
-  formatMicroUsd,
-  formatTokenCount,
-  usdToMicrousd,
-} from "./agent-billing-utils";
