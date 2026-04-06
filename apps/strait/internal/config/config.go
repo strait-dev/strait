@@ -26,6 +26,10 @@ type Config struct {
 	JWTSigningKey                 string        `env:"JWT_SIGNING_KEY"`
 	NotifySubscriberTokenIssuer   string        `env:"NOTIFY_SUBSCRIBER_TOKEN_ISSUER" default:"strait-notify"`
 	NotifySubscriberTokenAudience string        `env:"NOTIFY_SUBSCRIBER_TOKEN_AUDIENCE" default:"strait-notify-subscriber"`
+	NotifyEmailProvider           string        `env:"NOTIFY_EMAIL_PROVIDER" default:"ses"`
+	NotifyEmailNormalizeEnabled   bool          `env:"NOTIFY_EMAIL_NORMALIZE_ENABLED" default:"true"`
+	NotifyEmailVerifyEnabled      bool          `env:"NOTIFY_EMAIL_VERIFY_ENABLED" default:"true"`
+	NotifyEmailVerifyMX           bool          `env:"NOTIFY_EMAIL_VERIFY_MX" default:"true"`
 	SecretEncryptionKey           string        `env:"SECRET_ENCRYPTION_KEY"`
 	EncryptionKey                 string        `env:"ENCRYPTION_KEY"`
 	EncryptionKeyOld              []string      `env:"ENCRYPTION_KEY_OLD"`
@@ -206,7 +210,15 @@ type Config struct {
 	StripeMeterID                        string `env:"STRIPE_METER_ID"`
 	BillingEnforcementEnabled            bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
 
-	// Resend email integration
+	// Notify email provider integration
+	SESRegion           string `env:"SES_REGION" default:"us-east-1"`
+	SESFromEmail        string `env:"SES_FROM_EMAIL" default:"noreply@strait.dev"`
+	SESConfigurationSet string `env:"SES_CONFIGURATION_SET"`
+	SESAccessKeyID      string `env:"SES_ACCESS_KEY_ID"`
+	SESSecretAccessKey  string `env:"SES_SECRET_ACCESS_KEY"`
+	SESSessionToken     string `env:"SES_SESSION_TOKEN"`
+
+	// Resend integration (legacy notify + billing emails)
 	ResendAPIKey    string `env:"RESEND_API_KEY"`
 	ResendFromEmail string `env:"RESEND_FROM_EMAIL" default:"noreply@strait.dev"`
 
@@ -399,6 +411,25 @@ func validateNotifyConfig(cfg *Config) error {
 	if strings.TrimSpace(cfg.NotifySubscriberTokenAudience) == "" {
 		return &domain.ConfigError{Field: "NOTIFY_SUBSCRIBER_TOKEN_AUDIENCE", Message: "must not be empty"}
 	}
+	switch strings.ToLower(strings.TrimSpace(cfg.NotifyEmailProvider)) {
+	case "", "ses", "resend":
+		// valid
+	default:
+		return &domain.ConfigError{Field: "NOTIFY_EMAIL_PROVIDER", Message: "must be ses or resend"}
+	}
+	if strings.EqualFold(cfg.NotifyEmailProvider, "ses") {
+		if strings.TrimSpace(cfg.SESRegion) == "" {
+			return &domain.ConfigError{Field: "SES_REGION", Message: "is required when NOTIFY_EMAIL_PROVIDER=ses"}
+		}
+		if strings.TrimSpace(cfg.SESFromEmail) == "" {
+			return &domain.ConfigError{Field: "SES_FROM_EMAIL", Message: "is required when NOTIFY_EMAIL_PROVIDER=ses"}
+		}
+	}
+	if strings.EqualFold(cfg.NotifyEmailProvider, "resend") {
+		if strings.TrimSpace(cfg.ResendFromEmail) == "" {
+			return &domain.ConfigError{Field: "RESEND_FROM_EMAIL", Message: "is required when NOTIFY_EMAIL_PROVIDER=resend"}
+		}
+	}
 	if cfg.NotifyDeliveryMaxAttempts < 1 {
 		return &domain.ConfigError{Field: "NOTIFY_DELIVERY_MAX_ATTEMPTS", Message: "must be >= 1"}
 	}
@@ -443,6 +474,9 @@ func (c *Config) Redacted() map[string]any {
 		"EncryptionKey":          "[REDACTED]",
 		"StripeSecretKey":        "[REDACTED]",
 		"StripeWebhookSecret":    "[REDACTED]",
+		"SESAccessKeyID":         "[REDACTED]",
+		"SESSecretAccessKey":     "[REDACTED]",
+		"SESSessionToken":        "[REDACTED]",
 		"ResendAPIKey":           "[REDACTED]",
 		"PostHogAPIKey":          "[REDACTED]",
 		"SentryDSN":              "[REDACTED]",

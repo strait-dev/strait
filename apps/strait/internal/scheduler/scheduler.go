@@ -76,7 +76,16 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		memoryCleanup:         NewMemoryCleanup(s, 5*time.Minute),
 	}
 	if notifyStore, ok := any(s).(notifyDispatcherStore); ok {
-		sched.notifyDispatcher = NewNotifyDispatcher(notifyStore, cfg.PollerInterval, cfg.ResendAPIKey, cfg.ResendFromEmail).
+		sched.notifyDispatcher = NewNotifyDispatcher(notifyStore, cfg.PollerInterval, NotifyEmailDefaults{
+			Provider:            cfg.NotifyEmailProvider,
+			FromEmail:           cfg.SESFromEmail,
+			ResendAPIKey:        cfg.ResendAPIKey,
+			SESRegion:           cfg.SESRegion,
+			SESConfigurationSet: cfg.SESConfigurationSet,
+			SESAccessKeyID:      cfg.SESAccessKeyID,
+			SESSecretAccessKey:  cfg.SESSecretAccessKey,
+			SESSessionToken:     cfg.SESSessionToken,
+		}).
 			WithRetryPolicy(cfg.NotifyDeliveryMaxAttempts, cfg.NotifyRetryBaseDelay, cfg.NotifyRetryMaxDelay).
 			WithDigestLimits(cfg.NotifyDigestMaxItems, cfg.NotifyDigestMaxTitleChars).
 			WithEscalationMinInterval(cfg.NotifyEscalationMinInterval)

@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	notifycore "strait/internal/notify"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
-	"github.com/resend/resend-go/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -48,12 +48,25 @@ type notifyPolicyResolver interface {
 	ResolveNotifyPolicyOverride(ctx context.Context, projectID, stepRunID, categoryKey, channel string) (*domain.NotifyPolicyOverride, error)
 }
 
+type NotifyEmailDefaults struct {
+	Provider string
+
+	FromEmail string
+
+	ResendAPIKey string
+
+	SESRegion           string
+	SESConfigurationSet string
+	SESAccessKeyID      string
+	SESSecretAccessKey  string
+	SESSessionToken     string
+}
+
 type NotifyDispatcher struct {
 	store                 notifyDispatcherStore
 	interval              time.Duration
 	batchSize             int
-	resendAPIKey          string
-	resendFrom            string
+	defaultEmail          NotifyEmailDefaults
 	maxAttempts           int
 	retryBaseDelay        time.Duration
 	retryMaxDelay         time.Duration
@@ -64,20 +77,22 @@ type NotifyDispatcher struct {
 	metrics               *telemetry.Metrics
 }
 
-func NewNotifyDispatcher(s notifyDispatcherStore, interval time.Duration, resendAPIKey, resendFrom string) *NotifyDispatcher {
+func NewNotifyDispatcher(s notifyDispatcherStore, interval time.Duration, defaults NotifyEmailDefaults) *NotifyDispatcher {
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
-	if resendFrom == "" {
-		resendFrom = "noreply@strait.dev"
+	if defaults.Provider == "" {
+		defaults.Provider = "ses"
+	}
+	if defaults.FromEmail == "" {
+		defaults.FromEmail = "noreply@strait.dev"
 	}
 
 	return &NotifyDispatcher{
 		store:                 s,
 		interval:              interval,
 		batchSize:             100,
-		resendAPIKey:          resendAPIKey,
-		resendFrom:            resendFrom,
+		defaultEmail:          defaults,
 		maxAttempts:           5,
 		retryBaseDelay:        30 * time.Second,
 		retryMaxDelay:         15 * time.Minute,
@@ -481,6 +496,12 @@ type emailProviderAttempt struct {
 	FromEmail  string
 	APIKey     string
 	FallbackID string
+
+	Region           string
+	ConfigurationSet string
+	AccessKeyID      string
+	SecretAccessKey  string
+	SessionToken     string
 }
 
 func (d *NotifyDispatcher) resolveEmailProviderAttempts(ctx context.Context, msg domain.NotificationMessage) ([]emailProviderAttempt, error) {
@@ -488,13 +509,15 @@ func (d *NotifyDispatcher) resolveEmailProviderAttempts(ctx context.Context, msg
 	seen := map[string]struct{}{}
 
 	appendConfigFallback := func() {
-		if d.resendAPIKey == "" {
-			return
-		}
 		attempts = append(attempts, emailProviderAttempt{
-			Provider:  "resend",
-			FromEmail: d.resendFrom,
-			APIKey:    d.resendAPIKey,
+			Provider:         strings.ToLower(strings.TrimSpace(d.defaultEmail.Provider)),
+			FromEmail:        d.defaultEmail.FromEmail,
+			APIKey:           d.defaultEmail.ResendAPIKey,
+			Region:           d.defaultEmail.SESRegion,
+			ConfigurationSet: d.defaultEmail.SESConfigurationSet,
+			AccessKeyID:      d.defaultEmail.SESAccessKeyID,
+			SecretAccessKey:  d.defaultEmail.SESSecretAccessKey,
+			SessionToken:     d.defaultEmail.SESSessionToken,
 		})
 	}
 
@@ -544,8 +567,13 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 	}
 
 	cfg := struct {
-		APIKey    string `json:"api_key"`
-		FromEmail string `json:"from_email"`
+		APIKey           string `json:"api_key"`
+		FromEmail        string `json:"from_email"`
+		Region           string `json:"region"`
+		ConfigurationSet string `json:"configuration_set"`
+		AccessKeyID      string `json:"access_key_id"`
+		SecretAccessKey  string `json:"secret_access_key"`
+		SessionToken     string `json:"session_token"`
 	}{}
 	if len(provider.ConfigEnc) > 0 {
 		if err := json.Unmarshal(provider.ConfigEnc, &cfg); err != nil {
@@ -554,14 +582,45 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 	}
 
 	attempt := emailProviderAttempt{
-		ID:         provider.ID,
-		Provider:   provider.Provider,
-		FromEmail:  cfg.FromEmail,
-		APIKey:     cfg.APIKey,
-		FallbackID: provider.FallbackID,
+		ID:               provider.ID,
+		Provider:         strings.ToLower(strings.TrimSpace(provider.Provider)),
+		FromEmail:        cfg.FromEmail,
+		APIKey:           cfg.APIKey,
+		FallbackID:       provider.FallbackID,
+		Region:           cfg.Region,
+		ConfigurationSet: cfg.ConfigurationSet,
+		AccessKeyID:      cfg.AccessKeyID,
+		SecretAccessKey:  cfg.SecretAccessKey,
+		SessionToken:     cfg.SessionToken,
+	}
+	if attempt.Provider == "" {
+		attempt.Provider = strings.ToLower(strings.TrimSpace(d.defaultEmail.Provider))
+	}
+	if attempt.Provider == "" {
+		attempt.Provider = "ses"
 	}
 	if attempt.FromEmail == "" {
-		attempt.FromEmail = d.resendFrom
+		attempt.FromEmail = d.defaultEmail.FromEmail
+	}
+	if attempt.Provider == "resend" && attempt.APIKey == "" {
+		attempt.APIKey = d.defaultEmail.ResendAPIKey
+	}
+	if attempt.Provider == "ses" {
+		if attempt.Region == "" {
+			attempt.Region = d.defaultEmail.SESRegion
+		}
+		if attempt.ConfigurationSet == "" {
+			attempt.ConfigurationSet = d.defaultEmail.SESConfigurationSet
+		}
+		if attempt.AccessKeyID == "" {
+			attempt.AccessKeyID = d.defaultEmail.SESAccessKeyID
+		}
+		if attempt.SecretAccessKey == "" {
+			attempt.SecretAccessKey = d.defaultEmail.SESSecretAccessKey
+		}
+		if attempt.SessionToken == "" {
+			attempt.SessionToken = d.defaultEmail.SESSessionToken
+		}
 	}
 
 	chain := []emailProviderAttempt{attempt}
@@ -576,32 +635,20 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 }
 
 func (d *NotifyDispatcher) sendWithProvider(ctx context.Context, msg domain.NotificationMessage, attempt emailProviderAttempt, to, subject, htmlBody, textBody string) (string, error) {
-	if strings.ToLower(attempt.Provider) != "resend" {
-		return "", fmt.Errorf("unsupported email provider: %s", attempt.Provider)
-	}
-	if attempt.APIKey == "" {
-		return "", fmt.Errorf("resend api key is required")
-	}
-
-	client := resend.NewClient(attempt.APIKey)
-	resp, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
-		From:    attempt.FromEmail,
-		To:      []string{to},
-		Subject: subject,
-		Html:    htmlBody,
-		Text:    textBody,
-		Tags: []resend.Tag{
-			{Name: "strait_message_id", Value: msg.ID},
-			{Name: "strait_project_id", Value: msg.ProjectID},
-		},
+	providerMessageID, err := notifycore.SendEmailWithProvider(ctx, msg.ID, msg.ProjectID, to, subject, htmlBody, textBody, notifycore.EmailProviderAttempt{
+		Provider:         attempt.Provider,
+		FromEmail:        attempt.FromEmail,
+		APIKey:           attempt.APIKey,
+		Region:           attempt.Region,
+		ConfigurationSet: attempt.ConfigurationSet,
+		AccessKeyID:      attempt.AccessKeyID,
+		SecretAccessKey:  attempt.SecretAccessKey,
+		SessionToken:     attempt.SessionToken,
 	})
 	if err != nil {
 		return "", fmt.Errorf("send email (%s): %w", attempt.Provider, err)
 	}
-	if resp == nil {
-		return "", nil
-	}
-	return resp.Id, nil
+	return providerMessageID, nil
 }
 
 func (d *NotifyDispatcher) persistProviderResponse(ctx context.Context, msg domain.NotificationMessage, attempt emailProviderAttempt, providerMessageID string) {

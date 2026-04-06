@@ -550,6 +550,48 @@ func TestNotifyChannelPrefExplicitEnableEmail(t *testing.T) {
 	}
 }
 
+func TestSanitizeNotifySubscriberEmail_NormalizesAndAnnotates(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: &notifyStoreAdapter{}}, &mockQueue{}, nil)
+	srv.config.NotifyEmailNormalizeEnabled = true
+	srv.config.NotifyEmailVerifyEnabled = false
+
+	email, attrs, err := srv.sanitizeNotifySubscriberEmail(" Te.St+promo@Gmail.com ", json.RawMessage(`{"name":"Alice"}`))
+	if err != nil {
+		t.Fatalf("sanitizeNotifySubscriberEmail() error = %v", err)
+	}
+	if email == "" || strings.Contains(email, " ") {
+		t.Fatalf("normalized email = %q, want non-empty trimmed value", email)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(attrs, &parsed); err != nil {
+		t.Fatalf("unmarshal attrs: %v", err)
+	}
+	verification, ok := parsed["email_verification"].(map[string]any)
+	if !ok {
+		t.Fatalf("email_verification metadata missing: %#v", parsed)
+	}
+	if verification["normalized"] != email {
+		t.Fatalf("metadata normalized = %v, want %q", verification["normalized"], email)
+	}
+}
+
+func TestSanitizeNotifySubscriberEmail_InvalidSyntax(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: &notifyStoreAdapter{}}, &mockQueue{}, nil)
+	srv.config.NotifyEmailNormalizeEnabled = true
+	srv.config.NotifyEmailVerifyEnabled = true
+	srv.config.NotifyEmailVerifyMX = false
+
+	_, _, err := srv.sanitizeNotifySubscriberEmail("not-an-email", nil)
+	if err == nil {
+		t.Fatal("sanitizeNotifySubscriberEmail() error = nil, want non-nil")
+	}
+}
+
 func TestResolveNotifySchedule(t *testing.T) {
 	t.Parallel()
 

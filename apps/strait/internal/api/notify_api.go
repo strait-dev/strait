@@ -21,7 +21,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/redis/go-redis/v9"
-	"github.com/resend/resend-go/v2"
 )
 
 const (
@@ -455,6 +454,15 @@ type resendProviderConfig struct {
 	WebhookSecret string `json:"webhook_secret"`
 }
 
+type sesProviderConfig struct {
+	Region           string `json:"region"`
+	FromEmail        string `json:"from_email"`
+	ConfigurationSet string `json:"configuration_set"`
+	AccessKeyID      string `json:"access_key_id"`
+	SecretAccessKey  string `json:"secret_access_key"`
+	SessionToken     string `json:"session_token"`
+}
+
 func (s *Server) sendNotifyEmail(ctx context.Context, ns notifyStore, sub *domain.NotifySubscriber, msg *domain.NotificationMessage, payload any) error {
 	if sub.Email == "" {
 		return fmt.Errorf("subscriber email is required")
@@ -474,57 +482,23 @@ func (s *Server) sendNotifyEmail(ctx context.Context, ns notifyStore, sub *domai
 		return fmt.Errorf("email body is required")
 	}
 
-	apiKey := s.config.ResendAPIKey
-	fromEmail := s.config.ResendFromEmail
-	providerName := "resend"
-
-	if msg.ProviderID != "" {
-		provider, err := ns.GetNotificationProvider(ctx, msg.ProviderID, msg.ProjectID)
-		if err != nil {
-			return fmt.Errorf("resolve provider: %w", err)
-		}
-		providerName = provider.Provider
-		cfg := resendProviderConfig{}
-		if err := json.Unmarshal(provider.ConfigEnc, &cfg); err != nil {
-			return fmt.Errorf("parse provider config: %w", err)
-		}
-		if cfg.APIKey != "" {
-			apiKey = cfg.APIKey
-		}
-		if cfg.FromEmail != "" {
-			fromEmail = cfg.FromEmail
-		}
+	attempt, err := s.resolveNotifyEmailProviderAttempt(ctx, ns, msg)
+	if err != nil {
+		return err
 	}
 
-	if strings.ToLower(providerName) != "resend" {
-		return fmt.Errorf("unsupported email provider: %s", providerName)
-	}
-	if apiKey == "" {
-		return fmt.Errorf("resend api key is required")
-	}
-	if fromEmail == "" {
-		fromEmail = "noreply@strait.dev"
+	if strings.TrimSpace(attempt.FromEmail) == "" {
+		attempt.FromEmail = "noreply@strait.dev"
 	}
 
-	client := resend.NewClient(apiKey)
-	resp, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
-		From:    fromEmail,
-		To:      []string{sub.Email},
-		Subject: subject,
-		Html:    htmlBody,
-		Text:    textBody,
-		Tags: []resend.Tag{
-			{Name: "strait_message_id", Value: msg.ID},
-			{Name: "strait_project_id", Value: msg.ProjectID},
-		},
-	})
+	providerMessageID, err := notifycore.SendEmailWithProvider(ctx, msg.ID, msg.ProjectID, sub.Email, subject, htmlBody, textBody, attempt)
 	if err != nil {
 		return fmt.Errorf("send email: %w", err)
 	}
 
 	providerResp, marshalErr := json.Marshal(map[string]any{
-		"provider":            "resend",
-		"provider_message_id": resp.Id,
+		"provider":            attempt.Provider,
+		"provider_message_id": providerMessageID,
 	})
 	if marshalErr == nil && len(providerResp) > 0 {
 		updateFields := map[string]any{"provider_response": json.RawMessage(providerResp)}
@@ -535,6 +509,75 @@ func (s *Server) sendNotifyEmail(ctx context.Context, ns notifyStore, sub *domai
 	}
 
 	return nil
+}
+
+func (s *Server) resolveNotifyEmailProviderAttempt(ctx context.Context, ns notifyStore, msg *domain.NotificationMessage) (notifycore.EmailProviderAttempt, error) {
+	attempt := notifycore.EmailProviderAttempt{
+		Provider:         strings.ToLower(strings.TrimSpace(s.config.NotifyEmailProvider)),
+		FromEmail:        s.config.SESFromEmail,
+		Region:           s.config.SESRegion,
+		ConfigurationSet: s.config.SESConfigurationSet,
+		AccessKeyID:      s.config.SESAccessKeyID,
+		SecretAccessKey:  s.config.SESSecretAccessKey,
+		SessionToken:     s.config.SESSessionToken,
+		APIKey:           s.config.ResendAPIKey,
+	}
+	if attempt.Provider == "" {
+		attempt.Provider = "ses"
+	}
+	if strings.EqualFold(attempt.Provider, "resend") {
+		attempt.FromEmail = s.config.ResendFromEmail
+	}
+	if msg == nil || msg.ProviderID == "" {
+		return attempt, nil
+	}
+
+	provider, err := ns.GetNotificationProvider(ctx, msg.ProviderID, msg.ProjectID)
+	if err != nil {
+		return attempt, fmt.Errorf("resolve provider: %w", err)
+	}
+
+	attempt.Provider = strings.ToLower(strings.TrimSpace(provider.Provider))
+	switch attempt.Provider {
+	case "ses":
+		cfg := sesProviderConfig{}
+		if err := json.Unmarshal(provider.ConfigEnc, &cfg); err != nil {
+			return attempt, fmt.Errorf("parse ses provider config: %w", err)
+		}
+		if strings.TrimSpace(cfg.Region) != "" {
+			attempt.Region = strings.TrimSpace(cfg.Region)
+		}
+		if strings.TrimSpace(cfg.FromEmail) != "" {
+			attempt.FromEmail = strings.TrimSpace(cfg.FromEmail)
+		}
+		if strings.TrimSpace(cfg.ConfigurationSet) != "" {
+			attempt.ConfigurationSet = strings.TrimSpace(cfg.ConfigurationSet)
+		}
+		if strings.TrimSpace(cfg.AccessKeyID) != "" {
+			attempt.AccessKeyID = strings.TrimSpace(cfg.AccessKeyID)
+		}
+		if strings.TrimSpace(cfg.SecretAccessKey) != "" {
+			attempt.SecretAccessKey = strings.TrimSpace(cfg.SecretAccessKey)
+		}
+		if strings.TrimSpace(cfg.SessionToken) != "" {
+			attempt.SessionToken = strings.TrimSpace(cfg.SessionToken)
+		}
+	case "resend":
+		cfg := resendProviderConfig{}
+		if err := json.Unmarshal(provider.ConfigEnc, &cfg); err != nil {
+			return attempt, fmt.Errorf("parse resend provider config: %w", err)
+		}
+		if strings.TrimSpace(cfg.APIKey) != "" {
+			attempt.APIKey = strings.TrimSpace(cfg.APIKey)
+		}
+		if strings.TrimSpace(cfg.FromEmail) != "" {
+			attempt.FromEmail = strings.TrimSpace(cfg.FromEmail)
+		}
+	default:
+		return attempt, fmt.Errorf("unsupported email provider: %s", provider.Provider)
+	}
+
+	return attempt, nil
 }
 
 func (s *Server) isNotifyChannelAllowed(ctx context.Context, ns notifyStore, sub domain.NotifySubscriber, channel string) (bool, error) {
@@ -857,15 +900,20 @@ func (s *Server) handleUpsertNotifySubscriber(ctx context.Context, input *Upsert
 		return nil, err
 	}
 
+	normalizedEmail, mergedAttrs, err := s.sanitizeNotifySubscriberEmail(req.Email, req.Attributes)
+	if err != nil {
+		return nil, err
+	}
+
 	sub := &domain.NotifySubscriber{
 		ProjectID:  projectID,
 		ExternalID: req.ExternalID,
-		Email:      req.Email,
+		Email:      normalizedEmail,
 		Phone:      req.Phone,
 		Locale:     req.Locale,
 		Timezone:   req.Timezone,
 		TenantID:   req.TenantID,
-		Attributes: req.Attributes,
+		Attributes: mergedAttrs,
 	}
 	if err := ns.UpsertNotifySubscriber(ctx, sub); err != nil {
 		return nil, huma.Error500InternalServerError("failed to upsert subscriber")
@@ -985,7 +1033,16 @@ func (s *Server) handleUpdateNotifySubscriber(ctx context.Context, input *Update
 	if req.ExternalID != "" {
 		existing.ExternalID = req.ExternalID
 	}
-	existing.Email = req.Email
+
+	baseAttrs := existing.Attributes
+	if len(req.Attributes) > 0 {
+		baseAttrs = req.Attributes
+	}
+	normalizedEmail, mergedAttrs, err := s.sanitizeNotifySubscriberEmail(req.Email, baseAttrs)
+	if err != nil {
+		return nil, err
+	}
+	existing.Email = normalizedEmail
 	existing.Phone = req.Phone
 	if req.Locale != "" {
 		existing.Locale = req.Locale
@@ -994,9 +1051,7 @@ func (s *Server) handleUpdateNotifySubscriber(ctx context.Context, input *Update
 		existing.Timezone = req.Timezone
 	}
 	existing.TenantID = req.TenantID
-	if len(req.Attributes) > 0 {
-		existing.Attributes = req.Attributes
-	}
+	existing.Attributes = mergedAttrs
 
 	if err := ns.UpdateNotifySubscriber(ctx, existing); err != nil {
 		if errors.Is(err, store.ErrNotifySubscriberNotFound) {

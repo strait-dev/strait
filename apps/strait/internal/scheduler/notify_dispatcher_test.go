@@ -197,7 +197,7 @@ func TestNotifyDispatcherPoll_InboxDelivered(t *testing.T) {
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, "", "")
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{})
 	d.poll(context.Background())
 
 	if !inboxCreated {
@@ -240,7 +240,7 @@ func TestNotifyDispatcherPoll_InboxDuplicateProjectionIsIdempotent(t *testing.T)
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, "", "")
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{})
 	d.poll(context.Background())
 
 	if !delivered {
@@ -297,7 +297,7 @@ func TestNotifyDispatcherPoll_DigestBatchDelivered(t *testing.T) {
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, "", "")
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{})
 	d.poll(context.Background())
 
 	if !messageCreated {
@@ -358,7 +358,7 @@ func TestNotifyDispatcherPoll_EscalationDeliveredAndAdvanced(t *testing.T) {
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, "", "")
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{})
 	d.poll(context.Background())
 
 	if !deliveryCreated {
@@ -400,7 +400,7 @@ func TestNotifyDispatcherPoll_UnsupportedChannelFails(t *testing.T) {
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, "", "")
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{})
 	d.poll(context.Background())
 
 	if !failed {
@@ -447,7 +447,7 @@ func TestNotifyDispatcherPoll_RetryMessageOnTransientFailure(t *testing.T) {
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, "", "").WithRetryPolicy(3, time.Second, time.Minute)
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{}).WithRetryPolicy(3, time.Second, time.Minute)
 	d.poll(context.Background())
 
 	if !retried {
@@ -510,7 +510,7 @@ func TestNotifyDispatcherPoll_RetryMessage_UsesPolicyOverride(t *testing.T) {
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, "", "").WithRetryPolicy(5, time.Second, 10*time.Second)
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{}).WithRetryPolicy(5, time.Second, 10*time.Second)
 	d.poll(context.Background())
 
 	if !retryScheduled {
@@ -567,7 +567,7 @@ func TestNotifyDispatcherPoll_EscalationDelivery_UsesPolicyOverride(t *testing.T
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, "", "").WithEscalationMinInterval(30 * time.Second)
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{}).WithEscalationMinInterval(30 * time.Second)
 	d.poll(context.Background())
 
 	if capturedMaxAttempts != 7 {
@@ -597,7 +597,7 @@ func TestResolveEmailProviderAttempts_UsesFallbackChain(t *testing.T) {
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, "", "noreply@strait.dev")
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{FromEmail: "noreply@strait.dev"})
 	attempts, err := d.resolveEmailProviderAttempts(context.Background(), domain.NotificationMessage{ProjectID: "proj_1", ProviderID: "primary"})
 	if err != nil {
 		t.Fatalf("resolveEmailProviderAttempts() error = %v", err)
