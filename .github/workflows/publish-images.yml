@@ -33,7 +33,7 @@ jobs:
               return;
             }
             const required = ['Test', 'Lint', 'Security'];
-            const maxWait = 10 * 60 * 1000; // 10 minutes
+            const maxWait = 15 * 60 * 1000; // 15 minutes
             const poll = 30 * 1000; // 30 seconds
             const start = Date.now();
 
