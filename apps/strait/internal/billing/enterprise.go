@@ -265,13 +265,21 @@ var SLACreditTiers = []SLACreditTier{
 }
 
 // CalculateSLACredit returns the credit percentage for a given monthly uptime.
-// Returns 0 if uptime is at or above the SLA threshold (99.9%).
-func CalculateSLACredit(uptimePct float64) int {
-	if uptimePct >= 99.9 {
+// The slaTarget parameter specifies the per-tier SLA threshold (e.g. 99.9 for
+// Starter, 99.95 for Growth/Large). Returns 0 if uptime is at or above the target.
+// For tiers with a higher SLA target, uptimes between the highest credit tier
+// boundary and the target receive the lightest credit (10%).
+func CalculateSLACredit(uptimePct float64, slaTarget float64) int {
+	if uptimePct >= slaTarget {
 		return 0
 	}
 	for _, tier := range SLACreditTiers {
-		if uptimePct >= tier.MinUptimePct && uptimePct < tier.MaxUptimePct {
+		// Extend the top credit tier's upper bound to cover the SLA target.
+		maxPct := tier.MaxUptimePct
+		if slaTarget > maxPct && tier.CreditPct == SLACreditTiers[0].CreditPct {
+			maxPct = slaTarget
+		}
+		if uptimePct >= tier.MinUptimePct && uptimePct < maxPct {
 			return tier.CreditPct
 		}
 	}
