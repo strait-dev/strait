@@ -12,6 +12,9 @@ func TestConfig_Redacted_MasksSecrets(t *testing.T) {
 		JWTSigningKey:       "jwt-key",
 		StripeSecretKey:     "sk_test_123",
 		StripeWebhookSecret: "whsec_test",
+		SESAccessKeyID:      "AKIA_TEST",
+		SESSecretAccessKey:  "aws_secret",
+		SESSessionToken:     "aws_session",
 		ResendAPIKey:        "re_test",
 		PostHogAPIKey:       "phc_test",
 	}
@@ -22,7 +25,7 @@ func TestConfig_Redacted_MasksSecrets(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if str == "super-secret-key" || str == "jwt-key" || str == "sk_test_123" || str == "whsec_test" || str == "re_test" || str == "phc_test" {
+		if str == "super-secret-key" || str == "jwt-key" || str == "sk_test_123" || str == "whsec_test" || str == "AKIA_TEST" || str == "aws_secret" || str == "aws_session" || str == "re_test" || str == "phc_test" {
 			t.Errorf("secret leaked in Redacted() for key %q: %v", key, val)
 		}
 	}
@@ -57,11 +60,14 @@ func TestConfig_String_NoSecrets(t *testing.T) {
 		JWTSigningKey:       "jwt-secret-123",
 		StripeSecretKey:     "sk_test_secret456",
 		StripeWebhookSecret: "whsec_secret789",
+		SESAccessKeyID:      "AKIA_SECRET",
+		SESSecretAccessKey:  "aws-secret-key",
+		SESSessionToken:     "aws-session-token",
 		ResendAPIKey:        "re_secret",
 	}
 
 	str := cfg.String()
-	secrets := []string{"my-secret-value", "jwt-secret-123", "sk_test_secret456", "whsec_secret789", "re_secret"}
+	secrets := []string{"my-secret-value", "jwt-secret-123", "sk_test_secret456", "whsec_secret789", "AKIA_SECRET", "aws-secret-key", "aws-session-token", "re_secret"}
 	for _, secret := range secrets {
 		if strings.Contains(str, secret) {
 			t.Errorf("Config.String() contains secret: %q", secret)

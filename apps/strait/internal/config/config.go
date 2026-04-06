@@ -113,22 +113,27 @@ type Config struct {
 	MaxDequeueBatchSize      int `env:"MAX_DEQUEUE_BATCH_SIZE" default:"0"`
 
 	// Scheduler settings
-	WorkflowRetention           time.Duration `env:"WORKFLOW_RETENTION" default:"720h"`
-	EventTriggerRetention       time.Duration `env:"EVENT_TRIGGER_RETENTION"`
-	IndexMaintenanceInterval    time.Duration `env:"INDEX_MAINTENANCE_INTERVAL" default:"24h"`
-	ReaperDeleteBatchSize       int           `env:"REAPER_DELETE_BATCH_SIZE" default:"100"`
-	StalledWorkflowThreshold    time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
-	StalledWorkflowAction       string        `env:"WF_STALL_ACTION" default:"log_only"`
-	WfMaxStepCap                int           `env:"WF_MAX_STEP_CAP" default:"100"`
-	WfStepConcurrencyLimit      int           `env:"WF_STEP_CONCURRENCY_LIMIT" default:"0"`
-	DependencyStatusCacheTTL    time.Duration `env:"DEPENDENCY_STATUS_CACHE_TTL" default:"5s"`
-	NotifyDeliveryMaxAttempts   int           `env:"NOTIFY_DELIVERY_MAX_ATTEMPTS" default:"5"`
-	NotifyRetryBaseDelay        time.Duration `env:"NOTIFY_RETRY_BASE_DELAY" default:"30s"`
-	NotifyRetryMaxDelay         time.Duration `env:"NOTIFY_RETRY_MAX_DELAY" default:"15m"`
-	NotifyDigestMaxItems        int           `env:"NOTIFY_DIGEST_MAX_ITEMS" default:"50"`
-	NotifyDigestMaxTitleChars   int           `env:"NOTIFY_DIGEST_MAX_TITLE_CHARS" default:"120"`
-	NotifyEscalationTiers       int           `env:"NOTIFY_ESCALATION_TIERS" default:"3"`
-	NotifyEscalationMinInterval time.Duration `env:"NOTIFY_ESCALATION_MIN_INTERVAL" default:"10m"`
+	WorkflowRetention                         time.Duration `env:"WORKFLOW_RETENTION" default:"720h"`
+	EventTriggerRetention                     time.Duration `env:"EVENT_TRIGGER_RETENTION"`
+	IndexMaintenanceInterval                  time.Duration `env:"INDEX_MAINTENANCE_INTERVAL" default:"24h"`
+	ReaperDeleteBatchSize                     int           `env:"REAPER_DELETE_BATCH_SIZE" default:"100"`
+	StalledWorkflowThreshold                  time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
+	StalledWorkflowAction                     string        `env:"WF_STALL_ACTION" default:"log_only"`
+	WfMaxStepCap                              int           `env:"WF_MAX_STEP_CAP" default:"100"`
+	WfStepConcurrencyLimit                    int           `env:"WF_STEP_CONCURRENCY_LIMIT" default:"0"`
+	DependencyStatusCacheTTL                  time.Duration `env:"DEPENDENCY_STATUS_CACHE_TTL" default:"5s"`
+	NotifyDeliveryMaxAttempts                 int           `env:"NOTIFY_DELIVERY_MAX_ATTEMPTS" default:"5"`
+	NotifyRetryBaseDelay                      time.Duration `env:"NOTIFY_RETRY_BASE_DELAY" default:"30s"`
+	NotifyRetryMaxDelay                       time.Duration `env:"NOTIFY_RETRY_MAX_DELAY" default:"15m"`
+	NotifyDigestMaxItems                      int           `env:"NOTIFY_DIGEST_MAX_ITEMS" default:"50"`
+	NotifyDigestMaxTitleChars                 int           `env:"NOTIFY_DIGEST_MAX_TITLE_CHARS" default:"120"`
+	NotifyEscalationTiers                     int           `env:"NOTIFY_ESCALATION_TIERS" default:"3"`
+	NotifyEscalationMinInterval               time.Duration `env:"NOTIFY_ESCALATION_MIN_INTERVAL" default:"10m"`
+	NotifySESFeedbackSQSURL                   string        `env:"NOTIFY_SES_FEEDBACK_SQS_URL"`
+	NotifySESFeedbackPollInterval             time.Duration `env:"NOTIFY_SES_FEEDBACK_POLL_INTERVAL" default:"5s"`
+	NotifySESFeedbackWaitTimeSeconds          int32         `env:"NOTIFY_SES_FEEDBACK_WAIT_TIME_SECONDS" default:"10"`
+	NotifySESFeedbackMaxMessages              int32         `env:"NOTIFY_SES_FEEDBACK_MAX_MESSAGES" default:"10"`
+	NotifySESFeedbackVisibilityTimeoutSeconds int32         `env:"NOTIFY_SES_FEEDBACK_VISIBILITY_TIMEOUT_SECONDS" default:"120"`
 
 	// Workflow settings
 	MaxWorkflowNestingDepth int `env:"MAX_WORKFLOW_NESTING_DEPTH" default:"10"`
@@ -450,6 +455,18 @@ func validateNotifyConfig(cfg *Config) error {
 	}
 	if cfg.NotifyEscalationMinInterval <= 0 {
 		return &domain.ConfigError{Field: "NOTIFY_ESCALATION_MIN_INTERVAL", Message: "must be > 0"}
+	}
+	if cfg.NotifySESFeedbackWaitTimeSeconds < 0 || cfg.NotifySESFeedbackWaitTimeSeconds > 20 {
+		return &domain.ConfigError{Field: "NOTIFY_SES_FEEDBACK_WAIT_TIME_SECONDS", Message: "must be between 0 and 20"}
+	}
+	if cfg.NotifySESFeedbackMaxMessages < 1 || cfg.NotifySESFeedbackMaxMessages > 10 {
+		return &domain.ConfigError{Field: "NOTIFY_SES_FEEDBACK_MAX_MESSAGES", Message: "must be between 1 and 10"}
+	}
+	if cfg.NotifySESFeedbackVisibilityTimeoutSeconds < 1 || cfg.NotifySESFeedbackVisibilityTimeoutSeconds > 43200 {
+		return &domain.ConfigError{Field: "NOTIFY_SES_FEEDBACK_VISIBILITY_TIMEOUT_SECONDS", Message: "must be between 1 and 43200"}
+	}
+	if strings.EqualFold(cfg.NotifyEmailProvider, "ses") && strings.TrimSpace(cfg.NotifySESFeedbackSQSURL) == "" {
+		slog.Warn("NOTIFY_SES_FEEDBACK_SQS_URL is not set; SES bounce/complaint feedback ingestion is disabled")
 	}
 	return nil
 }

@@ -1171,3 +1171,48 @@ func TestLoad_WfMaxStepCapDefault(t *testing.T) {
 		t.Errorf("WfMaxStepCap = %d, want 100", cfg.WfMaxStepCap)
 	}
 }
+
+func TestLoad_NotifySESFeedbackValidation(t *testing.T) {
+	t.Run("invalid max messages", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("NOTIFY_SES_FEEDBACK_MAX_MESSAGES", "11")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid NOTIFY_SES_FEEDBACK_MAX_MESSAGES")
+		}
+		if !strings.Contains(err.Error(), "NOTIFY_SES_FEEDBACK_MAX_MESSAGES") {
+			t.Fatalf("error = %q, want NOTIFY_SES_FEEDBACK_MAX_MESSAGES", err.Error())
+		}
+	})
+
+	t.Run("invalid wait time", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("NOTIFY_SES_FEEDBACK_WAIT_TIME_SECONDS", "25")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid NOTIFY_SES_FEEDBACK_WAIT_TIME_SECONDS")
+		}
+		if !strings.Contains(err.Error(), "NOTIFY_SES_FEEDBACK_WAIT_TIME_SECONDS") {
+			t.Fatalf("error = %q, want NOTIFY_SES_FEEDBACK_WAIT_TIME_SECONDS", err.Error())
+		}
+	})
+
+	t.Run("valid settings", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("NOTIFY_EMAIL_PROVIDER", "ses")
+		t.Setenv("NOTIFY_SES_FEEDBACK_SQS_URL", "https://sqs.us-east-1.amazonaws.com/123456789012/notify-feedback")
+		t.Setenv("NOTIFY_SES_FEEDBACK_MAX_MESSAGES", "10")
+		t.Setenv("NOTIFY_SES_FEEDBACK_WAIT_TIME_SECONDS", "10")
+		t.Setenv("NOTIFY_SES_FEEDBACK_VISIBILITY_TIMEOUT_SECONDS", "120")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg.NotifySESFeedbackSQSURL == "" {
+			t.Fatal("NotifySESFeedbackSQSURL should not be empty")
+		}
+	})
+}

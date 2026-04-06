@@ -36,6 +36,11 @@ This page documents all environment variables available for configuring Strait.
 | `SES_ACCESS_KEY_ID` | String | - | Optional static AWS access key for SES. Prefer IAM role credentials. |
 | `SES_SECRET_ACCESS_KEY` | String | - | Optional static AWS secret key for SES. |
 | `SES_SESSION_TOKEN` | String | - | Optional AWS session token for SES static credentials. |
+| `NOTIFY_SES_FEEDBACK_SQS_URL` | String | - | SQS queue URL used to ingest SES feedback events (SNS-to-SQS). |
+| `NOTIFY_SES_FEEDBACK_POLL_INTERVAL` | Duration | `5s` | Sleep interval between empty SES feedback polls. |
+| `NOTIFY_SES_FEEDBACK_WAIT_TIME_SECONDS` | Integer | `10` | SQS long-poll wait time for SES feedback receive calls (0-20). |
+| `NOTIFY_SES_FEEDBACK_MAX_MESSAGES` | Integer | `10` | Maximum SQS feedback messages read per receive call (1-10). |
+| `NOTIFY_SES_FEEDBACK_VISIBILITY_TIMEOUT_SECONDS` | Integer | `120` | SQS visibility timeout for SES feedback messages while processing. |
 | `LOG_LEVEL` | String | `info` | Logging verbosity: `debug`, `info`, `warn`, `error`. |
 | `SECRET_ENCRYPTION_KEY` | String | - | Key used to encrypt job secrets. Required when using secret injection. |
 | `ENCRYPTION_KEY` | String | - | Key used for data encryption at rest. Should be unique per environment. |

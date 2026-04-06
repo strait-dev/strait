@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/sourcegraph/conc"
 
@@ -50,6 +51,7 @@ type Scheduler struct {
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
 	notifyDispatcher         *NotifyDispatcher
+	notifySESFeedback        *NotifySESFeedbackConsumer
 	wg                       conc.WaitGroup
 }
 
@@ -89,6 +91,24 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithRetryPolicy(cfg.NotifyDeliveryMaxAttempts, cfg.NotifyRetryBaseDelay, cfg.NotifyRetryMaxDelay).
 			WithDigestLimits(cfg.NotifyDigestMaxItems, cfg.NotifyDigestMaxTitleChars).
 			WithEscalationMinInterval(cfg.NotifyEscalationMinInterval)
+	}
+	if feedbackStore, ok := any(s).(notifySESFeedbackStore); ok && strings.TrimSpace(cfg.NotifySESFeedbackSQSURL) != "" {
+		feedback, err := NewNotifySESFeedbackConsumer(feedbackStore, NotifySESFeedbackConsumerConfig{
+			QueueURL:                 cfg.NotifySESFeedbackSQSURL,
+			Region:                   cfg.SESRegion,
+			PollInterval:             cfg.NotifySESFeedbackPollInterval,
+			WaitTimeSeconds:          cfg.NotifySESFeedbackWaitTimeSeconds,
+			MaxMessages:              cfg.NotifySESFeedbackMaxMessages,
+			VisibilityTimeoutSeconds: cfg.NotifySESFeedbackVisibilityTimeoutSeconds,
+			AccessKeyID:              cfg.SESAccessKeyID,
+			SecretAccessKey:          cfg.SESSecretAccessKey,
+			SessionToken:             cfg.SESSessionToken,
+		})
+		if err != nil {
+			slog.Warn("failed to initialize notify ses feedback consumer", "error", err)
+		} else {
+			sched.notifySESFeedback = feedback
+		}
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -235,6 +255,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.notifyDispatcher != nil {
 		safeGo(&s.wg, "notify_dispatcher", func() { s.notifyDispatcher.Run(ctx) })
+	}
+	if s.notifySESFeedback != nil {
+		safeGo(&s.wg, "notify_ses_feedback", func() { s.notifySESFeedback.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

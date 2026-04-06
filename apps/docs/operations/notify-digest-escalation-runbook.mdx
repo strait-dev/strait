@@ -98,7 +98,24 @@ Checks:
   - `POST /v1/notify/escalations/step-runs/{stepRunID}/acknowledge`
   - `POST /v1/notify/escalations/step-runs/{stepRunID}/complete`
 
-### 4) Resend callback events are not reflected in delivery status
+### 4) SES feedback events are not reflected in delivery status
+
+Likely causes:
+
+- `NOTIFY_SES_FEEDBACK_SQS_URL` is unset or incorrect
+- SES event destination does not forward `Delivery` / `Bounce` / `Complaint` to SNS/SQS
+- feedback event payload is missing `strait_message_id` tag or references a deleted message
+
+Checks:
+
+- confirm notify email provider is `ses` (`NOTIFY_EMAIL_PROVIDER=ses`)
+- confirm `NOTIFY_SES_FEEDBACK_SQS_URL` points to the expected queue
+- confirm SES event destination emits events to SNS and SNS forwards to the SQS queue
+- confirm outbound messages include provider tags (`strait_message_id`, `strait_project_id`)
+- inspect notify delivery rows for transitions to `delivered`, `bounced`, or `failed`
+- inspect subscriber preference changes when bounces/complaints occur (`channel_prefs.email=false`)
+
+### 5) Resend callback events are not reflected in delivery status (legacy path)
 
 Likely causes:
 
