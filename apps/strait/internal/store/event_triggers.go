@@ -387,6 +387,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 		  AND et.source_type = 'workflow_step'
 		  AND wsr.status = 'waiting'
 		  AND et.received_at < NOW() - INTERVAL '30 seconds'
+		LIMIT 1000
 
 		UNION ALL
 

@@ -48,7 +48,7 @@ func NewWebhookSender(client *http.Client, opts ...WebhookSenderOption) *Webhook
 				if err != nil {
 					return true
 				}
-				return resp.StatusCode >= 500
+				return resp.StatusCode == 429 || resp.StatusCode >= 500
 			}).
 			Build(),
 	}

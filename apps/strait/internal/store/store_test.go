@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -548,4 +549,47 @@ func TestSetProjectBudget_QueryIsUpsert(t *testing.T) {
 	// Since PgStore uses pgxpool.Pool (not our mockDBTX), we test via string assertion
 	// on the source code. The mock-based test in project_budget_test.go covers the
 	// functional behavior through the mock store.
+}
+
+func TestListReceivedEventTriggersWithStaleSteps_LIMITOnBothBranches(t *testing.T) {
+	t.Parallel()
+
+	// Read the source file to verify the SQL has LIMIT on both UNION branches.
+	src, err := os.ReadFile("event_triggers.go")
+	if err != nil {
+		t.Fatalf("failed to read event_triggers.go: %v", err)
+	}
+
+	content := string(src)
+
+	// Find the function containing the query.
+	fnStart := strings.Index(content, "func (q *Queries) ListReceivedEventTriggersWithStaleSteps")
+	if fnStart < 0 {
+		t.Fatal("could not find ListReceivedEventTriggersWithStaleSteps function")
+	}
+
+	fnBody := content[fnStart:]
+	// Find the UNION ALL which separates the two SELECT branches.
+	unionIdx := strings.Index(fnBody, "UNION ALL")
+	if unionIdx < 0 {
+		t.Fatal("could not find UNION ALL in query")
+	}
+
+	firstBranch := fnBody[:unionIdx]
+	secondBranch := fnBody[unionIdx:]
+
+	// Truncate second branch at the closing backtick to avoid matching LIMIT in other code.
+	if closeTick := strings.Index(secondBranch, "`"); closeTick > 0 {
+		secondBranch = secondBranch[:closeTick]
+	}
+
+	firstHasLimit := strings.Contains(strings.ToUpper(firstBranch), "LIMIT")
+	secondHasLimit := strings.Contains(strings.ToUpper(secondBranch), "LIMIT")
+
+	if !firstHasLimit {
+		t.Error("first UNION branch (workflow_step source) is missing LIMIT clause")
+	}
+	if !secondHasLimit {
+		t.Error("second UNION branch (job_run source) is missing LIMIT clause")
+	}
 }
