@@ -219,6 +219,7 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			grace_period_end, COALESCE(payment_status, 'ok'),
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
+			COALESCE(monthly_usage_email, false),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE pending_plan_tier IS NOT NULL
@@ -243,6 +244,7 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 			&sub.EnforcementMode,
+			&sub.MonthlyUsageEmail,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pending downgrade: %w", err)

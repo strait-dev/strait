@@ -369,6 +369,15 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		UpdatedAt:             now,
 	}
 
+	// Capture previous tier before the upsert overwrites it.
+	var previousTier string
+	if tier == domain.PlanEnterprise {
+		existing, existErr := h.store.GetOrgSubscription(ctx, orgID)
+		if existErr == nil && existing != nil {
+			previousTier = existing.PlanTier
+		}
+	}
+
 	if err := h.store.UpsertOrgSubscription(ctx, orgSub); err != nil {
 		return fmt.Errorf("upserting org subscription: %w", err)
 	}
@@ -378,19 +387,16 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 	}
 
 	// Detect plan transitions (e.g. Scale -> Enterprise) for audit logging.
-	if tier == domain.PlanEnterprise {
-		existing, existErr := h.store.GetOrgSubscription(ctx, orgID)
-		if existErr == nil && existing != nil && existing.PlanTier != string(tier) {
-			h.logAuditEvent(ctx, "subscription.upgraded_to_enterprise", orgID, map[string]string{
-				"previous_plan":          existing.PlanTier,
-				"new_plan":               string(tier),
-				"stripe_subscription_id": sub.ID,
-			})
-			h.logger.Info("plan upgraded to enterprise",
-				"org_id", orgID,
-				"previous_plan", existing.PlanTier,
-			)
-		}
+	if tier == domain.PlanEnterprise && previousTier != "" && previousTier != string(tier) {
+		h.logAuditEvent(ctx, "subscription.upgraded_to_enterprise", orgID, map[string]string{
+			"previous_plan":          previousTier,
+			"new_plan":               string(tier),
+			"stripe_subscription_id": sub.ID,
+		})
+		h.logger.Info("plan upgraded to enterprise",
+			"org_id", orgID,
+			"previous_plan", previousTier,
+		)
 	}
 
 	// For enterprise plans, create the enterprise contract based on the price's sub-tier.
@@ -414,12 +420,10 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 				UpdatedAt:              now,
 			}
 			if err := h.store.UpsertEnterpriseContract(ctx, contract); err != nil {
-				h.logger.Warn("failed to create enterprise contract",
-					"org_id", orgID, "enterprise_tier", entTier, "error", err)
-			} else {
-				h.logger.Info("enterprise contract created",
-					"org_id", orgID, "enterprise_tier", entTier)
+				return fmt.Errorf("creating enterprise contract: %w", err)
 			}
+			h.logger.Info("enterprise contract created",
+				"org_id", orgID, "enterprise_tier", entTier)
 		}
 	}
 
@@ -542,15 +546,9 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 	}
 
 	if isDowngradeChange {
-		// Defer the downgrade: store the pending tier for end-of-period application.
-		if err := h.store.SetPendingPlanTier(ctx, orgID, string(tier)); err != nil {
-			return fmt.Errorf("setting pending plan tier: %w", err)
-		}
-		// Still update period dates and status.
-		if err := h.store.UpdateOrgSubscriptionFull(ctx, orgID, existing.PlanTier, status, periodStart, periodEnd); err != nil {
-			if !errors.Is(err, ErrSubscriptionNotFound) {
-				return fmt.Errorf("updating subscription period: %w", err)
-			}
+		// Defer the downgrade atomically: set pending tier and update period dates in one call.
+		if err := h.store.SetPendingDowngrade(ctx, orgID, string(tier), periodStart, periodEnd); err != nil {
+			return fmt.Errorf("setting pending downgrade: %w", err)
 		}
 		h.logAuditEvent(ctx, "subscription.updated", orgID, map[string]string{
 			"plan_tier":              existing.PlanTier,
