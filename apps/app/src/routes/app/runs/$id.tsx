@@ -4,6 +4,7 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@strait/ui/components/alert";
+import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -120,13 +121,35 @@ function TimelineRow({ item }: { item: RunTimelineItem }) {
   }
 
   if (item.kind === "checkpoint") {
+    const state = item.state as Record<string, unknown> | null;
+    const costMicro =
+      typeof state?.cost_microusd_at_checkpoint === "number"
+        ? state.cost_microusd_at_checkpoint
+        : null;
+    const tokensAt =
+      typeof state?.tokens_at_checkpoint === "number"
+        ? state.tokens_at_checkpoint
+        : null;
+
     return (
       <div className="rounded-md border p-3">
         <div className="flex items-center justify-between gap-3">
           <p className="font-medium text-sm">{item.label}</p>
-          <span className="font-mono text-muted-foreground text-xs">
-            {new Date(item.created_at).toLocaleTimeString()}
-          </span>
+          <div className="flex items-center gap-2">
+            {costMicro != null && (
+              <Badge className="font-mono text-xs" variant="outline">
+                ${(costMicro / 1e6).toFixed(4)}
+              </Badge>
+            )}
+            {tokensAt != null && (
+              <Badge className="font-mono text-xs" variant="secondary">
+                {tokensAt.toLocaleString()} tokens
+              </Badge>
+            )}
+            <span className="font-mono text-muted-foreground text-xs">
+              {new Date(item.created_at).toLocaleTimeString()}
+            </span>
+          </div>
         </div>
         <pre className="mt-2 whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-xs">
           {JSON.stringify(item.state, null, 2)}

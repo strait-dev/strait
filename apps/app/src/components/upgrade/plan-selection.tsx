@@ -449,6 +449,9 @@ export const PlanSelection = ({
       {/* Feature comparison matrix */}
       <FeatureComparisonMatrix features={comparisonFeatures} />
 
+      {/* Agent Plans */}
+      <AgentPlansSection />
+
       {/* FAQ */}
       <PricingFAQ />
     </div>
@@ -517,6 +520,109 @@ const FeatureComparisonMatrix = ({
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+};
+
+const AGENT_PLANS = [
+  {
+    name: "Free",
+    price: "$0",
+    credit: "$1/mo",
+    runs: "~1,000",
+    features: [
+      "3 agent definitions",
+      "5 concurrent runs",
+      "1-day retention",
+      "Community support",
+    ],
+  },
+  {
+    name: "Maker",
+    price: "$39/mo",
+    credit: "$39/mo",
+    runs: "~39,000",
+    popular: true,
+    features: [
+      "10 agent definitions",
+      "25 concurrent runs",
+      "Custom retries",
+      "Alert rules",
+      "Basic multi-agent",
+      "7-day retention",
+    ],
+  },
+  {
+    name: "Growth",
+    price: "$149/mo",
+    credit: "$149/mo",
+    runs: "~149,000",
+    features: [
+      "Unlimited agents",
+      "200 concurrent runs",
+      "Full orchestration",
+      "Eval framework",
+      "Audit logs",
+      "30-day retention",
+    ],
+  },
+  {
+    name: "Enterprise",
+    price: "Custom",
+    credit: "Custom",
+    runs: "Custom",
+    features: [
+      "SSO/SCIM",
+      "BYOC",
+      "99.9% SLA",
+      "Dedicated CSM",
+      "Custom retention",
+    ],
+  },
+] as const;
+
+const AgentPlansSection = () => {
+  return (
+    <div className="mt-10 border-t pt-8">
+      <div className="mb-6">
+        <h3 className="font-semibold text-xl">Agent Plans</h3>
+        <p className="mt-1 text-muted-foreground text-sm">
+          Independent subscription for AI agent execution. Works with any Jobs
+          plan.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {AGENT_PLANS.map((plan) => (
+          <div
+            className={cn(
+              "relative flex flex-col rounded-lg border p-5 transition-colors hover:border-foreground/20",
+              "popular" in plan &&
+                plan.popular &&
+                "border-accent ring-1 ring-accent"
+            )}
+            key={plan.name}
+          >
+            {"popular" in plan && plan.popular && (
+              <Badge className="absolute -top-2.5 right-4" variant="default">
+                Most Popular
+              </Badge>
+            )}
+            <h4 className="font-semibold text-lg">{plan.name}</h4>
+            <p className="mt-1 font-bold text-2xl">{plan.price}</p>
+            <p className="mt-1 text-muted-foreground text-xs">
+              {plan.credit} included credit ({plan.runs} runs)
+            </p>
+            <ul className="mt-4 flex-1 space-y-2">
+              {plan.features.map((feature) => (
+                <li className="flex items-center gap-2 text-sm" key={feature}>
+                  <RadixCheckIcon className="size-4 shrink-0 text-accent" />
+                  {feature}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
     </div>
   );

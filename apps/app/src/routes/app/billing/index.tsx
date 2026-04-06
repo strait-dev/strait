@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
 import AddonsTab from "@/components/billing/addons-tab";
+import AgentBillingTab from "@/components/billing/agent-billing-tab";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
 import { EnterpriseOverview } from "@/components/billing/enterprise-overview";
 import ProjectCostsTab from "@/components/billing/project-costs-tab";
@@ -35,6 +36,7 @@ import {
   AlertIcon,
   BriefcaseIcon,
   CreditCardIcon,
+  SparklesIcon,
   TrendingUpIcon,
 } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -113,6 +115,10 @@ function RouteComponent() {
             <TabsTrigger className="flex items-center gap-2" value="alerts">
               <HugeiconsIcon className="size-4" icon={AlertIcon} />
               Alerts
+            </TabsTrigger>
+            <TabsTrigger className="flex items-center gap-2" value="agents">
+              <HugeiconsIcon className="size-4" icon={SparklesIcon} />
+              Agents
             </TabsTrigger>
           </TabsList>
 
@@ -202,6 +208,21 @@ function RouteComponent() {
             >
               <Suspense fallback={<TabSkeleton />}>
                 <AlertsForecastTab />
+              </Suspense>
+            </QueryErrorBoundary>
+          </TabsContent>
+
+          <TabsContent className="mt-6 space-y-6" value="agents">
+            <QueryErrorBoundary
+              fallback={({ resetErrorBoundary }) => (
+                <InlineError
+                  message="Failed to load agent billing"
+                  onRetry={resetErrorBoundary}
+                />
+              )}
+            >
+              <Suspense fallback={<TabSkeleton />}>
+                <AgentBillingTab orgId={orgUsage?.org_id ?? ""} />
               </Suspense>
             </QueryErrorBoundary>
           </TabsContent>

@@ -144,6 +144,16 @@ function CostInsightsPage() {
         </div>
       )}
 
+      <Card>
+        <CardContent className="p-4">
+          <p className="text-muted-foreground text-xs">Cache Savings</p>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Enable prompt caching in the SDK to see estimated savings from
+            Anthropic cache token discounts.
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
