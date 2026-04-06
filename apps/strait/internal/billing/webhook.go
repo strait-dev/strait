@@ -37,19 +37,19 @@ type WelcomeEmailFunc func(ctx context.Context, orgID string, planTier domain.Pl
 
 // WebhookHandler handles incoming Stripe webhook events.
 type WebhookHandler struct {
-	store         Store
-	stripeMapping *StripeMapping
-	secret        string
-	logger        *slog.Logger
-	enforcer      *Enforcer
-	auditStore    AuditStore
-	welcomeEmail  WelcomeEmailFunc
-	posthog       *PostHogClient
-	chExporter    billingEventEnqueuer
-	billingEmails *BillingEmailSender
-	edition       string
-	warnOnce      sync.Once
-	replayCache   sync.Map // eventID -> int64 (unix nanos), prevents replay within 10 minutes
+	store             Store
+	stripeMapping     *StripeMapping
+	secret            string
+	logger            *slog.Logger
+	enforcer          *Enforcer
+	auditStore        AuditStore
+	welcomeEmail      WelcomeEmailFunc
+	posthog           *PostHogClient
+	chExporter        billingEventEnqueuer
+	billingEmails     *BillingEmailSender
+	edition           string
+	devBypassSigCheck bool
+	replayCache       sync.Map // eventID -> int64 (unix nanos), prevents replay within 10 minutes
 }
 
 // WebhookOption configures optional WebhookHandler behavior.
@@ -78,6 +78,13 @@ func WithBillingEmails(sender *BillingEmailSender) WebhookOption {
 // WithEdition sets the application edition for security mode decisions.
 func WithEdition(edition string) WebhookOption {
 	return func(h *WebhookHandler) { h.edition = edition }
+}
+
+// WithDevBypassSignatureCheck allows skipping signature verification in development.
+// This must only be enabled when the STRIPE_WEBHOOK_ALLOW_UNSIGNED env var is explicitly
+// set to "true". Production deployments must never enable this option.
+func WithDevBypassSignatureCheck() WebhookOption {
+	return func(h *WebhookHandler) { h.devBypassSigCheck = true }
 }
 
 var (
@@ -220,14 +227,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
 			return
 		}
-	} else if h.edition == "cloud" {
-		h.logger.Error("stripe webhook secret not configured in cloud mode, rejecting request")
+	} else if h.devBypassSigCheck {
+		h.logger.Warn("stripe webhook signature verification bypassed via STRIPE_WEBHOOK_ALLOW_UNSIGNED")
+	} else {
+		h.logger.Error("stripe webhook secret not configured, rejecting request")
 		http.Error(w, "webhook verification unavailable", http.StatusServiceUnavailable)
 		return
-	} else {
-		h.warnOnce.Do(func() {
-			h.logger.Warn("stripe webhook secret not configured — signature verification skipped")
-		})
 	}
 
 	// Parse the Stripe event.

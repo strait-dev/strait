@@ -65,11 +65,19 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if req.Active != nil {
 		active = *req.Active
 	}
+	secret := req.Secret
+	if s.encryptor != nil {
+		enc, encErr := s.encryptor.Encrypt([]byte(secret))
+		if encErr != nil {
+			return nil, huma.Error500InternalServerError("failed to encrypt webhook secret")
+		}
+		secret = string(enc)
+	}
 	sub := &domain.WebhookSubscription{
 		ProjectID:  req.ProjectID,
 		WebhookURL: req.WebhookURL,
 		EventTypes: req.EventTypes,
-		Secret:     req.Secret,
+		Secret:     secret,
 		Active:     active,
 	}
 	if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
@@ -163,8 +171,17 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWeb
 	}
 	newSecret := "whsec_" + hex.EncodeToString(b)
 
+	secretToStore := newSecret
+	if s.encryptor != nil {
+		enc, encErr := s.encryptor.Encrypt([]byte(newSecret))
+		if encErr != nil {
+			return nil, huma.Error500InternalServerError("failed to encrypt webhook secret")
+		}
+		secretToStore = string(enc)
+	}
+
 	graceExpiresAt := time.Now().Add(time.Duration(graceMins) * time.Minute)
-	if err := s.store.RotateWebhookSecret(ctx, input.ID, newSecret, graceExpiresAt); err != nil {
+	if err := s.store.RotateWebhookSecret(ctx, input.ID, secretToStore, graceExpiresAt); err != nil {
 		if errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
 			return nil, huma.Error404NotFound("webhook subscription not found")
 		}

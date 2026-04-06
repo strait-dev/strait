@@ -17,7 +17,7 @@ func TestWebhook_EnterpriseContractCreated_StarterTier(t *testing.T) {
 	mapping := NewStripeMappingFromOptions(
 		WithEnterpriseStarterPrice("wh_test_starter"),
 	)
-	handler := NewWebhookHandler(store, mapping, "", nil, nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", nil, nil, nil, WithDevBypassSignatureCheck())
 
 	tier, ok := mapping.TierForPrice("wh_test_starter")
 	if !ok {

@@ -688,7 +688,7 @@ func TestWebhook_EmptyPayload(t *testing.T) {
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	// No secret = signature check skipped.
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader([]byte("")))
 	rr := httptest.NewRecorder()
@@ -703,7 +703,7 @@ func TestWebhook_MalformedJSON(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader([]byte("{not json")))
 	rr := httptest.NewRecorder()
@@ -718,7 +718,7 @@ func TestWebhook_UnknownEventType(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	body := []byte(`{"type":"invoice.unknown","data":{"object":{}}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))

@@ -99,7 +99,7 @@ func TestWebhookHandler_SubscriptionCreated(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.created",
@@ -150,7 +150,7 @@ func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	// Stripe fires customer.subscription.deleted with CancelAtPeriodEnd=false for immediate revocation.
 	payload := StripeWebhookPayload{
@@ -199,7 +199,7 @@ func TestWebhookHandler_UnknownEventType(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("", "", "", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "some.unknown.event",
@@ -225,7 +225,7 @@ func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.created",
@@ -274,7 +274,7 @@ func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	// Re-deliver the same subscription.created webhook.
 	payload := StripeWebhookPayload{
@@ -330,7 +330,7 @@ func TestWebhook_UpdatedRefreshesPeriodDates(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	newStart := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
 	newEnd := time.Date(2025, 2, 28, 0, 0, 0, 0, time.UTC)
@@ -384,7 +384,7 @@ func TestWebhook_DowngradeDeferred(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	// Update from pro to starter (downgrade).
 	payload := StripeWebhookPayload{
@@ -436,7 +436,7 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	// Update from starter to pro (upgrade).
 	payload := StripeWebhookPayload{
@@ -496,7 +496,7 @@ func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.updated",
@@ -542,7 +542,7 @@ func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	now := time.Now()
 	// Stripe fires customer.subscription.deleted with CancelAtPeriodEnd=true for deferred cancellation.
@@ -591,7 +591,7 @@ func TestWebhook_CanceledWithNoPriorSubscription(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.deleted",
@@ -630,7 +630,7 @@ func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) 
 
 		store := &mockBillingStore{}
 		mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 		payload := StripeWebhookPayload{
 			Type: "customer.subscription.created",
@@ -668,7 +668,7 @@ func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) 
 
 		store := &mockBillingStore{}
 		mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 		payload := StripeWebhookPayload{
 			Type: "customer.subscription.created",
@@ -726,7 +726,7 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 		}
 
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
-			WithWelcomeEmail(welcomeFn))
+			WithDevBypassSignatureCheck(), WithWelcomeEmail(welcomeFn))
 
 		payload := StripeWebhookPayload{
 			Type: "customer.subscription.created",
@@ -789,7 +789,7 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 		}
 
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
-			WithWelcomeEmail(welcomeFn))
+			WithDevBypassSignatureCheck(), WithWelcomeEmail(welcomeFn))
 
 		payload := StripeWebhookPayload{
 			Type: "customer.subscription.created",
@@ -829,7 +829,7 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 		mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 
 		// No WithWelcomeEmail option -- should not panic.
-		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 		payload := StripeWebhookPayload{
 			Type: "customer.subscription.created",
@@ -885,7 +885,7 @@ func TestWebhook_SubscriptionCreated_CreatesAuditEvent(t *testing.T) {
 	store := &mockBillingStore{}
 	audit := &mockAuditStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.created",
@@ -923,7 +923,7 @@ func TestWebhook_SubscriptionCreated_AuditDetails_ContainsPlanTier(t *testing.T)
 	store := &mockBillingStore{}
 	audit := &mockAuditStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.created",
@@ -977,7 +977,7 @@ func TestWebhook_SubscriptionUpdated_Upgrade_AuditHasPreviousTier(t *testing.T) 
 	}
 	audit := &mockAuditStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.updated",
@@ -1031,7 +1031,7 @@ func TestWebhook_SubscriptionUpdated_Downgrade_AuditHasPendingTier(t *testing.T)
 	}
 	audit := &mockAuditStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.updated",
@@ -1085,7 +1085,7 @@ func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
 	}
 	audit := &mockAuditStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit, WithDevBypassSignatureCheck())
 
 	now := time.Now()
 	payload := StripeWebhookPayload{
@@ -1134,7 +1134,7 @@ func TestWebhook_SubscriptionRevoked_CreatesAuditEvent(t *testing.T) {
 	}
 	audit := &mockAuditStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit, WithDevBypassSignatureCheck())
 
 	// Stripe fires customer.subscription.deleted with CancelAtPeriodEnd=false for immediate revocation.
 	payload := StripeWebhookPayload{
@@ -1174,7 +1174,7 @@ func TestWebhook_AuditStore_Nil_DoesNotPanic(t *testing.T) {
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	// Pass nil for auditStore - should not panic.
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.created",
@@ -1206,7 +1206,7 @@ func TestWebhook_AuditEvent_HasCorrectResourceType(t *testing.T) {
 	store := &mockBillingStore{}
 	audit := &mockAuditStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "customer.subscription.created",
@@ -1263,7 +1263,7 @@ func TestWebhook_PaymentFailed_SetsGracePeriod72h(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	// Stripe fires invoice.payment_failed when a payment attempt fails.
 	payload := StripeWebhookPayload{
@@ -1319,7 +1319,7 @@ func TestWebhook_PaymentFailed_StatusBecomesGrace(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	// Stripe fires invoice.payment_failed when a payment attempt fails.
 	payload := StripeWebhookPayload{
@@ -1369,7 +1369,7 @@ func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	// Stripe fires customer.subscription.updated with active status when payment recovers.
 	payload := StripeWebhookPayload{
@@ -1421,7 +1421,7 @@ func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	// Stripe fires invoice.payment_failed for each failed payment attempt.
 	payload := StripeWebhookPayload{
@@ -1474,7 +1474,7 @@ func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	// Stripe fires invoice.payment_failed for each failed payment attempt.
 	payload := StripeWebhookPayload{
@@ -1538,7 +1538,7 @@ func TestWebhook_EmptySecretCloudMode_Rejects(t *testing.T) {
 	}
 }
 
-func TestWebhook_EmptySecretCommunityMode_Allows(t *testing.T) {
+func TestWebhook_EmptySecretCommunityMode_Rejects(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
@@ -1564,18 +1564,17 @@ func TestWebhook_EmptySecretCommunityMode_Allows(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code == http.StatusServiceUnavailable {
-		t.Fatalf("community mode should not reject unsigned webhooks, got %d", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 in community mode with empty secret, got %d", rec.Code)
 	}
 }
 
-func TestWebhook_EmptySecretDefaultEdition_Allows(t *testing.T) {
+func TestWebhook_EmptySecretDefaultEdition_Rejects(t *testing.T) {
 	t.Parallel()
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 
-	// No WithEdition option -- defaults to empty string (non-cloud)
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
 
 	payload := StripeWebhookPayload{
@@ -1595,8 +1594,39 @@ func TestWebhook_EmptySecretDefaultEdition_Allows(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 in default edition with empty secret, got %d", rec.Code)
+	}
+}
+
+func TestWebhook_EmptySecretWithDevBypass_Allows(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
+		WithDevBypassSignatureCheck())
+
+	payload := StripeWebhookPayload{
+		Type: "customer.subscription.created",
+		Data: mustJSON(t, testSubscriptionData{
+			ID:         "sub_1",
+			ProductID:  "starter-id",
+			CustomerID: "cust_1",
+			Status:     "active",
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001d"},
+		}),
+	}
+
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
 	if rec.Code == http.StatusServiceUnavailable {
-		t.Fatalf("default edition should not reject unsigned webhooks, got %d", rec.Code)
+		t.Fatalf("dev bypass should allow unsigned webhooks, got %d", rec.Code)
 	}
 }
 
@@ -1614,7 +1644,7 @@ func TestWebhook_InvoiceUncollectible_SetsRestricted(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	payload := StripeWebhookPayload{
 		Type: "invoice.marked_uncollectible",
