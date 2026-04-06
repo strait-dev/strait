@@ -888,6 +888,16 @@ func TestTenantIsolation_DeleteEventSubscription_CrossProject(t *testing.T) {
 		}
 		return nil, store.ErrEventSourceNotFound
 	}
+	ms.GetEventSubscriptionFunc = func(_ context.Context, subID string) (*domain.EventSubscription, error) {
+		// sub-1 belongs to src-a, sub-2 belongs to src-b.
+		if subID == "sub-1" {
+			return &domain.EventSubscription{ID: "sub-1", SourceID: "src-a"}, nil
+		}
+		if subID == "sub-2" {
+			return &domain.EventSubscription{ID: "sub-2", SourceID: "src-b"}, nil
+		}
+		return nil, store.ErrEventSubscriptionNotFound
+	}
 	ms.DeleteEventSubscriptionFunc = func(_ context.Context, _ string) error {
 		return nil
 	}
@@ -900,7 +910,7 @@ func TestTenantIsolation_DeleteEventSubscription_CrossProject(t *testing.T) {
 		projectID string
 		wantCode  int
 	}{
-		{"own project source", "src-b", "sub-1", projectB, http.StatusNoContent},
+		{"own project source", "src-b", "sub-2", projectB, http.StatusNoContent},
 		{"cross project source", "src-a", "sub-1", projectB, http.StatusNotFound},
 		{"no project context (internal)", "src-a", "sub-1", "", http.StatusNoContent},
 	}

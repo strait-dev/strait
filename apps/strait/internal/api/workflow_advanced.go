@@ -26,6 +26,9 @@ type UpsertWorkflowPolicyOutput struct {
 }
 
 func (s *Server) handleUpsertWorkflowPolicy(ctx context.Context, input *UpsertWorkflowPolicyInput) (*UpsertWorkflowPolicyOutput, error) {
+	if err := requireProjectMatch(ctx, input.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("not found")
+	}
 	policy := &domain.WorkflowPolicy{
 		ProjectID:                input.ProjectID,
 		MaxFanOut:                input.Body.MaxFanOut,
@@ -48,6 +51,9 @@ type GetWorkflowPolicyOutput struct {
 }
 
 func (s *Server) handleGetWorkflowPolicy(ctx context.Context, input *GetWorkflowPolicyInput) (*GetWorkflowPolicyOutput, error) {
+	if err := requireProjectMatch(ctx, input.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("not found")
+	}
 	policy, err := s.store.GetWorkflowPolicyByProject(ctx, input.ProjectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get workflow policy")

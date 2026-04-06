@@ -314,6 +314,9 @@ func TestHandleListEventSourceSubscriptions_Success(t *testing.T) {
 func TestHandleDeleteEventSubscription_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetEventSubscriptionFunc: func(_ context.Context, subID string) (*domain.EventSubscription, error) {
+			return &domain.EventSubscription{ID: subID, SourceID: "src-1"}, nil
+		},
 		DeleteEventSubscriptionFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
@@ -331,8 +334,8 @@ func TestHandleDeleteEventSubscription_Success(t *testing.T) {
 func TestHandleDeleteEventSubscription_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		DeleteEventSubscriptionFunc: func(_ context.Context, _ string) error {
-			return store.ErrEventSubscriptionNotFound
+		GetEventSubscriptionFunc: func(_ context.Context, _ string) (*domain.EventSubscription, error) {
+			return nil, store.ErrEventSubscriptionNotFound
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)

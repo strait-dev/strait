@@ -86,6 +86,26 @@ func (q *Queries) ListJobDependencies(ctx context.Context, jobID string, limit i
 	return deps, nil
 }
 
+var ErrJobDependencyNotFound = errors.New("job dependency not found")
+
+func (q *Queries) GetJobDependency(ctx context.Context, id string) (*domain.JobDependency, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobDependency")
+	defer span.End()
+
+	var dep domain.JobDependency
+	err := q.db.QueryRow(ctx, `
+		SELECT id, job_id, depends_on_job_id, condition, created_at
+		FROM job_dependencies WHERE id = $1`, id).Scan(
+		&dep.ID, &dep.JobID, &dep.DependsOnJobID, &dep.Condition, &dep.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrJobDependencyNotFound
+		}
+		return nil, fmt.Errorf("get job dependency: %w", err)
+	}
+	return &dep, nil
+}
+
 func (q *Queries) DeleteJobDependency(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJobDependency")
 	defer span.End()

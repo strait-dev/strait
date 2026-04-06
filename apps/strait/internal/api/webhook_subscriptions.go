@@ -47,6 +47,9 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 	if err := s.checkWebhookEndpointLimit(ctx, req.ProjectID); err != nil {
 		return nil, err
 	}

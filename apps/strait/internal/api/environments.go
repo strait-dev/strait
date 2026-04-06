@@ -48,6 +48,10 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 		return nil, newValidationError(err)
 	}
 
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
+
 	if err := s.checkEnvironmentLimit(ctx, req.ProjectID); err != nil {
 		return nil, err
 	}

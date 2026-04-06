@@ -259,6 +259,16 @@ func (s *Server) handleDeleteEventSubscription(ctx context.Context, input *Delet
 			return nil, huma.Error500InternalServerError("failed to get event source")
 		}
 	}
+	sub, err := s.store.GetEventSubscription(ctx, input.SubID)
+	if err != nil {
+		if errors.Is(err, store.ErrEventSubscriptionNotFound) {
+			return nil, huma.Error404NotFound("event subscription not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get event subscription")
+	}
+	if sub.SourceID != input.SourceID {
+		return nil, huma.Error404NotFound("event subscription not found")
+	}
 	if err := s.store.DeleteEventSubscription(ctx, input.SubID); err != nil {
 		if errors.Is(err, store.ErrEventSubscriptionNotFound) {
 			return nil, huma.Error404NotFound("event subscription not found")

@@ -92,6 +92,16 @@ func (s *Server) handleDeleteJobDependency(ctx context.Context, input *DeleteJob
 		}
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
+	dep, err := s.store.GetJobDependency(ctx, input.DepID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobDependencyNotFound) {
+			return nil, huma.Error404NotFound("job dependency not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job dependency")
+	}
+	if dep.JobID != input.JobID {
+		return nil, huma.Error404NotFound("job dependency not found")
+	}
 	if err := s.store.DeleteJobDependency(ctx, input.DepID); err != nil {
 		return nil, huma.Error500InternalServerError("failed to delete job dependency")
 	}

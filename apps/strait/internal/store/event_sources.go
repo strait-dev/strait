@@ -224,6 +224,25 @@ func (q *Queries) ListEventSubscriptionsBySource(ctx context.Context, sourceID s
 	return subs, rows.Err()
 }
 
+func (q *Queries) GetEventSubscription(ctx context.Context, subID string) (*domain.EventSubscription, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventSubscription")
+	defer span.End()
+
+	var sub domain.EventSubscription
+	err := q.db.QueryRow(ctx, `
+		SELECT id, source_id, target_type, target_id, filter_expr, enabled, created_at
+		FROM event_subscriptions WHERE id = $1
+	`, subID).Scan(&sub.ID, &sub.SourceID, &sub.TargetType, &sub.TargetID,
+		&sub.FilterExpr, &sub.Enabled, &sub.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEventSubscriptionNotFound
+		}
+		return nil, fmt.Errorf("get event subscription: %w", err)
+	}
+	return &sub, nil
+}
+
 func (q *Queries) DeleteEventSubscription(ctx context.Context, subID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEventSubscription")
 	defer span.End()
