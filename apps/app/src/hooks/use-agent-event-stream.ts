@@ -84,7 +84,7 @@ export function useAgentEventStream(
       setState((prev) => ({ ...prev, connected: true, error: null }));
     };
 
-    // Listen for typed events.
+    // Listen for typed events. Store references for cleanup on reconnect.
     const eventTypes: AgentEventType[] = [
       "tool_call",
       "usage",
@@ -94,8 +94,9 @@ export function useAgentEventStream(
       "complete",
       "fail",
     ];
+    const handlers: [string, (e: MessageEvent) => void][] = [];
     for (const eventType of eventTypes) {
-      es.addEventListener(eventType, (event: MessageEvent) => {
+      const handler = (event: MessageEvent) => {
         if (!event.data) {
           return;
         }
@@ -104,7 +105,9 @@ export function useAgentEventStream(
           ...prev,
           events: [...prev.events, parsed],
         }));
-      });
+      };
+      es.addEventListener(eventType, handler);
+      handlers.push([eventType, handler]);
     }
 
     // Fallback for untyped messages (backward compat).
@@ -120,6 +123,10 @@ export function useAgentEventStream(
     };
 
     es.onerror = () => {
+      // Remove all typed event listeners before closing to prevent leaks on reconnect.
+      for (const [type, handler] of handlers) {
+        es.removeEventListener(type, handler);
+      }
       es.close();
       esRef.current = null;
       setState((prev) => ({ ...prev, connected: false }));

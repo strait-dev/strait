@@ -136,12 +136,7 @@ function RouteComponent() {
   const { data: subscriptionState } = useQuery(subscriptionStateQueryOptions());
 
   useEffect(() => {
-    if (
-      hasIdentifiedRef.current ||
-      !posthog ||
-      !session?.user?.id ||
-      !subscriptionState
-    ) {
+    if (!(posthog && session?.user?.id && subscriptionState)) {
       return;
     }
 
@@ -150,49 +145,33 @@ function RouteComponent() {
     const trialEnd = subscriptionState.trialInfo?.trialEnd ?? null;
     const organizationId = session.user.defaultOrganizationId;
 
-    posthog.identify(session.user.id, {
-      email: session.user.email,
-      name: session.user.name || undefined,
-      plan,
-      is_trialing: isTrialing,
-      trial_ends_at: trialEnd,
-      organization_id: organizationId || undefined,
-    });
-
-    if (organizationId) {
-      posthog.group("organization", organizationId, {
+    // First identification: set identity, UTM params, and initial properties.
+    if (!hasIdentifiedRef.current) {
+      posthog.identify(session.user.id, {
+        email: session.user.email,
+        name: session.user.name || undefined,
         plan,
         is_trialing: isTrialing,
-        subscription_status: subscription?.status || "none",
+        trial_ends_at: trialEnd,
+        organization_id: organizationId || undefined,
       });
+
+      const utm = consumeUtmParams();
+      const setOnce: Record<string, string> = {
+        initial_signup_date: new Date(session.user.createdAt).toISOString(),
+        ...(utm ? utmToSetOnce(utm) : {}),
+      };
+      posthog.setPersonProperties({}, setOnce);
+      hasIdentifiedRef.current = true;
     }
 
-    const utm = consumeUtmParams();
-    const setOnce: Record<string, string> = {
-      initial_signup_date: new Date(session.user.createdAt).toISOString(),
-      ...(utm ? utmToSetOnce(utm) : {}),
-    };
-    posthog.setPersonProperties({}, setOnce);
-
-    hasIdentifiedRef.current = true;
-  }, [posthog, session, subscription, subscriptionState]);
-
-  useEffect(() => {
-    if (!(posthog && hasIdentifiedRef.current && subscriptionState)) {
-      return;
-    }
-
-    const plan = subscriptionState.planSlug ?? "none";
-    const isTrialing = subscriptionState.isTrialing ?? false;
-    const trialEnd = subscriptionState.trialInfo?.trialEnd ?? null;
-
+    // Always update plan properties when subscription changes.
     posthog.setPersonProperties({
       plan,
       is_trialing: isTrialing,
       trial_ends_at: trialEnd,
     });
 
-    const organizationId = session.user.defaultOrganizationId;
     if (organizationId) {
       posthog.group("organization", organizationId, {
         plan,

@@ -8,7 +8,7 @@ import {
 } from "@strait/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Suspense } from "react";
+import { lazy, Suspense } from "react";
 import AddonsTab from "@/components/billing/addons-tab";
 import AgentBillingTab from "@/components/billing/agent-billing-tab";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
@@ -16,7 +16,11 @@ import { EnterpriseOverview } from "@/components/billing/enterprise-overview";
 import ProjectCostsTab from "@/components/billing/project-costs-tab";
 import SpendingLimitSetupBanner from "@/components/billing/spending-limit-setup-banner";
 import SpendingLimitsTab from "@/components/billing/spending-limits-tab";
-import UsageDashboard from "@/components/billing/usage-dashboard";
+
+const UsageDashboard = lazy(
+  () => import("@/components/billing/usage-dashboard")
+);
+
 import UsageHistoryTab from "@/components/billing/usage-history-tab";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import InlineError from "@/components/common/inline-error";

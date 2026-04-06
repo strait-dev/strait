@@ -1,7 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { lazy, Suspense } from "react";
 
 import ErrorComponent from "@/components/common/error-component";
-import DashboardContent from "@/components/dashboard/dashboard-content";
+
+const DashboardContent = lazy(
+  () => import("@/components/dashboard/dashboard-content")
+);
+
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import {
   analyticsQueryOptions as analyticsQueryOptionsFn,
@@ -38,9 +43,13 @@ function RouteComponent() {
   const { hasProject, activeProjectId } = Route.useLoaderData();
 
   return (
-    <DashboardContent
-      activeProjectId={activeProjectId}
-      hasProject={hasProject}
-    />
+    <Suspense
+      fallback={<div className="h-96 animate-pulse rounded-lg bg-muted" />}
+    >
+      <DashboardContent
+        activeProjectId={activeProjectId}
+        hasProject={hasProject}
+      />
+    </Suspense>
   );
 }
