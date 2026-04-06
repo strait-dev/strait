@@ -1044,6 +1044,7 @@ type CreateNotifyUnsuppressRequest struct {
 	Channel string `json:"channel" validate:"required"`
 	Reason  string `json:"reason,omitempty"`
 	Scope   string `json:"scope,omitempty"`
+	Force   bool   `json:"force,omitempty"`
 }
 
 type CreateNotifyUnsuppressInput struct {
@@ -1087,6 +1088,10 @@ func (s *Server) handleCreateNotifyUnsuppress(ctx context.Context, input *Create
 		reason = "manual_unsuppress"
 	}
 
+	if policyErr := s.enforceNotifyUnsuppressPolicy(ctx, ns, projectID, sub.ID, channel, input.Body.Force, false); policyErr != nil {
+		return nil, policyErr
+	}
+
 	if err := ns.EnableNotificationChannelPreference(ctx, domain.NotifyRecipientTypeSubscriber, sub.ID, scope, channel); err != nil {
 		return nil, huma.Error500InternalServerError("failed to enable channel preference")
 	}
@@ -1094,6 +1099,7 @@ func (s *Server) handleCreateNotifyUnsuppress(ctx context.Context, input *Create
 	metadata, err := json.Marshal(map[string]any{
 		"actor": actorFromContext(ctx),
 		"path":  "api.unsuppress",
+		"force": input.Body.Force,
 	})
 	if err == nil {
 		if eventErr := ns.CreateNotifySuppressionEvent(ctx, &domain.NotifySuppressionEvent{
@@ -1117,6 +1123,7 @@ func (s *Server) handleCreateNotifyUnsuppress(ctx context.Context, input *Create
 		"channel":       channel,
 		"scope":         scope,
 		"reason":        reason,
+		"force":         input.Body.Force,
 	}}, nil
 }
 

@@ -330,6 +330,7 @@ func (s *Server) upsertNotifyPreferenceScope(ctx context.Context, scope string, 
 	if err != nil {
 		return nil, err
 	}
+	projectID := projectIDFromContext(ctx)
 	recipientType := notifyRecipientTypeFromContext(ctx)
 	recipientID := notifyRecipientIDFromContext(ctx)
 
@@ -346,6 +347,19 @@ func (s *Server) upsertNotifyPreferenceScope(ctx context.Context, scope string, 
 		}
 	}
 	if len(req.ChannelPrefs) > 0 {
+		if notifyChannelPrefExplicitEnableEmail(req.ChannelPrefs) {
+			if err := s.enforceNotifyUnsuppressPolicy(
+				ctx,
+				ns,
+				projectID,
+				recipientID,
+				"email",
+				false,
+				true,
+			); err != nil {
+				return nil, err
+			}
+		}
 		existing.ChannelPrefs = req.ChannelPrefs
 	} else {
 		existing.ChannelPrefs = nil

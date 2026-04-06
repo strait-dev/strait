@@ -357,6 +357,14 @@ func TestNotifySuppressionEvents_CreateAndList(t *testing.T) {
 	if len(listed) != 2 {
 		t.Fatalf("ListNotifySuppressionEvents() len = %d, want 2", len(listed))
 	}
+
+	latest, err := q.GetLatestNotifySuppressionEvent(ctx, evt1.ProjectID, evt1.RecipientType, evt1.RecipientID, "global", "email")
+	if err != nil {
+		t.Fatalf("GetLatestNotifySuppressionEvent() error = %v", err)
+	}
+	if latest.Action != domain.NotifySuppressionActionUnsuppressed {
+		t.Fatalf("latest.Action = %q, want %q", latest.Action, domain.NotifySuppressionActionUnsuppressed)
+	}
 }
 
 func TestNotificationMessageAndProviderLifecycle(t *testing.T) {

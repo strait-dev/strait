@@ -29,6 +29,7 @@ type notifyStoreAdapter struct {
 	enableNotificationChannelPreferenceFunc     func(ctx context.Context, recipientType, recipientID, scope, channel string) error
 	createNotifySuppressionEventFunc            func(ctx context.Context, event *domain.NotifySuppressionEvent) error
 	listNotifySuppressionEventsFunc             func(ctx context.Context, projectID, recipientType, recipientID string, limit int, cursor *time.Time) ([]domain.NotifySuppressionEvent, error)
+	getLatestNotifySuppressionEventFunc         func(ctx context.Context, projectID, recipientType, recipientID, scope, channel string) (*domain.NotifySuppressionEvent, error)
 	recordNotifyProviderCallbackReceiptFunc     func(ctx context.Context, projectID, providerID, provider, callbackID, eventType, messageID, payloadHash string, expiresAt time.Time) (bool, error)
 	deleteNotifyProviderCallbackReceiptFunc     func(ctx context.Context, projectID, providerID, callbackID string) error
 	getNotificationMessageFunc                  func(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error)
@@ -133,6 +134,13 @@ func (m *notifyStoreAdapter) ListNotifySuppressionEvents(ctx context.Context, pr
 		return []domain.NotifySuppressionEvent{}, nil
 	}
 	return m.listNotifySuppressionEventsFunc(ctx, projectID, recipientType, recipientID, limit, cursor)
+}
+
+func (m *notifyStoreAdapter) GetLatestNotifySuppressionEvent(ctx context.Context, projectID, recipientType, recipientID, scope, channel string) (*domain.NotifySuppressionEvent, error) {
+	if m.getLatestNotifySuppressionEventFunc == nil {
+		return nil, store.ErrNotifySuppressionEventNotFound
+	}
+	return m.getLatestNotifySuppressionEventFunc(ctx, projectID, recipientType, recipientID, scope, channel)
 }
 
 func (m *notifyStoreAdapter) RecordNotifyProviderCallbackReceipt(
@@ -324,6 +332,148 @@ func TestCreateNotifyUnsuppress(t *testing.T) {
 	}
 }
 
+func TestCreateNotifyUnsuppress_RequiresForceForProviderComplaint(t *testing.T) {
+	t.Parallel()
+
+	enableCalled := false
+	ns := &notifyStoreAdapter{
+		getNotifySubscriberFunc: func(_ context.Context, id, projectID string) (*domain.NotifySubscriber, error) {
+			return &domain.NotifySubscriber{ID: id, ProjectID: projectID}, nil
+		},
+		getLatestNotifySuppressionEventFunc: func(_ context.Context, projectID, recipientType, recipientID, scope, channel string) (*domain.NotifySuppressionEvent, error) {
+			return &domain.NotifySuppressionEvent{
+				ID:            "evt_1",
+				ProjectID:     projectID,
+				RecipientType: recipientType,
+				RecipientID:   recipientID,
+				Scope:         scope,
+				Channel:       channel,
+				Action:        domain.NotifySuppressionActionSuppressed,
+				Reason:        "provider_callback:email.complained",
+				Source:        domain.NotifySuppressionSourceProviderCallback,
+			}, nil
+		},
+		enableNotificationChannelPreferenceFunc: func(_ context.Context, _, _, _, _ string) error {
+			enableCalled = true
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/subscribers/sub_1/suppressions/unsuppress", `{"channel":"email","scope":"global"}`, "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusConflict, w.Body.String())
+	}
+	if enableCalled {
+		t.Fatal("expected enable to be blocked by policy")
+	}
+}
+
+func TestCreateNotifyUnsuppress_ForceOverrideAllowsProviderComplaint(t *testing.T) {
+	t.Parallel()
+
+	enableCalled := false
+	ns := &notifyStoreAdapter{
+		getNotifySubscriberFunc: func(_ context.Context, id, projectID string) (*domain.NotifySubscriber, error) {
+			return &domain.NotifySubscriber{ID: id, ProjectID: projectID}, nil
+		},
+		getLatestNotifySuppressionEventFunc: func(_ context.Context, projectID, recipientType, recipientID, scope, channel string) (*domain.NotifySuppressionEvent, error) {
+			return &domain.NotifySuppressionEvent{
+				ID:            "evt_1",
+				ProjectID:     projectID,
+				RecipientType: recipientType,
+				RecipientID:   recipientID,
+				Scope:         scope,
+				Channel:       channel,
+				Action:        domain.NotifySuppressionActionSuppressed,
+				Reason:        "provider_callback:email.bounced",
+				Source:        domain.NotifySuppressionSourceProviderCallback,
+			}, nil
+		},
+		enableNotificationChannelPreferenceFunc: func(_ context.Context, _, _, _, _ string) error {
+			enableCalled = true
+			return nil
+		},
+		createNotifySuppressionEventFunc: func(_ context.Context, event *domain.NotifySuppressionEvent) error {
+			if event.Action != domain.NotifySuppressionActionUnsuppressed {
+				t.Fatalf("event.Action = %q, want %q", event.Action, domain.NotifySuppressionActionUnsuppressed)
+			}
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/subscribers/sub_1/suppressions/unsuppress", `{"channel":"email","scope":"global","force":true}`, "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !enableCalled {
+		t.Fatal("expected enable when force=true")
+	}
+}
+
+func TestUpdateNotifyPreferencesScope_BlocksSelfServiceUnsuppressForProviderComplaint(t *testing.T) {
+	t.Parallel()
+
+	upsertCalled := false
+	ns := &notifyStoreAdapter{
+		getNotificationPreferenceFunc: func(_ context.Context, recipientType, recipientID, scope string) (*domain.NotificationPreference, error) {
+			return &domain.NotificationPreference{
+				RecipientType:    recipientType,
+				RecipientID:      recipientID,
+				Scope:            scope,
+				ChannelPrefs:     []byte(`{"email":false}`),
+				Timezone:         "UTC",
+				DigestPolicy:     "immediate",
+				CriticalOverride: true,
+			}, nil
+		},
+		getLatestNotifySuppressionEventFunc: func(_ context.Context, projectID, recipientType, recipientID, scope, channel string) (*domain.NotifySuppressionEvent, error) {
+			return &domain.NotifySuppressionEvent{
+				ProjectID:     projectID,
+				RecipientType: recipientType,
+				RecipientID:   recipientID,
+				Scope:         scope,
+				Channel:       channel,
+				Action:        domain.NotifySuppressionActionSuppressed,
+				Reason:        "provider_callback:email.complained",
+			}, nil
+		},
+		upsertNotificationPreferenceFunc: func(_ context.Context, _ *domain.NotificationPreference) error {
+			upsertCalled = true
+			return nil
+		},
+		listNotificationPreferencesFunc: func(_ context.Context, _, _ string) ([]domain.NotificationPreference, error) {
+			return []domain.NotificationPreference{}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	token, err := srv.createNotifySubscriberToken("sub_1", "proj_1", "", time.Hour)
+	if err != nil {
+		t.Fatalf("createNotifySubscriberToken() error = %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPut, "/v1/preferences/global", strings.NewReader(`{"channel_prefs":{"email":true}}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Authorization", "Bearer "+token)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusConflict, w.Body.String())
+	}
+	if upsertCalled {
+		t.Fatal("expected preference upsert to be blocked")
+	}
+}
+
 func TestListNotifySuppressionEvents(t *testing.T) {
 	t.Parallel()
 
@@ -359,6 +509,44 @@ func TestListNotifySuppressionEvents(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "evt_1") {
 		t.Fatalf("response body missing suppression event: %s", w.Body.String())
+	}
+}
+
+func TestNotifySuppressionReasonRequiresManualOverride(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		reason string
+		want   bool
+	}{
+		{name: "complaint callback", reason: "provider_callback:email.complained", want: true},
+		{name: "bounce callback", reason: "provider_callback:email.bounced", want: true},
+		{name: "provider callback delivered", reason: "provider_callback:email.delivered", want: false},
+		{name: "manual reason", reason: "manual_unsuppress", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := notifySuppressionReasonRequiresManualOverride(tc.reason); got != tc.want {
+				t.Fatalf("notifySuppressionReasonRequiresManualOverride(%q) = %v, want %v", tc.reason, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNotifyChannelPrefExplicitEnableEmail(t *testing.T) {
+	t.Parallel()
+
+	if !notifyChannelPrefExplicitEnableEmail(json.RawMessage(`{"email":true}`)) {
+		t.Fatal("notifyChannelPrefExplicitEnableEmail(email=true) = false, want true")
+	}
+	if notifyChannelPrefExplicitEnableEmail(json.RawMessage(`{"email":false}`)) {
+		t.Fatal("notifyChannelPrefExplicitEnableEmail(email=false) = true, want false")
+	}
+	if notifyChannelPrefExplicitEnableEmail(json.RawMessage(`{"inbox":true}`)) {
+		t.Fatal("notifyChannelPrefExplicitEnableEmail(missing email) = true, want false")
 	}
 }
 

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -103,6 +105,36 @@ func (q *Queries) ListNotifySuppressionEvents(ctx context.Context, projectID, re
 	}
 
 	return events, nil
+}
+
+func (q *Queries) GetLatestNotifySuppressionEvent(ctx context.Context, projectID, recipientType, recipientID, scope, channel string) (*domain.NotifySuppressionEvent, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetLatestNotifySuppressionEvent")
+	defer span.End()
+
+	if scope == "" {
+		scope = "global"
+	}
+
+	const query = `
+		SELECT id, project_id, recipient_type, recipient_id, scope, channel, action, reason, source, metadata, created_at
+		FROM notify_suppression_events
+		WHERE project_id = $1
+		  AND recipient_type = $2
+		  AND recipient_id = $3
+		  AND scope = $4
+		  AND channel = $5
+		ORDER BY created_at DESC
+		LIMIT 1`
+
+	event, err := scanNotifySuppressionEvent(q.db.QueryRow(ctx, query, projectID, recipientType, recipientID, scope, channel))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotifySuppressionEventNotFound
+		}
+		return nil, fmt.Errorf("get latest notify suppression event: %w", err)
+	}
+
+	return event, nil
 }
 
 func scanNotifySuppressionEvent(scanner scanTarget) (*domain.NotifySuppressionEvent, error) {
