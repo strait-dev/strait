@@ -509,7 +509,8 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 		       paused, paused_at, pause_reason
 		FROM jobs
 		WHERE enabled = TRUE AND NOT paused AND cron IS NOT NULL AND cron <> ''
-		ORDER BY created_at DESC`
+		ORDER BY created_at DESC
+		LIMIT 10000`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
