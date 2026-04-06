@@ -146,15 +146,16 @@ type ListJobsByGroupInput struct {
 type ListJobsByGroupOutput struct{ Body PaginatedResponse }
 
 func (s *Server) handleListJobsByGroup(ctx context.Context, input *ListJobsByGroupInput) (*ListJobsByGroupOutput, error) {
-	group, err := s.store.GetJobGroup(ctx, input.GroupID)
-	if err != nil {
-		if errors.Is(err, store.ErrJobGroupNotFound) {
-			return nil, huma.Error404NotFound("job group not found")
-		}
+	group, groupErr := s.store.GetJobGroup(ctx, input.GroupID)
+	if groupErr != nil && !errors.Is(groupErr, store.ErrJobGroupNotFound) {
 		return nil, huma.Error500InternalServerError("failed to get job group")
 	}
-	if err := requireProjectMatch(ctx, group.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("job group not found")
+	// For deleted groups, return empty results rather than 404.
+	// For cross-project groups, return empty results (same as not found).
+	if group != nil {
+		if pmErr := requireProjectMatch(ctx, group.ProjectID); pmErr != nil {
+			return &ListJobsByGroupOutput{Body: PaginatedResponse{Data: []any{}, HasMore: false}}, nil //nolint:nilerr // intentional: return empty results for cross-project
+		}
 	}
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {

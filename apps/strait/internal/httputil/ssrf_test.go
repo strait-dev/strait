@@ -29,8 +29,7 @@ func mockLookupHost(host string) ([]string, error) {
 }
 
 func TestValidateExternalURL(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: modifies package-level lookupHost.
 	origLookup := lookupHost
 	t.Cleanup(func() { lookupHost = origLookup })
 	lookupHost = mockLookupHost
@@ -122,8 +121,7 @@ func TestValidateExternalURL(t *testing.T) {
 }
 
 func TestValidateExternalURL_DNSResolvesToPrivate(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: modifies package-level lookupHost.
 	origLookup := lookupHost
 	t.Cleanup(func() { lookupHost = origLookup })
 	lookupHost = mockLookupHost
@@ -161,8 +159,7 @@ func TestValidateExternalURL_DNSResolvesToPrivate(t *testing.T) {
 }
 
 func TestValidateExternalURL_DNSLookupFailure(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: modifies package-level lookupHost.
 	origLookup := lookupHost
 	t.Cleanup(func() { lookupHost = origLookup })
 	lookupHost = mockLookupHost

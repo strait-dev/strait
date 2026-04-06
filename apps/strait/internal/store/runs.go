@@ -1009,9 +1009,20 @@ func (q *Queries) ReplayDeadLetterRun(ctx context.Context, runID string) (*domai
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReplayDeadLetterRun")
 	defer span.End()
 
-	// Use CAS transition directly to avoid read-check-update race where two
-	// concurrent replays could both pass a separate status check.
-	err := q.UpdateRunStatus(ctx, runID, domain.StatusDeadLetter, domain.StatusQueued, map[string]any{
+	// Verify the run is currently in dead_letter status before attempting the
+	// CAS transition. This prevents the idempotent path in UpdateRunStatus
+	// from masking invalid replay attempts (e.g. replaying a queued run returns
+	// nil because queued == queued target).
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("replay dead letter run: %w", err)
+	}
+	if run.Status != domain.StatusDeadLetter {
+		return nil, fmt.Errorf("replay dead letter run: %w: run %s has status %s, expected dead_letter", ErrRunConflict, runID, run.Status)
+	}
+
+	// CAS transition to prevent concurrent replays from both succeeding.
+	err = q.UpdateRunStatus(ctx, runID, domain.StatusDeadLetter, domain.StatusQueued, map[string]any{
 		"attempt":       1,
 		"error":         "",
 		"started_at":    nil,

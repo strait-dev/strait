@@ -402,9 +402,9 @@ func (e *Executor) Run(ctx context.Context) {
 	// is canceled or Shutdown closes e.stop, so all background goroutines
 	// (heartbeat, pool pruner) exit promptly in both cases.
 	runCtx, runCancel := context.WithCancel(ctx)
+	defer runCancel()
 
 	defer func() {
-		runCancel()
 		close(e.done)
 		// Wait for in-flight polls and tracked goroutines to finish
 		// emitting events, then close the event channel so the event
