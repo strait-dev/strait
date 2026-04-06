@@ -102,11 +102,24 @@ export interface InboxFeedEvent {
   event: string;
 }
 
+export interface InboxFeedReconnectPolicy {
+  baseDelayMs?: number;
+  maxAttempts?: number;
+  maxDelayMs?: number;
+}
+
 export interface ConnectInboxFeedInput {
+  heartbeatTimeoutMs?: number;
   onClose?: () => void;
   onError?: (error: InboxClientError) => void;
   onEvent?: (event: InboxFeedEvent) => void;
   onOpen?: () => void;
+  onReconnect?: (
+    attempt: number,
+    delayMs: number,
+    error: InboxClientError
+  ) => void;
+  reconnect?: InboxFeedReconnectPolicy;
   signal?: AbortSignal;
 }
 

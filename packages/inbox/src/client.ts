@@ -16,6 +16,7 @@ import type {
   InboxClient,
   InboxClientConfig,
   InboxFeedEvent,
+  InboxFeedReconnectPolicy,
   ListInboxInput,
   ProcessUnsubscribeRequest,
   UpdateInboxItemStateInput,
@@ -29,9 +30,28 @@ type RequestShape = {
   query?: Record<string, string | number | undefined>;
 };
 
+type FeedConnectConfig = {
+  heartbeatTimeoutMs: number;
+  onClose?: () => void;
+  onError?: (error: InboxClientError) => void;
+  onEvent?: (event: InboxFeedEvent) => void;
+  onOpen?: () => void;
+  onReconnect?: (
+    attempt: number,
+    delayMs: number,
+    error: InboxClientError
+  ) => void;
+  reconnect: Required<InboxFeedReconnectPolicy>;
+  signal?: AbortSignal;
+};
+
 const trailingSlashRegex = /\/+$/;
 const newlineRegex = /\r\n/g;
 const noop = (): void => undefined;
+
+const defaultFeedReconnectBaseDelayMs = 500;
+const defaultFeedReconnectMaxDelayMs = 15_000;
+const defaultFeedHeartbeatTimeoutMs = 90_000;
 
 export const makeInboxClient = (config: InboxClientConfig): InboxClient => {
   const fetchImpl = resolveFetch(config.fetch);
@@ -98,75 +118,63 @@ export const makeInboxClient = (config: InboxClientConfig): InboxClient => {
       method: "GET",
       path: "/v1/inbox/feed",
     };
+    const feedConfig = resolveFeedConnectConfig(input);
 
     return Effect.tryPromise({
       try: async () => {
-        const token = await resolveToken(config.token);
-        if (!token) {
-          throw new InboxClientError({
-            path: request.path,
-            method: request.method,
-            details: "missing subscriber token",
-          });
-        }
-
-        const abortController = new AbortController();
+        const lifecycleController = new AbortController();
         const cleanupExternalSignal = attachExternalAbort(
-          abortController,
-          input.signal
+          lifecycleController,
+          feedConfig.signal
         );
 
-        const response = await fetchImpl(buildURL(baseUrl, request.path), {
-          method: request.method,
-          headers: {
-            Accept: "text/event-stream",
-            Authorization: `Bearer ${token}`,
-            ...(config.headers ?? {}),
-          },
-          signal: abortController.signal,
-        });
-
-        if (!response.ok) {
-          const text = await response.text();
-          cleanupExternalSignal();
-          throw new InboxClientError({
-            path: request.path,
-            method: request.method,
-            status: response.status,
-            details: parseErrorDetails(text),
+        try {
+          const initialReader = await openInboxFeedSession({
+            baseUrl,
+            config,
+            fetchImpl,
+            request,
+            signal: lifecycleController.signal,
           });
-        }
+          feedConfig.onOpen?.();
 
-        if (!response.body) {
-          cleanupExternalSignal();
-          throw new InboxClientError({
-            path: request.path,
-            method: request.method,
-            details: "stream body unavailable",
-          });
-        }
+          const readerRef: {
+            current: ReadableStreamDefaultReader<Uint8Array> | null;
+          } = {
+            current: initialReader,
+          };
 
-        const reader = response.body.getReader();
-        input.onOpen?.();
-
-        const closed = runFeedLoop(reader, request, input)
-          .catch((cause) => {
-            const error = normalizeRequestError(request, cause);
-            input.onError?.(error);
+          const closed = runManagedFeedLoop({
+            baseUrl,
+            config,
+            currentReader: initialReader,
+            feedConfig,
+            fetchImpl,
+            lifecycleController,
+            readerRef,
+            request,
           })
-          .finally(() => {
-            cleanupExternalSignal();
-            input.onClose?.();
-          });
+            .catch((cause) => {
+              const error = normalizeRequestError(request, cause);
+              feedConfig.onError?.(error);
+            })
+            .finally(() => {
+              cleanupExternalSignal();
+              feedConfig.onClose?.();
+            });
 
-        return {
-          close: () => {
-            abortController.abort();
-            const cancelPromise = reader.cancel();
-            cancelPromise.catch(() => undefined);
-          },
-          closed,
-        };
+          return {
+            close: () => {
+              lifecycleController.abort();
+              const cancelPromise = readerRef.current?.cancel();
+              cancelPromise?.catch(noop);
+            },
+            closed,
+          };
+        } catch (cause) {
+          cleanupExternalSignal();
+          throw cause;
+        }
       },
       catch: (cause) => normalizeRequestError(request, cause),
     });
@@ -278,40 +286,165 @@ export const makeInboxClient = (config: InboxClientConfig): InboxClient => {
   };
 };
 
+const runManagedFeedLoop = async ({
+  baseUrl,
+  config,
+  currentReader,
+  feedConfig,
+  fetchImpl,
+  lifecycleController,
+  readerRef,
+  request,
+}: {
+  baseUrl: string;
+  config: InboxClientConfig;
+  currentReader: ReadableStreamDefaultReader<Uint8Array>;
+  feedConfig: FeedConnectConfig;
+  fetchImpl: FetchLike;
+  lifecycleController: AbortController;
+  readerRef: { current: ReadableStreamDefaultReader<Uint8Array> | null };
+  request: RequestShape;
+}): Promise<void> => {
+  let reader = currentReader;
+  let reconnectAttempt = 0;
+
+  try {
+    while (!lifecycleController.signal.aborted) {
+      readerRef.current = reader;
+      const sessionError = await runFeedLoop(
+        reader,
+        request,
+        feedConfig,
+        lifecycleController.signal
+      );
+      await reader.cancel().catch(noop);
+
+      if (lifecycleController.signal.aborted) {
+        return;
+      }
+
+      let reconnectError =
+        sessionError ??
+        new InboxClientError({
+          path: request.path,
+          method: request.method,
+          details: "feed stream disconnected",
+        });
+
+      for (;;) {
+        reconnectAttempt += 1;
+        if (!canReconnect(reconnectAttempt, feedConfig.reconnect.maxAttempts)) {
+          throw reconnectError;
+        }
+
+        const delayMs = computeReconnectDelayMs(
+          feedConfig.reconnect,
+          reconnectAttempt
+        );
+        feedConfig.onReconnect?.(reconnectAttempt, delayMs, reconnectError);
+        feedConfig.onError?.(reconnectError);
+
+        await sleepWithAbort(delayMs, lifecycleController.signal);
+        if (lifecycleController.signal.aborted) {
+          return;
+        }
+
+        try {
+          reader = await openInboxFeedSession({
+            baseUrl,
+            config,
+            fetchImpl,
+            request,
+            signal: lifecycleController.signal,
+          });
+          feedConfig.onOpen?.();
+          reconnectAttempt = 0;
+          break;
+        } catch (cause) {
+          reconnectError = normalizeRequestError(request, cause);
+        }
+      }
+    }
+  } finally {
+    readerRef.current = null;
+  }
+};
+
+const canReconnect = (attempt: number, maxAttempts: number): boolean => {
+  if (maxAttempts <= 0) {
+    return true;
+  }
+  return attempt <= maxAttempts;
+};
+
 const runFeedLoop = async (
   reader: ReadableStreamDefaultReader<Uint8Array>,
   request: RequestShape,
-  input: ConnectInboxFeedInput
-): Promise<void> => {
+  input: FeedConnectConfig,
+  signal: AbortSignal
+): Promise<InboxClientError | null> => {
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) {
-      break;
+  try {
+    while (!signal.aborted) {
+      const chunk = await readFeedChunk(reader, input.heartbeatTimeoutMs);
+      if (chunk.done) {
+        return null;
+      }
+
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const split = splitFeedFrames(buffer);
+      buffer = split.remainder;
+
+      for (const frame of split.frames) {
+        emitFeedFrame(request, frame, input);
+      }
     }
 
-    buffer += decoder.decode(chunk.value, { stream: true });
-    const split = splitFeedFrames(buffer);
-    buffer = split.remainder;
-
-    for (const frame of split.frames) {
+    return null;
+  } catch (cause) {
+    if (signal.aborted) {
+      return null;
+    }
+    return normalizeRequestError(request, cause);
+  } finally {
+    buffer += decoder.decode();
+    const finalSplit = splitFeedFrames(buffer, true);
+    for (const frame of finalSplit.frames) {
       emitFeedFrame(request, frame, input);
     }
   }
+};
 
-  buffer += decoder.decode();
-  const finalSplit = splitFeedFrames(buffer, true);
-  for (const frame of finalSplit.frames) {
-    emitFeedFrame(request, frame, input);
+const readFeedChunk = async (
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  heartbeatTimeoutMs: number
+): Promise<ReadableStreamReadResult<Uint8Array>> => {
+  let timeoutID: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutID = setTimeout(() => {
+        reject(new Error("feed heartbeat timeout"));
+      }, heartbeatTimeoutMs);
+    });
+
+    return (await Promise.race([
+      reader.read(),
+      timeoutPromise,
+    ])) as ReadableStreamReadResult<Uint8Array>;
+  } finally {
+    if (timeoutID !== undefined) {
+      clearTimeout(timeoutID);
+    }
   }
 };
 
 const emitFeedFrame = (
   request: RequestShape,
   frame: string,
-  input: ConnectInboxFeedInput
+  input: FeedConnectConfig
 ): void => {
   const parsed = parseFeedFrame(frame);
   if (parsed == null) {
@@ -340,7 +473,7 @@ const splitFeedFrames = (
   const frames: string[] = [];
 
   let start = 0;
-  while (true) {
+  for (;;) {
     const separatorIndex = normalized.indexOf("\n\n", start);
     if (separatorIndex < 0) {
       break;
@@ -475,18 +608,142 @@ const normalizeRequestError = (
 
 const attachExternalAbort = (
   controller: AbortController,
-  external?: AbortSignal
+  signal?: AbortSignal
 ): (() => void) => {
-  if (!external) {
+  if (!signal) {
     return noop;
   }
 
-  if (external.aborted) {
-    controller.abort(external.reason);
+  if (signal.aborted) {
+    controller.abort(signal.reason);
     return noop;
   }
 
-  const onAbort = () => controller.abort(external.reason);
-  external.addEventListener("abort", onAbort, { once: true });
-  return () => external.removeEventListener("abort", onAbort);
+  const onAbort = (): void => {
+    controller.abort(signal.reason);
+  };
+
+  signal.addEventListener("abort", onAbort);
+  return () => {
+    signal.removeEventListener("abort", onAbort);
+  };
 };
+
+const openInboxFeedSession = async ({
+  baseUrl,
+  config,
+  fetchImpl,
+  request,
+  signal,
+}: {
+  baseUrl: string;
+  config: InboxClientConfig;
+  fetchImpl: FetchLike;
+  request: RequestShape;
+  signal: AbortSignal;
+}): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
+  const token = await resolveToken(config.token);
+  if (!token) {
+    throw new InboxClientError({
+      path: request.path,
+      method: request.method,
+      details: "missing subscriber token",
+    });
+  }
+
+  const response = await fetchImpl(buildURL(baseUrl, request.path), {
+    method: request.method,
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${token}`,
+      ...(config.headers ?? {}),
+    },
+    signal,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new InboxClientError({
+      path: request.path,
+      method: request.method,
+      status: response.status,
+      details: parseErrorDetails(text),
+    });
+  }
+
+  if (!response.body) {
+    throw new InboxClientError({
+      path: request.path,
+      method: request.method,
+      details: "stream body unavailable",
+    });
+  }
+
+  return response.body.getReader();
+};
+
+const resolveFeedConnectConfig = (
+  input: ConnectInboxFeedInput
+): FeedConnectConfig => ({
+  heartbeatTimeoutMs: normalizePositiveMs(
+    input.heartbeatTimeoutMs,
+    defaultFeedHeartbeatTimeoutMs
+  ),
+  onClose: input.onClose,
+  onError: input.onError,
+  onEvent: input.onEvent,
+  onOpen: input.onOpen,
+  onReconnect: input.onReconnect,
+  reconnect: {
+    baseDelayMs: normalizePositiveMs(
+      input.reconnect?.baseDelayMs,
+      defaultFeedReconnectBaseDelayMs
+    ),
+    maxAttempts: input.reconnect?.maxAttempts ?? 0,
+    maxDelayMs: normalizePositiveMs(
+      input.reconnect?.maxDelayMs,
+      defaultFeedReconnectMaxDelayMs
+    ),
+  },
+  signal: input.signal,
+});
+
+const computeReconnectDelayMs = (
+  reconnect: Required<InboxFeedReconnectPolicy>,
+  attempt: number
+): number => {
+  const factor = Math.max(attempt - 1, 0);
+  const rawDelay = reconnect.baseDelayMs * 2 ** factor;
+  return Math.min(rawDelay, reconnect.maxDelayMs);
+};
+
+const normalizePositiveMs = (
+  value: number | undefined,
+  fallback: number
+): number => {
+  if (value === undefined || Number.isNaN(value) || value <= 0) {
+    return fallback;
+  }
+  return Math.floor(value);
+};
+
+const sleepWithAbort = (delayMs: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+
+    const timeoutID = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+
+    const onAbort = (): void => {
+      clearTimeout(timeoutID);
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    };
+
+    signal.addEventListener("abort", onAbort);
+  });

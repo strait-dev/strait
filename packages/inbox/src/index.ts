@@ -18,6 +18,7 @@ export type {
   InboxClientConfig,
   InboxFeedConnection,
   InboxFeedEvent,
+  InboxFeedReconnectPolicy,
   InboxItem,
   InboxItemState,
   ListInboxInput,

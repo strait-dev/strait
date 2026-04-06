@@ -32,10 +32,19 @@ const items = await Effect.runPromise(client.listInbox({ limit: 20 }));
 
 const feed = await Effect.runPromise(
   client.connectFeed({
+    heartbeatTimeoutMs: 90_000,
+    reconnect: {
+      baseDelayMs: 500,
+      maxDelayMs: 15_000,
+      maxAttempts: 0, // 0 = unlimited
+    },
     onEvent: (event) => {
       if (event.event === "unread_count") {
         console.log("unread count update", event.data);
       }
+    },
+    onReconnect: (attempt, delayMs, error) => {
+      console.warn(`feed reconnect #${attempt} in ${delayMs}ms`, error.details);
     },
   })
 );
@@ -44,6 +53,12 @@ const feed = await Effect.runPromise(
 feed.close();
 await feed.closed;
 ```
+
+Feed options:
+
+- `heartbeatTimeoutMs` marks a connection unhealthy if no SSE data is received in the configured window.
+- `reconnect` controls exponential backoff (`baseDelayMs`, `maxDelayMs`, `maxAttempts`).
+- `onReconnect` is called before each retry with attempt metadata.
 
 ## Error handling
 

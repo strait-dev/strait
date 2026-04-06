@@ -119,6 +119,7 @@ describe("makeInboxClient", () => {
 
     const connection = await Effect.runPromise(
       client.connectFeed({
+        reconnect: { maxAttempts: 1 },
         onEvent: (event) => {
           events.push(event);
         },
@@ -133,6 +134,129 @@ describe("makeInboxClient", () => {
       event: "item_updated",
       data: { id: "item_1" },
     });
+  });
+
+  it("reconnects inbox feed after disconnect", async () => {
+    const encoder = new TextEncoder();
+    let fetchCalls = 0;
+    let secondStreamCancelled = false;
+
+    const firstStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: tick\ndata: {"n":1}\n\n'));
+        controller.close();
+      },
+    });
+
+    const secondStream = new ReadableStream<Uint8Array>({
+      cancel() {
+        secondStreamCancelled = true;
+      },
+      start(controller) {
+        controller.enqueue(encoder.encode('event: tick\ndata: {"n":2}\n\n'));
+      },
+    });
+
+    const events: Array<{ event: string; data: unknown }> = [];
+    const reconnectAttempts: number[] = [];
+
+    const client = makeInboxClient({
+      baseUrl: "https://api.strait.dev",
+      token: "token_123",
+      fetch: () => {
+        fetchCalls += 1;
+        return Promise.resolve(
+          new Response(fetchCalls === 1 ? firstStream : secondStream, {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          })
+        );
+      },
+    });
+
+    const connection = await Effect.runPromise(
+      client.connectFeed({
+        reconnect: { baseDelayMs: 5, maxDelayMs: 5, maxAttempts: 3 },
+        onEvent: (event) => {
+          events.push(event);
+        },
+        onReconnect: (attempt) => {
+          reconnectAttempts.push(attempt);
+        },
+      })
+    );
+
+    await waitFor(() => events.length >= 2, 500);
+    connection.close();
+    await connection.closed;
+
+    expect(fetchCalls).toBe(2);
+    expect(events[0]).toEqual({ event: "tick", data: { n: 1 } });
+    expect(events[1]).toEqual({ event: "tick", data: { n: 2 } });
+    expect(reconnectAttempts).toEqual([1]);
+    expect(secondStreamCancelled).toBe(true);
+  });
+
+  it("reconnects inbox feed after heartbeat timeout", async () => {
+    const encoder = new TextEncoder();
+    let fetchCalls = 0;
+    let firstStreamCancelled = false;
+
+    const firstStream = new ReadableStream<Uint8Array>({
+      cancel() {
+        firstStreamCancelled = true;
+      },
+      start() {
+        // Keep stream open without heartbeats.
+      },
+    });
+
+    const secondStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('event: heartbeat\ndata: {"ok":true}\n\n')
+        );
+      },
+    });
+
+    const events: Array<{ event: string; data: unknown }> = [];
+    const reconnectAttempts: number[] = [];
+
+    const client = makeInboxClient({
+      baseUrl: "https://api.strait.dev",
+      token: "token_123",
+      fetch: () => {
+        fetchCalls += 1;
+        return Promise.resolve(
+          new Response(fetchCalls === 1 ? firstStream : secondStream, {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          })
+        );
+      },
+    });
+
+    const connection = await Effect.runPromise(
+      client.connectFeed({
+        heartbeatTimeoutMs: 20,
+        reconnect: { baseDelayMs: 5, maxDelayMs: 5, maxAttempts: 3 },
+        onEvent: (event) => {
+          events.push(event);
+        },
+        onReconnect: (attempt) => {
+          reconnectAttempts.push(attempt);
+        },
+      })
+    );
+
+    await waitFor(() => events.length >= 1, 800);
+    connection.close();
+    await connection.closed;
+
+    expect(fetchCalls).toBe(2);
+    expect(firstStreamCancelled).toBe(true);
+    expect(reconnectAttempts).toEqual([1]);
+    expect(events[0]).toEqual({ event: "heartbeat", data: { ok: true } });
   });
 
   it("allows inbox feed connections to close cleanly", async () => {
@@ -175,3 +299,18 @@ describe("makeInboxClient", () => {
     expect(closeEvents).toBe(1);
   });
 });
+
+const waitFor = async (
+  predicate: () => boolean,
+  timeoutMs: number
+): Promise<void> => {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`timed out waiting for condition after ${timeoutMs}ms`);
+    }
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
+  }
+};
