@@ -23,6 +23,8 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set(securityHeaderPermissionsPolicy, "camera=(), microphone=(), geolocation=(), payment=()")
 		w.Header().Set(securityHeaderCrossDomainPolicies, "none")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Pragma", "no-cache")
 
 		if requestIsHTTPS(r) {
 			w.Header().Set(securityHeaderHSTS, "max-age=63072000; includeSubDomains")

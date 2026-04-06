@@ -133,6 +133,9 @@ func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*Lis
 
 	var payloadContains json.RawMessage
 	if input.PayloadContains != "" {
+		if !json.Valid([]byte(input.PayloadContains)) {
+			return nil, huma.Error400BadRequest("payload_contains must be valid JSON")
+		}
 		payloadContains = json.RawMessage(input.PayloadContains)
 	}
 
