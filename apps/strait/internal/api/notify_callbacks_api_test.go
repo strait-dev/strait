@@ -527,6 +527,85 @@ func TestNotifyResendProviderCallback_RejectsOversizedPayload(t *testing.T) {
 	}
 }
 
+func TestNotifyResendProviderCallback_RejectsMissingCallbackID(t *testing.T) {
+	t.Parallel()
+
+	webhookSecret := "whsec_c2VjcmV0"
+	ns := &notifyStoreAdapter{
+		getNotificationProviderFunc: func(_ context.Context, _, _ string) (*domain.NotificationProvider, error) {
+			return &domain.NotificationProvider{ID: "provider_1", ProjectID: "proj_1", Provider: "resend", ConfigEnc: []byte(`{"webhook_secret":"` + webhookSecret + `"}`)}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/notify/providers/proj_1/provider_1/callbacks/resend", strings.NewReader(`{"type":"email.delivered"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("svix-timestamp", fmt.Sprintf("%d", time.Now().UTC().Unix()))
+	r.Header.Set("svix-signature", "v1,invalid")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestNotifyResendProviderCallback_RecordReceiptFailure(t *testing.T) {
+	t.Parallel()
+
+	const (
+		webhookSecret = "whsec_c2VjcmV0"
+		payload       = `{"type":"email.delivered","data":{"tags":[{"name":"strait_message_id","value":"msg_1"}]}}`
+	)
+
+	lookupCalls := 0
+	ns := &notifyStoreAdapter{
+		getNotificationProviderFunc: func(_ context.Context, _, _ string) (*domain.NotificationProvider, error) {
+			return &domain.NotificationProvider{ID: "provider_1", ProjectID: "proj_1", Provider: "resend", ConfigEnc: []byte(`{"webhook_secret":"` + webhookSecret + `"}`)}, nil
+		},
+		recordNotifyProviderCallbackReceiptFunc: func(_ context.Context, _, _, _, _, _, _, _ string, _ time.Time) (bool, error) {
+			return false, errors.New("db down")
+		},
+		getNotificationMessageFunc: func(_ context.Context, _, _ string) (*domain.NotificationMessage, error) {
+			lookupCalls++
+			return &domain.NotificationMessage{}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := signedResendCallbackRequest(t, "/v1/notify/providers/proj_1/provider_1/callbacks/resend", webhookSecret, payload)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+	if lookupCalls != 0 {
+		t.Fatalf("message lookup calls = %d, want 0", lookupCalls)
+	}
+}
+
+func TestNotifyResendProviderCallback_RejectsInvalidJSONPayload(t *testing.T) {
+	t.Parallel()
+
+	const webhookSecret = "whsec_c2VjcmV0"
+
+	ns := &notifyStoreAdapter{
+		getNotificationProviderFunc: func(_ context.Context, _, _ string) (*domain.NotificationProvider, error) {
+			return &domain.NotificationProvider{ID: "provider_1", ProjectID: "proj_1", Provider: "resend", ConfigEnc: []byte(`{"webhook_secret":"` + webhookSecret + `"}`)}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := signedResendCallbackRequest(t, "/v1/notify/providers/proj_1/provider_1/callbacks/resend", webhookSecret, "not-json")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
 func signedResendCallbackRequest(t *testing.T, path, webhookSecret, payload string) *http.Request {
 	t.Helper()
 

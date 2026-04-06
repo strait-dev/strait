@@ -4,6 +4,7 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -192,6 +193,92 @@ func TestNotificationPreferenceAndInboxLifecycle(t *testing.T) {
 	}
 	if updated.ReadAt == nil {
 		t.Fatal("ReadAt is nil, want non-nil")
+	}
+}
+
+func TestDisableNotificationChannelPreference_MergesAndIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	pref := &domain.NotificationPreference{
+		RecipientType:    domain.NotifyRecipientTypeSubscriber,
+		RecipientID:      "sub_disable_merge",
+		Scope:            "global",
+		ChannelPrefs:     []byte(`{"email":true,"inbox":true,"sms":true}`),
+		CriticalOverride: true,
+	}
+	if err := q.UpsertNotificationPreference(ctx, pref); err != nil {
+		t.Fatalf("UpsertNotificationPreference() error = %v", err)
+	}
+
+	if err := q.DisableNotificationChannelPreference(ctx, pref.RecipientType, pref.RecipientID, pref.Scope, "email"); err != nil {
+		t.Fatalf("DisableNotificationChannelPreference(first) error = %v", err)
+	}
+	if err := q.DisableNotificationChannelPreference(ctx, pref.RecipientType, pref.RecipientID, pref.Scope, "email"); err != nil {
+		t.Fatalf("DisableNotificationChannelPreference(second) error = %v", err)
+	}
+
+	updated, err := q.GetNotificationPreference(ctx, pref.RecipientType, pref.RecipientID, pref.Scope)
+	if err != nil {
+		t.Fatalf("GetNotificationPreference() error = %v", err)
+	}
+
+	channelPrefs := map[string]bool{}
+	if err := json.Unmarshal(updated.ChannelPrefs, &channelPrefs); err != nil {
+		t.Fatalf("unmarshal channel prefs: %v", err)
+	}
+	if channelPrefs["email"] {
+		t.Fatal("channel_prefs.email = true, want false")
+	}
+	if !channelPrefs["inbox"] {
+		t.Fatal("channel_prefs.inbox = false, want true")
+	}
+	if !channelPrefs["sms"] {
+		t.Fatal("channel_prefs.sms = false, want true")
+	}
+}
+
+func TestDisableNotificationChannelPreference_ConcurrentCalls(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	const concurrentCalls = 10
+	var (
+		wg       sync.WaitGroup
+		errMu    sync.Mutex
+		firstErr error
+	)
+
+	for range concurrentCalls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := q.DisableNotificationChannelPreference(ctx, domain.NotifyRecipientTypeSubscriber, "sub_disable_concurrent", "global", "email")
+			errMu.Lock()
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+			errMu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	if firstErr != nil {
+		t.Fatalf("DisableNotificationChannelPreference(concurrent) error = %v", firstErr)
+	}
+
+	updated, err := q.GetNotificationPreference(ctx, domain.NotifyRecipientTypeSubscriber, "sub_disable_concurrent", "global")
+	if err != nil {
+		t.Fatalf("GetNotificationPreference() error = %v", err)
+	}
+	channelPrefs := map[string]bool{}
+	if err := json.Unmarshal(updated.ChannelPrefs, &channelPrefs); err != nil {
+		t.Fatalf("unmarshal channel prefs: %v", err)
+	}
+	if channelPrefs["email"] {
+		t.Fatal("channel_prefs.email = true, want false")
 	}
 }
 
