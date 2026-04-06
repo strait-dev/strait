@@ -70,11 +70,13 @@
     "react-dom": "^19.2.4",
     "react-hook-form": "^7.72.1",
     "recharts": "^3.8.1",
+    "reflect-metadata": "^0.2.2",
     "resend": "^6.10.0",
     "stripe": "^22.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260405.1",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/react-query-devtools": "^5.96.2",
@@ -89,7 +91,7 @@
     "jsdom": "^29.0.1",
     "knip": "^6.3.0",
     "tsx": "^4.21.0",
-    "vite": "^8.0.3",
+    "vite": "^8.0.4",
     "vite-plugin-ngrok": "^2.0.1",
     "vitest": "^4.1.2",
     "wrangler": "^4.80.0"

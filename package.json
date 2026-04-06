@@ -55,7 +55,7 @@
     "knip": "^6.3.0",
     "lefthook": "^2.1.4",
     "openapi-typescript": "^7.13.0",
-    "turbo": "^2.9.3",
+    "turbo": "^2.9.4",
     "ultracite": "7.4.3"
   }
 }
