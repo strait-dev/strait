@@ -516,6 +516,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.MaxAttempts = *req.MaxAttempts
 	}
 	if req.TimeoutSecs != nil {
+		if *req.TimeoutSecs > 86400 {
+			return nil, huma.Error400BadRequest("timeout_secs must not exceed 86400 (24 hours)")
+		}
 		job.TimeoutSecs = *req.TimeoutSecs
 	}
 	if req.MaxConcurrency != nil {
@@ -954,6 +957,10 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 		}
 		if jobReq.TimeoutSecs == 0 {
 			jobReq.TimeoutSecs = s.defaultJobTimeoutSecs()
+		}
+		if jobReq.TimeoutSecs > 86400 {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "timeout_secs must not exceed 86400 (24 hours)"})
+			continue
 		}
 		if jobReq.RetryPriorityBoost == 0 {
 			jobReq.RetryPriorityBoost = 1
