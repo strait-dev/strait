@@ -319,8 +319,18 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 
 func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := realIP(r)
+
+		// Check if this IP is locked out from too many failed attempts.
+		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+			respondError(w, r, http.StatusTooManyRequests, ratelimit.BlockedError(retryAfter))
+			return
+		}
+
 		secret := r.Header.Get("X-Internal-Secret")
 		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) != 1 {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing internal secret")
 			return
 		}
