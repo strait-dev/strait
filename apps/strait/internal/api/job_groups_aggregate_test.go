@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"strait/internal/domain"
 	"strait/internal/store"
 )
 
@@ -15,6 +16,9 @@ func TestHandlePauseAllJobsByGroup_Success(t *testing.T) {
 
 	called := false
 	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
+			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
+		},
 		PauseJobsByGroupFunc: func(_ context.Context, groupID string) error {
 			called = true
 			if groupID != "group-1" {
@@ -42,6 +46,9 @@ func TestHandleResumeAllJobsByGroup_Success(t *testing.T) {
 
 	called := false
 	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
+			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
+		},
 		ResumeJobsByGroupFunc: func(_ context.Context, groupID string) error {
 			called = true
 			if groupID != "group-1" {
@@ -68,6 +75,9 @@ func TestHandleGetJobGroupStats_Success(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
+			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
+		},
 		GetJobGroupStatsFunc: func(_ context.Context, groupID string) (*store.JobGroupStats, error) {
 			return &store.JobGroupStats{GroupID: groupID, RunCounts: map[string]int{"completed": 4, "failed": 1}}, nil
 		},

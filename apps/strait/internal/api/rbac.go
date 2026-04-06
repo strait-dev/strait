@@ -98,6 +98,9 @@ func (s *Server) handleGetRole(ctx context.Context, input *GetRoleInput) (*GetRo
 		}
 		return nil, huma.Error500InternalServerError("failed to get role")
 	}
+	if err := requireProjectMatch(ctx, role.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("role not found")
+	}
 	if input.IncludeLineage != "true" {
 		return &GetRoleOutput{Body: role}, nil
 	}
@@ -143,6 +146,11 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 	}
 	roleID := input.RoleID
 	previousRole, _ := s.store.GetProjectRole(ctx, roleID)
+	if previousRole != nil {
+		if err := requireProjectMatch(ctx, previousRole.ProjectID); err != nil {
+			return nil, huma.Error404NotFound("role not found")
+		}
+	}
 	role := &domain.ProjectRole{ID: roleID, Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
 	if err := s.store.UpdateProjectRole(ctx, role); err != nil {
 		if errors.Is(err, store.ErrRoleNotFound) {
@@ -171,6 +179,17 @@ type DeleteRoleInput struct {
 func (s *Server) handleDeleteRole(ctx context.Context, input *DeleteRoleInput) (*struct{}, error) {
 	if err := s.checkFeatureAllowed(ctx, projectIDFromContext(ctx), billing.FeatureRBAC, "Role management"); err != nil {
 		return nil, err
+	}
+
+	role, err := s.store.GetProjectRole(ctx, input.RoleID)
+	if err != nil {
+		if errors.Is(err, store.ErrRoleNotFound) {
+			return nil, huma.Error404NotFound("role not found or is a system role")
+		}
+		return nil, huma.Error500InternalServerError("failed to get role")
+	}
+	if err := requireProjectMatch(ctx, role.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("role not found or is a system role")
 	}
 
 	if err := s.store.DeleteProjectRole(ctx, input.RoleID); err != nil {

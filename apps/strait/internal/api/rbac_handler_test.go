@@ -216,6 +216,9 @@ func TestHandleDeleteRole_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+		return nil, store.ErrRoleNotFound
+	}
 	ms.DeleteProjectRoleFunc = func(_ context.Context, _ string) error {
 		return store.ErrRoleNotFound
 	}
@@ -480,6 +483,9 @@ func TestHandleDeleteRole_Success(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+		return &domain.ProjectRole{ID: id, ProjectID: "test-project", Name: "admin", Permissions: []string{"*"}}, nil
+	}
 	ms.DeleteProjectRoleFunc = func(_ context.Context, _ string) error {
 		return nil
 	}
@@ -498,6 +504,9 @@ func TestHandleDeleteRole_StoreError(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+		return &domain.ProjectRole{ID: id, ProjectID: "test-project", Name: "admin", Permissions: []string{"*"}}, nil
+	}
 	ms.DeleteProjectRoleFunc = func(_ context.Context, _ string) error {
 		return fmt.Errorf("db down")
 	}

@@ -340,6 +340,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetEventSourceByNameFunc: func(ctx context.Context, projectID string, name string) (*domain.EventSource, error) {
 //				panic("mock out the GetEventSourceByName method")
 //			},
+//			GetEventSubscriptionFunc: func(ctx context.Context, subID string) (*domain.EventSubscription, error) {
+//				panic("mock out the GetEventSubscription method")
+//			},
 //			GetEventTriggerByEventKeyFunc: func(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
 //				panic("mock out the GetEventTriggerByEventKey method")
 //			},
@@ -352,6 +355,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetJobBySlugFunc: func(ctx context.Context, projectID string, slug string) (*domain.Job, error) {
 //				panic("mock out the GetJobBySlug method")
 //			},
+//			GetJobDependencyFunc: func(ctx context.Context, id string) (*domain.JobDependency, error) {
+//				panic("mock out the GetJobDependency method")
+//			},
 //			GetJobGroupFunc: func(ctx context.Context, id string) (*domain.JobGroup, error) {
 //				panic("mock out the GetJobGroup method")
 //			},
@@ -363,6 +369,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			GetJobMemoryFunc: func(ctx context.Context, jobID string, key string) (*domain.JobMemory, error) {
 //				panic("mock out the GetJobMemory method")
+//			},
+//			GetJobSecretFunc: func(ctx context.Context, id string) (*domain.JobSecret, error) {
+//				panic("mock out the GetJobSecret method")
 //			},
 //			GetJobVersionByVersionIDFunc: func(ctx context.Context, versionID string) (*domain.JobVersion, error) {
 //				panic("mock out the GetJobVersionByVersionID method")
@@ -1124,6 +1133,9 @@ type APIStoreMock struct {
 	// GetEventSourceByNameFunc mocks the GetEventSourceByName method.
 	GetEventSourceByNameFunc func(ctx context.Context, projectID string, name string) (*domain.EventSource, error)
 
+	// GetEventSubscriptionFunc mocks the GetEventSubscription method.
+	GetEventSubscriptionFunc func(ctx context.Context, subID string) (*domain.EventSubscription, error)
+
 	// GetEventTriggerByEventKeyFunc mocks the GetEventTriggerByEventKey method.
 	GetEventTriggerByEventKeyFunc func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 
@@ -1136,6 +1148,9 @@ type APIStoreMock struct {
 	// GetJobBySlugFunc mocks the GetJobBySlug method.
 	GetJobBySlugFunc func(ctx context.Context, projectID string, slug string) (*domain.Job, error)
 
+	// GetJobDependencyFunc mocks the GetJobDependency method.
+	GetJobDependencyFunc func(ctx context.Context, id string) (*domain.JobDependency, error)
+
 	// GetJobGroupFunc mocks the GetJobGroup method.
 	GetJobGroupFunc func(ctx context.Context, id string) (*domain.JobGroup, error)
 
@@ -1147,6 +1162,9 @@ type APIStoreMock struct {
 
 	// GetJobMemoryFunc mocks the GetJobMemory method.
 	GetJobMemoryFunc func(ctx context.Context, jobID string, key string) (*domain.JobMemory, error)
+
+	// GetJobSecretFunc mocks the GetJobSecret method.
+	GetJobSecretFunc func(ctx context.Context, id string) (*domain.JobSecret, error)
 
 	// GetJobVersionByVersionIDFunc mocks the GetJobVersionByVersionID method.
 	GetJobVersionByVersionIDFunc func(ctx context.Context, versionID string) (*domain.JobVersion, error)
@@ -2451,6 +2469,13 @@ type APIStoreMock struct {
 			// Name is the name argument value.
 			Name string
 		}
+		// GetEventSubscription holds details about calls to the GetEventSubscription method.
+		GetEventSubscription []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// SubID is the subID argument value.
+			SubID string
+		}
 		// GetEventTriggerByEventKey holds details about calls to the GetEventTriggerByEventKey method.
 		GetEventTriggerByEventKey []struct {
 			// Ctx is the ctx argument value.
@@ -2480,6 +2505,13 @@ type APIStoreMock struct {
 			ProjectID string
 			// Slug is the slug argument value.
 			Slug string
+		}
+		// GetJobDependency holds details about calls to the GetJobDependency method.
+		GetJobDependency []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
 		}
 		// GetJobGroup holds details about calls to the GetJobGroup method.
 		GetJobGroup []struct {
@@ -2512,6 +2544,13 @@ type APIStoreMock struct {
 			JobID string
 			// Key is the key argument value.
 			Key string
+		}
+		// GetJobSecret holds details about calls to the GetJobSecret method.
+		GetJobSecret []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
 		}
 		// GetJobVersionByVersionID holds details about calls to the GetJobVersionByVersionID method.
 		GetJobVersionByVersionID []struct {
@@ -4035,14 +4074,17 @@ type APIStoreMock struct {
 	lockGetEnvironment                     sync.RWMutex
 	lockGetEventSource                     sync.RWMutex
 	lockGetEventSourceByName               sync.RWMutex
+	lockGetEventSubscription               sync.RWMutex
 	lockGetEventTriggerByEventKey          sync.RWMutex
 	lockGetEventTriggerStats               sync.RWMutex
 	lockGetJob                             sync.RWMutex
 	lockGetJobBySlug                       sync.RWMutex
+	lockGetJobDependency                   sync.RWMutex
 	lockGetJobGroup                        sync.RWMutex
 	lockGetJobGroupStats                   sync.RWMutex
 	lockGetJobHealthStats                  sync.RWMutex
 	lockGetJobMemory                       sync.RWMutex
+	lockGetJobSecret                       sync.RWMutex
 	lockGetJobVersionByVersionID           sync.RWMutex
 	lockGetLogDrain                        sync.RWMutex
 	lockGetMemberRole                      sync.RWMutex
@@ -8625,6 +8667,46 @@ func (mock *APIStoreMock) GetEventSourceByNameCalls() []struct {
 	return calls
 }
 
+// GetEventSubscription calls GetEventSubscriptionFunc.
+func (mock *APIStoreMock) GetEventSubscription(ctx context.Context, subID string) (*domain.EventSubscription, error) {
+	callInfo := struct {
+		Ctx   context.Context
+		SubID string
+	}{
+		Ctx:   ctx,
+		SubID: subID,
+	}
+	mock.lockGetEventSubscription.Lock()
+	mock.calls.GetEventSubscription = append(mock.calls.GetEventSubscription, callInfo)
+	mock.lockGetEventSubscription.Unlock()
+	if mock.GetEventSubscriptionFunc == nil {
+		var (
+			eventSubscriptionOut *domain.EventSubscription
+			errOut               error
+		)
+		return eventSubscriptionOut, errOut
+	}
+	return mock.GetEventSubscriptionFunc(ctx, subID)
+}
+
+// GetEventSubscriptionCalls gets all the calls that were made to GetEventSubscription.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetEventSubscriptionCalls())
+func (mock *APIStoreMock) GetEventSubscriptionCalls() []struct {
+	Ctx   context.Context
+	SubID string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		SubID string
+	}
+	mock.lockGetEventSubscription.RLock()
+	calls = mock.calls.GetEventSubscription
+	mock.lockGetEventSubscription.RUnlock()
+	return calls
+}
+
 // GetEventTriggerByEventKey calls GetEventTriggerByEventKeyFunc.
 func (mock *APIStoreMock) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
 	callInfo := struct {
@@ -8786,6 +8868,46 @@ func (mock *APIStoreMock) GetJobBySlugCalls() []struct {
 	mock.lockGetJobBySlug.RLock()
 	calls = mock.calls.GetJobBySlug
 	mock.lockGetJobBySlug.RUnlock()
+	return calls
+}
+
+// GetJobDependency calls GetJobDependencyFunc.
+func (mock *APIStoreMock) GetJobDependency(ctx context.Context, id string) (*domain.JobDependency, error) {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockGetJobDependency.Lock()
+	mock.calls.GetJobDependency = append(mock.calls.GetJobDependency, callInfo)
+	mock.lockGetJobDependency.Unlock()
+	if mock.GetJobDependencyFunc == nil {
+		var (
+			jobDependencyOut *domain.JobDependency
+			errOut           error
+		)
+		return jobDependencyOut, errOut
+	}
+	return mock.GetJobDependencyFunc(ctx, id)
+}
+
+// GetJobDependencyCalls gets all the calls that were made to GetJobDependency.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetJobDependencyCalls())
+func (mock *APIStoreMock) GetJobDependencyCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockGetJobDependency.RLock()
+	calls = mock.calls.GetJobDependency
+	mock.lockGetJobDependency.RUnlock()
 	return calls
 }
 
@@ -8954,6 +9076,46 @@ func (mock *APIStoreMock) GetJobMemoryCalls() []struct {
 	mock.lockGetJobMemory.RLock()
 	calls = mock.calls.GetJobMemory
 	mock.lockGetJobMemory.RUnlock()
+	return calls
+}
+
+// GetJobSecret calls GetJobSecretFunc.
+func (mock *APIStoreMock) GetJobSecret(ctx context.Context, id string) (*domain.JobSecret, error) {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockGetJobSecret.Lock()
+	mock.calls.GetJobSecret = append(mock.calls.GetJobSecret, callInfo)
+	mock.lockGetJobSecret.Unlock()
+	if mock.GetJobSecretFunc == nil {
+		var (
+			jobSecretOut *domain.JobSecret
+			errOut       error
+		)
+		return jobSecretOut, errOut
+	}
+	return mock.GetJobSecretFunc(ctx, id)
+}
+
+// GetJobSecretCalls gets all the calls that were made to GetJobSecret.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetJobSecretCalls())
+func (mock *APIStoreMock) GetJobSecretCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockGetJobSecret.RLock()
+	calls = mock.calls.GetJobSecret
+	mock.lockGetJobSecret.RUnlock()
 	return calls
 }
 

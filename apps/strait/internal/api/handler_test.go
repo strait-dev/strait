@@ -508,6 +508,9 @@ func TestHandleDeleteJobGroup_Success(t *testing.T) {
 	t.Parallel()
 	var deletedID string
 	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
+			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
+		},
 		DeleteJobGroupFunc: func(_ context.Context, id string) error {
 			deletedID = id
 			return nil
@@ -529,6 +532,9 @@ func TestHandleDeleteJobGroup_Success(t *testing.T) {
 func TestHandleListJobsByGroup_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
+			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
+		},
 		ListJobsByGroupFunc: func(_ context.Context, groupID string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return []domain.Job{{ID: "job-1", GroupID: groupID, ProjectID: "proj-1", Name: "Job 1"}}, nil
 		},
@@ -680,6 +686,9 @@ func TestHandleDeleteJobDependency_Success(t *testing.T) {
 	ms := &APIStoreMock{}
 	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
 		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+	}
+	ms.GetJobDependencyFunc = func(_ context.Context, id string) (*domain.JobDependency, error) {
+		return &domain.JobDependency{ID: id, JobID: "job-1", DependsOnJobID: "job-other", Condition: "completed"}, nil
 	}
 	deletedID := ""
 	ms.DeleteJobDependencyFunc = func(_ context.Context, id string) error {

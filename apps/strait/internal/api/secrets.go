@@ -112,6 +112,18 @@ type DeleteSecretInput struct {
 }
 
 func (s *Server) handleDeleteSecret(ctx context.Context, input *DeleteSecretInput) (*struct{}, error) {
+	secret, err := s.store.GetJobSecret(ctx, input.SecretID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobSecretNotFound) {
+			return nil, huma.Error404NotFound("secret not found")
+		}
+		slog.Error("failed to get secret", "error", err)
+		return nil, huma.Error500InternalServerError("failed to get secret")
+	}
+	if err := requireProjectMatch(ctx, secret.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("secret not found")
+	}
+
 	if err := s.store.DeleteJobSecret(ctx, input.SecretID); err != nil {
 		if errors.Is(err, store.ErrJobSecretNotFound) {
 			return nil, huma.Error404NotFound("secret not found")

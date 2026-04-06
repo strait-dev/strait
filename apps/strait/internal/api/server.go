@@ -106,8 +106,10 @@ type JobStore interface {
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
+	GetJobSecret(ctx context.Context, id string) (*domain.JobSecret, error)
 	DeleteJobSecret(ctx context.Context, id string) error
 	CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error
+	GetJobDependency(ctx context.Context, id string) (*domain.JobDependency, error)
 	ListJobDependencies(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
 	DeleteJobDependency(ctx context.Context, id string) error
 	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
@@ -231,6 +233,7 @@ type EventSourceStore interface {
 	UpdateEventSource(ctx context.Context, sourceID, projectID string, patch map[string]any) error
 	DeleteEventSource(ctx context.Context, sourceID, projectID string) error
 	CreateEventSubscription(ctx context.Context, sub *domain.EventSubscription) error
+	GetEventSubscription(ctx context.Context, subID string) (*domain.EventSubscription, error)
 	ListEventSubscriptionsBySource(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
 	DeleteEventSubscription(ctx context.Context, subID string) error
 }
