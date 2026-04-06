@@ -192,7 +192,7 @@ func TestMachinePool_ConcurrentAccess(t *testing.T) {
 
 func TestMachinePool_EvictionBounded(t *testing.T) {
 	t.Parallel()
-	pool := NewMachinePool(1) // Max 1 per key → every release evicts the old one.
+	pool := NewMachinePool(1) // Max 1 per key -> every release evicts the old one.
 
 	var concurrent atomic.Int32
 	var maxConcurrent atomic.Int32
@@ -213,28 +213,32 @@ func TestMachinePool_EvictionBounded(t *testing.T) {
 	})
 
 	// Release 20 machines -> 19 evictions (first doesn't evict).
+	// With the semaphore full, excess evictions are dropped (not run inline),
+	// so completed will be <= 10 (the evictSem capacity).
 	for i := range 20 {
 		pool.Release("proj-1", "img:latest", "iad", fmt.Sprintf("m-%d", i))
 	}
 
-	// Poll until all 19 evictions complete.
+	// Poll until the semaphore-bounded evictions complete.
 	deadline := time.After(10 * time.Second)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-deadline:
-			t.Fatalf("timed out waiting for evictions, completed %d of 19", completed.Load())
+			goto done
 		case <-ticker.C:
-			if completed.Load() >= 19 {
+			// All semaphore slots should drain eventually.
+			if completed.Load() >= 10 {
 				goto done
 			}
 		}
 	}
 done:
-	// Max concurrent should be capped at 11 (10 from evictSem + 1 inline fallback).
-	if maxConcurrent.Load() > 11 {
-		t.Errorf("max concurrent evictions = %d, want <= 11", maxConcurrent.Load())
+	// Max concurrent should be capped at 10 (the evictSem capacity).
+	// No inline fallback anymore -- excess evictions are dropped.
+	if maxConcurrent.Load() > 10 {
+		t.Errorf("max concurrent evictions = %d, want <= 10", maxConcurrent.Load())
 	}
 }
 
@@ -407,6 +411,187 @@ func TestMachinePool_Size_AccurateUnderConcurrency(t *testing.T) {
 	// 10 keys, up to 100 per key, 10 releases per key -> expect exactly 100.
 	if size < 1 || size > 100 {
 		t.Fatalf("expected pool size between 1 and 100, got %d", size)
+	}
+}
+
+func TestMachinePool_PruneDoesNotBlockOtherOps(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(10)
+
+	// Insert old entries to be pruned.
+	pool.mu.Lock()
+	key := PoolKey("proj-1", "img:latest", "iad")
+	for i := range 5 {
+		pool.entries[key] = append(pool.entries[key], poolEntry{
+			MachineID: fmt.Sprintf("m-old-%d", i),
+			StoppedAt: time.Now().Add(-20 * time.Minute),
+		})
+	}
+	pool.mu.Unlock()
+
+	// Use a slow destroy function that simulates network I/O.
+	destroyStarted := make(chan struct{}, 5)
+	destroyGate := make(chan struct{})
+
+	go func() {
+		pool.Prune(10*time.Minute, func(_ string) error {
+			destroyStarted <- struct{}{}
+			<-destroyGate // Block until released.
+			return nil
+		})
+	}()
+
+	// Wait for at least one destroy to start (proves Prune released the lock).
+	select {
+	case <-destroyStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for destroy to start")
+	}
+
+	// While Prune's destroy callbacks are blocked, other pool operations
+	// must not deadlock. This proves the mutex is not held during I/O.
+	done := make(chan struct{})
+	go func() {
+		pool.Release("proj-1", "img:other", "lhr", "m-new")
+		_, _ = pool.Acquire("proj-1", "img:other", "lhr")
+		_ = pool.Size()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Pool operations completed while destroy was blocked -- correct.
+	case <-time.After(2 * time.Second):
+		t.Fatal("pool operations deadlocked while Prune destroy was running")
+	}
+
+	// Unblock all destroys.
+	close(destroyGate)
+}
+
+func TestMachinePool_ReleaseEvictionDropsWhenSemFull(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(1) // Every release after first evicts.
+
+	evictGate := make(chan struct{})
+	var evictCount atomic.Int32
+
+	pool.SetOnEvict(func(_ string) {
+		evictCount.Add(1)
+		<-evictGate // Block to fill the semaphore.
+	})
+
+	// First release -- no eviction.
+	pool.Release("proj-1", "img:latest", "iad", "m-0")
+
+	// Fill all 10 semaphore slots with blocked evictions.
+	for i := 1; i <= 10; i++ {
+		pool.Release("proj-1", "img:latest", "iad", fmt.Sprintf("m-%d", i))
+	}
+
+	// Wait for all 10 goroutines to be blocked.
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for evict goroutines, count=%d", evictCount.Load())
+		case <-ticker.C:
+			if evictCount.Load() >= 10 {
+				goto semFull
+			}
+		}
+	}
+semFull:
+
+	// Now the semaphore is full. This release must NOT block -- it should
+	// drop the evicted machine instead of calling onEvict inline.
+	releaseDone := make(chan struct{})
+	go func() {
+		pool.Release("proj-1", "img:latest", "iad", "m-11")
+		close(releaseDone)
+	}()
+
+	select {
+	case <-releaseDone:
+		// Release returned immediately -- correct behavior.
+	case <-time.After(2 * time.Second):
+		t.Fatal("Release blocked when eviction semaphore was full")
+	}
+
+	// Unblock everything.
+	close(evictGate)
+}
+
+func TestMachinePool_ConcurrentAcquireRelease_NoDeadlock(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(5)
+
+	pool.SetOnEvict(func(_ string) {
+		time.Sleep(10 * time.Millisecond) // Simulate slow eviction.
+	})
+
+	var wg sync.WaitGroup
+	for i := range 200 {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			img := fmt.Sprintf("img-%d", idx%5)
+			pool.Release("proj-1", img, "iad", fmt.Sprintf("m-%d", idx))
+			pool.Acquire("proj-1", img, "iad")
+		}(i)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All goroutines completed without deadlock.
+	case <-time.After(30 * time.Second):
+		t.Fatal("deadlock detected: concurrent Acquire/Release did not complete")
+	}
+}
+
+func TestMachinePool_PruneCorrectCount(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(10)
+
+	pool.mu.Lock()
+	key1 := PoolKey("proj-1", "img:a", "iad")
+	key2 := PoolKey("proj-1", "img:b", "lhr")
+	pool.entries[key1] = []poolEntry{
+		{MachineID: "m-old-1", StoppedAt: time.Now().Add(-30 * time.Minute)},
+		{MachineID: "m-old-2", StoppedAt: time.Now().Add(-25 * time.Minute)},
+		{MachineID: "m-fresh-1", StoppedAt: time.Now()},
+	}
+	pool.entries[key2] = []poolEntry{
+		{MachineID: "m-old-3", StoppedAt: time.Now().Add(-20 * time.Minute)},
+		{MachineID: "m-fresh-2", StoppedAt: time.Now()},
+	}
+	pool.mu.Unlock()
+
+	var destroyed []string
+	var mu sync.Mutex
+	pruned := pool.Prune(10*time.Minute, func(id string) error {
+		mu.Lock()
+		destroyed = append(destroyed, id)
+		mu.Unlock()
+		return nil
+	})
+
+	if pruned != 3 {
+		t.Fatalf("expected 3 pruned, got %d", pruned)
+	}
+	if len(destroyed) != 3 {
+		t.Fatalf("expected 3 destroyed, got %d", len(destroyed))
+	}
+	if pool.Size() != 2 {
+		t.Fatalf("expected 2 remaining, got %d", pool.Size())
 	}
 }
 
