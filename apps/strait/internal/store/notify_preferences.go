@@ -123,6 +123,17 @@ func (q *Queries) DisableNotificationChannelPreference(ctx context.Context, reci
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DisableNotificationChannelPreference")
 	defer span.End()
 
+	return q.setNotificationChannelPreference(ctx, recipientType, recipientID, scope, channel, false)
+}
+
+func (q *Queries) EnableNotificationChannelPreference(ctx context.Context, recipientType, recipientID, scope, channel string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.EnableNotificationChannelPreference")
+	defer span.End()
+
+	return q.setNotificationChannelPreference(ctx, recipientType, recipientID, scope, channel, true)
+}
+
+func (q *Queries) setNotificationChannelPreference(ctx context.Context, recipientType, recipientID, scope, channel string, enabled bool) error {
 	if scope == "" {
 		scope = "global"
 	}
@@ -130,12 +141,17 @@ func (q *Queries) DisableNotificationChannelPreference(ctx context.Context, reci
 		return &domain.FieldError{Field: "channel"}
 	}
 
+	prefValue := "false"
+	if enabled {
+		prefValue = "true"
+	}
+
 	query := `
 		INSERT INTO notification_preferences (
 			recipient_type, recipient_id, scope, channel_prefs
 		)
 		VALUES (
-			$1, $2, $3, jsonb_build_object($4, false)
+			$1, $2, $3, jsonb_build_object($4, $5::boolean)
 		)
 		ON CONFLICT (recipient_type, recipient_id, scope)
 		DO UPDATE SET
@@ -145,13 +161,17 @@ func (q *Queries) DisableNotificationChannelPreference(ctx context.Context, reci
 					ELSE '{}'::jsonb
 				END,
 				ARRAY[$4],
-				'false'::jsonb,
+				to_jsonb($5::boolean),
 				true
 			),
 			updated_at = NOW()`
 
-	if _, err := q.db.Exec(ctx, query, recipientType, recipientID, scope, channel); err != nil {
-		return fmt.Errorf("disable notification channel preference: %w", err)
+	if _, err := q.db.Exec(ctx, query, recipientType, recipientID, scope, channel, prefValue); err != nil {
+		action := "disable"
+		if enabled {
+			action = "enable"
+		}
+		return fmt.Errorf("%s notification channel preference: %w", action, err)
 	}
 
 	return nil

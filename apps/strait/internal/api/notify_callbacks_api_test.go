@@ -103,30 +103,46 @@ func TestShouldApplyNotifyProviderCallbackTransition(t *testing.T) {
 func TestSuppressNotifyRecipientEmail_DisablesEmailChannel(t *testing.T) {
 	t.Parallel()
 
-	called := false
+	disableCalled := false
+	eventCalled := false
 	var gotRecipientType, gotRecipientID, gotScope, gotChannel string
 
 	ns := &notifyStoreAdapter{
 		disableNotificationChannelPreferenceFunc: func(_ context.Context, recipientType, recipientID, scope, channel string) error {
-			called = true
+			disableCalled = true
 			gotRecipientType = recipientType
 			gotRecipientID = recipientID
 			gotScope = scope
 			gotChannel = channel
 			return nil
 		},
+		createNotifySuppressionEventFunc: func(_ context.Context, event *domain.NotifySuppressionEvent) error {
+			eventCalled = true
+			if event.Action != domain.NotifySuppressionActionSuppressed {
+				t.Fatalf("event.Action = %q, want %q", event.Action, domain.NotifySuppressionActionSuppressed)
+			}
+			if event.Source != domain.NotifySuppressionSourceProviderCallback {
+				t.Fatalf("event.Source = %q, want %q", event.Source, domain.NotifySuppressionSourceProviderCallback)
+			}
+			return nil
+		},
 	}
 
 	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
 	err := srv.suppressNotifyRecipientEmail(context.Background(), ns, &domain.NotificationMessage{
-		RecipientType: domain.NotifyRecipientTypeSubscriber,
-		RecipientID:   "sub_1",
-	})
+		ProjectID:         "proj_1",
+		RecipientType:     domain.NotifyRecipientTypeSubscriber,
+		RecipientID:       "sub_1",
+		SuppressionReason: "provider_callback:email.bounced",
+	}, "provider_callback:email.bounced", domain.NotifySuppressionSourceProviderCallback, map[string]any{"message_id": "msg_1"})
 	if err != nil {
 		t.Fatalf("suppressNotifyRecipientEmail() error = %v", err)
 	}
-	if !called {
+	if !disableCalled {
 		t.Fatal("expected DisableNotificationChannelPreference call")
+	}
+	if !eventCalled {
+		t.Fatal("expected CreateNotifySuppressionEvent call")
 	}
 	if gotRecipientType != domain.NotifyRecipientTypeSubscriber || gotRecipientID != "sub_1" || gotScope != "global" || gotChannel != "email" {
 		t.Fatalf("unexpected disable args: type=%q id=%q scope=%q channel=%q", gotRecipientType, gotRecipientID, gotScope, gotChannel)

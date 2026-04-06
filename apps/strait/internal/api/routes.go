@@ -402,6 +402,8 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/{subscriberID}", TypedHandler(s, http.StatusOK, s.handleUpdateNotifySubscriber))
 			r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/{subscriberID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteNotifySubscriber))
 			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/{subscriberID}/token", TypedHandler(s, http.StatusOK, s.handleCreateNotifySubscriberToken))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/{subscriberID}/suppressions", TypedHandler(s, http.StatusOK, s.handleListNotifySuppressionEvents))
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/{subscriberID}/suppressions/unsuppress", TypedHandler(s, http.StatusOK, s.handleCreateNotifyUnsuppress))
 		})
 
 		r.Route("/topics", func(r chi.Router) {

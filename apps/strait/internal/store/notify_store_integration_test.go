@@ -282,6 +282,83 @@ func TestDisableNotificationChannelPreference_ConcurrentCalls(t *testing.T) {
 	}
 }
 
+func TestEnableNotificationChannelPreference_SetsChannelTrue(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	pref := &domain.NotificationPreference{
+		RecipientType:    domain.NotifyRecipientTypeSubscriber,
+		RecipientID:      "sub_enable_1",
+		Scope:            "global",
+		ChannelPrefs:     []byte(`{"email":false,"inbox":true}`),
+		CriticalOverride: true,
+	}
+	if err := q.UpsertNotificationPreference(ctx, pref); err != nil {
+		t.Fatalf("UpsertNotificationPreference() error = %v", err)
+	}
+
+	if err := q.EnableNotificationChannelPreference(ctx, pref.RecipientType, pref.RecipientID, pref.Scope, "email"); err != nil {
+		t.Fatalf("EnableNotificationChannelPreference() error = %v", err)
+	}
+
+	updated, err := q.GetNotificationPreference(ctx, pref.RecipientType, pref.RecipientID, pref.Scope)
+	if err != nil {
+		t.Fatalf("GetNotificationPreference() error = %v", err)
+	}
+
+	channelPrefs := map[string]bool{}
+	if err := json.Unmarshal(updated.ChannelPrefs, &channelPrefs); err != nil {
+		t.Fatalf("unmarshal channel prefs: %v", err)
+	}
+	if !channelPrefs["email"] {
+		t.Fatal("channel_prefs.email = false, want true")
+	}
+}
+
+func TestNotifySuppressionEvents_CreateAndList(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	evt1 := &domain.NotifySuppressionEvent{
+		ProjectID:     "project-notify-suppression-events",
+		RecipientType: domain.NotifyRecipientTypeSubscriber,
+		RecipientID:   "sub_evt_1",
+		Scope:         "global",
+		Channel:       "email",
+		Action:        domain.NotifySuppressionActionSuppressed,
+		Reason:        "provider_callback:email.bounced",
+		Source:        domain.NotifySuppressionSourceProviderCallback,
+		Metadata:      []byte(`{"message_id":"msg_1"}`),
+	}
+	if err := q.CreateNotifySuppressionEvent(ctx, evt1); err != nil {
+		t.Fatalf("CreateNotifySuppressionEvent(evt1) error = %v", err)
+	}
+
+	evt2 := &domain.NotifySuppressionEvent{
+		ProjectID:     evt1.ProjectID,
+		RecipientType: domain.NotifyRecipientTypeSubscriber,
+		RecipientID:   evt1.RecipientID,
+		Scope:         "global",
+		Channel:       "email",
+		Action:        domain.NotifySuppressionActionUnsuppressed,
+		Reason:        "manual_unsuppress",
+		Source:        domain.NotifySuppressionSourceAdminAPI,
+	}
+	if err := q.CreateNotifySuppressionEvent(ctx, evt2); err != nil {
+		t.Fatalf("CreateNotifySuppressionEvent(evt2) error = %v", err)
+	}
+
+	listed, err := q.ListNotifySuppressionEvents(ctx, evt1.ProjectID, evt1.RecipientType, evt1.RecipientID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListNotifySuppressionEvents() error = %v", err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("ListNotifySuppressionEvents() len = %d, want 2", len(listed))
+	}
+}
+
 func TestNotificationMessageAndProviderLifecycle(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

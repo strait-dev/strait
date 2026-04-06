@@ -1040,6 +1040,133 @@ func (s *Server) handleCreateNotifySubscriberToken(ctx context.Context, input *C
 	return &CreateNotifySubscriberTokenOutput{Body: map[string]any{"token": tok}}, nil
 }
 
+type CreateNotifyUnsuppressRequest struct {
+	Channel string `json:"channel" validate:"required"`
+	Reason  string `json:"reason,omitempty"`
+	Scope   string `json:"scope,omitempty"`
+}
+
+type CreateNotifyUnsuppressInput struct {
+	SubscriberID string `path:"subscriberID"`
+	Body         CreateNotifyUnsuppressRequest
+}
+
+type CreateNotifyUnsuppressOutput struct {
+	Body map[string]any
+}
+
+func (s *Server) handleCreateNotifyUnsuppress(ctx context.Context, input *CreateNotifyUnsuppressInput) (*CreateNotifyUnsuppressOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	if err := s.validate.Struct(input.Body); err != nil {
+		return nil, newValidationError(err)
+	}
+
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+
+	sub, err := ns.GetNotifySubscriber(ctx, input.SubscriberID, projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotifySubscriberNotFound) {
+			return nil, huma.Error404NotFound("subscriber not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to resolve subscriber")
+	}
+
+	channel := strings.ToLower(strings.TrimSpace(input.Body.Channel))
+	scope := strings.TrimSpace(input.Body.Scope)
+	if scope == "" {
+		scope = "global"
+	}
+	reason := strings.TrimSpace(input.Body.Reason)
+	if reason == "" {
+		reason = "manual_unsuppress"
+	}
+
+	if err := ns.EnableNotificationChannelPreference(ctx, domain.NotifyRecipientTypeSubscriber, sub.ID, scope, channel); err != nil {
+		return nil, huma.Error500InternalServerError("failed to enable channel preference")
+	}
+
+	metadata, err := json.Marshal(map[string]any{
+		"actor": actorFromContext(ctx),
+		"path":  "api.unsuppress",
+	})
+	if err == nil {
+		if eventErr := ns.CreateNotifySuppressionEvent(ctx, &domain.NotifySuppressionEvent{
+			ProjectID:     projectID,
+			RecipientType: domain.NotifyRecipientTypeSubscriber,
+			RecipientID:   sub.ID,
+			Scope:         scope,
+			Channel:       channel,
+			Action:        domain.NotifySuppressionActionUnsuppressed,
+			Reason:        reason,
+			Source:        domain.NotifySuppressionSourceAdminAPI,
+			Metadata:      metadata,
+		}); eventErr != nil {
+			return nil, huma.Error500InternalServerError("failed to record unsuppression event")
+		}
+	}
+
+	return &CreateNotifyUnsuppressOutput{Body: map[string]any{
+		"status":        "ok",
+		"subscriber_id": sub.ID,
+		"channel":       channel,
+		"scope":         scope,
+		"reason":        reason,
+	}}, nil
+}
+
+type ListNotifySuppressionEventsInput struct {
+	SubscriberID string `path:"subscriberID"`
+	Limit        string `query:"limit"`
+	Cursor       string `query:"cursor"`
+}
+
+type ListNotifySuppressionEventsOutput struct {
+	Body []domain.NotifySuppressionEvent
+}
+
+func (s *Server) handleListNotifySuppressionEvents(ctx context.Context, input *ListNotifySuppressionEventsInput) (*ListNotifySuppressionEventsOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ns.GetNotifySubscriber(ctx, input.SubscriberID, projectID); err != nil {
+		if errors.Is(err, store.ErrNotifySubscriberNotFound) {
+			return nil, huma.Error404NotFound("subscriber not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to resolve subscriber")
+	}
+
+	limit := defaultPageLimit
+	if input.Limit != "" {
+		if parsed, parseErr := strconv.Atoi(input.Limit); parseErr == nil && parsed > 0 && parsed <= maxPageLimit {
+			limit = parsed
+		}
+	}
+	var cursor *time.Time
+	if input.Cursor != "" {
+		if ts, parseErr := time.Parse(time.RFC3339Nano, input.Cursor); parseErr == nil {
+			cursor = &ts
+		}
+	}
+
+	events, err := ns.ListNotifySuppressionEvents(ctx, projectID, domain.NotifyRecipientTypeSubscriber, input.SubscriberID, limit, cursor)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list suppression events")
+	}
+	return &ListNotifySuppressionEventsOutput{Body: events}, nil
+}
+
 // Test send uses the same trigger pipeline but marks payload as test.
 type NotifyTestInput struct {
 	Body NotifyTriggerRequest

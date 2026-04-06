@@ -420,6 +420,9 @@ type NotifyStore interface {
 	GetNotificationPreference(ctx context.Context, recipientType, recipientID, scope string) (*domain.NotificationPreference, error)
 	ListNotificationPreferences(ctx context.Context, recipientType, recipientID string) ([]domain.NotificationPreference, error)
 	DisableNotificationChannelPreference(ctx context.Context, recipientType, recipientID, scope, channel string) error
+	EnableNotificationChannelPreference(ctx context.Context, recipientType, recipientID, scope, channel string) error
+	CreateNotifySuppressionEvent(ctx context.Context, event *domain.NotifySuppressionEvent) error
+	ListNotifySuppressionEvents(ctx context.Context, projectID, recipientType, recipientID string, limit int, cursor *time.Time) ([]domain.NotifySuppressionEvent, error)
 	UpsertNotifyPolicyOverride(ctx context.Context, policy *domain.NotifyPolicyOverride) error
 	GetNotifyPolicyOverride(ctx context.Context, id, projectID string) (*domain.NotifyPolicyOverride, error)
 	ListNotifyPolicyOverrides(ctx context.Context, projectID string, scopeType *string) ([]domain.NotifyPolicyOverride, error)

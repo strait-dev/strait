@@ -765,6 +765,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleCreateNotifySubscriberToken)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "list-notify-suppression-events", Method: http.MethodGet, Path: "/v1/subscribers/{subscriberID}/suppressions",
+		Summary: "List suppression events", Description: "Lists suppression and unsuppression history for a subscriber.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListNotifySuppressionEvents)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "create-notify-unsuppress", Method: http.MethodPost, Path: "/v1/subscribers/{subscriberID}/suppressions/unsuppress",
+		Summary: "Unsuppress subscriber channel", Description: "Re-enables a subscriber notification channel and records an audit event.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleCreateNotifyUnsuppress)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "create-notify-topic", Method: http.MethodPost, Path: "/v1/topics",
 		Summary: "Create a notify topic", Description: "Creates a notify topic for subscriber fanout.",
 		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 429, 500},

@@ -110,7 +110,7 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		environments, endpoint_circuit_state, project_quotas,
 		run_checkpoints, run_outputs, run_tool_calls, run_usage,
 		pricing_catalog, run_compute_usage, job_preset_recommendations,
-		notify_provider_callback_receipts, notify_policy_overrides,
+		notify_suppression_events, notify_provider_callback_receipts, notify_policy_overrides,
 		escalation_states, notification_batches, dedup_log,
 		unsubscribe_tokens, notification_providers,
 		notification_messages, inbox_items,

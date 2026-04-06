@@ -61,6 +61,17 @@ const (
 	NotifyPolicyScopeWorkflowStep = "workflow_step"
 )
 
+const (
+	NotifySuppressionActionSuppressed   = "suppressed"
+	NotifySuppressionActionUnsuppressed = "unsuppressed"
+)
+
+const (
+	NotifySuppressionSourceProviderCallback = "provider_callback"
+	NotifySuppressionSourceAdminAPI         = "admin_api"
+	NotifySuppressionSourceSubscriberAPI    = "subscriber_api"
+)
+
 // NotifySubscriber is an end-user recipient managed by a developer project.
 type NotifySubscriber struct {
 	ID         string          `json:"id"`
@@ -170,6 +181,21 @@ type NotifyPolicyOverride struct {
 	Enabled                   bool      `json:"enabled"`
 	CreatedAt                 time.Time `json:"created_at"`
 	UpdatedAt                 time.Time `json:"updated_at"`
+}
+
+// NotifySuppressionEvent records suppression and unsuppression actions for recipients.
+type NotifySuppressionEvent struct {
+	ID            string          `json:"id"`
+	ProjectID     string          `json:"project_id"`
+	RecipientType string          `json:"recipient_type"`
+	RecipientID   string          `json:"recipient_id"`
+	Scope         string          `json:"scope"`
+	Channel       string          `json:"channel"`
+	Action        string          `json:"action"`
+	Reason        string          `json:"reason,omitempty"`
+	Source        string          `json:"source"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
 }
 
 // NotificationMessage tracks channel delivery status and lifecycle timestamps.

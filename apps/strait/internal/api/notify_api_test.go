@@ -26,10 +26,14 @@ type notifyStoreAdapter struct {
 	upsertNotificationPreferenceFunc            func(ctx context.Context, pref *domain.NotificationPreference) error
 	listNotificationPreferencesFunc             func(ctx context.Context, recipientType, recipientID string) ([]domain.NotificationPreference, error)
 	disableNotificationChannelPreferenceFunc    func(ctx context.Context, recipientType, recipientID, scope, channel string) error
+	enableNotificationChannelPreferenceFunc     func(ctx context.Context, recipientType, recipientID, scope, channel string) error
+	createNotifySuppressionEventFunc            func(ctx context.Context, event *domain.NotifySuppressionEvent) error
+	listNotifySuppressionEventsFunc             func(ctx context.Context, projectID, recipientType, recipientID string, limit int, cursor *time.Time) ([]domain.NotifySuppressionEvent, error)
 	recordNotifyProviderCallbackReceiptFunc     func(ctx context.Context, projectID, providerID, provider, callbackID, eventType, messageID, payloadHash string, expiresAt time.Time) (bool, error)
 	deleteNotifyProviderCallbackReceiptFunc     func(ctx context.Context, projectID, providerID, callbackID string) error
 	getNotificationMessageFunc                  func(ctx context.Context, id, projectID string) (*domain.NotificationMessage, error)
 	getNotificationProviderFunc                 func(ctx context.Context, id, projectID string) (*domain.NotificationProvider, error)
+	getNotifySubscriberFunc                     func(ctx context.Context, id, projectID string) (*domain.NotifySubscriber, error)
 	updateNotificationMessageStatusFunc         func(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error
 }
 
@@ -110,6 +114,27 @@ func (m *notifyStoreAdapter) DisableNotificationChannelPreference(ctx context.Co
 	return m.disableNotificationChannelPreferenceFunc(ctx, recipientType, recipientID, scope, channel)
 }
 
+func (m *notifyStoreAdapter) EnableNotificationChannelPreference(ctx context.Context, recipientType, recipientID, scope, channel string) error {
+	if m.enableNotificationChannelPreferenceFunc == nil {
+		return nil
+	}
+	return m.enableNotificationChannelPreferenceFunc(ctx, recipientType, recipientID, scope, channel)
+}
+
+func (m *notifyStoreAdapter) CreateNotifySuppressionEvent(ctx context.Context, event *domain.NotifySuppressionEvent) error {
+	if m.createNotifySuppressionEventFunc == nil {
+		return nil
+	}
+	return m.createNotifySuppressionEventFunc(ctx, event)
+}
+
+func (m *notifyStoreAdapter) ListNotifySuppressionEvents(ctx context.Context, projectID, recipientType, recipientID string, limit int, cursor *time.Time) ([]domain.NotifySuppressionEvent, error) {
+	if m.listNotifySuppressionEventsFunc == nil {
+		return []domain.NotifySuppressionEvent{}, nil
+	}
+	return m.listNotifySuppressionEventsFunc(ctx, projectID, recipientType, recipientID, limit, cursor)
+}
+
 func (m *notifyStoreAdapter) RecordNotifyProviderCallbackReceipt(
 	ctx context.Context,
 	projectID, providerID, provider, callbackID, eventType, messageID, payloadHash string,
@@ -140,6 +165,13 @@ func (m *notifyStoreAdapter) GetNotificationProvider(ctx context.Context, id, pr
 		return nil, store.ErrNotificationProviderNotFound
 	}
 	return m.getNotificationProviderFunc(ctx, id, projectID)
+}
+
+func (m *notifyStoreAdapter) GetNotifySubscriber(ctx context.Context, id, projectID string) (*domain.NotifySubscriber, error) {
+	if m.getNotifySubscriberFunc == nil {
+		return nil, store.ErrNotifySubscriberNotFound
+	}
+	return m.getNotifySubscriberFunc(ctx, id, projectID)
 }
 
 func (m *notifyStoreAdapter) UpdateNotificationMessageStatus(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error {
@@ -242,6 +274,91 @@ func TestUpdateNotifyPreferencesScope_OmittedChannelPrefsPreservesSuppressionSta
 	}
 	if !upsertCalled {
 		t.Fatal("expected UpsertNotificationPreference call")
+	}
+}
+
+func TestCreateNotifyUnsuppress(t *testing.T) {
+	t.Parallel()
+
+	enabledCalled := false
+	eventCalled := false
+	ns := &notifyStoreAdapter{
+		getNotifySubscriberFunc: func(_ context.Context, id, projectID string) (*domain.NotifySubscriber, error) {
+			return &domain.NotifySubscriber{ID: id, ProjectID: projectID, ExternalID: "user_1"}, nil
+		},
+		enableNotificationChannelPreferenceFunc: func(_ context.Context, recipientType, recipientID, scope, channel string) error {
+			enabledCalled = true
+			if recipientType != domain.NotifyRecipientTypeSubscriber || recipientID != "sub_1" || scope != "global" || channel != "email" {
+				t.Fatalf("unexpected enable args type=%q id=%q scope=%q channel=%q", recipientType, recipientID, scope, channel)
+			}
+			return nil
+		},
+		createNotifySuppressionEventFunc: func(_ context.Context, event *domain.NotifySuppressionEvent) error {
+			eventCalled = true
+			if event.Action != domain.NotifySuppressionActionUnsuppressed {
+				t.Fatalf("event.Action = %q, want %q", event.Action, domain.NotifySuppressionActionUnsuppressed)
+			}
+			if event.Source != domain.NotifySuppressionSourceAdminAPI {
+				t.Fatalf("event.Source = %q, want %q", event.Source, domain.NotifySuppressionSourceAdminAPI)
+			}
+			if event.Reason != "manual_review" {
+				t.Fatalf("event.Reason = %q, want manual_review", event.Reason)
+			}
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/subscribers/sub_1/suppressions/unsuppress", `{"channel":"email","scope":"global","reason":"manual_review"}`, "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !enabledCalled {
+		t.Fatal("expected EnableNotificationChannelPreference call")
+	}
+	if !eventCalled {
+		t.Fatal("expected CreateNotifySuppressionEvent call")
+	}
+}
+
+func TestListNotifySuppressionEvents(t *testing.T) {
+	t.Parallel()
+
+	ns := &notifyStoreAdapter{
+		getNotifySubscriberFunc: func(_ context.Context, id, projectID string) (*domain.NotifySubscriber, error) {
+			return &domain.NotifySubscriber{ID: id, ProjectID: projectID}, nil
+		},
+		listNotifySuppressionEventsFunc: func(_ context.Context, projectID, recipientType, recipientID string, limit int, _ *time.Time) ([]domain.NotifySuppressionEvent, error) {
+			if projectID != "proj_1" || recipientType != domain.NotifyRecipientTypeSubscriber || recipientID != "sub_1" || limit != 10 {
+				t.Fatalf("unexpected list args project=%q type=%q id=%q limit=%d", projectID, recipientType, recipientID, limit)
+			}
+			return []domain.NotifySuppressionEvent{{
+				ID:            "evt_1",
+				ProjectID:     projectID,
+				RecipientType: recipientType,
+				RecipientID:   recipientID,
+				Scope:         "global",
+				Channel:       "email",
+				Action:        domain.NotifySuppressionActionSuppressed,
+				Source:        domain.NotifySuppressionSourceProviderCallback,
+				CreatedAt:     time.Now().UTC(),
+			}}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodGet, "/v1/subscribers/sub_1/suppressions?limit=10", "", "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "evt_1") {
+		t.Fatalf("response body missing suppression event: %s", w.Body.String())
 	}
 }
 

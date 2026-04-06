@@ -213,11 +213,20 @@ func (s *Server) applyNotifyResendProviderCallback(ctx context.Context, envelope
 
 	status, fields, suppressEmail := resolveNotifyResendCallbackOutcome(envelope.normalizedEventType, time.Now().UTC())
 	classifiedOutcome := classifyNotifyResendCallbackOutcome(envelope.normalizedEventType)
+	suppressionReason := ""
+	if reasonValue, ok := fields["suppression_reason"].(string); ok {
+		suppressionReason = reasonValue
+	}
+	suppressionMetadata := map[string]any{
+		"callback_id": envelope.callbackID,
+		"event_type":  envelope.normalizedEventType,
+		"message_id":  msg.ID,
+	}
 	if status == "" {
 		return notifyProviderCallbackOutcomeIgnored, "unsupported_event", nil
 	}
 	if !shouldApplyNotifyProviderCallbackTransition(msg.Status, status) {
-		s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail)
+		s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail, suppressionReason, domain.NotifySuppressionSourceProviderCallback, suppressionMetadata)
 		return notifyProviderCallbackOutcomeIgnored, "duplicate_or_terminal", nil
 	}
 
@@ -225,14 +234,14 @@ func (s *Server) applyNotifyResendProviderCallback(ctx context.Context, envelope
 		if errors.Is(err, store.ErrNotificationMessageStatusConflict) {
 			latest, latestErr := ns.GetNotificationMessage(ctx, msg.ID, msg.ProjectID)
 			if latestErr == nil && !shouldApplyNotifyProviderCallbackTransition(latest.Status, status) {
-				s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail)
+				s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail, suppressionReason, domain.NotifySuppressionSourceProviderCallback, suppressionMetadata)
 				return notifyProviderCallbackOutcomeIgnored, "stale_event", nil
 			}
 		}
 		return "", "", errors.New("failed to update message")
 	}
 
-	s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail)
+	s.applyNotifySuppressionIfNeeded(ctx, ns, msg, suppressEmail, suppressionReason, domain.NotifySuppressionSourceProviderCallback, suppressionMetadata)
 	return classifiedOutcome, "updated", nil
 }
 
@@ -334,11 +343,19 @@ func isTerminalNotifyMessageStatus(status string) bool {
 	}
 }
 
-func (s *Server) applyNotifySuppressionIfNeeded(ctx context.Context, ns notifyStore, msg *domain.NotificationMessage, suppressEmail bool) {
+func (s *Server) applyNotifySuppressionIfNeeded(
+	ctx context.Context,
+	ns notifyStore,
+	msg *domain.NotificationMessage,
+	suppressEmail bool,
+	reason,
+	source string,
+	metadata map[string]any,
+) {
 	if !suppressEmail {
 		return
 	}
-	if err := s.suppressNotifyRecipientEmail(ctx, ns, msg); err != nil {
+	if err := s.suppressNotifyRecipientEmail(ctx, ns, msg, reason, source, metadata); err != nil {
 		slog.Warn("notify provider callback suppression failed",
 			"message_id", msg.ID,
 			"project_id", msg.ProjectID,
@@ -374,10 +391,48 @@ func (s *Server) recordNotifyProviderCallbackOutcome(ctx context.Context, provid
 	))
 }
 
-func (s *Server) suppressNotifyRecipientEmail(ctx context.Context, ns notifyStore, msg *domain.NotificationMessage) error {
+func (s *Server) suppressNotifyRecipientEmail(
+	ctx context.Context,
+	ns notifyStore,
+	msg *domain.NotificationMessage,
+	reason,
+	source string,
+	metadata map[string]any,
+) error {
 	if msg == nil || msg.RecipientType != domain.NotifyRecipientTypeSubscriber || msg.RecipientID == "" {
 		return nil
 	}
 
-	return ns.DisableNotificationChannelPreference(ctx, domain.NotifyRecipientTypeSubscriber, msg.RecipientID, "global", "email")
+	if err := ns.DisableNotificationChannelPreference(ctx, domain.NotifyRecipientTypeSubscriber, msg.RecipientID, "global", "email"); err != nil {
+		return err
+	}
+
+	metadataRaw := json.RawMessage(`{}`)
+	if len(metadata) > 0 {
+		encoded, err := json.Marshal(metadata)
+		if err != nil {
+			return err
+		}
+		metadataRaw = encoded
+	}
+
+	event := &domain.NotifySuppressionEvent{
+		ProjectID:     msg.ProjectID,
+		RecipientType: domain.NotifyRecipientTypeSubscriber,
+		RecipientID:   msg.RecipientID,
+		Scope:         "global",
+		Channel:       "email",
+		Action:        domain.NotifySuppressionActionSuppressed,
+		Reason:        reason,
+		Source:        source,
+		Metadata:      metadataRaw,
+	}
+	if event.Source == "" {
+		event.Source = domain.NotifySuppressionSourceProviderCallback
+	}
+	if event.Reason == "" {
+		event.Reason = "suppressed"
+	}
+
+	return ns.CreateNotifySuppressionEvent(ctx, event)
 }
