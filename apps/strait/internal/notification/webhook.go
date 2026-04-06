@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 
 	"github.com/failsafe-go/failsafe-go"
 	"github.com/failsafe-go/failsafe-go/retrypolicy"
@@ -71,6 +72,9 @@ func (w *WebhookSender) Send(ctx context.Context, channel *domain.NotificationCh
 	}
 	if cfg.URL == "" {
 		return fmt.Errorf("webhook url is empty")
+	}
+	if err := httputil.ValidateExternalURL(cfg.URL); err != nil {
+		return fmt.Errorf("webhook url rejected: %w", err)
 	}
 
 	body := delivery.Payload

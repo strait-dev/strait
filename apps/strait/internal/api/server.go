@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +20,7 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
+	"strait/internal/httputil"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/ratelimit"
@@ -885,25 +884,15 @@ func validateURL(rawURL string) error {
 		return nil
 	}
 
+	// Use the shared SSRF validator for comprehensive private/loopback/
+	// link-local/CGNAT IP checks, including DNS resolution of hostnames.
+	if err := httputil.ValidateExternalURL(rawURL); err != nil {
+		return fmt.Errorf("url rejected: %w", err)
+	}
+
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
-	}
-
-	host := u.Hostname()
-	blockedHosts := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
-	for _, blocked := range blockedHosts {
-		if strings.EqualFold(host, blocked) {
-			return fmt.Errorf("url must not point to internal services")
-		}
-	}
-
-	ip := net.ParseIP(host)
-	if ip == nil {
-		ips, lookupErr := net.LookupIP(host)
-		if lookupErr == nil && slices.ContainsFunc(ips, isPrivateIP) {
-			return fmt.Errorf("url must not point to private or loopback addresses")
-		}
 	}
 
 	if port := u.Port(); port != "" && port != "80" && port != "443" {
@@ -930,24 +919,13 @@ func validateURLWithTLS(rawURL string, requireTLS bool) error {
 		return errors.New(msg)
 	}
 
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
-	}
-
-	host := u.Hostname()
-	blockedHosts := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
-	for _, blocked := range blockedHosts {
-		if strings.EqualFold(host, blocked) {
-			return fmt.Errorf("url must not point to internal services")
+	if !globalAllowPrivateEndpoints.Load() {
+		if err := httputil.ValidateExternalURL(rawURL); err != nil {
+			return fmt.Errorf("url rejected: %w", err)
 		}
 	}
 
 	return nil
-}
-
-func isPrivateIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
 func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {

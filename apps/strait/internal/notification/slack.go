@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 )
 
 // SlackSender sends notifications via Slack incoming webhooks.
@@ -35,6 +36,9 @@ func (s *SlackSender) Send(ctx context.Context, channel *domain.NotificationChan
 	}
 	if cfg.WebhookURL == "" {
 		return fmt.Errorf("slack webhook_url is empty")
+	}
+	if err := httputil.ValidateExternalURL(cfg.WebhookURL); err != nil {
+		return fmt.Errorf("slack webhook_url rejected: %w", err)
 	}
 
 	body, err := json.Marshal(map[string]any{
