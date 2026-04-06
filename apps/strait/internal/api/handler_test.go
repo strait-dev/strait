@@ -2201,6 +2201,9 @@ func TestHandleListEnvironments_Success(t *testing.T) {
 func TestHandleGetResolvedVariables_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "test", Slug: "test"}, nil
+		},
 		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, id string) (map[string]string, error) {
 			if id != "env-1" {
 				t.Fatalf("unexpected environment id: %s", id)

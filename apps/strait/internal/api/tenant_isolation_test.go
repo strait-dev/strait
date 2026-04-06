@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 const (
@@ -669,6 +671,332 @@ func TestTenantIsolation_SDKTokenScopedToRun(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("cross-run SDK token: expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestTenantIsolation_RevokeAPIKey_CrossProject verifies that revoking an API
+// key belonging to another project returns 404.
+func TestTenantIsolation_RevokeAPIKey_CrossProject(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	ms := newIsolationStore()
+	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
+		switch id {
+		case "key-a":
+			return &domain.APIKey{ID: "key-a", ProjectID: projectA, Name: "Key A", KeyHash: "h", KeyPrefix: "strait_a", CreatedAt: now}, nil
+		case "key-b":
+			return &domain.APIKey{ID: "key-b", ProjectID: projectB, Name: "Key B", KeyHash: "h", KeyPrefix: "strait_b", CreatedAt: now}, nil
+		}
+		return nil, nil
+	}
+	ms.RevokeAPIKeyFunc = func(_ context.Context, _ string) error {
+		return nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	tests := []struct {
+		name      string
+		keyID     string
+		projectID string
+		wantCode  int
+	}{
+		{"own project key", "key-b", projectB, http.StatusOK},
+		{"cross project key", "key-a", projectB, http.StatusNotFound},
+		{"no project context (internal)", "key-a", "", http.StatusOK},
+		{"non-existent key", "key-nope", projectB, http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/api-keys/"+tt.keyID, "", tt.projectID))
+			if w.Code != tt.wantCode {
+				t.Errorf("DELETE /v1/api-keys/%s with project %q: got %d, want %d: %s",
+					tt.keyID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestTenantIsolation_RotateAPIKey_CrossProject verifies that rotating an API
+// key belonging to another project returns 404.
+func TestTenantIsolation_RotateAPIKey_CrossProject(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	ms := newIsolationStore()
+	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
+		switch id {
+		case "key-a":
+			return &domain.APIKey{ID: "key-a", ProjectID: projectA, Name: "Key A", KeyHash: "h", KeyPrefix: "strait_a", CreatedAt: now}, nil
+		case "key-b":
+			return &domain.APIKey{ID: "key-b", ProjectID: projectB, Name: "Key B", KeyHash: "h", KeyPrefix: "strait_b", CreatedAt: now}, nil
+		}
+		return nil, nil
+	}
+	ms.CreateAPIKeyFunc = func(_ context.Context, _ *domain.APIKey) error {
+		return nil
+	}
+	ms.MarkAPIKeyRotatedFunc = func(_ context.Context, _, _ string, _ time.Time) error {
+		return nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	tests := []struct {
+		name      string
+		keyID     string
+		projectID string
+		wantCode  int
+	}{
+		{"own project key", "key-b", projectB, http.StatusCreated},
+		{"cross project key", "key-a", projectB, http.StatusNotFound},
+		{"no project context (internal)", "key-a", "", http.StatusCreated},
+		{"non-existent key", "key-nope", projectB, http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/api-keys/"+tt.keyID+"/rotate", `{}`, tt.projectID))
+			if w.Code != tt.wantCode {
+				t.Errorf("POST /v1/api-keys/%s/rotate with project %q: got %d, want %d: %s",
+					tt.keyID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestTenantIsolation_DeleteEnvironment_CrossProject verifies that deleting an
+// environment belonging to another project returns 404.
+func TestTenantIsolation_DeleteEnvironment_CrossProject(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.DeleteEnvironmentFunc = func(_ context.Context, _ string) error {
+		return nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	tests := []struct {
+		name      string
+		envID     string
+		projectID string
+		wantCode  int
+	}{
+		{"own project env", "env-b", projectB, http.StatusNoContent},
+		{"cross project env", "env-a", projectB, http.StatusNotFound},
+		{"no project context (internal)", "env-a", "", http.StatusNoContent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/environments/"+tt.envID, "", tt.projectID))
+			if w.Code != tt.wantCode {
+				t.Errorf("DELETE /v1/environments/%s with project %q: got %d, want %d: %s",
+					tt.envID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestTenantIsolation_GetResolvedVariables_CrossProject verifies that getting
+// resolved variables for an environment belonging to another project returns 404.
+func TestTenantIsolation_GetResolvedVariables_CrossProject(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetResolvedEnvironmentVariablesFunc = func(_ context.Context, _ string) (map[string]string, error) {
+		return map[string]string{"FOO": "bar"}, nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	tests := []struct {
+		name      string
+		envID     string
+		projectID string
+		wantCode  int
+	}{
+		{"own project env", "env-b", projectB, http.StatusOK},
+		{"cross project env", "env-a", projectB, http.StatusNotFound},
+		{"no project context (internal)", "env-a", "", http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/environments/"+tt.envID+"/variables", "", tt.projectID))
+			if w.Code != tt.wantCode {
+				t.Errorf("GET /v1/environments/%s/variables with project %q: got %d, want %d: %s",
+					tt.envID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestTenantIsolation_ListEventSourceSubscriptions_CrossProject verifies that
+// listing subscriptions for an event source in another project returns 404.
+func TestTenantIsolation_ListEventSourceSubscriptions_CrossProject(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetEventSourceFunc = func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+		if sourceID == "src-a" && projectID == projectA {
+			return &domain.EventSource{ID: "src-a", ProjectID: projectA, Name: "Source A", Enabled: true}, nil
+		}
+		if sourceID == "src-b" && projectID == projectB {
+			return &domain.EventSource{ID: "src-b", ProjectID: projectB, Name: "Source B", Enabled: true}, nil
+		}
+		return nil, store.ErrEventSourceNotFound
+	}
+	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, _ string) ([]domain.EventSubscription, error) {
+		return []domain.EventSubscription{}, nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	tests := []struct {
+		name      string
+		sourceID  string
+		projectID string
+		wantCode  int
+	}{
+		{"own project source", "src-b", projectB, http.StatusOK},
+		{"cross project source", "src-a", projectB, http.StatusNotFound},
+		{"no project context (internal)", "src-a", "", http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/event-sources/"+tt.sourceID+"/subscriptions", "", tt.projectID))
+			if w.Code != tt.wantCode {
+				t.Errorf("GET /v1/event-sources/%s/subscriptions with project %q: got %d, want %d: %s",
+					tt.sourceID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestTenantIsolation_DeleteEventSubscription_CrossProject verifies that
+// deleting an event subscription via a source in another project returns 404.
+func TestTenantIsolation_DeleteEventSubscription_CrossProject(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetEventSourceFunc = func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+		if sourceID == "src-a" && projectID == projectA {
+			return &domain.EventSource{ID: "src-a", ProjectID: projectA, Name: "Source A", Enabled: true}, nil
+		}
+		if sourceID == "src-b" && projectID == projectB {
+			return &domain.EventSource{ID: "src-b", ProjectID: projectB, Name: "Source B", Enabled: true}, nil
+		}
+		return nil, store.ErrEventSourceNotFound
+	}
+	ms.DeleteEventSubscriptionFunc = func(_ context.Context, _ string) error {
+		return nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	tests := []struct {
+		name      string
+		sourceID  string
+		subID     string
+		projectID string
+		wantCode  int
+	}{
+		{"own project source", "src-b", "sub-1", projectB, http.StatusNoContent},
+		{"cross project source", "src-a", "sub-1", projectB, http.StatusNotFound},
+		{"no project context (internal)", "src-a", "sub-1", "", http.StatusNoContent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/"+tt.sourceID+"/subscriptions/"+tt.subID, "", tt.projectID))
+			if w.Code != tt.wantCode {
+				t.Errorf("DELETE /v1/event-sources/%s/subscriptions/%s with project %q: got %d, want %d: %s",
+					tt.sourceID, tt.subID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestTenantIsolation_GetWebhookDelivery_CrossProject verifies that getting a
+// webhook delivery whose job belongs to another project returns 404.
+func TestTenantIsolation_GetWebhookDelivery_CrossProject(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	ms := newIsolationStore()
+	ms.GetWebhookDeliveryFunc = func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
+		switch id {
+		case "del-a":
+			return &domain.WebhookDelivery{ID: "del-a", JobID: "job-a", WebhookURL: "https://a.example.com", Status: domain.WebhookStatusDelivered, CreatedAt: now, UpdatedAt: now}, nil
+		case "del-b":
+			return &domain.WebhookDelivery{ID: "del-b", JobID: "job-b", WebhookURL: "https://b.example.com", Status: domain.WebhookStatusDelivered, CreatedAt: now, UpdatedAt: now}, nil
+		}
+		return nil, fmt.Errorf("webhook delivery not found")
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	tests := []struct {
+		name       string
+		deliveryID string
+		projectID  string
+		wantCode   int
+	}{
+		{"own project delivery", "del-b", projectB, http.StatusOK},
+		{"cross project delivery", "del-a", projectB, http.StatusNotFound},
+		{"no project context (internal)", "del-a", "", http.StatusOK},
+		{"non-existent delivery", "del-nope", projectB, http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/webhooks/deliveries/"+tt.deliveryID, "", tt.projectID))
+			if w.Code != tt.wantCode {
+				t.Errorf("GET /v1/webhooks/deliveries/%s with project %q: got %d, want %d: %s",
+					tt.deliveryID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestTenantIsolation_RetryWebhookDelivery_CrossProject verifies that retrying
+// a webhook delivery whose job belongs to another project returns 404.
+func TestTenantIsolation_RetryWebhookDelivery_CrossProject(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	ms := newIsolationStore()
+	ms.GetWebhookDeliveryFunc = func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
+		switch id {
+		case "del-a":
+			return &domain.WebhookDelivery{ID: "del-a", JobID: "job-a", WebhookURL: "https://a.example.com", Status: domain.WebhookStatusFailed, CreatedAt: now, UpdatedAt: now}, nil
+		case "del-b":
+			return &domain.WebhookDelivery{ID: "del-b", JobID: "job-b", WebhookURL: "https://b.example.com", Status: domain.WebhookStatusFailed, CreatedAt: now, UpdatedAt: now}, nil
+		}
+		return nil, fmt.Errorf("webhook delivery not found")
+	}
+	ms.RetryWebhookDeliveryFunc = func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
+		return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusPending, CreatedAt: now, UpdatedAt: now}, nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	tests := []struct {
+		name       string
+		deliveryID string
+		projectID  string
+		wantCode   int
+	}{
+		{"own project delivery", "del-b", projectB, http.StatusOK},
+		{"cross project delivery", "del-a", projectB, http.StatusNotFound},
+		{"no project context (internal)", "del-a", "", http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/webhooks/deliveries/"+tt.deliveryID+"/retry", "", tt.projectID))
+			if w.Code != tt.wantCode {
+				t.Errorf("POST /v1/webhooks/deliveries/%s/retry with project %q: got %d, want %d: %s",
+					tt.deliveryID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
+			}
+		})
 	}
 }
 

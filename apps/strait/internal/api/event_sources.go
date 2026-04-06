@@ -228,6 +228,15 @@ type ListEventSourceSubscriptionsOutput struct {
 }
 
 func (s *Server) handleListEventSourceSubscriptions(ctx context.Context, input *ListEventSourceSubscriptionsInput) (*ListEventSourceSubscriptionsOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID != "" {
+		if _, err := s.store.GetEventSource(ctx, input.SourceID, projectID); err != nil {
+			if errors.Is(err, store.ErrEventSourceNotFound) {
+				return nil, huma.Error404NotFound("event source not found")
+			}
+			return nil, huma.Error500InternalServerError("failed to get event source")
+		}
+	}
 	subs, err := s.store.ListEventSubscriptionsBySource(ctx, input.SourceID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list subscriptions")
@@ -241,6 +250,15 @@ type DeleteEventSubscriptionInput struct {
 }
 
 func (s *Server) handleDeleteEventSubscription(ctx context.Context, input *DeleteEventSubscriptionInput) (*struct{}, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID != "" {
+		if _, err := s.store.GetEventSource(ctx, input.SourceID, projectID); err != nil {
+			if errors.Is(err, store.ErrEventSourceNotFound) {
+				return nil, huma.Error404NotFound("event source not found")
+			}
+			return nil, huma.Error500InternalServerError("failed to get event source")
+		}
+	}
 	if err := s.store.DeleteEventSubscription(ctx, input.SubID); err != nil {
 		if errors.Is(err, store.ErrEventSubscriptionNotFound) {
 			return nil, huma.Error404NotFound("event subscription not found")

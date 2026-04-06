@@ -190,6 +190,13 @@ type RevokeAPIKeyInput struct {
 type RevokeAPIKeyOutput struct{ Body map[string]string }
 
 func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInput) (*RevokeAPIKeyOutput, error) {
+	key, err := s.store.GetAPIKeyByID(ctx, input.KeyID)
+	if err != nil || key == nil {
+		return nil, huma.Error404NotFound("api key not found or already revoked")
+	}
+	if err := requireProjectMatch(ctx, key.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("api key not found or already revoked")
+	}
 	if err := s.store.RevokeAPIKey(ctx, input.KeyID); err != nil {
 		return nil, huma.Error404NotFound("api key not found or already revoked")
 	}
@@ -214,6 +221,9 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	}
 	oldKey, err := s.store.GetAPIKeyByID(ctx, input.KeyID)
 	if err != nil || oldKey == nil {
+		return nil, huma.Error404NotFound("api key not found")
+	}
+	if err := requireProjectMatch(ctx, oldKey.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("api key not found")
 	}
 	if oldKey.RevokedAt != nil {

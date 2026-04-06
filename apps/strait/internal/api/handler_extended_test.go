@@ -117,6 +117,9 @@ func TestHandleDeleteEnvironment_Success(t *testing.T) {
 	t.Parallel()
 	var deletedID string
 	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "test", Slug: "test"}, nil
+		},
 		DeleteEnvironmentFunc: func(_ context.Context, id string) error {
 			deletedID = id
 			return nil
@@ -138,6 +141,9 @@ func TestHandleDeleteEnvironment_Success(t *testing.T) {
 func TestHandleDeleteEnvironment_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, _ string) (*domain.Environment, error) {
+			return nil, store.ErrEnvironmentNotFound
+		},
 		DeleteEnvironmentFunc: func(_ context.Context, _ string) error {
 			return store.ErrEnvironmentNotFound
 		},
