@@ -124,7 +124,10 @@ type Config struct {
 	CDCWaitTimeMs int `env:"CDC_WAIT_TIME_MS" default:"5000"`
 
 	// SSE settings
-	SSEKeepaliveInterval time.Duration `env:"SSE_KEEPALIVE_INTERVAL" default:"15s"`
+	SSEKeepaliveInterval  time.Duration `env:"SSE_KEEPALIVE_INTERVAL" default:"15s"`
+	SSEMaxConns           int64         `env:"SSE_MAX_CONNS" default:"5000"`
+	SSEMaxConnsPerProject int64         `env:"SSE_MAX_CONNS_PER_PROJECT" default:"100"`
+	SSEMaxConnDuration    time.Duration `env:"SSE_MAX_CONN_DURATION" default:"30m"`
 
 	// Log drain settings
 	LogDrainWorkerInterval     time.Duration `env:"LOG_DRAIN_WORKER_INTERVAL" default:"1m"`

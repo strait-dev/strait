@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 )
@@ -266,5 +267,127 @@ func TestDoS_WorkerPoolSaturation(t *testing.T) {
 	// All requests should have completed (either success or error, no hang).
 	if ok+errors != concurrency {
 		t.Fatalf("expected %d total responses, got ok=%d, errors=%d", concurrency, ok, errors)
+	}
+}
+
+// TestDoS_SSEConnectionLimitGlobal verifies that the SSE connection limiter
+// rejects new connections when the global limit is exceeded.
+func TestDoS_SSEConnectionLimitGlobal(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		InternalSecret:        "test-secret-value",
+		MaxBulkTriggerItems:   500,
+		JWTSigningKey:         testJWTSigningKey,
+		SSEMaxConns:           3,
+		SSEMaxConnsPerProject: 100,
+	}
+	srv := NewServer(ServerDeps{
+		Config:  cfg,
+		Store:   &APIStoreMock{},
+		Queue:   &mockQueue{},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	// Acquire up to the global limit across different projects.
+	if !srv.acquireSSEConn("proj-a") {
+		t.Fatal("first acquire should succeed")
+	}
+	if !srv.acquireSSEConn("proj-b") {
+		t.Fatal("second acquire should succeed")
+	}
+	if !srv.acquireSSEConn("proj-c") {
+		t.Fatal("third acquire should succeed")
+	}
+
+	// Fourth should be rejected (global limit = 3).
+	if srv.acquireSSEConn("proj-d") {
+		t.Fatal("fourth acquire should be rejected (global limit exceeded)")
+	}
+
+	// Release one and try again.
+	srv.releaseSSEConn("proj-a")
+	if !srv.acquireSSEConn("proj-d") {
+		t.Fatal("acquire after release should succeed")
+	}
+}
+
+// TestDoS_SSEConnectionLimitPerProject verifies the per-project SSE limit.
+func TestDoS_SSEConnectionLimitPerProject(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		InternalSecret:        "test-secret-value",
+		MaxBulkTriggerItems:   500,
+		JWTSigningKey:         testJWTSigningKey,
+		SSEMaxConns:           5000,
+		SSEMaxConnsPerProject: 2,
+	}
+	srv := NewServer(ServerDeps{
+		Config:  cfg,
+		Store:   &APIStoreMock{},
+		Queue:   &mockQueue{},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	if !srv.acquireSSEConn("proj-1") {
+		t.Fatal("first acquire should succeed")
+	}
+	if !srv.acquireSSEConn("proj-1") {
+		t.Fatal("second acquire should succeed")
+	}
+
+	// Third for same project should be rejected.
+	if srv.acquireSSEConn("proj-1") {
+		t.Fatal("third acquire for same project should be rejected")
+	}
+
+	// Different project should still work.
+	if !srv.acquireSSEConn("proj-2") {
+		t.Fatal("acquire for different project should succeed")
+	}
+}
+
+// TestDoS_SSEConnectionLimit503Response verifies that the activity stream
+// handler returns 503 when the SSE connection limit is exceeded.
+func TestDoS_SSEConnectionLimit503Response(t *testing.T) {
+	t.Parallel()
+
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			ch := make(chan []byte)
+			_, cancel := context.WithCancel(context.Background())
+			close(ch)
+			return pubsub.NewSubscription(ch, cancel), nil
+		},
+	}
+	cfg := &config.Config{
+		InternalSecret:        "test-secret-value",
+		MaxBulkTriggerItems:   500,
+		JWTSigningKey:         testJWTSigningKey,
+		SSEMaxConns:           1,
+		SSEMaxConnsPerProject: 1,
+	}
+	srv := NewServer(ServerDeps{
+		Config:  cfg,
+		Store:   &APIStoreMock{},
+		Queue:   &mockQueue{},
+		PubSub:  pub,
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	// Exhaust the single allowed connection.
+	srv.acquireSSEConn("proj-1")
+
+	// The next SSE request should get 503.
+	req := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
 	}
 }

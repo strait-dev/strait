@@ -28,6 +28,7 @@ import (
 	"strait/internal/telemetry"
 	"strait/internal/worker"
 
+	"sync"
 	"sync/atomic"
 
 	"github.com/alitto/pond/v2"
@@ -522,6 +523,50 @@ type Server struct {
 	startedAt          time.Time
 	cdcWebhookReceiver http.Handler
 	cachedOpenAPISpec  []byte
+
+	// SSE connection limiters to prevent goroutine/connection exhaustion.
+	sseGlobalConns  atomic.Int64
+	sseProjectConns sync.Map // map[string]*atomic.Int64
+}
+
+// acquireSSEConn attempts to reserve an SSE connection slot for the given project.
+// Returns false if either the global or per-project limit would be exceeded.
+func (s *Server) acquireSSEConn(projectID string) bool {
+	maxGlobal := s.config.SSEMaxConns
+	if maxGlobal <= 0 {
+		maxGlobal = 5000
+	}
+	maxProject := s.config.SSEMaxConnsPerProject
+	if maxProject <= 0 {
+		maxProject = 100
+	}
+
+	if s.sseGlobalConns.Load() >= maxGlobal {
+		return false
+	}
+
+	counter := s.projectSSECounter(projectID)
+	if counter.Load() >= maxProject {
+		return false
+	}
+
+	s.sseGlobalConns.Add(1)
+	counter.Add(1)
+	return true
+}
+
+// releaseSSEConn releases an SSE connection slot for the given project.
+func (s *Server) releaseSSEConn(projectID string) {
+	s.sseGlobalConns.Add(-1)
+	counter := s.projectSSECounter(projectID)
+	counter.Add(-1)
+}
+
+// projectSSECounter returns the per-project SSE connection counter,
+// creating one if it does not exist.
+func (s *Server) projectSSECounter(projectID string) *atomic.Int64 {
+	val, _ := s.sseProjectConns.LoadOrStore(projectID, &atomic.Int64{})
+	return val.(*atomic.Int64)
 }
 
 // analytics returns the ClickHouse analytics store when available, falling back to Postgres.

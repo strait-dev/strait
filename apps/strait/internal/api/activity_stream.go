@@ -25,6 +25,12 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if !s.acquireSSEConn(projectID) {
+		respondError(w, r, http.StatusServiceUnavailable, "too many SSE connections")
+		return
+	}
+	defer s.releaseSSEConn(projectID)
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		respondError(w, r, http.StatusInternalServerError, "streaming not supported")
@@ -47,7 +53,13 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 	}
 
 	merged := make(chan []byte, 64)
-	ctx, cancel := context.WithCancel(r.Context())
+
+	// Apply max connection duration timeout.
+	maxDuration := s.config.SSEMaxConnDuration
+	if maxDuration <= 0 {
+		maxDuration = 30 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), maxDuration)
 	defer cancel()
 
 	for _, ch := range channels {
@@ -86,7 +98,7 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case msg, ok := <-merged:
 			if !ok {
