@@ -61,6 +61,9 @@ func (s *Server) handleCreateEventSource(ctx context.Context, input *CreateEvent
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled

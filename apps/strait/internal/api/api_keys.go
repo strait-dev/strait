@@ -54,6 +54,9 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 	rawKey, err := generateAPIKey()
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")

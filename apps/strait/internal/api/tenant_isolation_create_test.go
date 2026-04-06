@@ -358,6 +358,300 @@ func TestDeleteJobDependency_CorrectJobAllowed(t *testing.T) {
 	}
 }
 
+// TestCreateJob_CrossProjectBlocked verifies that an API key for project A
+// cannot create a job in project B.
+func TestCreateJob_CrossProjectBlocked(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, _ *domain.Job) error {
+			t.Fatal("store.CreateJob should not be called for cross-project request")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-OTHER","name":"test job","slug":"test-job","endpoint_url":"https://example.com/hook"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs", body, "proj-A"))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateJob_SameProjectAllowed verifies that creating a job with the
+// matching project succeeds.
+func TestCreateJob_SameProjectAllowed(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
+			job.ID = "job-1"
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-A","name":"test job","slug":"test-job","endpoint_url":"https://example.com/hook"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs", body, "proj-A"))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateJob_TimeoutSecsExceeds86400Rejected verifies that timeout_secs
+// above 86400 (24 hours) is rejected.
+func TestCreateJob_TimeoutSecsExceeds86400Rejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, _ *domain.Job) error {
+			t.Fatal("store.CreateJob should not be called for excessive timeout_secs")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-A","name":"test job","slug":"test-job","endpoint_url":"https://example.com/hook","timeout_secs":999999999}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs", body, "proj-A"))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateJob_TimeoutSecs86400Allowed verifies that timeout_secs at exactly
+// 86400 is accepted.
+func TestCreateJob_TimeoutSecs86400Allowed(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
+			job.ID = "job-1"
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-A","name":"test job","slug":"test-job","endpoint_url":"https://example.com/hook","timeout_secs":86400}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs", body, "proj-A"))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateAPIKey_CrossProjectBlocked verifies that an API key for project A
+// cannot create an API key in project B.
+func TestCreateAPIKey_CrossProjectBlocked(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
+			t.Fatal("store.CreateAPIKey should not be called for cross-project request")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-OTHER","name":"my key"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/api-keys", body, "proj-A"))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateAPIKey_SameProjectAllowed verifies that creating an API key with
+// the matching project succeeds.
+func TestCreateAPIKey_SameProjectAllowed(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
+			key.ID = "key-1"
+			key.CreatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-A","name":"my key"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/api-keys", body, "proj-A"))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateEventSource_CrossProjectBlocked verifies that an API key for
+// project A cannot create an event source in project B.
+func TestCreateEventSource_CrossProjectBlocked(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateEventSourceFunc: func(_ context.Context, _ *domain.EventSource) error {
+			t.Fatal("store.CreateEventSource should not be called for cross-project request")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-OTHER","name":"src"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources", body, "proj-A"))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateEventSource_SameProjectAllowed verifies that creating an event
+// source with the matching project succeeds.
+func TestCreateEventSource_SameProjectAllowed(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateEventSourceFunc: func(_ context.Context, src *domain.EventSource) error {
+			src.ID = "src-1"
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-A","name":"src"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources", body, "proj-A"))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateLogDrain_CrossProjectBlocked verifies that an API key for project A
+// cannot create a log drain in project B.
+func TestCreateLogDrain_CrossProjectBlocked(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateLogDrainFunc: func(_ context.Context, _ *domain.LogDrain) error {
+			t.Fatal("store.CreateLogDrain should not be called for cross-project request")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-OTHER","name":"drain","drain_type":"http","endpoint_url":"https://example.com/logs","auth_type":"header"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/log-drains", body, "proj-A"))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateLogDrain_SameProjectAllowed verifies that creating a log drain
+// with the matching project succeeds.
+func TestCreateLogDrain_SameProjectAllowed(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateLogDrainFunc: func(_ context.Context, drain *domain.LogDrain) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-A","name":"drain","drain_type":"http","endpoint_url":"https://example.com/logs","auth_type":"header"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/log-drains", body, "proj-A"))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateSecret_CrossProjectBlocked verifies that an API key for project A
+// cannot create a secret in project B.
+func TestCreateSecret_CrossProjectBlocked(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateJobSecretFunc: func(_ context.Context, _ *domain.JobSecret) error {
+			t.Fatal("store.CreateJobSecret should not be called for cross-project request")
+			return nil
+		},
+	}
+	srv := newTestServerWithEncryption(t, ms, &mockQueue{})
+
+	body := `{"project_id":"proj-OTHER","secret_key":"MY_SECRET","value":"supersecret"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/secrets", body, "proj-A"))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateSecret_SameProjectAllowed verifies that creating a secret with
+// the matching project succeeds.
+func TestCreateSecret_SameProjectAllowed(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateJobSecretFunc: func(_ context.Context, secret *domain.JobSecret) error {
+			secret.ID = "sec-1"
+			return nil
+		},
+	}
+	srv := newTestServerWithEncryption(t, ms, &mockQueue{})
+
+	body := `{"project_id":"proj-A","secret_key":"MY_SECRET","value":"supersecret"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/secrets", body, "proj-A"))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestTestWebhook_ErrorSanitized verifies that the webhook test endpoint
+// does not leak internal network topology in error messages.
+func TestTestWebhook_ErrorSanitized(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	// Use an unreachable host that will cause a connection error.
+	body := `{"url":"https://192.0.2.1:1/hook"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/webhooks/test", body, "proj-A"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+
+	errMsg, ok := resp["error"].(string)
+	if !ok {
+		t.Fatal("expected error field in response")
+	}
+	if errMsg != "connection to webhook URL failed" {
+		t.Fatalf("expected sanitized error message, got: %q", errMsg)
+	}
+}
+
 // TestDeleteJobDependency_NotFoundReturns404 verifies that deleting a
 // nonexistent dependency returns 404.
 func TestDeleteJobDependency_NotFoundReturns404(t *testing.T) {

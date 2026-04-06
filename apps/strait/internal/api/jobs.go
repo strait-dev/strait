@@ -123,12 +123,15 @@ type CreateJobOutput struct {
 	Body *domain.Job
 }
 
-//nolint:gocognit,gocyclo,cyclop
+//nolint:gocognit,gocyclo,cyclop,funlen
 func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*CreateJobOutput, error) {
 	req := input.Body
 
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
+	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
 	if err := validateJobName(req.Name); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -153,6 +156,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	}
 	if req.TimeoutSecs == 0 {
 		req.TimeoutSecs = s.defaultJobTimeoutSecs()
+	}
+	if req.TimeoutSecs > 86400 {
+		return nil, huma.Error400BadRequest("timeout_secs must not exceed 86400 (24 hours)")
 	}
 	if req.RetryPriorityBoost == 0 {
 		req.RetryPriorityBoost = 1

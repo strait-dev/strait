@@ -36,6 +36,9 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 
 	if s.config.SecretEncryptionKey == "" {
 		return nil, huma.Error503ServiceUnavailable("secret encryption is not configured -- set SECRET_ENCRYPTION_KEY")
