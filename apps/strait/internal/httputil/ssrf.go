@@ -62,6 +62,28 @@ func isPrivateIP(ip net.IP) bool {
 			return true
 		}
 	}
+	// Check IPv6 addresses that embed IPv4:
+	// - ::ffff:127.0.0.1 (IPv4-mapped, caught by To4)
+	// - ::127.0.0.1 (IPv4-compatible, NOT caught by To4)
+	if len(ip) == net.IPv6len {
+		// IPv4-mapped: To4() returns non-nil.
+		if v4 := ip.To4(); v4 != nil && !ip.Equal(v4) {
+			return isPrivateIP(v4)
+		}
+		// IPv4-compatible (deprecated RFC 4291): first 96 bits are zero,
+		// last 32 bits are the IPv4 address. To4() returns nil for these.
+		allZero := true
+		for i := range 12 {
+			if ip[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero && (ip[12] != 0 || ip[13] != 0 || ip[14] != 0 || ip[15] != 0) {
+			v4 := net.IPv4(ip[12], ip[13], ip[14], ip[15])
+			return isPrivateIP(v4)
+		}
+	}
 	return false
 }
 
