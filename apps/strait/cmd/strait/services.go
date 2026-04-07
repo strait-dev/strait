@@ -912,6 +912,24 @@ func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *st
 		orch.Run(ctx)
 		return nil
 	})
+
+	if cfg.DeploymentGCEnabled {
+		gc := build.NewDeploymentGC(queries,
+			build.WithGCInterval(cfg.DeploymentGCInterval),
+			build.WithGCPendingTTL(cfg.DeploymentGCPendingTTL),
+			build.WithGCFailedAge(cfg.DeploymentGCFailedAge),
+			build.WithGCLogger(slog.Default()),
+		)
+		g.Go(func(ctx context.Context) error {
+			slog.Info("deployment GC started",
+				"interval", cfg.DeploymentGCInterval,
+				"pending_ttl", cfg.DeploymentGCPendingTTL,
+				"failed_age", cfg.DeploymentGCFailedAge,
+			)
+			gc.Run(ctx)
+			return nil
+		})
+	}
 }
 
 func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {

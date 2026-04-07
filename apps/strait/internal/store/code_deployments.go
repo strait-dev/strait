@@ -504,6 +504,36 @@ func (q *Queries) ReleaseStaleClaimedDeployments(ctx context.Context, olderThan 
 	return tag.RowsAffected(), nil
 }
 
+// DeleteExpiredDeployments removes stale deployments that are no longer actionable:
+//   - pending deployments created before pendingBefore (presign TTL expired, never uploaded)
+//   - failed or timed_out deployments finished before failedBefore
+//
+// The active deployment for any job is never deleted, even if it would otherwise qualify.
+// Returns the number of rows deleted.
+func (q *Queries) DeleteExpiredDeployments(ctx context.Context, pendingBefore, failedBefore time.Time) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteExpiredDeployments")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `
+		DELETE FROM code_deployments
+		WHERE (
+		    (status = 'pending' AND created_at < $1)
+		 OR (status IN ('failed', 'timed_out') AND finished_at < $2)
+		)
+		AND id NOT IN (
+		    SELECT active_deployment_id
+		    FROM jobs
+		    WHERE active_deployment_id IS NOT NULL
+		)`,
+		pendingBefore,
+		failedBefore,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired deployments: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // nilStringFromMap extracts a *string from a map[string]any. Returns nil if the key
 // is absent, maps to a non-string value, or maps to an empty string.
 func nilStringFromMap(m map[string]any, key string) *string {

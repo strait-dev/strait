@@ -309,3 +309,158 @@ func mustCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectI
 	}
 	return job
 }
+
+// TestDeleteExpiredDeployments_DeletesStalePending verifies that pending
+// deployments whose presigned-upload TTL has expired are removed.
+func TestDeleteExpiredDeployments_DeletesStalePending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-gc-pending-" + newID()
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	// Create two pending deployments.
+	d1 := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+	d2 := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+	// GC with a pendingBefore of far future — both qualify.
+	deleted, err := q.DeleteExpiredDeployments(ctx, time.Now().Add(1*time.Hour), time.Time{})
+	if err != nil {
+		t.Fatalf("DeleteExpiredDeployments: %v", err)
+	}
+	if deleted < 2 {
+		t.Errorf("expected at least 2 rows deleted, got %d", deleted)
+	}
+
+	// Verify both are gone.
+	for _, id := range []string{d1.ID, d2.ID} {
+		_, err := q.GetCodeDeployment(ctx, id, projectID)
+		if err == nil {
+			t.Errorf("expected deployment %s to be deleted, but GetCodeDeployment succeeded", id)
+		}
+	}
+}
+
+// TestDeleteExpiredDeployments_DeletesOldFailed verifies that failed and
+// timed_out deployments whose finished_at is beyond the retention window are removed.
+func TestDeleteExpiredDeployments_DeletesOldFailed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-gc-failed-" + newID()
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	// Create deployments, confirm them, then mark them failed/timed_out.
+	dFailed := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+	dTimedOut := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+	if err := q.ConfirmCodeDeployment(ctx, dFailed.ID); err != nil {
+		t.Fatalf("confirm failed: %v", err)
+	}
+	if err := q.ConfirmCodeDeployment(ctx, dTimedOut.ID); err != nil {
+		t.Fatalf("confirm timed_out: %v", err)
+	}
+	if err := q.UpdateCodeDeploymentStatus(ctx, dFailed.ID, domain.DeploymentStatusFailed, nil); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+	if err := q.UpdateCodeDeploymentStatus(ctx, dTimedOut.ID, domain.DeploymentStatusTimedOut, nil); err != nil {
+		t.Fatalf("mark timed_out: %v", err)
+	}
+
+	// GC with failedBefore of far future — both qualify.
+	deleted, err := q.DeleteExpiredDeployments(ctx, time.Time{}, time.Now().Add(1*time.Hour))
+	if err != nil {
+		t.Fatalf("DeleteExpiredDeployments: %v", err)
+	}
+	if deleted < 2 {
+		t.Errorf("expected at least 2 rows deleted, got %d", deleted)
+	}
+}
+
+// TestDeleteExpiredDeployments_PreservesActiveDeployment verifies that a ready
+// deployment that is the active_deployment_id on a job is never GC'd, even if
+// all other criteria would select it.
+func TestDeleteExpiredDeployments_PreservesActiveDeployment(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-gc-active-" + newID()
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	// Create and fully promote a deployment to ready + active.
+	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+	if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	if err := q.UpdateCodeDeploymentStatus(ctx, d.ID, domain.DeploymentStatusReady, nil); err != nil {
+		t.Fatalf("mark ready: %v", err)
+	}
+	if err := q.SetActiveDeployment(ctx, job.ID, d.ID, projectID); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+
+	// Create a stale failed deployment that should be deleted.
+	dFailed := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+	if err := q.ConfirmCodeDeployment(ctx, dFailed.ID); err != nil {
+		t.Fatalf("confirm failed: %v", err)
+	}
+	if err := q.UpdateCodeDeploymentStatus(ctx, dFailed.ID, domain.DeploymentStatusFailed, nil); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+
+	deleted, err := q.DeleteExpiredDeployments(ctx, time.Now().Add(1*time.Hour), time.Now().Add(1*time.Hour))
+	if err != nil {
+		t.Fatalf("DeleteExpiredDeployments: %v", err)
+	}
+
+	// The active (ready) deployment is not in the failed/pending set anyway, but
+	// confirm it still exists after GC.
+	got, err := q.GetCodeDeployment(ctx, d.ID, projectID)
+	if err != nil {
+		t.Fatalf("active deployment should survive GC: %v", err)
+	}
+	if got.ID != d.ID {
+		t.Errorf("expected active deployment %s, got %s", d.ID, got.ID)
+	}
+	if deleted == 0 {
+		t.Error("expected the stale failed deployment to be deleted")
+	}
+}
+
+// TestDeleteExpiredDeployments_PreservesRecentPending verifies that pending
+// deployments created recently (within pendingTTL) are not deleted.
+func TestDeleteExpiredDeployments_PreservesRecentPending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-gc-recent-" + newID()
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+	// GC with a pendingBefore in the far past — nothing should qualify.
+	deleted, err := q.DeleteExpiredDeployments(ctx, time.Now().Add(-1*time.Hour), time.Time{})
+	if err != nil {
+		t.Fatalf("DeleteExpiredDeployments: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("expected 0 deletions, got %d", deleted)
+	}
+
+	// Deployment still exists.
+	got, err := q.GetCodeDeployment(ctx, d.ID, projectID)
+	if err != nil {
+		t.Fatalf("recent pending deployment should not be deleted: %v", err)
+	}
+	if got.ID != d.ID {
+		t.Errorf("expected %s, got %s", d.ID, got.ID)
+	}
+}

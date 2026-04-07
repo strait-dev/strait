@@ -230,8 +230,15 @@ type Config struct {
 	// BuildKitAddresses is an optional comma-separated list of BuildKit daemon
 	// addresses used for multi-node round-robin dispatch. When non-empty it
 	// overrides BuildKitAddress.
-	BuildKitAddresses    string        `env:"BUILDKIT_ADDRESSES" default:""`
-	BuildKitNamespace    string        `env:"BUILDKIT_NAMESPACE" default:"strait-build"`
+	BuildKitAddresses string `env:"BUILDKIT_ADDRESSES" default:""`
+	BuildKitNamespace string `env:"BUILDKIT_NAMESPACE" default:"strait-build"`
+
+	// Deployment GC removes stale pending and old failed/timed_out deployments.
+	DeploymentGCEnabled    bool          `env:"DEPLOYMENT_GC_ENABLED" default:"true"`
+	DeploymentGCInterval   time.Duration `env:"DEPLOYMENT_GC_INTERVAL" default:"1h"`
+	DeploymentGCPendingTTL time.Duration `env:"DEPLOYMENT_GC_PENDING_TTL" default:"15m"`
+	DeploymentGCFailedAge  time.Duration `env:"DEPLOYMENT_GC_FAILED_AGE" default:"168h"` // 7 days
+
 	BuildKitCacheEnabled bool          `env:"BUILDKIT_CACHE_ENABLED" default:"true"`
 	BuildMaxTarballMB    int           `env:"BUILD_MAX_TARBALL_MB" default:"256"`
 	BuildTimeout         time.Duration `env:"BUILD_TIMEOUT" default:"10m"`

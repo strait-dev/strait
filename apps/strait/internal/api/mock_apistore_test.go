@@ -241,6 +241,9 @@ var _ APIStore = &APIStoreMock{}
 //			DeleteEventTriggersFinishedBeforeFunc: func(ctx context.Context, before time.Time, limit int) (int64, error) {
 //				panic("mock out the DeleteEventTriggersFinishedBefore method")
 //			},
+//			DeleteExpiredDeploymentsFunc: func(ctx context.Context, pendingBefore time.Time, failedBefore time.Time) (int64, error) {
+//				panic("mock out the DeleteExpiredDeployments method")
+//			},
 //			DeleteIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string) (int64, error) {
 //				panic("mock out the DeleteIdempotencyKey method")
 //			},
@@ -1060,6 +1063,9 @@ type APIStoreMock struct {
 
 	// DeleteEventTriggersFinishedBeforeFunc mocks the DeleteEventTriggersFinishedBefore method.
 	DeleteEventTriggersFinishedBeforeFunc func(ctx context.Context, before time.Time, limit int) (int64, error)
+
+	// DeleteExpiredDeploymentsFunc mocks the DeleteExpiredDeployments method.
+	DeleteExpiredDeploymentsFunc func(ctx context.Context, pendingBefore time.Time, failedBefore time.Time) (int64, error)
 
 	// DeleteIdempotencyKeyFunc mocks the DeleteIdempotencyKey method.
 	DeleteIdempotencyKeyFunc func(ctx context.Context, projectID string, key string) (int64, error)
@@ -2237,6 +2243,15 @@ type APIStoreMock struct {
 			Before time.Time
 			// Limit is the limit argument value.
 			Limit int
+		}
+		// DeleteExpiredDeployments holds details about calls to the DeleteExpiredDeployments method.
+		DeleteExpiredDeployments []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// PendingBefore is the pendingBefore argument value.
+			PendingBefore time.Time
+			// FailedBefore is the failedBefore argument value.
+			FailedBefore time.Time
 		}
 		// DeleteIdempotencyKey holds details about calls to the DeleteIdempotencyKey method.
 		DeleteIdempotencyKey []struct {
@@ -4178,6 +4193,7 @@ type APIStoreMock struct {
 	lockDeleteEventSource                  sync.RWMutex
 	lockDeleteEventSubscription            sync.RWMutex
 	lockDeleteEventTriggersFinishedBefore  sync.RWMutex
+	lockDeleteExpiredDeployments           sync.RWMutex
 	lockDeleteIdempotencyKey               sync.RWMutex
 	lockDeleteJob                          sync.RWMutex
 	lockDeleteJobDependency                sync.RWMutex
@@ -7392,6 +7408,50 @@ func (mock *APIStoreMock) DeleteEventTriggersFinishedBeforeCalls() []struct {
 	mock.lockDeleteEventTriggersFinishedBefore.RLock()
 	calls = mock.calls.DeleteEventTriggersFinishedBefore
 	mock.lockDeleteEventTriggersFinishedBefore.RUnlock()
+	return calls
+}
+
+// DeleteExpiredDeployments calls DeleteExpiredDeploymentsFunc.
+func (mock *APIStoreMock) DeleteExpiredDeployments(ctx context.Context, pendingBefore time.Time, failedBefore time.Time) (int64, error) {
+	callInfo := struct {
+		Ctx           context.Context
+		PendingBefore time.Time
+		FailedBefore  time.Time
+	}{
+		Ctx:           ctx,
+		PendingBefore: pendingBefore,
+		FailedBefore:  failedBefore,
+	}
+	mock.lockDeleteExpiredDeployments.Lock()
+	mock.calls.DeleteExpiredDeployments = append(mock.calls.DeleteExpiredDeployments, callInfo)
+	mock.lockDeleteExpiredDeployments.Unlock()
+	if mock.DeleteExpiredDeploymentsFunc == nil {
+		var (
+			nOut   int64
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.DeleteExpiredDeploymentsFunc(ctx, pendingBefore, failedBefore)
+}
+
+// DeleteExpiredDeploymentsCalls gets all the calls that were made to DeleteExpiredDeployments.
+// Check the length with:
+//
+//	len(mockedAPIStore.DeleteExpiredDeploymentsCalls())
+func (mock *APIStoreMock) DeleteExpiredDeploymentsCalls() []struct {
+	Ctx           context.Context
+	PendingBefore time.Time
+	FailedBefore  time.Time
+} {
+	var calls []struct {
+		Ctx           context.Context
+		PendingBefore time.Time
+		FailedBefore  time.Time
+	}
+	mock.lockDeleteExpiredDeployments.RLock()
+	calls = mock.calls.DeleteExpiredDeployments
+	mock.lockDeleteExpiredDeployments.RUnlock()
 	return calls
 }
 

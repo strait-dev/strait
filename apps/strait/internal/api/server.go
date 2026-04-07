@@ -309,6 +309,10 @@ type CodeDeploymentStore interface {
 	// whose build_node_claimed_at is older than olderThan. This recovers work
 	// orphaned by crashed orchestrator workers.
 	ReleaseStaleClaimedDeployments(ctx context.Context, olderThan time.Duration) (int64, error)
+	// DeleteExpiredDeployments removes pending deployments created before
+	// pendingBefore and failed/timed_out deployments finished before failedBefore.
+	// Never deletes the active deployment of any job.
+	DeleteExpiredDeployments(ctx context.Context, pendingBefore, failedBefore time.Time) (int64, error)
 	UpdateCodeDeploymentStatus(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error
 	SetActiveDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
 	RollbackToDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
