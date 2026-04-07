@@ -14,6 +14,13 @@ import (
 	"strait/internal/domain"
 )
 
+// buildExecutor is the minimal interface the Orchestrator requires from a Builder.
+// *Builder satisfies this interface. The interface exists so tests can inject a
+// mock without spinning up a real BuildKit daemon.
+type buildExecutor interface {
+	Build(ctx context.Context, d *domain.CodeDeployment, addr string) (*BuildResult, error)
+}
+
 // OrchestratorStore is the subset of store operations required by the build
 // orchestrator to pick up, update, and finalise code deployments.
 type OrchestratorStore interface {
@@ -37,14 +44,15 @@ type OrchestratorStore interface {
 //
 // Concurrency is bounded by concurrency; 0 defaults to 2.
 type Orchestrator struct {
-	store         OrchestratorStore
-	builder       *Builder
-	addrPool      *AddressPool
-	workerID      string
-	pollInterval  time.Duration
-	staleInterval time.Duration
-	concurrency   int
-	logger        *slog.Logger
+	store          OrchestratorStore
+	builder        buildExecutor
+	builderTimeout time.Duration // extracted from *Builder at construction; 0 = use default stale cutoff
+	addrPool       *AddressPool
+	workerID       string
+	pollInterval   time.Duration
+	staleInterval  time.Duration
+	concurrency    int
+	logger         *slog.Logger
 }
 
 // OrchestratorOption configures an Orchestrator.
@@ -77,12 +85,17 @@ func NewOrchestrator(store OrchestratorStore, builder *Builder, opts ...Orchestr
 	id, _ := uuid.NewV7()
 	o := &Orchestrator{
 		store:         store,
-		builder:       builder,
 		workerID:      fmt.Sprintf("orchestrator-%s", id.String()),
 		pollInterval:  5 * time.Second,
 		staleInterval: 1 * time.Minute,
 		concurrency:   2,
 		logger:        slog.Default(),
+	}
+	if builder != nil {
+		o.builder = builder
+		if builder.timeout > 0 {
+			o.builderTimeout = builder.timeout
+		}
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -154,12 +167,12 @@ dispatch:
 }
 
 // releaseStale releases claims on building deployments held longer than
-// builder.timeout*2 so that work orphaned by a crashed orchestrator can be
-// reclaimed by another replica. Defaults to 30 minutes when no builder is set.
+// builderTimeout*2 so that work orphaned by a crashed orchestrator can be
+// reclaimed by another replica. Defaults to 30 minutes when builderTimeout is unset.
 func (o *Orchestrator) releaseStale(ctx context.Context) {
 	staleCutoff := 30 * time.Minute
-	if o.builder != nil && o.builder.timeout > 0 {
-		staleCutoff = o.builder.timeout * 2
+	if o.builderTimeout > 0 {
+		staleCutoff = o.builderTimeout * 2
 	}
 	released, err := o.store.ReleaseStaleClaimedDeployments(ctx, staleCutoff)
 	if err != nil {

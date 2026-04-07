@@ -4,12 +4,33 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"strait/internal/domain"
 )
+
+// mockBuildExecutor is a controllable stand-in for buildExecutor, allowing
+// unit tests to simulate successful and failing builds without BuildKit.
+type mockBuildExecutor struct {
+	buildFn func(ctx context.Context, d *domain.CodeDeployment, addr string) (*BuildResult, error)
+}
+
+func (m *mockBuildExecutor) Build(ctx context.Context, d *domain.CodeDeployment, addr string) (*BuildResult, error) {
+	if m.buildFn != nil {
+		return m.buildFn(ctx, d, addr)
+	}
+	return &BuildResult{
+		ImageURI:   "registry.example.com/strait-jobs/" + d.JobID + ":" + d.ID,
+		Digest:     "sha256:deadbeef",
+		BuildLogs:  "mock build logs",
+		FinishedAt: time.Now().UTC(),
+	}, nil
+}
 
 // mockOrchestratorStore is a minimal stub for OrchestratorStore.
 type mockOrchestratorStore struct {
@@ -426,4 +447,278 @@ func TestOrchestrator_SuccessfulBuild_viaClaim(t *testing.T) {
 		t.Error("expected SetActiveDeployment to be called")
 	}
 	_ = ms // used above
+}
+
+// newTestOrchestratorWithMockBuilder creates an Orchestrator wired with a
+// mockBuildExecutor so runBuild can be exercised without a real Builder.
+func newTestOrchestratorWithMockBuilder(store OrchestratorStore, executor *mockBuildExecutor) *Orchestrator {
+	id, _ := uuid.NewV7()
+	return &Orchestrator{
+		store:    store,
+		builder:  executor,
+		workerID: "orchestrator-" + id.String(),
+		logger:   slog.Default(),
+	}
+}
+
+// TestOrchestratorRunBuild_SuccessMarksReadyAndActivates verifies the happy
+// path: Build returns a result → status set to ready with image data → job
+// activated.
+func TestOrchestratorRunBuild_SuccessMarksReadyAndActivates(t *testing.T) {
+	dep := domain.CodeDeployment{
+		ID:        "deploy-rb-ok",
+		JobID:     "job-rb-ok",
+		ProjectID: "proj-rb",
+		Runtime:   domain.RuntimePython,
+		Status:    domain.DeploymentStatusBuilding,
+	}
+
+	wantImage := "registry.example.com/strait-jobs/job-rb-ok:deploy-rb-ok"
+	wantDigest := "sha256:aabbcc"
+
+	var gotStatus domain.DeploymentBuildStatus
+	var gotFields map[string]any
+	var activateJobID, activateDeployID string
+
+	ms := &mockOrchestratorStore{
+		updateStatusFn: func(_ context.Context, _ string, status domain.DeploymentBuildStatus, fields map[string]any) error {
+			gotStatus = status
+			gotFields = fields
+			return nil
+		},
+		setActiveDeploymentFn: func(_ context.Context, jobID, deploymentID, _ string) error {
+			activateJobID = jobID
+			activateDeployID = deploymentID
+			return nil
+		},
+	}
+
+	executor := &mockBuildExecutor{
+		buildFn: func(_ context.Context, _ *domain.CodeDeployment, _ string) (*BuildResult, error) {
+			return &BuildResult{
+				ImageURI:   wantImage,
+				Digest:     wantDigest,
+				BuildLogs:  "all good",
+				FinishedAt: time.Now().UTC(),
+			}, nil
+		},
+	}
+
+	o := newTestOrchestratorWithMockBuilder(ms, executor)
+	o.runBuild(context.Background(), &dep)
+
+	if gotStatus != domain.DeploymentStatusReady {
+		t.Errorf("expected status=ready, got %s", gotStatus)
+	}
+	if gotFields["built_image_uri"] != wantImage {
+		t.Errorf("expected image_uri=%s, got %v", wantImage, gotFields["built_image_uri"])
+	}
+	if gotFields["built_image_digest"] != wantDigest {
+		t.Errorf("expected digest=%s, got %v", wantDigest, gotFields["built_image_digest"])
+	}
+	if activateJobID != dep.JobID || activateDeployID != dep.ID {
+		t.Errorf("SetActiveDeployment called with job=%s deploy=%s; want %s/%s",
+			activateJobID, activateDeployID, dep.JobID, dep.ID)
+	}
+}
+
+// TestOrchestratorRunBuild_BuildErrorSetsFailedStatus verifies that a generic
+// build error produces a failed deployment with a persisted error message.
+func TestOrchestratorRunBuild_BuildErrorSetsFailedStatus(t *testing.T) {
+	dep := domain.CodeDeployment{
+		ID:        "deploy-rb-fail",
+		JobID:     "job-rb-fail",
+		ProjectID: "proj-rb",
+		Status:    domain.DeploymentStatusBuilding,
+	}
+
+	var gotStatus domain.DeploymentBuildStatus
+	var gotErrMsg string
+
+	ms := &mockOrchestratorStore{
+		updateStatusFn: func(_ context.Context, _ string, status domain.DeploymentBuildStatus, fields map[string]any) error {
+			gotStatus = status
+			if m, ok := fields["error_message"].(string); ok {
+				gotErrMsg = m
+			}
+			return nil
+		},
+	}
+
+	executor := &mockBuildExecutor{
+		buildFn: func(_ context.Context, _ *domain.CodeDeployment, _ string) (*BuildResult, error) {
+			return nil, errors.New("buildkit: connection refused")
+		},
+	}
+
+	o := newTestOrchestratorWithMockBuilder(ms, executor)
+	o.runBuild(context.Background(), &dep)
+
+	if gotStatus != domain.DeploymentStatusFailed {
+		t.Errorf("expected status=failed, got %s", gotStatus)
+	}
+	if gotErrMsg == "" {
+		t.Error("expected non-empty error_message in update fields")
+	}
+}
+
+// TestOrchestratorRunBuild_TimeoutSetsTimedOutStatus verifies that
+// context.DeadlineExceeded from the builder produces a timed_out deployment.
+func TestOrchestratorRunBuild_TimeoutSetsTimedOutStatus(t *testing.T) {
+	dep := domain.CodeDeployment{
+		ID:        "deploy-rb-timeout",
+		JobID:     "job-rb-timeout",
+		ProjectID: "proj-rb",
+		Status:    domain.DeploymentStatusBuilding,
+	}
+
+	var gotStatus domain.DeploymentBuildStatus
+
+	ms := &mockOrchestratorStore{
+		updateStatusFn: func(_ context.Context, _ string, status domain.DeploymentBuildStatus, _ map[string]any) error {
+			gotStatus = status
+			return nil
+		},
+	}
+
+	executor := &mockBuildExecutor{
+		buildFn: func(_ context.Context, _ *domain.CodeDeployment, _ string) (*BuildResult, error) {
+			return nil, context.DeadlineExceeded
+		},
+	}
+
+	o := newTestOrchestratorWithMockBuilder(ms, executor)
+	o.runBuild(context.Background(), &dep)
+
+	if gotStatus != domain.DeploymentStatusTimedOut {
+		t.Errorf("expected status=timed_out, got %s", gotStatus)
+	}
+}
+
+// TestOrchestratorRunBuild_SetActiveDeploymentFailureDoesNotFailBuild verifies
+// that if SetActiveDeployment fails, we log but do NOT overwrite the ready status.
+func TestOrchestratorRunBuild_SetActiveDeploymentFailureDoesNotFailBuild(t *testing.T) {
+	dep := domain.CodeDeployment{
+		ID:        "deploy-rb-activate-fail",
+		JobID:     "job-rb-activate-fail",
+		ProjectID: "proj-rb",
+		Status:    domain.DeploymentStatusBuilding,
+	}
+
+	var statusUpdates []domain.DeploymentBuildStatus
+
+	ms := &mockOrchestratorStore{
+		updateStatusFn: func(_ context.Context, _ string, status domain.DeploymentBuildStatus, _ map[string]any) error {
+			statusUpdates = append(statusUpdates, status)
+			return nil
+		},
+		setActiveDeploymentFn: func(_ context.Context, _, _, _ string) error {
+			return errors.New("db: set active deployment failed")
+		},
+	}
+
+	executor := &mockBuildExecutor{} // default: returns success
+
+	o := newTestOrchestratorWithMockBuilder(ms, executor)
+	o.runBuild(context.Background(), &dep)
+
+	// The only status update should be "ready" — no subsequent "failed" update.
+	if len(statusUpdates) != 1 {
+		t.Fatalf("expected exactly 1 status update, got %d: %v", len(statusUpdates), statusUpdates)
+	}
+	if statusUpdates[0] != domain.DeploymentStatusReady {
+		t.Errorf("expected status=ready, got %s", statusUpdates[0])
+	}
+}
+
+// TestOrchestratorRunBuild_BuiltImageAndDigestPersistedCorrectly verifies that
+// both image URI and digest from the BuildResult are stored on the deployment.
+func TestOrchestratorRunBuild_BuiltImageAndDigestPersistedCorrectly(t *testing.T) {
+	dep := domain.CodeDeployment{
+		ID:        "deploy-rb-fields",
+		JobID:     "job-rb-fields",
+		ProjectID: "proj-rb",
+		Status:    domain.DeploymentStatusBuilding,
+	}
+
+	wantURI := "ghcr.io/strait-dev/jobs/job-rb-fields:deploy-rb-fields"
+	wantDigest := "sha256:f00cafe"
+	wantLogs := "build log line 1\nbuild log line 2\n"
+
+	var gotFields map[string]any
+
+	ms := &mockOrchestratorStore{
+		updateStatusFn: func(_ context.Context, _ string, _ domain.DeploymentBuildStatus, fields map[string]any) error {
+			gotFields = fields
+			return nil
+		},
+	}
+
+	executor := &mockBuildExecutor{
+		buildFn: func(_ context.Context, _ *domain.CodeDeployment, _ string) (*BuildResult, error) {
+			return &BuildResult{
+				ImageURI:   wantURI,
+				Digest:     wantDigest,
+				BuildLogs:  wantLogs,
+				FinishedAt: time.Now().UTC(),
+			}, nil
+		},
+	}
+
+	o := newTestOrchestratorWithMockBuilder(ms, executor)
+	o.runBuild(context.Background(), &dep)
+
+	if gotFields == nil {
+		t.Fatal("expected update fields to be set")
+	}
+	if gotFields["built_image_uri"] != wantURI {
+		t.Errorf("built_image_uri: want %q, got %v", wantURI, gotFields["built_image_uri"])
+	}
+	if gotFields["built_image_digest"] != wantDigest {
+		t.Errorf("built_image_digest: want %q, got %v", wantDigest, gotFields["built_image_digest"])
+	}
+	if gotFields["build_logs"] != wantLogs {
+		t.Errorf("build_logs: want %q, got %v", wantLogs, gotFields["build_logs"])
+	}
+}
+
+// TestOrchestratorRunBuild_AddressPoolPassedToBuilder verifies that when an
+// AddressPool is configured, each build receives the pool's address.
+func TestOrchestratorRunBuild_AddressPoolPassedToBuilder(t *testing.T) {
+	dep := domain.CodeDeployment{
+		ID:        "deploy-rb-pool",
+		JobID:     "job-rb-pool",
+		ProjectID: "proj-rb",
+		Status:    domain.DeploymentStatusBuilding,
+	}
+
+	var gotAddr string
+
+	ms := &mockOrchestratorStore{
+		updateStatusFn: func(_ context.Context, _ string, _ domain.DeploymentBuildStatus, _ map[string]any) error {
+			return nil
+		},
+		setActiveDeploymentFn: func(_ context.Context, _, _, _ string) error { return nil },
+	}
+
+	executor := &mockBuildExecutor{
+		buildFn: func(_ context.Context, _ *domain.CodeDeployment, addr string) (*BuildResult, error) {
+			gotAddr = addr
+			return &BuildResult{
+				ImageURI:   "registry.example.com/test:deploy-rb-pool",
+				Digest:     "sha256:abc",
+				FinishedAt: time.Now().UTC(),
+			}, nil
+		},
+	}
+
+	pool := NewAddressPool("bk1.local:1234", "bk2.local:1234,bk3.local:1234")
+	o := newTestOrchestratorWithMockBuilder(ms, executor)
+	o.addrPool = pool
+
+	o.runBuild(context.Background(), &dep)
+
+	if gotAddr == "" {
+		t.Error("expected a non-empty BuildKit address from the pool")
+	}
 }
