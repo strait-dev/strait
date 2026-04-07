@@ -294,6 +294,82 @@ func (q *Queries) RollbackToDeployment(ctx context.Context, jobID, deploymentID,
 	return q.SetActiveDeployment(ctx, jobID, deploymentID, projectID)
 }
 
+// ListBuildingDeployments returns up to limit deployments currently in "building"
+// status, ordered by creation time ascending (oldest first so we process in order).
+// Called by the build orchestrator to find work.
+func (q *Queries) ListBuildingDeployments(ctx context.Context, limit int) ([]domain.CodeDeployment, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListBuildingDeployments")
+	defer span.End()
+
+	query := `
+		SELECT id, job_id, project_id, version, status, runtime,
+		       source_hash, source_size_bytes, source_uri,
+		       built_image_uri, built_image_digest, build_logs, error_message,
+		       created_by, created_at, updated_at, finished_at
+		FROM code_deployments
+		WHERE status = 'building'
+		ORDER BY created_at ASC
+		LIMIT $1`
+
+	rows, err := q.db.Query(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list building deployments: %w", err)
+	}
+	defer rows.Close()
+
+	var result []domain.CodeDeployment
+	for rows.Next() {
+		var d domain.CodeDeployment
+		var status, runtime string
+		var builtImageURI, builtImageDigest, buildLogs, errorMessage, createdBy *string
+
+		if err := rows.Scan(
+			&d.ID,
+			&d.JobID,
+			&d.ProjectID,
+			&d.Version,
+			&status,
+			&runtime,
+			&d.SourceHash,
+			&d.SourceSizeBytes,
+			&d.SourceURI,
+			&builtImageURI,
+			&builtImageDigest,
+			&buildLogs,
+			&errorMessage,
+			&createdBy,
+			&d.CreatedAt,
+			&d.UpdatedAt,
+			&d.FinishedAt,
+		); err != nil {
+			return nil, fmt.Errorf("list building deployments: scan: %w", err)
+		}
+
+		d.Status = domain.DeploymentBuildStatus(status)
+		d.Runtime = domain.Runtime(runtime)
+		if builtImageURI != nil {
+			d.BuiltImageURI = *builtImageURI
+		}
+		if builtImageDigest != nil {
+			d.BuiltImageDigest = *builtImageDigest
+		}
+		if buildLogs != nil {
+			d.BuildLogs = *buildLogs
+		}
+		if errorMessage != nil {
+			d.ErrorMessage = *errorMessage
+		}
+		if createdBy != nil {
+			d.CreatedBy = *createdBy
+		}
+		result = append(result, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list building deployments: rows: %w", err)
+	}
+	return result, nil
+}
+
 // nilStringFromMap extracts a *string from a map[string]any. Returns nil if the key
 // is absent, maps to a non-string value, or maps to an empty string.
 func nilStringFromMap(m map[string]any, key string) *string {
