@@ -726,23 +726,23 @@ func TestEnduranceWeekend(t *testing.T) {
 	}
 }
 
-// TestFlyValidation runs load tests against a Fly.io deployment.
-// Use: LOADTEST_STRAIT_URL=https://your-app.fly.dev go test -tags=loadtest -run TestFlyValidation -timeout 2h ./internal/loadtest/...
-func TestFlyValidation(t *testing.T) {
+// TestProductionValidation runs load tests against a production deployment.
+// Use: LOADTEST_STRAIT_URL=https://api.strait.dev go test -tags=loadtest -run TestProductionValidation -timeout 2h ./internal/loadtest/...
+func TestProductionValidation(t *testing.T) {
 	straitURL := os.Getenv("LOADTEST_STRAIT_URL")
 	if straitURL == "" || straitURL == "http://localhost:7676" {
-		t.Skip("set LOADTEST_STRAIT_URL to a Fly.io deployment URL to run")
+		t.Skip("set LOADTEST_STRAIT_URL to a production deployment URL to run")
 	}
 
 	h := setupHarness(t)
-	scenario := loadtest.FlyValidation()
+	scenario := loadtest.ProductionValidation()
 
-	t.Logf("running Fly.io validation against %s", straitURL)
+	t.Logf("running production validation against %s", straitURL)
 
 	engine := loadtest.NewRampEngine(*scenario.RampConfig, func(ctx context.Context) error {
 		return h.TriggerJob(ctx, loadtestProjectID, resolveJobID("loadtest-fast-echo"), map[string]any{
 			"timestamp": time.Now().UnixMilli(),
-			"source":    "fly_validation",
+			"source":    "production_validation",
 		})
 	})
 
@@ -756,10 +756,10 @@ func TestFlyValidation(t *testing.T) {
 
 	result, err := engine.Run(context.Background())
 	if err != nil {
-		t.Fatalf("Fly.io validation failed: %v", err)
+		t.Fatalf("production validation failed: %v", err)
 	}
 
-	t.Logf("=== FLY.IO VALIDATION RESULTS ===")
+	t.Logf("=== PRODUCTION VALIDATION RESULTS ===")
 	t.Logf("max sustained: %d jobs/sec", result.MaxRate)
 	t.Logf("breaks at: %d jobs/sec", result.BreakingRate)
 	t.Logf("bottleneck: %s", result.Bottleneck)
@@ -773,7 +773,7 @@ func TestFlyValidation(t *testing.T) {
 			step.QueueDepth)
 	}
 
-	if err := h.WriteResult("fly_validation.json", result); err != nil {
+	if err := h.WriteResult("production_validation.json", result); err != nil {
 		t.Errorf("writing result: %v", err)
 	}
 }

@@ -71,7 +71,7 @@ func TestSecurityHeaders(t *testing.T) {
 }
 
 func TestSecurityHeaders_StripsServerHeader(t *testing.T) {
-	// Simulate a reverse proxy that sets a Server header (e.g. Fly.io).
+	// Simulate a reverse proxy that sets a Server header.
 	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "Fly/58128dbb4 (2026-03-25)")
 		w.WriteHeader(http.StatusOK)

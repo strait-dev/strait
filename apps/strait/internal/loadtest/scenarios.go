@@ -149,11 +149,11 @@ func EnduranceWeekend() Scenario {
 	}
 }
 
-// FlyValidation returns a Fly.io real-network validation scenario.
-func FlyValidation() Scenario {
+// ProductionValidation returns a production real-network validation scenario.
+func ProductionValidation() Scenario {
 	return Scenario{
-		Name:        "fly_validation",
-		Description: "Fly.io validation: real network latency, multi-region, production infrastructure.",
+		Name:        "production_validation",
+		Description: "Production validation: real network latency, production infrastructure.",
 		Tier:        5,
 		Duration:    1 * time.Hour,
 		RampConfig: &RampConfig{
