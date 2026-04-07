@@ -80,6 +80,24 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return nil, huma.Error409Conflict("job is paused -- resume it before triggering new runs")
 	}
 
+	// For code-first jobs, resolve the pinned image from the active deployment.
+	var pinnedImageURI, pinnedImageDigest, deploymentID string
+	if job.SourceType == domain.SourceTypeCode {
+		if job.ActiveDeploymentID == "" {
+			return nil, huma.Error409Conflict("job has no active deployment -- push and confirm a deployment before triggering runs")
+		}
+		dep, depErr := s.store.GetCodeDeployment(ctx, job.ActiveDeploymentID, job.ProjectID)
+		if depErr != nil {
+			return nil, huma.Error500InternalServerError("failed to resolve active deployment")
+		}
+		if dep.Status != domain.DeploymentStatusReady {
+			return nil, huma.Error409Conflict("active deployment is not ready -- wait for the build to complete")
+		}
+		deploymentID = dep.ID
+		pinnedImageURI = dep.BuiltImageURI
+		pinnedImageDigest = dep.BuiltImageDigest
+	}
+
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
@@ -273,18 +291,21 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 					batchNow := time.Now()
 					batchExpiresAt := batchNow.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 					batchRun := &domain.JobRun{
-						ID:           uuid.Must(uuid.NewV7()).String(),
-						JobID:        job.ID,
-						ProjectID:    job.ProjectID,
-						Status:       domain.StatusQueued,
-						Attempt:      1,
-						Payload:      batchPayload,
-						TriggeredBy:  "batch",
-						Priority:     req.Priority,
-						JobVersion:   job.Version,
-						JobVersionID: job.VersionID,
-						ExpiresAt:    &batchExpiresAt,
-						CreatedBy:    actorFromContext(ctx),
+						ID:                uuid.Must(uuid.NewV7()).String(),
+						JobID:             job.ID,
+						ProjectID:         job.ProjectID,
+						Status:            domain.StatusQueued,
+						Attempt:           1,
+						Payload:           batchPayload,
+						TriggeredBy:       "batch",
+						Priority:          req.Priority,
+						JobVersion:        job.Version,
+						JobVersionID:      job.VersionID,
+						ExpiresAt:         &batchExpiresAt,
+						CreatedBy:         actorFromContext(ctx),
+						DeploymentID:      deploymentID,
+						PinnedImageURI:    pinnedImageURI,
+						PinnedImageDigest: pinnedImageDigest,
 					}
 					if enqErr := s.queue.Enqueue(ctx, batchRun); enqErr != nil {
 						slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
@@ -354,21 +375,24 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	maps.Copy(runTags, req.Tags)
 
 	run := &domain.JobRun{
-		ID:             runID,
-		JobID:          job.ID,
-		ProjectID:      job.ProjectID,
-		Tags:           runTags,
-		Status:         status,
-		Attempt:        1,
-		Payload:        payload,
-		TriggeredBy:    domain.TriggerManual,
-		ScheduledAt:    scheduledAt,
-		Priority:       req.Priority,
-		IdempotencyKey: idempotencyKey,
-		JobVersion:     job.Version,
-		JobVersionID:   job.VersionID,
-		CreatedBy:      actorFromContext(ctx),
-		ExpiresAt:      &expiresAt,
+		ID:                runID,
+		JobID:             job.ID,
+		ProjectID:         job.ProjectID,
+		Tags:              runTags,
+		Status:            status,
+		Attempt:           1,
+		Payload:           payload,
+		TriggeredBy:       domain.TriggerManual,
+		ScheduledAt:       scheduledAt,
+		Priority:          req.Priority,
+		IdempotencyKey:    idempotencyKey,
+		JobVersion:        job.Version,
+		JobVersionID:      job.VersionID,
+		CreatedBy:         actorFromContext(ctx),
+		ExpiresAt:         &expiresAt,
+		DeploymentID:      deploymentID,
+		PinnedImageURI:    pinnedImageURI,
+		PinnedImageDigest: pinnedImageDigest,
 	}
 	if dependencyKey != "" {
 		run.Metadata = map[string]string{"dependency_key": dependencyKey}

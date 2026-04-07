@@ -56,13 +56,13 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, machine_id
+			execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		)
 		SELECT
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23, $24::jsonb, $25, $26, $27, $28,
-			$29, $30
+			$29, $30, $31, $32, $33
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 
@@ -104,6 +104,9 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
 		dbscan.NilIfEmptyString(run.MachineID),
+		dbscan.NilIfEmptyString(run.DeploymentID),
+		dbscan.NilIfEmptyString(run.PinnedImageURI),
+		dbscan.NilIfEmptyString(run.PinnedImageDigest),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
@@ -122,7 +125,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE id = $1`
 
@@ -147,7 +150,7 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE job_id = $1
 		  AND idempotency_key = $2
@@ -176,7 +179,7 @@ func (q *Queries) FindRecentRunByPayload(ctx context.Context, jobID string, payl
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE job_id = $1
 		  AND payload = $2::jsonb
@@ -798,7 +801,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE job_id = $1
 		ORDER BY created_at DESC
@@ -833,7 +836,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	baseQuery := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE project_id = $1`
 
@@ -930,7 +933,7 @@ func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, s
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE project_id = $1
 		  AND status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')
@@ -967,7 +970,7 @@ func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limi
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE project_id = $1 AND status = 'dead_letter'`
 
@@ -1208,7 +1211,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE status = '%s' AND heartbeat_at < NOW() - $1::interval
 		ORDER BY heartbeat_at ASC
@@ -1243,7 +1246,7 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE status = '%s' AND scheduled_at <= NOW()
 		ORDER BY scheduled_at ASC
@@ -1278,7 +1281,7 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE status IN ('%s', '%s')
 		  AND expires_at IS NOT NULL
@@ -1315,7 +1318,7 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string, limit i
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE parent_run_id = $1`
 
@@ -1360,7 +1363,7 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE status = '%s' AND started_at < NOW() - $1::interval
 		ORDER BY started_at ASC
@@ -1602,7 +1605,7 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 		WITH RECURSIVE lineage AS (
 			SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 			       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+			       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 			FROM job_runs
 			WHERE id = $1
 			UNION ALL
@@ -1614,7 +1617,7 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 		)
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM lineage
 		ORDER BY lineage_depth ASC
 		LIMIT $2`
@@ -1648,7 +1651,7 @@ func (q *Queries) ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue
 	base := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		FROM job_runs
 		WHERE project_id = $1`
 
@@ -1841,7 +1844,7 @@ func (q *Queries) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*d
 	rows, err := q.db.Query(ctx,
 		`SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest
 		 FROM job_runs WHERE id = ANY($1)`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("get runs by ids: %w", err)

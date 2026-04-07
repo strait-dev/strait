@@ -117,14 +117,15 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, machine_id, metadata
+			execution_mode, machine_id, metadata,
+			deployment_id, pinned_image_uri, pinned_image_digest
 		)
 		SELECT
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
-			$29, $30, $31::jsonb
+			$29, $30, $31::jsonb, $32, $33, $34
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 
@@ -167,6 +168,9 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		string(execMode),
 		dbscan.NilIfEmptyString(run.MachineID),
 		metadataJSON,
+		dbscan.NilIfEmptyString(run.DeploymentID),
+		dbscan.NilIfEmptyString(run.PinnedImageURI),
+		dbscan.NilIfEmptyString(run.PinnedImageDigest),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
@@ -190,6 +194,7 @@ var copyFromColumns = []string{
 	"job_version", "workflow_step_run_id", "debug_mode", "continuation_of",
 	"lineage_depth", "tags", "job_version_id", "created_by", "concurrency_key", "batch_id",
 	"execution_mode", "machine_id", "metadata",
+	"deployment_id", "pinned_image_uri", "pinned_image_digest",
 }
 
 // EnqueueBatch inserts multiple runs using pgx.CopyFrom (COPY protocol) for
@@ -276,6 +281,9 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			string(run.ExecutionMode),
 			dbscan.NilIfEmptyString(run.MachineID),
 			metadataJSON,
+			dbscan.NilIfEmptyString(run.DeploymentID),
+			dbscan.NilIfEmptyString(run.PinnedImageURI),
+			dbscan.NilIfEmptyString(run.PinnedImageDigest),
 		}
 	}
 
@@ -298,7 +306,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 // dequeueColumns is the shared column list for all dequeue RETURNING/SELECT clauses.
 const dequeueColumns = `id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id`
+		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest`
 
 // concurrencyCTEs pre-computes active run counts per job and per concurrency key,
 // replacing correlated COUNT(*) subqueries that re-execute per candidate row.
