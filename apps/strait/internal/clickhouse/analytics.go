@@ -87,7 +87,11 @@ func (s *AnalyticsStore) GetPerformanceAnalytics(ctx context.Context, projectID 
 		FROM run_analytics
 		WHERE project_id = ? AND created_at >= ?`
 
-	if err := s.client.QueryRow(ctx, throughputQuery, projectID, since).Scan(
+	throughputRow, err := s.client.QueryRow(ctx, throughputQuery, projectID, since)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse analytics throughput: %w", err)
+	}
+	if err := throughputRow.Scan(
 		&result.Throughput.Completed,
 		&result.Throughput.Failed,
 		&result.Throughput.TimedOut,
@@ -108,7 +112,11 @@ func (s *AnalyticsStore) GetPerformanceAnalytics(ctx context.Context, projectID 
 		FROM run_analytics
 		WHERE project_id = ? AND created_at >= ?`
 
-	if err := s.client.QueryRow(ctx, healthQuery, projectID, since).Scan(
+	healthRow, err := s.client.QueryRow(ctx, healthQuery, projectID, since)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse analytics health: %w", err)
+	}
+	if err := healthRow.Scan(
 		&result.HealthSummary.SuccessRate,
 		&result.HealthSummary.AvgDurationSecs,
 	); err != nil {
@@ -148,7 +156,11 @@ func (s *AnalyticsStore) GetCostAnalytics(ctx context.Context, projectID string,
 			count(DISTINCT run_id)
 		FROM run_usage_events
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?`
-	if err := s.client.QueryRow(ctx, aiQuery, projectID, from, to).Scan(
+	aiRow, err := s.client.QueryRow(ctx, aiQuery, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse cost analytics ai totals: %w", err)
+	}
+	if err := aiRow.Scan(
 		&result.TotalAICostMicrousd, &result.TotalTokens, &result.RunCount,
 	); err != nil {
 		return nil, fmt.Errorf("clickhouse cost analytics ai totals: %w", err)
@@ -159,7 +171,11 @@ func (s *AnalyticsStore) GetCostAnalytics(ctx context.Context, projectID string,
 		SELECT coalesce(sum(cost_microusd), 0)
 		FROM compute_usage
 		WHERE project_id = ? AND started_at >= ? AND started_at < ?`
-	if err := s.client.QueryRow(ctx, computeQuery, projectID, from, to).Scan(
+	computeRow, err := s.client.QueryRow(ctx, computeQuery, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse cost analytics compute totals: %w", err)
+	}
+	if err := computeRow.Scan(
 		&result.TotalComputeCostMicrousd,
 	); err != nil {
 		return nil, fmt.Errorf("clickhouse cost analytics compute totals: %w", err)
@@ -307,7 +323,11 @@ func (s *AnalyticsStore) GetComputeCostAnalytics(ctx context.Context, projectID 
 		SELECT coalesce(sum(cost_microusd), 0)
 		FROM compute_usage
 		WHERE project_id = ? AND started_at >= ? AND started_at < ?`
-	if err := s.client.QueryRow(ctx, totalQuery, projectID, from, to).Scan(&result.TotalCostMicrousd); err != nil {
+	totalRow, err := s.client.QueryRow(ctx, totalQuery, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse compute cost analytics total: %w", err)
+	}
+	if err := totalRow.Scan(&result.TotalCostMicrousd); err != nil {
 		return nil, fmt.Errorf("clickhouse compute cost analytics total: %w", err)
 	}
 
@@ -451,7 +471,11 @@ func (s *AnalyticsStore) GetApprovalStats(ctx context.Context, projectID string,
 			AND requested_at < ?`
 
 	var stats store.ApprovalStats
-	if err := s.client.QueryRow(ctx, query, projectID, from, to).Scan(
+	approvalRow, err := s.client.QueryRow(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse approval stats: %w", err)
+	}
+	if err := approvalRow.Scan(
 		&stats.TotalRequested,
 		&stats.TotalApproved,
 		&stats.TotalTimedOut,
@@ -598,7 +622,11 @@ func (s *AnalyticsStore) GetRunSummary(ctx context.Context, projectID string, fr
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?`
 
 	var summary store.RunSummary
-	if err := s.client.QueryRow(ctx, query, projectID, from, to).Scan(
+	summaryRow, err := s.client.QueryRow(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse run summary: %w", err)
+	}
+	if err := summaryRow.Scan(
 		&summary.Total, &summary.Completed, &summary.Failed, &summary.TimedOut,
 		&summary.SuccessRate, &summary.AvgDurationMs, &summary.P95DurationMs,
 	); err != nil {
@@ -1045,7 +1073,11 @@ func (s *AnalyticsStore) GetWorkflowSummary(ctx context.Context, projectID strin
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?`
 
 	var summary store.WorkflowSummary
-	if err := s.client.QueryRow(ctx, query, projectID, from, to).Scan(
+	wfRow, err := s.client.QueryRow(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse workflow summary: %w", err)
+	}
+	if err := wfRow.Scan(
 		&summary.Total, &summary.Completed, &summary.Failed,
 		&summary.SuccessRate, &summary.AvgDurationMs,
 	); err != nil {
@@ -1214,7 +1246,11 @@ func (s *AnalyticsStore) GetEventLatency(ctx context.Context, projectID string, 
 			AND status = 'received' AND wait_duration_ms > 0`
 
 	var stats store.EventLatencyStats
-	if err := s.client.QueryRow(ctx, query, projectID, from, to).Scan(
+	latencyRow, err := s.client.QueryRow(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse event latency: %w", err)
+	}
+	if err := latencyRow.Scan(
 		&stats.AvgMs, &stats.P50Ms, &stats.P95Ms, &stats.P99Ms, &stats.Count,
 	); err != nil {
 		return nil, fmt.Errorf("clickhouse event latency: %w", err)
@@ -1245,7 +1281,11 @@ func (s *AnalyticsStore) GetCostForecast(ctx context.Context, projectID string, 
 		FROM daily`
 
 	var forecast store.CostForecast
-	if err := s.client.QueryRow(ctx, query, projectID, from, to).Scan(
+	forecastRow, err := s.client.QueryRow(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse cost forecast: %w", err)
+	}
+	if err := forecastRow.Scan(
 		&forecast.DailyRate, &forecast.ProjectedMonthly, &forecast.TrendPct,
 	); err != nil {
 		return nil, fmt.Errorf("clickhouse cost forecast: %w", err)

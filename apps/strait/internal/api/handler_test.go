@@ -121,50 +121,44 @@ func TestHandleHealth(t *testing.T) {
 	}
 }
 
-func TestHandleHealth_EditionField(t *testing.T) {
+func TestHandleHealth_PublicResponseFields(t *testing.T) {
 	t.Parallel()
+	cfg := &config.Config{
+		InternalSecret:      "test-secret-value",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testJWTSigningKey,
+	}
+	srv := NewServer(ServerDeps{
+		Config:  cfg,
+		Store:   &APIStoreMock{},
+		Queue:   &mockQueue{},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
 
-	tests := []struct {
-		name    string
-		edition domain.Edition
-		want    string
-	}{
-		{"community", domain.EditionCommunity, "community"},
-		{"cloud", domain.EditionCloud, "cloud"},
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/health", nil)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := &config.Config{
-				InternalSecret:      "test-secret-value",
-				MaxBulkTriggerItems: 500,
-				JWTSigningKey:       testJWTSigningKey,
-			}
-			srv := NewServer(ServerDeps{
-				Config:  cfg,
-				Store:   &APIStoreMock{},
-				Queue:   &mockQueue{},
-				Edition: tt.edition,
-			})
-			t.Cleanup(srv.Close)
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "/health", nil)
-			srv.ServeHTTP(w, r)
-
-			if w.Code != http.StatusOK {
-				t.Fatalf("expected 200, got %d", w.Code)
-			}
-
-			var resp map[string]any
-			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-				t.Fatalf("invalid JSON: %v", err)
-			}
-			if resp["edition"] != tt.want {
-				t.Errorf("expected edition=%q, got %v", tt.want, resp["edition"])
-			}
-		})
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("expected status=ok, got %v", resp["status"])
+	}
+	if _, ok := resp["version"]; !ok {
+		t.Error("expected version field in public response")
+	}
+	if _, ok := resp["timestamp"]; !ok {
+		t.Error("expected timestamp field in public response")
+	}
+	if _, ok := resp["edition"]; ok {
+		t.Error("edition should not be in public response (internal only)")
 	}
 }
 
@@ -508,6 +502,9 @@ func TestHandleDeleteJobGroup_Success(t *testing.T) {
 	t.Parallel()
 	var deletedID string
 	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
+			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
+		},
 		DeleteJobGroupFunc: func(_ context.Context, id string) error {
 			deletedID = id
 			return nil
@@ -529,6 +526,9 @@ func TestHandleDeleteJobGroup_Success(t *testing.T) {
 func TestHandleListJobsByGroup_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
+			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
+		},
 		ListJobsByGroupFunc: func(_ context.Context, groupID string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return []domain.Job{{ID: "job-1", GroupID: groupID, ProjectID: "proj-1", Name: "Job 1"}}, nil
 		},
@@ -680,6 +680,9 @@ func TestHandleDeleteJobDependency_Success(t *testing.T) {
 	ms := &APIStoreMock{}
 	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
 		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+	}
+	ms.GetJobDependencyFunc = func(_ context.Context, id string) (*domain.JobDependency, error) {
+		return &domain.JobDependency{ID: id, JobID: "job-1", DependsOnJobID: "job-other", Condition: "completed"}, nil
 	}
 	deletedID := ""
 	ms.DeleteJobDependencyFunc = func(_ context.Context, id string) error {
@@ -1508,6 +1511,9 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1"}, nil
+		},
 		ReplayDeadLetterRunFunc: func(_ context.Context, runID string) (*domain.JobRun, error) {
 			if runID != "run-123" {
 				t.Fatalf("unexpected runID: %s", runID)
@@ -1537,8 +1543,11 @@ func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusFailed, ProjectID: "proj-1"}, nil
+		},
 		ReplayDeadLetterRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
-			return nil, fmt.Errorf("run run-123 is not dead_letter")
+			return nil, fmt.Errorf("replay dead letter run: %w: run run-123 has status failed, expected dead_letter", store.ErrRunConflict)
 		},
 	}
 
@@ -1555,6 +1564,9 @@ func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
 func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1"}, nil
+		},
 		BulkReplayDeadLetterRunsFunc: func(_ context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
 			if len(runIDs) != 2 || runIDs[0] != "run-1" || runIDs[1] != "run-2" {
 				t.Fatalf("unexpected run_ids: %+v", runIDs)
@@ -2201,6 +2213,9 @@ func TestHandleListEnvironments_Success(t *testing.T) {
 func TestHandleGetResolvedVariables_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "test", Slug: "test"}, nil
+		},
 		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, id string) (map[string]string, error) {
 			if id != "env-1" {
 				t.Fatalf("unexpected environment id: %s", id)

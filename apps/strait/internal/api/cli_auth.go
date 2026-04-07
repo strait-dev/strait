@@ -149,7 +149,7 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-	apiKey := &domain.APIKey{ProjectID: req.ProjectID, Name: "CLI (device-code " + row.UserCode + ")", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: []string{}}
+	apiKey := &domain.APIKey{ProjectID: req.ProjectID, Name: "CLI (device-code " + row.UserCode + ")", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: domain.CLIDefaultScopes}
 	if err := s.store.CreateAPIKey(ctx, apiKey); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
 	}

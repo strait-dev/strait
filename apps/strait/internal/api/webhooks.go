@@ -62,7 +62,7 @@ func (s *Server) handleTestWebhook(ctx context.Context, input *TestWebhookInput)
 	if err != nil {
 		return &TestWebhookOutput{Body: map[string]any{
 			"success":    false,
-			"error":      err.Error(),
+			"error":      "connection to webhook URL failed",
 			"latency_ms": latencyMs,
 		}}, nil
 	}

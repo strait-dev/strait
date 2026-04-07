@@ -58,7 +58,7 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if projectID := projectIDFromContext(ctx); projectID != "" && trigger.ProjectID != projectID {
-		return nil, huma.Error403Forbidden("event trigger does not belong to this project")
+		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if trigger.Status != domain.EventTriggerStatusWaiting {
 		if trigger.Status == domain.EventTriggerStatusReceived && payloadsMatch(trigger.ResponsePayload, req.Payload) {
@@ -181,7 +181,7 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if projectID := projectIDFromContext(ctx); projectID != "" && trigger.ProjectID != projectID {
-		return nil, huma.Error403Forbidden("event trigger does not belong to this project")
+		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if trigger.Status != domain.EventTriggerStatusWaiting {
 		return nil, huma.Error409Conflict("event trigger is not in waiting state")

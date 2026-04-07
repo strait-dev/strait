@@ -403,3 +403,77 @@ func TestOtterStore_GetWithTTL_Present(t *testing.T) {
 		t.Fatalf("got %v, want val1", val)
 	}
 }
+
+func TestOtterStore_NonStringKey_Get(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t, Config{})
+	ctx := context.Background()
+
+	_, err := s.Get(ctx, 12345)
+	if err == nil {
+		t.Fatal("expected error for non-string key, got nil")
+	}
+}
+
+func TestOtterStore_NonStringKey_GetWithTTL(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t, Config{})
+	ctx := context.Background()
+
+	_, _, err := s.GetWithTTL(ctx, 12345)
+	if err == nil {
+		t.Fatal("expected error for non-string key, got nil")
+	}
+}
+
+func TestOtterStore_NonStringKey_Set(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t, Config{})
+	ctx := context.Background()
+
+	err := s.Set(ctx, 12345, "value")
+	if err == nil {
+		t.Fatal("expected error for non-string key, got nil")
+	}
+}
+
+func TestOtterStore_NonStringKey_Delete(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t, Config{})
+	ctx := context.Background()
+
+	err := s.Delete(ctx, 12345)
+	if err == nil {
+		t.Fatal("expected error for non-string key, got nil")
+	}
+}
+
+func TestOtterStore_StringKey_Works(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t, Config{})
+	ctx := context.Background()
+
+	if err := s.Set(ctx, "valid-key", "val"); err != nil {
+		t.Fatalf("Set with string key failed: %v", err)
+	}
+
+	val, err := s.Get(ctx, "valid-key")
+	if err != nil {
+		t.Fatalf("Get with string key failed: %v", err)
+	}
+	if val != "val" {
+		t.Fatalf("got %v, want val", val)
+	}
+
+	val, _, err = s.GetWithTTL(ctx, "valid-key")
+	if err != nil {
+		t.Fatalf("GetWithTTL with string key failed: %v", err)
+	}
+	if val != "val" {
+		t.Fatalf("got %v, want val", val)
+	}
+
+	if err := s.Delete(ctx, "valid-key"); err != nil {
+		t.Fatalf("Delete with string key failed: %v", err)
+	}
+}

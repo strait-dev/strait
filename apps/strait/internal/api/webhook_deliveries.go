@@ -66,6 +66,9 @@ func (s *Server) handleGetWebhookDelivery(ctx context.Context, input *GetWebhook
 	if delivery == nil {
 		return nil, huma.Error404NotFound("delivery not found")
 	}
+	if err := s.verifyDeliveryProjectAccess(ctx, delivery); err != nil {
+		return nil, huma.Error404NotFound("delivery not found")
+	}
 	return &GetWebhookDeliveryOutput{Body: delivery}, nil
 }
 
@@ -93,6 +96,9 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	if d == nil {
 		return nil, huma.Error404NotFound("delivery not found")
 	}
+	if err := s.verifyDeliveryProjectAccess(ctx, d); err != nil {
+		return nil, huma.Error404NotFound("delivery not found")
+	}
 	if d.Status != domain.WebhookStatusFailed && d.Status != domain.WebhookStatusDead {
 		return nil, huma.Error409Conflict("only failed or dead deliveries can be retried")
 	}
@@ -101,4 +107,24 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 		return nil, huma.Error500InternalServerError("failed to retry delivery")
 	}
 	return &RetryWebhookDeliveryOutput{Body: retried}, nil
+}
+
+// verifyDeliveryProjectAccess checks that the webhook delivery belongs to the
+// caller's project by looking up the associated job. Returns nil if there is no
+// project in context (internal caller) or the delivery has no job (e.g. event
+// trigger delivery). Returns errProjectMismatch when the job belongs to a
+// different project.
+func (s *Server) verifyDeliveryProjectAccess(ctx context.Context, d *domain.WebhookDelivery) error {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil // internal caller without project context
+	}
+	if d.JobID == "" {
+		return nil // no job association to verify
+	}
+	job, err := s.store.GetJob(ctx, d.JobID)
+	if err != nil || job == nil {
+		return errProjectMismatch
+	}
+	return requireProjectMatch(ctx, job.ProjectID)
 }

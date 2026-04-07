@@ -125,6 +125,10 @@ func (c *Client) Query(ctx context.Context, query string, args ...any) (*sql.Row
 }
 
 // QueryRow executes a query that returns at most one row.
-func (c *Client) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
-	return c.db.QueryRowContext(ctx, query, args...)
+// Returns (nil, error) when the client is disabled/nil instead of panicking.
+func (c *Client) QueryRow(ctx context.Context, query string, args ...any) (*sql.Row, error) {
+	if c == nil || c.db == nil {
+		return nil, fmt.Errorf("clickhouse: client is nil")
+	}
+	return c.db.QueryRowContext(ctx, query, args...), nil
 }

@@ -46,38 +46,64 @@ func (q *Queries) CanDispatchEndpoint(ctx context.Context, endpointURL string, n
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CanDispatchEndpoint")
 	defer span.End()
 
-	if _, err := q.db.Exec(ctx, `
-		INSERT INTO endpoint_circuit_state (endpoint_url)
-		VALUES ($1)
-		ON CONFLICT (endpoint_url) DO NOTHING
-	`, endpointURL); err != nil {
-		return false, nil, fmt.Errorf("upsert endpoint circuit row: %w", err)
-	}
-
-	state, err := q.GetEndpointCircuitState(ctx, endpointURL)
-	if err != nil {
-		return false, nil, err
-	}
-	if state == nil {
-		return true, nil, nil
-	}
-
-	if state.State == domain.CircuitStateOpen && state.HalfOpenUntil != nil && state.HalfOpenUntil.After(now) {
-		return false, state.HalfOpenUntil, nil
-	}
-
-	if state.State == domain.CircuitStateOpen || state.State == domain.CircuitStateHalfOpen {
-		if _, err := q.db.Exec(ctx, `
-			UPDATE endpoint_circuit_state
+	// Atomic upsert + conditional reset in a single statement to avoid TOCTOU races.
+	// The CTE inserts the row if absent, then the UPDATE atomically resets open/half-open
+	// circuits whose half_open_until has passed, using SELECT FOR UPDATE to serialize
+	// concurrent callers. The final SELECT returns the post-update state.
+	const sql = `
+		WITH ensure_row AS (
+			INSERT INTO endpoint_circuit_state (endpoint_url)
+			VALUES ($1)
+			ON CONFLICT (endpoint_url) DO NOTHING
+		),
+		locked AS (
+			SELECT endpoint_url, state, consecutive_failures, opened_at, half_open_until, updated_at, created_at
+			FROM endpoint_circuit_state
+			WHERE endpoint_url = $1
+			FOR UPDATE
+		),
+		maybe_reset AS (
+			UPDATE endpoint_circuit_state ecs
 			SET state = 'closed',
 				consecutive_failures = 0,
 				opened_at = NULL,
 				half_open_until = NULL,
 				updated_at = NOW()
-			WHERE endpoint_url = $1
-		`, endpointURL); err != nil {
-			return false, nil, fmt.Errorf("reset endpoint circuit state: %w", err)
+			FROM locked l
+			WHERE ecs.endpoint_url = l.endpoint_url
+			  AND l.state IN ('open', 'half_open')
+			  AND (l.half_open_until IS NULL OR l.half_open_until <= $2)
+			RETURNING ecs.endpoint_url, ecs.state, ecs.consecutive_failures, ecs.opened_at, ecs.half_open_until, ecs.updated_at, ecs.created_at
+		)
+		SELECT endpoint_url, state, consecutive_failures, opened_at, half_open_until, updated_at, created_at
+		FROM maybe_reset
+		UNION ALL
+		SELECT endpoint_url, state, consecutive_failures, opened_at, half_open_until, updated_at, created_at
+		FROM locked
+		WHERE NOT EXISTS (SELECT 1 FROM maybe_reset)
+	`
+
+	var state domain.EndpointCircuitState
+	err := q.db.QueryRow(ctx, sql, endpointURL, now).Scan(
+		&state.EndpointURL,
+		&state.State,
+		&state.ConsecutiveFailures,
+		&state.OpenedAt,
+		&state.HalfOpenUntil,
+		&state.UpdatedAt,
+		&state.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Row was just inserted with defaults -- circuit is closed.
+			return true, nil, nil
 		}
+		return false, nil, fmt.Errorf("can dispatch endpoint circuit check: %w", err)
+	}
+
+	// If the circuit is still open (half_open_until is in the future), reject.
+	if state.State == domain.CircuitStateOpen && state.HalfOpenUntil != nil && state.HalfOpenUntil.After(now) {
+		return false, state.HalfOpenUntil, nil
 	}
 
 	return true, nil, nil

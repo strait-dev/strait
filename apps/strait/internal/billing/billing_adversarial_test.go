@@ -642,9 +642,9 @@ func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 
-	// Should succeed (no-op) without error since org_id cannot be resolved.
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for missing org_id, got %d", rr.Code)
+	// Should return an error so Stripe retries the webhook until org_id is resolvable.
+	if rr.Code == http.StatusOK {
+		t.Fatalf("expected non-200 for missing org_id so Stripe retries, got %d", rr.Code)
 	}
 	if store.upsertCount != 0 {
 		t.Fatal("expected no upsert when org_id is missing")
@@ -688,7 +688,7 @@ func TestWebhook_EmptyPayload(t *testing.T) {
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	// No secret = signature check skipped.
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader([]byte("")))
 	rr := httptest.NewRecorder()
@@ -703,7 +703,7 @@ func TestWebhook_MalformedJSON(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader([]byte("{not json")))
 	rr := httptest.NewRecorder()
@@ -718,7 +718,7 @@ func TestWebhook_UnknownEventType(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	body := []byte(`{"type":"invoice.unknown","data":{"object":{}}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))

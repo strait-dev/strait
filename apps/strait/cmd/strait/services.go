@@ -157,6 +157,14 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
 	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName())
 
+	// Apply statement_timeout to the API connection pool to prevent runaway queries.
+	if cfg.DBStatementTimeout > 0 {
+		if poolConfig.ConnConfig.RuntimeParams == nil {
+			poolConfig.ConnConfig.RuntimeParams = make(map[string]string)
+		}
+		poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = fmt.Sprintf("%d", cfg.DBStatementTimeout.Milliseconds())
+	}
+
 	const maxRetries = 5
 	var pool *pgxpool.Pool
 	for attempt := range maxRetries {

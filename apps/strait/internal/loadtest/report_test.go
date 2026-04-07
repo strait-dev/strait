@@ -115,15 +115,15 @@ func TestReportGenerator_BuildSummary(t *testing.T) {
 	rg := &ReportGenerator{}
 
 	tests := []struct {
-		name     string
-		report   *Report
-		wantVerdict string
-		wantThroughput int
+		name            string
+		report          *Report
+		wantVerdict     string
+		wantThroughput  int
 		wantChaosPassed int
 	}{
 		{
-			name:     "empty report",
-			report:   &Report{},
+			name:        "empty report",
+			report:      &Report{},
 			wantVerdict: "PASS",
 		},
 		{
@@ -388,7 +388,7 @@ func TestMetricsCollector_Snapshots(t *testing.T) {
 	// Verify snapshots are a copy (modifying returned slice does not affect collector)
 	finalSnaps := mc.Snapshots()
 	originalLen := len(finalSnaps)
-	finalSnaps = finalSnaps[:0]
+	_ = finalSnaps[:0] // Reslice to verify the original is not affected
 	afterClear := mc.Snapshots()
 	if len(afterClear) != originalLen {
 		t.Errorf("Snapshots() should return a copy; expected %d, got %d", originalLen, len(afterClear))

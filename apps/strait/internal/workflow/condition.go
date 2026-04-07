@@ -9,6 +9,16 @@ import (
 	"strait/internal/domain"
 )
 
+const (
+	// maxRegexPatternLen limits user-supplied regex patterns to prevent
+	// catastrophic backtracking with complex patterns.
+	maxRegexPatternLen = 1000
+
+	// maxRegexInputLen limits the input string matched against a regex
+	// to prevent excessive CPU usage on pathological inputs.
+	maxRegexInputLen = 10000
+)
+
 type conditionEnvelope struct {
 	Type string `json:"type"`
 }
@@ -159,11 +169,19 @@ func EvaluateCondition(cond json.RawMessage, stepStatuses map[string]domain.Step
 			}
 			return false, nil
 		case "regex":
-			re, err := regexp.Compile(fmt.Sprint(right))
+			pattern := fmt.Sprint(right)
+			if len(pattern) > maxRegexPatternLen {
+				return false, fmt.Errorf("regex pattern exceeds maximum length of %d characters", maxRegexPatternLen)
+			}
+			re, err := regexp.Compile(pattern)
 			if err != nil {
 				return false, fmt.Errorf("invalid regex: %w", err)
 			}
-			return re.MatchString(fmt.Sprint(left)), nil
+			input := fmt.Sprint(left)
+			if len(input) > maxRegexInputLen {
+				return false, fmt.Errorf("regex input exceeds maximum length of %d characters", maxRegexInputLen)
+			}
+			return re.MatchString(input), nil
 		}
 		return false, nil
 

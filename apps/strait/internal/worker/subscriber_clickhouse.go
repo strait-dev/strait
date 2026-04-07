@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sync"
 	"time"
 
 	"strait/internal/clickhouse"
@@ -35,11 +36,37 @@ type ClickHouseSubscriberDeps struct {
 	ComputeUsageLister ComputeUsageLister
 }
 
+// ClickHouseSubscriberHandle wraps a ClickHouse subscriber and tracks its
+// background goroutines so callers can wait for graceful drain on shutdown.
+type ClickHouseSubscriberHandle struct {
+	wg  sync.WaitGroup
+	sub RunEventSubscriber
+}
+
+// Subscriber returns the RunEventSubscriber function for use with Executor.Subscribe.
+func (h *ClickHouseSubscriberHandle) Subscriber() RunEventSubscriber {
+	return h.sub
+}
+
+// Wait blocks until all background goroutines launched by the subscriber have
+// completed. Call this during graceful shutdown after the executor has stopped
+// dispatching events.
+func (h *ClickHouseSubscriberHandle) Wait() {
+	h.wg.Wait()
+}
+
 // ClickHouseSubscriber enqueues run analytics and individual run events into
 // the ClickHouse exporter on terminal run events (completed, failed, timed out, etc.).
+func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, deps ...ClickHouseSubscriberDeps) RunEventSubscriber {
+	handle := NewClickHouseSubscriberHandle(exporter, events, deps...)
+	return handle.Subscriber()
+}
+
+// NewClickHouseSubscriberHandle creates a ClickHouseSubscriberHandle that
+// tracks background goroutines and exposes a Wait method for graceful drain.
 //
 //nolint:gocognit
-func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, deps ...ClickHouseSubscriberDeps) RunEventSubscriber {
+func NewClickHouseSubscriberHandle(exporter *clickhouse.Exporter, events EventLister, deps ...ClickHouseSubscriberDeps) *ClickHouseSubscriberHandle {
 	var usage UsageLister
 	var computeUsage ComputeUsageLister
 	if len(deps) > 0 {
@@ -49,7 +76,8 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, dep
 	// Semaphore to bound concurrent ListEvents goroutines.
 	sem := make(chan struct{}, maxConcurrentEventFetches)
 
-	return func(_ context.Context, event RunLifecycleEvent) {
+	h := &ClickHouseSubscriberHandle{}
+	h.sub = func(_ context.Context, event RunLifecycleEvent) {
 		if exporter == nil {
 			return
 		}
@@ -118,7 +146,7 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, dep
 		if events != nil {
 			select {
 			case sem <- struct{}{}:
-				go func() { //nolint:gosec // G118: intentionally detached from request ctx; subscriber must not block.
+				h.wg.Go(func() {
 					defer func() { <-sem }()
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
@@ -133,7 +161,7 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, dep
 					for _, rec := range runEventsFromDomain(run, evts) {
 						exporter.Enqueue(rec)
 					}
-				}()
+				})
 			case <-time.After(5 * time.Second):
 				slog.Warn("clickhouse: event fetch semaphore timeout", "run_id", run.ID)
 			}
@@ -143,7 +171,7 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, dep
 		if usage != nil {
 			select {
 			case sem <- struct{}{}:
-				go func() { //nolint:gosec // G118: intentionally detached from request ctx; subscriber must not block.
+				h.wg.Go(func() {
 					defer func() { <-sem }()
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
@@ -167,7 +195,7 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, dep
 							CreatedAt:        u.CreatedAt,
 						})
 					}
-				}()
+				})
 			case <-time.After(5 * time.Second):
 				slog.Warn("clickhouse: usage fetch semaphore timeout", "run_id", run.ID)
 			}
@@ -177,7 +205,7 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, dep
 		if computeUsage != nil {
 			select {
 			case sem <- struct{}{}:
-				go func() { //nolint:gosec // G118: intentionally detached from request ctx; subscriber must not block.
+				h.wg.Go(func() {
 					defer func() { <-sem }()
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
@@ -206,12 +234,14 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, dep
 							FinishedAt:    finishedAt,
 						})
 					}
-				}()
+				})
 			case <-time.After(5 * time.Second):
 				slog.Warn("clickhouse: compute usage fetch semaphore timeout", "run_id", run.ID)
 			}
 		}
 	}
+
+	return h
 }
 
 func isTerminalEvent(t RunEventType) bool {

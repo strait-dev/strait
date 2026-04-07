@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 )
 
 // DiscordSender sends notifications via Discord webhooks.
@@ -35,6 +36,9 @@ func (d *DiscordSender) Send(ctx context.Context, channel *domain.NotificationCh
 	}
 	if cfg.WebhookURL == "" {
 		return fmt.Errorf("discord webhook_url is empty")
+	}
+	if err := httputil.ValidateExternalURL(cfg.WebhookURL); err != nil {
+		return fmt.Errorf("discord webhook_url rejected: %w", err)
 	}
 
 	body, err := json.Marshal(map[string]any{

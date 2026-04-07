@@ -188,6 +188,7 @@ type Exporter struct {
 	pending             []any // buffered records
 	consecutiveFailures int
 	stopping            atomic.Bool
+	stopOnce            sync.Once
 	stopCh              chan struct{}
 	done                chan struct{}
 }
@@ -206,13 +207,18 @@ func NewExporter(client *Client, config ExporterConfig, logger *slog.Logger) *Ex
 	if logger == nil {
 		logger = slog.Default()
 	}
+	// done is initialized as a closed channel so that Stop() without Start()
+	// does not block forever waiting for a goroutine that was never launched.
+	done := make(chan struct{})
+	close(done)
+
 	return &Exporter{
 		client:  client,
 		config:  config,
 		logger:  logger,
 		pending: make([]any, 0, config.BatchSize),
 		stopCh:  make(chan struct{}),
-		done:    make(chan struct{}),
+		done:    done,
 	}
 }
 
@@ -254,6 +260,9 @@ func (e *Exporter) Start(ctx context.Context) {
 	if e == nil {
 		return
 	}
+	// Replace the pre-closed done channel with a fresh one so Stop() can
+	// wait for the goroutine to finish.
+	e.done = make(chan struct{})
 	go func() { //nolint:gosec // ctx is intentionally captured for the flush loop lifetime.
 		defer close(e.done)
 		defer func() {
@@ -281,12 +290,15 @@ func (e *Exporter) Start(ctx context.Context) {
 
 // Stop signals the exporter to flush remaining records and shut down.
 // Records enqueued after Stop() returns are silently dropped.
+// Safe to call multiple times; subsequent calls are no-ops.
 func (e *Exporter) Stop() {
 	if e == nil {
 		return
 	}
-	e.stopping.Store(true)
-	close(e.stopCh)
+	e.stopOnce.Do(func() {
+		e.stopping.Store(true)
+		close(e.stopCh)
+	})
 	<-e.done
 }
 

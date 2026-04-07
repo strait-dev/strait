@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -246,17 +247,33 @@ func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Wo
 // managed container to stop before giving up and moving on.
 const machineStopTimeout = 10 * time.Second
 
+// maxConcurrentStops limits the number of concurrent machine stop
+// operations during cron cancel to prevent unbounded goroutine spawning.
+const maxConcurrentStops = 10
+
 // processCanceledRuns handles side effects for runs canceled by the
 // cancel_running overlap policy: stops managed containers, cancels child
 // runs, and notifies the workflow engine.
 func (cs *CronScheduler) processCanceledRuns(ctx context.Context, jobID string, runs []store.CanceledRun) {
 	if cs.machineStopper != nil {
+		sem := make(chan struct{}, maxConcurrentStops)
 		var wg sync.WaitGroup
 		for _, cr := range runs {
 			if cr.ExecutionMode == domain.ExecutionModeManaged && cr.MachineID != "" {
 				wg.Add(1)
+				sem <- struct{}{}
 				go func(id, machineID string) { //nolint:gosec // detached context intentional: stop must survive parent cancel
 					defer wg.Done()
+					defer func() { <-sem }()
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("panic stopping container on cron cancel",
+								"run_id", id, "machine_id", machineID,
+								"panic", fmt.Sprintf("%v", r),
+								"stack", string(debug.Stack()),
+							)
+						}
+					}()
 					stopCtx, stopCancel := context.WithTimeout(context.Background(), machineStopTimeout)
 					defer stopCancel()
 					if stopErr := cs.machineStopper.Stop(stopCtx, machineID); stopErr != nil {

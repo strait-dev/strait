@@ -139,7 +139,8 @@ func (q *Queries) ListJobMemory(ctx context.Context, jobID string) ([]domain.Job
 		FROM job_memory
 		WHERE job_id = $1
 		  AND (ttl_expires_at IS NULL OR ttl_expires_at > NOW())
-		ORDER BY memory_key ASC`
+		ORDER BY memory_key ASC
+		LIMIT 10000`
 
 	rows, err := q.db.Query(ctx, query, jobID)
 	if err != nil {
@@ -191,10 +192,25 @@ func (q *Queries) DeleteExpiredJobMemory(ctx context.Context) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteExpiredJobMemory")
 	defer span.End()
 
-	tag, err := q.db.Exec(ctx,
-		`DELETE FROM job_memory WHERE ttl_expires_at IS NOT NULL AND ttl_expires_at <= NOW()`)
-	if err != nil {
-		return 0, fmt.Errorf("delete expired job memory: %w", err)
+	// Delete in batches of 10000 to avoid unbounded deletes that could lock
+	// the table for extended periods under heavy write load.
+	var totalDeleted int64
+	for {
+		tag, err := q.db.Exec(ctx, `
+			DELETE FROM job_memory
+			WHERE ctid IN (
+				SELECT ctid FROM job_memory
+				WHERE ttl_expires_at IS NOT NULL AND ttl_expires_at <= NOW()
+				LIMIT 10000
+			)`)
+		if err != nil {
+			return totalDeleted, fmt.Errorf("delete expired job memory: %w", err)
+		}
+		n := tag.RowsAffected()
+		totalDeleted += n
+		if n < 10000 {
+			break
+		}
 	}
-	return tag.RowsAffected(), nil
+	return totalDeleted, nil
 }

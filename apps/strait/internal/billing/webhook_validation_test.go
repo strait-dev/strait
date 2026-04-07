@@ -94,7 +94,7 @@ func TestResolveOrgID_ValidUUID(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("s", "", "p", "")
-	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "550e8400-e29b-41d4-a716-446655440000"},
@@ -108,7 +108,7 @@ func TestResolveOrgID_InvalidUUID_ReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("s", "", "p", "")
-	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "not-a-uuid"},
@@ -122,7 +122,7 @@ func TestResolveOrgID_SQLInjection_ReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("s", "", "p", "")
-	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "'; DROP TABLE organizations; --"},
@@ -168,7 +168,7 @@ func FuzzResolveOrgID(f *testing.F) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("s", "", "p", "")
-	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	h := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	f.Fuzz(func(t *testing.T, orgID string) {
 		result := h.resolveOrgID(testSubscriptionData{

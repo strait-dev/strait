@@ -11,6 +11,10 @@ const (
 // ParseEdition is defined in edition_community.go (default) or
 // edition_cloud.go (when built with -tags cloud).
 
+// BuildEdition returns the compile-time edition. This is a convenience
+// wrapper around ParseEdition that makes the build-tag behavior explicit.
+func BuildEdition() Edition { return ParseEdition("") }
+
 // AllowsManagedExecution returns true when managed container execution is available.
 func (e Edition) AllowsManagedExecution() bool { return e == EditionCloud }
 
