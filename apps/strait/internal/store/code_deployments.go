@@ -509,34 +509,52 @@ func (q *Queries) ReleaseStaleClaimedDeployments(ctx context.Context, olderThan 
 	return tag.RowsAffected(), nil
 }
 
+// deleteExpiredBatchSize is the maximum number of rows deleted per batch.
+// Batching prevents a single large DELETE from locking the table under load.
+const deleteExpiredBatchSize = 500
+
 // DeleteExpiredDeployments removes stale deployments that are no longer actionable:
 //   - pending deployments created before pendingBefore (presign TTL expired, never uploaded)
 //   - failed or timed_out deployments finished before failedBefore
 //
 // The active deployment for any job is never deleted, even if it would otherwise qualify.
-// Returns the number of rows deleted.
+// Deletions are issued in batches of deleteExpiredBatchSize to avoid long table locks.
+// Returns the total number of rows deleted.
 func (q *Queries) DeleteExpiredDeployments(ctx context.Context, pendingBefore, failedBefore time.Time) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteExpiredDeployments")
 	defer span.End()
 
-	tag, err := q.db.Exec(ctx, `
-		DELETE FROM code_deployments
-		WHERE (
-		    (status = 'pending' AND created_at < $1)
-		 OR (status IN ('failed', 'timed_out') AND finished_at < $2)
+	var total int64
+	for {
+		tag, err := q.db.Exec(ctx, `
+			DELETE FROM code_deployments
+			WHERE id IN (
+			    SELECT id FROM code_deployments
+			    WHERE (
+			        (status = 'pending' AND created_at < $1)
+			     OR (status IN ('failed', 'timed_out') AND finished_at < $2)
+			    )
+			    AND id NOT IN (
+			        SELECT active_deployment_id
+			        FROM jobs
+			        WHERE active_deployment_id IS NOT NULL
+			    )
+			    LIMIT $3
+			)`,
+			pendingBefore,
+			failedBefore,
+			deleteExpiredBatchSize,
 		)
-		AND id NOT IN (
-		    SELECT active_deployment_id
-		    FROM jobs
-		    WHERE active_deployment_id IS NOT NULL
-		)`,
-		pendingBefore,
-		failedBefore,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("delete expired deployments: %w", err)
+		if err != nil {
+			return total, fmt.Errorf("delete expired deployments: %w", err)
+		}
+		n := tag.RowsAffected()
+		total += n
+		if n < deleteExpiredBatchSize {
+			break // last batch — no more rows to delete
+		}
 	}
-	return tag.RowsAffected(), nil
+	return total, nil
 }
 
 // ListCodeDeploymentsByOrg returns code deployments across all projects that
