@@ -59,6 +59,13 @@ func (s *Server) handleCreateCodeDeployment(ctx context.Context, input *CreateCo
 		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
 
+	if req.SourceSizeBytes > build.MaxTarballBytes {
+		return nil, huma.Error400BadRequest(fmt.Sprintf(
+			"source_size_bytes %d exceeds maximum allowed tarball size of %d bytes (%d MB)",
+			req.SourceSizeBytes, build.MaxTarballBytes, build.MaxTarballBytes/1024/1024,
+		))
+	}
+
 	runtime := domain.Runtime(req.Runtime)
 	if !runtime.IsValid() {
 		return nil, huma.Error400BadRequest(fmt.Sprintf("invalid runtime %q: must be python, typescript, ruby, rust, or go", req.Runtime))

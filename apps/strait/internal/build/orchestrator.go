@@ -174,7 +174,10 @@ func (o *Orchestrator) releaseStale(ctx context.Context) {
 	if o.builderTimeout > 0 {
 		staleCutoff = o.builderTimeout * 2
 	}
-	released, err := o.store.ReleaseStaleClaimedDeployments(ctx, staleCutoff)
+	// Bound the DB call so a slow database cannot block the stale ticker indefinitely.
+	staleCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	released, err := o.store.ReleaseStaleClaimedDeployments(staleCtx, staleCutoff)
 	if err != nil {
 		o.logger.Error("release stale claimed deployments failed", "error", err)
 		return

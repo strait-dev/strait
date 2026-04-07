@@ -153,7 +153,7 @@ func (q *Queries) ListCodeDeployments(ctx context.Context, jobID, projectID stri
 		FROM code_deployments
 		WHERE job_id = $1 AND project_id = $2
 		  AND ($3::TIMESTAMPTZ IS NULL OR created_at < $3)
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT $4`
 
 	rows, err := q.db.Query(ctx, query, jobID, projectID, cursor, limit)
@@ -529,15 +529,14 @@ func (q *Queries) DeleteExpiredDeployments(ctx context.Context, pendingBefore, f
 		tag, err := q.db.Exec(ctx, `
 			DELETE FROM code_deployments
 			WHERE id IN (
-			    SELECT id FROM code_deployments
+			    SELECT id FROM code_deployments cd
 			    WHERE (
-			        (status = 'pending' AND created_at < $1)
-			     OR (status IN ('failed', 'timed_out') AND finished_at < $2)
+			        (cd.status = 'pending' AND cd.created_at < $1)
+			     OR (cd.status IN ('failed', 'timed_out') AND cd.finished_at < $2)
 			    )
-			    AND id NOT IN (
-			        SELECT active_deployment_id
-			        FROM jobs
-			        WHERE active_deployment_id IS NOT NULL
+			    AND NOT EXISTS (
+			        SELECT 1 FROM jobs
+			        WHERE active_deployment_id = cd.id
 			    )
 			    LIMIT $3
 			)`,
@@ -573,7 +572,7 @@ func (q *Queries) ListCodeDeploymentsByOrg(ctx context.Context, orgID string, li
 		JOIN projects p ON p.id = cd.project_id
 		WHERE p.org_id = $1
 		  AND ($2::TIMESTAMPTZ IS NULL OR cd.created_at < $2)
-		ORDER BY cd.created_at DESC
+		ORDER BY cd.created_at DESC, cd.id DESC
 		LIMIT $3`
 
 	rows, err := q.db.Query(ctx, query, orgID, cursor, limit)
