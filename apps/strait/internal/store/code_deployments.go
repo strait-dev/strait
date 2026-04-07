@@ -443,7 +443,7 @@ func (q *Queries) ClaimBuildingDeployment(ctx context.Context, workerID string) 
 		    build_node_claimed_at = NOW()
 		FROM candidate
 		WHERE code_deployments.id = candidate.id
-		RETURNING id, job_id, project_id, version, status, runtime,
+		RETURNING code_deployments.id, job_id, project_id, version, status, runtime,
 		          source_hash, source_size_bytes, source_uri,
 		          built_image_uri, built_image_digest, build_logs, error_message,
 		          created_by, created_at, updated_at, finished_at`

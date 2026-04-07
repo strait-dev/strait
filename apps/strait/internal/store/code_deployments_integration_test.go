@@ -16,13 +16,12 @@ import (
 // before calling CreateCodeDeployment. This guards against the regression
 // where the handler set an empty deployment ID in the URI before INSERT.
 func TestCreateCodeDeployment_SourceURIStoredCorrectly(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-cduri-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 
 	deploymentID := "deploy-" + newID()
 	wantURI := "projects/" + projectID + "/jobs/" + job.ID + "/deploys/" + deploymentID + ".tar.gz"
@@ -53,13 +52,12 @@ func TestCreateCodeDeployment_SourceURIStoredCorrectly(t *testing.T) {
 // ConfirmCodeDeployment transitions a pending deployment to building and
 // that the second call returns ErrCodeDeploymentNotFound (not a second update).
 func TestConfirmCodeDeployment_AtomicPendingToBuilding(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-confirm-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
 
 	if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
@@ -88,7 +86,6 @@ func TestConfirmCodeDeployment_AtomicPendingToBuilding(t *testing.T) {
 // a non-existent deployment returns ErrCodeDeploymentNotFound rather than
 // silently succeeding.
 func TestUpdateCodeDeploymentStatus_NotFoundReturnsError(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -105,13 +102,12 @@ func TestUpdateCodeDeploymentStatus_NotFoundReturnsError(t *testing.T) {
 // TestCreateCodeDeployment_VersionUnique verifies that concurrent deployments
 // for the same job get distinct version numbers.
 func TestCreateCodeDeployment_VersionUnique(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-version-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 
 	const count = 5
 	versions := make(map[int]struct{})
@@ -142,13 +138,12 @@ func TestCreateCodeDeployment_VersionUnique(t *testing.T) {
 // TestRollbackToDeployment_AtomicStatusCheck verifies that RollbackToDeployment
 // rejects non-ready deployments atomically — no separate check query.
 func TestRollbackToDeployment_AtomicStatusCheck(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-rollback-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
 
 	// Deployment is pending, not ready — rollback must fail.
@@ -161,13 +156,12 @@ func TestRollbackToDeployment_AtomicStatusCheck(t *testing.T) {
 // TestClaimBuildingDeployment_TwoWorkersNoDuplicate verifies that two concurrent
 // workers each claim a different deployment and neither sees the other's row.
 func TestClaimBuildingDeployment_TwoWorkersNoDuplicate(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-claim-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 
 	d1 := mustCreateDeployment(t, ctx, q, job.ID, projectID)
 	d2 := mustCreateDeployment(t, ctx, q, job.ID, projectID)
@@ -213,7 +207,6 @@ func TestClaimBuildingDeployment_TwoWorkersNoDuplicate(t *testing.T) {
 // TestClaimBuildingDeployment_ReturnsNilWhenNoneAvailable verifies that claiming
 // against an empty queue returns nil without error.
 func TestClaimBuildingDeployment_ReturnsNilWhenNoneAvailable(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -230,13 +223,12 @@ func TestClaimBuildingDeployment_ReturnsNilWhenNoneAvailable(t *testing.T) {
 // TestReleaseStaleClaimedDeployments_ReclearsExpired verifies that deployments
 // with a claim older than the cutoff are released so they can be reclaimed.
 func TestReleaseStaleClaimedDeployments_ReclearsExpired(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-stale-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
 
 	if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
@@ -290,8 +282,8 @@ func mustCreateDeployment(t *testing.T, ctx context.Context, q *store.Queries, j
 	return d
 }
 
-// mustCreateJob is a test helper that creates a minimal job for a project.
-func mustCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {
+// mustCreateJobForDeploy is a test helper that creates a minimal job for a project.
+func mustCreateJobForDeploy(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {
 	t.Helper()
 	id := "job-" + newID()
 	job := &domain.Job{
@@ -305,7 +297,7 @@ func mustCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectI
 		UpdatedAt:   time.Now().UTC(),
 	}
 	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("mustCreateJob: %v", err)
+		t.Fatalf("mustCreateJobForDeploy: %v", err)
 	}
 	return job
 }
@@ -313,13 +305,12 @@ func mustCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectI
 // TestDeleteExpiredDeployments_DeletesStalePending verifies that pending
 // deployments whose presigned-upload TTL has expired are removed.
 func TestDeleteExpiredDeployments_DeletesStalePending(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-gc-pending-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 
 	// Create two pending deployments.
 	d1 := mustCreateDeployment(t, ctx, q, job.ID, projectID)
@@ -346,13 +337,12 @@ func TestDeleteExpiredDeployments_DeletesStalePending(t *testing.T) {
 // TestDeleteExpiredDeployments_DeletesOldFailed verifies that failed and
 // timed_out deployments whose finished_at is beyond the retention window are removed.
 func TestDeleteExpiredDeployments_DeletesOldFailed(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-gc-failed-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 
 	// Create deployments, confirm them, then mark them failed/timed_out.
 	dFailed := mustCreateDeployment(t, ctx, q, job.ID, projectID)
@@ -385,13 +375,12 @@ func TestDeleteExpiredDeployments_DeletesOldFailed(t *testing.T) {
 // deployment that is the active_deployment_id on a job is never GC'd, even if
 // all other criteria would select it.
 func TestDeleteExpiredDeployments_PreservesActiveDeployment(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-gc-active-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 
 	// Create and fully promote a deployment to ready + active.
 	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
@@ -436,13 +425,12 @@ func TestDeleteExpiredDeployments_PreservesActiveDeployment(t *testing.T) {
 // TestDeleteExpiredDeployments_PreservesRecentPending verifies that pending
 // deployments created recently (within pendingTTL) are not deleted.
 func TestDeleteExpiredDeployments_PreservesRecentPending(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-gc-recent-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 
 	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
 
@@ -468,13 +456,12 @@ func TestDeleteExpiredDeployments_PreservesRecentPending(t *testing.T) {
 // TestRollbackSetsRollbackSourceDeploymentID verifies that RollbackToDeployment
 // stores the previous active deployment in rollback_source_deployment_id.
 func TestRollbackSetsRollbackSourceDeploymentID(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-rollback-meta-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 
 	// Create two ready deployments: d1 (first) and d2 (second).
 	d1 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
@@ -505,13 +492,12 @@ func TestRollbackSetsRollbackSourceDeploymentID(t *testing.T) {
 // TestNewBuildClearsRollbackFlag verifies that SetActiveDeployment (called after
 // a successful new build) clears rollback_source_deployment_id.
 func TestNewBuildClearsRollbackFlag(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projectID := "proj-rollback-clear-" + newID()
-	job := mustCreateJob(t, ctx, q, projectID)
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
 
 	d1 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
 	d2 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
@@ -585,7 +571,6 @@ func mustCreateProjectWithOrg(t *testing.T, ctx context.Context, q *store.Querie
 // TestListCodeDeploymentsByOrg_CrossProject verifies that deployments from
 // multiple projects in the same org are returned together, ordered newest-first.
 func TestListCodeDeploymentsByOrg_CrossProject(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -594,8 +579,8 @@ func TestListCodeDeploymentsByOrg_CrossProject(t *testing.T) {
 	p1 := mustCreateProjectWithOrg(t, ctx, q, orgID)
 	p2 := mustCreateProjectWithOrg(t, ctx, q, orgID)
 
-	job1 := mustCreateJob(t, ctx, q, p1.ID)
-	job2 := mustCreateJob(t, ctx, q, p2.ID)
+	job1 := mustCreateJobForDeploy(t, ctx, q, p1.ID)
+	job2 := mustCreateJobForDeploy(t, ctx, q, p2.ID)
 
 	d1 := mustCreateDeployment(t, ctx, q, job1.ID, p1.ID)
 	d2 := mustCreateDeployment(t, ctx, q, job2.ID, p2.ID)
@@ -627,7 +612,6 @@ func TestListCodeDeploymentsByOrg_CrossProject(t *testing.T) {
 // TestListCodeDeploymentsByOrg_CrossTenantIsolation verifies that deployments
 // from a different org are not returned.
 func TestListCodeDeploymentsByOrg_CrossTenantIsolation(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -638,8 +622,8 @@ func TestListCodeDeploymentsByOrg_CrossTenantIsolation(t *testing.T) {
 	pA := mustCreateProjectWithOrg(t, ctx, q, orgA)
 	pB := mustCreateProjectWithOrg(t, ctx, q, orgB)
 
-	jobA := mustCreateJob(t, ctx, q, pA.ID)
-	jobB := mustCreateJob(t, ctx, q, pB.ID)
+	jobA := mustCreateJobForDeploy(t, ctx, q, pA.ID)
+	jobB := mustCreateJobForDeploy(t, ctx, q, pB.ID)
 
 	dA := mustCreateDeployment(t, ctx, q, jobA.ID, pA.ID)
 	dB := mustCreateDeployment(t, ctx, q, jobB.ID, pB.ID)
