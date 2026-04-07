@@ -1,0 +1,196 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://api.strait.dev/schemas/v1/strait.json",
+  "title": "Strait Configuration",
+  "description": "Configuration file for Strait SDK projects. Place this file at the root of your project as strait.json. IDEs (VS Code, JetBrains) will auto-complete fields and validate values when the $schema field is present.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference. Set to https://api.strait.dev/schemas/v1/strait.json for IDE autocomplete."
+    },
+    "project": {
+      "type": "object",
+      "description": "Project identity. The id must match the project created in the Strait dashboard.",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project ID from the Strait dashboard (e.g. proj_abc123)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable project name. Used in CLI output and dashboard labels."
+        }
+      }
+    },
+    "endpoint_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "The URL where the Strait platform sends job execution requests (webhook endpoint). This is what createServeHandler() listens on. Per-environment overrides go in the environments section."
+    },
+    "dirs": {
+      "type": "array",
+      "description": "Directories containing job and workflow definitions. Used by 'strait register', 'strait deploy', and 'strait dev'. Paths are relative to the strait.json location.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "retries": {
+      "type": "object",
+      "description": "Default retry policy applied to all jobs. Can be overridden per-job in the SDK.",
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Maximum number of retry attempts after the initial failure. 0 means no retries."
+        },
+        "strategy": {
+          "type": "string",
+          "enum": ["exponential", "linear", "fixed"],
+          "description": "Backoff strategy between retry attempts."
+        },
+        "initial_delay_secs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Delay before the first retry in seconds."
+        },
+        "max_delay_secs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum delay between retries in seconds. Only applies to exponential and linear strategies."
+        }
+      }
+    },
+    "max_duration_secs": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 86400,
+      "description": "Default maximum execution time in seconds for all jobs. Overridable per-job. Maximum is 86400 (24 hours)."
+    },
+    "sdk": {
+      "type": "object",
+      "description": "SDK connection settings. Auth tokens are never stored here — use environment variables.",
+      "additionalProperties": false,
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Strait API base URL. Defaults to https://api.strait.dev."
+        },
+        "auth_type": {
+          "type": "string",
+          "enum": ["apiKey", "bearer"],
+          "description": "Authentication method used by the SDK."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "HTTP request timeout in milliseconds for SDK API calls."
+        },
+        "debug": {
+          "type": "boolean",
+          "description": "Enable verbose SDK logging. Do not enable in production."
+        }
+      }
+    },
+    "deploy": {
+      "type": "object",
+      "description": "Code-first deployment settings. Used by 'strait deploy' to build and push container images.",
+      "additionalProperties": false,
+      "properties": {
+        "runtime": {
+          "type": "string",
+          "enum": ["python", "typescript", "ruby", "rust", "go"],
+          "description": "Programming language runtime for the generated container image. Must match the SDK you are using."
+        },
+        "build_command": {
+          "type": "string",
+          "description": "Shell command to run before bundling (e.g. 'bun run build', 'go build'). Run in the project root."
+        },
+        "output_dir": {
+          "type": "string",
+          "description": "Directory containing compiled output to bundle. Relative to the project root."
+        }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "description": "Worker process settings for self-hosted execution.",
+      "additionalProperties": false,
+      "properties": {
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Number of job runs the worker executes concurrently."
+        },
+        "poll_interval_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "description": "How often the worker polls for new runs in milliseconds."
+        },
+        "signing_secret_env": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the environment variable holding the webhook signing secret. The secret itself is never stored in this file."
+        }
+      }
+    },
+    "environments": {
+      "type": "object",
+      "description": "Per-environment configuration overrides. Select an environment with 'strait --env <name>' or via the CLI default_environment setting.",
+      "additionalProperties": {
+        "$ref": "#/$defs/environment"
+      }
+    },
+    "cli": {
+      "type": "object",
+      "description": "CLI preferences.",
+      "additionalProperties": false,
+      "properties": {
+        "default_environment": {
+          "type": "string",
+          "description": "Environment name to use when --env is not specified."
+        },
+        "output_format": {
+          "type": "string",
+          "enum": ["table", "json", "yaml"],
+          "description": "Default output format for CLI commands."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "environment": {
+      "type": "object",
+      "description": "Environment-specific overrides. Any field here replaces the top-level value for that environment.",
+      "additionalProperties": false,
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Strait API base URL for this environment."
+        },
+        "endpoint_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Webhook endpoint URL for this environment."
+        },
+        "api_key_env": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the environment variable holding the API key for this environment (e.g. STRAIT_STAGING_API_KEY)."
+        }
+      }
+    }
+  }
+}

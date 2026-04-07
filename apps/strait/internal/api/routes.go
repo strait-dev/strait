@@ -655,5 +655,8 @@ func (s *Server) routes() chi.Router {
 	r.Get("/reference/openapi.json", s.handleOpenAPISpec)
 	r.Get("/reference/openapi.yaml", http.RedirectHandler("/reference/openapi.json", http.StatusMovedPermanently).ServeHTTP)
 
+	// SDK configuration schema — served publicly so IDEs and SDK CI can fetch it.
+	r.Get("/schemas/v1/strait.json", s.handleStraitJSONSchema)
+
 	return r
 }

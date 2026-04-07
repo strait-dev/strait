@@ -28,6 +28,7 @@ import (
 	"strait/internal/store"
 	"strait/internal/telemetry"
 	"strait/internal/worker"
+	"strait/schemas"
 
 	"sync"
 	"sync/atomic"
@@ -1036,4 +1037,13 @@ func (s *Server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
 	// Serve the cached OpenAPI spec as JSON.
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(s.cachedOpenAPISpec)
+}
+
+func (s *Server) handleStraitJSONSchema(w http.ResponseWriter, _ *http.Request) {
+	// Serve the embedded strait.json schema file. This is the authoritative
+	// schema for all SDK project configuration files. Clients (IDEs, SDK CI)
+	// fetch this at most once per day.
+	w.Header().Set("Content-Type", "application/schema+json")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(schemas.StraitJSON)
 }
