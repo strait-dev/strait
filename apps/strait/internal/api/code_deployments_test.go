@@ -428,6 +428,47 @@ func TestHandleGetCodeDeployment_NotFound(t *testing.T) {
 	}
 }
 
+// TestHandleGetCodeDeployment_TimedOutStatus verifies that a deployment with
+// timed_out status is returned as-is via the GET endpoint — the client must be
+// able to distinguish timed_out from failed so it can show an appropriate message.
+func TestHandleGetCodeDeployment_TimedOutStatus(t *testing.T) {
+	t.Parallel()
+
+	const projectID = "proj_to"
+	const jobID = "job_to"
+	const deploymentID = "deploy_to"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:           id,
+				JobID:        jobID,
+				ProjectID:    projectID,
+				Status:       domain.DeploymentStatusTimedOut,
+				ErrorMessage: "build exceeded the 10 minute timeout",
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodGet, path, "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp domain.CodeDeployment
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Status != domain.DeploymentStatusTimedOut {
+		t.Errorf("expected status=timed_out, got %q", resp.Status)
+	}
+}
+
 func TestHandleListCodeDeployments_Success(t *testing.T) {
 	projectID := "proj_123"
 	jobID := "job_abc"
