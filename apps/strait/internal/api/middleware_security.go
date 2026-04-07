@@ -35,8 +35,8 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 // serverHeaderStripper wraps http.ResponseWriter to strip the Server header
-// before it is sent. This prevents reverse proxies (e.g. Fly.io) from leaking
-// version information via the Server response header.
+// before it is sent. This prevents reverse proxies from leaking version
+// information via the Server response header.
 type serverHeaderStripper struct {
 	http.ResponseWriter
 }

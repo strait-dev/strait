@@ -129,7 +129,7 @@ func (p *MachinePool) Release(projectID, imageURI, region, machineID string) {
 
 // Prune removes machines older than maxAge and calls destroyFn for each.
 // The destroy callbacks run outside the pool lock so that slow network I/O
-// (e.g. Fly.io or K8s API calls) does not block other pool operations.
+// (e.g. K8s API calls) does not block other pool operations.
 func (p *MachinePool) Prune(maxAge time.Duration, destroyFn func(machineID string) error) int {
 	cutoff := time.Now().Add(-maxAge)
 
