@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://api.strait.dev/schemas/v1/strait.json",
   "title": "Strait Configuration",
   "description": "Configuration file for Strait SDK projects. Place this file at the root of your project as strait.json. IDEs (VS Code, JetBrains) will auto-complete fields and validate values when the $schema field is present.",
@@ -55,7 +55,7 @@
         },
         "strategy": {
           "type": "string",
-          "enum": ["exponential", "linear", "fixed"],
+          "enum": ["exponential", "fixed"],
           "description": "Backoff strategy between retry attempts."
         },
         "initial_delay_secs": {
@@ -99,6 +99,11 @@
         "debug": {
           "type": "boolean",
           "description": "Enable verbose SDK logging. Do not enable in production."
+        },
+        "api_key_env": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the environment variable holding the default API key (e.g. STRAIT_API_KEY). The key itself is never stored in this file."
         }
       }
     },

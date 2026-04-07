@@ -1456,6 +1456,18 @@ func (r Runtime) IsValid() bool {
 	}
 }
 
+// AllRuntimes returns all valid Runtime values. Used to keep external
+// representations (e.g. the strait.json JSON Schema) in sync with the domain.
+func AllRuntimes() []Runtime {
+	return []Runtime{
+		RuntimePython,
+		RuntimeTypeScript,
+		RuntimeRuby,
+		RuntimeRust,
+		RuntimeGo,
+	}
+}
+
 // DeploymentBuildStatus tracks the lifecycle of a code deployment build.
 type DeploymentBuildStatus string
 

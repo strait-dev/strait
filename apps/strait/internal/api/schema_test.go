@@ -149,14 +149,10 @@ func TestHandleStraitJSONSchema_RuntimeEnumMatchesDomain(t *testing.T) {
 		schemaRuntimes[s] = true
 	}
 
-	// All domain runtimes must appear in the schema.
-	domainRuntimes := []domain.Runtime{
-		domain.RuntimePython,
-		domain.RuntimeTypeScript,
-		domain.RuntimeRuby,
-		domain.RuntimeRust,
-		domain.RuntimeGo,
-	}
+	// All domain runtimes must appear in the schema. Uses domain.AllRuntimes()
+	// so this test fails automatically whenever a new runtime is added to the
+	// domain without updating the schema.
+	domainRuntimes := domain.AllRuntimes()
 	for _, rt := range domainRuntimes {
 		if !schemaRuntimes[string(rt)] {
 			t.Errorf("domain runtime %q missing from schema deploy.runtime enum", rt)
@@ -165,7 +161,7 @@ func TestHandleStraitJSONSchema_RuntimeEnumMatchesDomain(t *testing.T) {
 
 	// The schema enum must not contain values beyond what domain defines.
 	domainSet := make(map[string]bool, len(domainRuntimes))
-	for _, rt := range domainRuntimes {
+	for _, rt := range domain.AllRuntimes() {
 		domainSet[string(rt)] = true
 	}
 	for rt := range schemaRuntimes {
