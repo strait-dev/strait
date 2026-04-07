@@ -20,7 +20,8 @@ type EmailProviderAttempt struct {
 	FromEmail string
 
 	// Resend fields.
-	APIKey string
+	APIKey            string
+	AllowLegacyResend bool
 
 	// SES fields.
 	Region           string
@@ -50,6 +51,9 @@ func SendEmailWithProvider(
 	case "ses":
 		return sendEmailWithSES(ctx, messageID, projectID, to, subject, htmlBody, textBody, attempt)
 	case "resend":
+		if !attempt.AllowLegacyResend {
+			return "", fmt.Errorf("resend provider is disabled for notify email; set NOTIFY_EMAIL_ALLOW_LEGACY_RESEND=true for temporary rollback")
+		}
 		return sendEmailWithResend(ctx, messageID, projectID, to, subject, htmlBody, textBody, attempt)
 	default:
 		return "", fmt.Errorf("unsupported email provider: %s", attempt.Provider)

@@ -53,7 +53,8 @@ type NotifyEmailDefaults struct {
 
 	FromEmail string
 
-	ResendAPIKey string
+	ResendAPIKey      string
+	AllowLegacyResend bool
 
 	SESRegion           string
 	SESConfigurationSet string
@@ -510,7 +511,7 @@ func (d *NotifyDispatcher) resolveEmailProviderAttempts(ctx context.Context, msg
 
 	appendConfigFallback := func() {
 		attempts = append(attempts, emailProviderAttempt{
-			Provider:         strings.ToLower(strings.TrimSpace(d.defaultEmail.Provider)),
+			Provider:         d.defaultEmailProvider(),
 			FromEmail:        d.defaultEmail.FromEmail,
 			APIKey:           d.defaultEmail.ResendAPIKey,
 			Region:           d.defaultEmail.SESRegion,
@@ -550,6 +551,32 @@ func (d *NotifyDispatcher) resolveEmailProviderAttempts(ctx context.Context, msg
 		return nil, fmt.Errorf("email delivery failed: no providers configured")
 	}
 	return attempts, nil
+}
+
+func (d *NotifyDispatcher) defaultEmailProvider() string {
+	provider := strings.ToLower(strings.TrimSpace(d.defaultEmail.Provider))
+	switch provider {
+	case "", "ses":
+		return "ses"
+	case "resend":
+		if d.defaultEmail.AllowLegacyResend {
+			return "resend"
+		}
+		return "ses"
+	default:
+		return "ses"
+	}
+}
+
+func (d *NotifyDispatcher) isAllowedEmailProvider(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "ses":
+		return true
+	case "resend":
+		return d.defaultEmail.AllowLegacyResend
+	default:
+		return false
+	}
 }
 
 func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, projectID, providerID string, seen map[string]struct{}) ([]emailProviderAttempt, error) {
@@ -594,10 +621,17 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 		SessionToken:     cfg.SessionToken,
 	}
 	if attempt.Provider == "" {
-		attempt.Provider = strings.ToLower(strings.TrimSpace(d.defaultEmail.Provider))
+		attempt.Provider = d.defaultEmailProvider()
 	}
-	if attempt.Provider == "" {
-		attempt.Provider = "ses"
+	if !d.isAllowedEmailProvider(attempt.Provider) {
+		d.logger.Warn("notify dispatcher: skipping unsupported email provider",
+			"provider_id", provider.ID,
+			"provider", provider.Provider,
+		)
+		if provider.FallbackID == "" {
+			return nil, nil
+		}
+		return d.resolveProviderFallbackChain(ctx, projectID, provider.FallbackID, seen)
 	}
 	if attempt.FromEmail == "" {
 		attempt.FromEmail = d.defaultEmail.FromEmail
@@ -636,14 +670,15 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 
 func (d *NotifyDispatcher) sendWithProvider(ctx context.Context, msg domain.NotificationMessage, attempt emailProviderAttempt, to, subject, htmlBody, textBody string) (string, error) {
 	providerMessageID, err := notifycore.SendEmailWithProvider(ctx, msg.ID, msg.ProjectID, to, subject, htmlBody, textBody, notifycore.EmailProviderAttempt{
-		Provider:         attempt.Provider,
-		FromEmail:        attempt.FromEmail,
-		APIKey:           attempt.APIKey,
-		Region:           attempt.Region,
-		ConfigurationSet: attempt.ConfigurationSet,
-		AccessKeyID:      attempt.AccessKeyID,
-		SecretAccessKey:  attempt.SecretAccessKey,
-		SessionToken:     attempt.SessionToken,
+		Provider:          attempt.Provider,
+		FromEmail:         attempt.FromEmail,
+		APIKey:            attempt.APIKey,
+		AllowLegacyResend: d.defaultEmail.AllowLegacyResend,
+		Region:            attempt.Region,
+		ConfigurationSet:  attempt.ConfigurationSet,
+		AccessKeyID:       attempt.AccessKeyID,
+		SecretAccessKey:   attempt.SecretAccessKey,
+		SessionToken:      attempt.SessionToken,
 	})
 	if err != nil {
 		return "", fmt.Errorf("send email (%s): %w", attempt.Provider, err)

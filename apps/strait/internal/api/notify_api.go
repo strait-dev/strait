@@ -491,6 +491,7 @@ func (s *Server) sendNotifyEmail(ctx context.Context, ns notifyStore, sub *domai
 		attempt.FromEmail = "noreply@strait.dev"
 	}
 
+	attempt.AllowLegacyResend = s.config.NotifyEmailAllowLegacyResend
 	providerMessageID, err := notifycore.SendEmailWithProvider(ctx, msg.ID, msg.ProjectID, sub.Email, subject, htmlBody, textBody, attempt)
 	if err != nil {
 		return fmt.Errorf("send email: %w", err)
@@ -529,6 +530,9 @@ func (s *Server) resolveNotifyEmailProviderAttempt(ctx context.Context, ns notif
 		attempt.FromEmail = s.config.ResendFromEmail
 	}
 	if msg == nil || msg.ProviderID == "" {
+		if err := validateNotifyResolvedEmailProvider(attempt.Provider, s.config.NotifyEmailAllowLegacyResend); err != nil {
+			return attempt, err
+		}
 		return attempt, nil
 	}
 
@@ -577,7 +581,25 @@ func (s *Server) resolveNotifyEmailProviderAttempt(ctx context.Context, ns notif
 		return attempt, fmt.Errorf("unsupported email provider: %s", provider.Provider)
 	}
 
+	if err := validateNotifyResolvedEmailProvider(attempt.Provider, s.config.NotifyEmailAllowLegacyResend); err != nil {
+		return attempt, err
+	}
 	return attempt, nil
+}
+
+func validateNotifyResolvedEmailProvider(provider string, allowLegacyResend bool) error {
+	normalized := strings.ToLower(strings.TrimSpace(provider))
+	switch normalized {
+	case "", "ses":
+		return nil
+	case "resend":
+		if allowLegacyResend {
+			return nil
+		}
+		return fmt.Errorf("notify email provider resend is disabled; use ses or set NOTIFY_EMAIL_ALLOW_LEGACY_RESEND=true for temporary rollback")
+	default:
+		return fmt.Errorf("unsupported email provider: %s", provider)
+	}
 }
 
 func (s *Server) isNotifyChannelAllowed(ctx context.Context, ns notifyStore, sub domain.NotifySubscriber, channel string) (bool, error) {

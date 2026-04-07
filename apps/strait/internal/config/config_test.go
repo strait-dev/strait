@@ -1216,3 +1216,33 @@ func TestLoad_NotifySESFeedbackValidation(t *testing.T) {
 		}
 	})
 }
+
+func TestLoad_NotifyLegacyResendGate(t *testing.T) {
+	t.Run("resend blocked by default", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("NOTIFY_EMAIL_PROVIDER", "resend")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for legacy resend gate")
+		}
+		if !strings.Contains(err.Error(), "NOTIFY_EMAIL_ALLOW_LEGACY_RESEND") {
+			t.Fatalf("error = %q, want NOTIFY_EMAIL_ALLOW_LEGACY_RESEND", err.Error())
+		}
+	})
+
+	t.Run("resend allowed when explicitly enabled", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("NOTIFY_EMAIL_PROVIDER", "resend")
+		t.Setenv("NOTIFY_EMAIL_ALLOW_LEGACY_RESEND", "true")
+		t.Setenv("RESEND_FROM_EMAIL", "noreply@example.com")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if !cfg.NotifyEmailAllowLegacyResend {
+			t.Fatal("NotifyEmailAllowLegacyResend should be true")
+		}
+	})
+}

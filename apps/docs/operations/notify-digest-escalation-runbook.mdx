@@ -109,6 +109,7 @@ Likely causes:
 Checks:
 
 - confirm notify email provider is `ses` (`NOTIFY_EMAIL_PROVIDER=ses`)
+- if running temporary rollback mode, verify `NOTIFY_EMAIL_ALLOW_LEGACY_RESEND=true` is explicitly set and tracked in incident notes
 - confirm `NOTIFY_SES_FEEDBACK_SQS_URL` points to the expected queue
 - confirm SES event destination emits events to SNS and SNS forwards to the SQS queue
 - confirm outbound messages include provider tags (`strait_message_id`, `strait_project_id`)

@@ -588,7 +588,7 @@ func TestResolveEmailProviderAttempts_UsesFallbackChain(t *testing.T) {
 		getProviderFunc: func(_ context.Context, id, _ string) (*domain.NotificationProvider, error) {
 			switch id {
 			case "primary":
-				return &domain.NotificationProvider{ID: "primary", Provider: "mailgun", FallbackID: "secondary", ConfigEnc: []byte(`{"api_key":"x"}`)}, nil
+				return &domain.NotificationProvider{ID: "primary", Provider: "ses", FallbackID: "secondary", ConfigEnc: []byte(`{"from_email":"noreply@example.com","region":"us-east-1"}`)}, nil
 			case "secondary":
 				return &domain.NotificationProvider{ID: "secondary", Provider: "resend", ConfigEnc: []byte(`{"api_key":"rk","from_email":"noreply@example.com"}`)}, nil
 			default:
@@ -597,7 +597,7 @@ func TestResolveEmailProviderAttempts_UsesFallbackChain(t *testing.T) {
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{FromEmail: "noreply@strait.dev"})
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{FromEmail: "noreply@strait.dev", AllowLegacyResend: true})
 	attempts, err := d.resolveEmailProviderAttempts(context.Background(), domain.NotificationMessage{ProjectID: "proj_1", ProviderID: "primary"})
 	if err != nil {
 		t.Fatalf("resolveEmailProviderAttempts() error = %v", err)
@@ -607,5 +607,35 @@ func TestResolveEmailProviderAttempts_UsesFallbackChain(t *testing.T) {
 	}
 	if attempts[0].ID != "primary" || attempts[1].ID != "secondary" {
 		t.Fatalf("attempt order = [%s,%s], want [primary,secondary]", attempts[0].ID, attempts[1].ID)
+	}
+}
+
+func TestResolveEmailProviderAttempts_SkipsLegacyResendWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	st := &notifyDispatcherStoreMock{
+		getProviderFunc: func(_ context.Context, id, _ string) (*domain.NotificationProvider, error) {
+			if id != "primary" {
+				return nil, errors.New("unknown provider")
+			}
+			return &domain.NotificationProvider{ID: "primary", Provider: "resend", ConfigEnc: []byte(`{"api_key":"rk","from_email":"noreply@example.com"}`)}, nil
+		},
+	}
+
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{Provider: "ses", FromEmail: "noreply@strait.dev"})
+	attempts, err := d.resolveEmailProviderAttempts(context.Background(), domain.NotificationMessage{ProjectID: "proj_1", ProviderID: "primary"})
+	if err != nil {
+		t.Fatalf("resolveEmailProviderAttempts() error = %v", err)
+	}
+	if len(attempts) == 0 {
+		t.Fatal("expected at least config fallback attempt")
+	}
+	if attempts[0].Provider != "ses" {
+		t.Fatalf("first provider = %q, want ses", attempts[0].Provider)
+	}
+	for _, attempt := range attempts {
+		if attempt.Provider == "resend" {
+			t.Fatalf("expected resend to be filtered when legacy mode disabled: %+v", attempt)
+		}
 	}
 }
