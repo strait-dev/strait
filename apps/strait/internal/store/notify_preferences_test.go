@@ -91,7 +91,7 @@ func TestEnableNotificationChannelPreference(t *testing.T) {
 	if len(capturedArgs) < 5 {
 		t.Fatalf("captured args len = %d, want >= 5", len(capturedArgs))
 	}
-	if enabled, ok := capturedArgs[4].(string); !ok || enabled != "true" {
+	if enabled, ok := capturedArgs[4].(bool); !ok || !enabled {
 		t.Fatalf("enabled arg = %#v, want true", capturedArgs[4])
 	}
 }

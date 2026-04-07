@@ -141,17 +141,12 @@ func (q *Queries) setNotificationChannelPreference(ctx context.Context, recipien
 		return &domain.FieldError{Field: "channel"}
 	}
 
-	prefValue := "false"
-	if enabled {
-		prefValue = "true"
-	}
-
 	query := `
 		INSERT INTO notification_preferences (
 			recipient_type, recipient_id, scope, channel_prefs
 		)
 		VALUES (
-			$1, $2, $3, jsonb_build_object($4, $5::boolean)
+			$1, $2, $3, jsonb_build_object($4::text, $5::boolean)
 		)
 		ON CONFLICT (recipient_type, recipient_id, scope)
 		DO UPDATE SET
@@ -160,13 +155,13 @@ func (q *Queries) setNotificationChannelPreference(ctx context.Context, recipien
 					WHEN jsonb_typeof(notification_preferences.channel_prefs) = 'object' THEN notification_preferences.channel_prefs
 					ELSE '{}'::jsonb
 				END,
-				ARRAY[$4],
+				ARRAY[$4::text],
 				to_jsonb($5::boolean),
 				true
 			),
 			updated_at = NOW()`
 
-	if _, err := q.db.Exec(ctx, query, recipientType, recipientID, scope, channel, prefValue); err != nil {
+	if _, err := q.db.Exec(ctx, query, recipientType, recipientID, scope, channel, enabled); err != nil {
 		action := "disable"
 		if enabled {
 			action = "enable"

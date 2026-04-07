@@ -246,7 +246,7 @@ func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.Webho
 					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
 					 event_trigger_id
 			  FROM webhook_deliveries
-			  WHERE status = 'pending' AND next_retry_at IS NOT NULL AND next_retry_at <= NOW()
+			  WHERE status = 'pending' AND next_retry_at IS NOT NULL AND next_retry_at <= NOW() + interval '1 second'
 			  ORDER BY next_retry_at ASC
 			  LIMIT 100`
 
@@ -277,7 +277,7 @@ func (q *Queries) ListPendingRunWebhookDeliveries(ctx context.Context) ([]domain
 			  FROM webhook_deliveries
 			  WHERE status = 'pending'
 			    AND next_retry_at IS NOT NULL
-			    AND next_retry_at <= NOW()
+			    AND next_retry_at <= NOW() + interval '1 second'
 			    AND run_id IS NOT NULL
 			    AND event_trigger_id IS NULL
 			  ORDER BY next_retry_at ASC

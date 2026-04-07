@@ -72,6 +72,10 @@ func SetupTestDB(ctx context.Context, migrationsPath string) (*TestDB, error) {
 }
 
 func setupTestDBPool(ctx context.Context, connStr, migrationsPath string) (*pgxpool.Pool, error) {
+	if err := ensureTestDBExtensions(ctx, connStr); err != nil {
+		return nil, err
+	}
+
 	m, err := migrate.New("file://"+migrationsPath, connStr)
 	if err != nil {
 		return nil, fmt.Errorf("create migrator: %w", err)
@@ -89,6 +93,19 @@ func setupTestDBPool(ctx context.Context, connStr, migrationsPath string) (*pgxp
 		return nil, fmt.Errorf("create pool: %w", err)
 	}
 	return pool, nil
+}
+
+func ensureTestDBExtensions(ctx context.Context, connStr string) error {
+	pool, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		return fmt.Errorf("create pool for extension setup: %w", err)
+	}
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS pgcrypto`); err != nil {
+		return fmt.Errorf("ensure pgcrypto extension: %w", err)
+	}
+	return nil
 }
 
 func (tdb *TestDB) CleanTables(ctx context.Context) error {
