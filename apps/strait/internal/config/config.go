@@ -222,6 +222,47 @@ type Config struct {
 	// Edition is determined at compile time via build tags (community vs cloud).
 	// This field exists for config logging but is ignored by domain.ParseEdition.
 	Edition string `env:"STRAIT_EDITION" default:"community"`
+
+	// Code-first build pipeline (STR-385).
+
+	// BuildKit daemon address. Used by the build orchestrator to submit builds.
+	BuildKitAddress      string        `env:"BUILDKIT_ADDRESS" default:"tcp://buildkitd.strait-build.svc.cluster.local:1234"`
+	BuildKitNamespace    string        `env:"BUILDKIT_NAMESPACE" default:"strait-build"`
+	BuildKitCacheEnabled bool          `env:"BUILDKIT_CACHE_ENABLED" default:"true"`
+	BuildMaxTarballMB    int           `env:"BUILD_MAX_TARBALL_MB" default:"256"`
+	BuildTimeout         time.Duration `env:"BUILD_TIMEOUT" default:"10m"`
+
+	// Object store for deployment tarballs.
+	// Type selects the implementation: "s3" (default, works for R2 and MinIO).
+	ObjectStoreType           string `env:"OBJECT_STORE_TYPE" default:"s3"`
+	ObjectStoreBucket         string `env:"OBJECT_STORE_BUCKET"`
+	ObjectStoreEndpoint       string `env:"OBJECT_STORE_ENDPOINT"` // e.g. "https://{account}.r2.cloudflarestorage.com" or "http://minio:9000"
+	ObjectStoreRegion         string `env:"OBJECT_STORE_REGION" default:"auto"`
+	ObjectStoreAccessKey      string `env:"OBJECT_STORE_ACCESS_KEY"`
+	ObjectStoreSecretKey      string `env:"OBJECT_STORE_SECRET_KEY"`
+	ObjectStoreForcePathStyle bool   `env:"OBJECT_STORE_FORCE_PATH_STYLE" default:"false"` // set true for MinIO
+
+	// Container registry for built images.
+	// Type selects the implementation: "ecr" or "generic" (Docker Registry API v2).
+	ContainerRegistryType   string `env:"CONTAINER_REGISTRY_TYPE" default:"ecr"`
+	ContainerRegistryURL    string `env:"CONTAINER_REGISTRY_URL"`  // for generic
+	ContainerRegistryUser   string `env:"CONTAINER_REGISTRY_USER"` // for generic
+	ContainerRegistryPass   string `env:"CONTAINER_REGISTRY_PASS"` // for generic
+	ContainerRegistryPrefix string `env:"CONTAINER_REGISTRY_PREFIX" default:"strait-jobs"`
+	ECRRegion               string `env:"ECR_REGION" default:"us-east-1"`
+	ECRRegistryID           string `env:"ECR_REGISTRY_ID"` // AWS account ID; defaults to caller account
+	ECRRoleARN              string `env:"ECR_ROLE_ARN"`    // optional IAM role for cross-account access
+
+	// Performance: image pull policy and lazy loading.
+	// ImagePullPolicy matches the Kubernetes imagePullPolicy values.
+	ImagePullPolicy string `env:"IMAGE_PULL_POLICY" default:"IfNotPresent"`
+	// PrePullEnabled deploys a DaemonSet that pre-pulls base runtime images to
+	// all nodes, eliminating cold-start latency on the first run.
+	PrePullEnabled bool `env:"PRE_PULL_ENABLED" default:"false"`
+	// SOCIEnabled enables Seekable OCI (SOCI) lazy image loading via the
+	// AWS SOCI snapshotter. Requires the SOCI snapshotter to be installed on nodes.
+	// When enabled, container startup begins before the full image is pulled.
+	SOCIEnabled bool `env:"SOCI_ENABLED" default:"false"`
 }
 
 // Load reads configuration from environment variables.

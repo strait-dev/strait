@@ -1,0 +1,108 @@
+name: Publish Runtime Base Images
+
+on:
+  push:
+    tags:
+      - "runtime-v*"
+    paths:
+      - "apps/strait/build/runtimes/**"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (e.g. 1.2.3). Defaults to 'dev' when running manually."
+        required: false
+        default: "dev"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-runtimes-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_ORG: strait-dev
+
+jobs:
+  resolve-tag:
+    name: Resolve image tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == refs/tags/runtime-v* ]]; then
+            echo "value=${GITHUB_REF_NAME#runtime-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build ${{ matrix.runtime }}
+    runs-on: ubuntu-latest
+    needs: resolve-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: python
+            dockerfile: python.Dockerfile
+            base_version: "3.12"
+            version_arg: PYTHON_VERSION
+          - runtime: typescript
+            dockerfile: typescript.Dockerfile
+            base_version: "1.2"
+            version_arg: BUN_VERSION
+          - runtime: ruby
+            dockerfile: ruby.Dockerfile
+            base_version: "3.3"
+            version_arg: RUBY_VERSION
+          - runtime: rust
+            dockerfile: rust.Dockerfile
+            base_version: "1.83"
+            version_arg: RUST_VERSION
+          - runtime: go
+            dockerfile: golang.Dockerfile
+            base_version: "1.23"
+            version_arg: GO_VERSION
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff9f0ee8754ca547a7 # v3.6.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5730f4a249498a9e5f11be9fe2bc1a06de2c9b4 # v3.10.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.runtime }}
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        with:
+          context: apps/strait/build/runtimes
+          file: apps/strait/build/runtimes/${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            ${{ matrix.version_arg }}=${{ matrix.base_version }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/runtime-${{ matrix.runtime }}:${{ needs.resolve-tag.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/runtime-${{ matrix.runtime }}:latest
+          cache-from: type=gha,scope=runtime-${{ matrix.runtime }}
+          cache-to: type=gha,mode=max,scope=runtime-${{ matrix.runtime }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
