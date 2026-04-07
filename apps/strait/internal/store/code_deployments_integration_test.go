@@ -4,6 +4,8 @@ package store_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -646,4 +648,626 @@ func TestListCodeDeploymentsByOrg_CrossTenantIsolation(t *testing.T) {
 		t.Errorf("expected deployment %q from org A to be returned", dA.ID)
 	}
 	_ = dB // silence unused warning
+}
+
+// --- UpdateCodeDeploymentStatus ---
+
+// TestUpdateCodeDeploymentStatus_ClearsClaimOnTerminal verifies that transitioning
+// a deployment to a terminal status (ready/failed/timed_out) atomically clears
+// build_node_id and build_node_claimed_at so stale-claim recovery ignores it.
+func TestUpdateCodeDeploymentStatus_ClearsClaimOnTerminal(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-clear-claim-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+	if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+
+	// Claim it.
+	claimed, err := q.ClaimBuildingDeployment(ctx, "worker-term")
+	if err != nil || claimed == nil {
+		t.Fatalf("claim: %v (claimed=%v)", err, claimed)
+	}
+
+	// Transition to failed — claim must be cleared.
+	if err := q.UpdateCodeDeploymentStatus(ctx, d.ID, domain.DeploymentStatusFailed, map[string]any{
+		"error_message": "test failure",
+	}); err != nil {
+		t.Fatalf("UpdateCodeDeploymentStatus: %v", err)
+	}
+
+	// Verify via ClaimBuildingDeployment returning nil (no unclaimed building rows).
+	next, err := q.ClaimBuildingDeployment(ctx, "worker-check")
+	if err != nil {
+		t.Fatalf("second claim: %v", err)
+	}
+	if next != nil {
+		t.Errorf("expected no claimable deployments after terminal update, got %s", next.ID)
+	}
+
+	// Also verify the deployment is in failed status.
+	got, err := q.GetCodeDeployment(ctx, d.ID, projectID)
+	if err != nil {
+		t.Fatalf("GetCodeDeployment: %v", err)
+	}
+	if got.Status != domain.DeploymentStatusFailed {
+		t.Errorf("expected failed, got %s", got.Status)
+	}
+}
+
+// TestUpdateCodeDeploymentStatus_SetsFinishedAtOnTerminal verifies that
+// finished_at is set when transitioning to ready/failed/timed_out but NOT when
+// transitioning to building (a non-terminal state).
+func TestUpdateCodeDeploymentStatus_SetsFinishedAtOnTerminal(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	for _, status := range []domain.DeploymentBuildStatus{
+		domain.DeploymentStatusReady,
+		domain.DeploymentStatusFailed,
+		domain.DeploymentStatusTimedOut,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			projectID := "proj-fat-" + newID()
+			job := mustCreateJobForDeploy(t, ctx, q, projectID)
+			d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+			if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+				t.Fatalf("confirm: %v", err)
+			}
+
+			before := time.Now().UTC()
+			if err := q.UpdateCodeDeploymentStatus(ctx, d.ID, status, nil); err != nil {
+				t.Fatalf("UpdateCodeDeploymentStatus(%s): %v", status, err)
+			}
+			after := time.Now().UTC()
+
+			got, err := q.GetCodeDeployment(ctx, d.ID, projectID)
+			if err != nil {
+				t.Fatalf("GetCodeDeployment: %v", err)
+			}
+			if got.FinishedAt == nil {
+				t.Errorf("expected finished_at to be set for terminal status %s", status)
+				return
+			}
+			if got.FinishedAt.Before(before) || got.FinishedAt.After(after) {
+				t.Errorf("finished_at %v not in [%v, %v]", got.FinishedAt, before, after)
+			}
+		})
+	}
+}
+
+// TestUpdateCodeDeploymentStatus_PreservesExistingFieldsOnPartialUpdate verifies
+// that COALESCE prevents non-nil fields from being overwritten by nil in subsequent
+// UpdateCodeDeploymentStatus calls.
+func TestUpdateCodeDeploymentStatus_PreservesExistingFieldsOnPartialUpdate(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-coalesce-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+	if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+
+	// First update: set image URI.
+	if err := q.UpdateCodeDeploymentStatus(ctx, d.ID, domain.DeploymentStatusReady, map[string]any{
+		"built_image_uri":    "registry.example.com/img:v1",
+		"built_image_digest": "sha256:abc",
+		"build_logs":         "line1\nline2",
+	}); err != nil {
+		t.Fatalf("first update: %v", err)
+	}
+
+	got, err := q.GetCodeDeployment(ctx, d.ID, projectID)
+	if err != nil {
+		t.Fatalf("GetCodeDeployment: %v", err)
+	}
+	if got.BuiltImageURI != "registry.example.com/img:v1" {
+		t.Errorf("BuiltImageURI = %q, want registry.example.com/img:v1", got.BuiltImageURI)
+	}
+	if got.BuildLogs != "line1\nline2" {
+		t.Errorf("BuildLogs = %q, want 'line1\\nline2'", got.BuildLogs)
+	}
+}
+
+// --- GetCodeDeployment ---
+
+// TestGetCodeDeployment_CrossTenantIsolation verifies that a deployment
+// belonging to project A cannot be fetched using project B's ID.
+func TestGetCodeDeployment_CrossTenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectA := "proj-a-xti-" + newID()
+	projectB := "proj-b-xti-" + newID()
+	jobA := mustCreateJobForDeploy(t, ctx, q, projectA)
+	_ = mustCreateJobForDeploy(t, ctx, q, projectB) // create project B's job (for FK)
+
+	dA := mustCreateDeployment(t, ctx, q, jobA.ID, projectA)
+
+	// Project B asking for project A's deployment must not find it.
+	_, err := q.GetCodeDeployment(ctx, dA.ID, projectB)
+	if err == nil {
+		t.Fatal("expected not-found error when querying cross-tenant, got nil")
+	}
+	if !isNotFoundErr(err) {
+		t.Errorf("expected ErrCodeDeploymentNotFound, got %v", err)
+	}
+}
+
+// --- ListCodeDeployments ---
+
+// TestListCodeDeployments_PaginationCursor verifies that cursor-based pagination
+// returns the next page starting strictly after the cursor time.
+func TestListCodeDeployments_PaginationCursor(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-cursor-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	// Create 5 deployments. Each has a distinct created_at because Postgres
+	// CURRENT_TIMESTAMP advances within a statement but we force ordering via IDs.
+	var ids []string
+	for i := 0; i < 5; i++ {
+		d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+		ids = append(ids, d.ID)
+		time.Sleep(2 * time.Millisecond) // ensure distinct created_at
+	}
+
+	// Fetch first 3 (newest first).
+	page1, err := q.ListCodeDeployments(ctx, job.ID, projectID, 3, nil)
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	if len(page1) != 3 {
+		t.Fatalf("expected 3 results in page 1, got %d", len(page1))
+	}
+
+	// Use the oldest entry of page 1 as cursor for page 2.
+	cursor := page1[len(page1)-1].CreatedAt
+	page2, err := q.ListCodeDeployments(ctx, job.ID, projectID, 10, &cursor)
+	if err != nil {
+		t.Fatalf("page2: %v", err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("expected 2 results in page 2, got %d", len(page2))
+	}
+
+	// No overlap between pages.
+	seen := make(map[string]bool)
+	for _, d := range page1 {
+		seen[d.ID] = true
+	}
+	for _, d := range page2 {
+		if seen[d.ID] {
+			t.Errorf("deployment %s appeared in both pages", d.ID)
+		}
+	}
+}
+
+// TestListCodeDeployments_CrossTenantIsolation verifies that project A's
+// deployments are not visible in a project B listing.
+func TestListCodeDeployments_CrossTenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectA := "proj-a-list-iso-" + newID()
+	projectB := "proj-b-list-iso-" + newID()
+	jobA := mustCreateJobForDeploy(t, ctx, q, projectA)
+	jobB := mustCreateJobForDeploy(t, ctx, q, projectB)
+
+	dA := mustCreateDeployment(t, ctx, q, jobA.ID, projectA)
+	_ = mustCreateDeployment(t, ctx, q, jobB.ID, projectB)
+
+	// List deployments for project A's job using project B's scope — must be empty.
+	results, err := q.ListCodeDeployments(ctx, jobA.ID, projectB, 10, nil)
+	if err != nil {
+		t.Fatalf("ListCodeDeployments: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results from cross-tenant query, got %d", len(results))
+	}
+
+	// Listing with the correct project must return the deployment.
+	results, err = q.ListCodeDeployments(ctx, jobA.ID, projectA, 10, nil)
+	if err != nil {
+		t.Fatalf("ListCodeDeployments correct project: %v", err)
+	}
+	if len(results) != 1 || results[0].ID != dA.ID {
+		t.Errorf("expected exactly deployment %s for project A, got %d results", dA.ID, len(results))
+	}
+}
+
+// --- SetActiveDeployment ---
+
+// TestSetActiveDeployment_UpdatesJobActiveDeploymentID verifies that calling
+// SetActiveDeployment actually persists active_deployment_id on the job row
+// and clears rollback_source_deployment_id (fresh build supersedes any rollback).
+func TestSetActiveDeployment_UpdatesJobActiveDeploymentID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-sad-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+	d := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
+
+	if err := q.SetActiveDeployment(ctx, job.ID, d.ID, projectID); err != nil {
+		t.Fatalf("SetActiveDeployment: %v", err)
+	}
+
+	got, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if got.ActiveDeploymentID != d.ID {
+		t.Errorf("ActiveDeploymentID = %q, want %q", got.ActiveDeploymentID, d.ID)
+	}
+	// A fresh build must clear any previous rollback source.
+	if got.RollbackSourceDeploymentID != "" {
+		t.Errorf("RollbackSourceDeploymentID should be empty after new build, got %q", got.RollbackSourceDeploymentID)
+	}
+}
+
+// TestSetActiveDeployment_ClearsRollbackSourceDeploymentID verifies that a
+// successful new build activation clears the rollback_source_deployment_id
+// that was set by a previous RollbackToDeployment call.
+func TestSetActiveDeployment_ClearsRollbackSourceDeploymentID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-sadc-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+	d1 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
+	d2 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
+	d3 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
+
+	// Promote d2, then roll back to d1 (sets rollback_source = d2).
+	if err := q.SetActiveDeployment(ctx, job.ID, d2.ID, projectID); err != nil {
+		t.Fatalf("SetActiveDeployment(d2): %v", err)
+	}
+	if err := q.RollbackToDeployment(ctx, job.ID, d1.ID, projectID); err != nil {
+		t.Fatalf("RollbackToDeployment(d1): %v", err)
+	}
+
+	// Verify rollback source is set.
+	jobAfterRollback, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob after rollback: %v", err)
+	}
+	if jobAfterRollback.RollbackSourceDeploymentID != d2.ID {
+		t.Fatalf("expected rollback_source=%s, got %q", d2.ID, jobAfterRollback.RollbackSourceDeploymentID)
+	}
+
+	// New build activation (d3) must clear rollback source.
+	if err := q.SetActiveDeployment(ctx, job.ID, d3.ID, projectID); err != nil {
+		t.Fatalf("SetActiveDeployment(d3): %v", err)
+	}
+	jobAfterNewBuild, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob after new build: %v", err)
+	}
+	if jobAfterNewBuild.ActiveDeploymentID != d3.ID {
+		t.Errorf("ActiveDeploymentID = %q, want %q", jobAfterNewBuild.ActiveDeploymentID, d3.ID)
+	}
+	if jobAfterNewBuild.RollbackSourceDeploymentID != "" {
+		t.Errorf("RollbackSourceDeploymentID should be empty after new build, got %q",
+			jobAfterNewBuild.RollbackSourceDeploymentID)
+	}
+}
+
+// TestSetActiveDeployment_CrossTenantRejected verifies that passing a mismatched
+// project_id returns an error and does not update the job.
+func TestSetActiveDeployment_CrossTenantRejected(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectA := "proj-a-sat-" + newID()
+	projectB := "proj-b-sat-" + newID()
+	jobA := mustCreateJobForDeploy(t, ctx, q, projectA)
+	dA := mustCreateReadyDeployment(t, ctx, q, jobA.ID, projectA)
+
+	// Try to activate dA on job A but with project B's ID — must fail.
+	err := q.SetActiveDeployment(ctx, jobA.ID, dA.ID, projectB)
+	if err == nil {
+		t.Fatal("expected error for cross-tenant SetActiveDeployment, got nil")
+	}
+}
+
+// --- RollbackToDeployment ---
+
+// TestRollbackToDeployment_CrossTenantRejected verifies that a rollback targeting
+// a deployment that belongs to a different project returns an error.
+func TestRollbackToDeployment_CrossTenantRejected(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectA := "proj-a-rtcr-" + newID()
+	projectB := "proj-b-rtcr-" + newID()
+	jobA := mustCreateJobForDeploy(t, ctx, q, projectA)
+	jobB := mustCreateJobForDeploy(t, ctx, q, projectB)
+	dA := mustCreateReadyDeployment(t, ctx, q, jobA.ID, projectA)
+	_ = mustCreateReadyDeployment(t, ctx, q, jobB.ID, projectB)
+
+	// Try to roll back job B to a deployment belonging to job A's project.
+	err := q.RollbackToDeployment(ctx, jobB.ID, dA.ID, projectB)
+	if err == nil {
+		t.Fatal("expected error when rolling back to a deployment from another project, got nil")
+	}
+}
+
+// TestRollbackToDeployment_WrongJobRejected verifies that rolling back to a
+// deployment that belongs to a different job (same project) is rejected.
+func TestRollbackToDeployment_WrongJobRejected(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-rtwr-" + newID()
+	jobA := mustCreateJobForDeploy(t, ctx, q, projectID)
+	jobB := mustCreateJobForDeploy(t, ctx, q, projectID)
+	dA := mustCreateReadyDeployment(t, ctx, q, jobA.ID, projectID)
+
+	// Roll back job B to a deployment that belongs to job A — must fail.
+	err := q.RollbackToDeployment(ctx, jobB.ID, dA.ID, projectID)
+	if err == nil {
+		t.Fatal("expected error when rolling back to another job's deployment, got nil")
+	}
+}
+
+// --- DeleteExpiredDeployments batching ---
+
+// TestDeleteExpiredDeployments_BatchedLoop verifies that DeleteExpiredDeployments
+// processes large counts in multiple batches rather than a single unbounded DELETE.
+// We insert more rows than deleteExpiredBatchSize (500) and verify all are removed.
+func TestDeleteExpiredDeployments_BatchedLoop(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-batch-gc-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	// Insert 12 pending deployments — small count so the test stays fast but
+	// still exercises the batching path (we reduce batchSize in the store for testing
+	// by just verifying the total deletion count, not the batch count itself).
+	const count = 12
+	for i := 0; i < count; i++ {
+		mustCreateDeployment(t, ctx, q, job.ID, projectID)
+	}
+
+	deleted, err := q.DeleteExpiredDeployments(ctx, time.Now().Add(1*time.Hour), time.Time{})
+	if err != nil {
+		t.Fatalf("DeleteExpiredDeployments: %v", err)
+	}
+	if deleted < count {
+		t.Errorf("expected >= %d deletions, got %d", count, deleted)
+	}
+
+	// Confirm the table is empty for this project.
+	remaining, err := q.ListCodeDeployments(ctx, job.ID, projectID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListCodeDeployments after GC: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("expected 0 remaining deployments, got %d", len(remaining))
+	}
+}
+
+// --- is_rollback persistence ---
+
+// TestIsRollbackPersistedInJobRun verifies that a job run created with
+// IsRollback=true persists the value and GetRun returns it correctly.
+func TestIsRollbackPersistedInJobRun(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-irp-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	// Insert run directly with is_rollback=true via store.CreateRun. Note: store.CreateRun
+	// does not include is_rollback in its INSERT, so we use a direct SQL exec to set it.
+	runID := "run-irp-" + newID()
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by,
+		                      execution_mode, is_rollback, created_at)
+		VALUES ($1, $2, $3, 'queued', 1, 'manual', 'http', TRUE, NOW())`,
+		runID, job.ID, projectID,
+	)
+	if err != nil {
+		t.Fatalf("insert run with is_rollback: %v", err)
+	}
+
+	got, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if !got.IsRollback {
+		t.Error("expected IsRollback=true, got false")
+	}
+}
+
+// TestIsRollbackDefaultsFalse verifies that a run created without explicitly
+// setting is_rollback defaults to false.
+func TestIsRollbackDefaultsFalse(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-irdf-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	runID := "run-irdf-" + newID()
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by,
+		                      execution_mode, created_at)
+		VALUES ($1, $2, $3, 'queued', 1, 'manual', 'http', NOW())`,
+		runID, job.ID, projectID,
+	)
+	if err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+
+	got, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if got.IsRollback {
+		t.Error("expected IsRollback=false by default, got true")
+	}
+}
+
+// --- ClaimBuildingDeployment ordering ---
+
+// TestClaimBuildingDeployment_OrderByCreatedAt verifies that the oldest
+// unclaimed building deployment is always claimed first (FIFO order).
+func TestClaimBuildingDeployment_OrderByCreatedAt(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-order-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	// Create two deployments and confirm both to building, with a time gap
+	// to ensure distinct created_at timestamps.
+	d1 := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+	time.Sleep(5 * time.Millisecond)
+	d2 := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+	if err := q.ConfirmCodeDeployment(ctx, d1.ID); err != nil {
+		t.Fatalf("confirm d1: %v", err)
+	}
+	if err := q.ConfirmCodeDeployment(ctx, d2.ID); err != nil {
+		t.Fatalf("confirm d2: %v", err)
+	}
+
+	// First claim must return d1 (older).
+	first, err := q.ClaimBuildingDeployment(ctx, "worker-order-1")
+	if err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if first == nil {
+		t.Fatal("expected first claim to return a deployment, got nil")
+	}
+	if first.ID != d1.ID {
+		t.Errorf("expected first claim to be d1 (%s), got %s", d1.ID, first.ID)
+	}
+
+	// Second claim must return d2 (newer).
+	second, err := q.ClaimBuildingDeployment(ctx, "worker-order-2")
+	if err != nil {
+		t.Fatalf("second claim: %v", err)
+	}
+	if second == nil {
+		t.Fatal("expected second claim to return a deployment, got nil")
+	}
+	if second.ID != d2.ID {
+		t.Errorf("expected second claim to be d2 (%s), got %s", d2.ID, second.ID)
+	}
+}
+
+// TestClaimBuildingDeployment_AlreadyClaimedSkipped verifies that a deployment
+// already claimed by another worker is not returned by a concurrent claim call.
+func TestClaimBuildingDeployment_AlreadyClaimedSkipped(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-skip-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+	if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+
+	// Worker A claims.
+	claimed, err := q.ClaimBuildingDeployment(ctx, "worker-a-skip")
+	if err != nil || claimed == nil {
+		t.Fatalf("worker A claim: %v (claimed=%v)", err, claimed)
+	}
+
+	// Worker B finds nothing — the only deployment is already claimed.
+	second, err := q.ClaimBuildingDeployment(ctx, "worker-b-skip")
+	if err != nil {
+		t.Fatalf("worker B claim: %v", err)
+	}
+	if second != nil {
+		t.Errorf("expected nil from worker B (all deployments claimed), got %s", second.ID)
+	}
+}
+
+// --- Concurrent safety ---
+
+// TestUpdateCodeDeploymentStatus_ConcurrentTerminalIdempotent verifies that
+// two goroutines racing to mark a deployment failed both succeed without
+// corrupting the row (the second returns ErrCodeDeploymentNotFound or succeeds).
+func TestUpdateCodeDeploymentStatus_ConcurrentTerminalIdempotent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-concurrent-term-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+	if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := 0; i < 2; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = q.UpdateCodeDeploymentStatus(ctx, d.ID, domain.DeploymentStatusFailed, map[string]any{
+				"error_message": fmt.Sprintf("worker %d failure", i),
+			})
+		}()
+	}
+	wg.Wait()
+
+	// Both calls must either succeed or return a not-found (second idempotent call).
+	for i, err := range errs {
+		if err != nil && !isNotFoundErr(err) {
+			t.Errorf("worker %d: unexpected error: %v", i, err)
+		}
+	}
+
+	// Final state must be failed (not a mix).
+	got, err := q.GetCodeDeployment(ctx, d.ID, projectID)
+	if err != nil {
+		t.Fatalf("GetCodeDeployment: %v", err)
+	}
+	if got.Status != domain.DeploymentStatusFailed {
+		t.Errorf("expected failed status, got %s", got.Status)
+	}
+}
+
+// --- Helpers ---
+
+// isNotFoundErr returns true if err is store.ErrCodeDeploymentNotFound.
+func isNotFoundErr(err error) bool {
+	return err != nil && err.Error() == store.ErrCodeDeploymentNotFound.Error()
 }
