@@ -112,3 +112,8 @@ Use the monitoring assets in `packages/monitoring/` as a baseline:
 - [RBAC Policy Rollout](/operations/rbac-policy-rollout)
 - [API Key Rotation Rollout](/operations/api-key-rotation-rollout)
 - [Auth Incident Response](/operations/incident-response-authz)
+
+## Scripted Diagnostics
+
+- SES feedback queue + callback/suppression snapshot:
+  - `cd apps/strait && go run ./scripts/notify-ses-feedback-check --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL" --database-url "$DATABASE_URL"`

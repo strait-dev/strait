@@ -59,6 +59,15 @@ The script also prints SES-focused sections when data exists:
 - `ses feedback event types` from `notify_provider_callback_receipts`
 - `ses suppression reasons` from `notify_suppression_events`
 
+For explicit queue + callback verification, use the SES check helper:
+
+```bash
+cd apps/strait
+NOTIFY_SES_FEEDBACK_SQS_URL='https://sqs.us-east-1.amazonaws.com/123456789012/notify-feedback' \
+DATABASE_URL='postgres://...' \
+go run ./scripts/notify-ses-feedback-check --project-id <project_id> --window 6h
+```
+
 ## Common Failure Modes
 
 ### 1) Messages remain in `scheduled`
@@ -122,6 +131,46 @@ Checks:
   - `sum(rate(strait_notify_provider_callbacks_total{provider="ses",suppression_reason!="none"}[5m])) by (suppression_reason)`
 - inspect notify delivery rows for transitions to `delivered`, `bounced`, or `failed`
 - inspect subscriber preference changes when bounces/complaints occur (`channel_prefs.email=false`)
+
+## SES Feedback End-to-End Verification (Script-First)
+
+1. Run queue + database snapshot:
+
+```bash
+cd apps/strait
+go run ./scripts/notify-ses-feedback-check \
+  --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL" \
+  --database-url "$DATABASE_URL" \
+  --project-id <project_id> \
+  --window 6h \
+  --fail-on-backlog 200
+```
+
+2. Optional parser-path synthetic check (should increment `outcome="malformed"`):
+
+```bash
+aws sqs send-message \
+  --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL" \
+  --message-body 'not-json'
+```
+
+3. Optional not-found path synthetic check (should increment `outcome="message_not_found"`):
+
+```bash
+aws sqs send-message \
+  --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL" \
+  --message-body '{"eventType":"Delivery","mail":{"messageId":"synthetic","timestamp":"2026-04-06T10:00:00Z","tags":{"strait_message_id":["missing-message-id"],"strait_project_id":["<project_id>"]}},"delivery":{"timestamp":"2026-04-06T10:01:00Z"}}'
+```
+
+4. Re-check callback outcome distribution and queue depth:
+
+```promql
+sum(rate(strait_notify_provider_callbacks_total{provider="ses"}[5m])) by (event_type, outcome)
+```
+
+```bash
+go run ./scripts/notify-ses-feedback-check --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL"
+```
 
 ## Safe Remediation Steps
 
