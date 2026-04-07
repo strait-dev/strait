@@ -413,3 +413,34 @@ func (s *Server) handleDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+// --- Admin: list deployments across an org.
+
+// ListAdminOrgDeploymentsInput is the input for the admin org deployments list.
+type ListAdminOrgDeploymentsInput struct {
+	OrgID  string `path:"orgID"`
+	Limit  string `query:"limit"`
+	Cursor string `query:"cursor"`
+}
+
+// ListAdminOrgDeploymentsOutput wraps the paginated deployment list.
+type ListAdminOrgDeploymentsOutput struct{ Body PaginatedResponse }
+
+// handleListAdminOrgDeployments lists all code deployments across every project
+// in an org. Protected by X-Internal-Secret; never accessible with a project API key.
+func (s *Server) handleListAdminOrgDeployments(ctx context.Context, input *ListAdminOrgDeploymentsInput) (*ListAdminOrgDeploymentsOutput, error) {
+	if input.OrgID == "" {
+		return nil, huma.Error400BadRequest("orgID is required")
+	}
+	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
+	if err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	deployments, err := s.store.ListCodeDeploymentsByOrg(ctx, input.OrgID, limit+1, cursor)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list deployments")
+	}
+	return &ListAdminOrgDeploymentsOutput{
+		Body: paginatedResult(deployments, limit, func(d domain.CodeDeployment) string { return d.CreatedAt.Format(time.RFC3339Nano) }),
+	}, nil
+}

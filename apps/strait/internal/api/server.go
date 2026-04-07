@@ -316,6 +316,9 @@ type CodeDeploymentStore interface {
 	UpdateCodeDeploymentStatus(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error
 	SetActiveDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
 	RollbackToDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
+	// ListCodeDeploymentsByOrg returns deployments across all projects in an org,
+	// ordered newest-first. Used by internal admin tooling only.
+	ListCodeDeploymentsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
 }
 
 // DeploymentStore handles deployment version lifecycle operations.

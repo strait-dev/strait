@@ -151,6 +151,15 @@ func (s *Server) routes() chi.Router {
 		})
 	}
 
+	// Admin internal routes (X-Internal-Secret auth only).
+	r.Route("/internal/admin", func(r chi.Router) {
+		r.Use(s.internalSecretAuth)
+		r.Use(chimw.Timeout(requestTimeout))
+		r.Route("/orgs/{orgID}", func(r chi.Router) {
+			r.Get("/deployments", TypedHandler(s, http.StatusOK, s.handleListAdminOrgDeployments))
+		})
+	})
+
 	// CLI device authorization endpoints (no auth required).
 	r.Route("/v1/cli/auth", func(r chi.Router) {
 		r.Use(rateLimit(10, time.Minute))

@@ -539,6 +539,84 @@ func (q *Queries) DeleteExpiredDeployments(ctx context.Context, pendingBefore, f
 	return tag.RowsAffected(), nil
 }
 
+// ListCodeDeploymentsByOrg returns code deployments across all projects that
+// belong to the given org, ordered newest-first, with cursor-based pagination.
+// Deployments are scoped strictly to the org — no cross-org data leaks.
+func (q *Queries) ListCodeDeploymentsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListCodeDeploymentsByOrg")
+	defer span.End()
+
+	query := `
+		SELECT cd.id, cd.job_id, cd.project_id, cd.version, cd.status, cd.runtime,
+		       cd.source_hash, cd.source_size_bytes, cd.source_uri,
+		       cd.built_image_uri, cd.built_image_digest, cd.build_logs, cd.error_message,
+		       cd.created_by, cd.created_at, cd.updated_at, cd.finished_at
+		FROM code_deployments cd
+		JOIN projects p ON p.id = cd.project_id
+		WHERE p.org_id = $1
+		  AND ($2::TIMESTAMPTZ IS NULL OR cd.created_at < $2)
+		ORDER BY cd.created_at DESC
+		LIMIT $3`
+
+	rows, err := q.db.Query(ctx, query, orgID, cursor, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list code deployments by org: %w", err)
+	}
+	defer rows.Close()
+
+	var result []domain.CodeDeployment
+	for rows.Next() {
+		var d domain.CodeDeployment
+		var status, runtime string
+		var builtImageURI, builtImageDigest, buildLogs, errorMessage, createdBy *string
+
+		if err := rows.Scan(
+			&d.ID,
+			&d.JobID,
+			&d.ProjectID,
+			&d.Version,
+			&status,
+			&runtime,
+			&d.SourceHash,
+			&d.SourceSizeBytes,
+			&d.SourceURI,
+			&builtImageURI,
+			&builtImageDigest,
+			&buildLogs,
+			&errorMessage,
+			&createdBy,
+			&d.CreatedAt,
+			&d.UpdatedAt,
+			&d.FinishedAt,
+		); err != nil {
+			return nil, fmt.Errorf("list code deployments by org: scan: %w", err)
+		}
+
+		d.Status = domain.DeploymentBuildStatus(status)
+		d.Runtime = domain.Runtime(runtime)
+		if builtImageURI != nil {
+			d.BuiltImageURI = *builtImageURI
+		}
+		if builtImageDigest != nil {
+			d.BuiltImageDigest = *builtImageDigest
+		}
+		if buildLogs != nil {
+			d.BuildLogs = *buildLogs
+		}
+		if errorMessage != nil {
+			d.ErrorMessage = *errorMessage
+		}
+		if createdBy != nil {
+			d.CreatedBy = *createdBy
+		}
+		result = append(result, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list code deployments by org: rows: %w", err)
+	}
+	return result, nil
+}
+
 // nilStringFromMap extracts a *string from a map[string]any. Returns nil if the key
 // is absent, maps to a non-string value, or maps to an empty string.
 func nilStringFromMap(m map[string]any, key string) *string {

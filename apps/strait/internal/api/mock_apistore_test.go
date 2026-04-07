@@ -499,6 +499,9 @@ var _ APIStore = &APIStoreMock{}
 //			ListCodeDeploymentsFunc: func(ctx context.Context, jobID string, projectID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error) {
 //				panic("mock out the ListCodeDeployments method")
 //			},
+//			ListCodeDeploymentsByOrgFunc: func(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error) {
+//				panic("mock out the ListCodeDeploymentsByOrg method")
+//			},
 //			ListDeadLetterRunsFunc: func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 //				panic("mock out the ListDeadLetterRuns method")
 //			},
@@ -1321,6 +1324,9 @@ type APIStoreMock struct {
 
 	// ListCodeDeploymentsFunc mocks the ListCodeDeployments method.
 	ListCodeDeploymentsFunc func(ctx context.Context, jobID string, projectID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
+
+	// ListCodeDeploymentsByOrgFunc mocks the ListCodeDeploymentsByOrg method.
+	ListCodeDeploymentsByOrgFunc func(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
 
 	// ListDeadLetterRunsFunc mocks the ListDeadLetterRuns method.
 	ListDeadLetterRunsFunc func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
@@ -2986,6 +2992,17 @@ type APIStoreMock struct {
 			// Cursor is the cursor argument value.
 			Cursor *time.Time
 		}
+		// ListCodeDeploymentsByOrg holds details about calls to the ListCodeDeploymentsByOrg method.
+		ListCodeDeploymentsByOrg []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OrgID is the orgID argument value.
+			OrgID string
+			// Limit is the limit argument value.
+			Limit int
+			// Cursor is the cursor argument value.
+			Cursor *time.Time
+		}
 		// ListDeadLetterRuns holds details about calls to the ListDeadLetterRuns method.
 		ListDeadLetterRuns []struct {
 			// Ctx is the ctx argument value.
@@ -4279,6 +4296,7 @@ type APIStoreMock struct {
 	lockListBatchOperations                sync.RWMutex
 	lockListChildRuns                      sync.RWMutex
 	lockListCodeDeployments                sync.RWMutex
+	lockListCodeDeploymentsByOrg           sync.RWMutex
 	lockListDeadLetterRuns                 sync.RWMutex
 	lockListDeploymentVersions             sync.RWMutex
 	lockListEnvironments                   sync.RWMutex
@@ -11116,6 +11134,54 @@ func (mock *APIStoreMock) ListCodeDeploymentsCalls() []struct {
 	mock.lockListCodeDeployments.RLock()
 	calls = mock.calls.ListCodeDeployments
 	mock.lockListCodeDeployments.RUnlock()
+	return calls
+}
+
+// ListCodeDeploymentsByOrg calls ListCodeDeploymentsByOrgFunc.
+func (mock *APIStoreMock) ListCodeDeploymentsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error) {
+	callInfo := struct {
+		Ctx    context.Context
+		OrgID  string
+		Limit  int
+		Cursor *time.Time
+	}{
+		Ctx:    ctx,
+		OrgID:  orgID,
+		Limit:  limit,
+		Cursor: cursor,
+	}
+	mock.lockListCodeDeploymentsByOrg.Lock()
+	mock.calls.ListCodeDeploymentsByOrg = append(mock.calls.ListCodeDeploymentsByOrg, callInfo)
+	mock.lockListCodeDeploymentsByOrg.Unlock()
+	if mock.ListCodeDeploymentsByOrgFunc == nil {
+		var (
+			codeDeploymentsOut []domain.CodeDeployment
+			errOut             error
+		)
+		return codeDeploymentsOut, errOut
+	}
+	return mock.ListCodeDeploymentsByOrgFunc(ctx, orgID, limit, cursor)
+}
+
+// ListCodeDeploymentsByOrgCalls gets all the calls that were made to ListCodeDeploymentsByOrg.
+// Check the length with:
+//
+//	len(mockedAPIStore.ListCodeDeploymentsByOrgCalls())
+func (mock *APIStoreMock) ListCodeDeploymentsByOrgCalls() []struct {
+	Ctx    context.Context
+	OrgID  string
+	Limit  int
+	Cursor *time.Time
+} {
+	var calls []struct {
+		Ctx    context.Context
+		OrgID  string
+		Limit  int
+		Cursor *time.Time
+	}
+	mock.lockListCodeDeploymentsByOrg.RLock()
+	calls = mock.calls.ListCodeDeploymentsByOrg
+	mock.lockListCodeDeploymentsByOrg.RUnlock()
 	return calls
 }
 

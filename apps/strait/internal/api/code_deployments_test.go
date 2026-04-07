@@ -751,3 +751,81 @@ func TestHandleDeploymentLogs_StreamingBuildingDeployment(t *testing.T) {
 		t.Errorf("expected log chunks in SSE body, got:\n%s", body)
 	}
 }
+
+// TestHandleListAdminOrgDeployments_RejectsNoSecret verifies that calling the
+// admin endpoint without the internal secret returns 401.
+func TestHandleListAdminOrgDeployments_RejectsNoSecret(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/admin/orgs/org-123/deployments", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleListAdminOrgDeployments_ReturnsPaginatedList verifies that the
+// handler returns a paginated list of deployments for the given org.
+func TestHandleListAdminOrgDeployments_ReturnsPaginatedList(t *testing.T) {
+	t.Parallel()
+	orgID := "org-admin-list"
+	now := time.Now().UTC()
+	deployments := []domain.CodeDeployment{
+		{ID: "dep-1", ProjectID: "proj-1", JobID: "job-1", Status: domain.DeploymentStatusReady, CreatedAt: now.Add(-time.Second)},
+		{ID: "dep-2", ProjectID: "proj-2", JobID: "job-2", Status: domain.DeploymentStatusPending, CreatedAt: now},
+	}
+
+	ms := &APIStoreMock{
+		ListCodeDeploymentsByOrgFunc: func(_ context.Context, gotOrgID string, limit int, _ *time.Time) ([]domain.CodeDeployment, error) {
+			if gotOrgID != orgID {
+				return nil, fmt.Errorf("unexpected orgID %q", gotOrgID)
+			}
+			return deployments, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodGet, "/internal/admin/orgs/"+orgID+"/deployments", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp PaginatedResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	data, err := json.Marshal(resp.Data)
+	if err != nil {
+		t.Fatalf("marshal data: %v", err)
+	}
+	var result []domain.CodeDeployment
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal deployments: %v", err)
+	}
+	if len(result) != 2 {
+		t.Errorf("expected 2 deployments, got %d", len(result))
+	}
+}
+
+// TestHandleListAdminOrgDeployments_CrossTenantRejected verifies that a
+// caller cannot retrieve deployments for an org they do not own when using a
+// project API key (the endpoint must be internal-secret-only).
+func TestHandleListAdminOrgDeployments_WrongSecretRejected(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/admin/orgs/org-123/deployments", nil)
+	req.Header.Set("X-Internal-Secret", "wrong-secret-value")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for wrong secret, got %d: %s", w.Code, w.Body.String())
+	}
+}

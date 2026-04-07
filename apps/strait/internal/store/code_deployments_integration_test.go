@@ -567,3 +567,99 @@ func mustCreateReadyDeployment(t *testing.T, ctx context.Context, q *store.Queri
 	d.BuiltImageURI = imageURI
 	return d
 }
+
+// mustCreateProjectWithOrg creates a project belonging to the given org.
+func mustCreateProjectWithOrg(t *testing.T, ctx context.Context, q *store.Queries, orgID string) *domain.Project {
+	t.Helper()
+	p := &domain.Project{
+		ID:    "proj-" + newID(),
+		OrgID: orgID,
+		Name:  "Test Org Project " + newID(),
+	}
+	if err := q.CreateProject(ctx, p); err != nil {
+		t.Fatalf("mustCreateProjectWithOrg: %v", err)
+	}
+	return p
+}
+
+// TestListCodeDeploymentsByOrg_CrossProject verifies that deployments from
+// multiple projects in the same org are returned together, ordered newest-first.
+func TestListCodeDeploymentsByOrg_CrossProject(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-list-" + newID()
+	p1 := mustCreateProjectWithOrg(t, ctx, q, orgID)
+	p2 := mustCreateProjectWithOrg(t, ctx, q, orgID)
+
+	job1 := mustCreateJob(t, ctx, q, p1.ID)
+	job2 := mustCreateJob(t, ctx, q, p2.ID)
+
+	d1 := mustCreateDeployment(t, ctx, q, job1.ID, p1.ID)
+	d2 := mustCreateDeployment(t, ctx, q, job2.ID, p2.ID)
+
+	deployments, err := q.ListCodeDeploymentsByOrg(ctx, orgID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListCodeDeploymentsByOrg: %v", err)
+	}
+
+	ids := make(map[string]bool, len(deployments))
+	for _, d := range deployments {
+		ids[d.ID] = true
+	}
+	if !ids[d1.ID] {
+		t.Errorf("expected deployment %q from project 1 to be returned", d1.ID)
+	}
+	if !ids[d2.ID] {
+		t.Errorf("expected deployment %q from project 2 to be returned", d2.ID)
+	}
+
+	// Results must be ordered newest-first (d2 was created after d1).
+	if len(deployments) >= 2 {
+		if deployments[0].CreatedAt.Before(deployments[len(deployments)-1].CreatedAt) {
+			t.Errorf("expected deployments ordered newest-first, got oldest-first")
+		}
+	}
+}
+
+// TestListCodeDeploymentsByOrg_CrossTenantIsolation verifies that deployments
+// from a different org are not returned.
+func TestListCodeDeploymentsByOrg_CrossTenantIsolation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgA := "org-a-iso-" + newID()
+	orgB := "org-b-iso-" + newID()
+
+	pA := mustCreateProjectWithOrg(t, ctx, q, orgA)
+	pB := mustCreateProjectWithOrg(t, ctx, q, orgB)
+
+	jobA := mustCreateJob(t, ctx, q, pA.ID)
+	jobB := mustCreateJob(t, ctx, q, pB.ID)
+
+	dA := mustCreateDeployment(t, ctx, q, jobA.ID, pA.ID)
+	dB := mustCreateDeployment(t, ctx, q, jobB.ID, pB.ID)
+
+	// Query only org A.
+	deploymentsA, err := q.ListCodeDeploymentsByOrg(ctx, orgA, 10, nil)
+	if err != nil {
+		t.Fatalf("ListCodeDeploymentsByOrg(orgA): %v", err)
+	}
+	for _, d := range deploymentsA {
+		if d.ID == dB.ID {
+			t.Errorf("org A query returned deployment %q belonging to org B", dB.ID)
+		}
+	}
+	ids := make(map[string]bool, len(deploymentsA))
+	for _, d := range deploymentsA {
+		ids[d.ID] = true
+	}
+	if !ids[dA.ID] {
+		t.Errorf("expected deployment %q from org A to be returned", dA.ID)
+	}
+	_ = dB // silence unused warning
+}
