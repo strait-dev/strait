@@ -1454,16 +1454,17 @@ func (r Runtime) IsValid() bool {
 type DeploymentBuildStatus string
 
 const (
-	DeploymentStatusPending  DeploymentBuildStatus = "pending"  // upload confirmed, build not yet started
-	DeploymentStatusBuilding DeploymentBuildStatus = "building" // BuildKit is running
-	DeploymentStatusReady    DeploymentBuildStatus = "ready"    // image pushed, runs can use it
-	DeploymentStatusFailed   DeploymentBuildStatus = "failed"   // build or push failed
+	DeploymentStatusPending  DeploymentBuildStatus = "pending"   // upload confirmed, build not yet started
+	DeploymentStatusBuilding DeploymentBuildStatus = "building"  // BuildKit is running
+	DeploymentStatusReady    DeploymentBuildStatus = "ready"     // image pushed, runs can use it
+	DeploymentStatusFailed   DeploymentBuildStatus = "failed"    // build or push failed
+	DeploymentStatusTimedOut DeploymentBuildStatus = "timed_out" // build exceeded configured timeout
 )
 
 // IsValid returns true if the build status is a known value.
 func (s DeploymentBuildStatus) IsValid() bool {
 	switch s {
-	case DeploymentStatusPending, DeploymentStatusBuilding, DeploymentStatusReady, DeploymentStatusFailed:
+	case DeploymentStatusPending, DeploymentStatusBuilding, DeploymentStatusReady, DeploymentStatusFailed, DeploymentStatusTimedOut:
 		return true
 	default:
 		return false

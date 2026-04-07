@@ -243,22 +243,29 @@ func (q *Queries) UpdateCodeDeploymentStatus(ctx context.Context, id string, sta
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateCodeDeploymentStatus")
 	defer span.End()
 
-	terminal := status == domain.DeploymentStatusReady || status == domain.DeploymentStatusFailed
+	terminal := status == domain.DeploymentStatusReady ||
+		status == domain.DeploymentStatusFailed ||
+		status == domain.DeploymentStatusTimedOut
 	var finishedAt *time.Time
 	if terminal {
 		now := time.Now().UTC()
 		finishedAt = &now
 	}
 
+	// On terminal status, release the build_node claim so the row is clearly
+	// no longer in-flight. This also ensures stale-claim recovery skips rows
+	// that have already been finalized.
 	query := `
 		UPDATE code_deployments
-		SET status             = $2,
-		    updated_at         = NOW(),
-		    finished_at        = COALESCE($3, finished_at),
-		    built_image_uri    = COALESCE($4, built_image_uri),
-		    built_image_digest = COALESCE($5, built_image_digest),
-		    build_logs         = COALESCE($6, build_logs),
-		    error_message      = COALESCE($7, error_message)
+		SET status                = $2,
+		    updated_at            = NOW(),
+		    finished_at           = COALESCE($3, finished_at),
+		    built_image_uri       = COALESCE($4, built_image_uri),
+		    built_image_digest    = COALESCE($5, built_image_digest),
+		    build_logs            = COALESCE($6, build_logs),
+		    error_message         = COALESCE($7, error_message),
+		    build_node_id         = NULL,
+		    build_node_claimed_at = NULL
 		WHERE id = $1`
 
 	tag, err := q.db.Exec(ctx, query,
@@ -408,6 +415,93 @@ func (q *Queries) ListBuildingDeployments(ctx context.Context, limit int) ([]dom
 		return nil, fmt.Errorf("list building deployments: rows: %w", err)
 	}
 	return result, nil
+}
+
+// ClaimBuildingDeployment atomically selects one unclaimed "building" deployment
+// and marks it as owned by workerID. Uses SELECT … FOR UPDATE SKIP LOCKED so
+// concurrent orchestrator replicas each claim a different deployment with no
+// coordination beyond the database. Returns nil, nil when no work is available.
+func (q *Queries) ClaimBuildingDeployment(ctx context.Context, workerID string) (*domain.CodeDeployment, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimBuildingDeployment")
+	defer span.End()
+
+	query := `
+		WITH candidate AS (
+			SELECT id FROM code_deployments
+			WHERE status = 'building' AND build_node_id IS NULL
+			ORDER BY created_at ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE code_deployments
+		SET build_node_id         = $1,
+		    build_node_claimed_at = NOW()
+		FROM candidate
+		WHERE code_deployments.id = candidate.id
+		RETURNING id, job_id, project_id, version, status, runtime,
+		          source_hash, source_size_bytes, source_uri,
+		          built_image_uri, built_image_digest, build_logs, error_message,
+		          created_by, created_at, updated_at, finished_at`
+
+	var d domain.CodeDeployment
+	var status, runtime string
+	var builtImageURI, builtImageDigest, buildLogs, errorMessage, createdBy *string
+
+	err := q.db.QueryRow(ctx, query, workerID).Scan(
+		&d.ID, &d.JobID, &d.ProjectID, &d.Version, &status, &runtime,
+		&d.SourceHash, &d.SourceSizeBytes, &d.SourceURI,
+		&builtImageURI, &builtImageDigest, &buildLogs, &errorMessage,
+		&createdBy, &d.CreatedAt, &d.UpdatedAt, &d.FinishedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil // nothing to claim
+	}
+	if err != nil {
+		return nil, fmt.Errorf("claim building deployment: %w", err)
+	}
+
+	d.Status = domain.DeploymentBuildStatus(status)
+	d.Runtime = domain.Runtime(runtime)
+	if builtImageURI != nil {
+		d.BuiltImageURI = *builtImageURI
+	}
+	if builtImageDigest != nil {
+		d.BuiltImageDigest = *builtImageDigest
+	}
+	if buildLogs != nil {
+		d.BuildLogs = *buildLogs
+	}
+	if errorMessage != nil {
+		d.ErrorMessage = *errorMessage
+	}
+	if createdBy != nil {
+		d.CreatedBy = *createdBy
+	}
+	return &d, nil
+}
+
+// ReleaseStaleClaimedDeployments resets the build_node claim on any "building"
+// deployments whose claim is older than olderThan. This recovers from crashed
+// orchestrator workers that claimed a deployment but never finished it.
+// Returns the number of deployments released.
+func (q *Queries) ReleaseStaleClaimedDeployments(ctx context.Context, olderThan time.Duration) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReleaseStaleClaimedDeployments")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `
+		UPDATE code_deployments
+		SET build_node_id         = NULL,
+		    build_node_claimed_at = NULL,
+		    updated_at            = NOW()
+		WHERE status = 'building'
+		  AND build_node_claimed_at IS NOT NULL
+		  AND build_node_claimed_at < NOW() - $1::interval`,
+		olderThan.String(),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("release stale claimed deployments: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // nilStringFromMap extracts a *string from a map[string]any. Returns nil if the key

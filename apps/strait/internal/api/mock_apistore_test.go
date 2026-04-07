@@ -67,6 +67,9 @@ var _ APIStore = &APIStoreMock{}
 //			CancelNonTerminalStepRunsFunc: func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
 //				panic("mock out the CancelNonTerminalStepRuns method")
 //			},
+//			ClaimBuildingDeploymentFunc: func(ctx context.Context, workerID string) (*domain.CodeDeployment, error) {
+//				panic("mock out the ClaimBuildingDeployment method")
+//			},
 //			CleanupExpiredDeviceCodesFunc: func(ctx context.Context) (int64, error) {
 //				panic("mock out the CleanupExpiredDeviceCodes method")
 //			},
@@ -664,6 +667,9 @@ var _ APIStore = &APIStoreMock{}
 //			ReceiveEventAndRequeueRunFunc: func(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error {
 //				panic("mock out the ReceiveEventAndRequeueRun method")
 //			},
+//			ReleaseStaleClaimedDeploymentsFunc: func(ctx context.Context, olderThan time.Duration) (int64, error) {
+//				panic("mock out the ReleaseStaleClaimedDeployments method")
+//			},
 //			RemoveMemberRoleFunc: func(ctx context.Context, projectID string, userID string) error {
 //				panic("mock out the RemoveMemberRole method")
 //			},
@@ -880,6 +886,9 @@ type APIStoreMock struct {
 
 	// CancelNonTerminalStepRunsFunc mocks the CancelNonTerminalStepRuns method.
 	CancelNonTerminalStepRunsFunc func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+
+	// ClaimBuildingDeploymentFunc mocks the ClaimBuildingDeployment method.
+	ClaimBuildingDeploymentFunc func(ctx context.Context, workerID string) (*domain.CodeDeployment, error)
 
 	// CleanupExpiredDeviceCodesFunc mocks the CleanupExpiredDeviceCodes method.
 	CleanupExpiredDeviceCodesFunc func(ctx context.Context) (int64, error)
@@ -1478,6 +1487,9 @@ type APIStoreMock struct {
 	// ReceiveEventAndRequeueRunFunc mocks the ReceiveEventAndRequeueRun method.
 	ReceiveEventAndRequeueRunFunc func(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
 
+	// ReleaseStaleClaimedDeploymentsFunc mocks the ReleaseStaleClaimedDeployments method.
+	ReleaseStaleClaimedDeploymentsFunc func(ctx context.Context, olderThan time.Duration) (int64, error)
+
 	// RemoveMemberRoleFunc mocks the RemoveMemberRole method.
 	RemoveMemberRoleFunc func(ctx context.Context, projectID string, userID string) error
 
@@ -1791,6 +1803,13 @@ type APIStoreMock struct {
 			FinishedAt time.Time
 			// Reason is the reason argument value.
 			Reason string
+		}
+		// ClaimBuildingDeployment holds details about calls to the ClaimBuildingDeployment method.
+		ClaimBuildingDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WorkerID is the workerID argument value.
+			WorkerID string
 		}
 		// CleanupExpiredDeviceCodes holds details about calls to the CleanupExpiredDeviceCodes method.
 		CleanupExpiredDeviceCodes []struct {
@@ -3581,6 +3600,13 @@ type APIStoreMock struct {
 			// JobRunID is the jobRunID argument value.
 			JobRunID string
 		}
+		// ReleaseStaleClaimedDeployments holds details about calls to the ReleaseStaleClaimedDeployments method.
+		ReleaseStaleClaimedDeployments []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OlderThan is the olderThan argument value.
+			OlderThan time.Duration
+		}
 		// RemoveMemberRole holds details about calls to the RemoveMemberRole method.
 		RemoveMemberRole []struct {
 			// Ctx is the ctx argument value.
@@ -4094,6 +4120,7 @@ type APIStoreMock struct {
 	lockCancelEventTriggersByWorkflowRun   sync.RWMutex
 	lockCancelJobRunsByWorkflowRun         sync.RWMutex
 	lockCancelNonTerminalStepRuns          sync.RWMutex
+	lockClaimBuildingDeployment            sync.RWMutex
 	lockCleanupExpiredDeviceCodes          sync.RWMutex
 	lockCompleteCanaryDeployment           sync.RWMutex
 	lockCompleteIdempotencyKey             sync.RWMutex
@@ -4293,6 +4320,7 @@ type APIStoreMock struct {
 	lockPromoteDeploymentVersion           sync.RWMutex
 	lockQueueStats                         sync.RWMutex
 	lockReceiveEventAndRequeueRun          sync.RWMutex
+	lockReleaseStaleClaimedDeployments     sync.RWMutex
 	lockRemoveMemberRole                   sync.RWMutex
 	lockReplayDeadLetterRun                sync.RWMutex
 	lockReplayWebhookDelivery              sync.RWMutex
@@ -5028,6 +5056,46 @@ func (mock *APIStoreMock) CancelNonTerminalStepRunsCalls() []struct {
 	mock.lockCancelNonTerminalStepRuns.RLock()
 	calls = mock.calls.CancelNonTerminalStepRuns
 	mock.lockCancelNonTerminalStepRuns.RUnlock()
+	return calls
+}
+
+// ClaimBuildingDeployment calls ClaimBuildingDeploymentFunc.
+func (mock *APIStoreMock) ClaimBuildingDeployment(ctx context.Context, workerID string) (*domain.CodeDeployment, error) {
+	callInfo := struct {
+		Ctx      context.Context
+		WorkerID string
+	}{
+		Ctx:      ctx,
+		WorkerID: workerID,
+	}
+	mock.lockClaimBuildingDeployment.Lock()
+	mock.calls.ClaimBuildingDeployment = append(mock.calls.ClaimBuildingDeployment, callInfo)
+	mock.lockClaimBuildingDeployment.Unlock()
+	if mock.ClaimBuildingDeploymentFunc == nil {
+		var (
+			codeDeploymentOut *domain.CodeDeployment
+			errOut            error
+		)
+		return codeDeploymentOut, errOut
+	}
+	return mock.ClaimBuildingDeploymentFunc(ctx, workerID)
+}
+
+// ClaimBuildingDeploymentCalls gets all the calls that were made to ClaimBuildingDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.ClaimBuildingDeploymentCalls())
+func (mock *APIStoreMock) ClaimBuildingDeploymentCalls() []struct {
+	Ctx      context.Context
+	WorkerID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		WorkerID string
+	}
+	mock.lockClaimBuildingDeployment.RLock()
+	calls = mock.calls.ClaimBuildingDeployment
+	mock.lockClaimBuildingDeployment.RUnlock()
 	return calls
 }
 
@@ -13724,6 +13792,46 @@ func (mock *APIStoreMock) ReceiveEventAndRequeueRunCalls() []struct {
 	mock.lockReceiveEventAndRequeueRun.RLock()
 	calls = mock.calls.ReceiveEventAndRequeueRun
 	mock.lockReceiveEventAndRequeueRun.RUnlock()
+	return calls
+}
+
+// ReleaseStaleClaimedDeployments calls ReleaseStaleClaimedDeploymentsFunc.
+func (mock *APIStoreMock) ReleaseStaleClaimedDeployments(ctx context.Context, olderThan time.Duration) (int64, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		OlderThan time.Duration
+	}{
+		Ctx:       ctx,
+		OlderThan: olderThan,
+	}
+	mock.lockReleaseStaleClaimedDeployments.Lock()
+	mock.calls.ReleaseStaleClaimedDeployments = append(mock.calls.ReleaseStaleClaimedDeployments, callInfo)
+	mock.lockReleaseStaleClaimedDeployments.Unlock()
+	if mock.ReleaseStaleClaimedDeploymentsFunc == nil {
+		var (
+			nOut   int64
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.ReleaseStaleClaimedDeploymentsFunc(ctx, olderThan)
+}
+
+// ReleaseStaleClaimedDeploymentsCalls gets all the calls that were made to ReleaseStaleClaimedDeployments.
+// Check the length with:
+//
+//	len(mockedAPIStore.ReleaseStaleClaimedDeploymentsCalls())
+func (mock *APIStoreMock) ReleaseStaleClaimedDeploymentsCalls() []struct {
+	Ctx       context.Context
+	OlderThan time.Duration
+} {
+	var calls []struct {
+		Ctx       context.Context
+		OlderThan time.Duration
+	}
+	mock.lockReleaseStaleClaimedDeployments.RLock()
+	calls = mock.calls.ReleaseStaleClaimedDeployments
+	mock.lockReleaseStaleClaimedDeployments.RUnlock()
 	return calls
 }
 

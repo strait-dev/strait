@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel"
 
 	"strait/internal/domain"
@@ -15,22 +17,33 @@ import (
 // OrchestratorStore is the subset of store operations required by the build
 // orchestrator to pick up, update, and finalise code deployments.
 type OrchestratorStore interface {
+	// ClaimBuildingDeployment atomically selects and claims the oldest unclaimed
+	// building deployment for the given workerID. Returns nil, nil when there is
+	// nothing to claim.
+	ClaimBuildingDeployment(ctx context.Context, workerID string) (*domain.CodeDeployment, error)
+	// ReleaseStaleClaimedDeployments resets the claim on building deployments
+	// whose build_node_claimed_at is older than olderThan.
+	ReleaseStaleClaimedDeployments(ctx context.Context, olderThan time.Duration) (int64, error)
+	// ListBuildingDeployments is retained for testing and diagnostic purposes.
 	ListBuildingDeployments(ctx context.Context, limit int) ([]domain.CodeDeployment, error)
 	UpdateCodeDeploymentStatus(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error
 	SetActiveDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
 }
 
-// Orchestrator polls for code deployments in "building" status, calls Builder
-// to execute the container image build, then updates the deployment record with
-// the result and activates the new image on the job.
+// Orchestrator polls for code deployments in "building" status, claims them
+// with FOR UPDATE SKIP LOCKED so multiple replicas cannot double-dispatch,
+// then calls Builder to execute the container image build and persists the
+// outcome.
 //
 // Concurrency is bounded by concurrency; 0 defaults to 2.
 type Orchestrator struct {
-	store        OrchestratorStore
-	builder      *Builder
-	pollInterval time.Duration
-	concurrency  int
-	logger       *slog.Logger
+	store         OrchestratorStore
+	builder       *Builder
+	workerID      string
+	pollInterval  time.Duration
+	staleInterval time.Duration
+	concurrency   int
+	logger        *slog.Logger
 }
 
 // OrchestratorOption configures an Orchestrator.
@@ -51,14 +64,18 @@ func WithOrchestratorLogger(l *slog.Logger) OrchestratorOption {
 	return func(o *Orchestrator) { o.logger = l }
 }
 
-// NewOrchestrator creates a new build orchestrator.
+// NewOrchestrator creates a new build orchestrator. Each instance gets a unique
+// workerID so stale-claim recovery can identify which node owned an abandoned build.
 func NewOrchestrator(store OrchestratorStore, builder *Builder, opts ...OrchestratorOption) *Orchestrator {
+	id, _ := uuid.NewV7()
 	o := &Orchestrator{
-		store:        store,
-		builder:      builder,
-		pollInterval: 5 * time.Second,
-		concurrency:  2,
-		logger:       slog.Default(),
+		store:         store,
+		builder:       builder,
+		workerID:      fmt.Sprintf("orchestrator-%s", id.String()),
+		pollInterval:  5 * time.Second,
+		staleInterval: 1 * time.Minute,
+		concurrency:   2,
+		logger:        slog.Default(),
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -67,53 +84,83 @@ func NewOrchestrator(store OrchestratorStore, builder *Builder, opts ...Orchestr
 }
 
 // Run polls for and dispatches builds until ctx is cancelled.
-// It blocks until the context is done.
+// It also runs a periodic recovery ticker that releases stale claims from
+// crashed workers. Blocks until the context is done.
 func (o *Orchestrator) Run(ctx context.Context) {
-	ticker := time.NewTicker(o.pollInterval)
-	defer ticker.Stop()
+	pollTicker := time.NewTicker(o.pollInterval)
+	staleTicker := time.NewTicker(o.staleInterval)
+	defer pollTicker.Stop()
+	defer staleTicker.Stop()
 
+	// sem tracks in-flight builds and bounds concurrency.
 	sem := make(chan struct{}, o.concurrency)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-pollTicker.C:
 			o.dispatch(ctx, sem)
+		case <-staleTicker.C:
+			o.releaseStale(ctx)
 		}
 	}
 }
 
-// dispatch fetches pending builds and launches goroutines up to the concurrency limit.
+// dispatch attempts to claim one unclaimed building deployment per available
+// concurrency slot. Each claimed deployment is executed in a goroutine managed
+// by conc.WaitGroup so panics are recovered and propagated safely.
 func (o *Orchestrator) dispatch(ctx context.Context, sem chan struct{}) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "build.Orchestrator.dispatch")
 	defer span.End()
 
-	available := cap(sem) - len(sem)
-	if available <= 0 {
-		return
-	}
+	var wg conc.WaitGroup
 
-	deployments, err := o.store.ListBuildingDeployments(ctx, available)
-	if err != nil {
-		o.logger.Error("list building deployments failed", "error", err)
-		return
-	}
-
-	for i := range deployments {
-		d := deployments[i]
-
-		// Try to acquire a slot.
+dispatch:
+	for {
+		// Try to acquire a concurrency slot without blocking.
 		select {
 		case sem <- struct{}{}:
 		default:
-			return // All slots taken.
+			break dispatch // All slots taken.
 		}
 
-		go func() {
+		d, err := o.store.ClaimBuildingDeployment(ctx, o.workerID)
+		if err != nil {
+			<-sem // release slot
+			o.logger.Error("claim building deployment failed", "error", err)
+			break dispatch
+		}
+		if d == nil {
+			<-sem // release slot — queue is empty
+			break dispatch
+		}
+
+		dep := d
+		wg.Go(func() {
 			defer func() { <-sem }()
-			o.runBuild(ctx, &d)
-		}()
+			o.runBuild(ctx, dep)
+		})
+	}
+
+	wg.Wait()
+}
+
+// releaseStale releases claims on building deployments held longer than
+// builder.timeout*2 so that work orphaned by a crashed orchestrator can be
+// reclaimed by another replica. Defaults to 30 minutes when no builder is set.
+func (o *Orchestrator) releaseStale(ctx context.Context) {
+	staleCutoff := 30 * time.Minute
+	if o.builder != nil && o.builder.timeout > 0 {
+		staleCutoff = o.builder.timeout * 2
+	}
+	released, err := o.store.ReleaseStaleClaimedDeployments(ctx, staleCutoff)
+	if err != nil {
+		o.logger.Error("release stale claimed deployments failed", "error", err)
+		return
+	}
+	if released > 0 {
+		o.logger.Warn("released stale build claims", "count", released, "stale_cutoff", staleCutoff)
 	}
 }
 
@@ -165,9 +212,16 @@ func (o *Orchestrator) runBuild(ctx context.Context, d *domain.CodeDeployment) {
 	)
 }
 
-// handleBuildFailure marks the deployment as failed and persists the error.
+// handleBuildFailure marks the deployment as failed (or timed_out) and
+// persists the error message. Context cancellation / deadline exceeded
+// produces a timed_out status so the CLI can surface a clear message.
 func (o *Orchestrator) handleBuildFailure(ctx context.Context, d *domain.CodeDeployment, buildErr error, log *slog.Logger) {
 	log.Error("build failed", "error", buildErr)
+
+	status := domain.DeploymentStatusFailed
+	if errors.Is(buildErr, context.DeadlineExceeded) || errors.Is(buildErr, context.Canceled) {
+		status = domain.DeploymentStatusTimedOut
+	}
 
 	var tarErr *TarballError
 	errMsg := buildErr.Error()
@@ -179,8 +233,8 @@ func (o *Orchestrator) handleBuildFailure(ctx context.Context, d *domain.CodeDep
 	fields := map[string]any{
 		"error_message": truncateString(errMsg, 4096),
 	}
-	if updateErr := o.store.UpdateCodeDeploymentStatus(ctx, d.ID, domain.DeploymentStatusFailed, fields); updateErr != nil {
-		log.Error("failed to mark deployment as failed", "update_error", updateErr)
+	if updateErr := o.store.UpdateCodeDeploymentStatus(ctx, d.ID, status, fields); updateErr != nil {
+		log.Error("failed to mark deployment as failed", "update_error", updateErr, "status", status)
 	}
 }
 

@@ -300,6 +300,15 @@ type CodeDeploymentStore interface {
 	// or is already in a non-pending state. This prevents TOCTOU double-builds
 	// when two concurrent confirm requests race at the handler layer.
 	ConfirmCodeDeployment(ctx context.Context, id string) error
+	// ClaimBuildingDeployment atomically selects and claims the oldest unclaimed
+	// building deployment for the given workerID. Returns nil, nil when there is
+	// nothing to claim. Uses FOR UPDATE SKIP LOCKED to prevent duplicate dispatch
+	// across multiple orchestrator replicas.
+	ClaimBuildingDeployment(ctx context.Context, workerID string) (*domain.CodeDeployment, error)
+	// ReleaseStaleClaimedDeployments resets the claim on building deployments
+	// whose build_node_claimed_at is older than olderThan. This recovers work
+	// orphaned by crashed orchestrator workers.
+	ReleaseStaleClaimedDeployments(ctx context.Context, olderThan time.Duration) (int64, error)
 	UpdateCodeDeploymentStatus(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error
 	SetActiveDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
 	RollbackToDeployment(ctx context.Context, jobID, deploymentID, projectID string) error

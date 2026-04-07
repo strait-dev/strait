@@ -158,6 +158,119 @@ func TestRollbackToDeployment_AtomicStatusCheck(t *testing.T) {
 	}
 }
 
+// TestClaimBuildingDeployment_TwoWorkersNoDuplicate verifies that two concurrent
+// workers each claim a different deployment and neither sees the other's row.
+func TestClaimBuildingDeployment_TwoWorkersNoDuplicate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-claim-" + newID()
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	d1 := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+	d2 := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+	// Transition both to building.
+	if err := q.ConfirmCodeDeployment(ctx, d1.ID); err != nil {
+		t.Fatalf("confirm d1: %v", err)
+	}
+	if err := q.ConfirmCodeDeployment(ctx, d2.ID); err != nil {
+		t.Fatalf("confirm d2: %v", err)
+	}
+
+	claimed1, err := q.ClaimBuildingDeployment(ctx, "worker-A")
+	if err != nil {
+		t.Fatalf("claim by worker-A: %v", err)
+	}
+	if claimed1 == nil {
+		t.Fatal("worker-A expected to claim a deployment, got nil")
+	}
+
+	claimed2, err := q.ClaimBuildingDeployment(ctx, "worker-B")
+	if err != nil {
+		t.Fatalf("claim by worker-B: %v", err)
+	}
+	if claimed2 == nil {
+		t.Fatal("worker-B expected to claim a deployment, got nil")
+	}
+
+	if claimed1.ID == claimed2.ID {
+		t.Errorf("two workers claimed the same deployment %s", claimed1.ID)
+	}
+
+	// A third claim should return nil — queue is empty.
+	none, err := q.ClaimBuildingDeployment(ctx, "worker-C")
+	if err != nil {
+		t.Fatalf("claim by worker-C: %v", err)
+	}
+	if none != nil {
+		t.Errorf("worker-C expected nil (queue empty), got deployment %s", none.ID)
+	}
+}
+
+// TestClaimBuildingDeployment_ReturnsNilWhenNoneAvailable verifies that claiming
+// against an empty queue returns nil without error.
+func TestClaimBuildingDeployment_ReturnsNilWhenNoneAvailable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	got, err := q.ClaimBuildingDeployment(ctx, "worker-X")
+	if err != nil {
+		t.Fatalf("ClaimBuildingDeployment on empty queue: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil, got deployment %s", got.ID)
+	}
+}
+
+// TestReleaseStaleClaimedDeployments_ReclearsExpired verifies that deployments
+// with a claim older than the cutoff are released so they can be reclaimed.
+func TestReleaseStaleClaimedDeployments_ReclearsExpired(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-stale-" + newID()
+	job := mustCreateJob(t, ctx, q, projectID)
+	d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+	if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+
+	// Claim it.
+	claimed, err := q.ClaimBuildingDeployment(ctx, "worker-stale")
+	if err != nil || claimed == nil {
+		t.Fatalf("claim: %v, %v", claimed, err)
+	}
+
+	// Release with a very short olderThan so everything qualifies as stale.
+	released, err := q.ReleaseStaleClaimedDeployments(ctx, -1*time.Second)
+	if err != nil {
+		t.Fatalf("ReleaseStaleClaimedDeployments: %v", err)
+	}
+	if released == 0 {
+		t.Error("expected at least one stale claim to be released")
+	}
+
+	// Now it should be claimable again.
+	reclaimed, err := q.ClaimBuildingDeployment(ctx, "worker-recovery")
+	if err != nil {
+		t.Fatalf("reclaim after release: %v", err)
+	}
+	if reclaimed == nil {
+		t.Fatal("expected deployment to be reclaimable after stale release, got nil")
+	}
+	if reclaimed.ID != d.ID {
+		t.Errorf("expected reclaimed deployment %s, got %s", d.ID, reclaimed.ID)
+	}
+}
+
 // mustCreateDeployment is a test helper that creates a minimal pending deployment.
 func mustCreateDeployment(t *testing.T, ctx context.Context, q *store.Queries, jobID, projectID string) *domain.CodeDeployment {
 	t.Helper()
