@@ -125,6 +125,9 @@ func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 		if s.notifyDispatcher != nil {
 			s.notifyDispatcher.WithMetrics(m)
 		}
+		if s.notifySESFeedback != nil {
+			s.notifySESFeedback.WithMetrics(m)
+		}
 	}
 }
 

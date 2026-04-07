@@ -184,6 +184,24 @@ groups:
           summary: "Notify escalation states are requeueing"
           description: "Escalation states are repeatedly requeued. Verify workflow approval status lookups and dispatcher health."
 
+      - alert: StraitNotifySESFeedbackProcessingErrors
+        expr: sum(rate(strait_notify_provider_callbacks_total{provider="ses",outcome=~".*_error|malformed"}[15m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notify SES feedback processing errors detected"
+          description: "SES feedback callbacks are failing to parse or process. Check SQS permissions, payload shape, and store availability."
+
+      - alert: StraitNotifySESFeedbackSuppressionSpike
+        expr: sum(rate(strait_notify_provider_callbacks_total{provider="ses",suppression_reason=~"provider_callback:ses.bounce|provider_callback:ses.complaint",outcome=~"status_updated|status_skipped"}[15m])) > 1
+        for: 20m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notify SES suppression reasons are spiking"
+          description: "SES bounce/complaint feedback volume is elevated. Check recipient list quality and SES reputation metrics."
+
       # Log drain
       - alert: StraitLogDrainExportFailures
         expr: sum(rate(strait_log_drain_events_total{status="error"}[10m])) > 0

@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -358,5 +362,71 @@ func TestNotifySESFeedbackConsumerPollOnce_TransientStoreErrorNotAcked(t *testin
 	}
 	if processed != 0 {
 		t.Fatalf("processed = %d, want 0 (message should remain for retry)", processed)
+	}
+}
+
+func TestNotifySESFeedbackConsumer_RecordCallbackMetric_ExportsLabels(t *testing.T) {
+	metrics, handler, shutdown, err := telemetry.InitMetrics("notify-ses-feedback-test", "test")
+	if err != nil {
+		t.Fatalf("InitMetrics() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if shutdownErr := shutdown(context.Background()); shutdownErr != nil {
+			t.Fatalf("shutdown metrics provider: %v", shutdownErr)
+		}
+	})
+
+	consumer := (&NotifySESFeedbackConsumer{}).WithMetrics(metrics)
+	consumer.recordCallbackMetric(context.Background(), "Bounce", "Status_Updated", "provider_callback:ses.bounce")
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	body := res.Body.String()
+
+	if !strings.Contains(body, `strait_notify_provider_callbacks_total{`) {
+		t.Fatal("expected strait_notify_provider_callbacks_total metric in exposition output")
+	}
+	if !strings.Contains(body, `provider="ses"`) {
+		t.Fatal("expected provider label to be ses")
+	}
+	if !strings.Contains(body, `event_type="bounce"`) {
+		t.Fatal("expected normalized event_type=bounce label")
+	}
+	if !strings.Contains(body, `outcome="status_updated"`) {
+		t.Fatal("expected normalized outcome=status_updated label")
+	}
+	if !strings.Contains(body, `suppression_reason="provider_callback:ses.bounce"`) {
+		t.Fatal("expected suppression_reason label")
+	}
+}
+
+func TestNotifySESFeedbackConsumer_RecordCallbackMetric_DefaultLabels(t *testing.T) {
+	metrics, handler, shutdown, err := telemetry.InitMetrics("notify-ses-feedback-test-defaults", "test")
+	if err != nil {
+		t.Fatalf("InitMetrics() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if shutdownErr := shutdown(context.Background()); shutdownErr != nil {
+			t.Fatalf("shutdown metrics provider: %v", shutdownErr)
+		}
+	})
+
+	consumer := (&NotifySESFeedbackConsumer{}).WithMetrics(metrics)
+	consumer.recordCallbackMetric(context.Background(), "", "", "")
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	body := res.Body.String()
+
+	if !strings.Contains(body, `event_type="unknown"`) {
+		t.Fatal("expected default event_type=unknown label")
+	}
+	if !strings.Contains(body, `outcome="unknown"`) {
+		t.Fatal("expected default outcome=unknown label")
+	}
+	if !strings.Contains(body, `suppression_reason="none"`) {
+		t.Fatal("expected default suppression_reason=none label")
 	}
 }

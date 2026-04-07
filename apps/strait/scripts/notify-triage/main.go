@@ -24,6 +24,11 @@ type suppressionBucket struct {
 	Count  int64
 }
 
+type eventTypeBucket struct {
+	EventType string
+	Count     int64
+}
+
 func main() {
 	var (
 		databaseURL    string
@@ -131,10 +136,28 @@ func main() {
 	fmt.Printf("  stuck_escalations:      %d\n", stuckEscalations)
 	fmt.Println()
 
+	sesFeedbackTop := mustListSESFeedbackEventTypes(ctx, pool, projectID, window, 5)
+	if len(sesFeedbackTop) > 0 {
+		fmt.Printf("ses feedback event types (window=%s):\n", window)
+		for _, bucket := range sesFeedbackTop {
+			fmt.Printf("  - count=%d event_type=%s\n", bucket.Count, sanitize(bucket.EventType))
+		}
+		fmt.Println()
+	}
+
 	suppressionTop := mustListSuppressionReasons(ctx, pool, projectID, window, 5)
 	if len(suppressionTop) > 0 {
 		fmt.Printf("top suppression reasons (window=%s):\n", window)
 		for _, bucket := range suppressionTop {
+			fmt.Printf("  - count=%d reason=%s\n", bucket.Count, sanitize(bucket.Reason))
+		}
+		fmt.Println()
+	}
+
+	sesSuppressionTop := mustListSESSuppressionReasons(ctx, pool, projectID, window, 5)
+	if len(sesSuppressionTop) > 0 {
+		fmt.Printf("ses suppression reasons (window=%s):\n", window)
+		for _, bucket := range sesSuppressionTop {
 			fmt.Printf("  - count=%d reason=%s\n", bucket.Count, sanitize(bucket.Reason))
 		}
 		fmt.Println()
@@ -166,6 +189,42 @@ func mustCount(ctx context.Context, pool *pgxpool.Pool, projectID, query string,
 		exitf("count query failed: %v", err)
 	}
 	return count
+}
+
+func mustListSESFeedbackEventTypes(ctx context.Context, pool *pgxpool.Pool, projectID string, window time.Duration, limit int) []eventTypeBucket {
+	if limit <= 0 {
+		limit = 5
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT COALESCE(NULLIF(event_type, ''), 'unknown') AS event_type, COUNT(*)
+		 FROM notify_provider_callback_receipts
+		 WHERE provider = 'ses'
+		   AND created_at >= NOW() - $2::interval
+		   AND ($1 = '' OR project_id = $1)
+		 GROUP BY event_type
+		 ORDER BY COUNT(*) DESC
+		 LIMIT $3`,
+		projectID,
+		window.String(),
+		limit,
+	)
+	if err != nil {
+		exitf("ses feedback event type query failed: %v", err)
+	}
+	defer rows.Close()
+
+	out := make([]eventTypeBucket, 0, limit)
+	for rows.Next() {
+		var row eventTypeBucket
+		if err := rows.Scan(&row.EventType, &row.Count); err != nil {
+			exitf("scan ses feedback event type row failed: %v", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		exitf("iterate ses feedback event type rows failed: %v", err)
+	}
+	return out
 }
 
 func mustListSuppressionReasons(ctx context.Context, pool *pgxpool.Pool, projectID string, window time.Duration, limit int) []suppressionBucket {
@@ -200,6 +259,45 @@ func mustListSuppressionReasons(ctx context.Context, pool *pgxpool.Pool, project
 	}
 	if err := rows.Err(); err != nil {
 		exitf("iterate suppression reason rows failed: %v", err)
+	}
+	return out
+}
+
+func mustListSESSuppressionReasons(ctx context.Context, pool *pgxpool.Pool, projectID string, window time.Duration, limit int) []suppressionBucket {
+	if limit <= 0 {
+		limit = 5
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT COALESCE(NULLIF(reason, ''), 'unknown') AS reason, COUNT(*)
+		 FROM notify_suppression_events
+		 WHERE source = 'provider_callback'
+		   AND channel = 'email'
+		   AND action = 'suppressed'
+		   AND reason LIKE 'provider_callback:ses.%'
+		   AND created_at >= NOW() - $2::interval
+		   AND ($1 = '' OR project_id = $1)
+		 GROUP BY reason
+		 ORDER BY COUNT(*) DESC
+		 LIMIT $3`,
+		projectID,
+		window.String(),
+		limit,
+	)
+	if err != nil {
+		exitf("ses suppression reason query failed: %v", err)
+	}
+	defer rows.Close()
+
+	out := make([]suppressionBucket, 0, limit)
+	for rows.Next() {
+		var row suppressionBucket
+		if err := rows.Scan(&row.Reason, &row.Count); err != nil {
+			exitf("scan ses suppression reason row failed: %v", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		exitf("iterate ses suppression reason rows failed: %v", err)
 	}
 	return out
 }

@@ -50,9 +50,14 @@ DATABASE_URL='postgres://...' go run ./scripts/notify-triage --project-id <proje
 
 Useful flags:
 
-- `--window=6h` to widen/narrow recent failure inspection (also drives top suppression-reason aggregation)
+- `--window=6h` to widen/narrow recent failure inspection (also drives SES feedback event-type and suppression-reason aggregation)
 - `--stale-threshold=30m` to tune stuck escalation detection
 - `--limit=20` to control failed message row output size
+
+The script also prints SES-focused sections when data exists:
+
+- `ses feedback event types` from `notify_provider_callback_receipts`
+- `ses suppression reasons` from `notify_suppression_events`
 
 ## Common Failure Modes
 
@@ -112,6 +117,9 @@ Checks:
 - confirm `NOTIFY_SES_FEEDBACK_SQS_URL` points to the expected queue
 - confirm SES event destination emits events to SNS and SNS forwards to the SQS queue
 - confirm outbound messages include provider tags (`strait_message_id`, `strait_project_id`)
+- inspect callback ingestion metric distribution:
+  - `sum(rate(strait_notify_provider_callbacks_total{provider="ses"}[5m])) by (event_type, outcome)`
+  - `sum(rate(strait_notify_provider_callbacks_total{provider="ses",suppression_reason!="none"}[5m])) by (suppression_reason)`
 - inspect notify delivery rows for transitions to `delivered`, `bounced`, or `failed`
 - inspect subscriber preference changes when bounces/complaints occur (`channel_prefs.email=false`)
 

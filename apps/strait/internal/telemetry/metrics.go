@@ -706,7 +706,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	)
 	notifyProviderCallbacksTotal, _ := meter.Int64Counter(
 		"strait_notify_provider_callbacks_total",
-		metric.WithDescription("Total notify provider callbacks by provider, event type, and outcome"),
+		metric.WithDescription("Total notify provider callbacks by provider, event type, outcome, and suppression reason"),
 		metric.WithUnit("1"),
 	)
 	notifyScheduledBacklog, _ := meter.Int64Gauge(

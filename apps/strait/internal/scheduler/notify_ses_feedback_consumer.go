@@ -13,12 +13,15 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	awsv2config "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const notifySESFeedbackReceiptTTL = 30 * 24 * time.Hour
@@ -50,10 +53,11 @@ type NotifySESFeedbackConsumerConfig struct {
 }
 
 type NotifySESFeedbackConsumer struct {
-	store  notifySESFeedbackStore
-	client notifySESFeedbackSQSAPI
-	cfg    NotifySESFeedbackConsumerConfig
-	logger *slog.Logger
+	store   notifySESFeedbackStore
+	client  notifySESFeedbackSQSAPI
+	cfg     NotifySESFeedbackConsumerConfig
+	logger  *slog.Logger
+	metrics *telemetry.Metrics
 }
 
 func NewNotifySESFeedbackConsumer(store notifySESFeedbackStore, cfg NotifySESFeedbackConsumerConfig) (*NotifySESFeedbackConsumer, error) {
@@ -97,6 +101,11 @@ func NewNotifySESFeedbackConsumerWithClient(store notifySESFeedbackStore, client
 		cfg:    cfg,
 		logger: slog.Default(),
 	}
+}
+
+func (c *NotifySESFeedbackConsumer) WithMetrics(m *telemetry.Metrics) *NotifySESFeedbackConsumer {
+	c.metrics = m
+	return c
 }
 
 func (c *NotifySESFeedbackConsumer) Run(ctx context.Context) {
@@ -169,16 +178,27 @@ func (c *NotifySESFeedbackConsumer) pollOnce(ctx context.Context) (int, error) {
 }
 
 func (c *NotifySESFeedbackConsumer) processMessage(ctx context.Context, sqsMessage sqstypes.Message) (bool, error) {
+	metricEventType := "unknown"
+	metricOutcome := "ignored"
+	metricSuppressionReason := "none"
+	defer func() {
+		c.recordCallbackMetric(ctx, metricEventType, metricOutcome, metricSuppressionReason)
+	}()
+
 	rawBody := []byte(awsv2.ToString(sqsMessage.Body))
 	if len(rawBody) == 0 {
+		metricOutcome = "empty_payload"
 		return true, nil
 	}
 
 	event, callbackID, eventType, parseErr := parseNotifySESEvent(rawBody)
 	if parseErr != nil {
+		metricOutcome = "malformed"
 		c.logger.Warn("notify ses feedback consumer: malformed event", "error", parseErr)
 		return true, nil
 	}
+	metricEventType = eventType
+
 	if callbackID == "" {
 		callbackID = awsv2.ToString(sqsMessage.MessageId)
 	}
@@ -188,20 +208,25 @@ func (c *NotifySESFeedbackConsumer) processMessage(ctx context.Context, sqsMessa
 
 	straitMessageID := event.straitMessageID()
 	if straitMessageID == "" {
+		metricOutcome = "missing_message_id"
 		return true, nil
 	}
 
 	msg, err := c.store.GetNotificationMessageByID(ctx, straitMessageID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotificationMessageNotFound) {
+			metricOutcome = "message_not_found"
 			return true, nil
 		}
+		metricOutcome = "resolve_error"
 		return false, fmt.Errorf("resolve notification message: %w", err)
 	}
 	if msg == nil {
+		metricOutcome = "message_not_found"
 		return true, nil
 	}
 	if taggedProjectID := strings.TrimSpace(event.mailTag("strait_project_id")); taggedProjectID != "" && taggedProjectID != msg.ProjectID {
+		metricOutcome = "project_mismatch"
 		return true, nil
 	}
 
@@ -222,9 +247,11 @@ func (c *NotifySESFeedbackConsumer) processMessage(ctx context.Context, sqsMessa
 		time.Now().UTC().Add(notifySESFeedbackReceiptTTL),
 	)
 	if err != nil {
+		metricOutcome = "receipt_error"
 		return false, fmt.Errorf("record notify provider callback receipt: %w", err)
 	}
 	if !recorded {
+		metricOutcome = "duplicate"
 		return true, nil
 	}
 
@@ -244,12 +271,17 @@ func (c *NotifySESFeedbackConsumer) processMessage(ctx context.Context, sqsMessa
 	}()
 
 	nextStatus, fields, suppressEmail, suppressionReason := resolveNotifySESFeedbackOutcome(eventType, event.eventTimestamp())
+	if suppressionReason != "" {
+		metricSuppressionReason = suppressionReason
+	}
 	if nextStatus == "" {
+		metricOutcome = "ignored_event_type"
 		processed = true
 		return true, nil
 	}
 
 	if !shouldApplyNotifySESTransition(msg.Status, nextStatus) {
+		metricOutcome = "status_skipped"
 		c.applyNotifySESSuppressionIfNeeded(ctx, msg, suppressEmail, suppressionReason, callbackID, eventType)
 		processed = true
 		return true, nil
@@ -259,14 +291,17 @@ func (c *NotifySESFeedbackConsumer) processMessage(ctx context.Context, sqsMessa
 		if errors.Is(err, store.ErrNotificationMessageStatusConflict) {
 			latest, latestErr := c.store.GetNotificationMessageByID(ctx, msg.ID)
 			if latestErr == nil && latest != nil && !shouldApplyNotifySESTransition(latest.Status, nextStatus) {
+				metricOutcome = "status_skipped"
 				c.applyNotifySESSuppressionIfNeeded(ctx, latest, suppressEmail, suppressionReason, callbackID, eventType)
 				processed = true
 				return true, nil
 			}
 		}
+		metricOutcome = "update_error"
 		return false, fmt.Errorf("update notification message status: %w", err)
 	}
 
+	metricOutcome = "status_updated"
 	c.applyNotifySESSuppressionIfNeeded(ctx, msg, suppressEmail, suppressionReason, callbackID, eventType)
 	processed = true
 	return true, nil
@@ -372,6 +407,32 @@ func resolveNotifySESFeedbackOutcome(eventType string, ts time.Time) (string, ma
 func hashNotifySESFeedbackPayload(payload []byte) string {
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
+}
+
+func (c *NotifySESFeedbackConsumer) recordCallbackMetric(ctx context.Context, eventType, outcome, suppressionReason string) {
+	if c == nil || c.metrics == nil || c.metrics.NotifyProviderCallbacksTotal == nil {
+		return
+	}
+	provider := "ses"
+	eventType = strings.ToLower(strings.TrimSpace(eventType))
+	if eventType == "" {
+		eventType = "unknown"
+	}
+	outcome = strings.ToLower(strings.TrimSpace(outcome))
+	if outcome == "" {
+		outcome = "unknown"
+	}
+	suppressionReason = strings.ToLower(strings.TrimSpace(suppressionReason))
+	if suppressionReason == "" {
+		suppressionReason = "none"
+	}
+
+	c.metrics.NotifyProviderCallbacksTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("provider", provider),
+		attribute.String("event_type", eventType),
+		attribute.String("outcome", outcome),
+		attribute.String("suppression_reason", suppressionReason),
+	))
 }
 
 type notifySNSMessageEnvelope struct {

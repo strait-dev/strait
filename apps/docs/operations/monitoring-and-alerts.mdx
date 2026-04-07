@@ -67,6 +67,7 @@ Metrics exposed at `GET /metrics`:
 | `strait_notify_digest_requeues_total` | Counter | Digest batch requeues (by reason) |
 | `strait_notify_digest_failures_total` | Counter | Digest batch terminal failures (by reason) |
 | `strait_notify_escalation_stuck_total` | Counter | Escalation requeues indicating stuck lifecycle |
+| `strait_notify_provider_callbacks_total` | Counter | Notify provider callback ingestion outcomes (by provider, event_type, outcome, suppression_reason) |
 
 ## Monitoring Assets
 
@@ -85,6 +86,8 @@ Use the monitoring assets in `packages/monitoring/` as a baseline:
 - Audit event insert errors
 - Webhook delivery failures
 - Notify delivery failures (inbox/email) and rising `scheduled` backlog
+- Notify SES feedback ingestion errors (`malformed`, `*_error` callback outcomes)
+- Notify SES suppression reason spikes (`provider_callback:ses.bounce` / `provider_callback:ses.complaint`)
 - Approval reminder escalation lifecycle stalls (`active`/`processing` not reaching terminal state)
 - Worker pool utilization
 - Database connection pool saturation

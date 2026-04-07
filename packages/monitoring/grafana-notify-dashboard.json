@@ -1,7 +1,7 @@
 {
   "title": "Strait Notify Operations",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "panels": [
     {
@@ -37,6 +37,27 @@
       "type": "timeseries",
       "targets": [
         {"expr": "sum(rate(strait_notify_escalation_stuck_total[5m])) by (reason)"}
+      ]
+    },
+    {
+      "title": "SES Feedback Callbacks (5m rate)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\"}[5m])) by (event_type, outcome)"}
+      ]
+    },
+    {
+      "title": "SES Suppression Reasons (5m rate)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",suppression_reason!=\"none\",outcome=~\"status_updated|status_skipped\"}[5m])) by (suppression_reason)"}
+      ]
+    },
+    {
+      "title": "SES Feedback Processing Errors (5m rate)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",outcome=~\".*_error|malformed\"}[5m])) by (outcome)"}
       ]
     }
   ]
