@@ -217,10 +217,6 @@ func (s *Server) routes() chi.Router {
 	r.Post("/v1/unsubscribe/{token}", TypedHandler(s, http.StatusOK, s.handleProcessUnsubscribe))
 	r.Post("/v1/unsubscribe/{token}/one-click", TypedHandler(s, http.StatusOK, s.handleUnsubscribeOneClick))
 
-	// Provider callbacks are third-party integration endpoints and are
-	// intentionally excluded from typed OpenAPI registration.
-	r.Post("/v1/notify/providers/{projectID}/{providerID}/callbacks/resend", s.handleNotifyResendProviderCallback)
-
 	// Email tracking endpoints are public by design.
 	r.Get("/t/{messageID}/open.gif", s.handleNotifyOpenPixel)
 	r.Get("/t/{messageID}/click", s.handleNotifyClickRedirect)

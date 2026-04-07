@@ -448,12 +448,6 @@ func buildInboxItemFromRenderedPayload(sub *domain.NotifySubscriber, projectID, 
 	}, nil
 }
 
-type resendProviderConfig struct {
-	APIKey        string `json:"api_key"`
-	FromEmail     string `json:"from_email"`
-	WebhookSecret string `json:"webhook_secret"`
-}
-
 type sesProviderConfig struct {
 	Region           string `json:"region"`
 	FromEmail        string `json:"from_email"`
@@ -491,7 +485,6 @@ func (s *Server) sendNotifyEmail(ctx context.Context, ns notifyStore, sub *domai
 		attempt.FromEmail = "noreply@strait.dev"
 	}
 
-	attempt.AllowLegacyResend = s.config.NotifyEmailAllowLegacyResend
 	providerMessageID, err := notifycore.SendEmailWithProvider(ctx, msg.ID, msg.ProjectID, sub.Email, subject, htmlBody, textBody, attempt)
 	if err != nil {
 		return fmt.Errorf("send email: %w", err)
@@ -521,18 +514,14 @@ func (s *Server) resolveNotifyEmailProviderAttempt(ctx context.Context, ns notif
 		AccessKeyID:      s.config.SESAccessKeyID,
 		SecretAccessKey:  s.config.SESSecretAccessKey,
 		SessionToken:     s.config.SESSessionToken,
-		APIKey:           s.config.ResendAPIKey,
 	}
 	if attempt.Provider == "" {
 		attempt.Provider = "ses"
 	}
-	if strings.EqualFold(attempt.Provider, "resend") {
-		attempt.FromEmail = s.config.ResendFromEmail
+	if err := validateNotifyResolvedEmailProvider(attempt.Provider); err != nil {
+		return attempt, err
 	}
 	if msg == nil || msg.ProviderID == "" {
-		if err := validateNotifyResolvedEmailProvider(attempt.Provider, s.config.NotifyEmailAllowLegacyResend); err != nil {
-			return attempt, err
-		}
 		return attempt, nil
 	}
 
@@ -542,63 +531,42 @@ func (s *Server) resolveNotifyEmailProviderAttempt(ctx context.Context, ns notif
 	}
 
 	attempt.Provider = strings.ToLower(strings.TrimSpace(provider.Provider))
-	switch attempt.Provider {
-	case "ses":
-		cfg := sesProviderConfig{}
-		if err := json.Unmarshal(provider.ConfigEnc, &cfg); err != nil {
-			return attempt, fmt.Errorf("parse ses provider config: %w", err)
-		}
-		if strings.TrimSpace(cfg.Region) != "" {
-			attempt.Region = strings.TrimSpace(cfg.Region)
-		}
-		if strings.TrimSpace(cfg.FromEmail) != "" {
-			attempt.FromEmail = strings.TrimSpace(cfg.FromEmail)
-		}
-		if strings.TrimSpace(cfg.ConfigurationSet) != "" {
-			attempt.ConfigurationSet = strings.TrimSpace(cfg.ConfigurationSet)
-		}
-		if strings.TrimSpace(cfg.AccessKeyID) != "" {
-			attempt.AccessKeyID = strings.TrimSpace(cfg.AccessKeyID)
-		}
-		if strings.TrimSpace(cfg.SecretAccessKey) != "" {
-			attempt.SecretAccessKey = strings.TrimSpace(cfg.SecretAccessKey)
-		}
-		if strings.TrimSpace(cfg.SessionToken) != "" {
-			attempt.SessionToken = strings.TrimSpace(cfg.SessionToken)
-		}
-	case "resend":
-		cfg := resendProviderConfig{}
-		if err := json.Unmarshal(provider.ConfigEnc, &cfg); err != nil {
-			return attempt, fmt.Errorf("parse resend provider config: %w", err)
-		}
-		if strings.TrimSpace(cfg.APIKey) != "" {
-			attempt.APIKey = strings.TrimSpace(cfg.APIKey)
-		}
-		if strings.TrimSpace(cfg.FromEmail) != "" {
-			attempt.FromEmail = strings.TrimSpace(cfg.FromEmail)
-		}
-	default:
-		return attempt, fmt.Errorf("unsupported email provider: %s", provider.Provider)
+	if err := validateNotifyResolvedEmailProvider(attempt.Provider); err != nil {
+		return attempt, err
 	}
 
-	if err := validateNotifyResolvedEmailProvider(attempt.Provider, s.config.NotifyEmailAllowLegacyResend); err != nil {
-		return attempt, err
+	cfg := sesProviderConfig{}
+	if err := json.Unmarshal(provider.ConfigEnc, &cfg); err != nil {
+		return attempt, fmt.Errorf("parse ses provider config: %w", err)
+	}
+	if strings.TrimSpace(cfg.Region) != "" {
+		attempt.Region = strings.TrimSpace(cfg.Region)
+	}
+	if strings.TrimSpace(cfg.FromEmail) != "" {
+		attempt.FromEmail = strings.TrimSpace(cfg.FromEmail)
+	}
+	if strings.TrimSpace(cfg.ConfigurationSet) != "" {
+		attempt.ConfigurationSet = strings.TrimSpace(cfg.ConfigurationSet)
+	}
+	if strings.TrimSpace(cfg.AccessKeyID) != "" {
+		attempt.AccessKeyID = strings.TrimSpace(cfg.AccessKeyID)
+	}
+	if strings.TrimSpace(cfg.SecretAccessKey) != "" {
+		attempt.SecretAccessKey = strings.TrimSpace(cfg.SecretAccessKey)
+	}
+	if strings.TrimSpace(cfg.SessionToken) != "" {
+		attempt.SessionToken = strings.TrimSpace(cfg.SessionToken)
 	}
 	return attempt, nil
 }
 
-func validateNotifyResolvedEmailProvider(provider string, allowLegacyResend bool) error {
+func validateNotifyResolvedEmailProvider(provider string) error {
 	normalized := strings.ToLower(strings.TrimSpace(provider))
 	switch normalized {
 	case "", "ses":
 		return nil
-	case "resend":
-		if allowLegacyResend {
-			return nil
-		}
-		return fmt.Errorf("notify email provider resend is disabled; use ses or set NOTIFY_EMAIL_ALLOW_LEGACY_RESEND=true for temporary rollback")
 	default:
-		return fmt.Errorf("unsupported email provider: %s", provider)
+		return fmt.Errorf("unsupported notify email provider: %s", provider)
 	}
 }
 

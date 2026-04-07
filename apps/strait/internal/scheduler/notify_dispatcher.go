@@ -53,9 +53,6 @@ type NotifyEmailDefaults struct {
 
 	FromEmail string
 
-	ResendAPIKey      string
-	AllowLegacyResend bool
-
 	SESRegion           string
 	SESConfigurationSet string
 	SESAccessKeyID      string
@@ -495,7 +492,6 @@ type emailProviderAttempt struct {
 	ID         string
 	Provider   string
 	FromEmail  string
-	APIKey     string
 	FallbackID string
 
 	Region           string
@@ -511,9 +507,8 @@ func (d *NotifyDispatcher) resolveEmailProviderAttempts(ctx context.Context, msg
 
 	appendConfigFallback := func() {
 		attempts = append(attempts, emailProviderAttempt{
-			Provider:         d.defaultEmailProvider(),
+			Provider:         "ses",
 			FromEmail:        d.defaultEmail.FromEmail,
-			APIKey:           d.defaultEmail.ResendAPIKey,
 			Region:           d.defaultEmail.SESRegion,
 			ConfigurationSet: d.defaultEmail.SESConfigurationSet,
 			AccessKeyID:      d.defaultEmail.SESAccessKeyID,
@@ -553,32 +548,6 @@ func (d *NotifyDispatcher) resolveEmailProviderAttempts(ctx context.Context, msg
 	return attempts, nil
 }
 
-func (d *NotifyDispatcher) defaultEmailProvider() string {
-	provider := strings.ToLower(strings.TrimSpace(d.defaultEmail.Provider))
-	switch provider {
-	case "", "ses":
-		return "ses"
-	case "resend":
-		if d.defaultEmail.AllowLegacyResend {
-			return "resend"
-		}
-		return "ses"
-	default:
-		return "ses"
-	}
-}
-
-func (d *NotifyDispatcher) isAllowedEmailProvider(provider string) bool {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "ses":
-		return true
-	case "resend":
-		return d.defaultEmail.AllowLegacyResend
-	default:
-		return false
-	}
-}
-
 func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, projectID, providerID string, seen map[string]struct{}) ([]emailProviderAttempt, error) {
 	if providerID == "" {
 		return nil, nil
@@ -594,7 +563,6 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 	}
 
 	cfg := struct {
-		APIKey           string `json:"api_key"`
 		FromEmail        string `json:"from_email"`
 		Region           string `json:"region"`
 		ConfigurationSet string `json:"configuration_set"`
@@ -612,7 +580,6 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 		ID:               provider.ID,
 		Provider:         strings.ToLower(strings.TrimSpace(provider.Provider)),
 		FromEmail:        cfg.FromEmail,
-		APIKey:           cfg.APIKey,
 		FallbackID:       provider.FallbackID,
 		Region:           cfg.Region,
 		ConfigurationSet: cfg.ConfigurationSet,
@@ -621,9 +588,9 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 		SessionToken:     cfg.SessionToken,
 	}
 	if attempt.Provider == "" {
-		attempt.Provider = d.defaultEmailProvider()
+		attempt.Provider = "ses"
 	}
-	if !d.isAllowedEmailProvider(attempt.Provider) {
+	if attempt.Provider != "ses" {
 		d.logger.Warn("notify dispatcher: skipping unsupported email provider",
 			"provider_id", provider.ID,
 			"provider", provider.Provider,
@@ -636,25 +603,20 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 	if attempt.FromEmail == "" {
 		attempt.FromEmail = d.defaultEmail.FromEmail
 	}
-	if attempt.Provider == "resend" && attempt.APIKey == "" {
-		attempt.APIKey = d.defaultEmail.ResendAPIKey
+	if attempt.Region == "" {
+		attempt.Region = d.defaultEmail.SESRegion
 	}
-	if attempt.Provider == "ses" {
-		if attempt.Region == "" {
-			attempt.Region = d.defaultEmail.SESRegion
-		}
-		if attempt.ConfigurationSet == "" {
-			attempt.ConfigurationSet = d.defaultEmail.SESConfigurationSet
-		}
-		if attempt.AccessKeyID == "" {
-			attempt.AccessKeyID = d.defaultEmail.SESAccessKeyID
-		}
-		if attempt.SecretAccessKey == "" {
-			attempt.SecretAccessKey = d.defaultEmail.SESSecretAccessKey
-		}
-		if attempt.SessionToken == "" {
-			attempt.SessionToken = d.defaultEmail.SESSessionToken
-		}
+	if attempt.ConfigurationSet == "" {
+		attempt.ConfigurationSet = d.defaultEmail.SESConfigurationSet
+	}
+	if attempt.AccessKeyID == "" {
+		attempt.AccessKeyID = d.defaultEmail.SESAccessKeyID
+	}
+	if attempt.SecretAccessKey == "" {
+		attempt.SecretAccessKey = d.defaultEmail.SESSecretAccessKey
+	}
+	if attempt.SessionToken == "" {
+		attempt.SessionToken = d.defaultEmail.SESSessionToken
 	}
 
 	chain := []emailProviderAttempt{attempt}
@@ -670,15 +632,13 @@ func (d *NotifyDispatcher) resolveProviderFallbackChain(ctx context.Context, pro
 
 func (d *NotifyDispatcher) sendWithProvider(ctx context.Context, msg domain.NotificationMessage, attempt emailProviderAttempt, to, subject, htmlBody, textBody string) (string, error) {
 	providerMessageID, err := notifycore.SendEmailWithProvider(ctx, msg.ID, msg.ProjectID, to, subject, htmlBody, textBody, notifycore.EmailProviderAttempt{
-		Provider:          attempt.Provider,
-		FromEmail:         attempt.FromEmail,
-		APIKey:            attempt.APIKey,
-		AllowLegacyResend: d.defaultEmail.AllowLegacyResend,
-		Region:            attempt.Region,
-		ConfigurationSet:  attempt.ConfigurationSet,
-		AccessKeyID:       attempt.AccessKeyID,
-		SecretAccessKey:   attempt.SecretAccessKey,
-		SessionToken:      attempt.SessionToken,
+		Provider:         attempt.Provider,
+		FromEmail:        attempt.FromEmail,
+		Region:           attempt.Region,
+		ConfigurationSet: attempt.ConfigurationSet,
+		AccessKeyID:      attempt.AccessKeyID,
+		SecretAccessKey:  attempt.SecretAccessKey,
+		SessionToken:     attempt.SessionToken,
 	})
 	if err != nil {
 		return "", fmt.Errorf("send email (%s): %w", attempt.Provider, err)

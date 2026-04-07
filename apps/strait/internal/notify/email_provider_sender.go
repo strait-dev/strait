@@ -10,7 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	sestypes "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
-	"github.com/resend/resend-go/v2"
 )
 
 // EmailProviderAttempt captures provider-specific send settings.
@@ -18,10 +17,6 @@ type EmailProviderAttempt struct {
 	Provider string
 
 	FromEmail string
-
-	// Resend fields.
-	APIKey            string
-	AllowLegacyResend bool
 
 	// SES fields.
 	Region           string
@@ -50,52 +45,9 @@ func SendEmailWithProvider(
 	switch provider {
 	case "ses":
 		return sendEmailWithSES(ctx, messageID, projectID, to, subject, htmlBody, textBody, attempt)
-	case "resend":
-		if !attempt.AllowLegacyResend {
-			return "", fmt.Errorf("resend provider is disabled for notify email; set NOTIFY_EMAIL_ALLOW_LEGACY_RESEND=true for temporary rollback")
-		}
-		return sendEmailWithResend(ctx, messageID, projectID, to, subject, htmlBody, textBody, attempt)
 	default:
 		return "", fmt.Errorf("unsupported email provider: %s", attempt.Provider)
 	}
-}
-
-func sendEmailWithResend(
-	ctx context.Context,
-	messageID,
-	projectID,
-	to,
-	subject,
-	htmlBody,
-	textBody string,
-	attempt EmailProviderAttempt,
-) (string, error) {
-	if strings.TrimSpace(attempt.APIKey) == "" {
-		return "", fmt.Errorf("resend api key is required")
-	}
-	if strings.TrimSpace(attempt.FromEmail) == "" {
-		return "", fmt.Errorf("resend from email is required")
-	}
-
-	client := resend.NewClient(attempt.APIKey)
-	resp, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
-		From:    attempt.FromEmail,
-		To:      []string{to},
-		Subject: subject,
-		Html:    htmlBody,
-		Text:    textBody,
-		Tags: []resend.Tag{
-			{Name: "strait_message_id", Value: messageID},
-			{Name: "strait_project_id", Value: projectID},
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("send email (resend): %w", err)
-	}
-	if resp == nil {
-		return "", nil
-	}
-	return resp.Id, nil
 }
 
 func sendEmailWithSES(

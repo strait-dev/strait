@@ -122,8 +122,7 @@ Strait Notify currently supports `inbox` and `email` channels for delivery.
 - Providers:
   - `POST /v1/providers`, `GET /v1/providers`
   - `PUT|DELETE /v1/providers/{providerID}`
-  - Internal provider callback endpoints (for ESP webhooks) are not part of the public OpenAPI surface.
-    - Resend callback path: `POST /v1/notify/providers/{projectID}/{providerID}/callbacks/resend`
+  - SES feedback ingestion is handled via internal SQS consumer flow and is not part of the public OpenAPI surface.
 
 ### Subscriber APIs
 

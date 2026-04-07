@@ -26,8 +26,7 @@ This page documents all environment variables available for configuring Strait.
 | `JWT_SIGNING_KEY` | String | (Required) | Key used to sign JWT run tokens. Must be at least 32 characters. |
 | `NOTIFY_SUBSCRIBER_TOKEN_ISSUER` | String | `strait-notify` | Issuer claim required for notify subscriber JWTs. |
 | `NOTIFY_SUBSCRIBER_TOKEN_AUDIENCE` | String | `strait-notify-subscriber` | Audience claim required for notify subscriber JWTs. |
-| `NOTIFY_EMAIL_PROVIDER` | String | `ses` | Notify email sender provider. `ses` is the standard mode. `resend` requires `NOTIFY_EMAIL_ALLOW_LEGACY_RESEND=true` and is intended for temporary rollback only. |
-| `NOTIFY_EMAIL_ALLOW_LEGACY_RESEND` | Boolean | `false` | Allows legacy notify email sends through Resend when `NOTIFY_EMAIL_PROVIDER=resend` or when a provider config resolves to Resend. |
+| `NOTIFY_EMAIL_PROVIDER` | String | `ses` | Notify email sender provider. Supported value: `ses`. |
 | `NOTIFY_EMAIL_NORMALIZE_ENABLED` | Boolean | `true` | Normalize subscriber email addresses at upsert/update time. |
 | `NOTIFY_EMAIL_VERIFY_ENABLED` | Boolean | `true` | Enable email verification checks on subscriber upsert/update. |
 | `NOTIFY_EMAIL_VERIFY_MX` | Boolean | `true` | Require MX records during notify email verification when enabled. |

@@ -590,14 +590,14 @@ func TestResolveEmailProviderAttempts_UsesFallbackChain(t *testing.T) {
 			case "primary":
 				return &domain.NotificationProvider{ID: "primary", Provider: "ses", FallbackID: "secondary", ConfigEnc: []byte(`{"from_email":"noreply@example.com","region":"us-east-1"}`)}, nil
 			case "secondary":
-				return &domain.NotificationProvider{ID: "secondary", Provider: "resend", ConfigEnc: []byte(`{"api_key":"rk","from_email":"noreply@example.com"}`)}, nil
+				return &domain.NotificationProvider{ID: "secondary", Provider: "ses", ConfigEnc: []byte(`{"from_email":"alerts@example.com","region":"us-east-1"}`)}, nil
 			default:
 				return nil, errors.New("unknown provider")
 			}
 		},
 	}
 
-	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{FromEmail: "noreply@strait.dev", AllowLegacyResend: true})
+	d := NewNotifyDispatcher(st, 0, NotifyEmailDefaults{FromEmail: "noreply@strait.dev"})
 	attempts, err := d.resolveEmailProviderAttempts(context.Background(), domain.NotificationMessage{ProjectID: "proj_1", ProviderID: "primary"})
 	if err != nil {
 		t.Fatalf("resolveEmailProviderAttempts() error = %v", err)
@@ -610,7 +610,7 @@ func TestResolveEmailProviderAttempts_UsesFallbackChain(t *testing.T) {
 	}
 }
 
-func TestResolveEmailProviderAttempts_SkipsLegacyResendWhenDisabled(t *testing.T) {
+func TestResolveEmailProviderAttempts_SkipsUnsupportedProvider(t *testing.T) {
 	t.Parallel()
 
 	st := &notifyDispatcherStoreMock{
@@ -618,7 +618,7 @@ func TestResolveEmailProviderAttempts_SkipsLegacyResendWhenDisabled(t *testing.T
 			if id != "primary" {
 				return nil, errors.New("unknown provider")
 			}
-			return &domain.NotificationProvider{ID: "primary", Provider: "resend", ConfigEnc: []byte(`{"api_key":"rk","from_email":"noreply@example.com"}`)}, nil
+			return &domain.NotificationProvider{ID: "primary", Provider: "mailgun", ConfigEnc: []byte(`{"from_email":"noreply@example.com"}`)}, nil
 		},
 	}
 
@@ -632,10 +632,5 @@ func TestResolveEmailProviderAttempts_SkipsLegacyResendWhenDisabled(t *testing.T
 	}
 	if attempts[0].Provider != "ses" {
 		t.Fatalf("first provider = %q, want ses", attempts[0].Provider)
-	}
-	for _, attempt := range attempts {
-		if attempt.Provider == "resend" {
-			t.Fatalf("expected resend to be filtered when legacy mode disabled: %+v", attempt)
-		}
 	}
 }

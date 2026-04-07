@@ -81,8 +81,6 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		sched.notifyDispatcher = NewNotifyDispatcher(notifyStore, cfg.PollerInterval, NotifyEmailDefaults{
 			Provider:            cfg.NotifyEmailProvider,
 			FromEmail:           cfg.SESFromEmail,
-			ResendAPIKey:        cfg.ResendAPIKey,
-			AllowLegacyResend:   cfg.NotifyEmailAllowLegacyResend,
 			SESRegion:           cfg.SESRegion,
 			SESConfigurationSet: cfg.SESConfigurationSet,
 			SESAccessKeyID:      cfg.SESAccessKeyID,

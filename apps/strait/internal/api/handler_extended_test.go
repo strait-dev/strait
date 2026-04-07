@@ -791,7 +791,9 @@ func TestOpenAPISpec_NotifyProviderCallbacks_AreExcluded(t *testing.T) {
 		t.Fatal("spec missing 'paths'")
 	}
 
-	if _, exists := paths["/v1/notify/providers/{projectID}/{providerID}/callbacks/resend"]; exists {
-		t.Fatal("provider callback path should not be published in OpenAPI")
+	for path := range paths {
+		if strings.Contains(path, "/callbacks/") {
+			t.Fatalf("callback path %q should not be published in OpenAPI", path)
+		}
 	}
 }

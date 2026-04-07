@@ -109,26 +109,8 @@ Likely causes:
 Checks:
 
 - confirm notify email provider is `ses` (`NOTIFY_EMAIL_PROVIDER=ses`)
-- if running temporary rollback mode, verify `NOTIFY_EMAIL_ALLOW_LEGACY_RESEND=true` is explicitly set and tracked in incident notes
 - confirm `NOTIFY_SES_FEEDBACK_SQS_URL` points to the expected queue
 - confirm SES event destination emits events to SNS and SNS forwards to the SQS queue
-- confirm outbound messages include provider tags (`strait_message_id`, `strait_project_id`)
-- inspect notify delivery rows for transitions to `delivered`, `bounced`, or `failed`
-- inspect subscriber preference changes when bounces/complaints occur (`channel_prefs.email=false`)
-
-### 5) Resend callback events are not reflected in delivery status (legacy path)
-
-Likely causes:
-
-- provider callback URL misconfigured
-- `webhook_secret` missing or incorrect in provider config
-- callback payload missing `strait_message_id` tag or message no longer exists
-
-Checks:
-
-- confirm Resend webhook points to:
-  - `POST /v1/notify/providers/{projectID}/{providerID}/callbacks/resend`
-- verify `webhook_secret` is present in the provider config payload used at `POST|PUT /v1/providers...`
 - confirm outbound messages include provider tags (`strait_message_id`, `strait_project_id`)
 - inspect notify delivery rows for transitions to `delivered`, `bounced`, or `failed`
 - inspect subscriber preference changes when bounces/complaints occur (`channel_prefs.email=false`)

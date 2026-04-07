@@ -27,7 +27,6 @@ type Config struct {
 	NotifySubscriberTokenIssuer   string        `env:"NOTIFY_SUBSCRIBER_TOKEN_ISSUER" default:"strait-notify"`
 	NotifySubscriberTokenAudience string        `env:"NOTIFY_SUBSCRIBER_TOKEN_AUDIENCE" default:"strait-notify-subscriber"`
 	NotifyEmailProvider           string        `env:"NOTIFY_EMAIL_PROVIDER" default:"ses"`
-	NotifyEmailAllowLegacyResend  bool          `env:"NOTIFY_EMAIL_ALLOW_LEGACY_RESEND" default:"false"`
 	NotifyEmailNormalizeEnabled   bool          `env:"NOTIFY_EMAIL_NORMALIZE_ENABLED" default:"true"`
 	NotifyEmailVerifyEnabled      bool          `env:"NOTIFY_EMAIL_VERIFY_ENABLED" default:"true"`
 	NotifyEmailVerifyMX           bool          `env:"NOTIFY_EMAIL_VERIFY_MX" default:"true"`
@@ -224,7 +223,7 @@ type Config struct {
 	SESSecretAccessKey  string `env:"SES_SECRET_ACCESS_KEY"`
 	SESSessionToken     string `env:"SES_SESSION_TOKEN"`
 
-	// Resend integration (legacy notify + billing emails)
+	// Resend integration (billing email)
 	ResendAPIKey    string `env:"RESEND_API_KEY"`
 	ResendFromEmail string `env:"RESEND_FROM_EMAIL" default:"noreply@strait.dev"`
 
@@ -418,10 +417,10 @@ func validateNotifyConfig(cfg *Config) error {
 		return &domain.ConfigError{Field: "NOTIFY_SUBSCRIBER_TOKEN_AUDIENCE", Message: "must not be empty"}
 	}
 	switch strings.ToLower(strings.TrimSpace(cfg.NotifyEmailProvider)) {
-	case "", "ses", "resend":
+	case "", "ses":
 		// valid
 	default:
-		return &domain.ConfigError{Field: "NOTIFY_EMAIL_PROVIDER", Message: "must be ses or resend"}
+		return &domain.ConfigError{Field: "NOTIFY_EMAIL_PROVIDER", Message: "must be ses"}
 	}
 	if strings.EqualFold(cfg.NotifyEmailProvider, "ses") {
 		if strings.TrimSpace(cfg.SESRegion) == "" {
@@ -430,15 +429,6 @@ func validateNotifyConfig(cfg *Config) error {
 		if strings.TrimSpace(cfg.SESFromEmail) == "" {
 			return &domain.ConfigError{Field: "SES_FROM_EMAIL", Message: "is required when NOTIFY_EMAIL_PROVIDER=ses"}
 		}
-	}
-	if strings.EqualFold(cfg.NotifyEmailProvider, "resend") {
-		if !cfg.NotifyEmailAllowLegacyResend {
-			return &domain.ConfigError{Field: "NOTIFY_EMAIL_ALLOW_LEGACY_RESEND", Message: "must be true when NOTIFY_EMAIL_PROVIDER=resend"}
-		}
-		if strings.TrimSpace(cfg.ResendFromEmail) == "" {
-			return &domain.ConfigError{Field: "RESEND_FROM_EMAIL", Message: "is required when NOTIFY_EMAIL_PROVIDER=resend"}
-		}
-		slog.Warn("NOTIFY_EMAIL_PROVIDER=resend is legacy mode and should only be used for temporary rollback")
 	}
 	if cfg.NotifyDeliveryMaxAttempts < 1 {
 		return &domain.ConfigError{Field: "NOTIFY_DELIVERY_MAX_ATTEMPTS", Message: "must be >= 1"}
