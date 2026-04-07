@@ -93,6 +93,9 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		if dep.Status != domain.DeploymentStatusReady {
 			return nil, huma.Error409Conflict("active deployment is not ready -- wait for the build to complete")
 		}
+		if dep.BuiltImageURI == "" {
+			return nil, huma.Error500InternalServerError("active deployment is missing a built image URI")
+		}
 		deploymentID = dep.ID
 		pinnedImageURI = dep.BuiltImageURI
 		pinnedImageDigest = dep.BuiltImageDigest

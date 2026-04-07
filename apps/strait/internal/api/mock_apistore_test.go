@@ -76,6 +76,9 @@ var _ APIStore = &APIStoreMock{}
 //			CompleteIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string, responseStatus int, responseBody []byte) error {
 //				panic("mock out the CompleteIdempotencyKey method")
 //			},
+//			ConfirmCodeDeploymentFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the ConfirmCodeDeployment method")
+//			},
 //			CountActiveEventTriggersByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
 //				panic("mock out the CountActiveEventTriggersByProject method")
 //			},
@@ -886,6 +889,9 @@ type APIStoreMock struct {
 
 	// CompleteIdempotencyKeyFunc mocks the CompleteIdempotencyKey method.
 	CompleteIdempotencyKeyFunc func(ctx context.Context, projectID string, key string, responseStatus int, responseBody []byte) error
+
+	// ConfirmCodeDeploymentFunc mocks the ConfirmCodeDeployment method.
+	ConfirmCodeDeploymentFunc func(ctx context.Context, id string) error
 
 	// CountActiveEventTriggersByProjectFunc mocks the CountActiveEventTriggersByProject method.
 	CountActiveEventTriggersByProjectFunc func(ctx context.Context, projectID string) (int, error)
@@ -1812,6 +1818,13 @@ type APIStoreMock struct {
 			ResponseStatus int
 			// ResponseBody is the responseBody argument value.
 			ResponseBody []byte
+		}
+		// ConfirmCodeDeployment holds details about calls to the ConfirmCodeDeployment method.
+		ConfirmCodeDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
 		}
 		// CountActiveEventTriggersByProject holds details about calls to the CountActiveEventTriggersByProject method.
 		CountActiveEventTriggersByProject []struct {
@@ -4084,6 +4097,7 @@ type APIStoreMock struct {
 	lockCleanupExpiredDeviceCodes          sync.RWMutex
 	lockCompleteCanaryDeployment           sync.RWMutex
 	lockCompleteIdempotencyKey             sync.RWMutex
+	lockConfirmCodeDeployment              sync.RWMutex
 	lockCountActiveEventTriggersByProject  sync.RWMutex
 	lockCountActiveWorkflowRunsByVersion   sync.RWMutex
 	lockCountBatchBufferItems              sync.RWMutex
@@ -5144,6 +5158,45 @@ func (mock *APIStoreMock) CompleteIdempotencyKeyCalls() []struct {
 	mock.lockCompleteIdempotencyKey.RLock()
 	calls = mock.calls.CompleteIdempotencyKey
 	mock.lockCompleteIdempotencyKey.RUnlock()
+	return calls
+}
+
+// ConfirmCodeDeployment calls ConfirmCodeDeploymentFunc.
+func (mock *APIStoreMock) ConfirmCodeDeployment(ctx context.Context, id string) error {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockConfirmCodeDeployment.Lock()
+	mock.calls.ConfirmCodeDeployment = append(mock.calls.ConfirmCodeDeployment, callInfo)
+	mock.lockConfirmCodeDeployment.Unlock()
+	if mock.ConfirmCodeDeploymentFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.ConfirmCodeDeploymentFunc(ctx, id)
+}
+
+// ConfirmCodeDeploymentCalls gets all the calls that were made to ConfirmCodeDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.ConfirmCodeDeploymentCalls())
+func (mock *APIStoreMock) ConfirmCodeDeploymentCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockConfirmCodeDeployment.RLock()
+	calls = mock.calls.ConfirmCodeDeployment
+	mock.lockConfirmCodeDeployment.RUnlock()
 	return calls
 }
 

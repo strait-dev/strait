@@ -27,8 +27,6 @@ const (
 	// MaxSingleFileBytes is the maximum size of any single entry.
 	MaxSingleFileBytes = 100 * 1024 * 1024 // 100 MB
 
-	// MaxSymlinkDepth is the maximum allowed depth of symlink target paths.
-	MaxSymlinkDepth = 5
 )
 
 // TarballError is returned when the tarball fails a security or size check.

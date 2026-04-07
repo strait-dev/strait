@@ -12,6 +12,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/google/uuid"
 )
 
 // presignUploadTTL is how long the presigned upload URL remains valid.
@@ -73,13 +74,19 @@ func (s *Server) handleCreateCodeDeployment(ctx context.Context, input *CreateCo
 		return nil, huma.Error503ServiceUnavailable("code-first deployments are not configured on this instance")
 	}
 
+	// Pre-generate the ID so source_uri contains the correct deployment ID
+	// before the INSERT. Without this, the DB would store a path with an empty
+	// ID (e.g. "projects/{pid}/jobs/{jid}/deploys/.tar.gz") that can never be
+	// resolved by HeadObject at confirm time.
+	deploymentID := uuid.Must(uuid.NewV7()).String()
 	deployment := &domain.CodeDeployment{
+		ID:              deploymentID,
 		JobID:           req.JobID,
 		ProjectID:       req.ProjectID,
 		Runtime:         runtime,
 		SourceHash:      req.SourceHash,
 		SourceSizeBytes: req.SourceSizeBytes,
-		SourceURI:       objectstore.DeploymentKey(req.ProjectID, req.JobID, ""), // ID filled below
+		SourceURI:       objectstore.DeploymentKey(req.ProjectID, req.JobID, deploymentID),
 		Status:          domain.DeploymentStatusPending,
 		CreatedBy:       actorFromContext(ctx),
 	}
@@ -88,15 +95,15 @@ func (s *Server) handleCreateCodeDeployment(ctx context.Context, input *CreateCo
 		return nil, huma.Error500InternalServerError("failed to create deployment")
 	}
 
-	// Now that we have the ID, set the final source URI.
-	deployment.SourceURI = objectstore.DeploymentKey(req.ProjectID, req.JobID, deployment.ID)
-
 	uploadURL, err := s.objectStore.PresignUpload(ctx, deployment.SourceURI, presignUploadTTL)
 	if err != nil {
 		slog.Error("failed to generate presigned upload URL",
 			"deployment_id", deployment.ID,
 			"error", err,
 		)
+		// Mark the orphaned record as failed so it is not left pending forever.
+		_ = s.store.UpdateCodeDeploymentStatus(ctx, deployment.ID, domain.DeploymentStatusFailed,
+			map[string]any{"error_message": "failed to generate presigned upload URL"})
 		return nil, huma.Error500InternalServerError("failed to generate upload URL")
 	}
 
@@ -153,11 +160,14 @@ func (s *Server) handleConfirmCodeDeployment(ctx context.Context, input *Confirm
 		}
 	}
 
-	// Transition to "building" — the build orchestrator (STR-391) will pick this
-	// up and submit it to BuildKit. For now we mark it building so the CLI can
-	// poll for completion.
-	if err := s.store.UpdateCodeDeploymentStatus(ctx, d.ID, domain.DeploymentStatusBuilding, nil); err != nil {
-		return nil, huma.Error500InternalServerError("failed to update deployment status")
+	// Atomically transition pending → building. The WHERE status='pending' guard
+	// inside ConfirmCodeDeployment ensures that concurrent confirm requests cannot
+	// both succeed — at most one will see RowsAffected > 0.
+	if err := s.store.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+		if errors.Is(err, store.ErrCodeDeploymentNotFound) {
+			return nil, huma.Error409Conflict("deployment was already confirmed by a concurrent request")
+		}
+		return nil, huma.Error500InternalServerError("failed to confirm deployment")
 	}
 	d.Status = domain.DeploymentStatusBuilding
 

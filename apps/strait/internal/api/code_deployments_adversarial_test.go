@@ -417,6 +417,145 @@ func TestHandleCreateCodeDeployment_ZeroSourceSize(t *testing.T) {
 	}
 }
 
+// TestHandleCreateCodeDeployment_SourceURIContainsDeploymentID verifies that
+// the source_uri passed to CreateCodeDeployment already contains the correct
+// deployment ID — not an empty string that would cause HeadObject to fail at
+// confirm time.
+func TestHandleCreateCodeDeployment_SourceURIContainsDeploymentID(t *testing.T) {
+	t.Parallel()
+
+	const projectID = "proj_123"
+	const jobID = "job_abc"
+
+	var capturedURI string
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: projectID}, nil
+		},
+		CreateCodeDeploymentFunc: func(_ context.Context, d *domain.CodeDeployment) error {
+			capturedURI = d.SourceURI
+			return nil
+		},
+	}
+	srv := newTestServerWithObjectStore(t, ms, &mockObjectStore{})
+
+	body := fmt.Sprintf(`{
+		"project_id": %q,
+		"job_id":     %q,
+		"runtime":    "python",
+		"source_hash":        %q,
+		"source_size_bytes":  1024
+	}`, projectID, jobID, strings.Repeat("a", 64))
+
+	req := authedProjectRequest(http.MethodPost, "/v1/jobs/"+jobID+"/deployments", body, projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if capturedURI == "" {
+		t.Fatal("CreateCodeDeployment was not called or URI was not captured")
+	}
+	// The URI must NOT end with ".tar.gz" with an empty segment (empty ID).
+	if strings.Contains(capturedURI, "/.tar.gz") {
+		t.Errorf("source_uri contains empty deployment ID segment: %q", capturedURI)
+	}
+	// The URI must contain a non-empty deployment-ID segment.
+	if strings.HasSuffix(capturedURI, "/deploys/") {
+		t.Errorf("source_uri ends with empty deploys/ segment: %q", capturedURI)
+	}
+}
+
+// TestHandleConfirmCodeDeployment_AtomicTransition verifies that the confirm
+// handler calls ConfirmCodeDeployment (the atomic pending→building update)
+// rather than a two-step read-then-write. Concretely: if ConfirmCodeDeployment
+// returns ErrCodeDeploymentNotFound (simulating a concurrent confirm winning the
+// race) the handler must return 409, not 500.
+func TestHandleConfirmCodeDeployment_AtomicTransition(t *testing.T) {
+	t.Parallel()
+
+	const projectID = "proj_123"
+	const jobID = "job_abc"
+	const deploymentID = "deploy_1"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:        id,
+				JobID:     jobID,
+				ProjectID: projectID,
+				Status:    domain.DeploymentStatusPending,
+				SourceURI: "projects/proj_123/jobs/job_abc/deploys/deploy_1.tar.gz",
+			}, nil
+		},
+		ConfirmCodeDeploymentFunc: func(_ context.Context, _ string) error {
+			return store.ErrCodeDeploymentNotFound
+		},
+	}
+	srv := newTestServerWithObjectStore(t, ms, &mockObjectStore{})
+
+	body := fmt.Sprintf(`{"project_id": %q}`, projectID)
+	req := authedProjectRequest(
+		http.MethodPost,
+		"/v1/jobs/"+jobID+"/deployments/"+deploymentID+"/confirm",
+		body, projectID,
+	)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 when ConfirmCodeDeployment returns not-found (concurrent race), got %d: %s",
+			w.Code, w.Body.String())
+	}
+}
+
+// TestHandleTriggerJob_EmptyBuiltImageURIRejected verifies that triggering a
+// code-first job whose active deployment has an empty BuiltImageURI is rejected
+// before a run is queued. An empty URI would silently queue a run that the
+// executor cannot pull, causing the run to fail only at execution time.
+func TestHandleTriggerJob_EmptyBuiltImageURIRejected(t *testing.T) {
+	t.Parallel()
+
+	const projectID = "proj_123"
+	const jobID = "job_code"
+	const deploymentID = "deploy_ready_but_missing_uri"
+
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:                 id,
+				ProjectID:          projectID,
+				Enabled:            true,
+				SourceType:         domain.SourceTypeCode,
+				ActiveDeploymentID: deploymentID,
+			}, nil
+		},
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:            id,
+				JobID:         jobID,
+				ProjectID:     projectID,
+				Status:        domain.DeploymentStatusReady,
+				BuiltImageURI: "", // deliberately empty
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := authedProjectRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", `{}`, projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code == http.StatusOK {
+		t.Fatalf("expected error for deployment with empty BuiltImageURI, got 200: %s", w.Body.String())
+	}
+	if w.Code != http.StatusInternalServerError {
+		t.Logf("got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // TestHandleListCodeDeployments_CrossTenantIsolation verifies that listing
 // deployments scoped to a different project returns an empty list (not the
 // other project's deployments).

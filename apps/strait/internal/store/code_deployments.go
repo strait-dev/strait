@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 )
 
@@ -30,44 +31,48 @@ func (q *Queries) CreateCodeDeployment(ctx context.Context, d *domain.CodeDeploy
 		d.Status = domain.DeploymentStatusPending
 	}
 
-	// Derive the version number: max(version) + 1 for this job.
-	versionQuery := `
-		SELECT COALESCE(MAX(version), 0) + 1
-		FROM code_deployments
-		WHERE job_id = $1`
-	if err := q.db.QueryRow(ctx, versionQuery, d.JobID).Scan(&d.Version); err != nil {
-		return fmt.Errorf("create code deployment: get next version: %w", err)
-	}
-
 	var createdBy *string
 	if d.CreatedBy != "" {
 		createdBy = &d.CreatedBy
 	}
 
-	query := `
+	// Derive version inline in the INSERT to avoid a TOCTOU gap between a
+	// separate SELECT MAX and the INSERT. The UNIQUE(job_id, version) constraint
+	// catches the rare case where two concurrent inserts compute the same MAX.
+	// Retry once on unique violation — collisions require simultaneous requests.
+	insertQuery := `
 		INSERT INTO code_deployments (
 			id, job_id, project_id, version, status, runtime,
 			source_hash, source_size_bytes, source_uri, created_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING created_at, updated_at`
+		SELECT $1, $2, $3,
+		       COALESCE((SELECT MAX(version) FROM code_deployments WHERE job_id = $2), 0) + 1,
+		       $4, $5, $6, $7, $8, $9
+		RETURNING version, created_at, updated_at`
 
-	err := q.db.QueryRow(ctx, query,
-		d.ID,
-		d.JobID,
-		d.ProjectID,
-		d.Version,
-		string(d.Status),
-		string(d.Runtime),
-		d.SourceHash,
-		d.SourceSizeBytes,
-		d.SourceURI,
-		createdBy,
-	).Scan(&d.CreatedAt, &d.UpdatedAt)
-	if err != nil {
+	for attempt := range 2 {
+		err := q.db.QueryRow(ctx, insertQuery,
+			d.ID,
+			d.JobID,
+			d.ProjectID,
+			string(d.Status),
+			string(d.Runtime),
+			d.SourceHash,
+			d.SourceSizeBytes,
+			d.SourceURI,
+			createdBy,
+		).Scan(&d.Version, &d.CreatedAt, &d.UpdatedAt)
+		if err == nil {
+			return nil
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && attempt == 0 {
+			// Unique violation on (job_id, version) — retry once.
+			continue
+		}
 		return fmt.Errorf("create code deployment: %w", err)
 	}
-	return nil
+	return fmt.Errorf("create code deployment: version conflict after retry")
 }
 
 // GetCodeDeployment fetches a deployment by ID, scoped to the given project.
@@ -210,6 +215,27 @@ func (q *Queries) ListCodeDeployments(ctx context.Context, jobID, projectID stri
 	return result, nil
 }
 
+// ConfirmCodeDeployment atomically transitions a deployment from "pending" to
+// "building" using a single UPDATE WHERE id=$1 AND status='pending'. Returns
+// ErrCodeDeploymentNotFound if the deployment does not exist or is already in a
+// non-pending state, making concurrent confirm calls idempotent-safe.
+func (q *Queries) ConfirmCodeDeployment(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ConfirmCodeDeployment")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx,
+		`UPDATE code_deployments SET status = 'building', updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("confirm code deployment: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrCodeDeploymentNotFound
+	}
+	return nil
+}
+
 // UpdateCodeDeploymentStatus transitions a deployment to a new status and
 // writes optional build output fields (image URI, digest, logs, error).
 // finished_at is set automatically when transitioning to a terminal status.
@@ -235,7 +261,7 @@ func (q *Queries) UpdateCodeDeploymentStatus(ctx context.Context, id string, sta
 		    error_message      = COALESCE($7, error_message)
 		WHERE id = $1`
 
-	_, err := q.db.Exec(ctx, query,
+	tag, err := q.db.Exec(ctx, query,
 		id,
 		string(status),
 		finishedAt,
@@ -246,6 +272,9 @@ func (q *Queries) UpdateCodeDeploymentStatus(ctx context.Context, id string, sta
 	)
 	if err != nil {
 		return fmt.Errorf("update code deployment status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrCodeDeploymentNotFound
 	}
 	return nil
 }
@@ -275,23 +304,34 @@ func (q *Queries) SetActiveDeployment(ctx context.Context, jobID, deploymentID, 
 
 // RollbackToDeployment sets an earlier deployment as the active one.
 // The target deployment must be in "ready" status and belong to the same job + project.
+// The check and update are merged into a single query to eliminate a TOCTOU window
+// where the deployment status could change between the SELECT and the UPDATE.
 func (q *Queries) RollbackToDeployment(ctx context.Context, jobID, deploymentID, projectID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RollbackToDeployment")
 	defer span.End()
 
-	// Verify the target deployment is ready and belongs to this job+project.
-	var count int
-	checkQuery := `
-		SELECT COUNT(1)
-		FROM code_deployments
-		WHERE id = $1 AND job_id = $2 AND project_id = $3 AND status = 'ready'`
-	if err := q.db.QueryRow(ctx, checkQuery, deploymentID, jobID, projectID).Scan(&count); err != nil {
-		return fmt.Errorf("rollback to deployment: verify: %w", err)
+	// Single atomic UPDATE: set active deployment only if the target is ready and
+	// belongs to the correct job+project. Eliminates the TOCTOU race from the
+	// previous SELECT-then-UPDATE pattern.
+	query := `
+		UPDATE jobs
+		SET active_deployment_id = $2,
+		    source_type          = 'code',
+		    updated_at           = NOW()
+		WHERE id = $1
+		  AND project_id = $3
+		  AND EXISTS (
+		      SELECT 1 FROM code_deployments
+		      WHERE id = $2 AND job_id = $1 AND project_id = $3 AND status = 'ready'
+		  )`
+	tag, err := q.db.Exec(ctx, query, jobID, deploymentID, projectID)
+	if err != nil {
+		return fmt.Errorf("rollback to deployment: %w", err)
 	}
-	if count == 0 {
+	if tag.RowsAffected() == 0 {
 		return ErrCodeDeploymentNotFound
 	}
-	return q.SetActiveDeployment(ctx, jobID, deploymentID, projectID)
+	return nil
 }
 
 // ListBuildingDeployments returns up to limit deployments currently in "building"

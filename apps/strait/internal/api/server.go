@@ -295,6 +295,11 @@ type CodeDeploymentStore interface {
 	CreateCodeDeployment(ctx context.Context, d *domain.CodeDeployment) error
 	GetCodeDeployment(ctx context.Context, id, projectID string) (*domain.CodeDeployment, error)
 	ListCodeDeployments(ctx context.Context, jobID, projectID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
+	// ConfirmCodeDeployment atomically transitions the deployment from pending to
+	// building. Returns ErrCodeDeploymentNotFound if the deployment is not found
+	// or is already in a non-pending state. This prevents TOCTOU double-builds
+	// when two concurrent confirm requests race at the handler layer.
+	ConfirmCodeDeployment(ctx context.Context, id string) error
 	UpdateCodeDeploymentStatus(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error
 	SetActiveDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
 	RollbackToDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
