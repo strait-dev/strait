@@ -264,6 +264,17 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", TypedHandler(s, http.StatusOK, s.handleGetJobHealth))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause", TypedHandler(s, http.StatusOK, s.handlePauseJob))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/resume", TypedHandler(s, http.StatusOK, s.handleResumeJob))
+
+				// Code-first deployment routes.
+				r.Route("/deployments", func(r chi.Router) {
+					r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusOK, s.handleCreateCodeDeployment))
+					r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListCodeDeployments))
+					r.Route("/{deploymentID}", func(r chi.Router) {
+						r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetCodeDeployment))
+						r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/confirm", TypedHandler(s, http.StatusOK, s.handleConfirmCodeDeployment))
+						r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/rollback", TypedHandler(s, http.StatusOK, s.handleRollbackCodeDeployment))
+					})
+				})
 			})
 		})
 

@@ -21,6 +21,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/httputil"
+	"strait/internal/objectstore"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/ratelimit"
@@ -60,6 +61,7 @@ type APIStore interface {
 	RunStore
 	WorkflowStore
 	DeploymentStore
+	CodeDeploymentStore
 	EventTriggerStore
 	AuthStore
 	RBACStore
@@ -285,6 +287,17 @@ type WorkflowStore interface {
 	GetActiveCanaryDeployment(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
 	UpdateCanaryDeploymentTraffic(ctx context.Context, workflowID string, trafficPct int) error
 	CompleteCanaryDeployment(ctx context.Context, workflowID, status string) error
+}
+
+// CodeDeploymentStore handles code-first job deployment lifecycle operations.
+// Each deployment corresponds to one `strait deploy` invocation.
+type CodeDeploymentStore interface {
+	CreateCodeDeployment(ctx context.Context, d *domain.CodeDeployment) error
+	GetCodeDeployment(ctx context.Context, id, projectID string) (*domain.CodeDeployment, error)
+	ListCodeDeployments(ctx context.Context, jobID, projectID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
+	UpdateCodeDeploymentStatus(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error
+	SetActiveDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
+	RollbackToDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
 }
 
 // DeploymentStore handles deployment version lifecycle operations.
@@ -523,6 +536,7 @@ type Server struct {
 	startedAt          time.Time
 	cdcWebhookReceiver http.Handler
 	cachedOpenAPISpec  []byte
+	objectStore        objectstore.ObjectStore // Optional: enables code-first deployments.
 
 	// SSE connection limiters to prevent goroutine/connection exhaustion.
 	sseGlobalConns  atomic.Int64
@@ -655,6 +669,7 @@ type ServerDeps struct {
 	Edition            domain.Edition           // Edition controls feature gating (community vs cloud).
 	Version            string                   // Build version (injected via ldflags).
 	CDCWebhookReceiver http.Handler             // Optional: enables CDC webhook push endpoint.
+	ObjectStore        objectstore.ObjectStore  // Optional: enables code-first deployments (tarball storage).
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -708,6 +723,7 @@ func NewServer(deps ServerDeps) *Server {
 		version:            deps.Version,
 		startedAt:          time.Now(),
 		cdcWebhookReceiver: deps.CDCWebhookReceiver,
+		objectStore:        deps.ObjectStore,
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
