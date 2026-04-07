@@ -98,7 +98,12 @@ func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment) (*BuildRe
 	}
 
 	// 3. Ensure the container repository exists and get credentials.
-	repoName := fmt.Sprintf("strait-jobs/%s", d.JobID)
+	//
+	// Repository path includes project_id to enforce strict per-tenant isolation:
+	// two jobs with the same job_id in different projects get separate repositories
+	// and separate BuildKit layer caches. Without the project_id prefix a crafted
+	// job_id could collide with another tenant's path and share cached layers.
+	repoName := registry.JobRepositoryName("", d.ProjectID, d.JobID)
 	repositoryURI, err := b.registry.EnsureRepository(buildCtx, repoName)
 	if err != nil {
 		return nil, fmt.Errorf("ensure repository: %w", err)
@@ -144,6 +149,10 @@ func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment) (*BuildRe
 	}
 
 	if b.cacheEnabled {
+		// Cache key is scoped to the repository path (which already includes
+		// project_id/job_id) so no cross-tenant cache sharing is possible.
+		// Using "mode=max" exports all intermediate layers for maximum cache hit
+		// rate on subsequent builds of the same job.
 		cacheRef := fmt.Sprintf("%s:buildcache", repositoryURI)
 		solveOpt.CacheImports = []bkclient.CacheOptionsEntry{
 			{Type: "registry", Attrs: map[string]string{"ref": cacheRef}},

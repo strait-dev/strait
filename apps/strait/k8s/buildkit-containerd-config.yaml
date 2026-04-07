@@ -1,0 +1,274 @@
+# containerd configuration for SOCI (Seekable OCI) snapshotter on build nodes.
+#
+# SOCI enables lazy image loading: a container can start executing before its
+# full image has been pulled. The index is generated at push time and stored
+# alongside the image manifest in the registry.
+#
+# Without SOCI, a cold-start build on a node that doesn't have the base image
+# cached must wait for the full pull (often 200-800 MB) before the first
+# Dockerfile instruction executes. With SOCI the first layers are available in
+# ~2-5 seconds regardless of image size.
+#
+# How it fits with the pre-pull DaemonSet:
+#   The DaemonSet (buildkit-prepull-daemonset.yaml) keeps warm images on every
+#   node so most builds skip the pull entirely. SOCI is a fallback for new
+#   runtimes, customer-specified base images, or nodes that haven't warmed up yet.
+#
+# Deployment note:
+#   This ConfigMap must be mounted into containerd's config.d directory on
+#   each build node. The DaemonSet below performs that mount at node start-up
+#   by writing the config fragment to the host filesystem via a hostPath volume.
+#   containerd watches config.d and picks up changes without a restart.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: containerd-soci-config
+  namespace: strait-build
+  labels:
+    app.kubernetes.io/component: image-cache
+    app.kubernetes.io/managed-by: argocd
+data:
+  # Fragment appended to /etc/containerd/config.d/ on build nodes.
+  # containerd merges all files in that directory alphabetically.
+  soci.toml: |
+    # SOCI snapshotter plugin — lazy image loading for containerd.
+    # Documentation: https://github.com/awslabs/soci-snapshotter
+    [proxy_plugins]
+      [proxy_plugins.soci]
+        type = "snapshot"
+        address = "/run/soci-snapshotter-grpc/soci-snapshotter-grpc.sock"
+
+    [plugins]
+      [plugins."io.containerd.grpc.v1.cri"]
+        [plugins."io.containerd.grpc.v1.cri".containerd]
+          snapshotter = "soci"
+          disable_snapshot_annotations = false
+---
+# DaemonSet that installs the SOCI containerd config fragment onto build nodes.
+# Runs as an init-only pod: the init container writes the config, then the pause
+# container keeps the pod alive (required for the DaemonSet controller).
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: soci-config-installer
+  namespace: strait-build
+  labels:
+    app: soci-config-installer
+    app.kubernetes.io/component: image-cache
+    app.kubernetes.io/managed-by: argocd
+spec:
+  selector:
+    matchLabels:
+      app: soci-config-installer
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: "50%"
+  template:
+    metadata:
+      labels:
+        app: soci-config-installer
+    spec:
+      # Only run on nodes designated for build workloads.
+      nodeSelector:
+        strait.dev/role: build
+      tolerations:
+        - key: "strait.dev/build-only"
+          operator: "Exists"
+          effect: "NoSchedule"
+      priorityClassName: strait-build-prepull
+      hostPID: false
+      hostNetwork: false
+      securityContext:
+        runAsNonRoot: false  # Must run as root to write to /etc/containerd/config.d
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: install-soci-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /host-containerd-config
+              cp /soci-config/soci.toml /host-containerd-config/soci.toml
+              echo "SOCI config installed at /etc/containerd/config.d/soci.toml"
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - DAC_OVERRIDE  # Required to write to /etc/containerd/config.d
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "8Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"
+          volumeMounts:
+            - name: soci-config
+              mountPath: /soci-config
+              readOnly: true
+            - name: host-containerd-config
+              mountPath: /host-containerd-config
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.9
+          resources:
+            requests:
+              cpu: "1m"
+              memory: "4Mi"
+            limits:
+              cpu: "10m"
+              memory: "16Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: soci-config
+          configMap:
+            name: containerd-soci-config
+            items:
+              - key: soci.toml
+                path: soci.toml
+        - name: host-containerd-config
+          hostPath:
+            path: /etc/containerd/config.d
+            type: DirectoryOrCreate
+---
+# SOCI snapshotter DaemonSet — runs the snapshotter gRPC socket on each build node.
+# containerd proxies snapshot operations to this socket when SOCI index is present.
+#
+# The snapshotter binary is distributed as a container image. It needs:
+#   - Access to the containerd socket (to manage image content)
+#   - A writable socket path at /run/soci-snapshotter-grpc/
+#   - The host's /var/lib/soci-snapshotter-grpc for persistent metadata
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: soci-snapshotter
+  namespace: strait-build
+  labels:
+    app: soci-snapshotter
+    app.kubernetes.io/component: image-cache
+    app.kubernetes.io/managed-by: argocd
+spec:
+  selector:
+    matchLabels:
+      app: soci-snapshotter
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: soci-snapshotter
+    spec:
+      nodeSelector:
+        strait.dev/role: build
+      tolerations:
+        - key: "strait.dev/build-only"
+          operator: "Exists"
+          effect: "NoSchedule"
+      priorityClassName: strait-build-prepull
+      hostPID: false
+      hostNetwork: false
+      securityContext:
+        runAsNonRoot: false  # snapshotter must run as root to access containerd socket
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: soci-snapshotter
+          # See https://github.com/awslabs/soci-snapshotter/releases for current version.
+          image: public.ecr.aws/soci-snapshotter/soci-snapshotter:0.7.0
+          args:
+            - --log-level=info
+          env:
+            - name: SOCI_SNAPSHOTTER_CONFIG
+              value: /etc/soci-snapshotter-grpc/config.toml
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - DAC_OVERRIDE
+                - CHOWN
+                - FOWNER
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: containerd-socket
+              mountPath: /run/containerd/containerd.sock
+            - name: soci-socket-dir
+              mountPath: /run/soci-snapshotter-grpc
+            - name: soci-data
+              mountPath: /var/lib/soci-snapshotter-grpc
+            - name: soci-snapshotter-config
+              mountPath: /etc/soci-snapshotter-grpc
+              readOnly: true
+      volumes:
+        - name: containerd-socket
+          hostPath:
+            path: /run/containerd/containerd.sock
+            type: Socket
+        - name: soci-socket-dir
+          hostPath:
+            path: /run/soci-snapshotter-grpc
+            type: DirectoryOrCreate
+        - name: soci-data
+          hostPath:
+            path: /var/lib/soci-snapshotter-grpc
+            type: DirectoryOrCreate
+        - name: soci-snapshotter-config
+          configMap:
+            name: soci-snapshotter-config
+---
+# Snapshotter process config (separate from the containerd plugin config above).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: soci-snapshotter-config
+  namespace: strait-build
+  labels:
+    app.kubernetes.io/component: image-cache
+    app.kubernetes.io/managed-by: argocd
+data:
+  config.toml: |
+    # SOCI snapshotter process configuration.
+    # See: https://github.com/awslabs/soci-snapshotter/blob/main/docs/configuration.md
+
+    [snapshotter]
+      # Maximum number of concurrent layer fetches per image.
+      max_concurrent_downloads = 4
+
+    [blob]
+      # Check digest of every fetched chunk to detect bit-rot or MITM.
+      check_always = true
+      # How long to keep unused layers before eviction.
+      valid_interval = "24h"
+
+    [background_fetch]
+      # Fetch remaining layers in background after container starts.
+      disable = false
+      # Pause between fetch cycles to limit I/O pressure.
+      fetch_period_msec = 500
+      # Maximum silence window before fetch is considered stalled.
+      silence_period_msec = 30000
+      # Maximum concurrent background fetches across all images.
+      max_concurrent = 2
