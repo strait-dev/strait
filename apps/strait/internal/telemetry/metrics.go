@@ -115,6 +115,7 @@ type Metrics struct {
 	// Notification delivery metrics.
 	NotificationDeliveriesTotal  metric.Int64Counter
 	NotifyProviderCallbacksTotal metric.Int64Counter
+	NotifyCleanupDeletedTotal    metric.Int64Counter
 	NotifyScheduledBacklog       metric.Int64Gauge
 	NotifyDigestRequeuesTotal    metric.Int64Counter
 	NotifyDigestFailuresTotal    metric.Int64Counter
@@ -709,6 +710,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total notify provider callbacks by provider, event type, outcome, and suppression reason"),
 		metric.WithUnit("1"),
 	)
+	notifyCleanupDeletedTotal, _ := meter.Int64Counter(
+		"strait_notify_cleanup_deleted_total",
+		metric.WithDescription("Total notify cleanup deletions by table"),
+		metric.WithUnit("1"),
+	)
 	notifyScheduledBacklog, _ := meter.Int64Gauge(
 		"strait_notify_scheduled_backlog",
 		metric.WithDescription("Number of due scheduled notify messages claimed by dispatcher poll"),
@@ -841,6 +847,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		ClickHouseFlushFailures:      clickhouseFlushFailures,
 		NotificationDeliveriesTotal:  notificationDeliveriesTotal,
 		NotifyProviderCallbacksTotal: notifyProviderCallbacksTotal,
+		NotifyCleanupDeletedTotal:    notifyCleanupDeletedTotal,
 		NotifyScheduledBacklog:       notifyScheduledBacklog,
 		NotifyDigestRequeuesTotal:    notifyDigestRequeuesTotal,
 		NotifyDigestFailuresTotal:    notifyDigestFailuresTotal,

@@ -136,3 +136,39 @@ func TestDeleteNotifyProviderCallbackReceipt(t *testing.T) {
 		}
 	})
 }
+
+func TestDeleteExpiredNotifyProviderCallbackReceipts(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+
+		db := &mockDBTX{
+			execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+				return pgconn.NewCommandTag("DELETE 2"), nil
+			},
+		}
+		q := New(db)
+		deleted, err := q.DeleteExpiredNotifyProviderCallbackReceipts(context.Background(), 100)
+		if err != nil {
+			t.Fatalf("DeleteExpiredNotifyProviderCallbackReceipts() error = %v", err)
+		}
+		if deleted != 2 {
+			t.Fatalf("DeleteExpiredNotifyProviderCallbackReceipts() = %d, want 2", deleted)
+		}
+	})
+
+	t.Run("exec error", func(t *testing.T) {
+		t.Parallel()
+
+		db := &mockDBTX{
+			execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+				return pgconn.CommandTag{}, errors.New("boom")
+			},
+		}
+		q := New(db)
+		if _, err := q.DeleteExpiredNotifyProviderCallbackReceipts(context.Background(), 100); err == nil {
+			t.Fatal("DeleteExpiredNotifyProviderCallbackReceipts() error = nil, want non-nil")
+		}
+	})
+}

@@ -859,9 +859,9 @@ func TestNotifyProviderCallbackReceipt_ConcurrentDedup(t *testing.T) {
 				ctx,
 				"project-notify-callback-concurrent",
 				"provider-1",
-				"resend",
+				"ses",
 				"cb-concurrent",
-				"email.delivered",
+				"delivery",
 				"msg_1",
 				"hash1",
 				time.Now().UTC().Add(24*time.Hour),
@@ -883,6 +883,104 @@ func TestNotifyProviderCallbackReceipt_ConcurrentDedup(t *testing.T) {
 	}
 	if insertedN != 1 {
 		t.Fatalf("RecordNotifyProviderCallbackReceipt(concurrent) inserted count = %d, want 1", insertedN)
+	}
+}
+
+func TestDeleteExpiredNotifyProviderCallbackReceipts(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	if testDB == nil || testDB.Pool == nil {
+		t.Fatal("testDB is not initialized")
+	}
+	mustClean(t, ctx)
+
+	now := time.Now().UTC()
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO notify_provider_callback_receipts (
+			project_id, provider_id, provider, callback_id, event_type, message_id, payload_hash, expires_at
+		)
+		VALUES
+			('project-cleanup', 'provider-1', 'ses', 'cb-expired', 'delivery', 'msg-1', 'h1', $1),
+			('project-cleanup', 'provider-1', 'ses', 'cb-future', 'delivery', 'msg-2', 'h2', $2)
+	`, now.Add(-time.Hour), now.Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("insert callback receipts: %v", err)
+	}
+
+	deleted, err := q.DeleteExpiredNotifyProviderCallbackReceipts(ctx, 100)
+	if err != nil {
+		t.Fatalf("DeleteExpiredNotifyProviderCallbackReceipts() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("DeleteExpiredNotifyProviderCallbackReceipts() = %d, want 1", deleted)
+	}
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM notify_provider_callback_receipts WHERE callback_id = 'cb-future'`).Scan(&count); err != nil {
+		t.Fatalf("count remaining callback receipts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("remaining callback receipts = %d, want 1", count)
+	}
+}
+
+func TestDeleteOldNotifySuppressionEvents(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	recipientID := "sub-cleanup"
+	for i := 0; i < 2; i++ {
+		event := &domain.NotifySuppressionEvent{
+			ProjectID:     "project-cleanup",
+			RecipientType: domain.NotifyRecipientTypeSubscriber,
+			RecipientID:   recipientID,
+			Scope:         "global",
+			Channel:       "email",
+			Action:        domain.NotifySuppressionActionSuppressed,
+			Reason:        "provider_callback:ses.bounce",
+			Source:        domain.NotifySuppressionSourceProviderCallback,
+			Metadata:      []byte(`{"i":1}`),
+		}
+		if err := q.CreateNotifySuppressionEvent(ctx, event); err != nil {
+			t.Fatalf("CreateNotifySuppressionEvent(%d) error = %v", i, err)
+		}
+	}
+
+	if testDB == nil || testDB.Pool == nil {
+		t.Fatal("testDB is not initialized")
+	}
+	_, err := testDB.Pool.Exec(ctx, `
+		UPDATE notify_suppression_events
+		SET created_at = CASE
+			WHEN id = (
+				SELECT id FROM notify_suppression_events
+				WHERE project_id = 'project-cleanup'
+				ORDER BY created_at ASC
+				LIMIT 1
+			) THEN NOW() - INTERVAL '48 hours'
+			ELSE NOW() - INTERVAL '1 hour'
+		END
+		WHERE project_id = 'project-cleanup'
+	`)
+	if err != nil {
+		t.Fatalf("update suppression event timestamps: %v", err)
+	}
+
+	deleted, err := q.DeleteOldNotifySuppressionEvents(ctx, time.Now().UTC().Add(-24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("DeleteOldNotifySuppressionEvents() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("DeleteOldNotifySuppressionEvents() = %d, want 1", deleted)
+	}
+
+	events, err := q.ListNotifySuppressionEvents(ctx, "project-cleanup", domain.NotifyRecipientTypeSubscriber, recipientID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListNotifySuppressionEvents() error = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("remaining suppression events = %d, want 1", len(events))
 	}
 }
 

@@ -1254,6 +1254,68 @@ func TestLoad_NotifySESFeedbackValidation(t *testing.T) {
 	})
 }
 
+func TestLoad_NotifyCleanupValidation(t *testing.T) {
+	t.Run("invalid cleanup interval", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("NOTIFY_CLEANUP_INTERVAL", "0s")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid NOTIFY_CLEANUP_INTERVAL")
+		}
+		if !strings.Contains(err.Error(), "NOTIFY_CLEANUP_INTERVAL") {
+			t.Fatalf("error = %q, want NOTIFY_CLEANUP_INTERVAL", err.Error())
+		}
+	})
+
+	t.Run("invalid cleanup batch size", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("NOTIFY_CLEANUP_BATCH_SIZE", "0")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid NOTIFY_CLEANUP_BATCH_SIZE")
+		}
+		if !strings.Contains(err.Error(), "NOTIFY_CLEANUP_BATCH_SIZE") {
+			t.Fatalf("error = %q, want NOTIFY_CLEANUP_BATCH_SIZE", err.Error())
+		}
+	})
+
+	t.Run("invalid suppression retention", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("NOTIFY_SUPPRESSION_EVENT_RETENTION", "0s")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected error for invalid NOTIFY_SUPPRESSION_EVENT_RETENTION")
+		}
+		if !strings.Contains(err.Error(), "NOTIFY_SUPPRESSION_EVENT_RETENTION") {
+			t.Fatalf("error = %q, want NOTIFY_SUPPRESSION_EVENT_RETENTION", err.Error())
+		}
+	})
+
+	t.Run("valid cleanup settings", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("NOTIFY_CLEANUP_INTERVAL", "15m")
+		t.Setenv("NOTIFY_CLEANUP_BATCH_SIZE", "500")
+		t.Setenv("NOTIFY_SUPPRESSION_EVENT_RETENTION", "336h")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg.NotifyCleanupInterval != 15*time.Minute {
+			t.Fatalf("NotifyCleanupInterval = %v, want 15m", cfg.NotifyCleanupInterval)
+		}
+		if cfg.NotifyCleanupBatchSize != 500 {
+			t.Fatalf("NotifyCleanupBatchSize = %d, want 500", cfg.NotifyCleanupBatchSize)
+		}
+		if cfg.NotifySuppressionEventRetention != 336*time.Hour {
+			t.Fatalf("NotifySuppressionEventRetention = %v, want 336h", cfg.NotifySuppressionEventRetention)
+		}
+	})
+}
+
 func TestLoad_NotifyEmailProviderValidation(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("NOTIFY_EMAIL_PROVIDER", "mailgun")

@@ -52,6 +52,7 @@ type Scheduler struct {
 	contractExpiryChecker    *ContractExpiryChecker
 	notifyDispatcher         *NotifyDispatcher
 	notifySESFeedback        *NotifySESFeedbackConsumer
+	notifyCleanup            *NotifyCleanup
 	wg                       conc.WaitGroup
 }
 
@@ -109,6 +110,14 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			sched.notifySESFeedback = feedback
 		}
 	}
+	if cleanupStore, ok := any(s).(notifyCleanupStore); ok {
+		sched.notifyCleanup = NewNotifyCleanup(
+			cleanupStore,
+			cfg.NotifyCleanupInterval,
+			cfg.NotifySuppressionEventRetention,
+			cfg.NotifyCleanupBatchSize,
+		)
+	}
 	for _, opt := range opts {
 		opt(sched)
 	}
@@ -127,6 +136,9 @@ func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 		}
 		if s.notifySESFeedback != nil {
 			s.notifySESFeedback.WithMetrics(m)
+		}
+		if s.notifyCleanup != nil {
+			s.notifyCleanup.WithMetrics(m)
 		}
 	}
 }
@@ -260,6 +272,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.notifySESFeedback != nil {
 		safeGo(&s.wg, "notify_ses_feedback", func() { s.notifySESFeedback.Run(ctx) })
+	}
+	if s.notifyCleanup != nil {
+		safeGo(&s.wg, "notify_cleanup", func() { s.notifyCleanup.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

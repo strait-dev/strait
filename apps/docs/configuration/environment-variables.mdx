@@ -41,6 +41,9 @@ This page documents all environment variables available for configuring Strait.
 | `NOTIFY_SES_FEEDBACK_WAIT_TIME_SECONDS` | Integer | `10` | SQS long-poll wait time for SES feedback receive calls (0-20). |
 | `NOTIFY_SES_FEEDBACK_MAX_MESSAGES` | Integer | `10` | Maximum SQS feedback messages read per receive call (1-10). |
 | `NOTIFY_SES_FEEDBACK_VISIBILITY_TIMEOUT_SECONDS` | Integer | `120` | SQS visibility timeout for SES feedback messages while processing. |
+| `NOTIFY_CLEANUP_INTERVAL` | Duration | `30m` | Interval for notify retention cleanup (expired callback receipts, old suppression events). |
+| `NOTIFY_CLEANUP_BATCH_SIZE` | Integer | `1000` | Maximum rows deleted per cleanup batch for notify retention loops. |
+| `NOTIFY_SUPPRESSION_EVENT_RETENTION` | Duration | `720h` | Retention window for notify suppression events before cleanup removes old rows. |
 | `LOG_LEVEL` | String | `info` | Logging verbosity: `debug`, `info`, `warn`, `error`. |
 | `SECRET_ENCRYPTION_KEY` | String | - | Key used to encrypt job secrets. Required when using secret injection. |
 | `ENCRYPTION_KEY` | String | - | Key used for data encryption at rest. Should be unique per environment. |

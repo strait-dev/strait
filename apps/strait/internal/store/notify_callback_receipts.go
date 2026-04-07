@@ -72,3 +72,28 @@ func (q *Queries) DeleteNotifyProviderCallbackReceipt(ctx context.Context, proje
 
 	return nil
 }
+
+func (q *Queries) DeleteExpiredNotifyProviderCallbackReceipts(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteExpiredNotifyProviderCallbackReceipts")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	tag, err := q.db.Exec(ctx, `
+		DELETE FROM notify_provider_callback_receipts
+		WHERE ctid IN (
+			SELECT ctid
+			FROM notify_provider_callback_receipts
+			WHERE expires_at <= NOW()
+			ORDER BY expires_at ASC
+			LIMIT $1
+		)
+	`, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired notify provider callback receipts: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}

@@ -137,6 +137,34 @@ func (q *Queries) GetLatestNotifySuppressionEvent(ctx context.Context, projectID
 	return event, nil
 }
 
+func (q *Queries) DeleteOldNotifySuppressionEvents(ctx context.Context, before time.Time, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteOldNotifySuppressionEvents")
+	defer span.End()
+
+	if before.IsZero() {
+		before = time.Now().UTC().Add(-30 * 24 * time.Hour)
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	tag, err := q.db.Exec(ctx, `
+		DELETE FROM notify_suppression_events
+		WHERE ctid IN (
+			SELECT ctid
+			FROM notify_suppression_events
+			WHERE created_at < $1
+			ORDER BY created_at ASC
+			LIMIT $2
+		)
+	`, before, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete old notify suppression events: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}
+
 func scanNotifySuppressionEvent(scanner scanTarget) (*domain.NotifySuppressionEvent, error) {
 	var event domain.NotifySuppressionEvent
 	var reason *string

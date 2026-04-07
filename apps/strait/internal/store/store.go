@@ -426,6 +426,7 @@ type NotifyStore interface {
 	CreateNotifySuppressionEvent(ctx context.Context, event *domain.NotifySuppressionEvent) error
 	ListNotifySuppressionEvents(ctx context.Context, projectID, recipientType, recipientID string, limit int, cursor *time.Time) ([]domain.NotifySuppressionEvent, error)
 	GetLatestNotifySuppressionEvent(ctx context.Context, projectID, recipientType, recipientID, scope, channel string) (*domain.NotifySuppressionEvent, error)
+	DeleteOldNotifySuppressionEvents(ctx context.Context, before time.Time, limit int) (int64, error)
 	UpsertNotifyPolicyOverride(ctx context.Context, policy *domain.NotifyPolicyOverride) error
 	GetNotifyPolicyOverride(ctx context.Context, id, projectID string) (*domain.NotifyPolicyOverride, error)
 	ListNotifyPolicyOverrides(ctx context.Context, projectID string, scopeType *string) ([]domain.NotifyPolicyOverride, error)
@@ -439,6 +440,7 @@ type NotifyStore interface {
 	UpdateNotificationMessageStatus(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error
 	RecordNotifyProviderCallbackReceipt(ctx context.Context, projectID, providerID, provider, callbackID, eventType, messageID, payloadHash string, expiresAt time.Time) (bool, error)
 	DeleteNotifyProviderCallbackReceipt(ctx context.Context, projectID, providerID, callbackID string) error
+	DeleteExpiredNotifyProviderCallbackReceipts(ctx context.Context, limit int) (int64, error)
 	CreateInboxItem(ctx context.Context, item *domain.InboxItem) error
 	GetInboxItem(ctx context.Context, id, recipientType, recipientID string) (*domain.InboxItem, error)
 	ListInboxItems(ctx context.Context, recipientType, recipientID string, state *string, limit int, cursor *time.Time) ([]domain.InboxItem, error)

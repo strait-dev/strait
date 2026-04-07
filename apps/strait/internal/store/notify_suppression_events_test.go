@@ -138,6 +138,42 @@ func TestGetLatestNotifySuppressionEvent(t *testing.T) {
 	})
 }
 
+func TestDeleteOldNotifySuppressionEvents(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+
+		db := &mockDBTX{
+			execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+				return pgconn.NewCommandTag("DELETE 3"), nil
+			},
+		}
+		q := New(db)
+		deleted, err := q.DeleteOldNotifySuppressionEvents(context.Background(), time.Now().UTC().Add(-24*time.Hour), 100)
+		if err != nil {
+			t.Fatalf("DeleteOldNotifySuppressionEvents() error = %v", err)
+		}
+		if deleted != 3 {
+			t.Fatalf("DeleteOldNotifySuppressionEvents() = %d, want 3", deleted)
+		}
+	})
+
+	t.Run("exec error", func(t *testing.T) {
+		t.Parallel()
+
+		db := &mockDBTX{
+			execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+				return pgconn.CommandTag{}, errors.New("boom")
+			},
+		}
+		q := New(db)
+		if _, err := q.DeleteOldNotifySuppressionEvents(context.Background(), time.Now().UTC().Add(-24*time.Hour), 100); err == nil {
+			t.Fatal("DeleteOldNotifySuppressionEvents() error = nil, want non-nil")
+		}
+	})
+}
+
 func TestEnableNotificationChannelPreference_QueryError(t *testing.T) {
 	t.Parallel()
 

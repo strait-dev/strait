@@ -134,6 +134,9 @@ type Config struct {
 	NotifySESFeedbackWaitTimeSeconds          int32         `env:"NOTIFY_SES_FEEDBACK_WAIT_TIME_SECONDS" default:"10"`
 	NotifySESFeedbackMaxMessages              int32         `env:"NOTIFY_SES_FEEDBACK_MAX_MESSAGES" default:"10"`
 	NotifySESFeedbackVisibilityTimeoutSeconds int32         `env:"NOTIFY_SES_FEEDBACK_VISIBILITY_TIMEOUT_SECONDS" default:"120"`
+	NotifyCleanupInterval                     time.Duration `env:"NOTIFY_CLEANUP_INTERVAL" default:"30m"`
+	NotifyCleanupBatchSize                    int           `env:"NOTIFY_CLEANUP_BATCH_SIZE" default:"1000"`
+	NotifySuppressionEventRetention           time.Duration `env:"NOTIFY_SUPPRESSION_EVENT_RETENTION" default:"720h"`
 
 	// Workflow settings
 	MaxWorkflowNestingDepth int `env:"MAX_WORKFLOW_NESTING_DEPTH" default:"10"`
@@ -463,6 +466,15 @@ func validateNotifyConfig(cfg *Config) error {
 	}
 	if cfg.NotifySESFeedbackVisibilityTimeoutSeconds < 1 || cfg.NotifySESFeedbackVisibilityTimeoutSeconds > 43200 {
 		return &domain.ConfigError{Field: "NOTIFY_SES_FEEDBACK_VISIBILITY_TIMEOUT_SECONDS", Message: "must be between 1 and 43200"}
+	}
+	if cfg.NotifyCleanupInterval <= 0 {
+		return &domain.ConfigError{Field: "NOTIFY_CLEANUP_INTERVAL", Message: "must be > 0"}
+	}
+	if cfg.NotifyCleanupBatchSize < 1 {
+		return &domain.ConfigError{Field: "NOTIFY_CLEANUP_BATCH_SIZE", Message: "must be >= 1"}
+	}
+	if cfg.NotifySuppressionEventRetention <= 0 {
+		return &domain.ConfigError{Field: "NOTIFY_SUPPRESSION_EVENT_RETENTION", Message: "must be > 0"}
 	}
 	if strings.EqualFold(cfg.NotifyEmailProvider, "ses") && strings.TrimSpace(cfg.NotifySESFeedbackSQSURL) == "" {
 		slog.Warn("NOTIFY_SES_FEEDBACK_SQS_URL is not set; SES bounce/complaint feedback ingestion is disabled")
