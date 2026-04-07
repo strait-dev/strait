@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -231,21 +232,102 @@ func TestValidateTarball_TarErrorMessage(t *testing.T) {
 }
 
 // FuzzValidateTarball is a fuzz target for the tarball validator.
-// It ensures that no input causes a panic or infinite loop.
+// Properties under test:
+//  1. Never panics regardless of input.
+//  2. Any non-nil error returned is a *TarballError — no raw I/O or other
+//     unexported error types must escape the function.
 func FuzzValidateTarball(f *testing.F) {
-	// Seed with a valid tarball built without a *testing.T (fuzz setup phase).
+	// Seed: valid single-file archive.
 	f.Add(makeTarball(nil, []struct{ name, content string }{
 		{"main.py", "print('hello')"},
 	}))
-	// Seed with a truncated gzip header.
+	// Seed: multi-file archive with a subdirectory.
+	f.Add(makeTarball(nil, []struct{ name, content string }{
+		{"src/", ""},
+		{"src/handler.py", "def handler(): pass"},
+		{"requirements.txt", "requests==2.31.0\n"},
+	}))
+	// Seed: safe symlink.
+	f.Add(makeTarball(nil, []struct{ name, content string }{
+		{"real.py", "x=1"},
+		{"link.py", "SYMLINK:real.py"},
+	}))
+	// Seed: path traversal entry — must be rejected.
+	f.Add(makeRawTarball([]struct {
+		name, content, linkname string
+		typeflag                byte
+	}{
+		{name: "../etc/passwd", content: "root:x:0:0", typeflag: tar.TypeReg},
+	}))
+	// Seed: symlink escaping the root — must be rejected.
+	f.Add(makeRawTarball([]struct {
+		name, content, linkname string
+		typeflag                byte
+	}{
+		{name: "escape.py", typeflag: tar.TypeSymlink, linkname: "../../etc/passwd"},
+	}))
+	// Seed: absolute path — must be rejected.
+	f.Add(makeRawTarball([]struct {
+		name, content, linkname string
+		typeflag                byte
+	}{
+		{name: "/etc/cron.d/evil", content: "* * * * * root id", typeflag: tar.TypeReg},
+	}))
+	// Seed: truncated gzip header.
 	f.Add([]byte{0x1f, 0x8b, 0x08, 0x00})
-	// Seed with empty input.
+	// Seed: empty input.
 	f.Add([]byte{})
-	// Seed with random bytes.
+	// Seed: random bytes (not valid gzip).
 	f.Add([]byte("this is not a valid gzip archive at all"))
+	// Seed: valid gzip wrapping invalid tar data.
+	f.Add(makeGzipPayload([]byte("definitely not a tar stream")))
 
-	f.Fuzz(func(_ *testing.T, data []byte) {
-		// Must never panic; errors are acceptable.
-		_ = ValidateTarball(bytes.NewReader(data))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		err := ValidateTarball(bytes.NewReader(data))
+		if err == nil {
+			return // safe archive — fine
+		}
+		// All errors must be *TarballError; no raw errors must escape.
+		var tarErr *TarballError
+		if !errors.As(err, &tarErr) {
+			t.Errorf("ValidateTarball returned non-TarballError %T: %v", err, err)
+		}
 	})
+}
+
+// makeRawTarball creates a gzipped tar from raw entry descriptors, bypassing
+// the high-level sentinel system so we can set arbitrary Typeflag values.
+func makeRawTarball(entries []struct {
+	name, content, linkname string
+	typeflag                byte
+}) []byte {
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+	for _, e := range entries {
+		body := []byte(e.content)
+		hdr := &tar.Header{
+			Name:     e.name,
+			Typeflag: e.typeflag,
+			Linkname: e.linkname,
+			Size:     int64(len(body)),
+			Mode:     0o644,
+		}
+		_ = tw.WriteHeader(hdr)
+		if len(body) > 0 {
+			_, _ = tw.Write(body)
+		}
+	}
+	_ = tw.Close()
+	_ = gw.Close()
+	return buf.Bytes()
+}
+
+// makeGzipPayload compresses arbitrary payload bytes into a gzip stream.
+func makeGzipPayload(payload []byte) []byte {
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	_, _ = gw.Write(payload)
+	_ = gw.Close()
+	return buf.Bytes()
 }

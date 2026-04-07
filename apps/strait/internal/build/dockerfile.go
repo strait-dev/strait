@@ -3,6 +3,8 @@ package build
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"text/template"
 
 	"strait/internal/domain"
@@ -40,6 +42,19 @@ func GenerateDockerfile(spec DockerfileSpec) (string, error) {
 		spec.DepsFile = DefaultDepsFile(spec.Runtime)
 	}
 
+	// Reject control characters in fields that are interpolated directly into
+	// the Dockerfile template; a newline in any of these values would split the
+	// instruction and allow injecting arbitrary Dockerfile directives.
+	if err := validateDockerfileField("base_image", spec.BaseImage); err != nil {
+		return "", err
+	}
+	if err := validateDockerfileField("job_slug", spec.JobSlug); err != nil {
+		return "", err
+	}
+	if err := validateDockerfileDepsFile(spec.DepsFile); err != nil {
+		return "", err
+	}
+
 	tmplSrc, ok := dockerfileTemplates[spec.Runtime]
 	if !ok {
 		return "", fmt.Errorf("build: no Dockerfile template for runtime %q", spec.Runtime)
@@ -55,6 +70,31 @@ func GenerateDockerfile(spec DockerfileSpec) (string, error) {
 		return "", fmt.Errorf("build: execute dockerfile template: %w", err)
 	}
 	return buf.String(), nil
+}
+
+// validateDockerfileField rejects values that contain characters which could
+// inject additional Dockerfile instructions when interpolated by text/template.
+// Newlines, carriage returns and null bytes are all disallowed.
+func validateDockerfileField(field, value string) error {
+	for i, ch := range value {
+		if ch == '\n' || ch == '\r' || ch == 0 {
+			return fmt.Errorf("build: %s contains disallowed control character at byte %d", field, i)
+		}
+	}
+	return nil
+}
+
+// validateDockerfileDepsFile additionally rejects path traversal and absolute
+// paths so the COPY instruction cannot reference files outside the build context.
+func validateDockerfileDepsFile(value string) error {
+	if err := validateDockerfileField("deps_file", value); err != nil {
+		return err
+	}
+	cleaned := filepath.Clean(value)
+	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+		return fmt.Errorf("build: deps_file %q attempts path traversal or uses an absolute path", value)
+	}
+	return nil
 }
 
 // DefaultBaseImage returns the canonical base image URI for a runtime.
