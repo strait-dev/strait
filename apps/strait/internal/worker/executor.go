@@ -401,7 +401,7 @@ func (e *Executor) Run(ctx context.Context) {
 	// Create a child context that cancels when either the parent context
 	// is canceled or Shutdown closes e.stop, so all background goroutines
 	// (heartbeat, pool pruner) exit promptly in both cases.
-	runCtx, runCancel := context.WithCancel(ctx)
+	runCtx, runCancel := context.WithCancel(ctx) //nolint:gosec,nolintlint // G118: runCancel is called inside the defer below; must be before pollWG.Wait to avoid deadlock
 
 	defer func() {
 		runCancel() // Cancel context first so heartbeat and other goroutines exit.
