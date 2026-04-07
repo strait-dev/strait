@@ -172,6 +172,74 @@ sum(rate(strait_notify_provider_callbacks_total{provider="ses"}[5m])) by (event_
 go run ./scripts/notify-ses-feedback-check --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL"
 ```
 
+## SES Callback Drilldown Query Pack
+
+Use these during incidents to isolate whether the issue is parser-path, state-transition, or recipient-quality related.
+
+### PromQL
+
+```promql
+# Outcome split (primary signal)
+sum(rate(strait_notify_provider_callbacks_total{provider="ses"}[5m])) by (outcome)
+```
+
+```promql
+# Event type split (delivery vs bounce vs complaint)
+sum(rate(strait_notify_provider_callbacks_total{provider="ses"}[5m])) by (event_type)
+```
+
+```promql
+# Processing failures only
+sum(rate(strait_notify_provider_callbacks_total{provider="ses",outcome=~".*_error|malformed"}[5m])) by (outcome)
+```
+
+```promql
+# Duplicate callback ratio
+100 * sum(rate(strait_notify_provider_callbacks_total{provider="ses",outcome="duplicate"}[5m]))
+  / clamp_min(sum(rate(strait_notify_provider_callbacks_total{provider="ses"}[5m])), 0.0001)
+```
+
+```promql
+# Bounce/complaint ratio among status-changing callbacks
+100 * sum(rate(strait_notify_provider_callbacks_total{provider="ses",suppression_reason=~"provider_callback:ses.bounce|provider_callback:ses.complaint",outcome=~"status_updated|status_skipped"}[5m]))
+  / clamp_min(sum(rate(strait_notify_provider_callbacks_total{provider="ses",outcome=~"status_updated|status_skipped"}[5m])), 0.0001)
+```
+
+### SQL (PostgreSQL)
+
+```sql
+-- callback receipts by event_type in last 6h
+SELECT COALESCE(NULLIF(event_type, ''), 'unknown') AS event_type, COUNT(*)
+FROM notify_provider_callback_receipts
+WHERE provider = 'ses'
+  AND created_at >= NOW() - interval '6 hours'
+GROUP BY event_type
+ORDER BY COUNT(*) DESC;
+```
+
+```sql
+-- SES suppression reasons in last 6h
+SELECT COALESCE(NULLIF(reason, ''), 'unknown') AS reason, COUNT(*)
+FROM notify_suppression_events
+WHERE source = 'provider_callback'
+  AND channel = 'email'
+  AND action = 'suppressed'
+  AND reason LIKE 'provider_callback:ses.%'
+  AND created_at >= NOW() - interval '6 hours'
+GROUP BY reason
+ORDER BY COUNT(*) DESC;
+```
+
+```sql
+-- email message status distribution in last 6h
+SELECT status, COUNT(*)
+FROM notification_messages
+WHERE channel = 'email'
+  AND created_at >= NOW() - interval '6 hours'
+GROUP BY status
+ORDER BY COUNT(*) DESC;
+```
+
 ## Safe Remediation Steps
 
 Prefer API remediation first:

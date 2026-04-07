@@ -117,3 +117,5 @@ Use the monitoring assets in `packages/monitoring/` as a baseline:
 
 - SES feedback queue + callback/suppression snapshot:
   - `cd apps/strait && go run ./scripts/notify-ses-feedback-check --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL" --database-url "$DATABASE_URL"`
+- SES callback drilldown query pack:
+  - use the **SES Callback Drilldown Query Pack** section in [Notify Digest & Escalation Runbook](/operations/notify-digest-escalation-runbook)
