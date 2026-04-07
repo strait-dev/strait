@@ -309,6 +309,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 						DeploymentID:      deploymentID,
 						PinnedImageURI:    pinnedImageURI,
 						PinnedImageDigest: pinnedImageDigest,
+						IsRollback:        job.RollbackSourceDeploymentID != "",
 					}
 					if enqErr := s.queue.Enqueue(ctx, batchRun); enqErr != nil {
 						slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
@@ -396,6 +397,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		DeploymentID:      deploymentID,
 		PinnedImageURI:    pinnedImageURI,
 		PinnedImageDigest: pinnedImageDigest,
+		IsRollback:        job.RollbackSourceDeploymentID != "",
 	}
 	if dependencyKey != "" {
 		run.Metadata = map[string]string{"dependency_key": dependencyKey}

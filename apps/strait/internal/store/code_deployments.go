@@ -292,11 +292,14 @@ func (q *Queries) SetActiveDeployment(ctx context.Context, jobID, deploymentID, 
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetActiveDeployment")
 	defer span.End()
 
+	// Clear rollback_source_deployment_id: a fresh successful build supersedes any
+	// previous rollback, so the next run should not be flagged as a rollback run.
 	query := `
 		UPDATE jobs
-		SET active_deployment_id = $2,
-		    source_type          = 'code',
-		    updated_at           = NOW()
+		SET active_deployment_id          = $2,
+		    rollback_source_deployment_id = NULL,
+		    source_type                   = 'code',
+		    updated_at                    = NOW()
 		WHERE id = $1 AND project_id = $3`
 
 	tag, err := q.db.Exec(ctx, query, jobID, deploymentID, projectID)
@@ -318,13 +321,15 @@ func (q *Queries) RollbackToDeployment(ctx context.Context, jobID, deploymentID,
 	defer span.End()
 
 	// Single atomic UPDATE: set active deployment only if the target is ready and
-	// belongs to the correct job+project. Eliminates the TOCTOU race from the
-	// previous SELECT-then-UPDATE pattern.
+	// belongs to the correct job+project. Saves the displaced deployment as
+	// rollback_source_deployment_id so callers (trigger.go) can mark new runs
+	// with is_rollback=true.
 	query := `
 		UPDATE jobs
-		SET active_deployment_id = $2,
-		    source_type          = 'code',
-		    updated_at           = NOW()
+		SET active_deployment_id            = $2,
+		    rollback_source_deployment_id   = active_deployment_id,
+		    source_type                     = 'code',
+		    updated_at                      = NOW()
 		WHERE id = $1
 		  AND project_id = $3
 		  AND EXISTS (

@@ -464,3 +464,106 @@ func TestDeleteExpiredDeployments_PreservesRecentPending(t *testing.T) {
 		t.Errorf("expected %s, got %s", d.ID, got.ID)
 	}
 }
+
+// TestRollbackSetsRollbackSourceDeploymentID verifies that RollbackToDeployment
+// stores the previous active deployment in rollback_source_deployment_id.
+func TestRollbackSetsRollbackSourceDeploymentID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-rollback-meta-" + newID()
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	// Create two ready deployments: d1 (first) and d2 (second).
+	d1 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
+	d2 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
+
+	// Set d2 as the active deployment.
+	if err := q.SetActiveDeployment(ctx, job.ID, d2.ID, projectID); err != nil {
+		t.Fatalf("SetActiveDeployment(d2): %v", err)
+	}
+
+	// Roll back to d1. This should set rollback_source_deployment_id = d2.ID.
+	if err := q.RollbackToDeployment(ctx, job.ID, d1.ID, projectID); err != nil {
+		t.Fatalf("RollbackToDeployment: %v", err)
+	}
+
+	updatedJob, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob after rollback: %v", err)
+	}
+	if updatedJob.ActiveDeploymentID != d1.ID {
+		t.Errorf("active_deployment_id = %q, want %q", updatedJob.ActiveDeploymentID, d1.ID)
+	}
+	if updatedJob.RollbackSourceDeploymentID != d2.ID {
+		t.Errorf("rollback_source_deployment_id = %q, want %q", updatedJob.RollbackSourceDeploymentID, d2.ID)
+	}
+}
+
+// TestNewBuildClearsRollbackFlag verifies that SetActiveDeployment (called after
+// a successful new build) clears rollback_source_deployment_id.
+func TestNewBuildClearsRollbackFlag(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-rollback-clear-" + newID()
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	d1 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
+	d2 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
+	d3 := mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
+
+	// Promote d2, then roll back to d1.
+	if err := q.SetActiveDeployment(ctx, job.ID, d2.ID, projectID); err != nil {
+		t.Fatalf("SetActiveDeployment(d2): %v", err)
+	}
+	if err := q.RollbackToDeployment(ctx, job.ID, d1.ID, projectID); err != nil {
+		t.Fatalf("RollbackToDeployment: %v", err)
+	}
+
+	// Verify rollback flag is set.
+	afterRollback, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if afterRollback.RollbackSourceDeploymentID == "" {
+		t.Fatal("expected rollback_source_deployment_id to be set after rollback")
+	}
+
+	// Now promote a new deployment (d3). rollback_source_deployment_id should be cleared.
+	if err := q.SetActiveDeployment(ctx, job.ID, d3.ID, projectID); err != nil {
+		t.Fatalf("SetActiveDeployment(d3): %v", err)
+	}
+
+	afterNewBuild, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob after new build: %v", err)
+	}
+	if afterNewBuild.RollbackSourceDeploymentID != "" {
+		t.Errorf("rollback_source_deployment_id should be cleared after new build, got %q", afterNewBuild.RollbackSourceDeploymentID)
+	}
+	if afterNewBuild.ActiveDeploymentID != d3.ID {
+		t.Errorf("active_deployment_id = %q, want %q", afterNewBuild.ActiveDeploymentID, d3.ID)
+	}
+}
+
+// mustCreateReadyDeployment is a test helper that creates a code deployment and
+// advances it to the "ready" status with a fake built image URI.
+func mustCreateReadyDeployment(t *testing.T, ctx context.Context, q *store.Queries, jobID, projectID string) *domain.CodeDeployment {
+	t.Helper()
+	d := mustCreateDeployment(t, ctx, q, jobID, projectID)
+	if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+		t.Fatalf("mustCreateReadyDeployment: ConfirmCodeDeployment: %v", err)
+	}
+	imageURI := "registry.example.com/image:" + newID()
+	if err := q.UpdateCodeDeploymentStatus(ctx, d.ID, domain.DeploymentStatusReady, map[string]any{"built_image_uri": imageURI}); err != nil {
+		t.Fatalf("mustCreateReadyDeployment: UpdateCodeDeploymentStatus(ready): %v", err)
+	}
+	d.Status = domain.DeploymentStatusReady
+	d.BuiltImageURI = imageURI
+	return d
+}

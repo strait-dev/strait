@@ -324,10 +324,13 @@ type Job struct {
 	SourceType         SourceType `json:"source_type,omitempty"`
 	RuntimeType        Runtime    `json:"runtime,omitempty"`
 	ActiveDeploymentID string     `json:"active_deployment_id,omitempty"`
-	CreatedBy          string     `json:"created_by,omitempty"`
-	UpdatedBy          string     `json:"updated_by,omitempty"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	// RollbackSourceDeploymentID is the deployment that was active before the most
+	// recent rollback operation. It is cleared when a new code build succeeds.
+	RollbackSourceDeploymentID string    `json:"rollback_source_deployment_id,omitempty"`
+	CreatedBy                  string    `json:"created_by,omitempty"`
+	UpdatedBy                  string    `json:"updated_by,omitempty"`
+	CreatedAt                  time.Time `json:"created_at"`
+	UpdatedAt                  time.Time `json:"updated_at"`
 }
 
 // DebouncePending represents a pending debounced trigger waiting to fire.
@@ -476,10 +479,13 @@ type JobRun struct {
 	// Code-first deployment: populated at queue time when job.SourceType == "code".
 	// Pinning the image digest ensures retries and workflow steps always use the
 	// same image even if a new deployment lands between attempts.
-	DeploymentID      string    `json:"deployment_id,omitempty"`
-	PinnedImageURI    string    `json:"pinned_image_uri,omitempty"`
-	PinnedImageDigest string    `json:"pinned_image_digest,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
+	DeploymentID      string `json:"deployment_id,omitempty"`
+	PinnedImageURI    string `json:"pinned_image_uri,omitempty"`
+	PinnedImageDigest string `json:"pinned_image_digest,omitempty"`
+	// IsRollback is true when this run was created after a RollbackToDeployment
+	// call, meaning the job is using an older deployment rather than the latest build.
+	IsRollback bool      `json:"is_rollback,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type BatchOperation struct {
