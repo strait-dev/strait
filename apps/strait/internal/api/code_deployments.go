@@ -2,11 +2,15 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
+	"strait/internal/build"
 	"strait/internal/domain"
 	"strait/internal/objectstore"
 	"strait/internal/store"
@@ -150,13 +154,36 @@ func (s *Server) handleConfirmCodeDeployment(ctx context.Context, input *Confirm
 		)
 	}
 
-	// Verify the object was actually uploaded.
+	// Verify the object was actually uploaded, matches the declared size, and
+	// has the expected SHA-256 hash. All three checks prevent corrupt or tampered
+	// tarballs from reaching the BuildKit build stage.
 	if s.objectStore != nil {
-		if _, err := s.objectStore.HeadObject(ctx, d.SourceURI); err != nil {
-			if errors.Is(err, objectstore.ErrObjectNotFound) {
+		actualSize, headErr := s.objectStore.HeadObject(ctx, d.SourceURI)
+		if headErr != nil {
+			if errors.Is(headErr, objectstore.ErrObjectNotFound) {
 				return nil, huma.Error422UnprocessableEntity("tarball not found at upload URL — ensure the upload completed before confirming")
 			}
 			return nil, huma.Error500InternalServerError("failed to verify upload")
+		}
+
+		if actualSize != d.SourceSizeBytes {
+			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf(
+				"uploaded file size %d B does not match declared source_size_bytes %d B — re-upload the tarball",
+				actualSize, d.SourceSizeBytes,
+			))
+		}
+
+		rc, getErr := s.objectStore.GetObject(ctx, d.SourceURI)
+		if getErr != nil {
+			return nil, huma.Error500InternalServerError("failed to retrieve tarball for hash verification")
+		}
+		defer rc.Close()
+		h := sha256.New()
+		if _, copyErr := io.Copy(h, io.LimitReader(rc, build.MaxTarballBytes+1)); copyErr != nil {
+			return nil, huma.Error500InternalServerError("failed to read tarball for hash verification")
+		}
+		if got := hex.EncodeToString(h.Sum(nil)); got != d.SourceHash {
+			return nil, huma.Error422UnprocessableEntity("tarball SHA-256 hash does not match declared source_hash — re-upload the tarball")
 		}
 	}
 

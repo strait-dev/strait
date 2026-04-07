@@ -21,6 +21,7 @@ import (
 type mockObjectStore struct {
 	presignUploadFn func(ctx context.Context, key string, ttl time.Duration) (string, error)
 	headObjectFn    func(ctx context.Context, key string) (int64, error)
+	getObjectFn     func(ctx context.Context, key string) (io.ReadCloser, error)
 }
 
 func (m *mockObjectStore) PresignUpload(ctx context.Context, key string, ttl time.Duration) (string, error) {
@@ -34,11 +35,16 @@ func (m *mockObjectStore) HeadObject(ctx context.Context, key string) (int64, er
 	if m.headObjectFn != nil {
 		return m.headObjectFn(ctx, key)
 	}
-	return 1024, nil
+	// Default: report the canonical test tarball size.
+	return int64(len(testTarballContent)), nil
 }
 
-func (m *mockObjectStore) GetObject(_ context.Context, _ string) (io.ReadCloser, error) {
-	return nil, nil
+func (m *mockObjectStore) GetObject(ctx context.Context, key string) (io.ReadCloser, error) {
+	if m.getObjectFn != nil {
+		return m.getObjectFn(ctx, key)
+	}
+	// Default: return the canonical test tarball bytes so hash checks pass.
+	return io.NopCloser(strings.NewReader(testTarballContent)), nil
 }
 
 func (m *mockObjectStore) PutObject(_ context.Context, _ string, _ io.Reader, _ int64) error {
@@ -48,6 +54,18 @@ func (m *mockObjectStore) PutObject(_ context.Context, _ string, _ io.Reader, _ 
 func (m *mockObjectStore) DeleteObject(_ context.Context, _ string) error {
 	return nil
 }
+
+// testTarballContent is a fixed tarball payload used across tests. Its SHA-256
+// and size are pre-computed so that any test setting up a pending deployment can
+// reference testTarballHash and testTarballSize to pass hash/size verification.
+const testTarballContent = "fake-tarball-content-for-testing"
+
+// testTarballHash is the SHA-256 hex digest of testTarballContent
+// (printf '%s' 'fake-tarball-content-for-testing' | shasum -a 256).
+const testTarballHash = "dd3e10dc3100ca1e6ab2fbf3dd1312429e4e0289f7a3f3ca2c8aa3f3aec4062b"
+
+// testTarballSize is the byte length of testTarballContent as int64 (matches SourceSizeBytes).
+const testTarballSize = int64(len(testTarballContent))
 
 // newTestServerWithObjectStore creates a test server with an object store configured.
 func newTestServerWithObjectStore(t *testing.T, s APIStore, os objectstore.ObjectStore) *Server {
@@ -224,11 +242,13 @@ func TestHandleConfirmCodeDeployment_Success(t *testing.T) {
 	deploymentID := "deploy_1"
 
 	d := &domain.CodeDeployment{
-		ID:        deploymentID,
-		JobID:     jobID,
-		ProjectID: projectID,
-		Status:    domain.DeploymentStatusPending,
-		SourceURI: "projects/proj_123/jobs/job_abc/deploys/deploy_1.tar.gz",
+		ID:              deploymentID,
+		JobID:           jobID,
+		ProjectID:       projectID,
+		Status:          domain.DeploymentStatusPending,
+		SourceURI:       "projects/proj_123/jobs/job_abc/deploys/deploy_1.tar.gz",
+		SourceHash:      testTarballHash,
+		SourceSizeBytes: testTarballSize,
 	}
 
 	ms := &APIStoreMock{
@@ -238,7 +258,7 @@ func TestHandleConfirmCodeDeployment_Success(t *testing.T) {
 			}
 			return d, nil
 		},
-		UpdateCodeDeploymentStatusFunc: func(_ context.Context, _ string, _ domain.DeploymentBuildStatus, _ map[string]any) error {
+		ConfirmCodeDeploymentFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}

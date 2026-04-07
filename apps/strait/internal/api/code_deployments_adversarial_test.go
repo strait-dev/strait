@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/objectstore"
 	"strait/internal/store"
 )
 
@@ -177,28 +179,31 @@ func TestHandleConfirmCodeDeployment_ConcurrentCalls(t *testing.T) {
 	const deploymentID = "deploy_concurrent"
 	const goroutines = 10
 
-	var updateCalls atomic.Int32
+	var confirmCalls atomic.Int32
 	var mu sync.Mutex
-	status := domain.DeploymentStatusPending
+	confirmed := false
 
 	ms := &APIStoreMock{
 		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
-			mu.Lock()
-			s := status
-			mu.Unlock()
 			return &domain.CodeDeployment{
-				ID:        id,
-				JobID:     jobID,
-				ProjectID: projectID,
-				Status:    s,
-				SourceURI: "deployments/proj_123/job_abc/deploy_concurrent",
+				ID:              id,
+				JobID:           jobID,
+				ProjectID:       projectID,
+				Status:          domain.DeploymentStatusPending,
+				SourceURI:       "deployments/proj_123/job_abc/deploy_concurrent",
+				SourceHash:      testTarballHash,
+				SourceSizeBytes: testTarballSize,
 			}, nil
 		},
-		UpdateCodeDeploymentStatusFunc: func(_ context.Context, _ string, newStatus domain.DeploymentBuildStatus, _ map[string]any) error {
+		ConfirmCodeDeploymentFunc: func(_ context.Context, _ string) error {
 			mu.Lock()
 			defer mu.Unlock()
-			updateCalls.Add(1)
-			status = newStatus
+			confirmCalls.Add(1)
+			if confirmed {
+				// Simulate DB-level atomic guard: second caller sees not-found.
+				return store.ErrCodeDeploymentNotFound
+			}
+			confirmed = true
 			return nil
 		},
 	}
@@ -236,14 +241,14 @@ func TestHandleConfirmCodeDeployment_ConcurrentCalls(t *testing.T) {
 		}
 	}
 
-	// In the best case (with DB-level locking) exactly one confirm succeeds.
-	// In the test environment without real DB locks, multiple may succeed because
-	// the mock returns the same status on every read. The important invariant:
-	// at least one call succeeded, and no unexpected status codes appeared.
-	if successes == 0 {
-		t.Error("expected at least one successful confirm, got 0")
+	// With the mock simulating the DB-level atomic guard, exactly one confirm
+	// succeeds (200) and all others get 409. The confirmCalls counter shows how
+	// many reached the store method.
+	if successes != 1 {
+		t.Errorf("expected exactly 1 successful confirm, got %d", successes)
 	}
-	t.Logf("concurrent confirm: %d OK, %d Conflict out of %d goroutines", successes, conflicts, goroutines)
+	t.Logf("concurrent confirm: %d OK, %d Conflict out of %d goroutines (store calls: %d)",
+		successes, conflicts, goroutines, confirmCalls.Load())
 }
 
 // TestHandleRollbackToDeployment_CannotRollbackToNonReady verifies that
@@ -483,11 +488,13 @@ func TestHandleConfirmCodeDeployment_AtomicTransition(t *testing.T) {
 	ms := &APIStoreMock{
 		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
 			return &domain.CodeDeployment{
-				ID:        id,
-				JobID:     jobID,
-				ProjectID: projectID,
-				Status:    domain.DeploymentStatusPending,
-				SourceURI: "projects/proj_123/jobs/job_abc/deploys/deploy_1.tar.gz",
+				ID:              id,
+				JobID:           jobID,
+				ProjectID:       projectID,
+				Status:          domain.DeploymentStatusPending,
+				SourceURI:       "projects/proj_123/jobs/job_abc/deploys/deploy_1.tar.gz",
+				SourceHash:      testTarballHash,
+				SourceSizeBytes: testTarballSize,
 			}, nil
 		},
 		ConfirmCodeDeploymentFunc: func(_ context.Context, _ string) error {
@@ -593,5 +600,178 @@ func TestHandleListCodeDeployments_CrossTenantIsolation(t *testing.T) {
 	// The response body must not contain the owner's deployment ID.
 	if strings.Contains(w.Body.String(), "deploy_secret") {
 		t.Errorf("attacker's list response contains owner's deployment ID: %s", w.Body.String())
+	}
+}
+
+// TestHandleConfirmCodeDeployment_SizeMismatchReturns422 verifies that confirming
+// a deployment whose uploaded file size differs from source_size_bytes is rejected
+// before BuildKit ever sees the tarball.
+func TestHandleConfirmCodeDeployment_SizeMismatchReturns422(t *testing.T) {
+	t.Parallel()
+
+	const projectID = "proj_123"
+	const jobID = "job_abc"
+	const deploymentID = "deploy_size_bad"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:              id,
+				JobID:           jobID,
+				ProjectID:       projectID,
+				Status:          domain.DeploymentStatusPending,
+				SourceURI:       "projects/proj_123/jobs/job_abc/deploys/deploy_size_bad.tar.gz",
+				SourceHash:      testTarballHash,
+				SourceSizeBytes: 9999, // declared size is wrong
+			}, nil
+		},
+	}
+	// HeadObject returns the actual uploaded size, which differs from SourceSizeBytes.
+	mos := &mockObjectStore{
+		headObjectFn: func(_ context.Context, _ string) (int64, error) {
+			return testTarballSize, nil // actual = testTarballSize, declared = 9999
+		},
+	}
+	srv := newTestServerWithObjectStore(t, ms, mos)
+
+	body := fmt.Sprintf(`{"project_id": %q}`, projectID)
+	req := authedProjectRequest(
+		http.MethodPost,
+		"/v1/jobs/"+jobID+"/deployments/"+deploymentID+"/confirm",
+		body, projectID,
+	)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for size mismatch, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleConfirmCodeDeployment_HashMismatchReturns422 verifies that confirming
+// a deployment whose tarball SHA-256 does not match source_hash is rejected.
+// This prevents a tampered or corrupted tarball from reaching the build stage.
+func TestHandleConfirmCodeDeployment_HashMismatchReturns422(t *testing.T) {
+	t.Parallel()
+
+	const projectID = "proj_123"
+	const jobID = "job_abc"
+	const deploymentID = "deploy_hash_bad"
+
+	const wrongHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:              id,
+				JobID:           jobID,
+				ProjectID:       projectID,
+				Status:          domain.DeploymentStatusPending,
+				SourceURI:       "projects/proj_123/jobs/job_abc/deploys/deploy_hash_bad.tar.gz",
+				SourceHash:      wrongHash, // does not match actual content
+				SourceSizeBytes: testTarballSize,
+			}, nil
+		},
+	}
+	// GetObject returns testTarballContent, whose hash is testTarballHash, not wrongHash.
+	mos := &mockObjectStore{}
+	srv := newTestServerWithObjectStore(t, ms, mos)
+
+	body := fmt.Sprintf(`{"project_id": %q}`, projectID)
+	req := authedProjectRequest(
+		http.MethodPost,
+		"/v1/jobs/"+jobID+"/deployments/"+deploymentID+"/confirm",
+		body, projectID,
+	)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for hash mismatch, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleConfirmCodeDeployment_HashMatchSucceeds verifies that a deployment
+// with matching hash and size passes verification and transitions to building.
+func TestHandleConfirmCodeDeployment_HashMatchSucceeds(t *testing.T) {
+	t.Parallel()
+
+	const projectID = "proj_123"
+	const jobID = "job_abc"
+	const deploymentID = "deploy_hash_ok"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:              id,
+				JobID:           jobID,
+				ProjectID:       projectID,
+				Status:          domain.DeploymentStatusPending,
+				SourceURI:       "projects/proj_123/jobs/job_abc/deploys/deploy_hash_ok.tar.gz",
+				SourceHash:      testTarballHash,
+				SourceSizeBytes: testTarballSize,
+			}, nil
+		},
+		ConfirmCodeDeploymentFunc: func(_ context.Context, _ string) error {
+			return nil
+		},
+	}
+	mos := &mockObjectStore{}
+	srv := newTestServerWithObjectStore(t, ms, mos)
+
+	body := fmt.Sprintf(`{"project_id": %q}`, projectID)
+	req := authedProjectRequest(
+		http.MethodPost,
+		"/v1/jobs/"+jobID+"/deployments/"+deploymentID+"/confirm",
+		body, projectID,
+	)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for correct hash+size, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleConfirmCodeDeployment_GetObjectError verifies that a failure reading
+// the tarball for hash verification returns 500 rather than leaking the error.
+func TestHandleConfirmCodeDeployment_GetObjectError(t *testing.T) {
+	t.Parallel()
+
+	const projectID = "proj_123"
+	const jobID = "job_abc"
+	const deploymentID = "deploy_getobj_err"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:              id,
+				JobID:           jobID,
+				ProjectID:       projectID,
+				Status:          domain.DeploymentStatusPending,
+				SourceURI:       "projects/proj_123/jobs/job_abc/deploys/deploy_getobj_err.tar.gz",
+				SourceHash:      testTarballHash,
+				SourceSizeBytes: testTarballSize,
+			}, nil
+		},
+	}
+	mos := &mockObjectStore{
+		getObjectFn: func(_ context.Context, _ string) (io.ReadCloser, error) {
+			return nil, objectstore.ErrObjectNotFound
+		},
+	}
+	srv := newTestServerWithObjectStore(t, ms, mos)
+
+	body := fmt.Sprintf(`{"project_id": %q}`, projectID)
+	req := authedProjectRequest(
+		http.MethodPost,
+		"/v1/jobs/"+jobID+"/deployments/"+deploymentID+"/confirm",
+		body, projectID,
+	)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when GetObject fails, got %d: %s", w.Code, w.Body.String())
 	}
 }
