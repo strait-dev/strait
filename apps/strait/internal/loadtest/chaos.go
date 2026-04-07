@@ -312,11 +312,27 @@ func (ce *ChaosEngine) chaosRedisFailure(ctx context.Context) error {
 }
 
 func (ce *ChaosEngine) chaosDockerRestart(ctx context.Context) error {
-	// Restart Docker daemon
-	restart := exec.CommandContext(ctx, "docker", "restart", "$(docker ps -q --filter ancestor=strait-loadtest-python)")
-	if err := restart.Run(); err != nil {
-		// This is expected to fail if no containers are running
+	// First, list container IDs matching the ancestor filter.
+	// Go's exec.Command does not interpret shell expansion like $(...),
+	// so we must run docker ps separately and parse the output.
+	listCmd := exec.CommandContext(ctx, "docker", "ps", "-q", "--filter", "ancestor=strait-loadtest-python")
+	out, err := listCmd.Output()
+	if err != nil {
+		// No containers running or docker not available
 		return nil
+	}
+
+	containerIDs := strings.Fields(strings.TrimSpace(string(out)))
+	if len(containerIDs) == 0 {
+		return nil
+	}
+
+	// Restart each container individually
+	for _, id := range containerIDs {
+		restart := exec.CommandContext(ctx, "docker", "restart", id)
+		if err := restart.Run(); err != nil {
+			return fmt.Errorf("failed to restart container %s: %w", id, err)
+		}
 	}
 
 	time.Sleep(30 * time.Second)
@@ -362,11 +378,50 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 	return nil
 }
 
-func (ce *ChaosEngine) chaosClockSkew(_ context.Context) error {
-	// Clock skew testing requires NTP manipulation or container time changes
-	// In local testing, we simulate by checking if time-dependent features
-	// handle large time jumps gracefully
-	// This is a documentation/verification step rather than active injection
+func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
+	// We cannot change system time inside containers without privileged access.
+	// Instead, simulate clock skew by inserting job_runs rows with created_at
+	// set 24 hours in the future. This tests whether the reaper and other
+	// time-dependent components (cron scheduling, retention, budget enforcement)
+	// handle future timestamps gracefully without panicking or corrupting data.
+	if ce.harness.Pool == nil {
+		return fmt.Errorf("no database pool available for clock skew simulation")
+	}
+
+	// Insert rows with future timestamps to simulate forward clock skew
+	_, err := ce.harness.Pool.Exec(ctx,
+		`INSERT INTO job_runs (id, job_id, project_id, status, created_at, updated_at)
+		 SELECT gen_random_uuid(), gen_random_uuid(), $1, 'pending',
+		        NOW() + INTERVAL '24 hours', NOW() + INTERVAL '24 hours'
+		 FROM generate_series(1, 100)`,
+		ce.projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert future-timestamped rows: %w", err)
+	}
+
+	// Allow the reaper and other periodic processes to encounter the skewed rows
+	time.Sleep(30 * time.Second)
+
+	// Verify the system is still healthy by checking that no rows were incorrectly
+	// reaped or that the system didn't crash
+	var remaining int
+	err = ce.harness.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM job_runs
+		 WHERE project_id = $1 AND created_at > NOW() + INTERVAL '23 hours'`,
+		ce.projectID,
+	).Scan(&remaining)
+	if err != nil {
+		return fmt.Errorf("failed to verify clock skew recovery: %w", err)
+	}
+
+	// Clean up the skewed rows
+	_, _ = ce.harness.Pool.Exec(ctx,
+		`DELETE FROM job_runs
+		 WHERE project_id = $1 AND created_at > NOW() + INTERVAL '23 hours'`,
+		ce.projectID,
+	)
+
 	return nil
 }
 

@@ -24,6 +24,8 @@ const defaultMaxFileSize int64 = 100 * 1024 * 1024 // 100MB
 type MetricsCollector struct {
 	pool      *pgxpool.Pool
 	redis     *redis.Client
+	harness   *Harness
+	projectID string
 	outputDir string
 	interval  time.Duration
 
@@ -37,6 +39,10 @@ type MetricsCollector struct {
 	bytesWritten int64
 	fileIndex    int
 	filePrefix   string
+
+	// lastCompleted and lastCollectTime track dequeue rate across intervals.
+	lastCompleted   int64
+	lastCollectTime time.Time
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -99,6 +105,11 @@ type MetricsCollectorConfig struct {
 	Redis     *redis.Client
 	OutputDir string
 	Interval  time.Duration
+
+	// Harness provides HTTP access to the Strait API for AppMetrics collection.
+	Harness   *Harness
+	// ProjectID is the project used when querying /v1/stats.
+	ProjectID string
 }
 
 // NewMetricsCollector creates a new metrics collector.
@@ -117,6 +128,8 @@ func NewMetricsCollector(cfg MetricsCollectorConfig) (*MetricsCollector, error) 
 	return &MetricsCollector{
 		pool:        cfg.Pool,
 		redis:       cfg.Redis,
+		harness:     cfg.Harness,
+		projectID:   cfg.ProjectID,
 		outputDir:   cfg.OutputDir,
 		interval:    cfg.Interval,
 		maxFileSize: defaultMaxFileSize,
@@ -221,8 +234,9 @@ func (mc *MetricsCollector) collectLoop(ctx context.Context) {
 }
 
 func (mc *MetricsCollector) collect(ctx context.Context) {
+	now := time.Now()
 	snap := MetricsSnapshot{
-		Timestamp: time.Now(),
+		Timestamp: now,
 		Go:        collectGoMetrics(),
 	}
 
@@ -232,6 +246,10 @@ func (mc *MetricsCollector) collect(ctx context.Context) {
 
 	if mc.redis != nil {
 		snap.Redis = collectRedisMetrics(ctx, mc.redis)
+	}
+
+	if mc.harness != nil && mc.projectID != "" {
+		snap.App = mc.collectAppMetrics(ctx, now)
 	}
 
 	mc.mu.Lock()
@@ -255,6 +273,39 @@ func (mc *MetricsCollector) collect(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (mc *MetricsCollector) collectAppMetrics(ctx context.Context, now time.Time) *AppMetrics {
+	stats, err := mc.harness.GetQueueStats(ctx, mc.projectID)
+	if err != nil {
+		return nil
+	}
+
+	app := &AppMetrics{
+		QueueDepth:    stats.QueueDepth(),
+		CompletedRuns: stats.Completed,
+		FailedRuns:    stats.Failed,
+		ActiveRuns:    stats.Executing,
+	}
+
+	// Calculate dequeue rate as (completed_now - completed_last) / interval.
+	if !mc.lastCollectTime.IsZero() {
+		elapsed := now.Sub(mc.lastCollectTime).Seconds()
+		if elapsed > 0 {
+			app.DequeueRate = float64(stats.Completed-mc.lastCompleted) / elapsed
+		}
+	}
+
+	// Calculate error rate as failed / (completed + failed).
+	total := stats.Completed + stats.Failed
+	if total > 0 {
+		app.ErrorRate = float64(stats.Failed) / float64(total)
+	}
+
+	mc.lastCompleted = stats.Completed
+	mc.lastCollectTime = now
+
+	return app
 }
 
 func collectGoMetrics() GoMetrics {

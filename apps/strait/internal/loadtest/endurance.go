@@ -231,6 +231,49 @@ func (er *EnduranceRunner) checkThresholds(hour int, prev, curr *MetricsSnapshot
 		})
 	}
 
+	// P99 latency growth (using Postgres wait duration as a proxy for request latency).
+	// When DB wait times grow, end-to-end P99 latency degrades proportionally.
+	if th.P99GrowthPerHourPct > 0 && prev.Postgres != nil && curr.Postgres != nil {
+		prevWait := float64(prev.Postgres.WaitDurationMs)
+		currWait := float64(curr.Postgres.WaitDurationMs)
+		if prevWait > 0 {
+			growthPct := ((currWait - prevWait) / prevWait) * 100
+			if growthPct > th.P99GrowthPerHourPct {
+				alerts = append(alerts, Alert{
+					Severity: "DEGRADATION",
+					Message:  fmt.Sprintf("P99 latency proxy (DB wait) grew %.1f%% in hour %d (threshold: %.1f%%)", growthPct, hour, th.P99GrowthPerHourPct),
+					Hour:     hour,
+					Time:     time.Now(),
+				})
+			}
+		}
+	}
+
+	// Error rate growth
+	if th.ErrorGrowthPerHourPct > 0 && prev.App != nil && curr.App != nil {
+		prevRate := prev.App.ErrorRate
+		currRate := curr.App.ErrorRate
+		if prevRate > 0 {
+			growthPct := ((currRate - prevRate) / prevRate) * 100
+			if growthPct > th.ErrorGrowthPerHourPct {
+				alerts = append(alerts, Alert{
+					Severity: "DEGRADATION",
+					Message:  fmt.Sprintf("error rate grew %.1f%% in hour %d (%.2f -> %.2f/sec, threshold: %.1f%%)", growthPct, hour, prevRate, currRate, th.ErrorGrowthPerHourPct),
+					Hour:     hour,
+					Time:     time.Now(),
+				})
+			}
+		} else if currRate > 0 {
+			// Errors appeared where there were none before
+			alerts = append(alerts, Alert{
+				Severity: "WARNING",
+				Message:  fmt.Sprintf("error rate appeared in hour %d (0 -> %.2f/sec)", hour, currRate),
+				Hour:     hour,
+				Time:     time.Now(),
+			})
+		}
+	}
+
 	return alerts
 }
 

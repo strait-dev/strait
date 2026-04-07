@@ -183,6 +183,6 @@ func AllScenarios() []Scenario {
 		EnduranceWeekend(),
 		ChaosAll(),
 		ErrorScenarios(),
-		FlyValidation(),
+		ProductionValidation(),
 	}
 }

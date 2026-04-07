@@ -17,6 +17,20 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// ExecutionMode controls which type of jobs the harness creates and triggers.
+type ExecutionMode string
+
+const (
+	// ModeHTTP creates only HTTP endpoint jobs.
+	ModeHTTP ExecutionMode = "http"
+	// ModeManaged creates only managed container jobs.
+	ModeManaged ExecutionMode = "managed"
+	// ModeMixed creates both HTTP and managed jobs (70% HTTP, 30% managed).
+	ModeMixed ExecutionMode = "mixed"
+)
+
+const defaultManagedImage = "ghcr.io/strait-dev/strait-loadtest:loadtest-python"
+
 // Harness is the top-level test orchestrator. It sets up infrastructure,
 // runs scenarios, and collects results.
 type Harness struct {
@@ -51,6 +65,12 @@ type HarnessConfig struct {
 
 	// MetricsInterval is how often to sample metrics.
 	MetricsInterval time.Duration
+
+	// ExecutionMode controls which job types are created (http, managed, mixed).
+	ExecutionMode ExecutionMode
+
+	// ManagedImage is the container image for managed jobs.
+	ManagedImage string
 }
 
 // NewHarness creates a test harness with the given configuration.
@@ -120,6 +140,8 @@ func (h *Harness) Setup(ctx context.Context) error {
 		Redis:     h.Redis,
 		OutputDir: filepath.Join(h.ResultsDir, "raw"),
 		Interval:  h.Config.MetricsInterval,
+		Harness:   h,
+		ProjectID: "loadtest-project",
 	})
 	if err != nil {
 		return fmt.Errorf("creating metrics collector: %w", err)
@@ -304,65 +326,235 @@ func (qs *QueueStats) QueueDepth() int64 {
 }
 
 // SetupLoadTestJobs creates the standard load test jobs and returns their IDs.
-// The test server must be started before calling this.
+// The test server must be started before calling this. When the harness
+// ExecutionMode is managed or mixed, managed container jobs are also created.
 func (h *Harness) SetupLoadTestJobs(ctx context.Context, projectID string) (map[string]string, error) {
 	testServerURL := fmt.Sprintf("http://%s", h.TestServer.Addr())
 	jobs := map[string]string{}
 
-	configs := []JobConfig{
-		{
-			ProjectID:     projectID,
-			Name:          "Load Test Fast Echo",
-			Slug:          "loadtest-fast-echo",
-			EndpointURL:   testServerURL + "/fast-echo",
-			ExecutionMode: "http",
-			MaxAttempts:   1,
-			TimeoutSecs:   30,
-		},
-		{
-			ProjectID:     projectID,
-			Name:          "Load Test Slow Process",
-			Slug:          "loadtest-slow-process",
-			EndpointURL:   testServerURL + "/slow-process",
-			ExecutionMode: "http",
-			MaxAttempts:   1,
-			TimeoutSecs:   60,
-		},
-		{
-			ProjectID:     projectID,
-			Name:          "Load Test Variable Load",
-			Slug:          "loadtest-variable-load",
-			EndpointURL:   testServerURL + "/variable-load",
-			ExecutionMode: "http",
-			MaxAttempts:   1,
-			TimeoutSecs:   30,
-		},
-		{
-			ProjectID:     projectID,
-			Name:          "Load Test Flaky",
-			Slug:          "loadtest-flaky",
-			EndpointURL:   testServerURL + "/flaky",
-			ExecutionMode: "http",
-			MaxAttempts:   3,
-			TimeoutSecs:   30,
-		},
+	mode := h.Config.ExecutionMode
+	if mode == "" {
+		mode = ModeHTTP
 	}
 
-	for _, cfg := range configs {
-		id, err := h.CreateJob(ctx, projectID, cfg)
-		if err != nil {
-			// Job might already exist - try to find it by listing jobs
-			existingID, findErr := h.FindJobBySlug(ctx, projectID, cfg.Slug)
-			if findErr != nil {
-				return nil, fmt.Errorf("creating job %s: %w (and failed to find existing: %v)", cfg.Slug, err, findErr)
-			}
-			jobs[cfg.Slug] = existingID
-			continue
+	// HTTP jobs (created for http and mixed modes).
+	if mode == ModeHTTP || mode == ModeMixed {
+		httpConfigs := []JobConfig{
+			{
+				ProjectID:     projectID,
+				Name:          "Load Test Fast Echo",
+				Slug:          "loadtest-fast-echo",
+				EndpointURL:   testServerURL + "/fast-echo",
+				ExecutionMode: "http",
+				MaxAttempts:   1,
+				TimeoutSecs:   30,
+			},
+			{
+				ProjectID:     projectID,
+				Name:          "Load Test Slow Process",
+				Slug:          "loadtest-slow-process",
+				EndpointURL:   testServerURL + "/slow-process",
+				ExecutionMode: "http",
+				MaxAttempts:   1,
+				TimeoutSecs:   60,
+			},
+			{
+				ProjectID:     projectID,
+				Name:          "Load Test Variable Load",
+				Slug:          "loadtest-variable-load",
+				EndpointURL:   testServerURL + "/variable-load",
+				ExecutionMode: "http",
+				MaxAttempts:   1,
+				TimeoutSecs:   30,
+			},
+			{
+				ProjectID:     projectID,
+				Name:          "Load Test Flaky",
+				Slug:          "loadtest-flaky",
+				EndpointURL:   testServerURL + "/flaky",
+				ExecutionMode: "http",
+				MaxAttempts:   3,
+				TimeoutSecs:   30,
+			},
 		}
-		jobs[cfg.Slug] = id
+
+		if err := h.createJobs(ctx, projectID, httpConfigs, jobs); err != nil {
+			return nil, err
+		}
+	}
+
+	// Managed container jobs (created for managed and mixed modes).
+	if mode == ModeManaged || mode == ModeMixed {
+		managedConfigs := h.managedJobConfigs(projectID)
+		if err := h.createJobs(ctx, projectID, managedConfigs, jobs); err != nil {
+			return nil, err
+		}
 	}
 
 	return jobs, nil
+}
+
+// managedJobConfigs returns the job configurations for managed container jobs.
+func (h *Harness) managedJobConfigs(projectID string) []JobConfig {
+	image := h.Config.ManagedImage
+	if image == "" {
+		image = defaultManagedImage
+	}
+
+	return []JobConfig{
+		{
+			ProjectID:     projectID,
+			Name:          "Load Test Managed Fast",
+			Slug:          "loadtest-managed-fast",
+			ExecutionMode: "managed",
+			ImageURI:      image,
+			MachinePreset: "micro",
+			MaxAttempts:   1,
+			TimeoutSecs:   30,
+		},
+		{
+			ProjectID:     projectID,
+			Name:          "Load Test Managed Slow",
+			Slug:          "loadtest-managed-slow",
+			ExecutionMode: "managed",
+			ImageURI:      image,
+			MachinePreset: "micro",
+			MaxAttempts:   1,
+			TimeoutSecs:   60,
+		},
+	}
+}
+
+// createJobs creates the given job configs, falling back to slug lookup on conflict.
+func (h *Harness) createJobs(ctx context.Context, projectID string, configs []JobConfig, dest map[string]string) error {
+	for _, cfg := range configs {
+		id, err := h.CreateJob(ctx, projectID, cfg)
+		if err != nil {
+			existingID, findErr := h.FindJobBySlug(ctx, projectID, cfg.Slug)
+			if findErr != nil {
+				return fmt.Errorf("creating job %s: %w (and failed to find existing: %v)", cfg.Slug, err, findErr)
+			}
+			dest[cfg.Slug] = existingID
+			continue
+		}
+		dest[cfg.Slug] = id
+	}
+	return nil
+}
+
+// terminalStatuses contains all run statuses that indicate a run has finished.
+var terminalStatuses = map[string]bool{
+	"completed":     true,
+	"failed":        true,
+	"dead_letter":   true,
+	"timed_out":     true,
+	"crashed":       true,
+	"system_failed": true,
+	"canceled":      true,
+}
+
+// TriggerAndWait triggers a job and polls until the run reaches a terminal state.
+// Returns the run ID, final status, and time from trigger to completion.
+func (h *Harness) TriggerAndWait(ctx context.Context, projectID, jobID string, payload any, timeout time.Duration) (runID string, status string, elapsed time.Duration, err error) {
+	start := time.Now()
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Trigger the job and parse the run ID from the response.
+	body, err := json.Marshal(map[string]any{
+		"payload": payload,
+	})
+	if err != nil {
+		return "", "", 0, fmt.Errorf("marshaling trigger request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/v1/jobs/%s/trigger", h.Config.StraitURL, jobID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return "", "", 0, fmt.Errorf("creating trigger request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", h.Config.InternalSecret)
+	req.Header.Set("X-Project-Id", projectID)
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("triggering job: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", "", 0, fmt.Errorf("trigger returned status %d: %s", resp.StatusCode, respBody)
+	}
+
+	var triggerResp struct {
+		RunID string `json:"run_id"`
+		ID    string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&triggerResp); err != nil {
+		return "", "", 0, fmt.Errorf("decoding trigger response: %w", err)
+	}
+
+	runID = triggerResp.RunID
+	if runID == "" {
+		runID = triggerResp.ID
+	}
+	if runID == "" {
+		return "", "", 0, fmt.Errorf("trigger response missing run ID")
+	}
+
+	// Poll until terminal state.
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return runID, "", time.Since(start), fmt.Errorf("timed out waiting for run %s: %w", runID, ctx.Err())
+		case <-ticker.C:
+			status, err = h.GetRun(ctx, runID)
+			if err != nil {
+				return runID, "", time.Since(start), fmt.Errorf("polling run %s: %w", runID, err)
+			}
+			if terminalStatuses[status] {
+				return runID, status, time.Since(start), nil
+			}
+		}
+	}
+}
+
+// GetRun fetches the current status of a single run.
+func (h *Harness) GetRun(ctx context.Context, runID string) (status string, err error) {
+	url := fmt.Sprintf("%s/v1/runs/%s", h.Config.StraitURL, runID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating run request: %w", err)
+	}
+
+	req.Header.Set("X-Internal-Secret", h.Config.InternalSecret)
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetching run: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("get run returned status %d: %s", resp.StatusCode, respBody)
+	}
+
+	var result struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decoding run response: %w", err)
+	}
+
+	return result.Status, nil
 }
 
 // FindJobBySlug finds a job by slug and returns its UUID.
