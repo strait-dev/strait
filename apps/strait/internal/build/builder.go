@@ -60,6 +60,7 @@ type Builder struct {
 	cacheEnabled bool
 	timeout      time.Duration
 	logPublisher pubsub.Publisher
+	extraAuths   map[string]string
 }
 
 // NewBuilder creates a Builder configured to talk to BuildKit at addr.
@@ -87,6 +88,14 @@ func NewBuilder(
 // and a final {"done":true} sentinel is published when the build finishes.
 func (b *Builder) WithLogPublisher(p pubsub.Publisher) *Builder {
 	b.logPublisher = p
+	return b
+}
+
+// WithExtraRegistryAuths provides bearer tokens for private base-image
+// registries used in Dockerfile FROM instructions. The map key is the
+// registry hostname (e.g. "ghcr.io") and the value is the bearer token.
+func (b *Builder) WithExtraRegistryAuths(auths map[string]string) *Builder {
+	b.extraAuths = auths
 	return b
 }
 
@@ -174,7 +183,7 @@ func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment, addr stri
 				},
 			},
 		},
-		Session: buildkitAuthSession(registryHost, authToken),
+		Session: buildkitAuthSession(registryHost, authToken, b.extraAuths),
 	}
 
 	if b.cacheEnabled {
@@ -332,13 +341,19 @@ func extractGzipTar(r io.Reader, dir string) error {
 }
 
 // buildkitAuthSession returns session attachables that provide registry
-// credentials to BuildKit during image push.
-func buildkitAuthSession(registryHost, bearerToken string) []session.Attachable {
+// credentials to BuildKit for both the push registry and any private base
+// image registries declared in extraAuths.
+func buildkitAuthSession(registryHost, bearerToken string, extraAuths map[string]string) []session.Attachable {
 	cfg := authprovider.DockerAuthProviderConfig{
 		AuthConfigProvider: func(_ context.Context, host string, _ []string, _ authprovider.ExpireCachedAuthCheck) (dockerconfigtypes.AuthConfig, error) {
 			if host == registryHost {
 				return dockerconfigtypes.AuthConfig{
 					RegistryToken: bearerToken,
+				}, nil
+			}
+			if tok, ok := extraAuths[host]; ok {
+				return dockerconfigtypes.AuthConfig{
+					RegistryToken: tok,
 				}, nil
 			}
 			return dockerconfigtypes.AuthConfig{}, nil

@@ -263,6 +263,10 @@ type Config struct {
 	ECRRegion               string `env:"ECR_REGION" default:"us-east-1"`
 	ECRRegistryID           string `env:"ECR_REGISTRY_ID"` // AWS account ID; defaults to caller account
 	ECRRoleARN              string `env:"ECR_ROLE_ARN"`    // optional IAM role for cross-account access
+	// BuildExtraRegistryAuths is a JSON object mapping registry hostnames to
+	// bearer tokens used for authenticating private base images at build time.
+	// Example: {"private.registry.io": "base64token", "ghcr.io": "ghp_token"}
+	BuildExtraRegistryAuths string `env:"BUILD_EXTRA_REGISTRY_AUTHS" default:"{}"`
 
 	// Performance: image pull policy and lazy loading.
 	// ImagePullPolicy matches the Kubernetes imagePullPolicy values.

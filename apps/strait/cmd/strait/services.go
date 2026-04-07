@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -899,6 +900,14 @@ func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *st
 	)
 	if pub != nil {
 		builder = builder.WithLogPublisher(pub)
+	}
+	if cfg.BuildExtraRegistryAuths != "" && cfg.BuildExtraRegistryAuths != "{}" {
+		var extraAuths map[string]string
+		if err := json.Unmarshal([]byte(cfg.BuildExtraRegistryAuths), &extraAuths); err != nil {
+			slog.Warn("failed to parse BUILD_EXTRA_REGISTRY_AUTHS, skipping extra registry auth", "error", err)
+		} else if len(extraAuths) > 0 {
+			builder = builder.WithExtraRegistryAuths(extraAuths)
+		}
 	}
 	addrPool := build.NewAddressPool(cfg.BuildKitAddress, cfg.BuildKitAddresses)
 	orchOpts := []build.OrchestratorOption{
