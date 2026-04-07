@@ -226,7 +226,11 @@ type Config struct {
 	// Code-first build pipeline (STR-385).
 
 	// BuildKit daemon address. Used by the build orchestrator to submit builds.
-	BuildKitAddress      string        `env:"BUILDKIT_ADDRESS" default:"tcp://buildkitd.strait-build.svc.cluster.local:1234"`
+	BuildKitAddress string `env:"BUILDKIT_ADDRESS" default:"tcp://buildkitd.strait-build.svc.cluster.local:1234"`
+	// BuildKitAddresses is an optional comma-separated list of BuildKit daemon
+	// addresses used for multi-node round-robin dispatch. When non-empty it
+	// overrides BuildKitAddress.
+	BuildKitAddresses    string        `env:"BUILDKIT_ADDRESSES" default:""`
 	BuildKitNamespace    string        `env:"BUILDKIT_NAMESPACE" default:"strait-build"`
 	BuildKitCacheEnabled bool          `env:"BUILDKIT_CACHE_ENABLED" default:"true"`
 	BuildMaxTarballMB    int           `env:"BUILD_MAX_TARBALL_MB" default:"256"`

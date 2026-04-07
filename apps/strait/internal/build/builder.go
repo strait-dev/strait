@@ -69,9 +69,15 @@ func NewBuilder(
 
 // Build runs the full build pipeline for a single deployment and returns the result.
 // Logs contain stdout+stderr captured from BuildKit vertex logs.
-func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment) (*BuildResult, error) {
+// addr overrides the configured BuildKit address for this build; pass "" to use
+// the address the Builder was constructed with (single-node path).
+func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment, addr string) (*BuildResult, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "build.Builder.Build")
 	defer span.End()
+
+	if addr == "" {
+		addr = b.buildkitAddr
+	}
 
 	buildCtx, cancel := context.WithTimeout(ctx, b.timeout)
 	defer cancel()
@@ -117,9 +123,9 @@ func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment) (*BuildRe
 	imageTag := fmt.Sprintf("%s:%s", repositoryURI, d.ID)
 
 	// 4. Connect to BuildKit.
-	bk, err := bkclient.New(buildCtx, b.buildkitAddr)
+	bk, err := bkclient.New(buildCtx, addr)
 	if err != nil {
-		return nil, fmt.Errorf("connect to buildkit at %s: %w", b.buildkitAddr, err)
+		return nil, fmt.Errorf("connect to buildkit at %s: %w", addr, err)
 	}
 	defer bk.Close()
 

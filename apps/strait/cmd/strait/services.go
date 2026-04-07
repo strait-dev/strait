@@ -897,12 +897,18 @@ func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *st
 		cfg.BuildKitCacheEnabled,
 		cfg.BuildTimeout,
 	)
-	orch := build.NewOrchestrator(queries, builder,
+	addrPool := build.NewAddressPool(cfg.BuildKitAddress, cfg.BuildKitAddresses)
+	orchOpts := []build.OrchestratorOption{
 		build.WithOrchestratorLogger(slog.Default()),
-	)
+		build.WithAddressPool(addrPool),
+	}
+	orch := build.NewOrchestrator(queries, builder, orchOpts...)
 
 	g.Go(func(ctx context.Context) error {
-		slog.Info("build orchestrator started", "buildkit_addr", cfg.BuildKitAddress)
+		slog.Info("build orchestrator started",
+			"buildkit_addresses", addrPool.Len(),
+			"buildkit_addr", cfg.BuildKitAddress,
+		)
 		orch.Run(ctx)
 		return nil
 	})

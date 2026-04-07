@@ -39,6 +39,7 @@ type OrchestratorStore interface {
 type Orchestrator struct {
 	store         OrchestratorStore
 	builder       *Builder
+	addrPool      *AddressPool
 	workerID      string
 	pollInterval  time.Duration
 	staleInterval time.Duration
@@ -62,6 +63,12 @@ func WithConcurrency(n int) OrchestratorOption {
 // WithOrchestratorLogger sets the structured logger.
 func WithOrchestratorLogger(l *slog.Logger) OrchestratorOption {
 	return func(o *Orchestrator) { o.logger = l }
+}
+
+// WithAddressPool sets the BuildKit address pool for multi-node dispatch.
+// Each dispatched build will call pool.Next() to pick an address in round-robin.
+func WithAddressPool(pool *AddressPool) OrchestratorOption {
+	return func(o *Orchestrator) { o.addrPool = pool }
 }
 
 // NewOrchestrator creates a new build orchestrator. Each instance gets a unique
@@ -178,7 +185,15 @@ func (o *Orchestrator) runBuild(ctx context.Context, d *domain.CodeDeployment) {
 		return
 	}
 
-	result, err := o.builder.Build(ctx, d)
+	// Pick the BuildKit address for this build. When an AddressPool is configured
+	// it round-robins across available daemons; otherwise "" falls back to the
+	// Builder's configured address.
+	bkAddr := ""
+	if o.addrPool != nil {
+		bkAddr = o.addrPool.Next()
+	}
+
+	result, err := o.builder.Build(ctx, d, bkAddr)
 	if err != nil {
 		o.handleBuildFailure(ctx, d, err, log)
 		return
