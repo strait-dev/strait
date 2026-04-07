@@ -298,7 +298,7 @@ func TestStripeWebhookEnforcement(t *testing.T) {
 			WithScalePrices("scale-m", ""),
 		)
 		store := &mockBillingStore{}
-		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 		body := `{"id":"evt-scale","type":"customer.subscription.created","data":{"object":{"id":"sub-1","status":"active","items":{"data":[{"price":{"id":"scale-m"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}}`
 		req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
@@ -326,7 +326,7 @@ func TestStripeWebhookEnforcement(t *testing.T) {
 				"org-1": {OrgID: "org-1", PlanTier: "pro", Status: "active"},
 			},
 		}
-		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 		body := `{"id":"evt-addon","type":"customer.subscription.created","data":{"object":{"id":"addon-sub-1","status":"active","items":{"data":[{"price":{"id":"addon-cr"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}}`
 		req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
@@ -342,7 +342,7 @@ func TestStripeWebhookEnforcement(t *testing.T) {
 		t.Parallel()
 		mapping := NewStripeMappingFromOptions()
 		store := &mockBillingStore{}
-		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 		body := `{"id":"evt-unknown","type":"customer.subscription.created","data":{"object":{"id":"sub-x","status":"active","items":{"data":[{"price":{"id":"unknown-id"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}}`
 		req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
@@ -358,7 +358,7 @@ func TestStripeWebhookEnforcement(t *testing.T) {
 		t.Parallel()
 		mapping := NewStripeMappingFromOptions(WithStarterPrices("starter-m", ""))
 		store := &mockBillingStore{}
-		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 		bodyTpl := `{"id":"evt-dup-%d","type":"customer.subscription.created","data":{"object":{"id":"sub-dup","status":"active","items":{"data":[{"price":{"id":"starter-m"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}}`
 

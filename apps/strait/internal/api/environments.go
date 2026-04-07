@@ -48,6 +48,10 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 		return nil, newValidationError(err)
 	}
 
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
+
 	if err := s.checkEnvironmentLimit(ctx, req.ProjectID); err != nil {
 		return nil, err
 	}
@@ -187,6 +191,18 @@ type DeleteEnvironmentInput struct {
 }
 
 func (s *Server) handleDeleteEnvironment(ctx context.Context, input *DeleteEnvironmentInput) (*struct{}, error) {
+	env, err := s.store.GetEnvironment(ctx, input.EnvID)
+	if err != nil {
+		if errors.Is(err, store.ErrEnvironmentNotFound) {
+			return nil, huma.Error404NotFound("environment not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get environment")
+	}
+
+	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
+
 	if err := s.store.DeleteEnvironment(ctx, input.EnvID); err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -211,6 +227,18 @@ type GetResolvedVariablesOutput struct {
 }
 
 func (s *Server) handleGetResolvedVariables(ctx context.Context, input *GetResolvedVariablesInput) (*GetResolvedVariablesOutput, error) {
+	env, err := s.store.GetEnvironment(ctx, input.EnvID)
+	if err != nil {
+		if errors.Is(err, store.ErrEnvironmentNotFound) {
+			return nil, huma.Error404NotFound("environment not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get environment")
+	}
+
+	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
+
 	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {

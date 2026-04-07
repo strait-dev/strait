@@ -298,8 +298,11 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 		param++
 	}
 
+	// CAS guard: prevent transitions away from terminal statuses while still
+	// allowing idempotent field updates on a step that is already in the target
+	// status (e.g. adding output to a completed step).
 	query := fmt.Sprintf(
-		"UPDATE workflow_step_runs SET %s WHERE id = $2",
+		"UPDATE workflow_step_runs SET %s WHERE id = $2 AND (status NOT IN ('completed', 'failed', 'skipped', 'canceled') OR status = $1)",
 		strings.Join(setClauses, ", "),
 	)
 

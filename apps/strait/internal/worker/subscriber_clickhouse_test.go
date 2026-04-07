@@ -642,6 +642,67 @@ func TestClickHouseSubscriber_ComputeUsageNilTimestamps(t *testing.T) {
 	}
 }
 
+func TestClickHouseSubscriberHandle_WaitDrainsGoroutines(t *testing.T) {
+	t.Parallel()
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:   true,
+		BatchSize: 100,
+	}, slog.Default())
+
+	now := time.Now()
+	lister := &mockEventLister{
+		events: []domain.RunEvent{
+			{ID: "evt-1", RunID: "run-1", Type: "log", Level: "info", Message: "hello", CreatedAt: now},
+		},
+	}
+
+	handle := NewClickHouseSubscriberHandle(exporter, lister)
+	sub := handle.Subscriber()
+
+	sub(context.Background(), RunLifecycleEvent{
+		Type: EventCompleted,
+		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1", JobID: "job-1"},
+	})
+
+	// Wait must return once all background goroutines finish.
+	done := make(chan struct{})
+	go func() {
+		handle.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All goroutines drained successfully.
+	case <-time.After(5 * time.Second):
+		t.Fatal("Wait did not return within 5 seconds")
+	}
+
+	// Verify the events were enqueued: 1 analytics + 1 event record = 2.
+	if exporter.PendingCount() != 2 {
+		t.Errorf("expected 2 pending (1 analytics + 1 event), got %d", exporter.PendingCount())
+	}
+}
+
+func TestClickHouseSubscriberHandle_WaitNoGoroutines(t *testing.T) {
+	t.Parallel()
+
+	handle := NewClickHouseSubscriberHandle(nil, nil)
+	// Wait on a handle with no goroutines launched should return immediately.
+	done := make(chan struct{})
+	go func() {
+		handle.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Returned immediately.
+	case <-time.After(time.Second):
+		t.Fatal("Wait blocked on handle with no goroutines")
+	}
+}
+
 func TestIsTerminalEvent(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

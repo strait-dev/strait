@@ -48,6 +48,30 @@ func TestClient_Nil_Operations(t *testing.T) {
 	}
 }
 
+func TestQueryRow_NilClient_ReturnsError(t *testing.T) {
+	t.Parallel()
+	var c *Client
+	row, err := c.QueryRow(context.Background(), "SELECT 1")
+	if err == nil {
+		t.Fatal("expected error from nil client QueryRow, got nil")
+	}
+	if row != nil {
+		t.Error("expected nil row from nil client QueryRow")
+	}
+}
+
+func TestQueryRow_NilDB_ReturnsError(t *testing.T) {
+	t.Parallel()
+	c := &Client{db: nil}
+	row, err := c.QueryRow(context.Background(), "SELECT 1")
+	if err == nil {
+		t.Fatal("expected error from nil-db client QueryRow, got nil")
+	}
+	if row != nil {
+		t.Error("expected nil row from nil-db client QueryRow")
+	}
+}
+
 func TestExporter_Nil_Operations(t *testing.T) {
 	t.Parallel()
 	var e *Exporter

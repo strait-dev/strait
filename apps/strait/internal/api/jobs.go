@@ -31,7 +31,7 @@ type CreateJobRequest struct {
 	Tags                      map[string]string `json:"tags,omitempty"`
 	EndpointURL               string            `json:"endpoint_url" validate:"omitempty,url"`
 	FallbackEndpointURL       string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts               int               `json:"max_attempts" validate:"omitempty,min=1"`
+	MaxAttempts               int               `json:"max_attempts" validate:"omitempty,min=1,max=100"`
 	TimeoutSecs               int               `json:"timeout_secs" validate:"omitempty,min=1"`
 	MaxConcurrency            int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
 	MaxConcurrencyPerKey      int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
@@ -76,7 +76,7 @@ type UpdateJobRequest struct {
 	Tags                      *map[string]string `json:"tags,omitempty"`
 	EndpointURL               *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
 	FallbackEndpointURL       *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts               *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1"`
+	MaxAttempts               *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1,max=100"`
 	TimeoutSecs               *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
 	MaxConcurrency            *int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
 	MaxConcurrencyPerKey      *int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
@@ -123,12 +123,15 @@ type CreateJobOutput struct {
 	Body *domain.Job
 }
 
-//nolint:gocognit,gocyclo,cyclop
+//nolint:gocognit,gocyclo,cyclop,funlen
 func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*CreateJobOutput, error) {
 	req := input.Body
 
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
+	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
 	if err := validateJobName(req.Name); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -153,6 +156,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	}
 	if req.TimeoutSecs == 0 {
 		req.TimeoutSecs = s.defaultJobTimeoutSecs()
+	}
+	if req.TimeoutSecs > 86400 {
+		return nil, huma.Error400BadRequest("timeout_secs must not exceed 86400 (24 hours)")
 	}
 	if req.RetryPriorityBoost == 0 {
 		req.RetryPriorityBoost = 1
@@ -510,6 +516,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.MaxAttempts = *req.MaxAttempts
 	}
 	if req.TimeoutSecs != nil {
+		if *req.TimeoutSecs > 86400 {
+			return nil, huma.Error400BadRequest("timeout_secs must not exceed 86400 (24 hours)")
+		}
 		job.TimeoutSecs = *req.TimeoutSecs
 	}
 	if req.MaxConcurrency != nil {
@@ -948,6 +957,10 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 		}
 		if jobReq.TimeoutSecs == 0 {
 			jobReq.TimeoutSecs = s.defaultJobTimeoutSecs()
+		}
+		if jobReq.TimeoutSecs > 86400 {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "timeout_secs must not exceed 86400 (24 hours)"})
+			continue
 		}
 		if jobReq.RetryPriorityBoost == 0 {
 			jobReq.RetryPriorityBoost = 1

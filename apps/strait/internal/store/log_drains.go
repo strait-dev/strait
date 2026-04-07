@@ -20,14 +20,17 @@ func (q *Queries) CreateLogDrain(ctx context.Context, drain *domain.LogDrain) er
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateLogDrain")
 	defer span.End()
 
-	authConfigJSON, _ := json.Marshal(drain.AuthConfig)
+	authConfigJSON, err := json.Marshal(drain.AuthConfig)
+	if err != nil {
+		return fmt.Errorf("marshal log drain auth config: %w", err)
+	}
 
 	levelFilter := drain.LevelFilter
 	if levelFilter == nil {
 		levelFilter = []string{}
 	}
 
-	_, err := q.db.Exec(ctx, `
+	_, err = q.db.Exec(ctx, `
 		INSERT INTO log_drains (id, project_id, name, drain_type, endpoint_url, auth_type, auth_config, level_filter, enabled)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, drain.ID, drain.ProjectID, drain.Name, drain.DrainType, drain.EndpointURL,
@@ -58,7 +61,9 @@ func (q *Queries) GetLogDrain(ctx context.Context, drainID, projectID string) (*
 		return nil, fmt.Errorf("get log drain: %w", err)
 	}
 	if authConfigJSON != nil {
-		_ = json.Unmarshal(authConfigJSON, &d.AuthConfig)
+		if err := json.Unmarshal(authConfigJSON, &d.AuthConfig); err != nil {
+			return nil, fmt.Errorf("unmarshal log drain auth config: %w", err)
+		}
 	}
 	return &d, nil
 }
@@ -85,7 +90,9 @@ func (q *Queries) ListLogDrains(ctx context.Context, projectID string) ([]domain
 			return nil, fmt.Errorf("list log drains scan: %w", err)
 		}
 		if authConfigJSON != nil {
-			_ = json.Unmarshal(authConfigJSON, &d.AuthConfig)
+			if err := json.Unmarshal(authConfigJSON, &d.AuthConfig); err != nil {
+				return nil, fmt.Errorf("list log drains unmarshal auth config: %w", err)
+			}
 		}
 		drains = append(drains, d)
 	}
@@ -114,7 +121,9 @@ func (q *Queries) ListEnabledLogDrains(ctx context.Context) ([]domain.LogDrain, 
 			return nil, fmt.Errorf("list enabled log drains scan: %w", err)
 		}
 		if authConfigJSON != nil {
-			_ = json.Unmarshal(authConfigJSON, &d.AuthConfig)
+			if err := json.Unmarshal(authConfigJSON, &d.AuthConfig); err != nil {
+				return nil, fmt.Errorf("list enabled log drains unmarshal auth config: %w", err)
+			}
 		}
 		drains = append(drains, d)
 	}

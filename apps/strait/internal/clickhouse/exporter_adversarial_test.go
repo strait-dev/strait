@@ -543,6 +543,23 @@ func TestTestExporter_PendingAt(t *testing.T) {
 	}
 }
 
+func TestExporter_DoubleStop_DoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	e := NewExporter(&Client{}, ExporterConfig{
+		Enabled:       true,
+		BatchSize:     10,
+		FlushInterval: time.Hour,
+	}, slog.Default())
+
+	ctx := context.Background()
+	e.Start(ctx)
+	e.Stop()
+
+	// Second Stop must not panic on double-close of the stop channel.
+	e.Stop()
+}
+
 func TestTestExporter_NilPendingLen(t *testing.T) {
 	t.Parallel()
 

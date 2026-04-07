@@ -219,6 +219,7 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			grace_period_end, COALESCE(payment_status, 'ok'),
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
+			COALESCE(monthly_usage_email, false),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE pending_plan_tier IS NOT NULL
@@ -243,6 +244,7 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 			&sub.EnforcementMode,
+			&sub.MonthlyUsageEmail,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pending downgrade: %w", err)
@@ -736,9 +738,11 @@ func (s *PgStore) GetProjectBudget(ctx context.Context, projectID string) (int64
 
 func (s *PgStore) SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error {
 	_, err := s.pool.Exec(ctx, `
-		UPDATE project_quotas
-		SET monthly_budget_microusd = $2, budget_action = $3
-		WHERE project_id = $1
+		INSERT INTO project_quotas (project_id, monthly_budget_microusd, budget_action)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (project_id) DO UPDATE
+		SET monthly_budget_microusd = EXCLUDED.monthly_budget_microusd,
+		    budget_action = EXCLUDED.budget_action
 	`, projectID, budgetMicro, action)
 	if err != nil {
 		return fmt.Errorf("setting project budget: %w", err)

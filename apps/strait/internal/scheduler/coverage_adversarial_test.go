@@ -1449,15 +1449,29 @@ func TestBudgetMonitor_SpendingLimit_ProjectListError(t *testing.T) {
 // ---------------------------------------------------------------------------.
 
 func TestSafeGo_RecoversPanic(t *testing.T) {
-	t.Parallel()
+	// Not parallel: mutates package-level exitFunc.
 
-	// Verify safeGo catches panics without crashing.
+	var exitCode int
+	var exitCalled bool
+	origExit := exitFunc
+	exitFunc = func(code int) {
+		exitCode = code
+		exitCalled = true
+	}
+	defer func() { exitFunc = origExit }()
+
 	var wg conc.WaitGroup
 	safeGo(&wg, "test-panic", func() {
 		panic("test panic in safeGo")
 	})
 	wg.Wait()
-	// If we reach here, the panic was recovered.
+
+	if !exitCalled {
+		t.Fatal("expected exitFunc to be called on panic")
+	}
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitCode)
+	}
 }
 
 // ---------------------------------------------------------------------------.

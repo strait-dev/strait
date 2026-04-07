@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 )
 
 // ProtectedHeaders are HTTP headers that must not be overridden by
@@ -29,6 +30,9 @@ var ProtectedHeaders = map[string]bool{
 // jsonMarshal is the JSON marshaling function, replaceable in tests.
 var jsonMarshal = json.Marshal
 
+// validateEndpointURL is the SSRF validation function, replaceable in tests.
+var validateEndpointURL = httputil.ValidateExternalURL
+
 // Service dispatches run events to log drain endpoints.
 type Service struct {
 	client *http.Client
@@ -42,6 +46,10 @@ func NewService() *Service {
 
 // DrainRunEvents sends a batch of events to the drain endpoint.
 func (s *Service) DrainRunEvents(ctx context.Context, drain *domain.LogDrain, events []domain.RunEvent) error {
+	if err := validateEndpointURL(drain.EndpointURL); err != nil {
+		return fmt.Errorf("drain endpoint rejected: %w", err)
+	}
+
 	payload, err := jsonMarshal(events)
 	if err != nil {
 		return fmt.Errorf("marshal events: %w", err)

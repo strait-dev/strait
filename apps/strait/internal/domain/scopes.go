@@ -48,6 +48,28 @@ var ValidScopes = map[string]bool{
 	ScopeProjectsManage:   true,
 }
 
+// CLIDefaultScopes is the set of scopes granted to API keys created via CLI
+// device-code authentication. It includes standard operational scopes but
+// excludes administrative scopes (api-keys:manage, rbac:manage, projects:manage)
+// to limit the blast radius of CLI-issued keys.
+var CLIDefaultScopes = []string{
+	ScopeJobsRead,
+	ScopeJobsWrite,
+	ScopeJobsTrigger,
+	ScopeRunsRead,
+	ScopeRunsWrite,
+	ScopeWorkflowsRead,
+	ScopeWorkflowsWrite,
+	ScopeWorkflowsTrigger,
+	ScopeSecretsRead,
+	ScopeSecretsWrite,
+	ScopeWebhooksRead,
+	ScopeWebhooksWrite,
+	ScopeStatsRead,
+	ScopeProjectsRead,
+	ScopeProjectsWrite,
+}
+
 // ValidateScopes checks that all scopes in the slice are recognized.
 func ValidateScopes(scopes []string) error {
 	for _, s := range scopes {

@@ -52,7 +52,7 @@ func TestWebhook_ReplayCacheClearedOnError(t *testing.T) {
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
-		WithEdition("community"))
+		WithDevBypassSignatureCheck(), WithEdition("community"))
 
 	body := `{"id":"evt-idem-err","type":"customer.subscription.created","data":{"object":{"id":"sub_err","status":"active","items":{"data":[{"price":{"id":"unknown-id"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust_1","email":"test@example.com","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}}}`
 
@@ -83,7 +83,7 @@ func TestWebhook_DBIdempotencyPreventsReprocessing(t *testing.T) {
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
-		WithEdition("community"))
+		WithDevBypassSignatureCheck(), WithEdition("community"))
 
 	body := `{"id":"evt-idem-ok","type":"customer.subscription.created","data":{"object":{"id":"sub_1","status":"active","items":{"data":[{"price":{"id":"starter-id"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust_1","email":"test@example.com","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}}}`
 

@@ -34,10 +34,10 @@ type AlertThresholds struct {
 // EnduranceResult captures endurance test outcomes.
 type EnduranceResult struct {
 	RampResult
-	SpikesInjected  int `json:"spikes_injected"`
-	LongRunTotal    int `json:"long_run_total"`
+	SpikesInjected   int `json:"spikes_injected"`
+	LongRunTotal     int `json:"long_run_total"`
 	LongRunCompleted int `json:"long_run_completed"`
-	LongRunFailed   int `json:"long_run_failed"`
+	LongRunFailed    int `json:"long_run_failed"`
 }
 
 // Alert represents a detected issue during endurance testing.
@@ -90,9 +90,7 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 
 	// Baseline load goroutine
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			select {
 			case <-ctx.Done():
@@ -118,13 +116,11 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 				ops.Add(1)
 			}()
 		}
-	}()
+	})
 
 	// Spike injection goroutine
 	if er.config.SpikeInterval > 0 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ticker := time.NewTicker(er.config.SpikeInterval)
 			defer ticker.Stop()
 			for {
@@ -140,15 +136,13 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 					time.Sleep(10 * time.Minute)
 				}
 			}
-		}()
+		})
 	}
 
 	// Long-running job goroutines
 	var longRunCompleted, longRunFailed atomic.Int32
 	for range er.config.LongRunJobs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			err := h.TriggerJob(ctx, "loadtest-project", "loadtest-slow-cpu", map[string]any{
 				"work_duration": er.config.LongRunMinutes * 60,
 				"timestamp":     time.Now().UnixMilli(),
@@ -158,13 +152,11 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 			} else {
 				longRunCompleted.Add(1)
 			}
-		}()
+		})
 	}
 
 	// Hourly alert check goroutine
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		hourTicker := time.NewTicker(1 * time.Hour)
 		defer hourTicker.Stop()
 
@@ -191,7 +183,7 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 				prevSnapshot = &current
 			}
 		}
-	}()
+	})
 
 	// Wait for completion
 	wg.Wait()
@@ -229,6 +221,49 @@ func (er *EnduranceRunner) checkThresholds(hour int, prev, curr *MetricsSnapshot
 			Hour:     hour,
 			Time:     time.Now(),
 		})
+	}
+
+	// P99 latency growth (using Postgres wait duration as a proxy for request latency).
+	// When DB wait times grow, end-to-end P99 latency degrades proportionally.
+	if th.P99GrowthPerHourPct > 0 && prev.Postgres != nil && curr.Postgres != nil {
+		prevWait := float64(prev.Postgres.WaitDurationMs)
+		currWait := float64(curr.Postgres.WaitDurationMs)
+		if prevWait > 0 {
+			growthPct := ((currWait - prevWait) / prevWait) * 100
+			if growthPct > th.P99GrowthPerHourPct {
+				alerts = append(alerts, Alert{
+					Severity: "DEGRADATION",
+					Message:  fmt.Sprintf("P99 latency proxy (DB wait) grew %.1f%% in hour %d (threshold: %.1f%%)", growthPct, hour, th.P99GrowthPerHourPct),
+					Hour:     hour,
+					Time:     time.Now(),
+				})
+			}
+		}
+	}
+
+	// Error rate growth
+	if th.ErrorGrowthPerHourPct > 0 && prev.App != nil && curr.App != nil {
+		prevRate := prev.App.ErrorRate
+		currRate := curr.App.ErrorRate
+		if prevRate > 0 {
+			growthPct := ((currRate - prevRate) / prevRate) * 100
+			if growthPct > th.ErrorGrowthPerHourPct {
+				alerts = append(alerts, Alert{
+					Severity: "DEGRADATION",
+					Message:  fmt.Sprintf("error rate grew %.1f%% in hour %d (%.2f -> %.2f/sec, threshold: %.1f%%)", growthPct, hour, prevRate, currRate, th.ErrorGrowthPerHourPct),
+					Hour:     hour,
+					Time:     time.Now(),
+				})
+			}
+		} else if currRate > 0 {
+			// Errors appeared where there were none before
+			alerts = append(alerts, Alert{
+				Severity: "WARNING",
+				Message:  fmt.Sprintf("error rate appeared in hour %d (0 -> %.2f/sec)", hour, currRate),
+				Hour:     hour,
+				Time:     time.Now(),
+			})
+		}
 	}
 
 	return alerts
@@ -269,9 +304,9 @@ func (ei *ErrorInjector) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			scenario := scenarios[rand.IntN(len(scenarios))]
+			scenario := scenarios[rand.IntN(len(scenarios))] //nolint:gosec // non-cryptographic use for load test randomization
 			go func() {
-				ei.harness.TriggerJob(ctx, ei.projectID, "loadtest-errors", map[string]any{
+				_ = ei.harness.TriggerJob(ctx, ei.projectID, "loadtest-errors", map[string]any{
 					"scenario": scenario,
 				})
 				ei.injected.Add(1)

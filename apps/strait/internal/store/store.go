@@ -360,6 +360,7 @@ type EventSourceStore interface {
 	UpdateEventSource(ctx context.Context, sourceID, projectID string, patch map[string]any) error
 	DeleteEventSource(ctx context.Context, sourceID, projectID string) error
 	CreateEventSubscription(ctx context.Context, sub *domain.EventSubscription) error
+	GetEventSubscription(ctx context.Context, subID string) (*domain.EventSubscription, error)
 	ListEventSubscriptionsBySource(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
 	DeleteEventSubscription(ctx context.Context, subID string) error
 }

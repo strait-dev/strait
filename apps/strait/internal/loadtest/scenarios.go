@@ -8,11 +8,11 @@ import (
 
 // Scenario defines a pre-configured load test.
 type Scenario struct {
-	Name        string        `json:"name"`
-	Description string        `json:"description"`
-	Tier        int           `json:"tier"`
-	Duration    time.Duration `json:"duration"`
-	RampConfig  *RampConfig   `json:"ramp_config,omitempty"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	Tier         int                    `json:"tier"`
+	Duration     time.Duration          `json:"duration"`
+	RampConfig   *RampConfig            `json:"ramp_config,omitempty"`
 	TenantConfig *TenantSimulatorConfig `json:"tenant_config,omitempty"`
 }
 
@@ -149,11 +149,11 @@ func EnduranceWeekend() Scenario {
 	}
 }
 
-// FlyValidation returns a Fly.io real-network validation scenario.
-func FlyValidation() Scenario {
+// ProductionValidation returns a production real-network validation scenario.
+func ProductionValidation() Scenario {
 	return Scenario{
-		Name:        "fly_validation",
-		Description: "Fly.io validation: real network latency, multi-region, production infrastructure.",
+		Name:        "production_validation",
+		Description: "Production validation: real network latency, production infrastructure.",
 		Tier:        5,
 		Duration:    1 * time.Hour,
 		RampConfig: &RampConfig{
@@ -183,6 +183,6 @@ func AllScenarios() []Scenario {
 		EnduranceWeekend(),
 		ChaosAll(),
 		ErrorScenarios(),
-		FlyValidation(),
+		ProductionValidation(),
 	}
 }

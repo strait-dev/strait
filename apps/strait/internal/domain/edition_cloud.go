@@ -2,11 +2,10 @@
 
 package domain
 
-// ParseEdition normalizes a string into a known Edition value.
-// Unknown values default to EditionCommunity.
-func ParseEdition(s string) Edition {
-	if s == "cloud" {
-		return EditionCloud
-	}
-	return EditionCommunity
+// ParseEdition always returns EditionCloud in the cloud build.
+// The edition is determined at compile time by the build tag, not by
+// configuration. This prevents anyone from running cloud features on
+// a community build or downgrading a cloud build via env vars.
+func ParseEdition(_ string) Edition {
+	return EditionCloud
 }

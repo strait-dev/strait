@@ -21,6 +21,10 @@ type ListRunCheckpointsOutput struct {
 }
 
 func (s *Server) handleListRunCheckpoints(ctx context.Context, input *ListRunCheckpointsInput) (*ListRunCheckpointsOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -49,6 +53,10 @@ type ListRunUsageOutput struct {
 }
 
 func (s *Server) handleListRunUsage(ctx context.Context, input *ListRunUsageInput) (*ListRunUsageOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -77,6 +85,10 @@ type ListRunToolCallsOutput struct {
 }
 
 func (s *Server) handleListRunToolCalls(ctx context.Context, input *ListRunToolCallsInput) (*ListRunToolCallsOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -105,6 +117,10 @@ type ListRunOutputsOutput struct {
 }
 
 func (s *Server) handleListRunOutputs(ctx context.Context, input *ListRunOutputsInput) (*ListRunOutputsOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())

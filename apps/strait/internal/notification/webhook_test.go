@@ -335,7 +335,7 @@ func testRetryPolicy() retrypolicy.RetryPolicy[*http.Response] {
 			if err != nil {
 				return true
 			}
-			return resp.StatusCode >= 500
+			return resp.StatusCode == 429 || resp.StatusCode >= 500
 		}).
 		Build()
 }
@@ -418,6 +418,59 @@ func TestWebhookSender_NoRetryOn400(t *testing.T) {
 	}
 	if hits.Load() != 1 {
 		t.Fatalf("server hits = %d, want 1 (no retry on 4xx)", hits.Load())
+	}
+}
+
+func TestWebhookSender_RetriesOn429(t *testing.T) {
+	t.Parallel()
+	client, transport := newMockClient(t)
+
+	var hits atomic.Int32
+	transport.RegisterResponder("POST", "https://example.com/hook",
+		func(_ *http.Request) (*http.Response, error) {
+			n := hits.Add(1)
+			if n == 1 {
+				return httpmock.NewStringResponse(429, "too many requests"), nil
+			}
+			return httpmock.NewStringResponse(200, "ok"), nil
+		})
+
+	rp := testRetryPolicy()
+	sender := NewWebhookSender(client, WithWebhookRetryPolicy(rp))
+	ch := newTestChannel("https://example.com/hook", "")
+	del := newTestDelivery("run.completed", json.RawMessage(`{}`))
+
+	err := sender.Send(context.Background(), ch, del)
+	if err != nil {
+		t.Fatalf("expected success after retry on 429, got: %v", err)
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("server hits = %d, want 2 (1 initial 429 + 1 retry success)", hits.Load())
+	}
+}
+
+func TestWebhookSender_NoRetryOn200(t *testing.T) {
+	t.Parallel()
+	client, transport := newMockClient(t)
+
+	var hits atomic.Int32
+	transport.RegisterResponder("POST", "https://example.com/hook",
+		func(_ *http.Request) (*http.Response, error) {
+			hits.Add(1)
+			return httpmock.NewStringResponse(200, "ok"), nil
+		})
+
+	rp := testRetryPolicy()
+	sender := NewWebhookSender(client, WithWebhookRetryPolicy(rp))
+	ch := newTestChannel("https://example.com/hook", "")
+	del := newTestDelivery("run.completed", json.RawMessage(`{}`))
+
+	err := sender.Send(context.Background(), ch, del)
+	if err != nil {
+		t.Fatalf("expected success, got: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("server hits = %d, want 1 (no retry on 200)", hits.Load())
 	}
 }
 

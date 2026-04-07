@@ -52,11 +52,11 @@ type ReportSummary struct {
 
 // ErrorScenarioResult captures the result of a single error scenario test.
 type ErrorScenarioResult struct {
-	Scenario     string `json:"scenario"`
+	Scenario      string `json:"scenario"`
 	ExpectedClass string `json:"expected_class"`
-	ActualClass  string `json:"actual_class"`
-	Passed       bool   `json:"passed"`
-	Error        string `json:"error,omitempty"`
+	ActualClass   string `json:"actual_class"`
+	Passed        bool   `json:"passed"`
+	Error         string `json:"error,omitempty"`
 }
 
 // ReportGenerator builds reports from load test results.
@@ -65,8 +65,8 @@ type ReportGenerator struct {
 	OutputDir    string
 	HTMLFilename string
 	JSONFilename string
-	PDFFilename  string   // Optional: generates PDF via chromedp
-	DiffDir      string   // Optional: second results dir for comparison
+	PDFFilename  string // Optional: generates PDF via chromedp
+	DiffDir      string // Optional: second results dir for comparison
 }
 
 // LogCapture captures external service logs during load tests.
@@ -81,7 +81,7 @@ func NewLogCapture(outputDir string) *LogCapture {
 
 // CaptureAll captures logs from Postgres, Redis, and Docker.
 func (lc *LogCapture) CaptureAll() error {
-	if err := os.MkdirAll(lc.OutputDir, 0o755); err != nil {
+	if err := os.MkdirAll(lc.OutputDir, 0o750); err != nil {
 		return fmt.Errorf("creating logs dir: %w", err)
 	}
 
@@ -108,14 +108,14 @@ func (lc *LogCapture) captureDockerLog(container, filename string) {
 	if err != nil {
 		return
 	}
-	os.WriteFile(path, data, 0o644)
+	_ = os.WriteFile(path, data, 0o600)
 }
 
 // ReportDiff compares two test runs and generates a diff report.
 type ReportDiff struct {
-	RunA     *Report     `json:"run_a"`
-	RunB     *Report     `json:"run_b"`
-	Changes  []DiffEntry `json:"changes"`
+	RunA    *Report     `json:"run_a"`
+	RunB    *Report     `json:"run_b"`
+	Changes []DiffEntry `json:"changes"`
 }
 
 // DiffEntry represents a single difference between two runs.
@@ -144,7 +144,7 @@ func NewReportGenerator(inputDir, outputDir, htmlFile, jsonFile string) *ReportG
 
 // Generate reads results from InputDir and produces HTML, JSON, and optionally PDF reports.
 func (rg *ReportGenerator) Generate() error {
-	if err := os.MkdirAll(rg.OutputDir, 0o755); err != nil {
+	if err := os.MkdirAll(rg.OutputDir, 0o750); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
 
@@ -175,7 +175,7 @@ func (rg *ReportGenerator) Generate() error {
 
 	// Capture service logs
 	logCapture := NewLogCapture(rg.OutputDir)
-	logCapture.CaptureAll()
+	_ = logCapture.CaptureAll()
 
 	// Write JSON report
 	if err := rg.writeJSON(rg.JSONFilename, report); err != nil {
@@ -322,7 +322,7 @@ func (rg *ReportGenerator) loadJSON(filename string, target any) {
 	if err != nil {
 		return
 	}
-	json.Unmarshal(data, target)
+	_ = json.Unmarshal(data, target)
 }
 
 func (rg *ReportGenerator) writeJSON(filename string, data any) error {
@@ -331,7 +331,7 @@ func (rg *ReportGenerator) writeJSON(filename string, data any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, out, 0o644)
+	return os.WriteFile(path, out, 0o600)
 }
 
 func (rg *ReportGenerator) buildSummary(report *Report) ReportSummary {

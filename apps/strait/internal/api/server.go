@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +20,7 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
+	"strait/internal/httputil"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/ratelimit"
@@ -29,6 +28,7 @@ import (
 	"strait/internal/telemetry"
 	"strait/internal/worker"
 
+	"sync"
 	"sync/atomic"
 
 	"github.com/alitto/pond/v2"
@@ -107,8 +107,10 @@ type JobStore interface {
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
+	GetJobSecret(ctx context.Context, id string) (*domain.JobSecret, error)
 	DeleteJobSecret(ctx context.Context, id string) error
 	CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error
+	GetJobDependency(ctx context.Context, id string) (*domain.JobDependency, error)
 	ListJobDependencies(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
 	DeleteJobDependency(ctx context.Context, id string) error
 	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
@@ -232,6 +234,7 @@ type EventSourceStore interface {
 	UpdateEventSource(ctx context.Context, sourceID, projectID string, patch map[string]any) error
 	DeleteEventSource(ctx context.Context, sourceID, projectID string) error
 	CreateEventSubscription(ctx context.Context, sub *domain.EventSubscription) error
+	GetEventSubscription(ctx context.Context, subID string) (*domain.EventSubscription, error)
 	ListEventSubscriptionsBySource(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
 	DeleteEventSubscription(ctx context.Context, subID string) error
 }
@@ -521,6 +524,50 @@ type Server struct {
 	startedAt          time.Time
 	cdcWebhookReceiver http.Handler
 	cachedOpenAPISpec  []byte
+
+	// SSE connection limiters to prevent goroutine/connection exhaustion.
+	sseGlobalConns  atomic.Int64
+	sseProjectConns sync.Map // map[string]*atomic.Int64
+}
+
+// acquireSSEConn attempts to reserve an SSE connection slot for the given project.
+// Returns false if either the global or per-project limit would be exceeded.
+func (s *Server) acquireSSEConn(projectID string) bool {
+	maxGlobal := s.config.SSEMaxConns
+	if maxGlobal <= 0 {
+		maxGlobal = 5000
+	}
+	maxProject := s.config.SSEMaxConnsPerProject
+	if maxProject <= 0 {
+		maxProject = 100
+	}
+
+	if s.sseGlobalConns.Load() >= maxGlobal {
+		return false
+	}
+
+	counter := s.projectSSECounter(projectID)
+	if counter.Load() >= maxProject {
+		return false
+	}
+
+	s.sseGlobalConns.Add(1)
+	counter.Add(1)
+	return true
+}
+
+// releaseSSEConn releases an SSE connection slot for the given project.
+func (s *Server) releaseSSEConn(projectID string) {
+	s.sseGlobalConns.Add(-1)
+	counter := s.projectSSECounter(projectID)
+	counter.Add(-1)
+}
+
+// projectSSECounter returns the per-project SSE connection counter,
+// creating one if it does not exist.
+func (s *Server) projectSSECounter(projectID string) *atomic.Int64 {
+	val, _ := s.sseProjectConns.LoadOrStore(projectID, &atomic.Int64{})
+	return val.(*atomic.Int64)
 }
 
 // analytics returns the ClickHouse analytics store when available, falling back to Postgres.
@@ -720,9 +767,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
-		"status":  "ok",
-		"edition": string(s.edition),
-		"version": s.version,
+		"status":    "ok",
+		"version":   s.version,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	}
 
 	// Detailed subsystem checks are only exposed to authenticated internal callers.
@@ -740,6 +787,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if isInternal {
+			resp["edition"] = string(s.edition)
 			resp["uptime_seconds"] = int(time.Since(s.startedAt).Seconds())
 			subsystems := make(map[string]string)
 			for _, c := range result.Components {
@@ -887,25 +935,15 @@ func validateURL(rawURL string) error {
 		return nil
 	}
 
+	// Use the shared SSRF validator for comprehensive private/loopback/
+	// link-local/CGNAT IP checks, including DNS resolution of hostnames.
+	if err := httputil.ValidateExternalURL(rawURL); err != nil {
+		return fmt.Errorf("url rejected: %w", err)
+	}
+
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
-	}
-
-	host := u.Hostname()
-	blockedHosts := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
-	for _, blocked := range blockedHosts {
-		if strings.EqualFold(host, blocked) {
-			return fmt.Errorf("url must not point to internal services")
-		}
-	}
-
-	ip := net.ParseIP(host)
-	if ip == nil {
-		ips, lookupErr := net.LookupIP(host)
-		if lookupErr == nil && slices.ContainsFunc(ips, isPrivateIP) {
-			return fmt.Errorf("url must not point to private or loopback addresses")
-		}
 	}
 
 	if port := u.Port(); port != "" && port != "80" && port != "443" {
@@ -932,24 +970,13 @@ func validateURLWithTLS(rawURL string, requireTLS bool) error {
 		return errors.New(msg)
 	}
 
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
-	}
-
-	host := u.Hostname()
-	blockedHosts := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
-	for _, blocked := range blockedHosts {
-		if strings.EqualFold(host, blocked) {
-			return fmt.Errorf("url must not point to internal services")
+	if !globalAllowPrivateEndpoints.Load() {
+		if err := httputil.ValidateExternalURL(rawURL); err != nil {
+			return fmt.Errorf("url rejected: %w", err)
 		}
 	}
 
 	return nil
-}
-
-func isPrivateIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
 func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {

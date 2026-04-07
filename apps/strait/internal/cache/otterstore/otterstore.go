@@ -68,9 +68,12 @@ func New(cfg Config) *OtterStore {
 
 // Get returns data stored from a given key.
 func (s *OtterStore) Get(_ context.Context, key any) (any, error) {
-	keyStr := key.(string)
-	value, ok := s.client.Get(keyStr)
+	keyStr, ok := key.(string)
 	if !ok {
+		return nil, fmt.Errorf("otterstore: key must be string, got %T", key)
+	}
+	value, found := s.client.Get(keyStr)
+	if !found {
 		return nil, lib_store.NotFoundWithCause(errors.New("value not found in otter store"))
 	}
 	return value, nil
@@ -79,9 +82,12 @@ func (s *OtterStore) Get(_ context.Context, key any) (any, error) {
 // GetWithTTL returns data stored from a given key and its corresponding TTL.
 // Otter does not expose per-item TTL, so we return -1 as the remaining duration.
 func (s *OtterStore) GetWithTTL(_ context.Context, key any) (any, time.Duration, error) {
-	keyStr := key.(string)
-	value, ok := s.client.Get(keyStr)
+	keyStr, ok := key.(string)
 	if !ok {
+		return nil, 0, fmt.Errorf("otterstore: key must be string, got %T", key)
+	}
+	value, found := s.client.Get(keyStr)
+	if !found {
 		return nil, 0, lib_store.NotFoundWithCause(errors.New("value not found in otter store"))
 	}
 	return value, -1, nil
@@ -102,7 +108,12 @@ func (s *OtterStore) Set(ctx context.Context, key any, value any, options ...lib
 		ttl = time.Hour
 	}
 
-	s.client.Set(key.(string), value, ttl)
+	keyStr, ok := key.(string)
+	if !ok {
+		return fmt.Errorf("otterstore: key must be string, got %T", key)
+	}
+
+	s.client.Set(keyStr, value, ttl)
 
 	if tags := opts.Tags; len(tags) > 0 {
 		s.setTags(ctx, key, tags)
@@ -127,8 +138,13 @@ func (s *OtterStore) setTags(ctx context.Context, key any, tags []string) {
 			}
 		}
 
+		keyStr, ok := key.(string)
+		if !ok {
+			continue
+		}
+
 		s.mu.RLock()
-		if _, exists := cacheKeys[key.(string)]; exists {
+		if _, exists := cacheKeys[keyStr]; exists {
 			s.mu.RUnlock()
 			continue
 		}
@@ -139,7 +155,7 @@ func (s *OtterStore) setTags(ctx context.Context, key any, tags []string) {
 		}
 
 		s.mu.Lock()
-		cacheKeys[key.(string)] = struct{}{}
+		cacheKeys[keyStr] = struct{}{}
 		s.mu.Unlock()
 
 		s.client.Set(tagKey, cacheKeys, 720*time.Hour)
@@ -148,7 +164,11 @@ func (s *OtterStore) setTags(ctx context.Context, key any, tags []string) {
 
 // Delete removes data in the otter cache for a given key identifier.
 func (s *OtterStore) Delete(_ context.Context, key any) error {
-	s.client.Delete(key.(string))
+	keyStr, ok := key.(string)
+	if !ok {
+		return fmt.Errorf("otterstore: key must be string, got %T", key)
+	}
+	s.client.Delete(keyStr)
 	return nil
 }
 

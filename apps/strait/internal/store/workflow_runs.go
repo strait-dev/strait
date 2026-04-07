@@ -333,7 +333,8 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
 		FROM workflow_runs
 		WHERE parent_workflow_run_id = $1
-		ORDER BY created_at ASC`
+		ORDER BY created_at ASC
+		LIMIT 10000`
 
 	rows, err := q.db.Query(ctx, query, parentWorkflowRunID)
 	if err != nil {

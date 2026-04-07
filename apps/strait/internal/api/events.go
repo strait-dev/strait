@@ -22,6 +22,10 @@ type ListRunEventsOutput struct {
 }
 
 func (s *Server) handleListRunEvents(ctx context.Context, input *ListRunEventsInput) (*ListRunEventsOutput, error) {
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
+
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())

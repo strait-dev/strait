@@ -13,6 +13,9 @@ func TestPauseAllJobsByGroup_Success(t *testing.T) {
 	t.Parallel()
 	var pauseCalled bool
 	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
+			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
+		},
 		PauseJobsByGroupFunc: func(_ context.Context, groupID string) error {
 			if groupID != "group-1" {
 				t.Fatalf("expected groupID group-1, got %s", groupID)
@@ -40,6 +43,9 @@ func TestResumeAllJobsByGroup_Success(t *testing.T) {
 	t.Parallel()
 	var resumeCalled bool
 	ms := &APIStoreMock{
+		GetJobGroupFunc: func(_ context.Context, id string) (*domain.JobGroup, error) {
+			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
+		},
 		ResumeJobsByGroupFunc: func(_ context.Context, groupID string) error {
 			if groupID != "group-1" {
 				t.Fatalf("expected groupID group-1, got %s", groupID)

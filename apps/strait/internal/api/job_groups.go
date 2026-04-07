@@ -31,6 +31,9 @@ func (s *Server) handleCreateJobGroup(ctx context.Context, input *CreateJobGroup
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job group not found")
+	}
 	group := &domain.JobGroup{ProjectID: req.ProjectID, Name: req.Name, Slug: req.Slug, Description: req.Description}
 	if err := s.store.CreateJobGroup(ctx, group); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create job group")
@@ -50,6 +53,9 @@ func (s *Server) handleGetJobGroup(ctx context.Context, input *GetJobGroupInput)
 			return nil, huma.Error404NotFound("job group not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get job group")
+	}
+	if err := requireProjectMatch(ctx, group.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job group not found")
 	}
 	return &GetJobGroupOutput{Body: group}, nil
 }
@@ -86,6 +92,9 @@ func (s *Server) handleUpdateJobGroup(ctx context.Context, input *UpdateJobGroup
 		}
 		return nil, huma.Error500InternalServerError("failed to get job group")
 	}
+	if err := requireProjectMatch(ctx, group.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job group not found")
+	}
 	req := input.Body
 	if req.Name != nil {
 		group.Name = *req.Name
@@ -110,6 +119,16 @@ type DeleteJobGroupInput struct {
 }
 
 func (s *Server) handleDeleteJobGroup(ctx context.Context, input *DeleteJobGroupInput) (*struct{}, error) {
+	group, err := s.store.GetJobGroup(ctx, input.GroupID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobGroupNotFound) {
+			return nil, huma.Error404NotFound("job group not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job group")
+	}
+	if err := requireProjectMatch(ctx, group.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job group not found")
+	}
 	if err := s.store.DeleteJobGroup(ctx, input.GroupID); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
 			return nil, huma.Error404NotFound("job group not found")
@@ -127,6 +146,17 @@ type ListJobsByGroupInput struct {
 type ListJobsByGroupOutput struct{ Body PaginatedResponse }
 
 func (s *Server) handleListJobsByGroup(ctx context.Context, input *ListJobsByGroupInput) (*ListJobsByGroupOutput, error) {
+	group, groupErr := s.store.GetJobGroup(ctx, input.GroupID)
+	if groupErr != nil && !errors.Is(groupErr, store.ErrJobGroupNotFound) {
+		return nil, huma.Error500InternalServerError("failed to get job group")
+	}
+	// For deleted groups, return empty results rather than 404.
+	// For cross-project groups, return empty results (same as not found).
+	if group != nil {
+		if pmErr := requireProjectMatch(ctx, group.ProjectID); pmErr != nil {
+			return &ListJobsByGroupOutput{Body: PaginatedResponse{Data: []any{}, HasMore: false}}, nil //nolint:nilerr // intentional: return empty results for cross-project
+		}
+	}
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -144,6 +174,16 @@ type PauseAllJobsByGroupInput struct {
 type PauseAllJobsByGroupOutput struct{ Body map[string]string }
 
 func (s *Server) handlePauseAllJobsByGroup(ctx context.Context, input *PauseAllJobsByGroupInput) (*PauseAllJobsByGroupOutput, error) {
+	group, err := s.store.GetJobGroup(ctx, input.GroupID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobGroupNotFound) {
+			return nil, huma.Error404NotFound("job group not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job group")
+	}
+	if err := requireProjectMatch(ctx, group.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job group not found")
+	}
 	if err := s.store.PauseJobsByGroup(ctx, input.GroupID); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
 			return nil, huma.Error404NotFound("job group not found")
@@ -159,6 +199,16 @@ type ResumeAllJobsByGroupInput struct {
 type ResumeAllJobsByGroupOutput struct{ Body map[string]string }
 
 func (s *Server) handleResumeAllJobsByGroup(ctx context.Context, input *ResumeAllJobsByGroupInput) (*ResumeAllJobsByGroupOutput, error) {
+	group, err := s.store.GetJobGroup(ctx, input.GroupID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobGroupNotFound) {
+			return nil, huma.Error404NotFound("job group not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job group")
+	}
+	if err := requireProjectMatch(ctx, group.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job group not found")
+	}
 	if err := s.store.ResumeJobsByGroup(ctx, input.GroupID); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
 			return nil, huma.Error404NotFound("job group not found")
@@ -174,6 +224,16 @@ type GetJobGroupStatsInput struct {
 type GetJobGroupStatsOutput struct{ Body any }
 
 func (s *Server) handleGetJobGroupStats(ctx context.Context, input *GetJobGroupStatsInput) (*GetJobGroupStatsOutput, error) {
+	group, err := s.store.GetJobGroup(ctx, input.GroupID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobGroupNotFound) {
+			return nil, huma.Error404NotFound("job group not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job group")
+	}
+	if err := requireProjectMatch(ctx, group.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job group not found")
+	}
 	stats, err := s.store.GetJobGroupStats(ctx, input.GroupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {

@@ -15,16 +15,16 @@ Read and follow `AGENTS.md` in this repository root — it is the primary operat
 - **Language**: Go 1.26, module `strait`
 - **Main app**: `apps/strait/`
 - **Build**: `cd apps/strait && go build ./...`
+- **Build (cloud)**: `cd apps/strait && go build -tags cloud ./...`
 - **Test**: `cd apps/strait && go test ./...`
 - **Lint**: `cd apps/strait && golangci-lint run --timeout=5m ./...`
 - **Dependencies**: PostgreSQL, Redis (see `docker-compose.yml`)
-- **Env vars**: see `.env.example` and `apps/strait/internal/config/config.go`
+- **Env vars**: see `apps/strait/internal/config/config.go`
 - **Migrations**: `apps/strait/migrations/` (embedded, auto-applied on startup)
 - **Doppler**: `doppler secrets --project strait --config <dev|stg|prd>`
 - **Observability**: metrics, logs, traces, errors, uptime monitoring
 - **ClickHouse**: custom analytics exporter + 12 tables (see `internal/clickhouse/schema.go`)
 - **Analytics**: 32 API endpoints under `/v1/analytics/` backed by ClickHouse with Postgres fallback
-- **Monitoring**: alert rules in `packages/monitoring/`
 - **Job chaining**: `on_complete_trigger_job`/`on_failure_trigger_job` fields on jobs (max chain depth: 10)
 - **Compensation**: saga-pattern rollback via `compensation_job_id` on workflow steps, new states: `compensating`/`compensated`/`compensation_failed`
 - **Durable workflows**: `expected_completion_at` on runs, `expected_duration_secs` per step, stage notifications on step transitions
@@ -32,6 +32,28 @@ Read and follow `AGENTS.md` in this repository root — it is the primary operat
 - **Simulator**: `POST /v1/workflows/{id}/simulate` with dry_run, sandbox, failure_injection modes
 - **Test suites**: `workflow/testing/` package with test definitions, mock server, JUnit XML output
 - **Debugger**: `workflow/debugger.go` with debug view, run comparison, data flow tracking
+
+## Editions
+
+Two Docker images, two binaries. Edition is determined at compile time via Go build tags.
+
+- **Community** (`go build`): self-hosted, open-source. No managed execution, multi-region, or advanced analytics.
+- **Cloud** (`go build -tags cloud`): production SaaS on strait.dev. All features enabled. Private image.
+
+The `STRAIT_EDITION` env var is ignored. `domain.ParseEdition()` always returns the compile-time edition. See `internal/domain/edition_community.go` and `edition_cloud.go`.
+
+Docker build: `docker build --build-arg BUILD_TAGS=cloud` for cloud image.
+
+## Infrastructure (internal, see strait-dev/infra)
+
+- **Compute**: Hetzner Cloud k3s cluster (Ashburn, VA). Calico CNI. ArgoCD GitOps.
+- **Database**: PlanetScale PostgreSQL (us-east-1)
+- **TLS/CDN**: Cloudflare (proxy mode, DDoS protection)
+- **Secrets**: Doppler (auto-synced to K8s every 120s)
+- **Monitoring**: Grafana Cloud (metrics, logs, alerts), ClickHouse (traces)
+- **CI/CD**: GitHub Actions (lint, test, security) + ArgoCD Image Updater (auto-deploy on tag push)
+- **Images**: `ghcr.io/strait-dev/strait` (community, public), `ghcr.io/strait-dev/strait-cloud` (cloud, private)
+- **Runbook**: `strait-dev/infra/RUNBOOK.md` (17 incident procedures)
 
 ## Key conventions
 

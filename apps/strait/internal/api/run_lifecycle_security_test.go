@@ -138,6 +138,9 @@ func TestRunLifecycle_ReplayDeadLetterRun(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1", JobID: "job-1"}, nil
+		},
 		ReplayDeadLetterRunFunc: func(_ context.Context, runID string) (*domain.JobRun, error) {
 			return &domain.JobRun{
 				ID:     "run-replayed",

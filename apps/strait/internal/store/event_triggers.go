@@ -376,7 +376,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 	defer span.End()
 
 	query := `
-		SELECT et.id, et.event_key, et.project_id, et.source_type,
+		(SELECT et.id, et.event_key, et.project_id, et.source_type,
 		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
 		       et.status, et.request_payload, et.response_payload,
 		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
@@ -387,10 +387,11 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 		  AND et.source_type = 'workflow_step'
 		  AND wsr.status = 'waiting'
 		  AND et.received_at < NOW() - INTERVAL '30 seconds'
+		LIMIT 1000)
 
 		UNION ALL
 
-		SELECT et.id, et.event_key, et.project_id, et.source_type,
+		(SELECT et.id, et.event_key, et.project_id, et.source_type,
 		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
 		       et.status, et.request_payload, et.response_payload,
 		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
@@ -401,7 +402,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 		  AND et.source_type = 'job_run'
 		  AND r.status = 'waiting'
 		  AND et.received_at < NOW() - INTERVAL '30 seconds'
-		LIMIT 1000
+		LIMIT 1000)
 	`
 
 	rows, err := q.db.Query(ctx, query)
@@ -615,11 +616,11 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 
 	txb, ok := q.db.(TxBeginner)
 	if !ok {
-		// Fallback: not a pool (e.g., already in a tx). Execute sequentially.
-		if err := q.UpdateEventTriggerStatus(ctx, triggerID, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
-			return fmt.Errorf("update trigger status: %w", err)
-		}
-		return requeueRun(q)
+		// Non-atomic fallback is unsafe: marking the trigger as received and
+		// requeuing the run must happen atomically. Return an error instead
+		// of executing two separate operations that could leave the system
+		// in an inconsistent state if the second one fails.
+		return fmt.Errorf("receive event and requeue run requires transaction support")
 	}
 
 	return WithTx(ctx, txb, func(txQ *Queries) error {

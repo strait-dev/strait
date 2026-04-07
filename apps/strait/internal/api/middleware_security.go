@@ -23,6 +23,8 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set(securityHeaderPermissionsPolicy, "camera=(), microphone=(), geolocation=(), payment=()")
 		w.Header().Set(securityHeaderCrossDomainPolicies, "none")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Pragma", "no-cache")
 
 		if requestIsHTTPS(r) {
 			w.Header().Set(securityHeaderHSTS, "max-age=63072000; includeSubDomains")
@@ -33,8 +35,8 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 // serverHeaderStripper wraps http.ResponseWriter to strip the Server header
-// before it is sent. This prevents reverse proxies (e.g. Fly.io) from leaking
-// version information via the Server response header.
+// before it is sent. This prevents reverse proxies from leaking version
+// information via the Server response header.
 type serverHeaderStripper struct {
 	http.ResponseWriter
 }

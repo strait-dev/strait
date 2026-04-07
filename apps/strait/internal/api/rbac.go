@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	"strait/internal/billing"
@@ -13,6 +14,64 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 )
+
+// validateCallerCanGrantPermissions checks that the caller's effective
+// permissions are a superset of the requested permissions. This prevents
+// privilege escalation where a user with limited scopes creates a role
+// with broader permissions (e.g. wildcard). Internal secret auth (scopes
+// nil) bypasses this check since those requests are fully trusted.
+func (s *Server) validateCallerCanGrantPermissions(ctx context.Context, requested []string) error {
+	callerScopes := scopesFromContext(ctx)
+	if callerScopes == nil {
+		// Internal secret auth -- fully trusted, no restriction.
+		return nil
+	}
+
+	// Determine the caller's effective permissions.
+	// For OIDC users with empty token scopes, load from the database.
+	// For API keys with empty scopes (legacy backwards compat = full access),
+	// we still load from the scopes directly.
+	effectivePerms := callerScopes
+	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
+
+	if len(callerScopes) == 0 && actorType == "user" {
+		// OIDC user with empty scopes: load effective permissions from DB.
+		projectID := projectIDFromContext(ctx)
+		actorID := actorFromContext(ctx)
+		if projectID != "" && actorID != "" {
+			perms, err := s.store.GetUserPermissions(ctx, projectID, actorID)
+			if err != nil {
+				slog.Warn("failed to load caller permissions for escalation check", "error", err)
+				return huma.Error403Forbidden("unable to verify caller permissions")
+			}
+			effectivePerms = perms
+		}
+	} else if len(callerScopes) == 0 {
+		// Legacy API key with empty scopes = full access (backwards compat).
+		return nil
+	}
+
+	// Check if effective permissions include wildcard.
+	if slices.Contains(effectivePerms, domain.ScopeAll) {
+		return nil
+	}
+
+	// Build a set of the caller's effective permissions for fast lookup.
+	permSet := make(map[string]bool, len(effectivePerms))
+	for _, p := range effectivePerms {
+		permSet[p] = true
+	}
+
+	for _, req := range requested {
+		if req == domain.ScopeAll {
+			return huma.Error403Forbidden("cannot grant wildcard permission: caller does not have wildcard scope")
+		}
+		if !permSet[req] {
+			return huma.Error403Forbidden("cannot grant permission " + req + ": caller does not have it")
+		}
+	}
+	return nil
+}
 
 // Roles.
 
@@ -57,6 +116,9 @@ func (s *Server) handleCreateRole(ctx context.Context, input *CreateRoleInput) (
 	if err := domain.ValidateScopes(req.Permissions); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	if err := s.validateCallerCanGrantPermissions(ctx, req.Permissions); err != nil {
+		return nil, err
+	}
 	role := &domain.ProjectRole{ProjectID: projectIDFromContext(ctx), Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
 	if err := s.store.CreateProjectRole(ctx, role); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create role")
@@ -97,6 +159,9 @@ func (s *Server) handleGetRole(ctx context.Context, input *GetRoleInput) (*GetRo
 			return nil, huma.Error404NotFound("role not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get role")
+	}
+	if err := requireProjectMatch(ctx, role.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("role not found")
 	}
 	if input.IncludeLineage != "true" {
 		return &GetRoleOutput{Body: role}, nil
@@ -141,8 +206,16 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 	if err := domain.ValidateScopes(req.Permissions); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	if err := s.validateCallerCanGrantPermissions(ctx, req.Permissions); err != nil {
+		return nil, err
+	}
 	roleID := input.RoleID
 	previousRole, _ := s.store.GetProjectRole(ctx, roleID)
+	if previousRole != nil {
+		if err := requireProjectMatch(ctx, previousRole.ProjectID); err != nil {
+			return nil, huma.Error404NotFound("role not found")
+		}
+	}
 	role := &domain.ProjectRole{ID: roleID, Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
 	if err := s.store.UpdateProjectRole(ctx, role); err != nil {
 		if errors.Is(err, store.ErrRoleNotFound) {
@@ -171,6 +244,17 @@ type DeleteRoleInput struct {
 func (s *Server) handleDeleteRole(ctx context.Context, input *DeleteRoleInput) (*struct{}, error) {
 	if err := s.checkFeatureAllowed(ctx, projectIDFromContext(ctx), billing.FeatureRBAC, "Role management"); err != nil {
 		return nil, err
+	}
+
+	role, err := s.store.GetProjectRole(ctx, input.RoleID)
+	if err != nil {
+		if errors.Is(err, store.ErrRoleNotFound) {
+			return nil, huma.Error404NotFound("role not found or is a system role")
+		}
+		return nil, huma.Error500InternalServerError("failed to get role")
+	}
+	if err := requireProjectMatch(ctx, role.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("role not found or is a system role")
 	}
 
 	if err := s.store.DeleteProjectRole(ctx, input.RoleID); err != nil {
@@ -219,13 +303,22 @@ func (s *Server) handleAssignMember(ctx context.Context, input *AssignMemberInpu
 			}
 		}
 	}
-	if _, err := s.store.GetProjectRole(ctx, req.RoleID); err != nil {
+	// Prevent self-assignment: callers cannot assign roles to themselves.
+	caller := actorFromContext(ctx)
+	if caller != "" && caller == req.UserID {
+		return nil, huma.Error403Forbidden("cannot assign a role to yourself")
+	}
+	targetRole, err := s.store.GetProjectRole(ctx, req.RoleID)
+	if err != nil {
 		if errors.Is(err, store.ErrRoleNotFound) {
 			return nil, huma.Error400BadRequest("role not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to verify role")
 	}
-	m := &domain.ProjectMemberRole{ProjectID: projectIDFromContext(ctx), UserID: req.UserID, RoleID: req.RoleID, GrantedBy: actorFromContext(ctx)}
+	if err := s.validateCallerCanGrantPermissions(ctx, targetRole.Permissions); err != nil {
+		return nil, err
+	}
+	m := &domain.ProjectMemberRole{ProjectID: projectIDFromContext(ctx), UserID: req.UserID, RoleID: req.RoleID, GrantedBy: caller}
 	if err := s.store.AssignMemberRole(ctx, m); err != nil {
 		return nil, huma.Error500InternalServerError("failed to assign role")
 	}

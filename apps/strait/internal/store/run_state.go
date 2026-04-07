@@ -49,7 +49,7 @@ func (q *Queries) ListRunState(ctx context.Context, runID string) ([]domain.RunS
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunState")
 	defer span.End()
 
-	query := `SELECT run_id, state_key, value, updated_at FROM run_state WHERE run_id = $1 ORDER BY state_key ASC`
+	query := `SELECT run_id, state_key, value, updated_at FROM run_state WHERE run_id = $1 ORDER BY state_key ASC LIMIT 10000`
 	rows, err := q.db.Query(ctx, query, runID)
 	if err != nil {
 		return nil, fmt.Errorf("list run state: %w", err)

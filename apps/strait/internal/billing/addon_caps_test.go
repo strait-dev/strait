@@ -28,7 +28,7 @@ func TestAddonCap_UnderLimit_Allows(t *testing.T) {
 		WithAddonPrice("addon-conc", AddonConcurrentRuns),
 	)
 
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), enforcer, nil,
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), enforcer, nil, WithDevBypassSignatureCheck(),
 		WithEdition("community"))
 
 	// Existing count: 0, cap: whatever the plan allows -- should allow.
@@ -53,7 +53,7 @@ func TestAddonCap_EnforcerNil_Allows(t *testing.T) {
 		WithProPrices("pro-id", ""),
 	)
 
-	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
 	sub := testSubscriptionData{
 		ID:         "sub_addon_2",

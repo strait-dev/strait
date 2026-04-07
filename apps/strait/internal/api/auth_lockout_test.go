@@ -45,8 +45,8 @@ func TestRealIP_XForwardedFor(t *testing.T) {
 		want string
 	}{
 		{"xff single", "1.2.3.4", "5.6.7.8:1234", "1.2.3.4"},
-		{"xff multiple takes first", "1.2.3.4, 5.6.7.8", "9.0.0.1:1234", "1.2.3.4"},
-		{"xff with spaces", "  1.2.3.4  , 5.6.7.8", "9.0.0.1:1234", "1.2.3.4"},
+		{"xff multiple takes last", "1.2.3.4, 5.6.7.8", "9.0.0.1:1234", "5.6.7.8"},
+		{"xff with spaces", "  1.2.3.4  , 5.6.7.8  ", "9.0.0.1:1234", "5.6.7.8"},
 		{"no xff uses remote addr", "", "5.6.7.8:1234", "5.6.7.8"},
 	}
 

@@ -37,11 +37,14 @@ func TestHandleHealth_PublicFields(t *testing.T) {
 	if resp["status"] != "ok" {
 		t.Errorf("expected status=ok, got %v", resp["status"])
 	}
-	if resp["edition"] != "community" {
-		t.Errorf("expected edition=community, got %v", resp["edition"])
-	}
 	if resp["version"] != "v1.2.3" {
 		t.Errorf("expected version=v1.2.3, got %v", resp["version"])
+	}
+	if _, exists := resp["timestamp"]; !exists {
+		t.Error("expected timestamp in public health response")
+	}
+	if _, exists := resp["edition"]; exists {
+		t.Error("public health should not expose edition (internal only)")
 	}
 	if _, exists := resp["uptime_seconds"]; exists {
 		t.Error("public health should not expose uptime_seconds")
@@ -73,6 +76,9 @@ func TestHandleHealth_InternalSecret_ShowsDetails(t *testing.T) {
 	var resp map[string]any
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
 
+	if resp["edition"] != "community" {
+		t.Errorf("expected edition=community in internal response, got %v", resp["edition"])
+	}
 	uptime, ok := resp["uptime_seconds"].(float64)
 	if !ok || uptime < 10 {
 		t.Errorf("expected uptime_seconds >= 10 with internal secret, got %v", resp["uptime_seconds"])

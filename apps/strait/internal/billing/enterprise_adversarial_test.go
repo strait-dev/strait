@@ -205,17 +205,17 @@ func TestCalculateSLACredit_ExactBoundaries(t *testing.T) {
 		{89.99, 50}, // just below 90.0
 	}
 	for _, tt := range tests {
-		got := CalculateSLACredit(tt.uptime)
+		got := CalculateSLACredit(tt.uptime, EnterpriseStarterSLAPct)
 		if got != tt.want {
-			t.Errorf("CalculateSLACredit(%.2f) = %d, want %d", tt.uptime, got, tt.want)
+			t.Errorf("CalculateSLACredit(%.2f, 99.9) = %d, want %d", tt.uptime, got, tt.want)
 		}
 	}
 }
 
 func TestCalculateSLACredit_NegativeUptime(t *testing.T) {
 	t.Parallel()
-	got := CalculateSLACredit(-10.0)
+	got := CalculateSLACredit(-10.0, EnterpriseStarterSLAPct)
 	if got != 50 {
-		t.Errorf("CalculateSLACredit(-10.0) = %d, want 50", got)
+		t.Errorf("CalculateSLACredit(-10.0, 99.9) = %d, want 50", got)
 	}
 }

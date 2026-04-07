@@ -363,11 +363,11 @@ func TestIsValidBillingCadence(t *testing.T) {
 
 func TestCalculateSLACredit_AboveThreshold(t *testing.T) {
 	t.Parallel()
-	if got := CalculateSLACredit(99.95); got != 0 {
-		t.Errorf("CalculateSLACredit(99.95) = %d, want 0", got)
+	if got := CalculateSLACredit(99.95, EnterpriseStarterSLAPct); got != 0 {
+		t.Errorf("CalculateSLACredit(99.95, 99.9) = %d, want 0", got)
 	}
-	if got := CalculateSLACredit(100.0); got != 0 {
-		t.Errorf("CalculateSLACredit(100.0) = %d, want 0", got)
+	if got := CalculateSLACredit(100.0, EnterpriseStarterSLAPct); got != 0 {
+		t.Errorf("CalculateSLACredit(100.0, 99.9) = %d, want 0", got)
 	}
 }
 
@@ -387,16 +387,51 @@ func TestCalculateSLACredit_AllTiers(t *testing.T) {
 		{0.0, 50},
 	}
 	for _, tt := range tests {
-		if got := CalculateSLACredit(tt.uptime); got != tt.want {
-			t.Errorf("CalculateSLACredit(%.1f) = %d, want %d", tt.uptime, got, tt.want)
+		if got := CalculateSLACredit(tt.uptime, EnterpriseStarterSLAPct); got != tt.want {
+			t.Errorf("CalculateSLACredit(%.1f, 99.9) = %d, want %d", tt.uptime, got, tt.want)
 		}
 	}
 }
 
 func TestCalculateSLACredit_ExactBoundary999(t *testing.T) {
 	t.Parallel()
-	// Exactly 99.9 is at the SLA threshold, so no credit.
-	if got := CalculateSLACredit(99.9); got != 0 {
-		t.Errorf("CalculateSLACredit(99.9) = %d, want 0", got)
+	// Exactly 99.9 is at the SLA threshold for Starter, so no credit.
+	if got := CalculateSLACredit(99.9, EnterpriseStarterSLAPct); got != 0 {
+		t.Errorf("CalculateSLACredit(99.9, 99.9) = %d, want 0", got)
+	}
+}
+
+func TestCalculateSLACredit_PerTierSLATarget(t *testing.T) {
+	t.Parallel()
+	// Growth/Large tiers have 99.95% SLA, so 99.92% is below target and should get credit.
+	if got := CalculateSLACredit(99.92, EnterpriseGrowthSLAPct); got != 10 {
+		t.Errorf("CalculateSLACredit(99.92, 99.95) = %d, want 10 (below Growth SLA)", got)
+	}
+	// But 99.92% with Starter SLA (99.9%) should get 0 credit (above target).
+	if got := CalculateSLACredit(99.92, EnterpriseStarterSLAPct); got != 0 {
+		t.Errorf("CalculateSLACredit(99.92, 99.9) = %d, want 0 (above Starter SLA)", got)
+	}
+	// 99.95% exactly at Growth SLA target -- no credit.
+	if got := CalculateSLACredit(99.95, EnterpriseGrowthSLAPct); got != 0 {
+		t.Errorf("CalculateSLACredit(99.95, 99.95) = %d, want 0", got)
+	}
+	// 99.94% just below Growth SLA -- should get credit.
+	if got := CalculateSLACredit(99.94, EnterpriseGrowthSLAPct); got != 10 {
+		t.Errorf("CalculateSLACredit(99.94, 99.95) = %d, want 10", got)
+	}
+	// Large tier with same SLA as Growth.
+	if got := CalculateSLACredit(99.93, EnterpriseLargeSLAPct); got != 10 {
+		t.Errorf("CalculateSLACredit(99.93, 99.95) = %d, want 10", got)
+	}
+}
+
+func TestCalculateSLACredit_CustomSLATarget(t *testing.T) {
+	t.Parallel()
+	// Verify arbitrary SLA targets work (e.g. custom enterprise contracts).
+	if got := CalculateSLACredit(99.98, 99.99); got != 10 {
+		t.Errorf("CalculateSLACredit(99.98, 99.99) = %d, want 10", got)
+	}
+	if got := CalculateSLACredit(99.99, 99.99); got != 0 {
+		t.Errorf("CalculateSLACredit(99.99, 99.99) = %d, want 0", got)
 	}
 }
