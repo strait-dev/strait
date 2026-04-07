@@ -854,6 +854,52 @@ func TestHandleListAdminOrgDeployments_ReturnsPaginatedList(t *testing.T) {
 	}
 }
 
+// --- Adversarial confirm tests (hash / size verification).
+
+// TestHandleConfirmCodeDeployment_HashMismatch_ConfirmNotCalled verifies that
+// the store's ConfirmCodeDeployment is never invoked when hash verification fails,
+// so the deployment remains in pending status.
+func TestHandleConfirmCodeDeployment_HashMismatch_ConfirmNotCalled(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj-nc"
+	const jobID = "job-nc"
+	const deploymentID = "deploy-nc"
+
+	confirmCalled := false
+	d := &domain.CodeDeployment{
+		ID:              deploymentID,
+		JobID:           jobID,
+		ProjectID:       projectID,
+		Status:          domain.DeploymentStatusPending,
+		SourceURI:       "projects/proj-nc/jobs/job-nc/deploys/deploy-nc.tar.gz",
+		SourceHash:      strings.Repeat("f", 64), // wrong
+		SourceSizeBytes: testTarballSize,
+	}
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, _, _ string) (*domain.CodeDeployment, error) {
+			return d, nil
+		},
+		ConfirmCodeDeploymentFunc: func(_ context.Context, _ string) error {
+			confirmCalled = true
+			return nil
+		},
+	}
+	srv := newTestServerWithObjectStore(t, ms, &mockObjectStore{})
+
+	body := fmt.Sprintf(`{"project_id": %q}`, projectID)
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s/confirm", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodPost, path, body, projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
+	}
+	if confirmCalled {
+		t.Error("ConfirmCodeDeployment must not be called when hash verification fails")
+	}
+}
+
 // TestHandleListAdminOrgDeployments_CrossTenantRejected verifies that a
 // caller cannot retrieve deployments for an org they do not own when using a
 // project API key (the endpoint must be internal-secret-only).
