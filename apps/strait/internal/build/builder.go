@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,8 +22,21 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/objectstore"
+	"strait/internal/pubsub"
 	"strait/internal/registry"
 )
+
+// BuildLogChannel returns the pub/sub channel name for streaming build logs
+// for the given deployment ID.
+func BuildLogChannel(deploymentID string) string {
+	return "deploy:" + deploymentID + ":logs"
+}
+
+// buildLogChunk is the JSON shape published on the build log channel.
+type buildLogChunk struct {
+	Chunk string `json:"chunk,omitempty"`
+	Done  bool   `json:"done,omitempty"`
+}
 
 // BuildResult holds the output of a successful container image build.
 type BuildResult struct {
@@ -45,6 +59,7 @@ type Builder struct {
 	registry     registry.ContainerRegistry
 	cacheEnabled bool
 	timeout      time.Duration
+	logPublisher pubsub.Publisher
 }
 
 // NewBuilder creates a Builder configured to talk to BuildKit at addr.
@@ -65,6 +80,14 @@ func NewBuilder(
 		cacheEnabled: cacheEnabled,
 		timeout:      timeout,
 	}
+}
+
+// WithLogPublisher configures the builder to stream log chunks to a pub/sub
+// channel during the build. Each log chunk is published as JSON {"chunk":"..."}
+// and a final {"done":true} sentinel is published when the build finishes.
+func (b *Builder) WithLogPublisher(p pubsub.Publisher) *Builder {
+	b.logPublisher = p
+	return b
 }
 
 // Build runs the full build pipeline for a single deployment and returns the result.
@@ -171,7 +194,7 @@ func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment, addr stri
 		}
 	}
 
-	// 6. Stream build status to capture logs.
+	// 6. Stream build status to capture logs (and optionally publish them live).
 	var logsBuf strings.Builder
 	statusCh := make(chan *bkclient.SolveStatus)
 	doneCh := make(chan struct{})
@@ -180,6 +203,10 @@ func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment, addr stri
 		for status := range statusCh {
 			for _, log := range status.Logs {
 				logsBuf.Write(log.Data)
+				if b.logPublisher != nil && len(log.Data) > 0 {
+					chunk, _ := json.Marshal(buildLogChunk{Chunk: string(log.Data)})
+					_ = b.logPublisher.Publish(buildCtx, BuildLogChannel(d.ID), chunk)
+				}
 			}
 			for _, v := range status.Vertexes {
 				if v.Error != "" {
@@ -195,6 +222,13 @@ func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment, addr stri
 
 	resp, buildErr := bk.Solve(buildCtx, nil, solveOpt, statusCh)
 	<-doneCh
+
+	// Publish the done sentinel regardless of build outcome so SSE consumers know
+	// the stream has ended.
+	if b.logPublisher != nil {
+		sentinel, _ := json.Marshal(buildLogChunk{Done: true})
+		_ = b.logPublisher.Publish(ctx, BuildLogChannel(d.ID), sentinel)
+	}
 
 	if buildErr != nil {
 		return nil, fmt.Errorf("buildkit solve: %w", buildErr)

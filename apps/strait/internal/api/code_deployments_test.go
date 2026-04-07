@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/build"
 	"strait/internal/domain"
 	"strait/internal/objectstore"
+	"strait/internal/pubsub"
 	"strait/internal/store"
 )
 
@@ -584,5 +586,168 @@ func TestHandleCreateCodeDeployment_PresignError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 on presign error, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Deployment log streaming tests.
+
+func TestHandleDeploymentLogs_TerminalReturnsStoredLogs(t *testing.T) {
+	projectID := "proj_123"
+	jobID := "job_abc"
+	deploymentID := "deploy_1"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:        id,
+				JobID:     jobID,
+				ProjectID: projectID,
+				Status:    domain.DeploymentStatusReady,
+				BuildLogs: "step1\nstep2\ndone",
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s/logs", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodGet, path, "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("expected text/plain, got %q", ct)
+	}
+	if !strings.Contains(w.Body.String(), "step1") {
+		t.Errorf("expected stored logs in response, got %q", w.Body.String())
+	}
+}
+
+func TestHandleDeploymentLogs_BuildingNonStreamReturnsPartialLogs(t *testing.T) {
+	projectID := "proj_123"
+	jobID := "job_abc"
+	deploymentID := "deploy_1"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:        id,
+				JobID:     jobID,
+				ProjectID: projectID,
+				Status:    domain.DeploymentStatusBuilding,
+				BuildLogs: "partial logs so far",
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s/logs", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodGet, path, "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "partial logs") {
+		t.Errorf("expected partial logs in response, got %q", w.Body.String())
+	}
+}
+
+func TestHandleDeploymentLogs_NotFound(t *testing.T) {
+	projectID := "proj_123"
+	jobID := "job_abc"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, _ string, _ string) (*domain.CodeDeployment, error) {
+			return nil, store.ErrCodeDeploymentNotFound
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/missing/logs", jobID)
+	req := authedProjectRequest(http.MethodGet, path, "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleDeploymentLogs_WrongJob(t *testing.T) {
+	projectID := "proj_123"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:        id,
+				JobID:     "other-job",
+				ProjectID: projectID,
+				Status:    domain.DeploymentStatusReady,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	path := "/v1/jobs/wrong-job/deployments/deploy_1/logs"
+	req := authedProjectRequest(http.MethodGet, path, "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleDeploymentLogs_StreamingBuildingDeployment(t *testing.T) {
+	projectID := "proj_123"
+	jobID := "job_abc"
+	deploymentID := "deploy_stream_1"
+
+	// Channel to deliver log chunks from the mock subscription.
+	logCh := make(chan []byte, 3)
+	logCh <- []byte(`{"chunk":"line 1\n"}`)
+	logCh <- []byte(`{"chunk":"line 2\n"}`)
+	logCh <- []byte(`{"done":true}`)
+	close(logCh)
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:        id,
+				JobID:     jobID,
+				ProjectID: projectID,
+				Status:    domain.DeploymentStatusBuilding,
+			}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, channel string) (*pubsub.Subscription, error) {
+			if channel != build.BuildLogChannel(deploymentID) {
+				return nil, fmt.Errorf("unexpected channel %q", channel)
+			}
+			return pubsub.NewSubscription(logCh, func() {}), nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, pub)
+
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s/logs?stream=true", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodGet, path, "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	ct := w.Header().Get("Content-Type")
+	if ct != "text/event-stream" {
+		t.Errorf("expected text/event-stream, got %q", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "line 1") {
+		t.Errorf("expected log chunks in SSE body, got:\n%s", body)
 	}
 }

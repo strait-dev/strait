@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"strait/internal/build"
@@ -16,6 +17,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -302,4 +304,112 @@ func (s *Server) handleRollbackCodeDeployment(ctx context.Context, input *Rollba
 	}
 
 	return &RollbackCodeDeploymentOutput{Body: d}, nil
+}
+
+// --- Build log streaming.
+
+// handleDeploymentLogs streams build logs for a code deployment.
+//
+// Behaviour:
+//   - Terminal deployment (ready/failed/timed_out): returns the stored build_logs
+//     field as text/plain.
+//   - Building deployment + ?stream=true: subscribes to the pub/sub channel
+//     "deploy:{id}:logs" and streams chunks as SSE (text/event-stream). A
+//     {"done":true} sentinel closes the stream. Falls back to stored logs when
+//     pubsub is unavailable.
+//   - Building deployment + ?stream=false (default): returns whatever logs have
+//     been stored so far as text/plain.
+func (s *Server) handleDeploymentLogs(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobID")
+	deploymentID := chi.URLParam(r, "deploymentID")
+	projectID, _ := r.Context().Value(ctxProjectIDKey).(string)
+
+	if projectID == "" {
+		respondError(w, r, http.StatusUnauthorized, "project context missing")
+		return
+	}
+
+	d, err := s.store.GetCodeDeployment(r.Context(), deploymentID, projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrCodeDeploymentNotFound) {
+			respondError(w, r, http.StatusNotFound, "deployment not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to fetch deployment")
+		return
+	}
+	if d.JobID != jobID {
+		respondError(w, r, http.StatusNotFound, "deployment not found")
+		return
+	}
+
+	wantStream := r.URL.Query().Get("stream") == "true"
+	isBuilding := d.Status == domain.DeploymentStatusBuilding
+
+	// Non-streaming path: return stored logs as text/plain.
+	if !wantStream || !isBuilding || s.pubsub == nil {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(d.BuildLogs))
+		return
+	}
+
+	// SSE streaming path: subscribe and forward chunks.
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		respondError(w, r, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	maxDuration := s.config.SSEMaxConnDuration
+	if maxDuration <= 0 {
+		maxDuration = 30 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), maxDuration)
+	defer cancel()
+
+	sub, err := s.pubsub.Subscribe(ctx, build.BuildLogChannel(deploymentID))
+	if err != nil {
+		slog.Warn("deployment logs: subscribe failed", "deployment_id", deploymentID, "error", err)
+		// Fall back to stored logs.
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(d.BuildLogs))
+		return
+	}
+	defer sub.Close()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	keepalive := s.config.SSEKeepaliveInterval
+	if keepalive <= 0 {
+		keepalive = 15 * time.Second
+	}
+	ticker := time.NewTicker(keepalive)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-sub.Ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "event: log\ndata: %s\n\n", msg)
+			flusher.Flush()
+			// Check for the done sentinel — builder sends {"done":true} when build ends.
+			if string(msg) == `{"done":true}` {
+				return
+			}
+		case <-ticker.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
+		}
+	}
 }

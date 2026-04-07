@@ -183,6 +183,15 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleProjectActivityStream)
 	})
 
+	// Deployment build log stream (SSE when stream=true and build is in progress).
+	// Placed before /v1 to avoid the global request timeout middleware.
+	r.Route("/v1/jobs/{jobID}/deployments/{deploymentID}/logs", func(r chi.Router) {
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectContextMiddleware)
+		r.Use(s.projectRateLimit)
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleDeploymentLogs)
+	})
+
 	// Org-scoped cross-project query routes.
 	r.Route("/v1/organizations/{orgID}", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
