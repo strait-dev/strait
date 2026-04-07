@@ -765,9 +765,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
-		"status":  "ok",
-		"edition": string(s.edition),
-		"version": s.version,
+		"status":    "ok",
+		"version":   s.version,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	}
 
 	// Detailed subsystem checks are only exposed to authenticated internal callers.
@@ -785,6 +785,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if isInternal {
+			resp["edition"] = string(s.edition)
 			resp["uptime_seconds"] = int(time.Since(s.startedAt).Seconds())
 			subsystems := make(map[string]string)
 			for _, c := range result.Components {
