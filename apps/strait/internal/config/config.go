@@ -219,7 +219,8 @@ type Config struct {
 	// Debug tools
 	DebugStatsviz bool `env:"DEBUG_STATSVIZ" default:"false"`
 
-	// Edition controls feature gating (community vs cloud)
+	// Edition is determined at compile time via build tags (community vs cloud).
+	// This field exists for config logging but is ignored by domain.ParseEdition.
 	Edition string `env:"STRAIT_EDITION" default:"community"`
 }
 
@@ -337,7 +338,7 @@ func Load() (*Config, error) {
 			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "requires a primary COMPUTE_RUNTIME"}
 		}
 	}
-	if cfg.Edition == string(domain.EditionCommunity) && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
+	if domain.ParseEdition(cfg.Edition) == domain.EditionCommunity && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
 		slog.Warn("community edition does not support managed execution; overriding COMPUTE_RUNTIME to none",
 			"configured", cfg.ComputeRuntime)
 		cfg.ComputeRuntime = "none"
