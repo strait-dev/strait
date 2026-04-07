@@ -318,12 +318,12 @@ func TestBreakingPoint(t *testing.T) {
 	t.Log("adding 100 tenants every 30 min until P99 > 5s or error rate > 0.1%")
 
 	type breakingPointResult struct {
-		MaxTenants    int           `json:"max_tenants"`
-		BreakTenants  int           `json:"break_tenants"`
-		Duration      time.Duration `json:"duration"`
-		BreakReason   string        `json:"break_reason"`
-		Steps         []struct {
-			Tenants  int     `json:"tenants"`
+		MaxTenants   int           `json:"max_tenants"`
+		BreakTenants int           `json:"break_tenants"`
+		Duration     time.Duration `json:"duration"`
+		BreakReason  string        `json:"break_reason"`
+		Steps        []struct {
+			Tenants    int     `json:"tenants"`
 			RunsPerSec float64 `json:"runs_per_sec"`
 			ErrorRate  float64 `json:"error_rate"`
 		} `json:"steps"`
@@ -429,10 +429,10 @@ func TestEndurance(t *testing.T) {
 		LongRunJobs:    20,
 		LongRunMinutes: 240,
 		AlertThresholds: loadtest.AlertThresholds{
-			MemoryGrowthPerHourMB: 100,
+			MemoryGrowthPerHourMB:  100,
 			GoroutineGrowthPerHour: 1000,
-			P99GrowthPerHourPct:   10,
-			ErrorGrowthPerHourPct: 0.1,
+			P99GrowthPerHourPct:    10,
+			ErrorGrowthPerHourPct:  0.1,
 		},
 	})
 
@@ -605,7 +605,7 @@ func TestTestServerEndpoints(t *testing.T) {
 
 // TestChaosScenarios runs each chaos scenario as an individual subtest.
 // Use: go test -tags=loadtest -run TestChaosScenarios -timeout 4h ./internal/loadtest/...
-// Or run a single scenario: go test -tags=loadtest -run TestChaosScenarios/worker_sigkill -timeout 30m
+// Or run a single scenario: go test -tags=loadtest -run TestChaosScenarios/worker_sigkill -timeout 30m.
 func TestChaosScenarios(t *testing.T) {
 	h := setupHarness(t)
 	ce := loadtest.NewChaosEngine(h, 100, loadtestProjectID, resolveJobID("loadtest-fast-echo"))

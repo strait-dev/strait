@@ -44,36 +44,36 @@ type RampConfig struct {
 
 // RampResult captures the outcome of a ramp test.
 type RampResult struct {
-	Mode            RampMode            `json:"mode"`
-	MaxRate         int                 `json:"max_rate"`
-	BreakingRate    int                 `json:"breaking_rate"`
-	Bottleneck      string              `json:"bottleneck"`
-	Duration        time.Duration       `json:"duration"`
-	TotalOperations int64               `json:"total_operations"`
-	TotalErrors     int64               `json:"total_errors"`
-	Steps           []RampStepResult    `json:"steps"`
+	Mode            RampMode         `json:"mode"`
+	MaxRate         int              `json:"max_rate"`
+	BreakingRate    int              `json:"breaking_rate"`
+	Bottleneck      string           `json:"bottleneck"`
+	Duration        time.Duration    `json:"duration"`
+	TotalOperations int64            `json:"total_operations"`
+	TotalErrors     int64            `json:"total_errors"`
+	Steps           []RampStepResult `json:"steps"`
 }
 
 // RampStepResult captures metrics for a single ramp step.
 type RampStepResult struct {
-	Rate           int           `json:"rate"`
-	Duration       time.Duration `json:"duration"`
-	Operations     int64         `json:"operations"`
-	Errors         int64         `json:"errors"`
-	ErrorRate      float64       `json:"error_rate"`
-	LatencyP50     time.Duration `json:"latency_p50"`
-	LatencyP95     time.Duration `json:"latency_p95"`
-	LatencyP99     time.Duration `json:"latency_p99"`
-	QueueDepth     int64         `json:"queue_depth"`
-	StoppedEarly   bool          `json:"stopped_early,omitempty"`
-	StopReason     string        `json:"stop_reason,omitempty"`
+	Rate         int           `json:"rate"`
+	Duration     time.Duration `json:"duration"`
+	Operations   int64         `json:"operations"`
+	Errors       int64         `json:"errors"`
+	ErrorRate    float64       `json:"error_rate"`
+	LatencyP50   time.Duration `json:"latency_p50"`
+	LatencyP95   time.Duration `json:"latency_p95"`
+	LatencyP99   time.Duration `json:"latency_p99"`
+	QueueDepth   int64         `json:"queue_depth"`
+	StoppedEarly bool          `json:"stopped_early,omitempty"`
+	StopReason   string        `json:"stop_reason,omitempty"`
 }
 
 // RampEngine executes load ramp tests.
 type RampEngine struct {
-	config    RampConfig
-	operation func(ctx context.Context) error // The operation to execute
-	queueDepthFn func() int64                 // Returns current queue depth
+	config       RampConfig
+	operation    func(ctx context.Context) error // The operation to execute
+	queueDepthFn func() int64                    // Returns current queue depth
 }
 
 // NewRampEngine creates a ramp engine with the given configuration.
@@ -147,8 +147,8 @@ func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
 	opsCtx, opsCancel := context.WithCancel(context.Background())
 
 	var (
-		ops    atomic.Int64
-		errs   atomic.Int64
+		ops  atomic.Int64
+		errs atomic.Int64
 	)
 
 	// Track latencies
@@ -318,7 +318,7 @@ func (lt *latencyTracker) record(d time.Duration) {
 		lt.samples = append(lt.samples, d)
 	} else {
 		// Reservoir sampling: replace a random element with probability reservoirSize/count
-		j := rand.Int64N(lt.count)
+		j := rand.Int64N(lt.count) //nolint:gosec // non-cryptographic use for reservoir sampling
 		if j < reservoirSize {
 			lt.samples[j] = d
 		}
@@ -340,11 +340,7 @@ func (lt *latencyTracker) percentile(p float64) time.Duration {
 	slices.Sort(sorted)
 
 	idx := int(math.Ceil(p/100*float64(n))) - 1
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= n {
-		idx = n - 1
-	}
+	idx = max(idx, 0)
+	idx = min(idx, n-1)
 	return sorted[idx]
 }

@@ -8,11 +8,11 @@ import (
 
 // Scenario defines a pre-configured load test.
 type Scenario struct {
-	Name        string        `json:"name"`
-	Description string        `json:"description"`
-	Tier        int           `json:"tier"`
-	Duration    time.Duration `json:"duration"`
-	RampConfig  *RampConfig   `json:"ramp_config,omitempty"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	Tier         int                    `json:"tier"`
+	Duration     time.Duration          `json:"duration"`
+	RampConfig   *RampConfig            `json:"ramp_config,omitempty"`
 	TenantConfig *TenantSimulatorConfig `json:"tenant_config,omitempty"`
 }
 

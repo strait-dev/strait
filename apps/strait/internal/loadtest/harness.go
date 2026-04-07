@@ -103,7 +103,7 @@ func NewHarness(cfg HarnessConfig) *Harness {
 
 // Setup initializes all infrastructure: DB pool, Redis, test server, metrics.
 func (h *Harness) Setup(ctx context.Context) error {
-	if err := os.MkdirAll(h.ResultsDir, 0o755); err != nil {
+	if err := os.MkdirAll(h.ResultsDir, 0o750); err != nil {
 		return fmt.Errorf("creating results dir: %w", err)
 	}
 
@@ -216,7 +216,7 @@ func (h *Harness) TriggerJob(ctx context.Context, projectID, jobID string, paylo
 		return fmt.Errorf("triggering job: %w", err)
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("trigger returned status %d", resp.StatusCode)
@@ -295,7 +295,7 @@ func (h *Harness) WriteResult(filename string, result any) error {
 	if err != nil {
 		return fmt.Errorf("marshaling result: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 // JobConfig defines a job for load testing.
@@ -432,7 +432,7 @@ func (h *Harness) createJobs(ctx context.Context, projectID string, configs []Jo
 		if err != nil {
 			existingID, findErr := h.FindJobBySlug(ctx, projectID, cfg.Slug)
 			if findErr != nil {
-				return fmt.Errorf("creating job %s: %w (and failed to find existing: %v)", cfg.Slug, err, findErr)
+				return fmt.Errorf("creating job %s: %w (and failed to find existing: %w)", cfg.Slug, err, findErr)
 			}
 			dest[cfg.Slug] = existingID
 			continue

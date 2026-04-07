@@ -59,23 +59,23 @@ type MetricsSnapshot struct {
 
 // GoMetrics captures Go runtime stats.
 type GoMetrics struct {
-	Goroutines int    `json:"goroutines"`
-	HeapAlloc  uint64 `json:"heap_alloc_bytes"`
-	HeapSys    uint64 `json:"heap_sys_bytes"`
-	HeapInuse  uint64 `json:"heap_inuse_bytes"`
-	StackInuse uint64 `json:"stack_inuse_bytes"`
-	GCPauseNs  uint64 `json:"gc_pause_ns"`
-	NumGC      uint32 `json:"num_gc"`
+	Goroutines int     `json:"goroutines"`
+	HeapAlloc  uint64  `json:"heap_alloc_bytes"`
+	HeapSys    uint64  `json:"heap_sys_bytes"`
+	HeapInuse  uint64  `json:"heap_inuse_bytes"`
+	StackInuse uint64  `json:"stack_inuse_bytes"`
+	GCPauseNs  uint64  `json:"gc_pause_ns"`
+	NumGC      uint32  `json:"num_gc"`
 	GCCPUFrac  float64 `json:"gc_cpu_fraction"`
 }
 
 // PGMetrics captures PostgreSQL connection pool and activity stats.
 type PGMetrics struct {
-	ActiveConns   int32 `json:"active_connections"`
-	IdleConns     int32 `json:"idle_connections"`
-	TotalConns    int32 `json:"total_connections"`
-	MaxConns      int32 `json:"max_connections"`
-	WaitCount     int64 `json:"wait_count"`
+	ActiveConns    int32 `json:"active_connections"`
+	IdleConns      int32 `json:"idle_connections"`
+	TotalConns     int32 `json:"total_connections"`
+	MaxConns       int32 `json:"max_connections"`
+	WaitCount      int64 `json:"wait_count"`
 	WaitDurationMs int64 `json:"wait_duration_ms"`
 }
 
@@ -91,12 +91,12 @@ type RedisMetrics struct {
 
 // AppMetrics captures application-level metrics.
 type AppMetrics struct {
-	QueueDepth     int64   `json:"queue_depth"`
-	DequeueRate    float64 `json:"dequeue_rate_per_sec"`
-	ErrorRate      float64 `json:"error_rate_per_sec"`
-	ActiveRuns     int64   `json:"active_runs"`
-	CompletedRuns  int64   `json:"completed_runs"`
-	FailedRuns     int64   `json:"failed_runs"`
+	QueueDepth    int64   `json:"queue_depth"`
+	DequeueRate   float64 `json:"dequeue_rate_per_sec"`
+	ErrorRate     float64 `json:"error_rate_per_sec"`
+	ActiveRuns    int64   `json:"active_runs"`
+	CompletedRuns int64   `json:"completed_runs"`
+	FailedRuns    int64   `json:"failed_runs"`
 }
 
 // MetricsCollectorConfig configures the metrics collector.
@@ -107,7 +107,7 @@ type MetricsCollectorConfig struct {
 	Interval  time.Duration
 
 	// Harness provides HTTP access to the Strait API for AppMetrics collection.
-	Harness   *Harness
+	Harness *Harness
 	// ProjectID is the project used when querying /v1/stats.
 	ProjectID string
 }
@@ -121,7 +121,7 @@ func NewMetricsCollector(cfg MetricsCollectorConfig) (*MetricsCollector, error) 
 		cfg.OutputDir = "loadtest-results"
 	}
 
-	if err := os.MkdirAll(cfg.OutputDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.OutputDir, 0o750); err != nil {
 		return nil, fmt.Errorf("creating output dir: %w", err)
 	}
 
@@ -148,7 +148,7 @@ func (mc *MetricsCollector) Start(ctx context.Context) error {
 
 	ctx, mc.cancel = context.WithCancel(ctx)
 
-	go mc.collectLoop(ctx)
+	go mc.collectLoop(ctx) //nolint:gosec // ctx is already derived from the caller's context
 	return nil
 }
 
@@ -264,12 +264,12 @@ func (mc *MetricsCollector) collect(ctx context.Context) {
 		data, err := json.Marshal(snap)
 		if err == nil {
 			n, _ := mc.writer.Write(data)
-			mc.writer.Write([]byte("\n"))
+			_, _ = mc.writer.Write([]byte("\n"))
 			mc.bytesWritten += int64(n) + 1
 
 			// Check if rotation is needed
 			if mc.bytesWritten >= mc.maxFileSize {
-				mc.rotateFile()
+				_ = mc.rotateFile()
 			}
 		}
 	}

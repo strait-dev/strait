@@ -25,30 +25,30 @@ const (
 type TenantProfile struct {
 	ID              string     `json:"id"`
 	Plan            TenantPlan `json:"plan"`
-	RunsPerMinute   float64    `json:"runs_per_minute"`     // Base rate
-	BurstProb       float64    `json:"burst_probability"`   // Chance of 10x burst per minute
-	HTTPPercent     float64    `json:"http_percent"`         // Fraction of HTTP-mode jobs
-	ManagedPercent  float64    `json:"managed_percent"`      // Fraction of managed (Docker) jobs
-	WorkflowPercent float64    `json:"workflow_percent"`     // Fraction of workflow triggers
+	RunsPerMinute   float64    `json:"runs_per_minute"`   // Base rate
+	BurstProb       float64    `json:"burst_probability"` // Chance of 10x burst per minute
+	HTTPPercent     float64    `json:"http_percent"`      // Fraction of HTTP-mode jobs
+	ManagedPercent  float64    `json:"managed_percent"`   // Fraction of managed (Docker) jobs
+	WorkflowPercent float64    `json:"workflow_percent"`  // Fraction of workflow triggers
 }
 
 // TenantSimulatorConfig configures the multi-tenant simulator.
 type TenantSimulatorConfig struct {
-	Tenants         []TenantProfile
-	TimeOfDayCurve  bool          // Apply realistic time-of-day curve
-	Duration        time.Duration // Total simulation duration
-	PeakHourUTC     int           // Hour of peak traffic (default: 14)
-	TroughHourUTC   int           // Hour of minimum traffic (default: 4)
+	Tenants        []TenantProfile
+	TimeOfDayCurve bool          // Apply realistic time-of-day curve
+	Duration       time.Duration // Total simulation duration
+	PeakHourUTC    int           // Hour of peak traffic (default: 14)
+	TroughHourUTC  int           // Hour of minimum traffic (default: 4)
 }
 
 // TenantSimulator generates realistic multi-tenant traffic.
 type TenantSimulator struct {
-	config   TenantSimulatorConfig
+	config    TenantSimulatorConfig
 	triggerFn func(ctx context.Context, tenant TenantProfile, jobType string) error
 
-	totalRuns  atomic.Int64
-	totalErrs  atomic.Int64
-	perTenant  sync.Map // tenant ID -> *tenantStats
+	totalRuns atomic.Int64
+	totalErrs atomic.Int64
+	perTenant sync.Map // tenant ID -> *tenantStats
 }
 
 type tenantStats struct {
@@ -58,11 +58,11 @@ type tenantStats struct {
 
 // TenantSimulatorResult captures the outcome of a simulation.
 type TenantSimulatorResult struct {
-	Duration      time.Duration              `json:"duration"`
-	TotalRuns     int64                      `json:"total_runs"`
-	TotalErrors   int64                      `json:"total_errors"`
-	RunsPerSecond float64                    `json:"runs_per_second"`
-	PerTenant     map[string]TenantRunStats  `json:"per_tenant"`
+	Duration      time.Duration             `json:"duration"`
+	TotalRuns     int64                     `json:"total_runs"`
+	TotalErrors   int64                     `json:"total_errors"`
+	RunsPerSecond float64                   `json:"runs_per_second"`
+	PerTenant     map[string]TenantRunStats `json:"per_tenant"`
 }
 
 // TenantRunStats captures per-tenant statistics.
@@ -97,11 +97,9 @@ func (ts *TenantSimulator) Run(ctx context.Context) (*TenantSimulatorResult, err
 	var wg sync.WaitGroup
 
 	for _, tenant := range ts.config.Tenants {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ts.simulateTenant(ctx, tenant)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -138,7 +136,7 @@ func (ts *TenantSimulator) simulateTenant(ctx context.Context, tenant TenantProf
 		}
 
 		// Random burst: 5% chance of 10x per minute check
-		if tenant.BurstProb > 0 && rand.Float64() < tenant.BurstProb {
+		if tenant.BurstProb > 0 && rand.Float64() < tenant.BurstProb { //nolint:gosec // non-cryptographic use for load test simulation
 			effectiveRate *= 10
 		}
 
@@ -148,10 +146,7 @@ func (ts *TenantSimulator) simulateTenant(ctx context.Context, tenant TenantProf
 			continue
 		}
 		lambda := effectiveRate / 60.0 // Convert to per-second
-		interArrival := poissonInterval(lambda)
-		if interArrival > 10*time.Second {
-			interArrival = 10 * time.Second
-		}
+		interArrival := min(poissonInterval(lambda), 10*time.Second)
 
 		select {
 		case <-ctx.Done():
@@ -176,7 +171,7 @@ func (ts *TenantSimulator) simulateTenant(ctx context.Context, tenant TenantProf
 }
 
 func (ts *TenantSimulator) pickJobType(tenant TenantProfile) string {
-	r := rand.Float64()
+	r := rand.Float64() //nolint:gosec // non-cryptographic use for load test simulation
 	if r < tenant.HTTPPercent {
 		return "http"
 	}
@@ -237,7 +232,7 @@ func poissonInterval(lambda float64) time.Duration {
 		return time.Second
 	}
 	// Exponential distribution: -ln(U) / lambda
-	u := rand.Float64()
+	u := rand.Float64() //nolint:gosec // non-cryptographic use for Poisson interval generation
 	if u == 0 {
 		u = 1e-10
 	}
@@ -250,12 +245,12 @@ func GenerateTenants(count int) []TenantProfile {
 	tenants := make([]TenantProfile, count)
 	for i := range tenants {
 		plan := PlanStarter
-		runsPerMin := 1.0 + rand.Float64()*5 // 1-6 runs/min for starter
+		runsPerMin := 1.0 + rand.Float64()*5 //nolint:gosec // non-cryptographic use for load test simulation
 
 		// 20% are pro tenants with higher traffic
-		if rand.Float64() < 0.2 {
+		if rand.Float64() < 0.2 { //nolint:gosec // non-cryptographic use for load test simulation
 			plan = PlanPro
-			runsPerMin = 5.0 + rand.Float64()*20 // 5-25 runs/min for pro
+			runsPerMin = 5.0 + rand.Float64()*20 //nolint:gosec // non-cryptographic use for load test simulation
 		}
 
 		tenants[i] = TenantProfile{

@@ -37,10 +37,10 @@ type ChaosResult struct {
 
 // ChaosEngine runs chaos scenarios during background production load.
 type ChaosEngine struct {
-	harness      *Harness
-	loadRate     int
-	projectID    string
-	jobSlug      string
+	harness   *Harness
+	loadRate  int
+	projectID string
+	jobSlug   string
 
 	// Tracking
 	triggerCount atomic.Int64
@@ -59,7 +59,7 @@ func NewChaosEngine(h *Harness, loadRate int, projectID, jobSlug string) *ChaosE
 
 // findContainer finds a running Docker container matching the given service name.
 func findContainer(serviceName string) (string, error) {
-	out, err := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", serviceName), "--format", "{{.Names}}").Output()
+	out, err := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", serviceName), "--format", "{{.Names}}").Output() //nolint:gosec // arguments are not user-controlled
 	if err != nil {
 		return "", fmt.Errorf("docker ps failed: %w", err)
 	}
@@ -121,11 +121,9 @@ func (ce *ChaosEngine) RunScenario(ctx context.Context, scenario ChaosScenario) 
 	ce.errorCount.Store(0)
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		ce.generateLoad(loadCtx)
-	}()
+	})
 
 	// Warm up for 30 seconds
 	time.Sleep(30 * time.Second)
@@ -319,7 +317,7 @@ func (ce *ChaosEngine) chaosDockerRestart(ctx context.Context) error {
 	out, err := listCmd.Output()
 	if err != nil {
 		// No containers running or docker not available
-		return nil
+		return fmt.Errorf("listing containers: %w", err)
 	}
 
 	containerIDs := strings.Fields(strings.TrimSpace(string(out)))
@@ -368,13 +366,13 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 		"INSERT INTO run_events (id, run_id, project_id, event_type, created_at) SELECT gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'loadtest_pressure', NOW() FROM generate_series(1, 100000)")
 	if err != nil {
 		// Table might not exist or have different schema - that's OK for the chaos test
-		return nil
+		return fmt.Errorf("inserting pressure rows: %w", err)
 	}
 
 	time.Sleep(10 * time.Second)
 
 	// Clean up
-	ce.harness.Pool.Exec(ctx, "DELETE FROM run_events WHERE event_type = 'loadtest_pressure'")
+	_, _ = ce.harness.Pool.Exec(ctx, "DELETE FROM run_events WHERE event_type = 'loadtest_pressure'")
 	return nil
 }
 
@@ -428,23 +426,23 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	redisContainer, redisErr := ce.findRedisContainer()
 
+	var cascadeErr atomic.Value
+
 	var wg sync.WaitGroup
 
 	// Simultaneously: kill Redis + spike traffic + kill worker
-	wg.Add(3)
-
 	// Kill Redis
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if redisErr != nil {
 			return
 		}
-		exec.CommandContext(ctx, "docker", "kill", redisContainer).Run()
-	}()
+		if err := exec.CommandContext(ctx, "docker", "kill", redisContainer).Run(); err != nil {
+			cascadeErr.CompareAndSwap(nil, fmt.Errorf("killing redis: %w", err))
+		}
+	})
 
 	// 10x traffic spike
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		spikeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
@@ -455,19 +453,22 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 			case <-spikeCtx.Done():
 				return
 			case <-ticker.C:
-				go ce.harness.TriggerJob(ctx, ce.projectID, ce.jobSlug, map[string]any{
-					"chaos": "cascading_spike",
-				})
+				go func() {
+					_ = ce.harness.TriggerJob(ctx, ce.projectID, ce.jobSlug, map[string]any{
+						"chaos": "cascading_spike",
+					})
+				}()
 			}
 		}
-	}()
+	})
 
 	// Kill worker after 5s
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		time.Sleep(5 * time.Second)
-		exec.CommandContext(ctx, "pkill", "-9", "-f", "strait").Run()
-	}()
+		if err := exec.CommandContext(ctx, "pkill", "-9", "-f", "strait").Run(); err != nil {
+			cascadeErr.CompareAndSwap(nil, fmt.Errorf("killing worker: %w", err))
+		}
+	})
 
 	wg.Wait()
 
@@ -476,18 +477,24 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 
 	// Restart everything
 	if redisErr == nil {
-		exec.CommandContext(ctx, "docker", "start", redisContainer).Run()
+		if err := exec.CommandContext(ctx, "docker", "start", redisContainer).Run(); err != nil {
+			return fmt.Errorf("restarting redis: %w", err)
+		}
 	}
 	time.Sleep(10 * time.Second)
 
 	// Wait for recovery
 	time.Sleep(5 * time.Minute)
+
+	if v := cascadeErr.Load(); v != nil {
+		return v.(error)
+	}
 	return nil
 }
 
 // WriteResults writes chaos results to a JSON file.
 func WriteResults(outputDir string, results []ChaosResult) error {
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+	if err := os.MkdirAll(outputDir, 0o750); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
 
@@ -497,5 +504,5 @@ func WriteResults(outputDir string, results []ChaosResult) error {
 	}
 
 	path := filepath.Join(outputDir, "chaos_results.json")
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
