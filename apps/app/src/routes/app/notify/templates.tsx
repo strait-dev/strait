@@ -26,13 +26,13 @@ import { useMemo, useState } from "react";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import type { NotificationTemplate } from "@/hooks/api/types";
 import {
   notifyTemplatesQueryOptions,
   useCreateNotificationTemplate,
   useNotifyPreview,
   useUpdateNotificationTemplate,
 } from "@/hooks/api/use-notify";
-import type { NotificationTemplate } from "@/hooks/api/types";
 import { SparklesIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -98,7 +98,8 @@ function NotifyTemplatesPage() {
   const templates = templatesQuery.data ?? [];
 
   const sortedTemplates = useMemo(
-    () => [...templates].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    () =>
+      [...templates].sort((a, b) => b.created_at.localeCompare(a.created_at)),
     [templates]
   );
 
@@ -259,7 +260,8 @@ function NotifyTemplatesPage() {
           <CardHeader>
             <CardTitle className="text-sm">Template preview</CardTitle>
             <CardDescription>
-              Render channels with sample payload values before triggering sends.
+              Render channels with sample payload values before triggering
+              sends.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -290,7 +292,9 @@ function NotifyTemplatesPage() {
       <Card className="mt-4">
         <CardHeader>
           <CardTitle className="text-sm">Templates</CardTitle>
-          <CardDescription>Click a template row to edit its next version.</CardDescription>
+          <CardDescription>
+            Click a template row to edit its next version.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -320,14 +324,18 @@ function NotifyTemplatesPage() {
                       setTemplateKey(template.template_key);
                       setName(template.name);
                       setDescription(template.description || "");
-                      setChannelsJSON(JSON.stringify(template.channels, null, 2));
+                      setChannelsJSON(
+                        JSON.stringify(template.channels, null, 2)
+                      );
                     }}
                   >
                     <TableCell>{template.template_key}</TableCell>
                     <TableCell>{template.name}</TableCell>
                     <TableCell>{template.version}</TableCell>
                     <TableCell>{template.status}</TableCell>
-                    <TableCell>{new Date(template.updated_at).toLocaleString()}</TableCell>
+                    <TableCell>
+                      {new Date(template.updated_at).toLocaleString()}
+                    </TableCell>
                   </TableRow>
                 ))
               )}

@@ -61,7 +61,10 @@ function NotifyCategoriesPage() {
   const categories = categoriesQuery.data ?? [];
 
   const sortedCategories = useMemo(
-    () => [...categories].sort((a, b) => a.category_key.localeCompare(b.category_key)),
+    () =>
+      [...categories].sort((a, b) =>
+        a.category_key.localeCompare(b.category_key)
+      ),
     [categories]
   );
 
@@ -154,7 +157,9 @@ function NotifyCategoriesPage() {
       <Card className="mt-4">
         <CardHeader>
           <CardTitle className="text-sm">Categories</CardTitle>
-          <CardDescription>Current notify categories configured in this project.</CardDescription>
+          <CardDescription>
+            Current notify categories configured in this project.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>

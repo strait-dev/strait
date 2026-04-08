@@ -46,7 +46,10 @@ import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/comp
 import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
 import { Route as AppNotifyTopicsRouteImport } from './routes/app/notify/topics'
 import { Route as AppNotifyTemplatesRouteImport } from './routes/app/notify/templates'
+import { Route as AppNotifyProvidersRouteImport } from './routes/app/notify/providers'
+import { Route as AppNotifyPoliciesRouteImport } from './routes/app/notify/policies'
 import { Route as AppNotifyDeliveriesRouteImport } from './routes/app/notify/deliveries'
+import { Route as AppNotifyComposeRouteImport } from './routes/app/notify/compose'
 import { Route as AppNotifyCategoriesRouteImport } from './routes/app/notify/categories'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthJwksRouteImport } from './routes/api/auth/jwks'
@@ -241,9 +244,24 @@ const AppNotifyTemplatesRoute = AppNotifyTemplatesRouteImport.update({
   path: '/notify/templates',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppNotifyProvidersRoute = AppNotifyProvidersRouteImport.update({
+  id: '/notify/providers',
+  path: '/notify/providers',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppNotifyPoliciesRoute = AppNotifyPoliciesRouteImport.update({
+  id: '/notify/policies',
+  path: '/notify/policies',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppNotifyDeliveriesRoute = AppNotifyDeliveriesRouteImport.update({
   id: '/notify/deliveries',
   path: '/notify/deliveries',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppNotifyComposeRoute = AppNotifyComposeRouteImport.update({
+  id: '/notify/compose',
+  path: '/notify/compose',
   getParentRoute: () => AppLayoutRoute,
 } as any)
 const AppNotifyCategoriesRoute = AppNotifyCategoriesRouteImport.update({
@@ -312,7 +330,10 @@ export interface FileRoutesByFullPath {
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/notify/categories': typeof AppNotifyCategoriesRoute
+  '/app/notify/compose': typeof AppNotifyComposeRoute
   '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
+  '/app/notify/policies': typeof AppNotifyPoliciesRoute
+  '/app/notify/providers': typeof AppNotifyProvidersRoute
   '/app/notify/templates': typeof AppNotifyTemplatesRoute
   '/app/notify/topics': typeof AppNotifyTopicsRoute
   '/app/org/$id': typeof AppOrgIdRoute
@@ -359,7 +380,10 @@ export interface FileRoutesByTo {
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/notify/categories': typeof AppNotifyCategoriesRoute
+  '/app/notify/compose': typeof AppNotifyComposeRoute
   '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
+  '/app/notify/policies': typeof AppNotifyPoliciesRoute
+  '/app/notify/providers': typeof AppNotifyProvidersRoute
   '/app/notify/templates': typeof AppNotifyTemplatesRoute
   '/app/notify/topics': typeof AppNotifyTopicsRoute
   '/app/org/$id': typeof AppOrgIdRoute
@@ -408,7 +432,10 @@ export interface FileRoutesById {
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
   '/app/notify/categories': typeof AppNotifyCategoriesRoute
+  '/app/notify/compose': typeof AppNotifyComposeRoute
   '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
+  '/app/notify/policies': typeof AppNotifyPoliciesRoute
+  '/app/notify/providers': typeof AppNotifyProvidersRoute
   '/app/notify/templates': typeof AppNotifyTemplatesRoute
   '/app/notify/topics': typeof AppNotifyTopicsRoute
   '/app/org/$id': typeof AppOrgIdRoute
@@ -458,7 +485,10 @@ export interface FileRouteTypes {
     | '/api/auth/jwks'
     | '/app/jobs/$id'
     | '/app/notify/categories'
+    | '/app/notify/compose'
     | '/app/notify/deliveries'
+    | '/app/notify/policies'
+    | '/app/notify/providers'
     | '/app/notify/templates'
     | '/app/notify/topics'
     | '/app/org/$id'
@@ -505,7 +535,10 @@ export interface FileRouteTypes {
     | '/api/auth/jwks'
     | '/app/jobs/$id'
     | '/app/notify/categories'
+    | '/app/notify/compose'
     | '/app/notify/deliveries'
+    | '/app/notify/policies'
+    | '/app/notify/providers'
     | '/app/notify/templates'
     | '/app/notify/topics'
     | '/app/org/$id'
@@ -553,7 +586,10 @@ export interface FileRouteTypes {
     | '/api/auth/jwks'
     | '/app/jobs/$id'
     | '/app/notify/categories'
+    | '/app/notify/compose'
     | '/app/notify/deliveries'
+    | '/app/notify/policies'
+    | '/app/notify/providers'
     | '/app/notify/templates'
     | '/app/notify/topics'
     | '/app/org/$id'
@@ -858,11 +894,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNotifyTemplatesRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/notify/providers': {
+      id: '/app/notify/providers'
+      path: '/notify/providers'
+      fullPath: '/app/notify/providers'
+      preLoaderRoute: typeof AppNotifyProvidersRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/notify/policies': {
+      id: '/app/notify/policies'
+      path: '/notify/policies'
+      fullPath: '/app/notify/policies'
+      preLoaderRoute: typeof AppNotifyPoliciesRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/notify/deliveries': {
       id: '/app/notify/deliveries'
       path: '/notify/deliveries'
       fullPath: '/app/notify/deliveries'
       preLoaderRoute: typeof AppNotifyDeliveriesRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/notify/compose': {
+      id: '/app/notify/compose'
+      path: '/notify/compose'
+      fullPath: '/app/notify/compose'
+      preLoaderRoute: typeof AppNotifyComposeRouteImport
       parentRoute: typeof AppLayoutRoute
     }
     '/app/notify/categories': {
@@ -932,7 +989,10 @@ interface AppLayoutRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
   AppNotifyCategoriesRoute: typeof AppNotifyCategoriesRoute
+  AppNotifyComposeRoute: typeof AppNotifyComposeRoute
   AppNotifyDeliveriesRoute: typeof AppNotifyDeliveriesRoute
+  AppNotifyPoliciesRoute: typeof AppNotifyPoliciesRoute
+  AppNotifyProvidersRoute: typeof AppNotifyProvidersRoute
   AppNotifyTemplatesRoute: typeof AppNotifyTemplatesRoute
   AppNotifyTopicsRoute: typeof AppNotifyTopicsRoute
   AppOrgIdRoute: typeof AppOrgIdRoute
@@ -966,7 +1026,10 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppJobsIdRoute: AppJobsIdRoute,
   AppNotifyCategoriesRoute: AppNotifyCategoriesRoute,
+  AppNotifyComposeRoute: AppNotifyComposeRoute,
   AppNotifyDeliveriesRoute: AppNotifyDeliveriesRoute,
+  AppNotifyPoliciesRoute: AppNotifyPoliciesRoute,
+  AppNotifyProvidersRoute: AppNotifyProvidersRoute,
   AppNotifyTemplatesRoute: AppNotifyTemplatesRoute,
   AppNotifyTopicsRoute: AppNotifyTopicsRoute,
   AppOrgIdRoute: AppOrgIdRoute,

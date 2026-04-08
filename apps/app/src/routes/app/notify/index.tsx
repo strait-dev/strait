@@ -149,7 +149,10 @@ function NotifyOverviewPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link className="text-primary text-sm underline" to="/app/notify/topics">
+            <Link
+              className="text-primary text-sm underline"
+              to="/app/notify/topics"
+            >
               Open topics
             </Link>
           </CardContent>
@@ -167,6 +170,54 @@ function NotifyOverviewPage() {
               to="/app/notify/categories"
             >
               Open categories
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Providers</CardTitle>
+            <CardDescription>
+              Configure SES provider settings and delivery defaults.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              className="text-primary text-sm underline"
+              to="/app/notify/providers"
+            >
+              Open providers
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Policies</CardTitle>
+            <CardDescription>
+              Manage scope-based digest, retry, and escalation overrides.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              className="text-primary text-sm underline"
+              to="/app/notify/policies"
+            >
+              Open policies
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Compose</CardTitle>
+            <CardDescription>
+              Preview, test send, and trigger notify events.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              className="text-primary text-sm underline"
+              to="/app/notify/compose"
+            >
+              Open compose
             </Link>
           </CardContent>
         </Card>

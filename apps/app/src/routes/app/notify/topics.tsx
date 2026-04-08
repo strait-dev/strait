@@ -223,7 +223,9 @@ function NotifyTopicsPage() {
               <Input
                 id="membership-subscriber"
                 list="notify-subscribers"
-                onChange={(event) => setSelectedSubscriberID(event.target.value)}
+                onChange={(event) =>
+                  setSelectedSubscriberID(event.target.value)
+                }
                 placeholder="subscriber id"
                 value={selectedSubscriberID}
               />
@@ -248,7 +250,9 @@ function NotifyTopicsPage() {
       <Card className="mt-4">
         <CardHeader>
           <CardTitle className="text-sm">Topics</CardTitle>
-          <CardDescription>Current topics configured for this project.</CardDescription>
+          <CardDescription>
+            Current topics configured for this project.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -273,7 +277,9 @@ function NotifyTopicsPage() {
                     <TableCell>{topic.topic_key}</TableCell>
                     <TableCell>{topic.name}</TableCell>
                     <TableCell>{topic.description || "-"}</TableCell>
-                    <TableCell>{new Date(topic.created_at).toLocaleString()}</TableCell>
+                    <TableCell>
+                      {new Date(topic.created_at).toLocaleString()}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
